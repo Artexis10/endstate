@@ -22,7 +22,10 @@ function Invoke-Apply {
         [string]$ManifestPath,
         
         [Parameter(Mandatory = $false)]
-        [switch]$DryRun
+        [switch]$DryRun,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$EnableRestore
     )
     
     $runId = Get-RunId
@@ -98,19 +101,36 @@ function Invoke-Apply {
             }
             
             "restore" {
-                if ($DryRun) {
+                if (-not $EnableRestore) {
+                    # Restore is opt-in - skip unless explicitly enabled
+                    Write-ProvisioningLog "SKIP: $($action.source) -> $($action.target) (restore not enabled)" -Level SKIP
+                    $result.status = "skipped"
+                    $result.message = "Restore not enabled (use -EnableRestore)"
+                    $skipCount++
+                }
+                elseif ($DryRun) {
                     Write-ProvisioningLog "[DRY-RUN] Would restore: $($action.source) -> $($action.target)" -Level ACTION
                     $result.status = "dry-run"
                     $result.message = "Would restore"
                     $successCount++
                 } else {
                     Write-ProvisioningLog "Restoring: $($action.source) -> $($action.target)" -Level ACTION
-                    $restoreResult = Invoke-CopyRestore -Source $action.source -Target $action.target -Backup $action.backup
+                    $restoreResult = Invoke-CopyRestore -Source $action.source -Target $action.target -Backup $action.backup -RunId $runId
                     if ($restoreResult.Success) {
-                        Write-ProvisioningLog "Restored: $($action.target)" -Level SUCCESS
-                        $result.status = "success"
-                        $result.message = "Restored"
-                        $successCount++
+                        if ($restoreResult.Skipped) {
+                            Write-ProvisioningLog "SKIP: $($action.target) - $($restoreResult.Message)" -Level SKIP
+                            $result.status = "skipped"
+                            $result.message = $restoreResult.Message
+                            $skipCount++
+                        } else {
+                            Write-ProvisioningLog "Restored: $($action.target)" -Level SUCCESS
+                            $result.status = "success"
+                            $result.message = "Restored"
+                            if ($restoreResult.BackupPath) {
+                                $result.backupPath = $restoreResult.BackupPath
+                            }
+                            $successCount++
+                        }
                     } else {
                         Write-ProvisioningLog "Restore failed: $($restoreResult.Error)" -Level ERROR
                         $result.status = "failed"

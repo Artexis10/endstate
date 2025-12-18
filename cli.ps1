@@ -45,7 +45,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet("capture", "plan", "apply", "verify", "doctor", "report", "diff")]
+    [ValidateSet("capture", "plan", "apply", "verify", "doctor", "report", "diff", "restore")]
     [string]$Command,
 
     [Parameter(Mandatory = $false)]
@@ -56,6 +56,9 @@ param(
 
     [Parameter(Mandatory = $false)]
     [switch]$DryRun,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$EnableRestore,
 
     [Parameter(Mandatory = $false)]
     [string]$FileA,
@@ -85,6 +88,7 @@ function Show-Help {
     Write-Host "    capture   Capture current machine state into a manifest"
     Write-Host "    plan      Generate execution plan from manifest"
     Write-Host "    apply     Execute the plan (use -DryRun to preview)"
+    Write-Host "    restore   Restore configuration files from manifest (requires -EnableRestore)"
     Write-Host "    verify    Check current state against manifest"
     Write-Host "    doctor    Diagnose environment issues"
     Write-Host "    report    Show history of previous runs"
@@ -94,6 +98,7 @@ function Show-Help {
     Write-Host "    -Manifest <path>       Path to manifest file (JSONC/JSON/YAML)"
     Write-Host "    -OutManifest <path>    Output path for captured manifest (required for capture)"
     Write-Host "    -DryRun                Preview changes without applying"
+    Write-Host "    -EnableRestore         Enable restore operations (opt-in for safety)"
     Write-Host "    -FileA <path>          First artifact file for diff"
     Write-Host "    -FileB <path>          Second artifact file for diff"
     Write-Host "    -Json                  Output diff as JSON"
@@ -103,6 +108,7 @@ function Show-Help {
     Write-Host "    .\cli.ps1 -Command plan -Manifest .\manifests\my-machine.jsonc"
     Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc -DryRun"
     Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc"
+    Write-Host "    .\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore"
     Write-Host "    .\cli.ps1 -Command verify -Manifest .\manifests\my-machine.jsonc"
     Write-Host "    .\cli.ps1 -Command doctor"
     Write-Host ""
@@ -150,23 +156,20 @@ function Invoke-ProvisioningPlan {
 function Invoke-ProvisioningApply {
     param(
         [string]$ManifestPath,
-        [bool]$IsDryRun
+        [bool]$IsDryRun,
+        [bool]$IsEnableRestore = $false
     )
     
     if (-not $ManifestPath) {
         Write-Host "[ERROR] -Manifest is required for 'apply' command." -ForegroundColor Red
         Write-Host ""
-        Write-Host "Usage: .\cli.ps1 -Command apply -Manifest <path> [-DryRun]" -ForegroundColor Yellow
+        Write-Host "Usage: .\cli.ps1 -Command apply -Manifest <path> [-DryRun] [-EnableRestore]" -ForegroundColor Yellow
         return $null
     }
     
     . "$script:ProvisioningRoot\engine\apply.ps1"
     
-    if ($IsDryRun) {
-        $result = Invoke-Apply -ManifestPath $ManifestPath -DryRun
-    } else {
-        $result = Invoke-Apply -ManifestPath $ManifestPath
-    }
+    $result = Invoke-Apply -ManifestPath $ManifestPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore
     return $result
 }
 
@@ -335,6 +338,31 @@ function Invoke-ProvisioningDiff {
     return $diff
 }
 
+function Invoke-ProvisioningRestore {
+    param(
+        [string]$ManifestPath,
+        [bool]$IsEnableRestore,
+        [bool]$IsDryRun
+    )
+    
+    if (-not $ManifestPath) {
+        Write-Host "[ERROR] -Manifest is required for 'restore' command." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Usage: .\cli.ps1 -Command restore -Manifest <path> -EnableRestore [-DryRun]" -ForegroundColor Yellow
+        return $null
+    }
+    
+    if (-not (Test-Path $ManifestPath)) {
+        Write-Host "[ERROR] Manifest not found: $ManifestPath" -ForegroundColor Red
+        return $null
+    }
+    
+    . "$script:ProvisioningRoot\engine\restore.ps1"
+    
+    $result = Invoke-Restore -ManifestPath $ManifestPath -EnableRestore:$IsEnableRestore -DryRun:$IsDryRun
+    return $result
+}
+
 # Main execution
 if (-not $Command) {
     Show-Help
@@ -344,7 +372,8 @@ if (-not $Command) {
 switch ($Command) {
     "capture" { Invoke-ProvisioningCapture -OutManifestPath $OutManifest }
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
-    "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -IsDryRun $DryRun.IsPresent }
+    "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent }
+    "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }
     "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest }
     "doctor"  { Invoke-ProvisioningDoctor }
     "report"  { Invoke-ProvisioningReport }
