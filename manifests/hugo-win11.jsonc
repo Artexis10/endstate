@@ -1,0 +1,392 @@
+{
+  // Provisioning Manifest
+  // Generated: 2025-12-19 01:33:52
+  // Machine: HUGO
+  // Format: JSONC (JSON with comments)
+
+  "version": 1,
+  "name": "hugo-win11",
+  "captured": "2025-12-19T01:33:52Z",
+
+  // Included manifest files
+  "includes": [
+    "./includes/hugo-win11-restore.jsonc",
+    "./includes/hugo-win11-verify.jsonc"
+  ],
+
+  // Applications to install
+  "apps": [
+    {
+      "id": "7zip-7zip",
+      "refs": {
+        "windows": "7zip.7zip"
+      }
+    },
+    {
+      "id": "adobe-creativecloud",
+      "refs": {
+        "windows": "Adobe.CreativeCloud"
+      }
+    },
+    {
+      "id": "anthropic-claude",
+      "refs": {
+        "windows": "Anthropic.Claude"
+      }
+    },
+    {
+      "id": "anysphere-cursor",
+      "refs": {
+        "windows": "Anysphere.Cursor"
+      }
+    },
+    {
+      "id": "apple-applemobiledevicesupport",
+      "refs": {
+        "windows": "Apple.AppleMobileDeviceSupport"
+      }
+    },
+    {
+      "id": "apple-applesoftwareupdate",
+      "refs": {
+        "windows": "Apple.AppleSoftwareUpdate"
+      }
+    },
+    {
+      "id": "bitwarden-bitwarden",
+      "refs": {
+        "windows": "Bitwarden.Bitwarden"
+      }
+    },
+    {
+      "id": "brave-brave",
+      "refs": {
+        "windows": "Brave.Brave"
+      }
+    },
+    {
+      "id": "codeium-windsurf",
+      "refs": {
+        "windows": "Codeium.Windsurf"
+      }
+    },
+    {
+      "id": "cryptomator-cryptomator",
+      "refs": {
+        "windows": "Cryptomator.Cryptomator"
+      }
+    },
+    {
+      "id": "crystaldewworld-crystaldiskinfo",
+      "refs": {
+        "windows": "CrystalDewWorld.CrystalDiskInfo"
+      }
+    },
+    {
+      "id": "crystaldewworld-crystaldiskmark",
+      "refs": {
+        "windows": "CrystalDewWorld.CrystalDiskMark"
+      }
+    },
+    {
+      "id": "dbeaver-dbeaver-community",
+      "refs": {
+        "windows": "DBeaver.DBeaver.Community"
+      }
+    },
+    {
+      "id": "denoland-deno",
+      "refs": {
+        "windows": "DenoLand.Deno"
+      }
+    },
+    {
+      "id": "discord-discord",
+      "refs": {
+        "windows": "Discord.Discord"
+      }
+    },
+    {
+      "id": "docker-dockerdesktop",
+      "refs": {
+        "windows": "Docker.DockerDesktop"
+      }
+    },
+    {
+      "id": "eclipseadoptium-temurin-8-jre",
+      "refs": {
+        "windows": "EclipseAdoptium.Temurin.8.JRE"
+      }
+    },
+    {
+      "id": "elgato-camerahub",
+      "refs": {
+        "windows": "Elgato.CameraHub"
+      }
+    },
+    {
+      "id": "epicgames-epicgameslauncher",
+      "refs": {
+        "windows": "EpicGames.EpicGamesLauncher"
+      }
+    },
+    {
+      "id": "focusriteaudioengineeringltd-focusritecontrol",
+      "refs": {
+        "windows": "FocusriteAudioEngineeringLtd.FocusriteControl"
+      }
+    },
+    {
+      "id": "germancoding-synctrayzor",
+      "refs": {
+        "windows": "GermanCoding.SyncTrayzor"
+      }
+    },
+    {
+      "id": "google-chrome-exe",
+      "refs": {
+        "windows": "Google.Chrome.EXE"
+      }
+    },
+    {
+      "id": "google-googledrive",
+      "refs": {
+        "windows": "Google.GoogleDrive"
+      }
+    },
+    {
+      "id": "guru3d-afterburner",
+      "refs": {
+        "windows": "Guru3D.Afterburner"
+      }
+    },
+    {
+      "id": "guru3d-rtss",
+      "refs": {
+        "windows": "Guru3D.RTSS"
+      }
+    },
+    {
+      "id": "irfanskiljan-irfanview",
+      "refs": {
+        "windows": "IrfanSkiljan.IrfanView"
+      }
+    },
+    {
+      "id": "jamsoftware-treesize-free",
+      "refs": {
+        "windows": "JAMSoftware.TreeSize.Free"
+      }
+    },
+    {
+      "id": "kde-digikam",
+      "refs": {
+        "windows": "KDE.digiKam"
+      }
+    },
+    {
+      "id": "lightninguk-imgburn",
+      "refs": {
+        "windows": "LIGHTNINGUK.ImgBurn"
+      }
+    },
+    {
+      "id": "mariadb-server",
+      "refs": {
+        "windows": "MariaDB.Server"
+      }
+    },
+    {
+      "id": "mediaarea-mediainfo-gui",
+      "refs": {
+        "windows": "MediaArea.MediaInfo.GUI"
+      }
+    },
+    {
+      "id": "microsoft-appinstaller",
+      "refs": {
+        "windows": "Microsoft.AppInstaller"
+      }
+    },
+    {
+      "id": "microsoft-edge",
+      "refs": {
+        "windows": "Microsoft.Edge"
+      }
+    },
+    {
+      "id": "microsoft-gameinput",
+      "refs": {
+        "windows": "Microsoft.GameInput"
+      }
+    },
+    {
+      "id": "microsoft-powershell",
+      "refs": {
+        "windows": "Microsoft.PowerShell"
+      }
+    },
+    {
+      "id": "microsoft-windowsterminal",
+      "refs": {
+        "windows": "Microsoft.WindowsTerminal"
+      }
+    },
+    {
+      "id": "nordsecurity-nordvpn",
+      "refs": {
+        "windows": "NordSecurity.NordVPN"
+      }
+    },
+    {
+      "id": "notepad++-notepad++",
+      "refs": {
+        "windows": "Notepad++.Notepad++"
+      }
+    },
+    {
+      "id": "nvidia-physx",
+      "refs": {
+        "windows": "Nvidia.PhysX"
+      }
+    },
+    {
+      "id": "obsidian-obsidian",
+      "refs": {
+        "windows": "Obsidian.Obsidian"
+      }
+    },
+    {
+      "id": "openjs-nodejs",
+      "refs": {
+        "windows": "OpenJS.NodeJS"
+      }
+    },
+    {
+      "id": "peterpawlowski-foobar2000",
+      "refs": {
+        "windows": "PeterPawlowski.foobar2000"
+      }
+    },
+    {
+      "id": "postgresql-postgresql-18",
+      "refs": {
+        "windows": "PostgreSQL.PostgreSQL.18"
+      }
+    },
+    {
+      "id": "python-python-3-14",
+      "refs": {
+        "windows": "Python.Python.3.14"
+      }
+    },
+    {
+      "id": "python-pythoninstallmanager",
+      "refs": {
+        "windows": "Python.PythonInstallManager"
+      }
+    },
+    {
+      "id": "qobuz-qobuz",
+      "refs": {
+        "windows": "Qobuz.Qobuz"
+      }
+    },
+    {
+      "id": "rarlab-winrar",
+      "refs": {
+        "windows": "RARLab.WinRAR"
+      }
+    },
+    {
+      "id": "revouninstaller-revouninstaller",
+      "refs": {
+        "windows": "RevoUninstaller.RevoUninstaller"
+      }
+    },
+    {
+      "id": "seagate-seatools",
+      "refs": {
+        "windows": "Seagate.SeaTools"
+      }
+    },
+    {
+      "id": "specialk-specialk",
+      "refs": {
+        "windows": "SpecialK.SpecialK"
+      }
+    },
+    {
+      "id": "telegram-telegramdesktop",
+      "refs": {
+        "windows": "Telegram.TelegramDesktop"
+      }
+    },
+    {
+      "id": "valve-steam",
+      "refs": {
+        "windows": "Valve.Steam"
+      }
+    },
+    {
+      "id": "videolan-vlc",
+      "refs": {
+        "windows": "VideoLAN.VLC"
+      }
+    },
+    {
+      "id": "vscodium-vscodium",
+      "refs": {
+        "windows": "VSCodium.VSCodium"
+      }
+    },
+    {
+      "id": "warp-warp",
+      "refs": {
+        "windows": "Warp.Warp"
+      }
+    },
+    {
+      "id": "winfsp-winfsp",
+      "refs": {
+        "windows": "WinFsp.WinFsp"
+      }
+    },
+    {
+      "id": "xnsoft-xnconvert",
+      "refs": {
+        "windows": "XnSoft.XnConvert"
+      }
+    },
+    {
+      "id": "yt-dlp-ffmpeg",
+      "refs": {
+        "windows": "yt-dlp.FFmpeg"
+      }
+    },
+    {
+      "id": "yt-dlp-yt-dlp",
+      "refs": {
+        "windows": "yt-dlp.yt-dlp"
+      }
+    },
+    {
+      "id": "zoom-zoom",
+      "refs": {
+        "windows": "Zoom.Zoom"
+      }
+    }
+  ],
+
+  // Configuration restore (opt-in)
+  // Uncomment and customize paths to restore configurations.
+  // IMPORTANT: Review paths before uncommenting - never auto-export secrets.
+  "restore": [
+    // Example:
+    // { "type": "copy", "source": "./configs/.gitconfig", "target": "~/.gitconfig", "backup": true }
+  ],
+
+  // Verification steps
+  "verify": [
+  ]
+}

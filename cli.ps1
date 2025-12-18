@@ -33,6 +33,13 @@
 .PARAMETER IncludeVerifyTemplate
     Generate verify template file during capture (requires -Profile).
 
+.PARAMETER Discover
+    Enable discovery mode during capture: detect software present but not winget-managed.
+
+.PARAMETER DiscoverWriteManualInclude
+    Generate manual include file with commented suggestions (requires -Profile).
+    Default: true when -Discover is enabled.
+
 .PARAMETER DryRun
     Preview changes without applying them.
 
@@ -97,6 +104,12 @@ param(
 
     [Parameter(Mandatory = $false)]
     [switch]$IncludeVerifyTemplate,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Discover,
+
+    [Parameter(Mandatory = $false)]
+    [Nullable[bool]]$DiscoverWriteManualInclude = $null,
 
     [Parameter(Mandatory = $false)]
     [switch]$DryRun,
@@ -182,7 +195,9 @@ function Invoke-ProvisioningCapture {
         [bool]$IsIncludeStoreApps,
         [bool]$IsMinimize,
         [bool]$IsIncludeRestoreTemplate,
-        [bool]$IsIncludeVerifyTemplate
+        [bool]$IsIncludeVerifyTemplate,
+        [bool]$IsDiscover,
+        [Nullable[bool]]$DiscoverWriteManualIncludeValue
     )
     
     # Validate: need either -Profile or -OutManifest
@@ -195,6 +210,7 @@ function Invoke-ProvisioningCapture {
         Write-Host "Examples:" -ForegroundColor DarkGray
         Write-Host "  .\cli.ps1 -Command capture -Profile my-machine" -ForegroundColor DarkGray
         Write-Host "  .\cli.ps1 -Command capture -Profile my-machine -IncludeRestoreTemplate -IncludeVerifyTemplate" -ForegroundColor DarkGray
+        Write-Host "  .\cli.ps1 -Command capture -Profile my-machine -Discover" -ForegroundColor DarkGray
         Write-Host "  .\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc" -ForegroundColor DarkGray
         exit 1
     }
@@ -209,6 +225,8 @@ function Invoke-ProvisioningCapture {
     if ($IsMinimize) { $captureParams.Minimize = $true }
     if ($IsIncludeRestoreTemplate) { $captureParams.IncludeRestoreTemplate = $true }
     if ($IsIncludeVerifyTemplate) { $captureParams.IncludeVerifyTemplate = $true }
+    if ($IsDiscover) { $captureParams.Discover = $true }
+    if ($null -ne $DiscoverWriteManualIncludeValue) { $captureParams.DiscoverWriteManualInclude = $DiscoverWriteManualIncludeValue }
     
     $result = Invoke-Capture @captureParams
     return $result
@@ -455,7 +473,9 @@ switch ($Command) {
             -IsIncludeStoreApps $IncludeStoreApps.IsPresent `
             -IsMinimize $Minimize.IsPresent `
             -IsIncludeRestoreTemplate $IncludeRestoreTemplate.IsPresent `
-            -IsIncludeVerifyTemplate $IncludeVerifyTemplate.IsPresent
+            -IsIncludeVerifyTemplate $IncludeVerifyTemplate.IsPresent `
+            -IsDiscover $Discover.IsPresent `
+            -DiscoverWriteManualIncludeValue $DiscoverWriteManualInclude
     }
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
     "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent }

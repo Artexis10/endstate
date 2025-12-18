@@ -1,0 +1,24 @@
+{
+  // Restore Template for profile: hugo-win11
+  // Generated: 2025-12-19 01:33:52
+  // 
+  // This file contains example restore steps. Uncomment and customize as needed.
+  // Include this file in your main manifest via the "includes" array.
+
+  "restore": [
+    // Example: Copy a config file
+    // { "type": "copy", "source": "./configs/.gitconfig", "target": "~/.gitconfig", "backup": true },
+    
+    // Example: Merge JSON settings
+    // {
+    //   "type": "merge",
+    //   "format": "json",
+    //   "source": "./configs/vscode-settings.json",
+    //   "target": "$env:APPDATA/Code/User/settings.json",
+    //   "backup": true
+    // },
+    
+    // Example: Append lines to a file
+    // { "type": "append", "source": "./configs/extra-hosts.txt", "target": "C:/Windows/System32/drivers/etc/hosts", "backup": true }
+  ]
+}

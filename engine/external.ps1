@@ -138,4 +138,110 @@ function Get-RegistryValue {
     }
 }
 
-# Functions exported: Invoke-WingetList, Invoke-WingetInstall, Invoke-WingetExportWrapper, Test-CommandExists, Get-RegistryValue
+function Get-CommandInfo {
+    <#
+    .SYNOPSIS
+        Get detailed command info (path, type) for a command name.
+    .DESCRIPTION
+        Returns command info object or null if not found. Mockable for testing.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName
+    )
+    
+    try {
+        $cmd = Get-Command $CommandName -ErrorAction Stop | Select-Object -First 1
+        return @{
+            Name = $cmd.Name
+            Path = if ($cmd.Source) { $cmd.Source } elseif ($cmd.Path) { $cmd.Path } else { $null }
+            CommandType = $cmd.CommandType.ToString()
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Get-CommandVersion {
+    <#
+    .SYNOPSIS
+        Get version string for a command by running <command> --version.
+    .DESCRIPTION
+        Runs the command with --version flag and returns first line of output.
+        Has a short timeout to avoid hanging. Mockable for testing.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$TimeoutSeconds = 5
+    )
+    
+    try {
+        # Use Start-Job for timeout capability
+        $job = Start-Job -ScriptBlock {
+            param($cmd)
+            $output = & $cmd --version 2>&1 | Select-Object -First 1
+            return "$output"
+        } -ArgumentList $CommandName
+        
+        $completed = Wait-Job -Job $job -Timeout $TimeoutSeconds
+        
+        if ($completed) {
+            $result = Receive-Job -Job $job
+            Remove-Job -Job $job -Force
+            
+            # Extract version number from common formats
+            # "git version 2.43.0.windows.1" -> "2.43.0.windows.1"
+            # "Python 3.12.0" -> "3.12.0"
+            # "v20.10.0" -> "20.10.0"
+            if ($result -match '(\d+\.\d+[\.\d+]*)') {
+                return $Matches[0]
+            }
+            return $result
+        } else {
+            Stop-Job -Job $job
+            Remove-Job -Job $job -Force
+            return $null
+        }
+    } catch {
+        return $null
+    }
+}
+
+function Get-RegistryUninstallEntries {
+    <#
+    .SYNOPSIS
+        Get uninstall entries from a registry path.
+    .DESCRIPTION
+        Returns array of objects with DisplayName, DisplayVersion, Publisher, InstallLocation.
+        Mockable for testing.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    
+    try {
+        $entries = @()
+        $items = Get-ItemProperty -Path $Path -ErrorAction SilentlyContinue
+        
+        foreach ($item in $items) {
+            if ($item.DisplayName) {
+                $entries += @{
+                    DisplayName = $item.DisplayName
+                    DisplayVersion = $item.DisplayVersion
+                    Publisher = $item.Publisher
+                    InstallLocation = $item.InstallLocation
+                }
+            }
+        }
+        
+        return $entries
+    } catch {
+        return @()
+    }
+}
+
+# Functions exported: Invoke-WingetList, Invoke-WingetInstall, Invoke-WingetExportWrapper, Test-CommandExists, Get-RegistryValue, Get-CommandInfo, Get-CommandVersion, Get-RegistryUninstallEntries
