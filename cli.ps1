@@ -10,32 +10,32 @@
     The command to execute: capture, plan, apply, verify, doctor, report
 
 .PARAMETER Manifest
-    Path to the manifest file (YAML) describing desired state.
+    Path to the manifest file (JSONC/JSON/YAML) describing desired state.
+
+.PARAMETER OutManifest
+    Output path for the captured manifest (required for capture command).
 
 .PARAMETER DryRun
     Preview changes without applying them.
 
-.PARAMETER Name
-    Name for the captured manifest (used with capture command).
-
 .EXAMPLE
-    .\cli.ps1 -Command capture
+    .\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc
     Capture current machine state into a manifest.
 
 .EXAMPLE
-    .\cli.ps1 -Command plan -Manifest .\manifests\my-machine.yaml
+    .\cli.ps1 -Command plan -Manifest .\manifests\my-machine.jsonc
     Generate execution plan from manifest.
 
 .EXAMPLE
-    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.yaml -DryRun
+    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc -DryRun
     Preview what would be applied.
 
 .EXAMPLE
-    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.yaml
+    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc
     Apply the manifest to the current machine.
 
 .EXAMPLE
-    .\cli.ps1 -Command verify -Manifest .\manifests\my-machine.yaml
+    .\cli.ps1 -Command verify -Manifest .\manifests\my-machine.jsonc
     Verify current state matches manifest.
 
 .EXAMPLE
@@ -52,10 +52,10 @@ param(
     [string]$Manifest,
 
     [Parameter(Mandatory = $false)]
-    [switch]$DryRun,
+    [string]$OutManifest,
 
     [Parameter(Mandatory = $false)]
-    [string]$Name
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
@@ -70,7 +70,7 @@ function Show-Help {
     Write-Host "Transforms a machine from unknown state to known, verified desired state."
     Write-Host ""
     Write-Host "USAGE:" -ForegroundColor Yellow
-    Write-Host "    .\cli.ps1 -Command <command> [-Manifest <path>] [-DryRun] [-Name <name>]"
+    Write-Host "    .\cli.ps1 -Command <command> [-Manifest <path>] [-OutManifest <path>] [-DryRun]"
     Write-Host ""
     Write-Host "COMMANDS:" -ForegroundColor Yellow
     Write-Host "    capture   Capture current machine state into a manifest"
@@ -81,17 +81,16 @@ function Show-Help {
     Write-Host "    report    Show history of previous runs"
     Write-Host ""
     Write-Host "OPTIONS:" -ForegroundColor Yellow
-    Write-Host "    -Manifest <path>    Path to manifest file (YAML)"
-    Write-Host "    -DryRun             Preview changes without applying"
-    Write-Host "    -Name <name>        Name for captured manifest (default: computer name)"
+    Write-Host "    -Manifest <path>       Path to manifest file (JSONC/JSON/YAML)"
+    Write-Host "    -OutManifest <path>    Output path for captured manifest (required for capture)"
+    Write-Host "    -DryRun                Preview changes without applying"
     Write-Host ""
     Write-Host "EXAMPLES:" -ForegroundColor Yellow
-    Write-Host "    .\cli.ps1 -Command capture"
-    Write-Host "    .\cli.ps1 -Command capture -Name `"dev-workstation`""
-    Write-Host "    .\cli.ps1 -Command plan -Manifest .\manifests\my-machine.yaml"
-    Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.yaml -DryRun"
-    Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.yaml"
-    Write-Host "    .\cli.ps1 -Command verify -Manifest .\manifests\my-machine.yaml"
+    Write-Host "    .\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc"
+    Write-Host "    .\cli.ps1 -Command plan -Manifest .\manifests\my-machine.jsonc"
+    Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc -DryRun"
+    Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc"
+    Write-Host "    .\cli.ps1 -Command verify -Manifest .\manifests\my-machine.jsonc"
     Write-Host "    .\cli.ps1 -Command doctor"
     Write-Host ""
     Write-Host "WORKFLOW:" -ForegroundColor Yellow
@@ -103,15 +102,19 @@ function Show-Help {
 }
 
 function Invoke-ProvisioningCapture {
-    param([string]$OutputName)
+    param([string]$OutManifestPath)
+    
+    if (-not $OutManifestPath) {
+        Write-Host "[ERROR] -OutManifest is required for 'capture' command." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Usage: .\cli.ps1 -Command capture -OutManifest <path>" -ForegroundColor Yellow
+        Write-Host "Example: .\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc" -ForegroundColor DarkGray
+        exit 1
+    }
     
     . "$script:ProvisioningRoot\engine\capture.ps1"
     
-    if (-not $OutputName) {
-        $OutputName = $env:COMPUTERNAME
-    }
-    
-    $result = Invoke-Capture -OutputName $OutputName
+    $result = Invoke-Capture -OutManifest $OutManifestPath
     return $result
 }
 
@@ -283,7 +286,7 @@ if (-not $Command) {
 }
 
 switch ($Command) {
-    "capture" { Invoke-ProvisioningCapture -OutputName $Name }
+    "capture" { Invoke-ProvisioningCapture -OutManifestPath $OutManifest }
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
     "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -IsDryRun $DryRun.IsPresent }
     "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest }

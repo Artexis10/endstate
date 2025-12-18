@@ -28,8 +28,8 @@ $script:SensitivePaths = @(
 
 function Invoke-Capture {
     param(
-        [Parameter(Mandatory = $false)]
-        [string]$OutputName = "$env:COMPUTERNAME"
+        [Parameter(Mandatory = $true)]
+        [string]$OutManifest
     )
     
     $runId = Get-RunId
@@ -38,8 +38,16 @@ function Invoke-Capture {
     Write-ProvisioningSection "Provisioning Capture"
     Write-ProvisioningLog "Starting capture on $env:COMPUTERNAME" -Level INFO
     Write-ProvisioningLog "Run ID: $runId" -Level INFO
+    Write-ProvisioningLog "Output manifest: $OutManifest" -Level INFO
     
-    # Create capture directory
+    # Ensure output directory exists
+    $outDir = Split-Path -Parent $OutManifest
+    if ($outDir -and -not (Test-Path $outDir)) {
+        New-Item -ItemType Directory -Path $outDir -Force | Out-Null
+        Write-ProvisioningLog "Created output directory: $outDir" -Level INFO
+    }
+    
+    # Create capture directory for intermediate files
     $captureDir = Join-Path $PSScriptRoot "..\state\capture\$runId"
     if (-not (Test-Path $captureDir)) {
         New-Item -ItemType Directory -Path $captureDir -Force | Out-Null
@@ -74,26 +82,23 @@ function Invoke-Capture {
     
     # Build manifest
     Write-ProvisioningSection "Generating Manifest"
+    
+    # Derive name from output path
+    $manifestFileName = [System.IO.Path]::GetFileNameWithoutExtension($OutManifest)
+    $manifestName = $manifestFileName.ToLower() -replace '\s+', '-'
+    
     $manifest = @{
         version = 1
-        name = $OutputName.ToLower() -replace '\s+', '-'
+        name = $manifestName
         captured = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
         apps = $apps
         restore = @()
         verify = @()
     }
     
-    # Save manifest
-    $manifestsDir = Join-Path $PSScriptRoot "..\manifests"
-    if (-not (Test-Path $manifestsDir)) {
-        New-Item -ItemType Directory -Path $manifestsDir -Force | Out-Null
-    }
-    
-    $manifestName = "$($OutputName.ToLower() -replace '\s+', '-').jsonc"
-    $manifestPath = Join-Path $manifestsDir $manifestName
-    
-    Write-Manifest -Path $manifestPath -Manifest $manifest
-    Write-ProvisioningLog "Manifest saved: $manifestPath" -Level SUCCESS
+    # Save manifest to specified path
+    Write-Manifest -Path $OutManifest -Manifest $manifest
+    Write-ProvisioningLog "Manifest saved: $OutManifest" -Level SUCCESS
     
     # Summary
     Close-ProvisioningLog -SuccessCount $apps.Count -SkipCount 0 -FailCount 0
@@ -102,13 +107,13 @@ function Invoke-Capture {
     Write-Host "Capture complete!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Next steps:" -ForegroundColor Yellow
-    Write-Host "  1. Review the manifest: $manifestPath"
-    Write-Host "  2. Generate a plan:     .\cli.ps1 -Command plan -Manifest `"$manifestPath`""
-    Write-Host "  3. Dry-run apply:       .\cli.ps1 -Command apply -Manifest `"$manifestPath`" -DryRun"
+    Write-Host "  1. Review the manifest: $OutManifest"
+    Write-Host "  2. Generate a plan:     .\cli.ps1 -Command plan -Manifest `"$OutManifest`""
+    Write-Host "  3. Dry-run apply:       .\cli.ps1 -Command apply -Manifest `"$OutManifest`" -DryRun"
     Write-Host ""
     
     return @{
-        ManifestPath = $manifestPath
+        ManifestPath = $OutManifest
         CaptureDir = $captureDir
         AppCount = $apps.Count
         LogFile = $logFile
@@ -124,6 +129,20 @@ function Test-WingetAvailable {
     }
 }
 
+function Invoke-WingetExport {
+    <#
+    .SYNOPSIS
+        Execute winget export command. Separated for testability.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExportPath
+    )
+    
+    $null = & winget export -o $ExportPath --accept-source-agreements 2>&1
+    return (Test-Path $ExportPath)
+}
+
 function Get-InstalledAppsViaWinget {
     param(
         [Parameter(Mandatory = $true)]
@@ -136,10 +155,10 @@ function Get-InstalledAppsViaWinget {
     $exportPath = Join-Path $CaptureDir "winget-export.json"
     
     try {
-        # Run winget export
-        $null = & winget export -o $exportPath --accept-source-agreements 2>&1
+        # Run winget export (via wrapper for testability)
+        $exportSuccess = Invoke-WingetExport -ExportPath $exportPath
         
-        if (-not (Test-Path $exportPath)) {
+        if (-not $exportSuccess) {
             Write-ProvisioningLog "winget export did not produce output file" -Level ERROR
             return @()
         }
@@ -195,4 +214,4 @@ function Test-SensitivePaths {
     return $found
 }
 
-# Functions exported: Invoke-Capture, Test-WingetAvailable, Get-InstalledAppsViaWinget, Test-SensitivePaths
+# Functions exported: Invoke-Capture, Test-WingetAvailable, Invoke-WingetExport, Get-InstalledAppsViaWinget, Test-SensitivePaths

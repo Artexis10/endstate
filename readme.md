@@ -152,32 +152,36 @@ provisioning/
 
 ---
 
-## CLI (Planned)
+## CLI
 
-The CLI will support the following commands:
+The CLI supports the following commands:
 
 | Command | Description |
 |---------|-------------|
+| `capture` | Capture current machine state into a manifest |
 | `plan` | Generate execution plan from manifest without applying |
-| `apply` | Execute the plan (with optional `--dry-run`) |
+| `apply` | Execute the plan (with optional `-DryRun`) |
 | `verify` | Check current state against manifest without modifying |
 | `doctor` | Diagnose environment issues (missing drivers, permissions, etc.) |
 | `report` | Show history of previous runs and their outcomes |
 
-**Example usage (planned):**
+**Example usage:**
 
 ```powershell
+# Capture current machine state
+.\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc
+
 # Generate and review plan
-.\cli.ps1 -Command plan -Manifest .\my-machine.yaml
+.\cli.ps1 -Command plan -Manifest .\manifests\my-machine.jsonc
 
 # Apply with dry-run first
-.\cli.ps1 -Command apply -Manifest .\my-machine.yaml -DryRun
+.\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc -DryRun
 
 # Apply for real
-.\cli.ps1 -Command apply -Manifest .\my-machine.yaml
+.\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc
 
 # Verify current state
-.\cli.ps1 -Command verify -Manifest .\my-machine.yaml
+.\cli.ps1 -Command verify -Manifest .\manifests\my-machine.jsonc
 
 # Check environment health
 .\cli.ps1 -Command doctor
