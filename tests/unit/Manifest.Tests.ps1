@@ -194,11 +194,14 @@ Describe "Manifest.Normalization" {
             $jsoncPath = Join-Path $script:FixturesDir "base-apps.jsonc"
             $manifest = Read-Manifest -Path $jsoncPath
             
-            # base-apps.jsonc has no restore/verify sections
-            $manifest.restore | Should Not BeNullOrEmpty
-            $manifest.restore | Should BeOfType [array]
-            $manifest.verify | Should Not BeNullOrEmpty
-            $manifest.verify | Should BeOfType [array]
+            # base-apps.jsonc has no restore/verify sections - they should default to empty arrays
+            $manifest.ContainsKey('restore') | Should Be $true
+            ($null -eq $manifest.restore) | Should Be $false
+            @($manifest.restore).Count | Should Be 0
+            
+            $manifest.ContainsKey('verify') | Should Be $true
+            ($null -eq $manifest.verify) | Should Be $false
+            @($manifest.verify).Count | Should Be 0
         }
         
         It "Should set default version if missing" {

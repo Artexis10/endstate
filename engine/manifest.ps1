@@ -285,18 +285,29 @@ function Normalize-Manifest {
     <#
     .SYNOPSIS
         Ensure manifest has all required fields with defaults.
+    .DESCRIPTION
+        Applies predictable defaults for optional sections.
+        Called after parsing for JSONC/JSON/YAML equally.
+        Ensures array fields are always arrays (not single objects).
     #>
     param(
         [Parameter(Mandatory = $true)]
         [hashtable]$Manifest
     )
     
-    # Ensure required fields exist (use ContainsKey to avoid falsy value issues)
+    # Ensure required scalar fields exist (use ContainsKey to avoid falsy value issues)
     if (-not $Manifest.ContainsKey('version') -or $null -eq $Manifest.version) { $Manifest.version = 1 }
     if (-not $Manifest.ContainsKey('name') -or $null -eq $Manifest.name) { $Manifest.name = "" }
-    if (-not $Manifest.ContainsKey('apps') -or $null -eq $Manifest.apps) { $Manifest.apps = @() }
-    if (-not $Manifest.ContainsKey('restore') -or $null -eq $Manifest.restore) { $Manifest.restore = @() }
-    if (-not $Manifest.ContainsKey('verify') -or $null -eq $Manifest.verify) { $Manifest.verify = @() }
+    
+    # Ensure array fields default to empty arrays and are always arrays (not single objects)
+    foreach ($arrayKey in @('apps', 'restore', 'verify', 'includes')) {
+        if (-not $Manifest.ContainsKey($arrayKey) -or $null -eq $Manifest[$arrayKey]) {
+            $Manifest[$arrayKey] = @()
+        } else {
+            # Ensure single items are wrapped in array
+            $Manifest[$arrayKey] = @($Manifest[$arrayKey])
+        }
+    }
     
     return $Manifest
 }
@@ -491,8 +502,20 @@ function ConvertFrom-SimpleYaml {
             continue
         }
         
-        # Nested key under list item: key: value
-        if ($line -match '^\s{4,}(\w+):\s*(.*)$') {
+        # Deep nested key (under refs:): platform: id (6+ spaces)
+        # Must check BEFORE 4+ spaces to avoid false matches
+        if ($line -match '^\s{6,}(\w+):\s*(.+)$') {
+            $key = $Matches[1]
+            $value = $Matches[2].Trim()
+            
+            if ($currentItem -and $currentSubKey) {
+                $currentItem[$currentSubKey][$key] = $value
+            }
+            continue
+        }
+        
+        # Nested key under list item: key: value (4-5 spaces)
+        if ($line -match '^\s{4,5}(\w+):\s*(.*)$') {
             $key = $Matches[1]
             $value = $Matches[2].Trim()
             
@@ -504,17 +527,6 @@ function ConvertFrom-SimpleYaml {
                 } else {
                     $currentItem[$key] = $value
                 }
-            }
-            continue
-        }
-        
-        # Deep nested key (under refs:): platform: id
-        if ($line -match '^\s{6,}(\w+):\s*(.+)$') {
-            $key = $Matches[1]
-            $value = $Matches[2].Trim()
-            
-            if ($currentItem -and $currentSubKey) {
-                $currentItem[$currentSubKey][$key] = $value
             }
             continue
         }

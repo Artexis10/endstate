@@ -129,9 +129,10 @@ Describe "Plan.Deterministic.HashAndRunId" {
                 -InstalledApps @()
             
             # Actions should be in manifest order: apps first, then restore, then verify
-            $appActions = $plan.actions | Where-Object { $_.type -eq "app" }
-            $restoreActions = $plan.actions | Where-Object { $_.type -eq "restore" }
-            $verifyActions = $plan.actions | Where-Object { $_.type -eq "verify" }
+            # Wrap in @() to ensure array even for single results
+            $appActions = @($plan.actions | Where-Object { $_.type -eq "app" })
+            $restoreActions = @($plan.actions | Where-Object { $_.type -eq "restore" })
+            $verifyActions = @($plan.actions | Where-Object { $_.type -eq "verify" })
             
             $appActions.Count | Should Be 3
             $restoreActions.Count | Should Be 1
