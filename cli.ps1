@@ -13,14 +13,40 @@
     Path to the manifest file (JSONC/JSON/YAML) describing desired state.
 
 .PARAMETER OutManifest
-    Output path for the captured manifest (required for capture command).
+    Output path for the captured manifest (used with capture command).
+
+.PARAMETER Profile
+    Profile name for capture. Writes to manifests/<profile>.jsonc by default.
+
+.PARAMETER IncludeRuntimes
+    Include runtime/framework packages in capture (vcredist, .NET, etc.). Default: false.
+
+.PARAMETER IncludeStoreApps
+    Include Microsoft Store apps in capture. Default: false.
+
+.PARAMETER Minimize
+    Drop entries without stable refs during capture.
+
+.PARAMETER IncludeRestoreTemplate
+    Generate restore template file during capture (requires -Profile).
+
+.PARAMETER IncludeVerifyTemplate
+    Generate verify template file during capture (requires -Profile).
 
 .PARAMETER DryRun
     Preview changes without applying them.
 
 .EXAMPLE
+    .\cli.ps1 -Command capture -Profile my-machine
+    Capture current machine state into manifests/my-machine.jsonc.
+
+.EXAMPLE
+    .\cli.ps1 -Command capture -Profile my-machine -IncludeRestoreTemplate -IncludeVerifyTemplate
+    Capture with restore and verify templates generated.
+
+.EXAMPLE
     .\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc
-    Capture current machine state into a manifest.
+    Capture current machine state into a manifest (legacy mode).
 
 .EXAMPLE
     .\cli.ps1 -Command plan -Manifest .\manifests\my-machine.jsonc
@@ -53,6 +79,24 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string]$OutManifest,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Profile,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$IncludeRuntimes,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$IncludeStoreApps,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Minimize,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$IncludeRestoreTemplate,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$IncludeVerifyTemplate,
 
     [Parameter(Mandatory = $false)]
     [switch]$DryRun,
@@ -96,14 +140,24 @@ function Show-Help {
     Write-Host ""
     Write-Host "OPTIONS:" -ForegroundColor Yellow
     Write-Host "    -Manifest <path>       Path to manifest file (JSONC/JSON/YAML)"
-    Write-Host "    -OutManifest <path>    Output path for captured manifest (required for capture)"
+    Write-Host "    -Profile <name>        Profile name for capture (writes to manifests/<name>.jsonc)"
+    Write-Host "    -OutManifest <path>    Output path for captured manifest (overrides -Profile)"
     Write-Host "    -DryRun                Preview changes without applying"
     Write-Host "    -EnableRestore         Enable restore operations (opt-in for safety)"
     Write-Host "    -FileA <path>          First artifact file for diff"
     Write-Host "    -FileB <path>          Second artifact file for diff"
     Write-Host "    -Json                  Output diff as JSON"
     Write-Host ""
+    Write-Host "CAPTURE OPTIONS:" -ForegroundColor Yellow
+    Write-Host "    -IncludeRuntimes       Include runtime packages (vcredist, .NET, etc.)"
+    Write-Host "    -IncludeStoreApps      Include Microsoft Store apps"
+    Write-Host "    -Minimize              Drop entries without stable refs"
+    Write-Host "    -IncludeRestoreTemplate  Generate restore template (requires -Profile)"
+    Write-Host "    -IncludeVerifyTemplate   Generate verify template (requires -Profile)"
+    Write-Host ""
     Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "    .\cli.ps1 -Command capture -Profile my-machine"
+    Write-Host "    .\cli.ps1 -Command capture -Profile my-machine -IncludeRestoreTemplate -IncludeVerifyTemplate"
     Write-Host "    .\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc"
     Write-Host "    .\cli.ps1 -Command plan -Manifest .\manifests\my-machine.jsonc"
     Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc -DryRun"
@@ -121,19 +175,42 @@ function Show-Help {
 }
 
 function Invoke-ProvisioningCapture {
-    param([string]$OutManifestPath)
+    param(
+        [string]$ProfileName,
+        [string]$OutManifestPath,
+        [bool]$IsIncludeRuntimes,
+        [bool]$IsIncludeStoreApps,
+        [bool]$IsMinimize,
+        [bool]$IsIncludeRestoreTemplate,
+        [bool]$IsIncludeVerifyTemplate
+    )
     
-    if (-not $OutManifestPath) {
-        Write-Host "[ERROR] -OutManifest is required for 'capture' command." -ForegroundColor Red
+    # Validate: need either -Profile or -OutManifest
+    if (-not $ProfileName -and -not $OutManifestPath) {
+        Write-Host "[ERROR] Either -Profile or -OutManifest is required for 'capture' command." -ForegroundColor Red
         Write-Host ""
-        Write-Host "Usage: .\cli.ps1 -Command capture -OutManifest <path>" -ForegroundColor Yellow
-        Write-Host "Example: .\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc" -ForegroundColor DarkGray
+        Write-Host "Usage: .\cli.ps1 -Command capture -Profile <name>" -ForegroundColor Yellow
+        Write-Host "   or: .\cli.ps1 -Command capture -OutManifest <path>" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Examples:" -ForegroundColor DarkGray
+        Write-Host "  .\cli.ps1 -Command capture -Profile my-machine" -ForegroundColor DarkGray
+        Write-Host "  .\cli.ps1 -Command capture -Profile my-machine -IncludeRestoreTemplate -IncludeVerifyTemplate" -ForegroundColor DarkGray
+        Write-Host "  .\cli.ps1 -Command capture -OutManifest .\manifests\my-machine.jsonc" -ForegroundColor DarkGray
         exit 1
     }
     
     . "$script:ProvisioningRoot\engine\capture.ps1"
     
-    $result = Invoke-Capture -OutManifest $OutManifestPath
+    $captureParams = @{}
+    if ($ProfileName) { $captureParams.Profile = $ProfileName }
+    if ($OutManifestPath) { $captureParams.OutManifest = $OutManifestPath }
+    if ($IsIncludeRuntimes) { $captureParams.IncludeRuntimes = $true }
+    if ($IsIncludeStoreApps) { $captureParams.IncludeStoreApps = $true }
+    if ($IsMinimize) { $captureParams.Minimize = $true }
+    if ($IsIncludeRestoreTemplate) { $captureParams.IncludeRestoreTemplate = $true }
+    if ($IsIncludeVerifyTemplate) { $captureParams.IncludeVerifyTemplate = $true }
+    
+    $result = Invoke-Capture @captureParams
     return $result
 }
 
@@ -370,7 +447,16 @@ if (-not $Command) {
 }
 
 switch ($Command) {
-    "capture" { Invoke-ProvisioningCapture -OutManifestPath $OutManifest }
+    "capture" { 
+        Invoke-ProvisioningCapture `
+            -ProfileName $Profile `
+            -OutManifestPath $OutManifest `
+            -IsIncludeRuntimes $IncludeRuntimes.IsPresent `
+            -IsIncludeStoreApps $IncludeStoreApps.IsPresent `
+            -IsMinimize $Minimize.IsPresent `
+            -IsIncludeRestoreTemplate $IncludeRestoreTemplate.IsPresent `
+            -IsIncludeVerifyTemplate $IncludeVerifyTemplate.IsPresent
+    }
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
     "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent }
     "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }

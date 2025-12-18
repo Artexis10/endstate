@@ -371,6 +371,21 @@ function ConvertTo-Jsonc {
     }
     [void]$sb.AppendLine("")
     
+    # Includes section (if present)
+    if ($Object.includes -and $Object.includes.Count -gt 0) {
+        [void]$sb.AppendLine("  // Included manifest files")
+        [void]$sb.AppendLine("  `"includes`": [")
+        $includeIndex = 0
+        foreach ($inc in $Object.includes) {
+            $includeIndex++
+            $isLast = $includeIndex -eq $Object.includes.Count
+            $comma = if ($isLast) { "" } else { "," }
+            [void]$sb.AppendLine("    `"$inc`"$comma")
+        }
+        [void]$sb.AppendLine("  ],")
+        [void]$sb.AppendLine("")
+    }
+    
     # Apps section
     [void]$sb.AppendLine("  // Applications to install")
     [void]$sb.AppendLine("  `"apps`": [")
