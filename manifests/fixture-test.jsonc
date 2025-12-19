@@ -1,0 +1,46 @@
+{
+  // Deterministic test fixture manifest
+  // This file is committed and used for automated tests
+  // Do NOT add machine-specific data or timestamps
+
+  "version": 1,
+  "name": "fixture-test",
+
+  // Stable set of common apps for testing
+  "apps": [
+    {
+      "id": "7zip-7zip",
+      "refs": {
+        "windows": "7zip.7zip"
+      }
+    },
+    {
+      "id": "git-git",
+      "refs": {
+        "windows": "Git.Git"
+      }
+    },
+    {
+      "id": "microsoft-powershell",
+      "refs": {
+        "windows": "Microsoft.PowerShell"
+      }
+    },
+    {
+      "id": "microsoft-windowsterminal",
+      "refs": {
+        "windows": "Microsoft.WindowsTerminal"
+      }
+    },
+    {
+      "id": "videolan-vlc",
+      "refs": {
+        "windows": "VideoLAN.VLC"
+      }
+    }
+  ],
+
+  // Empty restore and verify sections for testing
+  "restore": [],
+  "verify": []
+}
