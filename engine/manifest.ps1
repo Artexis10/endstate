@@ -101,14 +101,113 @@ function Read-ManifestInternal {
     }
 }
 
+function Remove-JsoncComments {
+    <#
+    .SYNOPSIS
+        Strip JSONC comments from JSON content (PS5.1-safe state machine).
+    .DESCRIPTION
+        Removes single-line (//) and multi-line (/* */) comments while preserving:
+        - Strings containing // or /* (e.g., "http://example.com")
+        - Escaped quotes inside strings
+        - Line endings (CRLF/LF)
+    .PARAMETER Content
+        Raw JSONC content string.
+    .OUTPUTS
+        String with comments removed, ready for ConvertFrom-Json.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Content
+    )
+    
+    # PS5.1-safe StringBuilder construction
+    $result = New-Object System.Text.StringBuilder
+    $inString = $false
+    $escaped = $false
+    $i = 0
+    
+    while ($i -lt $Content.Length) {
+        $char = $Content[$i]
+        $nextChar = if ($i + 1 -lt $Content.Length) { $Content[$i + 1] } else { $null }
+        
+        # Handle escape sequences inside strings
+        if ($escaped) {
+            [void]$result.Append($char)
+            $escaped = $false
+            $i++
+            continue
+        }
+        
+        # Detect escape character inside string
+        if ($char -eq '\' -and $inString) {
+            [void]$result.Append($char)
+            $escaped = $true
+            $i++
+            continue
+        }
+        
+        # Toggle string state on unescaped quote
+        if ($char -eq '"' -and -not $escaped) {
+            $inString = -not $inString
+            [void]$result.Append($char)
+            $i++
+            continue
+        }
+        
+        # Only strip comments outside of strings
+        if (-not $inString) {
+            # Single-line comment: // ...
+            if ($char -eq '/' -and $nextChar -eq '/') {
+                # Skip until end of line (preserve the newline)
+                while ($i -lt $Content.Length -and $Content[$i] -ne "`n" -and $Content[$i] -ne "`r") {
+                    $i++
+                }
+                # Keep the line ending
+                if ($i -lt $Content.Length -and ($Content[$i] -eq "`n" -or $Content[$i] -eq "`r")) {
+                    [void]$result.Append($Content[$i])
+                    $i++
+                    # Handle CRLF
+                    if ($i -lt $Content.Length -and $Content[$i-1] -eq "`r" -and $Content[$i] -eq "`n") {
+                        [void]$result.Append($Content[$i])
+                        $i++
+                    }
+                }
+                continue
+            }
+            
+            # Multi-line comment: /* ... */
+            if ($char -eq '/' -and $nextChar -eq '*') {
+                $i += 2
+                # Skip until */
+                while ($i -lt $Content.Length - 1) {
+                    if ($Content[$i] -eq '*' -and $Content[$i + 1] -eq '/') {
+                        $i += 2
+                        break
+                    }
+                    $i++
+                }
+                continue
+            }
+        }
+        
+        # Append character to result
+        [void]$result.Append($char)
+        $i++
+    }
+    
+    return $result.ToString()
+}
+
 function Read-JsoncFile {
     <#
     .SYNOPSIS
-        Canonical JSONC file loader for all manifest and plan parsing.
+        Canonical JSONC file loader for all manifest and plan parsing (PS5.1+ compatible).
     .DESCRIPTION
         Reads a file and parses it as JSONC (JSON with comments).
         Strips single-line (//) and multi-line (/* */) comments before parsing.
         This is the single source of truth for JSONC parsing in the provisioning engine.
+        
+        Compatible with Windows PowerShell 5.1 and PowerShell 7+.
     .PARAMETER Path
         Path to the JSONC file to read.
     .PARAMETER Depth
@@ -125,21 +224,41 @@ function Read-JsoncFile {
     )
     
     if (-not (Test-Path $Path)) {
-        throw "File not found: $Path"
+        throw "JSONC parsing failed: File not found: $Path"
     }
     
-    $content = Get-Content -Path $Path -Raw -Encoding UTF8
-    return ConvertFrom-Jsonc -Content $content -Depth $Depth
+    try {
+        $content = Get-Content -Path $Path -Raw -Encoding UTF8
+        $cleanJson = Remove-JsoncComments -Content $content
+        
+        # PS5.1 vs PS7+ compatibility: -AsHashtable only exists in PS6+
+        if ($PSVersionTable.PSVersion.Major -ge 6) {
+            $parsed = $cleanJson | ConvertFrom-Json -AsHashtable -Depth $Depth
+        } else {
+            # PS5.1: ConvertFrom-Json returns PSCustomObject, convert to hashtable
+            $parsed = $cleanJson | ConvertFrom-Json
+            $parsed = Convert-PsObjectToHashtable -InputObject $parsed
+        }
+        
+        return $parsed
+    } catch {
+        throw "JSONC parsing failed for '$Path': $($_.Exception.Message)"
+    }
 }
 
 function ConvertFrom-Jsonc {
     <#
     .SYNOPSIS
-        Parse JSONC (JSON with comments) content.
+        Parse JSONC (JSON with comments) content (PS5.1+ compatible).
     .DESCRIPTION
         Strips single-line (//) and multi-line (/* */) comments before parsing.
+        Wrapper around Remove-JsoncComments for backward compatibility.
+    .PARAMETER Content
+        Raw JSONC content string.
     .PARAMETER Depth
         Maximum depth for JSON parsing. Default: 100.
+    .OUTPUTS
+        Hashtable representation of the parsed JSONC content.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -149,72 +268,18 @@ function ConvertFrom-Jsonc {
         [int]$Depth = 100
     )
     
-    # Remove single-line comments (// ...)
-    # Be careful not to remove // inside strings
-    $inString = $false
-    $escaped = $false
-    $result = [System.Text.StringBuilder]::new()
-    $i = 0
-    
-    while ($i -lt $Content.Length) {
-        $char = $Content[$i]
-        $nextChar = if ($i + 1 -lt $Content.Length) { $Content[$i + 1] } else { $null }
-        
-        if ($escaped) {
-            [void]$result.Append($char)
-            $escaped = $false
-            $i++
-            continue
-        }
-        
-        if ($char -eq '\' -and $inString) {
-            [void]$result.Append($char)
-            $escaped = $true
-            $i++
-            continue
-        }
-        
-        if ($char -eq '"' -and -not $escaped) {
-            $inString = -not $inString
-            [void]$result.Append($char)
-            $i++
-            continue
-        }
-        
-        if (-not $inString) {
-            # Check for single-line comment
-            if ($char -eq '/' -and $nextChar -eq '/') {
-                # Skip until end of line
-                while ($i -lt $Content.Length -and $Content[$i] -ne "`n") {
-                    $i++
-                }
-                continue
-            }
-            
-            # Check for multi-line comment
-            if ($char -eq '/' -and $nextChar -eq '*') {
-                $i += 2
-                # Skip until */
-                while ($i -lt $Content.Length - 1) {
-                    if ($Content[$i] -eq '*' -and $Content[$i + 1] -eq '/') {
-                        $i += 2
-                        break
-                    }
-                    $i++
-                }
-                continue
-            }
-        }
-        
-        [void]$result.Append($char)
-        $i++
-    }
-    
-    $cleanJson = $result.ToString()
-    
-    # Parse the cleaned JSON
     try {
-        $parsed = $cleanJson | ConvertFrom-Json -AsHashtable -Depth $Depth
+        $cleanJson = Remove-JsoncComments -Content $Content
+        
+        # PS5.1 vs PS7+ compatibility
+        if ($PSVersionTable.PSVersion.Major -ge 6) {
+            $parsed = $cleanJson | ConvertFrom-Json -AsHashtable -Depth $Depth
+        } else {
+            # PS5.1: ConvertFrom-Json returns PSCustomObject, convert to hashtable
+            $parsed = $cleanJson | ConvertFrom-Json
+            $parsed = Convert-PsObjectToHashtable -InputObject $parsed
+        }
+        
         return $parsed
     } catch {
         throw "Failed to parse JSONC: $($_.Exception.Message)"

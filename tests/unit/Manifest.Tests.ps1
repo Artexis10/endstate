@@ -173,9 +173,9 @@ Describe "Manifest.Jsonc.Includes.Parses" {
         }
     }
     
-    Context "JSONC comment stripping" {
+    Context "JSONC comment stripping (PS5.1+ compatible)" {
         
-        It "Should strip single-line comments" {
+        It "Should strip single-line comments from base-apps.jsonc" {
             $jsoncPath = Join-Path $script:FixturesDir "base-apps.jsonc"
             $manifest = Read-Manifest -Path $jsoncPath
             
@@ -184,14 +184,15 @@ Describe "Manifest.Jsonc.Includes.Parses" {
             $manifest.apps | Should Not BeNullOrEmpty
         }
         
-        It "Should parse JSONC with header comments like hugo-desktop.jsonc" {
-            # Regression test: ensure manifests with header comments at line 2-6 parse correctly
+        It "Should parse JSONC with header comments like hugo-desktop.jsonc (regression test)" {
+            # Regression test: ensure manifests with header comments at lines 2-6 parse correctly
+            # This is the primary bug fix - manifests were failing with "Invalid object passed in, ':' or '}' expected. (6)"
             $testManifestPath = Join-Path $script:ProvisioningRoot "manifests\fixture-test.jsonc"
             
             # fixture-test.jsonc has comments at lines 2-4
             $manifest = Read-Manifest -Path $testManifestPath
             
-            # Should parse successfully
+            # Should parse successfully on both PS5.1 and PS7+
             $manifest | Should Not BeNullOrEmpty
             $manifest.version | Should Be 1
             $manifest.name | Should Be "fixture-test"
@@ -199,7 +200,7 @@ Describe "Manifest.Jsonc.Includes.Parses" {
         }
         
         It "Should parse JSONC with inline comments after values" {
-            # Create a temporary JSONC file with inline comments
+            # Test inline // comments after JSON values
             $tempDir = Join-Path $script:ProvisioningRoot "state\temp-test"
             if (-not (Test-Path $tempDir)) {
                 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -236,8 +237,8 @@ Describe "Manifest.Jsonc.Includes.Parses" {
             }
         }
         
-        It "Should parse JSONC with multi-line comments" {
-            # Create a temporary JSONC file with multi-line comments
+        It "Should parse JSONC with multi-line /* */ comments" {
+            # Test block comments
             $tempDir = Join-Path $script:ProvisioningRoot "state\temp-test"
             if (-not (Test-Path $tempDir)) {
                 New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
@@ -253,6 +254,102 @@ Describe "Manifest.Jsonc.Includes.Parses" {
   "apps": []
 }
 "@
+            $content | Out-File -FilePath $tempFile -Encoding UTF8 -NoNewline
+            
+            try {
+                $manifest = Read-Manifest -Path $tempFile
+                
+                $manifest | Should Not BeNullOrEmpty
+                $manifest.version | Should Be 1
+                $manifest.name | Should Be "test"
+            } finally {
+                if (Test-Path $tempFile) {
+                    Remove-Item $tempFile -Force
+                }
+            }
+        }
+        
+        It "Should preserve http:// URLs inside strings (do not strip as comment)" {
+            # Critical test: ensure we don't strip // inside JSON strings
+            $tempDir = Join-Path $script:ProvisioningRoot "state\temp-test"
+            if (-not (Test-Path $tempDir)) {
+                New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            }
+            
+            $tempFile = Join-Path $tempDir "url-test.jsonc"
+            $content = @"
+{
+  "version": 1,
+  "name": "test",
+  "homepage": "http://example.com",
+  "docs": "https://example.com/docs",
+  "apps": []
+}
+"@
+            $content | Out-File -FilePath $tempFile -Encoding UTF8 -NoNewline
+            
+            try {
+                $manifest = Read-Manifest -Path $tempFile
+                
+                $manifest | Should Not BeNullOrEmpty
+                $manifest.homepage | Should Be "http://example.com"
+                $manifest.docs | Should Be "https://example.com/docs"
+            } finally {
+                if (Test-Path $tempFile) {
+                    Remove-Item $tempFile -Force
+                }
+            }
+        }
+        
+        It "Should work on Windows PowerShell 5.1 and PowerShell 7+" {
+            # Verify PS version compatibility
+            $psVersion = $PSVersionTable.PSVersion.Major
+            
+            # This test should pass on both PS5.1 and PS7+
+            $tempDir = Join-Path $script:ProvisioningRoot "state\temp-test"
+            if (-not (Test-Path $tempDir)) {
+                New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            }
+            
+            $tempFile = Join-Path $tempDir "ps-version-test.jsonc"
+            $content = @"
+{
+  // Comment at top
+  "version": 1,
+  "name": "ps-version-test",
+  "psVersion": $psVersion,
+  "apps": []
+}
+"@
+            $content | Out-File -FilePath $tempFile -Encoding UTF8 -NoNewline
+            
+            try {
+                # Should not throw on either PS version
+                { Read-Manifest -Path $tempFile } | Should Not Throw
+                
+                $manifest = Read-Manifest -Path $tempFile
+                $manifest | Should Not BeNullOrEmpty
+                $manifest.version | Should Be 1
+                
+                # Verify we got a hashtable (not PSCustomObject)
+                $manifest | Should BeOfType [hashtable]
+            } finally {
+                if (Test-Path $tempFile) {
+                    Remove-Item $tempFile -Force
+                }
+            }
+        }
+        
+        It "Should handle CRLF line endings correctly" {
+            # Ensure CRLF line endings are preserved/handled correctly
+            $tempDir = Join-Path $script:ProvisioningRoot "state\temp-test"
+            if (-not (Test-Path $tempDir)) {
+                New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            }
+            
+            $tempFile = Join-Path $tempDir "crlf-test.jsonc"
+            # Explicitly use CRLF
+            $content = "{`r`n  // Comment with CRLF`r`n  `"version`": 1,`r`n  `"name`": `"test`",`r`n  `"apps`": []`r`n}"
             $content | Out-File -FilePath $tempFile -Encoding UTF8 -NoNewline
             
             try {
