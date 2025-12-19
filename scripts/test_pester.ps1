@@ -3,8 +3,8 @@
     Root test entrypoint for Pester tests.
 
 .DESCRIPTION
-    Runs all Pester tests in the provisioning/tests directory.
-    Requires Pester 5.x module. Will error clearly if Pester is not installed.
+    Runs all Pester tests in the automation-suite repository.
+    Bootstraps Pester 5.5.0+ via ensure-pester.ps1 for deterministic test runs.
 
 .PARAMETER Path
     Optional path to specific test file or directory. Defaults to all tests.
@@ -35,27 +35,12 @@ param(
 
 $ErrorActionPreference = "Stop"
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
+$script:MinPesterVersion = [Version]"5.5.0"
 
-# Ensure Pester is available
-$pester = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1
-
-if (-not $pester) {
-    Write-Host ""
-    Write-Host "[ERROR] Pester module not found." -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Install Pester with:" -ForegroundColor Yellow
-    Write-Host "  Install-Module Pester -Force -SkipPublisherCheck" -ForegroundColor DarkGray
-    Write-Host ""
-    exit 1
-}
-
-if ($pester.Version -lt [Version]"5.0.0") {
-    Write-Host ""
-    Write-Host "[ERROR] Pester 5.x or higher is required. Found: $($pester.Version)" -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Update Pester with:" -ForegroundColor Yellow
-    Write-Host "  Install-Module Pester -Force -SkipPublisherCheck" -ForegroundColor DarkGray
-    Write-Host ""
+# Bootstrap Pester via ensure-pester.ps1
+$ensurePesterScript = Join-Path $PSScriptRoot "ensure-pester.ps1"
+if (-not (Test-Path $ensurePesterScript)) {
+    Write-Host "[ERROR] ensure-pester.ps1 not found at: $ensurePesterScript" -ForegroundColor Red
     exit 1
 }
 
@@ -64,36 +49,56 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " Automation Suite - Pester Tests" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
+
+$pesterPath = & $ensurePesterScript -MinimumVersion $script:MinPesterVersion
+if (-not $pesterPath -or -not (Test-Path $pesterPath)) {
+    Write-Host "[ERROR] Failed to bootstrap Pester $script:MinPesterVersion" -ForegroundColor Red
+    exit 1
+}
+
+# Import Pester from the resolved path
+Write-Host "[test_pester] Importing Pester from: $pesterPath" -ForegroundColor DarkGray
+Import-Module $pesterPath -Force -Global
+
+$pester = Get-Module -Name Pester
+if (-not $pester -or $pester.Version -lt $script:MinPesterVersion) {
+    Write-Host "[ERROR] Pester $script:MinPesterVersion+ required. Found: $($pester.Version)" -ForegroundColor Red
+    exit 1
+}
+
 Write-Host "Pester version: $($pester.Version)" -ForegroundColor DarkGray
 Write-Host "PowerShell: $($PSVersionTable.PSVersion)" -ForegroundColor DarkGray
 Write-Host ""
 
-# Import Pester
-Import-Module Pester -Force -MinimumVersion "5.0.0"
-
-# Determine test path
-$testPath = if ($Path) {
+# Determine test path(s)
+$testPaths = if ($Path) {
     if ([System.IO.Path]::IsPathRooted($Path)) {
-        $Path
+        @($Path)
     } else {
-        Join-Path $script:RepoRoot $Path
+        @(Join-Path $script:RepoRoot $Path)
     }
 } else {
-    Join-Path $script:RepoRoot "provisioning\tests"
+    # Run both root-level tests and provisioning tests
+    @(
+        (Join-Path $script:RepoRoot "tests"),
+        (Join-Path $script:RepoRoot "provisioning\tests")
+    ) | Where-Object { Test-Path $_ }
 }
 
-if (-not (Test-Path $testPath)) {
-    Write-Host "[ERROR] Test path not found: $testPath" -ForegroundColor Red
+if ($testPaths.Count -eq 0) {
+    Write-Host "[ERROR] No test paths found." -ForegroundColor Red
     exit 1
 }
 
-Write-Host "Test path: $testPath" -ForegroundColor DarkGray
+foreach ($tp in $testPaths) {
+    Write-Host "Test path: $tp" -ForegroundColor DarkGray
+}
 Write-Host ""
 
 # Configure Pester
 $config = New-PesterConfiguration
 
-$config.Run.Path = $testPath
+$config.Run.Path = $testPaths
 $config.Run.Exit = $true
 $config.Run.PassThru = $true
 
