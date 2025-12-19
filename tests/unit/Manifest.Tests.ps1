@@ -183,6 +183,90 @@ Describe "Manifest.Jsonc.Includes.Parses" {
             $manifest | Should Not BeNullOrEmpty
             $manifest.apps | Should Not BeNullOrEmpty
         }
+        
+        It "Should parse JSONC with header comments like hugo-desktop.jsonc" {
+            # Regression test: ensure manifests with header comments at line 2-6 parse correctly
+            $testManifestPath = Join-Path $script:ProvisioningRoot "manifests\fixture-test.jsonc"
+            
+            # fixture-test.jsonc has comments at lines 2-4
+            $manifest = Read-Manifest -Path $testManifestPath
+            
+            # Should parse successfully
+            $manifest | Should Not BeNullOrEmpty
+            $manifest.version | Should Be 1
+            $manifest.name | Should Be "fixture-test"
+            $manifest.apps | Should Not BeNullOrEmpty
+        }
+        
+        It "Should parse JSONC with inline comments after values" {
+            # Create a temporary JSONC file with inline comments
+            $tempDir = Join-Path $script:ProvisioningRoot "state\temp-test"
+            if (-not (Test-Path $tempDir)) {
+                New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            }
+            
+            $tempFile = Join-Path $tempDir "inline-comments-test.jsonc"
+            $content = @"
+{
+  "version": 1, // version comment
+  "name": "test",
+  "apps": [
+    {
+      "id": "test-app",
+      "refs": {
+        "windows": "Test.App" // platform ref
+      }
+    }
+  ]
+}
+"@
+            $content | Out-File -FilePath $tempFile -Encoding UTF8 -NoNewline
+            
+            try {
+                $manifest = Read-Manifest -Path $tempFile
+                
+                $manifest | Should Not BeNullOrEmpty
+                $manifest.version | Should Be 1
+                $manifest.name | Should Be "test"
+                $manifest.apps[0].id | Should Be "test-app"
+            } finally {
+                if (Test-Path $tempFile) {
+                    Remove-Item $tempFile -Force
+                }
+            }
+        }
+        
+        It "Should parse JSONC with multi-line comments" {
+            # Create a temporary JSONC file with multi-line comments
+            $tempDir = Join-Path $script:ProvisioningRoot "state\temp-test"
+            if (-not (Test-Path $tempDir)) {
+                New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            }
+            
+            $tempFile = Join-Path $tempDir "multiline-comments-test.jsonc"
+            $content = @"
+{
+  /* This is a multi-line comment
+     spanning multiple lines */
+  "version": 1,
+  "name": "test",
+  "apps": []
+}
+"@
+            $content | Out-File -FilePath $tempFile -Encoding UTF8 -NoNewline
+            
+            try {
+                $manifest = Read-Manifest -Path $tempFile
+                
+                $manifest | Should Not BeNullOrEmpty
+                $manifest.version | Should Be 1
+                $manifest.name | Should Be "test"
+            } finally {
+                if (Test-Path $tempFile) {
+                    Remove-Item $tempFile -Force
+                }
+            }
+        }
     }
 }
 

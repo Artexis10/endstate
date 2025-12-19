@@ -65,14 +65,14 @@ function Read-ManifestInternal {
         
         # Parse based on file extension
         $manifest = switch ($extension) {
-            ".jsonc" { ConvertFrom-Jsonc -Content $content }
-            ".json"  { $content | ConvertFrom-Json -AsHashtable }
+            ".jsonc" { ConvertFrom-Jsonc -Content $content -Depth 100 }
+            ".json"  { ConvertFrom-Jsonc -Content $content -Depth 100 }
             ".yaml"  { ConvertFrom-SimpleYaml -Content $content }
             ".yml"   { ConvertFrom-SimpleYaml -Content $content }
             default  {
                 # Try JSONC first, fall back to YAML
                 try {
-                    ConvertFrom-Jsonc -Content $content
+                    ConvertFrom-Jsonc -Content $content -Depth 100
                 } catch {
                     ConvertFrom-SimpleYaml -Content $content
                 }
@@ -101,16 +101,52 @@ function Read-ManifestInternal {
     }
 }
 
+function Read-JsoncFile {
+    <#
+    .SYNOPSIS
+        Canonical JSONC file loader for all manifest and plan parsing.
+    .DESCRIPTION
+        Reads a file and parses it as JSONC (JSON with comments).
+        Strips single-line (//) and multi-line (/* */) comments before parsing.
+        This is the single source of truth for JSONC parsing in the provisioning engine.
+    .PARAMETER Path
+        Path to the JSONC file to read.
+    .PARAMETER Depth
+        Maximum depth for JSON parsing. Default: 100.
+    .OUTPUTS
+        Hashtable representation of the parsed JSONC content.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$Depth = 100
+    )
+    
+    if (-not (Test-Path $Path)) {
+        throw "File not found: $Path"
+    }
+    
+    $content = Get-Content -Path $Path -Raw -Encoding UTF8
+    return ConvertFrom-Jsonc -Content $content -Depth $Depth
+}
+
 function ConvertFrom-Jsonc {
     <#
     .SYNOPSIS
         Parse JSONC (JSON with comments) content.
     .DESCRIPTION
         Strips single-line (//) and multi-line (/* */) comments before parsing.
+    .PARAMETER Depth
+        Maximum depth for JSON parsing. Default: 100.
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Content
+        [string]$Content,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$Depth = 100
     )
     
     # Remove single-line comments (// ...)
@@ -178,7 +214,7 @@ function ConvertFrom-Jsonc {
     
     # Parse the cleaned JSON
     try {
-        $parsed = $cleanJson | ConvertFrom-Json -AsHashtable
+        $parsed = $cleanJson | ConvertFrom-Json -AsHashtable -Depth $Depth
         return $parsed
     } catch {
         throw "Failed to parse JSONC: $($_.Exception.Message)"
@@ -642,13 +678,13 @@ function Read-ManifestRaw {
     $extension = [System.IO.Path]::GetExtension($Path).ToLower()
     
     $manifest = switch ($extension) {
-        ".jsonc" { ConvertFrom-Jsonc -Content $content }
-        ".json"  { $content | ConvertFrom-Json -AsHashtable }
+        ".jsonc" { ConvertFrom-Jsonc -Content $content -Depth 100 }
+        ".json"  { ConvertFrom-Jsonc -Content $content -Depth 100 }
         ".yaml"  { ConvertFrom-SimpleYaml -Content $content }
         ".yml"   { ConvertFrom-SimpleYaml -Content $content }
         default  {
             try {
-                ConvertFrom-Jsonc -Content $content
+                ConvertFrom-Jsonc -Content $content -Depth 100
             } catch {
                 ConvertFrom-SimpleYaml -Content $content
             }
@@ -844,4 +880,4 @@ function Merge-ManifestsForUpdate {
     return $merged
 }
 
-# Functions exported: Read-Manifest, Read-ManifestRaw, Write-Manifest, ConvertFrom-Jsonc, ConvertTo-Jsonc, ConvertFrom-SimpleYaml, ConvertTo-SimpleYaml, Get-IncludedAppIds, Merge-ManifestsForUpdate
+# Functions exported: Read-Manifest, Read-ManifestRaw, Write-Manifest, Read-JsoncFile, ConvertFrom-Jsonc, ConvertTo-Jsonc, ConvertFrom-SimpleYaml, ConvertTo-SimpleYaml, Get-IncludedAppIds, Merge-ManifestsForUpdate

@@ -182,8 +182,9 @@ function Read-ArtifactFile {
     }
     
     try {
-        $content = Get-Content -Path $Path -Raw
-        $artifact = $content | ConvertFrom-Json -AsHashtable
+        # Load artifact file (supports JSONC format)
+        . "$PSScriptRoot\manifest.ps1"
+        $artifact = Read-JsoncFile -Path $Path -Depth 100
         return $artifact
     } catch {
         return $null

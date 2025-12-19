@@ -250,10 +250,9 @@ function Invoke-ApplyFromPlan {
         return $null
     }
     
-    # Load plan
+    # Load plan (supports JSONC format)
     try {
-        $planContent = Get-Content -Path $PlanPath -Raw -Encoding UTF8
-        $plan = $planContent | ConvertFrom-Json
+        $plan = Read-JsoncFile -Path $PlanPath -Depth 100
     } catch {
         Write-Host "[ERROR] Failed to parse plan file: $($_.Exception.Message)" -ForegroundColor Red
         return $null

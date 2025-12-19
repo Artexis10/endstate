@@ -97,13 +97,17 @@ function Read-StateFile {
     )
     
     try {
-        $content = Get-Content -Path $Path -Raw -Encoding UTF8
-        $state = $content | ConvertFrom-Json
+        # Load state file (supports JSONC format)
+        . "$PSScriptRoot\manifest.ps1"
+        $state = Read-JsoncFile -Path $Path -Depth 100
+        
+        # Convert to PSCustomObject for Add-Member compatibility
+        $stateObj = $state | ConvertTo-Json -Depth 100 | ConvertFrom-Json
         
         # Add file path to state object for reference
-        $state | Add-Member -NotePropertyName '_filePath' -NotePropertyValue $Path -Force
+        $stateObj | Add-Member -NotePropertyName '_filePath' -NotePropertyValue $Path -Force
         
-        return $state
+        return $stateObj
     } catch {
         return $null
     }
