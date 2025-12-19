@@ -48,6 +48,10 @@
     When used with -Update, remove apps from root manifest that are no longer
     present in the new capture. Never prunes apps from included manifests.
 
+.PARAMETER Plan
+    Path to a previously generated plan file. When provided, apply executes
+    that exact plan without recomputing actions. Mutually exclusive with -Manifest.
+
 .PARAMETER DryRun
     Preview changes without applying them.
 
@@ -124,6 +128,9 @@ param(
 
     [Parameter(Mandatory = $false)]
     [switch]$PruneMissingApps,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Plan,
 
     [Parameter(Mandatory = $false)]
     [switch]$DryRun,
@@ -269,20 +276,41 @@ function Invoke-ProvisioningPlan {
 function Invoke-ProvisioningApply {
     param(
         [string]$ManifestPath,
+        [string]$PlanPath,
         [bool]$IsDryRun,
         [bool]$IsEnableRestore = $false
     )
     
-    if (-not $ManifestPath) {
-        Write-Host "[ERROR] -Manifest is required for 'apply' command." -ForegroundColor Red
+    # Validate: -Manifest and -Plan are mutually exclusive
+    if ($ManifestPath -and $PlanPath) {
+        Write-Host "[ERROR] -Manifest and -Plan are mutually exclusive. Use one or the other." -ForegroundColor Red
         Write-Host ""
-        Write-Host "Usage: .\cli.ps1 -Command apply -Manifest <path> [-DryRun] [-EnableRestore]" -ForegroundColor Yellow
+        Write-Host "Usage:" -ForegroundColor Yellow
+        Write-Host "  .\cli.ps1 -Command apply -Manifest <path> [-DryRun] [-EnableRestore]" -ForegroundColor Yellow
+        Write-Host "  .\cli.ps1 -Command apply -Plan <path> [-DryRun] [-EnableRestore]" -ForegroundColor Yellow
+        return $null
+    }
+    
+    # Validate: need either -Manifest or -Plan
+    if (-not $ManifestPath -and -not $PlanPath) {
+        Write-Host "[ERROR] Either -Manifest or -Plan is required for 'apply' command." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Usage:" -ForegroundColor Yellow
+        Write-Host "  .\cli.ps1 -Command apply -Manifest <path> [-DryRun] [-EnableRestore]" -ForegroundColor Yellow
+        Write-Host "  .\cli.ps1 -Command apply -Plan <path> [-DryRun] [-EnableRestore]" -ForegroundColor Yellow
         return $null
     }
     
     . "$script:ProvisioningRoot\engine\apply.ps1"
     
-    $result = Invoke-Apply -ManifestPath $ManifestPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore
+    if ($PlanPath) {
+        # Apply from pre-generated plan
+        $result = Invoke-ApplyFromPlan -PlanPath $PlanPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore
+    } else {
+        # Normal apply: generate plan then execute
+        $result = Invoke-Apply -ManifestPath $ManifestPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore
+    }
+    
     return $result
 }
 
@@ -498,7 +526,7 @@ switch ($Command) {
             -IsPruneMissingApps $PruneMissingApps.IsPresent
     }
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
-    "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent }
+    "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent }
     "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }
     "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest }
     "doctor"  { Invoke-ProvisioningDoctor }
