@@ -399,6 +399,7 @@ function Get-ConfigModulesForInstalledApps {
                 matchReasons = $matchReasons
                 hasRestore = ($module.restore -and $module.restore.Count -gt 0)
                 hasVerify = ($module.verify -and $module.verify.Count -gt 0)
+                hasCapture = ($module.capture -and $module.capture.files -and $module.capture.files.Count -gt 0)
                 sensitivity = $module.sensitivity
             }
         }
@@ -438,6 +439,7 @@ function Format-ConfigModuleDiscoveryOutput {
         $features = @()
         if ($match.hasVerify) { $features += "verify" }
         if ($match.hasRestore) { $features += "restore" }
+        if ($match.hasCapture) { $features += "capture" }
         $featureStr = if ($features.Count -gt 0) { " [$($features -join ', ')]" } else { "" }
         
         [void]$sb.AppendLine("  - $($match.moduleId): $($match.displayName)$featureStr")
