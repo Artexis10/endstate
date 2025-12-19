@@ -106,6 +106,9 @@ param(
     [string]$Command,
 
     [Parameter(Mandatory = $false)]
+    [switch]$Version,
+
+    [Parameter(Mandatory = $false)]
     [string]$Manifest,
 
     [Parameter(Mandatory = $false)]
@@ -171,6 +174,50 @@ param(
 
 $ErrorActionPreference = "Stop"
 $script:ProvisioningRoot = $PSScriptRoot
+
+function Get-ProvisioningVersion {
+    <#
+    .SYNOPSIS
+        Returns the current version of the provisioning CLI.
+    .DESCRIPTION
+        If VERSION.txt exists (release build), returns its content.
+        Otherwise returns dev version: 0.0.0-dev+<short git sha>
+    #>
+    $versionFile = Join-Path $script:ProvisioningRoot "VERSION.txt"
+    
+    if (Test-Path $versionFile) {
+        $version = (Get-Content -Path $versionFile -Raw).Trim()
+        return $version
+    }
+    
+    # Dev version: try to get git sha
+    try {
+        $gitSha = git rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $gitSha) {
+            return "0.0.0-dev+$gitSha"
+        }
+    } catch {
+        # Git not available
+    }
+    
+    return "0.0.0-dev"
+}
+
+function Get-GitSha {
+    <#
+    .SYNOPSIS
+        Returns the current git commit SHA (short form), or $null if unavailable.
+    #>
+    try {
+        $gitSha = git rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $gitSha) {
+            return $gitSha.Trim()
+        }
+    } catch {
+        # Git not available
+    }
+    return $null
+}
 
 function Show-Help {
     Write-Host ""
@@ -548,6 +595,12 @@ function Invoke-ProvisioningRestore {
 }
 
 # Main execution
+if ($Version.IsPresent) {
+    $ver = Get-ProvisioningVersion
+    Write-Host $ver
+    exit 0
+}
+
 if (-not $Command) {
     Show-Help
     exit 0

@@ -1,0 +1,139 @@
+# Release workflow - triggered on version tags (vX.Y.Z)
+# Creates GitHub Release with versioned artifact
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  test:
+    name: Unit Tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run unit tests
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_pester.ps1 -Path tests/unit
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+          retention-days: 7
+
+  release:
+    name: Build and Release
+    runs-on: windows-latest
+    needs: test
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          # Remove 'v' prefix if present for clean version
+          $version = $tag -replace '^v', ''
+          Write-Host "Tag: $tag"
+          Write-Host "Version: $version"
+          echo "TAG=$tag" >> $env:GITHUB_OUTPUT
+          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Stamp version
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.TAG }}"
+          Set-Content -Path "provisioning/VERSION.txt" -Value $version -NoNewline
+          Write-Host "Stamped VERSION.txt with: $version"
+
+      - name: Verify version stamping
+        shell: pwsh
+        run: |
+          $stamped = Get-Content -Path "provisioning/VERSION.txt" -Raw
+          Write-Host "VERSION.txt content: $stamped"
+          # Verify CLI reads version correctly
+          $cliVersion = & pwsh -NoProfile -File provisioning/cli.ps1 -Version
+          Write-Host "CLI --version output: $cliVersion"
+
+      - name: Create release package
+        id: package
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.TAG }}"
+          $artifactName = "automation-suite-$version"
+          $zipPath = "$artifactName.zip"
+          
+          # Create staging directory
+          $stagingDir = "release-staging/$artifactName"
+          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
+          
+          # Copy provisioning core (engine, drivers, restorers, verifiers, cli)
+          Copy-Item -Path "provisioning/cli.ps1" -Destination $stagingDir
+          Copy-Item -Path "provisioning/VERSION.txt" -Destination $stagingDir
+          Copy-Item -Path "provisioning/README.md" -Destination "$stagingDir/PROVISIONING-README.md"
+          Copy-Item -Path "provisioning/engine" -Destination "$stagingDir/engine" -Recurse
+          Copy-Item -Path "provisioning/drivers" -Destination "$stagingDir/drivers" -Recurse
+          Copy-Item -Path "provisioning/restorers" -Destination "$stagingDir/restorers" -Recurse
+          Copy-Item -Path "provisioning/verifiers" -Destination "$stagingDir/verifiers" -Recurse
+          
+          # Copy manifests structure (examples and includes only, not local)
+          New-Item -ItemType Directory -Path "$stagingDir/manifests" -Force | Out-Null
+          if (Test-Path "provisioning/manifests/examples") {
+            Copy-Item -Path "provisioning/manifests/examples" -Destination "$stagingDir/manifests/examples" -Recurse
+          }
+          if (Test-Path "provisioning/manifests/includes") {
+            Copy-Item -Path "provisioning/manifests/includes" -Destination "$stagingDir/manifests/includes" -Recurse
+          }
+          
+          # Copy top-level entrypoint and docs
+          Copy-Item -Path "autosuite.ps1" -Destination $stagingDir
+          Copy-Item -Path "README.md" -Destination $stagingDir
+          Copy-Item -Path "VISION.md" -Destination $stagingDir
+          
+          # Create empty directories for runtime outputs (with .gitkeep)
+          @("logs", "plans", "state") | ForEach-Object {
+            $dir = "$stagingDir/$_"
+            New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            Set-Content -Path "$dir/.gitkeep" -Value ""
+          }
+          
+          # List contents for verification
+          Write-Host "Release package contents:"
+          Get-ChildItem -Path $stagingDir -Recurse | ForEach-Object {
+            $relativePath = $_.FullName.Replace((Resolve-Path $stagingDir).Path, "")
+            Write-Host "  $relativePath"
+          }
+          
+          # Create zip
+          Compress-Archive -Path "$stagingDir/*" -DestinationPath $zipPath -Force
+          
+          Write-Host "Created: $zipPath"
+          echo "ZIP_PATH=$zipPath" >> $env:GITHUB_OUTPUT
+          echo "ARTIFACT_NAME=$artifactName" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: ${{ steps.version.outputs.TAG }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.package.outputs.ZIP_PATH }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

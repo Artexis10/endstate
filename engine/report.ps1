@@ -7,6 +7,43 @@
     with summary counts, failed actions, and file paths.
 #>
 
+$script:ReportRoot = $PSScriptRoot | Split-Path -Parent
+
+function Get-ReportVersion {
+    <#
+    .SYNOPSIS
+        Returns the current version for report metadata.
+    #>
+    $versionFile = Join-Path $script:ReportRoot "VERSION.txt"
+    
+    if (Test-Path $versionFile) {
+        return (Get-Content -Path $versionFile -Raw).Trim()
+    }
+    
+    try {
+        $gitSha = git rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $gitSha) {
+            return "0.0.0-dev+$gitSha"
+        }
+    } catch { }
+    
+    return "0.0.0-dev"
+}
+
+function Get-ReportGitSha {
+    <#
+    .SYNOPSIS
+        Returns the current git SHA for report metadata.
+    #>
+    try {
+        $gitSha = git rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $gitSha) {
+            return $gitSha.Trim()
+        }
+    } catch { }
+    return $null
+}
+
 function Get-StateFiles {
     <#
     .SYNOPSIS
@@ -228,6 +265,15 @@ function Format-ReportHuman {
         }
     }
     
+    # Version info
+    $output += ""
+    $output += "Version Info:"
+    $output += "  Autosuite: $(Get-ReportVersion)"
+    $gitSha = Get-ReportGitSha
+    if ($gitSha) {
+        $output += "  Git SHA: $gitSha"
+    }
+    
     # File paths
     $output += ""
     $output += "Files:"
@@ -291,6 +337,9 @@ function Format-ReportJson {
         [array]$States
     )
     
+    $autosuiteVersion = Get-ReportVersion
+    $gitSha = Get-ReportGitSha
+    
     $reports = @()
     foreach ($state in $States) {
         $report = [ordered]@{
@@ -309,6 +358,8 @@ function Format-ReportJson {
                 failed = if ($state.summary.failed) { $state.summary.failed } else { 0 }
             }
             stateFile = $state._filePath
+            autosuite_version = $autosuiteVersion
+            git_sha = $gitSha
         }
         $reports += $report
     }
