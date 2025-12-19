@@ -11,6 +11,9 @@
 # Track included files to detect circular includes
 $script:IncludeStack = @()
 
+# Flag to control config module expansion (can be disabled for raw loading)
+$script:ExpandConfigModules = $true
+
 function Read-Manifest {
     <#
     .SYNOPSIS
@@ -18,16 +21,37 @@ function Read-Manifest {
     .DESCRIPTION
         Supports .jsonc, .json, and .yaml/.yml formats.
         Resolves includes recursively with circular dependency detection.
+        Expands configModules into restore/verify items (after includes resolution).
+    .PARAMETER Path
+        Path to the manifest file.
+    .PARAMETER SkipConfigModuleExpansion
+        If true, skip config module expansion. Useful for raw manifest inspection.
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [string]$Path
+        [string]$Path,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$SkipConfigModuleExpansion
     )
     
     # Reset include stack for top-level call
     $script:IncludeStack = @()
     
     $manifest = Read-ManifestInternal -Path $Path
+    
+    # Expand configModules after includes are resolved (unless skipped)
+    if (-not $SkipConfigModuleExpansion -and $script:ExpandConfigModules) {
+        if ($manifest.configModules -and $manifest.configModules.Count -gt 0) {
+            # Import config-modules if not already loaded
+            $configModulesPath = Join-Path $PSScriptRoot "config-modules.ps1"
+            if (Test-Path $configModulesPath) {
+                . $configModulesPath
+                $manifest = Expand-ManifestConfigModules -Manifest $manifest
+            }
+        }
+    }
+    
     return $manifest
 }
 
@@ -401,7 +425,7 @@ function Normalize-Manifest {
     if (-not $Manifest.ContainsKey('name') -or $null -eq $Manifest.name) { $Manifest.name = "" }
     
     # Ensure array fields default to empty arrays and are always arrays (not single objects)
-    foreach ($arrayKey in @('apps', 'restore', 'verify', 'includes')) {
+    foreach ($arrayKey in @('apps', 'restore', 'verify', 'includes', 'configModules')) {
         if (-not $Manifest.ContainsKey($arrayKey) -or $null -eq $Manifest[$arrayKey]) {
             $Manifest[$arrayKey] = @()
         } else {

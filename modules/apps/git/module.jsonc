@@ -1,0 +1,25 @@
+{
+  // Config Module: Git
+  // Provides verify/restore configuration for Git version control
+  
+  "id": "apps.git",
+  "displayName": "Git",
+  "sensitivity": "low",
+  
+  "matches": {
+    "winget": ["Git.Git"],
+    "exe": ["git.exe"],
+    "uninstallDisplayName": ["^Git\\b", "^Git version"]
+  },
+  
+  "verify": [
+    { "type": "command-exists", "command": "git" },
+    { "type": "file-exists", "path": "~/.gitconfig" }
+  ],
+  
+  "restore": [
+    // Restore user's .gitconfig
+    // Note: Payload paths should be customized per-user or left as placeholders
+    // { "type": "copy", "source": "./payloads/.gitconfig", "target": "~/.gitconfig", "backup": true }
+  ]
+}

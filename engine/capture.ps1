@@ -281,6 +281,29 @@ function Invoke-Capture {
             Write-ManualIncludeTemplate -Path $manualIncludePath -ProfileName $Profile -Discoveries $discoveredItems
             Write-ProvisioningLog "Generated manual include: $manualIncludePath" -Level SUCCESS
         }
+        
+        # Config module discovery mapping
+        Write-ProvisioningSection "Config Modules Available"
+        $configModulesPath = Join-Path $PSScriptRoot "config-modules.ps1"
+        if (Test-Path $configModulesPath) {
+            . $configModulesPath
+            $moduleMatches = Get-ConfigModulesForInstalledApps -WingetInstalledIds $wingetInstalledIds -DiscoveredItems $discoveredItems
+            
+            if ($moduleMatches.Count -gt 0) {
+                Write-ProvisioningLog "Config modules available for detected apps:" -Level INFO
+                $formattedOutput = Format-ConfigModuleDiscoveryOutput -Matches $moduleMatches
+                foreach ($line in ($formattedOutput -split "`n")) {
+                    if ($line.Trim()) {
+                        Write-ProvisioningLog $line -Level INFO
+                    }
+                }
+                Write-Host ""
+                Write-Host "To use these modules, add to your manifest:" -ForegroundColor Yellow
+                Write-Host "  `"configModules`": [`"$($moduleMatches[0].moduleId)`"]" -ForegroundColor DarkGray
+            } else {
+                Write-ProvisioningLog "No config modules available for detected apps" -Level INFO
+            }
+        }
     }
     
     # Build manifest

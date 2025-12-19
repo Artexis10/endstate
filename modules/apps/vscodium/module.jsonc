@@ -1,0 +1,25 @@
+{
+  // Config Module: VSCodium
+  // Provides verify/restore configuration for VSCodium (open-source VS Code)
+  
+  "id": "apps.vscodium",
+  "displayName": "VSCodium",
+  "sensitivity": "low",
+  
+  "matches": {
+    "winget": ["VSCodium.VSCodium"],
+    "exe": ["codium.exe"],
+    "uninstallDisplayName": ["^VSCodium"]
+  },
+  
+  "verify": [
+    { "type": "command-exists", "command": "codium" },
+    { "type": "file-exists", "path": "%APPDATA%\\VSCodium\\User\\settings.json" }
+  ],
+  
+  "restore": [
+    // Restore VSCodium user settings
+    // Note: Payload paths should be customized per-user or left as placeholders
+    // { "type": "merge", "format": "json", "source": "./payloads/settings.json", "target": "%APPDATA%\\VSCodium\\User\\settings.json", "backup": true }
+  ]
+}
