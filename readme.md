@@ -1,12 +1,14 @@
 # Autosuite
 
-Declarative machine provisioning and configuration management — rebuild your machine safely, repeatably, and without guesswork.
+**Canonical home of the Autosuite CLI** — Declarative machine provisioning and configuration management. Rebuild your machine safely, repeatably, and without guesswork.
 
 **Author:** Hugo Ander Kivi  
 **Primary Language:** PowerShell  
 **Status:** MVP — functional, evolving
 
 [![CI](https://github.com/Artexis10/autosuite/actions/workflows/ci.yml/badge.svg)](https://github.com/Artexis10/autosuite/actions/workflows/ci.yml)
+
+> **Note:** This repository is the canonical home of the Autosuite CLI. The CLI was previously part of the [automation-suite](https://github.com/Artexis10/automation-suite) repository but has been extracted into this standalone project for independent development and versioning.
 
 ---
 
@@ -56,7 +58,8 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 
 ```
 autosuite/
-├── cli.ps1             # CLI entrypoint
+├── autosuite.ps1       # Main CLI entrypoint (root orchestrator)
+├── cli.ps1             # Provisioning subsystem CLI
 ├── engine/             # Core orchestration logic
 ├── drivers/            # Software installation adapters (winget, apt, brew)
 ├── restorers/          # Configuration restoration modules
@@ -90,31 +93,37 @@ Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
 
 ```powershell
 # 1. Capture current machine state
-.\cli.ps1 capture -OutManifest manifests/local/my-machine.jsonc
+.\autosuite.ps1 capture
 
 # 2. Preview what would be applied (dry-run)
-.\cli.ps1 apply -Manifest manifests/local/my-machine.jsonc -DryRun
+.\autosuite.ps1 apply -Manifest manifests/local/my-machine.jsonc -DryRun
 
 # 3. Apply the manifest
-.\cli.ps1 apply -Manifest manifests/local/my-machine.jsonc
+.\autosuite.ps1 apply -Manifest manifests/local/my-machine.jsonc
 
 # 4. Verify desired state is achieved
-.\cli.ps1 verify -Manifest manifests/local/my-machine.jsonc
+.\autosuite.ps1 verify -Manifest manifests/local/my-machine.jsonc
 
 # 5. Check environment health
-.\cli.ps1 doctor
+.\autosuite.ps1 doctor
+
+# 6. Install to PATH for global access
+.\autosuite.ps1 bootstrap
+# Now you can run: autosuite <command> from anywhere
 ```
 
 ### CLI Commands
 
 | Command | Description |
 |---------|-------------|
+| `bootstrap` | Install autosuite command to user PATH for global access |
 | `capture` | Capture current machine state into a manifest |
 | `plan` | Generate execution plan from manifest without applying |
 | `apply` | Execute the plan (with optional `-DryRun`) |
 | `verify` | Check current state against manifest without modifying |
 | `doctor` | Diagnose environment issues (missing drivers, permissions, etc.) |
 | `report` | Show history of previous runs and their outcomes |
+| `state` | Manage autosuite state (subcommands: reset, export, import) |
 
 ---
 
