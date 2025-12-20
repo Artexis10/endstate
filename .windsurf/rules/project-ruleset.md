@@ -173,6 +173,16 @@ Standard error codes for programmatic handling:
 
 ---
 
+## GUI Development Prerequisites (Windows)
+
+Autosuite GUI is built with Tauri and requires the following on Windows:
+
+- **Rust** via [rustup](https://rustup.rs/) (provides `cargo` and `rustc`)
+- **Microsoft Visual C++ Build Tools** with MSVC and Windows SDK
+- **Node.js** (v18+) and npm
+
+These are required for Tauri's native compilation. See the [Tauri prerequisites guide](https://tauri.app/start/prerequisites/) for details.
+
 ## References
 
 - [CLI JSON Contract](../../docs/cli-json-contract.md) - Full schema specification
