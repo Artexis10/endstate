@@ -332,7 +332,7 @@ function Format-ReportCompact {
 function Format-ReportJson {
     <#
     .SYNOPSIS
-        Format report(s) as JSON for machine-readable output.
+        Format report(s) as JSON for machine-readable output using standard envelope.
     .PARAMETER States
         Array of state objects.
     #>
@@ -341,8 +341,8 @@ function Format-ReportJson {
         [array]$States
     )
     
-    $autosuiteVersion = Get-ReportVersion
-    $gitSha = Get-ReportGitSha
+    # Import json-output module for envelope
+    . "$PSScriptRoot\json-output.ps1"
     
     $reports = @()
     foreach ($state in $States) {
@@ -362,16 +362,16 @@ function Format-ReportJson {
                 failed = if ($state.summary.failed) { $state.summary.failed } else { 0 }
             }
             stateFile = $state._filePath
-            autosuite_version = $autosuiteVersion
-            git_sha = $gitSha
         }
         $reports += $report
     }
     
-    if ($reports.Count -eq 1) {
-        return $reports[0] | ConvertTo-Json -Depth 10
+    $data = [ordered]@{
+        reports = $reports
     }
-    return $reports | ConvertTo-Json -Depth 10
+    
+    $envelope = New-JsonEnvelope -Command "report" -Success $true -Data $data
+    return ConvertTo-JsonOutput -Envelope $envelope
 }
 
 function Write-ReportHuman {

@@ -25,7 +25,10 @@ function Invoke-Apply {
         [switch]$DryRun,
         
         [Parameter(Mandatory = $false)]
-        [switch]$EnableRestore
+        [switch]$EnableRestore,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$OutputJson
     )
     
     $runId = Get-RunId
@@ -189,24 +192,62 @@ function Invoke-Apply {
     Write-ProvisioningSection "Results"
     Close-ProvisioningLog -SuccessCount $successCount -SkipCount $skipCount -FailCount $failCount
     
-    if ($DryRun) {
-        Write-Host ""
-        Write-Host "Dry-run complete. No changes were made." -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "To apply for real:" -ForegroundColor Yellow
-        Write-Host "  .\cli.ps1 -Command apply -Manifest `"$ManifestPath`""
-        Write-Host ""
-    } else {
-        Write-Host ""
-        if ($failCount -eq 0) {
-            Write-Host "Apply complete!" -ForegroundColor Green
-        } else {
-            Write-Host "Apply completed with $failCount failure(s)." -ForegroundColor Yellow
+    # Get state file path
+    $stateDir = Join-Path $PSScriptRoot "..\state"
+    $stateFile = Join-Path $stateDir "$runId.json"
+    
+    if ($OutputJson) {
+        # Output JSON envelope
+        . "$PSScriptRoot\json-output.ps1"
+        
+        $data = [ordered]@{
+            dryRun = $DryRun.IsPresent
+            manifest = [ordered]@{
+                path = $ManifestPath
+                name = Split-Path -Leaf $ManifestPath
+                hash = $manifestHash
+            }
+            summary = [ordered]@{
+                total = $actionResults.Count
+                success = $successCount
+                skipped = $skipCount
+                failed = $failCount
+            }
+            actions = @($actionResults | ForEach-Object {
+                [ordered]@{
+                    type = $_.action.type
+                    id = $_.action.id
+                    ref = $_.action.ref
+                    status = $_.status
+                    message = $_.message
+                }
+            })
+            stateFile = $stateFile
+            logFile = $logFile
         }
-        Write-Host ""
-        Write-Host "To verify the result:" -ForegroundColor Yellow
-        Write-Host "  .\cli.ps1 -Command verify -Manifest `"$ManifestPath`""
-        Write-Host ""
+        
+        $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success ($failCount -eq 0) -Data $data
+        Write-JsonOutput -Envelope $envelope
+    } else {
+        if ($DryRun) {
+            Write-Host ""
+            Write-Host "Dry-run complete. No changes were made." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "To apply for real:" -ForegroundColor Yellow
+            Write-Host "  .\cli.ps1 -Command apply -Manifest `"$ManifestPath`""
+            Write-Host ""
+        } else {
+            Write-Host ""
+            if ($failCount -eq 0) {
+                Write-Host "Apply complete!" -ForegroundColor Green
+            } else {
+                Write-Host "Apply completed with $failCount failure(s)." -ForegroundColor Yellow
+            }
+            Write-Host ""
+            Write-Host "To verify the result:" -ForegroundColor Yellow
+            Write-Host "  .\cli.ps1 -Command verify -Manifest `"$ManifestPath`""
+            Write-Host ""
+        }
     }
     
     return @{
@@ -232,6 +273,8 @@ function Invoke-ApplyFromPlan {
         Preview what would happen without making changes.
     .PARAMETER EnableRestore
         Enable restore actions (opt-in for safety).
+    .PARAMETER OutputJson
+        Output results as JSON with standard envelope.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -241,7 +284,10 @@ function Invoke-ApplyFromPlan {
         [switch]$DryRun,
         
         [Parameter(Mandatory = $false)]
-        [switch]$EnableRestore
+        [switch]$EnableRestore,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$OutputJson
     )
     
     # Validate plan file exists
@@ -441,21 +487,61 @@ function Invoke-ApplyFromPlan {
     Write-ProvisioningSection "Results"
     Close-ProvisioningLog -SuccessCount $successCount -SkipCount $skippedCount -FailCount $failCount
     
-    if ($DryRun) {
-        Write-Host ""
-        Write-Host "Dry-run complete. No changes were made." -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "To apply for real:" -ForegroundColor Yellow
-        Write-Host "  .\cli.ps1 -Command apply -Plan `"$PlanPath`""
-        Write-Host ""
-    } else {
-        Write-Host ""
-        if ($failCount -eq 0) {
-            Write-Host "Apply from plan complete!" -ForegroundColor Green
-        } else {
-            Write-Host "Apply from plan completed with $failCount failure(s)." -ForegroundColor Yellow
+    # Get state file path
+    $stateDir = Join-Path $PSScriptRoot "..\state"
+    $stateFile = Join-Path $stateDir "$runId.json"
+    
+    if ($OutputJson) {
+        # Output JSON envelope
+        . "$PSScriptRoot\json-output.ps1"
+        
+        $data = [ordered]@{
+            dryRun = $DryRun.IsPresent
+            originalPlanRunId = $plan.runId
+            planPath = $PlanPath
+            manifest = [ordered]@{
+                path = $manifestPath
+                name = Split-Path -Leaf $manifestPath
+                hash = $manifestHash
+            }
+            summary = [ordered]@{
+                total = $actionResults.Count
+                success = $successCount
+                skipped = $skippedCount
+                failed = $failCount
+            }
+            actions = @($actionResults | ForEach-Object {
+                [ordered]@{
+                    type = $_.action.type
+                    id = $_.action.id
+                    ref = $_.action.ref
+                    status = $_.status
+                    message = $_.message
+                }
+            })
+            stateFile = $stateFile
+            logFile = $logFile
         }
-        Write-Host ""
+        
+        $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success ($failCount -eq 0) -Data $data
+        Write-JsonOutput -Envelope $envelope
+    } else {
+        if ($DryRun) {
+            Write-Host ""
+            Write-Host "Dry-run complete. No changes were made." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "To apply for real:" -ForegroundColor Yellow
+            Write-Host "  .\cli.ps1 -Command apply -Plan `"$PlanPath`""
+            Write-Host ""
+        } else {
+            Write-Host ""
+            if ($failCount -eq 0) {
+                Write-Host "Apply from plan complete!" -ForegroundColor Green
+            } else {
+                Write-Host "Apply from plan completed with $failCount failure(s)." -ForegroundColor Yellow
+            }
+            Write-Host ""
+        }
     }
     
     return @{

@@ -102,7 +102,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet("capture", "plan", "apply", "verify", "doctor", "report", "diff", "restore")]
+    [ValidateSet("capture", "plan", "apply", "verify", "doctor", "report", "diff", "restore", "capabilities")]
     [string]$Command,
 
     [Parameter(Mandatory = $false)]
@@ -248,6 +248,7 @@ function Show-Help {
     Write-Host "    doctor    Diagnose environment issues"
     Write-Host "    report    Show history of previous runs (use -Latest, -Last <n>, or -RunId <id>)"
     Write-Host "    diff      Compare two plan/run artifacts"
+    Write-Host "    capabilities  Report CLI capabilities for GUI integration"
     Write-Host ""
     Write-Host "OPTIONS:" -ForegroundColor Yellow
     Write-Host "    -Manifest <path>       Path to manifest file (JSONC/JSON/YAML)"
@@ -257,7 +258,7 @@ function Show-Help {
     Write-Host "    -EnableRestore         Enable restore operations (opt-in for safety)"
     Write-Host "    -FileA <path>          First artifact file for diff"
     Write-Host "    -FileB <path>          Second artifact file for diff"
-    Write-Host "    -Json                  Output diff/report as JSON"
+    Write-Host "    -Json                  Output as JSON (capabilities, report, diff, apply, verify)"
     Write-Host ""
     Write-Host "REPORT OPTIONS:" -ForegroundColor Yellow
     Write-Host "    -Latest                Show most recent run (default)"
@@ -366,7 +367,8 @@ function Invoke-ProvisioningApply {
         [string]$ManifestPath,
         [string]$PlanPath,
         [bool]$IsDryRun,
-        [bool]$IsEnableRestore = $false
+        [bool]$IsEnableRestore = $false,
+        [bool]$OutputJson = $false
     )
     
     # Validate: -Manifest and -Plan are mutually exclusive
@@ -393,17 +395,20 @@ function Invoke-ProvisioningApply {
     
     if ($PlanPath) {
         # Apply from pre-generated plan
-        $result = Invoke-ApplyFromPlan -PlanPath $PlanPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore
+        $result = Invoke-ApplyFromPlan -PlanPath $PlanPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore -OutputJson:$OutputJson
     } else {
         # Normal apply: generate plan then execute
-        $result = Invoke-Apply -ManifestPath $ManifestPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore
+        $result = Invoke-Apply -ManifestPath $ManifestPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore -OutputJson:$OutputJson
     }
     
     return $result
 }
 
 function Invoke-ProvisioningVerify {
-    param([string]$ManifestPath)
+    param(
+        [string]$ManifestPath,
+        [bool]$OutputJson = $false
+    )
     
     if (-not $ManifestPath) {
         Write-Host "[ERROR] -Manifest is required for 'verify' command." -ForegroundColor Red
@@ -414,7 +419,7 @@ function Invoke-ProvisioningVerify {
     
     . "$script:ProvisioningRoot\engine\verify.ps1"
     
-    $result = Invoke-Verify -ManifestPath $ManifestPath
+    $result = Invoke-Verify -ManifestPath $ManifestPath -OutputJson:$OutputJson
     return $result
 }
 
@@ -609,6 +614,47 @@ function Invoke-ProvisioningRestore {
     return $result
 }
 
+function Invoke-ProvisioningCapabilities {
+    <#
+    .SYNOPSIS
+        Returns CLI capabilities for GUI handshake/compatibility checking.
+    #>
+    param(
+        [bool]$OutputJson = $true
+    )
+    
+    . "$script:ProvisioningRoot\engine\json-output.ps1"
+    
+    $capabilitiesData = Get-CapabilitiesData
+    
+    if ($OutputJson) {
+        $envelope = New-JsonEnvelope -Command "capabilities" -Success $true -Data $capabilitiesData
+        Write-JsonOutput -Envelope $envelope
+    } else {
+        # Human-readable output
+        Write-Host ""
+        Write-Host "Autosuite CLI Capabilities" -ForegroundColor Cyan
+        Write-Host "==========================" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "CLI Version: $(Get-AutosuiteVersion)" -ForegroundColor White
+        Write-Host "Schema Version: $(Get-SchemaVersion)" -ForegroundColor White
+        Write-Host ""
+        Write-Host "Supported Commands:" -ForegroundColor Yellow
+        foreach ($cmd in $capabilitiesData.commands.Keys) {
+            $cmdInfo = $capabilitiesData.commands[$cmd]
+            if ($cmdInfo.supported) {
+                Write-Host "  - $cmd" -ForegroundColor Green
+            }
+        }
+        Write-Host ""
+        Write-Host "Platform: $($capabilitiesData.platform.os)" -ForegroundColor White
+        Write-Host "Drivers: $($capabilitiesData.platform.drivers -join ', ')" -ForegroundColor White
+        Write-Host ""
+    }
+    
+    return $capabilitiesData
+}
+
 # Main execution
 if ($Version.IsPresent) {
     $ver = Get-ProvisioningVersion
@@ -640,11 +686,12 @@ switch ($Command) {
             -PayloadOutPath $PayloadOut
     }
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
-    "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent }
+    "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent -OutputJson $Json.IsPresent }
     "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }
-    "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest }
+    "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest -OutputJson $Json.IsPresent }
     "doctor"  { Invoke-ProvisioningDoctor }
     "report"  { Invoke-ProvisioningReport -ReportRunId $RunId -IsLatest $Latest.IsPresent -LastN $Last -OutputJson $Json.IsPresent }
     "diff"    { Invoke-ProvisioningDiff -FileAPath $FileA -FileBPath $FileB -OutputJson $Json.IsPresent }
+    "capabilities" { Invoke-ProvisioningCapabilities -OutputJson $Json.IsPresent }
     default   { Show-Help }
 }

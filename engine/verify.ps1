@@ -20,7 +20,10 @@
 function Invoke-Verify {
     param(
         [Parameter(Mandatory = $true)]
-        [string]$ManifestPath
+        [string]$ManifestPath,
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$OutputJson
     )
     
     $runId = Get-RunId
@@ -144,16 +147,50 @@ function Invoke-Verify {
     $stateFile = Join-Path $stateDir "verify-$runId.json"
     $verifyState | ConvertTo-Json -Depth 10 | Out-File -FilePath $stateFile -Encoding UTF8
     
-    Write-Host ""
-    if ($failCount -eq 0) {
-        Write-Host "All verifications passed!" -ForegroundColor Green
+    if ($OutputJson) {
+        # Output JSON envelope
+        . "$PSScriptRoot\json-output.ps1"
+        
+        $data = [ordered]@{
+            manifest = [ordered]@{
+                path = $ManifestPath
+                name = $manifest.name
+            }
+            summary = [ordered]@{
+                total = $passCount + $failCount
+                pass = $passCount
+                fail = $failCount
+            }
+            results = @($results | ForEach-Object {
+                $item = [ordered]@{
+                    type = $_.type
+                    status = $_.status
+                }
+                if ($_.verifyType) { $item.verifyType = $_.verifyType }
+                if ($_.id) { $item.id = $_.id }
+                if ($_.ref) { $item.ref = $_.ref }
+                if ($_.path) { $item.path = $_.path }
+                if ($_.command) { $item.command = $_.command }
+                if ($_.message) { $item.message = $_.message }
+                $item
+            })
+            stateFile = $stateFile
+        }
+        
+        $envelope = New-JsonEnvelope -Command "verify" -RunId $runId -Success ($failCount -eq 0) -Data $data
+        Write-JsonOutput -Envelope $envelope
     } else {
-        Write-Host "$failCount verification(s) failed." -ForegroundColor Yellow
         Write-Host ""
-        Write-Host "To fix missing items:" -ForegroundColor Yellow
-        Write-Host "  .\cli.ps1 -Command apply -Manifest `"$ManifestPath`""
+        if ($failCount -eq 0) {
+            Write-Host "All verifications passed!" -ForegroundColor Green
+        } else {
+            Write-Host "$failCount verification(s) failed." -ForegroundColor Yellow
+            Write-Host ""
+            Write-Host "To fix missing items:" -ForegroundColor Yellow
+            Write-Host "  .\cli.ps1 -Command apply -Manifest `"$ManifestPath`""
+        }
+        Write-Host ""
     }
-    Write-Host ""
     
     return @{
         RunId = $runId
