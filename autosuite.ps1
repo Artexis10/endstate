@@ -132,6 +132,14 @@ param(
 $ErrorActionPreference = "Stop"
 $script:AutosuiteRoot = $PSScriptRoot
 
+# Normalize GNU-style flags to PowerShell convention
+# This allows `autosuite capabilities --json` to work alongside `-Json`
+# Check the original command line for --json
+$commandLine = $MyInvocation.Line
+if ($commandLine -match '\s--json(\s|$)') {
+    $Json = $true
+}
+
 function Get-AutosuiteVersion {
     <#
     .SYNOPSIS
@@ -646,14 +654,15 @@ function Show-Help {
     Write-Host "    .\autosuite.ps1 <command> [options]"
     Write-Host ""
     Write-Host "COMMANDS:" -ForegroundColor Yellow
-    Write-Host "    bootstrap Install autosuite command to user PATH"
-    Write-Host "    capture   Capture current machine state into a manifest"
-    Write-Host "    apply     Apply manifest to current machine"
-    Write-Host "    verify    Verify current state matches manifest"
-    Write-Host "    plan      Generate execution plan from manifest"
-    Write-Host "    report    Show state summary and drift"
-    Write-Host "    doctor    Diagnose environment issues"
-    Write-Host "    state     Manage autosuite state (subcommands: reset)"
+    Write-Host "    bootstrap     Install autosuite command to user PATH"
+    Write-Host "    capture       Capture current machine state into a manifest"
+    Write-Host "    apply         Apply manifest to current machine"
+    Write-Host "    verify        Verify current state matches manifest"
+    Write-Host "    plan          Generate execution plan from manifest"
+    Write-Host "    report        Show state summary and drift"
+    Write-Host "    doctor        Diagnose environment issues"
+    Write-Host "    state         Manage autosuite state (subcommands: reset, export, import)"
+    Write-Host "    capabilities  List available commands (use -Json for machine-readable output)"
     Write-Host ""
     Write-Host "CAPTURE OPTIONS:" -ForegroundColor Yellow
     Write-Host "    -Out <path>        Output path (overrides all defaults)"
@@ -2596,30 +2605,37 @@ switch ($Command) {
     }
     "capabilities" {
         # Output JSON list of available commands for GUI integration
-        $capabilities = @{
-            schemaVersion = 1
-            commands = @(
-                "bootstrap",
-                "capture",
-                "apply",
-                "plan",
-                "verify",
-                "report",
-                "doctor",
-                "state"
-            )
-            version = $script:VersionString
-        }
-        
-        if ($Json.IsPresent) {
-            $capabilities | ConvertTo-Json -Depth 10
+        if ($Json) {
+            # Standard CLI JSON envelope
+            $envelope = @{
+                schemaVersion = "1.0"
+                command = "capabilities"
+                success = $true
+                data = @{
+                    commands = @(
+                        "bootstrap",
+                        "capture",
+                        "apply",
+                        "plan",
+                        "verify",
+                        "report",
+                        "doctor",
+                        "state",
+                        "capabilities"
+                    )
+                    version = $script:VersionString
+                }
+                error = $null
+            }
+            $envelope | ConvertTo-Json -Depth 10
         } else {
             Write-Host "Available commands:" -ForegroundColor Cyan
-            foreach ($cmd in $capabilities.commands) {
+            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "report", "doctor", "state", "capabilities")
+            foreach ($cmd in $commands) {
                 Write-Host "  - $cmd" -ForegroundColor White
             }
             Write-Host ""
-            Write-Host "Version: $($capabilities.version)" -ForegroundColor Gray
+            Write-Host "Version: $($script:VersionString)" -ForegroundColor Gray
         }
         $exitCode = 0
     }

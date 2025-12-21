@@ -1932,3 +1932,30 @@ Describe "State Import" {
 }
 
 #endregion State Export/Import Tests
+
+#region Capabilities Command Tests
+
+Describe "Capabilities Command" {
+    It "Outputs valid JSON with -Json flag" {
+        $output = & $script:AutosuitePath capabilities -Json 6>&1 | Where-Object { $_ -is [string] -and $_ -match '^\s*\{' }
+        $json = $output -join "`n" | ConvertFrom-Json
+        
+        $json.schemaVersion | Should -Be "1.0"
+        $json.command | Should -Be "capabilities"
+        $json.success | Should -Be $true
+        $json.data.commands | Should -Contain "bootstrap"
+        $json.data.commands | Should -Contain "capabilities"
+        $json.data.version | Should -Not -BeNullOrEmpty
+    }
+    
+    It "Outputs valid JSON with --json flag (GNU-style)" {
+        $output = & $script:AutosuitePath capabilities --json 6>&1 | Where-Object { $_ -is [string] -and $_ -match '^\s*\{' }
+        $json = $output -join "`n" | ConvertFrom-Json
+        
+        $json.schemaVersion | Should -Be "1.0"
+        $json.command | Should -Be "capabilities"
+        $json.success | Should -Be $true
+    }
+}
+
+#endregion Capabilities Command Tests
