@@ -2584,8 +2584,8 @@ function Write-JsonEnvelope {
         error = $Error
     }
     
-    # Emit ONLY to stdout (stream 1) - no Write-Host, no Write-Information
-    $jsonOutput = $envelope | ConvertTo-Json -Depth 10 -Compress:$false
+    # Emit ONLY to stdout (stream 1) as SINGLE LINE - no Write-Host, no Write-Information
+    $jsonOutput = $envelope | ConvertTo-Json -Depth 10 -Compress
     Write-Output $jsonOutput
     
     # Set exit code

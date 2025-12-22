@@ -271,11 +271,12 @@ Commands that support `--json` flag for GUI integration:
 **GNU-style Flag Support:** All commands support both PowerShell-style flags (`-Json`, `-Profile`, `-Manifest`, `-Out`) and GNU-style double-dash flags (`--json`, `--profile`, `--manifest`, `--out`) for broader CLI compatibility.
 
 **JSON Mode Behavior:**
-- When `--json` or `-Json` is specified, the CLI emits a **JSON envelope as the last line of stdout**.
+- When `--json` or `-Json` is specified, the CLI emits a **JSON envelope as a single-line compressed JSON on the last line of stdout**.
 - Logs, banners, and progress messages may appear on stdout before the JSON envelope.
-- The JSON envelope is always the final line and is a single valid JSON object.
+- The JSON envelope is always the final payload and is a single line of valid JSON (using `ConvertTo-Json -Compress`).
 - On failure, the JSON envelope contains `success: false`, populated `error` object, and non-zero exit code.
-- GUIs should extract the last JSON object from stdout and fall back to exit code 0 for success if envelope is missing.
+- GUIs should scan stdout from bottom to top to find the first line starting with `{` that parses as valid JSON with `schemaVersion`, `command`, and `success` fields.
+- If no envelope is found but exit code is 0, GUIs should treat as success with a warning.
 
 ## Error Codes
 
