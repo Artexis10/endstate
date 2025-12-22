@@ -839,8 +839,14 @@ function Get-ProvisioningCliPath {
 function Resolve-ManifestPath {
     <#
     .SYNOPSIS
-        Resolve profile name to manifest path using repo root.
+        Resolve profile name or file path to manifest path.
     .DESCRIPTION
+        Accepts either:
+        1. A full or relative file path (contains path separator, has .json/.jsonc extension, or exists as file)
+           -> Returns the path as-is (resolved to absolute if relative)
+        2. A simple profile name
+           -> Resolves under repo manifests/ directory
+        
         Uses repo root from:
         1. $env:AUTOSUITE_ROOT (if set)
         2. Persisted repo-root.txt
@@ -848,6 +854,32 @@ function Resolve-ManifestPath {
     #>
     param([string]$ProfileName)
     
+    # Check if ProfileName is actually a file path
+    $isFilePath = $false
+    
+    # Heuristic 1: Contains path separator
+    if ($ProfileName -match '[/\\]') {
+        $isFilePath = $true
+    }
+    # Heuristic 2: Has .json/.jsonc/.json5 extension
+    elseif ($ProfileName -match '\.(jsonc?|json5)$') {
+        $isFilePath = $true
+    }
+    # Heuristic 3: File exists at this path
+    elseif (Test-Path -LiteralPath $ProfileName -PathType Leaf) {
+        $isFilePath = $true
+    }
+    
+    # If it's a file path, resolve to absolute and return
+    if ($isFilePath) {
+        if ([System.IO.Path]::IsPathRooted($ProfileName)) {
+            return $ProfileName
+        } else {
+            return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ProfileName)
+        }
+    }
+    
+    # Otherwise, treat as profile name and resolve under repo manifests/
     # Try to get configured repo root
     $repoRoot = Get-RepoRootPath
     

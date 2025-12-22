@@ -301,6 +301,26 @@ Standard error codes for programmatic handling:
 
 ## CLI Flag Styles
 
+### Manifest Path Resolution
+
+The `--profile` and `--manifest` parameters accept either:
+
+1. **Profile name** (simple string without path separators or file extensions)
+   - Resolved under the engine's `manifests/` directory
+   - Example: `--profile hugo-laptop` → `<repo>/manifests/hugo-laptop.jsonc`
+   - Backward compatible with existing workflows
+
+2. **File path** (detected by any of the following heuristics)
+   - Contains path separator (`/` or `\`)
+   - Has `.json`, `.jsonc`, or `.json5` extension
+   - Exists as a file at the specified path
+   - Can be absolute or relative (relative paths resolved to absolute)
+   - Example: `--profile "C:\Users\...\Setups\setup_2025-12-22.jsonc"` → used directly
+
+This allows GUIs to pass full file paths to scanned setups in user directories (e.g., `Documents\Autosuite\Setups`) while maintaining backward compatibility with profile name resolution.
+
+
+
 Autosuite CLI supports **two flag styles** for maximum compatibility:
 
 ### PowerShell-style Flags (native)
