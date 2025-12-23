@@ -200,6 +200,40 @@ function Invoke-Apply {
         # Output JSON envelope
         . "$PSScriptRoot\json-output.ps1"
         
+        # Build items[] array for GUI consumption
+        # Maps engine status to GUI-expected format:
+        # - status: ok | skipped | failed
+        # - reason: installed | would_install | already_installed | install_failed
+        $items = @($actionResults | Where-Object { $_.action.type -eq "app" } | ForEach-Object {
+            $guiStatus = switch ($_.status) {
+                "success" { "ok" }
+                "dry-run" { "ok" }  # dry-run is a successful preview
+                "skipped" { "skipped" }
+                "failed" { "failed" }
+                default { "skipped" }
+            }
+            $guiReason = switch ($_.status) {
+                "success" { "installed" }
+                "dry-run" { "would_install" }
+                "skipped" { "already_installed" }
+                "failed" { "install_failed" }
+                default { "unknown" }
+            }
+            [ordered]@{
+                id = $_.action.ref
+                driver = "winget"
+                status = $guiStatus
+                reason = $guiReason
+                message = $_.message
+            }
+        })
+        
+        # Count items by category for GUI
+        $installedCount = @($items | Where-Object { $_.reason -eq "installed" }).Count
+        $wouldInstallCount = @($items | Where-Object { $_.reason -eq "would_install" }).Count
+        $alreadyInstalledCount = @($items | Where-Object { $_.reason -eq "already_installed" }).Count
+        $failedCount = @($items | Where-Object { $_.status -eq "failed" }).Count
+        
         $data = [ordered]@{
             dryRun = $DryRun.IsPresent
             manifest = [ordered]@{
@@ -213,6 +247,17 @@ function Invoke-Apply {
                 skipped = $skipCount
                 failed = $failCount
             }
+            # GUI-expected counts structure
+            counts = [ordered]@{
+                total = $items.Count
+                installed = $installedCount
+                alreadyInstalled = $alreadyInstalledCount
+                skippedFiltered = 0
+                failed = $failedCount
+            }
+            # GUI-expected items array
+            items = $items
+            # Legacy actions array (for backward compatibility)
             actions = @($actionResults | ForEach-Object {
                 [ordered]@{
                     type = $_.action.type
@@ -495,6 +540,36 @@ function Invoke-ApplyFromPlan {
         # Output JSON envelope
         . "$PSScriptRoot\json-output.ps1"
         
+        # Build items[] array for GUI consumption
+        $items = @($actionResults | Where-Object { $_.action.type -eq "app" } | ForEach-Object {
+            $guiStatus = switch ($_.status) {
+                "success" { "ok" }
+                "dry-run" { "ok" }
+                "skipped" { "skipped" }
+                "failed" { "failed" }
+                default { "skipped" }
+            }
+            $guiReason = switch ($_.status) {
+                "success" { "installed" }
+                "dry-run" { "would_install" }
+                "skipped" { "already_installed" }
+                "failed" { "install_failed" }
+                default { "unknown" }
+            }
+            [ordered]@{
+                id = $_.action.ref
+                driver = "winget"
+                status = $guiStatus
+                reason = $guiReason
+                message = $_.message
+            }
+        })
+        
+        # Count items by category for GUI
+        $installedCount = @($items | Where-Object { $_.reason -eq "installed" }).Count
+        $alreadyInstalledCount = @($items | Where-Object { $_.reason -eq "already_installed" }).Count
+        $failedItemCount = @($items | Where-Object { $_.status -eq "failed" }).Count
+        
         $data = [ordered]@{
             dryRun = $DryRun.IsPresent
             originalPlanRunId = $plan.runId
@@ -510,6 +585,17 @@ function Invoke-ApplyFromPlan {
                 skipped = $skippedCount
                 failed = $failCount
             }
+            # GUI-expected counts structure
+            counts = [ordered]@{
+                total = $items.Count
+                installed = $installedCount
+                alreadyInstalled = $alreadyInstalledCount
+                skippedFiltered = 0
+                failed = $failedItemCount
+            }
+            # GUI-expected items array
+            items = $items
+            # Legacy actions array
             actions = @($actionResults | ForEach-Object {
                 [ordered]@{
                     type = $_.action.type
