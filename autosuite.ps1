@@ -963,7 +963,12 @@ function Invoke-ApplyCore {
     $skipped = 0
     $failed = 0
     $upgraded = 0
+    $alreadyInstalled = 0
+    $skippedFiltered = 0
     $timestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+    
+    # Track per-app items for structured output
+    $items = @()
     
     foreach ($app in $manifest.apps) {
         $driver = Get-AppDriver -App $app
@@ -972,6 +977,14 @@ function Invoke-ApplyCore {
         if (-not $appDisplayId) {
             Write-Host "  [SKIP] $($app.id) - no installable ref for driver '$driver'" -ForegroundColor Yellow
             $skipped++
+            $skippedFiltered++
+            $items += @{
+                id = $app.id
+                driver = $driver
+                status = "skipped"
+                reason = "no_installable_ref"
+                message = "No installable ref for driver '$driver'"
+            }
             continue
         }
         
@@ -991,19 +1004,47 @@ function Invoke-ApplyCore {
                         if ($IsDryRun) {
                             Write-Host "  [PLAN] $appDisplayId - would upgrade ($($versionCheck.Reason))" -ForegroundColor Cyan
                             $upgraded++
+                            $items += @{
+                                id = $appDisplayId
+                                driver = $driver
+                                status = "ok"
+                                reason = "would_upgrade"
+                                message = "Would upgrade: $($versionCheck.Reason)"
+                            }
                         } else {
                             Write-Host "  [UPGRADE] $appDisplayId ($($versionCheck.Reason))" -ForegroundColor Yellow
                             $result = Install-AppWithDriver -App $app -DryRun $false -IsUpgrade $true
                             if ($result.Success) {
                                 $upgraded++
+                                $items += @{
+                                    id = $appDisplayId
+                                    driver = $driver
+                                    status = "ok"
+                                    reason = "upgraded"
+                                    message = "Upgraded: $($versionCheck.Reason)"
+                                }
                             } else {
                                 Write-Host "    [WARN] Upgrade may have issues: $($result.Error)" -ForegroundColor Yellow
                                 $upgraded++
+                                $items += @{
+                                    id = $appDisplayId
+                                    driver = $driver
+                                    status = "ok"
+                                    reason = "upgraded"
+                                    message = "Upgraded with warnings: $($result.Error)"
+                                }
                             }
                         }
                     } else {
                         Write-Host "  [MANUAL] $appDisplayId - version mismatch, manual intervention needed ($($versionCheck.Reason))" -ForegroundColor Yellow
                         $failed++
+                        $items += @{
+                            id = $appDisplayId
+                            driver = $driver
+                            status = "failed"
+                            reason = "version_mismatch"
+                            message = "Version mismatch, manual intervention needed: $($versionCheck.Reason)"
+                        }
                     }
                     continue
                 }
@@ -1011,6 +1052,14 @@ function Invoke-ApplyCore {
             
             Write-Host "  [SKIP] $appDisplayId - already installed" -ForegroundColor DarkGray
             $skipped++
+            $alreadyInstalled++
+            $items += @{
+                id = $appDisplayId
+                driver = $driver
+                status = "skipped"
+                reason = "already_installed"
+                message = "Already installed"
+            }
             continue
         }
         
@@ -1018,15 +1067,36 @@ function Invoke-ApplyCore {
         if ($IsDryRun) {
             Write-Host "  [PLAN] $appDisplayId - would install (driver: $driver)" -ForegroundColor Cyan
             $installed++
+            $items += @{
+                id = $appDisplayId
+                driver = $driver
+                status = "ok"
+                reason = "would_install"
+                message = "Would install"
+            }
         } else {
             Write-Host "  [INSTALL] $appDisplayId (driver: $driver)" -ForegroundColor Green
             $result = Install-AppWithDriver -App $app -DryRun $false -IsUpgrade $false
             
             if ($result.Success) {
                 $installed++
+                $items += @{
+                    id = $appDisplayId
+                    driver = $driver
+                    status = "ok"
+                    reason = "installed"
+                    message = "Installed successfully"
+                }
             } else {
                 Write-Host "    [ERROR] Failed to install: $($result.Error)" -ForegroundColor Red
                 $failed++
+                $items += @{
+                    id = $appDisplayId
+                    driver = $driver
+                    status = "failed"
+                    reason = "install_failed"
+                    message = $result.Error
+                }
             }
         }
     }
@@ -1073,9 +1143,18 @@ function Invoke-ApplyCore {
     
     Write-Output "[autosuite] Apply: completed ExitCode=$(if ($failed -gt 0) { 1 } else { 0 })"
     
+    # Build structured counts
+    $counts = @{
+        total = $manifest.apps.Count
+        installed = $installed
+        alreadyInstalled = $alreadyInstalled
+        skippedFiltered = $skippedFiltered
+        failed = $failed
+    }
+    
     # DryRun always succeeds; otherwise propagate verify result if run
     if ($IsDryRun) {
-        return @{ Success = $true; ExitCode = 0; Installed = $installed; Upgraded = $upgraded; Skipped = $skipped; Failed = $failed }
+        return @{ Success = $true; ExitCode = 0; Installed = $installed; Upgraded = $upgraded; Skipped = $skipped; Failed = $failed; Counts = $counts; Items = $items }
     }
     
     if ($verifyResult) {
@@ -1086,11 +1165,13 @@ function Invoke-ApplyCore {
             Upgraded = $upgraded
             Skipped = $skipped
             Failed = $failed
+            Counts = $counts
+            Items = $items
             VerifyResult = $verifyResult
         }
     }
     
-    return @{ Success = ($failed -eq 0); ExitCode = (if ($failed -gt 0) { 1 } else { 0 }); Installed = $installed; Upgraded = $upgraded; Skipped = $skipped; Failed = $failed }
+    return @{ Success = ($failed -eq 0); ExitCode = (if ($failed -gt 0) { 1 } else { 0 }); Installed = $installed; Upgraded = $upgraded; Skipped = $skipped; Failed = $failed; Counts = $counts; Items = $items }
 }
 
 function Get-InstalledApps {
@@ -1899,12 +1980,15 @@ function Invoke-CaptureCore {
         
         Write-Host "[autosuite] Capture: sanitized manifest written to $outPath" -ForegroundColor Green
         
-        $appsCaptured = @()
+        $appsIncluded = @()
         if ($sanitizedManifest.apps) {
-            $appsCaptured = @($sanitizedManifest.apps | ForEach-Object {
-                $appEntry = @{ id = $_.id }
-                if ($_.refs -and $_.refs.windows) {
-                    $appEntry.wingetId = $_.refs.windows
+            $appsIncluded = @($sanitizedManifest.apps | ForEach-Object {
+                $appEntry = @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id } }
+                # Determine source from _source metadata or infer from ID pattern
+                if ($_._source) {
+                    $appEntry.source = $_._source
+                } else {
+                    $appEntry.source = "winget"
                 }
                 $appEntry
             })
@@ -1914,8 +1998,15 @@ function Invoke-CaptureCore {
             Success = $true
             OutputPath = $outPath
             Sanitized = $true
-            AppCount = $sanitizedManifest.apps.Count
-            AppsCaptured = $appsCaptured
+            Counts = @{
+                totalFound = $sanitizedManifest.apps.Count
+                included = $sanitizedManifest.apps.Count
+                skipped = 0
+                filteredRuntimes = 0
+                filteredStoreApps = 0
+                sensitiveExcludedCount = 0
+            }
+            AppsIncluded = $appsIncluded
         }
     }
     
@@ -1924,7 +2015,20 @@ function Invoke-CaptureCore {
     $null = Invoke-ProvisioningCli -ProvisioningCommand "capture" -Arguments $cliArgs
     
     # Read the generated manifest to get app count and list
-    $result = @{ Success = $true; OutputPath = $outPath; Sanitized = $false }
+    $result = @{ 
+        Success = $true
+        OutputPath = $outPath
+        Sanitized = $false
+        Counts = @{
+            totalFound = 0
+            included = 0
+            skipped = 0
+            filteredRuntimes = 0
+            filteredStoreApps = 0
+            sensitiveExcludedCount = 0
+        }
+        AppsIncluded = @()
+    }
     
     if (Test-Path $outPath) {
         try {
@@ -1934,15 +2038,17 @@ function Invoke-CaptureCore {
             $manifest = $jsonContent | ConvertFrom-Json
             
             if ($manifest.apps) {
-                $result.AppCount = $manifest.apps.Count
+                $result.Counts.included = $manifest.apps.Count
+                $result.Counts.totalFound = $manifest.apps.Count
+                
                 # Extract app IDs and sources for the GUI
-                $result.AppsCaptured = @($manifest.apps | ForEach-Object {
-                    $appEntry = @{ id = $_.id }
-                    if ($_.refs -and $_.refs.windows) {
-                        $appEntry.wingetId = $_.refs.windows
-                    }
+                $result.AppsIncluded = @($manifest.apps | ForEach-Object {
+                    $appEntry = @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id } }
+                    # Determine source from _source metadata or infer from ID pattern
                     if ($_._source) {
                         $appEntry.source = $_._source
+                    } else {
+                        $appEntry.source = "winget"
                     }
                     $appEntry
                 })
@@ -2717,11 +2823,13 @@ switch ($Command) {
                     sanitized = $captureResult.Sanitized
                     isExample = $captureResult.IsExample
                 }
-                if ($captureResult.AppCount) {
-                    $data.appCount = $captureResult.AppCount
+                # Include structured counts
+                if ($captureResult.Counts) {
+                    $data.counts = $captureResult.Counts
                 }
-                if ($captureResult.AppsCaptured) {
-                    $data.appsCaptured = $captureResult.AppsCaptured
+                # Include apps list
+                if ($captureResult.AppsIncluded) {
+                    $data.appsIncluded = $captureResult.AppsIncluded
                 }
                 Write-JsonEnvelope -CommandName "capture" -Success $true -Data $data -ExitCode 0
             } else {
@@ -2801,6 +2909,14 @@ switch ($Command) {
                     skipped = $result.Skipped
                     failed = $result.Failed
                     dryRun = $DryRun.IsPresent
+                }
+                # Include structured counts
+                if ($result.Counts) {
+                    $data.counts = $result.Counts
+                }
+                # Include per-app items
+                if ($result.Items) {
+                    $data.items = $result.Items
                 }
                 Write-JsonEnvelope -CommandName "apply" -Success $result.Success -Data $data -ExitCode $result.ExitCode
             } else {
