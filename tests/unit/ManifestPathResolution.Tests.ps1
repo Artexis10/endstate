@@ -1,7 +1,7 @@
 BeforeAll {
-    # Load the autosuite.ps1 script with functions only
-    $script:AutosuiteRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    . (Join-Path $script:AutosuiteRoot "autosuite.ps1") -LoadFunctionsOnly
+    # Load the endstate.ps1 script with functions only
+    $script:EndstateRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    . (Join-Path $script:EndstateRoot "endstate.ps1") -LoadFunctionsOnly
 }
 
 Describe "Resolve-ManifestPath" {
@@ -22,14 +22,14 @@ Describe "Resolve-ManifestPath" {
     
     Context "File path detection and resolution" {
         It "detects full path with backslash separator" {
-            $testPath = "C:\Users\test\Documents\Autosuite\Setups\setup.jsonc"
+            $testPath = "C:\Users\test\Documents\Endstate\Setups\setup.jsonc"
             $result = Resolve-ManifestPath -ProfileName $testPath
             
             $result | Should -Be $testPath
         }
         
         It "detects full path with forward slash separator" {
-            $testPath = "C:/Users/test/Documents/Autosuite/Setups/setup.jsonc"
+            $testPath = "C:/Users/test/Documents/Endstate/Setups/setup.jsonc"
             $result = Resolve-ManifestPath -ProfileName $testPath
             
             $result | Should -Be $testPath
@@ -87,7 +87,7 @@ Describe "Resolve-ManifestPath" {
 Describe "Manifest path resolution integration" -Tag "Integration" {
     BeforeAll {
         # Create a temporary manifest file
-        $script:TempDir = Join-Path $env:TEMP "autosuite-test-$(Get-Random)"
+        $script:TempDir = Join-Path $env:TEMP "endstate-test-$(Get-Random)"
         New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
         
         $script:TempManifest = Join-Path $script:TempDir "test-setup.jsonc"

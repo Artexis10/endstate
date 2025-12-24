@@ -1,10 +1,10 @@
-# Autosuite CLI JSON Contract v1.0
+# Endstate CLI JSON Contract v1.0
 
-This document defines the stable JSON contract between Autosuite CLI and its consumers (e.g., Autosuite GUI).
+This document defines the stable JSON contract between Endstate CLI and its consumers (e.g., Endstate GUI).
 
 ## Overview
 
-All Autosuite CLI commands that support `--json` output follow a standardized envelope format. This enables reliable machine consumption, versioning, and compatibility checking.
+All Endstate CLI commands that support `--json` output follow a standardized envelope format. This enables reliable machine consumption, versioning, and compatibility checking.
 
 ## Schema Version
 
@@ -15,7 +15,7 @@ Schema versioning follows these rules:
 - **Additive changes** (new optional fields) are backward-compatible and do NOT bump the major version
 - **Breaking changes** (removed fields, type changes, semantic changes) require:
   - Schema major version bump (e.g., `1.0` → `2.0`)
-  - Autosuite CLI major version bump
+  - Endstate CLI major version bump
 
 ## Standard Envelope
 
@@ -39,7 +39,7 @@ Every JSON output includes this envelope:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `schemaVersion` | string | Yes | JSON schema version (e.g., "1.0") |
-| `cliVersion` | string | Yes | Autosuite CLI version (semver) |
+| `cliVersion` | string | Yes | Endstate CLI version (semver) |
 | `command` | string | Yes | Command that produced this output |
 | `runId` | string | Yes | Unique run identifier (format: `yyyyMMdd-HHmmss`) |
 | `timestampUtc` | string | Yes | ISO 8601 UTC timestamp |
@@ -99,7 +99,7 @@ When `success` is `false`, the `error` field contains:
 Returns CLI capabilities for handshake/compatibility checking.
 
 ```powershell
-autosuite capabilities --json
+endstate capabilities --json
 ```
 
 ### Response
@@ -172,8 +172,8 @@ autosuite capabilities --json
 Executes provisioning plan.
 
 ```powershell
-autosuite apply --manifest ./manifest.jsonc --json
-autosuite apply --manifest ./manifest.jsonc --dry-run --json
+endstate apply --manifest ./manifest.jsonc --json
+endstate apply --manifest ./manifest.jsonc --dry-run --json
 ```
 
 ### Response
@@ -215,8 +215,8 @@ autosuite apply --manifest ./manifest.jsonc --dry-run --json
         "message": "Already installed"
       }
     ],
-    "stateFile": "C:\\autosuite\\state\\20241220-143052.json",
-    "logFile": "C:\\autosuite\\logs\\apply-20241220-143052.log"
+    "stateFile": "C:\\endstate\\state\\20241220-143052.json",
+    "logFile": "C:\\endstate\\logs\\apply-20241220-143052.log"
   },
   "error": null
 }
@@ -229,7 +229,7 @@ autosuite apply --manifest ./manifest.jsonc --dry-run --json
 Verifies current machine state against manifest.
 
 ```powershell
-autosuite verify --manifest ./manifest.jsonc --json
+endstate verify --manifest ./manifest.jsonc --json
 ```
 
 ### Response
@@ -267,7 +267,7 @@ autosuite verify --manifest ./manifest.jsonc --json
         "message": "File not found"
       }
     ],
-    "stateFile": "C:\\autosuite\\state\\verify-20241220-143052.json"
+    "stateFile": "C:\\endstate\\state\\verify-20241220-143052.json"
   },
   "error": null
 }
@@ -280,9 +280,9 @@ autosuite verify --manifest ./manifest.jsonc --json
 Retrieves run history.
 
 ```powershell
-autosuite report --latest --json
-autosuite report --last 5 --json
-autosuite report --run-id 20241220-143052 --json
+endstate report --latest --json
+endstate report --last 5 --json
+endstate report --run-id 20241220-143052 --json
 ```
 
 ### Response
@@ -312,7 +312,7 @@ autosuite report --run-id 20241220-143052 --json
           "skipped": 2,
           "failed": 1
         },
-        "stateFile": "C:\\autosuite\\state\\20241220-143052.json"
+        "stateFile": "C:\\endstate\\state\\20241220-143052.json"
       }
     ]
   },
@@ -326,7 +326,7 @@ autosuite report --run-id 20241220-143052 --json
 
 ### Semantic Versioning
 
-Autosuite CLI follows [Semantic Versioning](https://semver.org/):
+Endstate CLI follows [Semantic Versioning](https://semver.org/):
 
 - **MAJOR:** Breaking changes (including JSON schema breaking changes)
 - **MINOR:** New features, backward-compatible
@@ -354,18 +354,18 @@ The JSON schema has its own version (`schemaVersion`) independent of CLI version
 
 ### Development Mode
 
-During development, Autosuite GUI resolves the CLI from the system PATH:
+During development, Endstate GUI resolves the CLI from the system PATH:
 
-1. GUI calls `autosuite capabilities --json`
+1. GUI calls `endstate capabilities --json`
 2. GUI validates `schemaVersion` is compatible
 3. If incompatible, GUI shows clear error and refuses to execute
 4. If compatible, GUI proceeds with CLI invocation
 
 ### Production Mode
 
-Production builds of Autosuite GUI bundle a pinned Autosuite binary:
+Production builds of Endstate GUI bundle a pinned Endstate binary:
 
-1. GUI ships with a specific Autosuite CLI version
+1. GUI ships with a specific Endstate CLI version
 2. GUI validates bundled CLI on startup via `capabilities`
 3. Version mismatch indicates corrupted installation
 
@@ -374,7 +374,7 @@ Production builds of Autosuite GUI bundle a pinned Autosuite binary:
 ```
 GUI starts
   │
-  ├─► Call: autosuite capabilities --json
+  ├─► Call: endstate capabilities --json
   │
   ├─► Parse response
   │     │
@@ -394,19 +394,19 @@ GUI starts
 When schema versions are incompatible, GUI must display:
 
 ```
-Autosuite CLI Incompatible
+Endstate CLI Incompatible
 
-The installed Autosuite CLI (v0.1.0, schema 1.0) is not compatible 
-with this version of Autosuite GUI (requires schema 2.0).
+The installed Endstate CLI (v0.1.0, schema 1.0) is not compatible 
+with this version of Endstate GUI (requires schema 2.0).
 
-Please update Autosuite CLI or use a compatible GUI version.
+Please update Endstate CLI or use a compatible GUI version.
 ```
 
 ---
 
 ## Design Principles
 
-1. **Thin GUI:** Autosuite GUI contains no business logic, no provisioning logic, and makes no assumptions about internal CLI implementation.
+1. **Thin GUI:** Endstate GUI contains no business logic, no provisioning logic, and makes no assumptions about internal CLI implementation.
 
 2. **CLI as Source of Truth:** All operations are executed by CLI invocation. GUI is purely a presentation layer.
 

@@ -1,9 +1,9 @@
 BeforeAll {
-    $script:AutosuiteRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $script:AutosuitePath = Join-Path $script:AutosuiteRoot "autosuite.ps1"
+    $script:EndstateRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $script:EndstatePath = Join-Path $script:EndstateRoot "endstate.ps1"
     
     # Create test directory for mock files
-    $script:TestDir = Join-Path $env:TEMP "autosuite-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    $script:TestDir = Join-Path $env:TEMP "endstate-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
     $script:MockCliPath = Join-Path $script:TestDir "mock-cli.ps1"
     $script:MockWingetPath = Join-Path $script:TestDir "mock-winget.ps1"
     $script:CapturedArgsPath = Join-Path $script:TestDir "captured-args.json"
@@ -121,15 +121,15 @@ AfterAll {
         Remove-Item -Path $script:TestDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     # Clear env vars
-    $env:AUTOSUITE_PROVISIONING_CLI = $null
-    $env:AUTOSUITE_WINGET_SCRIPT = $null
+    $env:ENDSTATE_PROVISIONING_CLI = $null
+    $env:ENDSTATE_WINGET_SCRIPT = $null
 }
 
-Describe "Autosuite Root Orchestrator" {
+Describe "Endstate Root Orchestrator" {
     
     Context "Banner and Help" {
         It "Shows banner with version" {
-            $output = pwsh -NoProfile -Command "& '$($script:AutosuitePath)'" 2>&1
+            $output = pwsh -NoProfile -Command "& '$($script:EndstatePath)'" 2>&1
             $outputStr = $output -join "`n"
             $outputStr | Should -Match "Automation Suite"
             # Accept both release versions (vX.Y.Z) and dev versions (0.0.0-dev+sha)
@@ -137,7 +137,7 @@ Describe "Autosuite Root Orchestrator" {
         }
         
         It "Shows help when no command provided" {
-            $output = pwsh -NoProfile -Command "& '$($script:AutosuitePath)'" 2>&1
+            $output = pwsh -NoProfile -Command "& '$($script:EndstatePath)'" 2>&1
             $outputStr = $output -join "`n"
             $outputStr | Should -Match "USAGE:"
             $outputStr | Should -Match "COMMANDS:"
@@ -149,66 +149,66 @@ Describe "Autosuite Root Orchestrator" {
     
     Context "Delegation Message (in-process)" {
         BeforeEach {
-            $env:AUTOSUITE_PROVISIONING_CLI = $script:MockCliPath
+            $env:ENDSTATE_PROVISIONING_CLI = $script:MockCliPath
             if (Test-Path $script:CapturedArgsPath) {
                 Remove-Item $script:CapturedArgsPath -Force
             }
         }
         
         AfterEach {
-            $env:AUTOSUITE_PROVISIONING_CLI = $null
+            $env:ENDSTATE_PROVISIONING_CLI = $null
         }
         
         It "Emits stable wrapper message for report (subprocess)" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
             # Use subprocess to test full CLI behavior with 6>&1 to capture Information stream
-            $output = & $script:AutosuitePath report 6>&1
+            $output = & $script:EndstatePath report 6>&1
             $outputStr = $output -join "`n"
-            $outputStr | Should -Match "\[autosuite\] Report: reading state\.\.\." 
+            $outputStr | Should -Match "\[endstate\] Report: reading state\.\.\." 
         }
         
         It "Emits stable wrapper message for doctor (subprocess)" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
-            $env:AUTOSUITE_PROVISIONING_CLI = $script:MockCliPath
-            $output = & $script:AutosuitePath doctor 6>&1
+            $env:ENDSTATE_PROVISIONING_CLI = $script:MockCliPath
+            $output = & $script:EndstatePath doctor 6>&1
             $outputStr = $output -join "`n"
-            $outputStr | Should -Match "\[autosuite\] Doctor: checking environment\.\.\."
-            $env:AUTOSUITE_PROVISIONING_CLI = $null
+            $outputStr | Should -Match "\[endstate\] Doctor: checking environment\.\.\."
+            $env:ENDSTATE_PROVISIONING_CLI = $null
         }
     }
 }
 
-Describe "Autosuite Capture Command" {
+Describe "Endstate Capture Command" {
     
     Context "Default Output Path" {
         It "Defaults to local/<machine>.jsonc when no -Out provided" {
-            $env:AUTOSUITE_PROVISIONING_CLI = $script:MockCliPath
+            $env:ENDSTATE_PROVISIONING_CLI = $script:MockCliPath
             # Use 6>&1 to capture Information stream (stable wrapper lines)
-            $output = & $script:AutosuitePath capture 6>&1
+            $output = & $script:EndstatePath capture 6>&1
             $outputStr = $output -join "`n"
             
             # Should target local/ directory
             $outputStr | Should -Match "provisioning.manifests.local"
             $outputStr | Should -Match "\.jsonc"
-            $env:AUTOSUITE_PROVISIONING_CLI = $null
+            $env:ENDSTATE_PROVISIONING_CLI = $null
         }
         
         It "Uses -Out path when provided" {
-            $env:AUTOSUITE_PROVISIONING_CLI = $script:MockCliPath
+            $env:ENDSTATE_PROVISIONING_CLI = $script:MockCliPath
             $customPath = Join-Path $script:TestDir "custom-output.jsonc"
             # Use 6>&1 to capture Information stream (stable wrapper lines)
-            $output = & $script:AutosuitePath capture -Out $customPath 6>&1
+            $output = & $script:EndstatePath capture -Out $customPath 6>&1
             $outputStr = $output -join "`n"
             
             $outputStr | Should -Match "custom-output\.jsonc"
-            $env:AUTOSUITE_PROVISIONING_CLI = $null
+            $env:ENDSTATE_PROVISIONING_CLI = $null
         }
     }
     
     Context "Example Flag" {
         It "Generates deterministic example manifest with -Example" {
             $examplePath = Join-Path $script:TestDir "example-output.jsonc"
-            $output = & $script:AutosuitePath capture -Example -Out $examplePath 2>&1
+            $output = & $script:EndstatePath capture -Example -Out $examplePath 2>&1
             
             $examplePath | Should -Exist
             $content = Get-Content $examplePath -Raw
@@ -225,7 +225,7 @@ Describe "Autosuite Capture Command" {
         
         It "Example manifest has no timestamps" {
             $examplePath = Join-Path $script:TestDir "example-notimestamp.jsonc"
-            & $script:AutosuitePath capture -Example -Out $examplePath 2>&1 | Out-Null
+            & $script:EndstatePath capture -Example -Out $examplePath 2>&1 | Out-Null
             
             $content = Get-Content $examplePath -Raw
             # Should not have ISO timestamp pattern
@@ -234,10 +234,10 @@ Describe "Autosuite Capture Command" {
     }
 }
 
-Describe "Autosuite Apply Command" {
+Describe "Endstate Apply Command" {
     
     BeforeEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
+        $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
         $installLog = Join-Path $script:TestDir "install-log.txt"
         if (Test-Path $installLog) {
             Remove-Item $installLog -Force
@@ -245,13 +245,13 @@ Describe "Autosuite Apply Command" {
     }
     
     AfterEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $null
+        $env:ENDSTATE_WINGET_SCRIPT = $null
     }
     
     Context "DryRun Mode (in-process)" {
         It "Returns success and does not install with -DryRun" {
             # Dot-source to get access to functions
-            . $script:AutosuitePath -LoadFunctionsOnly
+            . $script:EndstatePath -LoadFunctionsOnly
             $script:WingetScript = $script:MockWingetPath
             
             $result = Invoke-ApplyCore -ManifestPath $script:TestManifestPath -IsDryRun $true -IsOnlyApps $true
@@ -267,17 +267,17 @@ Describe "Autosuite Apply Command" {
         It "Emits stable wrapper lines via Information stream (subprocess)" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
             # Use subprocess with 6>&1 to capture Information stream
-            $output = & $script:AutosuitePath apply -Manifest $script:TestManifestPath -DryRun -OnlyApps 6>&1
+            $output = & $script:EndstatePath apply -Manifest $script:TestManifestPath -DryRun -OnlyApps 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Apply: starting with manifest"
-            $outputStr | Should -Match "\[autosuite\] Apply: completed ExitCode="
+            $outputStr | Should -Match "\[endstate\] Apply: starting with manifest"
+            $outputStr | Should -Match "\[endstate\] Apply: completed ExitCode="
         }
     }
     
     Context "Idempotent Installs (subprocess for Write-Host)" {
         It "Skips already installed apps" {
-            $output = pwsh -NoProfile -Command "`$env:AUTOSUITE_WINGET_SCRIPT='$($script:MockWingetPath)'; & '$($script:AutosuitePath)' apply -Manifest '$($script:TestManifestPath)' -DryRun -OnlyApps" 2>&1
+            $output = pwsh -NoProfile -Command "`$env:ENDSTATE_WINGET_SCRIPT='$($script:MockWingetPath)'; & '$($script:EndstatePath)' apply -Manifest '$($script:TestManifestPath)' -DryRun -OnlyApps" 2>&1
             $outputStr = $output -join "`n"
             
             # 7zip and Git are in mock installed list
@@ -287,19 +287,19 @@ Describe "Autosuite Apply Command" {
     }
 }
 
-Describe "Autosuite Verify Command" {
+Describe "Endstate Verify Command" {
     
     BeforeEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
+        $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
     }
     
     AfterEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $null
+        $env:ENDSTATE_WINGET_SCRIPT = $null
     }
     
     Context "Structured Results (in-process)" {
         It "Returns success when all apps are installed" {
-            . $script:AutosuitePath -LoadFunctionsOnly
+            . $script:EndstatePath -LoadFunctionsOnly
             $script:WingetScript = $script:MockWingetPath
             
             $result = Invoke-VerifyCore -ManifestPath $script:AllInstalledManifestPath
@@ -312,7 +312,7 @@ Describe "Autosuite Verify Command" {
         }
         
         It "Returns failure with missing apps details" {
-            . $script:AutosuitePath -LoadFunctionsOnly
+            . $script:EndstatePath -LoadFunctionsOnly
             $script:WingetScript = $script:MockWingetPath
             
             $result = Invoke-VerifyCore -ManifestPath $script:TestManifestPath
@@ -326,32 +326,32 @@ Describe "Autosuite Verify Command" {
         
         It "Emits stable wrapper lines via Information stream (subprocess)" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
-            $output = & $script:AutosuitePath verify -Manifest $script:TestManifestPath 6>&1
+            $output = & $script:EndstatePath verify -Manifest $script:TestManifestPath 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Verify: checking manifest"
-            $outputStr | Should -Match "\[autosuite\] Verify: OkCount=\d+ MissingCount=\d+"
-            $outputStr | Should -Match "\[autosuite\] Verify: FAILED"
+            $outputStr | Should -Match "\[endstate\] Verify: checking manifest"
+            $outputStr | Should -Match "\[endstate\] Verify: OkCount=\d+ MissingCount=\d+"
+            $outputStr | Should -Match "\[endstate\] Verify: FAILED"
         }
         
         It "Emits PASSED for successful verify (subprocess)" {
-            $output = & $script:AutosuitePath verify -Manifest $script:AllInstalledManifestPath 6>&1
+            $output = & $script:EndstatePath verify -Manifest $script:AllInstalledManifestPath 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Verify: PASSED"
+            $outputStr | Should -Match "\[endstate\] Verify: PASSED"
         }
     }
     
     Context "Process Exit Codes (subprocess)" {
         It "Exits 0 when all apps are installed" {
-            $output = pwsh -NoProfile -Command "`$env:AUTOSUITE_WINGET_SCRIPT='$($script:MockWingetPath)'; & '$($script:AutosuitePath)' verify -Manifest '$($script:AllInstalledManifestPath)'" 2>&1
+            $output = pwsh -NoProfile -Command "`$env:ENDSTATE_WINGET_SCRIPT='$($script:MockWingetPath)'; & '$($script:EndstatePath)' verify -Manifest '$($script:AllInstalledManifestPath)'" 2>&1
             $exitCode = $LASTEXITCODE
             
             $exitCode | Should -Be 0
         }
         
         It "Exits 1 when apps are missing" {
-            $output = pwsh -NoProfile -Command "`$env:AUTOSUITE_WINGET_SCRIPT='$($script:MockWingetPath)'; & '$($script:AutosuitePath)' verify -Manifest '$($script:TestManifestPath)'" 2>&1
+            $output = pwsh -NoProfile -Command "`$env:ENDSTATE_WINGET_SCRIPT='$($script:MockWingetPath)'; & '$($script:EndstatePath)' verify -Manifest '$($script:TestManifestPath)'" 2>&1
             $exitCode = $LASTEXITCODE
             
             $exitCode | Should -Be 1
@@ -359,14 +359,14 @@ Describe "Autosuite Verify Command" {
     }
 }
 
-Describe "Autosuite Report and Doctor Commands" {
+Describe "Endstate Report and Doctor Commands" {
     
     BeforeAll {
-        $env:AUTOSUITE_PROVISIONING_CLI = $script:MockCliPath
+        $env:ENDSTATE_PROVISIONING_CLI = $script:MockCliPath
     }
     
     AfterAll {
-        $env:AUTOSUITE_PROVISIONING_CLI = $null
+        $env:ENDSTATE_PROVISIONING_CLI = $null
     }
     
     BeforeEach {
@@ -378,48 +378,48 @@ Describe "Autosuite Report and Doctor Commands" {
     Context "Report Command (subprocess)" {
         It "Returns no state found when state file does not exist" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
-            $output = & $script:AutosuitePath report 6>&1
+            $output = & $script:EndstatePath report 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Report: (reading state|no state found)"
+            $outputStr | Should -Match "\[endstate\] Report: (reading state|no state found)"
         }
         
         It "Emits stable wrapper lines" {
-            $output = & $script:AutosuitePath report 6>&1
+            $output = & $script:EndstatePath report 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Report: reading state\.\.\."
+            $outputStr | Should -Match "\[endstate\] Report: reading state\.\.\."
         }
     }
     
     Context "Doctor Command (subprocess)" {
         It "Emits stable wrapper lines" {
-            $env:AUTOSUITE_PROVISIONING_CLI = $script:MockCliPath
-            $output = & $script:AutosuitePath doctor 6>&1
+            $env:ENDSTATE_PROVISIONING_CLI = $script:MockCliPath
+            $output = & $script:EndstatePath doctor 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Doctor: checking environment\.\.\."
-            $outputStr | Should -Match "\[autosuite\] Doctor: completed"
-            $env:AUTOSUITE_PROVISIONING_CLI = $null
+            $outputStr | Should -Match "\[endstate\] Doctor: checking environment\.\.\."
+            $outputStr | Should -Match "\[endstate\] Doctor: completed"
+            $env:ENDSTATE_PROVISIONING_CLI = $null
         }
         
         It "Emits stable summary marker with state and drift counts" {
-            $env:AUTOSUITE_PROVISIONING_CLI = $script:MockCliPath
-            $output = & $script:AutosuitePath doctor 6>&1
+            $env:ENDSTATE_PROVISIONING_CLI = $script:MockCliPath
+            $output = & $script:EndstatePath doctor 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Doctor: state=(present|absent)"
+            $outputStr | Should -Match "\[endstate\] Doctor: state=(present|absent)"
             $outputStr | Should -Match "driftMissing=\d+"
             $outputStr | Should -Match "driftExtra=\d+"
-            $env:AUTOSUITE_PROVISIONING_CLI = $null
+            $env:ENDSTATE_PROVISIONING_CLI = $null
         }
     }
 }
 
-Describe "Autosuite State Store (Bundle B)" {
+Describe "Endstate State Store (Bundle B)" {
     
     BeforeAll {
-        $script:TestStateDir = Join-Path $script:TestDir ".autosuite-state-test"
+        $script:TestStateDir = Join-Path $script:TestDir ".endstate-state-test"
     }
     
     BeforeEach {
@@ -429,9 +429,9 @@ Describe "Autosuite State Store (Bundle B)" {
         }
         
         # Load functions and override state paths
-        . $script:AutosuitePath -LoadFunctionsOnly
-        $script:AutosuiteStateDir = $script:TestStateDir
-        $script:AutosuiteStatePath = Join-Path $script:TestStateDir "state.json"
+        . $script:EndstatePath -LoadFunctionsOnly
+        $script:EndstateStateDir = $script:TestStateDir
+        $script:EndstateStatePath = Join-Path $script:TestStateDir "state.json"
     }
     
     AfterEach {
@@ -442,27 +442,27 @@ Describe "Autosuite State Store (Bundle B)" {
     
     Context "State File Creation" {
         It "Creates state directory if it does not exist" {
-            $state = New-AutosuiteState
-            $result = Write-AutosuiteStateAtomic -State $state
+            $state = New-EndstateState
+            $result = Write-EndstateStateAtomic -State $state
             
             $result | Should -Be $true
             $script:TestStateDir | Should -Exist
         }
         
         It "Creates state file with correct schema version" {
-            $state = New-AutosuiteState
-            Write-AutosuiteStateAtomic -State $state | Out-Null
+            $state = New-EndstateState
+            Write-EndstateStateAtomic -State $state | Out-Null
             
-            $script:AutosuiteStatePath | Should -Exist
-            $content = Get-Content $script:AutosuiteStatePath -Raw | ConvertFrom-Json
+            $script:EndstateStatePath | Should -Exist
+            $content = Get-Content $script:EndstateStatePath -Raw | ConvertFrom-Json
             $content.schemaVersion | Should -Be 1
         }
         
         It "Atomic write uses temp file then moves" {
-            $state = New-AutosuiteState
+            $state = New-EndstateState
             $state.lastApplied = @{ manifestPath = "test.jsonc"; manifestHash = "abc123"; timestampUtc = "2025-01-01T00:00:00Z" }
             
-            $result = Write-AutosuiteStateAtomic -State $state
+            $result = Write-EndstateStateAtomic -State $state
             
             $result | Should -Be $true
             # Temp files should be cleaned up
@@ -473,16 +473,16 @@ Describe "Autosuite State Store (Bundle B)" {
     
     Context "State Read/Write" {
         It "Read returns null when no state file exists" {
-            $state = Read-AutosuiteState
+            $state = Read-EndstateState
             $state | Should -BeNullOrEmpty
         }
         
         It "Read returns state after write" {
-            $state = New-AutosuiteState
+            $state = New-EndstateState
             $state.lastApplied = @{ manifestPath = "test.jsonc"; manifestHash = "abc123"; timestampUtc = "2025-01-01T00:00:00Z" }
-            Write-AutosuiteStateAtomic -State $state | Out-Null
+            Write-EndstateStateAtomic -State $state | Out-Null
             
-            $readState = Read-AutosuiteState
+            $readState = Read-EndstateState
             $readState | Should -Not -BeNullOrEmpty
             $readState.lastApplied.manifestPath | Should -Be "test.jsonc"
             $readState.lastApplied.manifestHash | Should -Be "abc123"
@@ -490,7 +490,7 @@ Describe "Autosuite State Store (Bundle B)" {
     }
 }
 
-Describe "Autosuite Manifest Hashing (Bundle B)" {
+Describe "Endstate Manifest Hashing (Bundle B)" {
     
     BeforeAll {
         $script:HashTestDir = Join-Path $script:TestDir "hash-test"
@@ -498,7 +498,7 @@ Describe "Autosuite Manifest Hashing (Bundle B)" {
     }
     
     BeforeEach {
-        . $script:AutosuitePath -LoadFunctionsOnly
+        . $script:EndstatePath -LoadFunctionsOnly
     }
     
     Context "Deterministic Hashing" {
@@ -561,16 +561,16 @@ Describe "Autosuite Manifest Hashing (Bundle B)" {
     }
 }
 
-Describe "Autosuite Drift Detection (Bundle B)" {
+Describe "Endstate Drift Detection (Bundle B)" {
     
     BeforeEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
-        . $script:AutosuitePath -LoadFunctionsOnly
+        $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
+        . $script:EndstatePath -LoadFunctionsOnly
         $script:WingetScript = $script:MockWingetPath
     }
     
     AfterEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $null
+        $env:ENDSTATE_WINGET_SCRIPT = $null
     }
     
     Context "Compute-Drift Function" {
@@ -619,12 +619,12 @@ Describe "Autosuite Drift Detection (Bundle B)" {
     
     Context "Verify Updates State" {
         BeforeEach {
-            $script:TestStateDir = Join-Path $script:TestDir ".autosuite-verify-test"
+            $script:TestStateDir = Join-Path $script:TestDir ".endstate-verify-test"
             if (Test-Path $script:TestStateDir) {
                 Remove-Item $script:TestStateDir -Recurse -Force
             }
-            $script:AutosuiteStateDir = $script:TestStateDir
-            $script:AutosuiteStatePath = Join-Path $script:TestStateDir "state.json"
+            $script:EndstateStateDir = $script:TestStateDir
+            $script:EndstateStatePath = Join-Path $script:TestStateDir "state.json"
         }
         
         AfterEach {
@@ -636,8 +636,8 @@ Describe "Autosuite Drift Detection (Bundle B)" {
         It "Verify creates state file with lastVerify" {
             $result = Invoke-VerifyCore -ManifestPath $script:AllInstalledManifestPath
             
-            $script:AutosuiteStatePath | Should -Exist
-            $state = Get-Content $script:AutosuiteStatePath -Raw | ConvertFrom-Json
+            $script:EndstateStatePath | Should -Exist
+            $state = Get-Content $script:EndstateStatePath -Raw | ConvertFrom-Json
             $state.lastVerify | Should -Not -BeNullOrEmpty
             $state.lastVerify.manifestPath | Should -Be $script:AllInstalledManifestPath
             $state.lastVerify.success | Should -Be $true
@@ -646,33 +646,33 @@ Describe "Autosuite Drift Detection (Bundle B)" {
         It "Verify records okCount and missingCount" {
             Invoke-VerifyCore -ManifestPath $script:TestManifestPath | Out-Null
             
-            $state = Get-Content $script:AutosuiteStatePath -Raw | ConvertFrom-Json
+            $state = Get-Content $script:EndstateStatePath -Raw | ConvertFrom-Json
             $state.lastVerify.okCount | Should -Be 2
             $state.lastVerify.missingCount | Should -Be 1
         }
         
         It "Verify emits drift summary line (subprocess)" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
-            $output = & $script:AutosuitePath verify -Manifest $script:TestManifestPath 6>&1
+            $output = & $script:EndstatePath verify -Manifest $script:TestManifestPath 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Drift:"
+            $outputStr | Should -Match "\[endstate\] Drift:"
             $outputStr | Should -Match "Missing=1"
         }
     }
 }
 
-Describe "Autosuite State Reset (Bundle B)" {
+Describe "Endstate State Reset (Bundle B)" {
     
     BeforeEach {
-        $script:TestStateDir = Join-Path $script:TestDir ".autosuite-reset-test"
+        $script:TestStateDir = Join-Path $script:TestDir ".endstate-reset-test"
         if (Test-Path $script:TestStateDir) {
             Remove-Item $script:TestStateDir -Recurse -Force
         }
         
-        . $script:AutosuitePath -LoadFunctionsOnly
-        $script:AutosuiteStateDir = $script:TestStateDir
-        $script:AutosuiteStatePath = Join-Path $script:TestStateDir "state.json"
+        . $script:EndstatePath -LoadFunctionsOnly
+        $script:EndstateStateDir = $script:TestStateDir
+        $script:EndstateStatePath = Join-Path $script:TestStateDir "state.json"
     }
     
     AfterEach {
@@ -692,30 +692,30 @@ Describe "Autosuite State Reset (Bundle B)" {
         It "Reset deletes existing state file" {
             # Create state file first
             New-Item -ItemType Directory -Path $script:TestStateDir -Force | Out-Null
-            Set-Content -Path $script:AutosuiteStatePath -Value '{"schemaVersion": 1}'
+            Set-Content -Path $script:EndstateStatePath -Value '{"schemaVersion": 1}'
             
             $result = Invoke-StateResetCore
             
             $result.Success | Should -Be $true
             $result.WasReset | Should -Be $true
-            $script:AutosuiteStatePath | Should -Not -Exist
+            $script:EndstateStatePath | Should -Not -Exist
         }
         
         It "Reset emits stable wrapper lines (subprocess)" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
             # First create a state file to reset
-            $stateDir = Join-Path $script:AutosuiteRoot ".autosuite"
+            $stateDir = Join-Path $script:EndstateRoot ".endstate"
             if (-not (Test-Path $stateDir)) {
                 New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
             }
             $statePath = Join-Path $stateDir "state.json"
             Set-Content -Path $statePath -Value '{"schemaVersion": 1}'
             
-            $output = & $script:AutosuitePath state reset 6>&1
+            $output = & $script:EndstatePath state reset 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] State: resetting\.\.\."
-            $outputStr | Should -Match "\[autosuite\] State: reset completed"
+            $outputStr | Should -Match "\[endstate\] State: resetting\.\.\."
+            $outputStr | Should -Match "\[endstate\] State: reset completed"
         }
     }
 }
@@ -725,7 +725,7 @@ Describe "Autosuite State Reset (Bundle B)" {
 Describe "Bundle C: Version Constraint Parsing" {
     
     BeforeAll {
-        . $script:AutosuitePath -LoadFunctionsOnly
+        . $script:EndstatePath -LoadFunctionsOnly
     }
     
     Context "Parse-VersionConstraint" {
@@ -849,7 +849,7 @@ Describe "Bundle C: Version Constraint Parsing" {
 Describe "Bundle C: Driver Abstraction" {
     
     BeforeAll {
-        . $script:AutosuitePath -LoadFunctionsOnly
+        . $script:EndstatePath -LoadFunctionsOnly
     }
     
     Context "Get-AppDriver" {
@@ -895,7 +895,7 @@ Describe "Bundle C: Driver Abstraction" {
 Describe "Bundle C: Custom Driver" {
     
     BeforeAll {
-        . $script:AutosuitePath -LoadFunctionsOnly
+        . $script:EndstatePath -LoadFunctionsOnly
         
         # Create test fixtures directory
         $script:CustomTestDir = Join-Path $script:TestDir "custom-driver-test"
@@ -922,7 +922,7 @@ exit 0
     
     Context "Test-CustomScriptPathSafe" {
         It "Accepts paths under repo root" {
-            $script:AutosuiteRoot = $script:AutosuiteRoot  # Ensure set
+            $script:EndstateRoot = $script:EndstateRoot  # Ensure set
             $safePath = "provisioning/installers/test.ps1"
             
             $result = Test-CustomScriptPathSafe -ScriptPath $safePath
@@ -1004,13 +1004,13 @@ exit 0
 Describe "Bundle C: Backward Compatibility" {
     
     BeforeEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
-        . $script:AutosuitePath -LoadFunctionsOnly
+        $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
+        . $script:EndstatePath -LoadFunctionsOnly
         $script:WingetScript = $script:MockWingetPath
     }
     
     AfterEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $null
+        $env:ENDSTATE_WINGET_SCRIPT = $null
     }
     
     Context "Old Manifests Without Driver Field" {
@@ -1026,8 +1026,8 @@ Describe "Bundle C: Backward Compatibility" {
         }
         
         It "Verify works with old manifest format" {
-            $script:AutosuiteStateDir = Join-Path $script:TestDir ".autosuite-compat-test"
-            $script:AutosuiteStatePath = Join-Path $script:AutosuiteStateDir "state.json"
+            $script:EndstateStateDir = Join-Path $script:TestDir ".endstate-compat-test"
+            $script:EndstateStatePath = Join-Path $script:EndstateStateDir "state.json"
             
             # Use existing test manifest (old format)
             $result = Invoke-VerifyCore -ManifestPath $script:AllInstalledManifestPath -SkipStateWrite
@@ -1079,17 +1079,17 @@ Describe "Bundle C: Verify with Version Constraints" {
     }
     
     BeforeEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
-        . $script:AutosuitePath -LoadFunctionsOnly
+        $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
+        . $script:EndstatePath -LoadFunctionsOnly
         $script:WingetScript = $script:MockWingetPath
-        $script:AutosuiteStateDir = Join-Path $script:TestDir ".autosuite-version-test"
-        $script:AutosuiteStatePath = Join-Path $script:AutosuiteStateDir "state.json"
+        $script:EndstateStateDir = Join-Path $script:TestDir ".endstate-version-test"
+        $script:EndstateStatePath = Join-Path $script:EndstateStateDir "state.json"
     }
     
     AfterEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $null
-        if (Test-Path $script:AutosuiteStateDir) {
-            Remove-Item $script:AutosuiteStateDir -Recurse -Force -ErrorAction SilentlyContinue
+        $env:ENDSTATE_WINGET_SCRIPT = $null
+        if (Test-Path $script:EndstateStateDir) {
+            Remove-Item $script:EndstateStateDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     
@@ -1112,10 +1112,10 @@ Describe "Bundle C: Verify with Version Constraints" {
         
         It "Emits version mismatch count in output (subprocess)" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
-            $output = & $script:AutosuitePath verify -Manifest $script:VersionFailManifest 6>&1
+            $output = & $script:EndstatePath verify -Manifest $script:VersionFailManifest 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Verify:.*VersionMismatches="
+            $outputStr | Should -Match "\[endstate\] Verify:.*VersionMismatches="
         }
     }
 }
@@ -1147,13 +1147,13 @@ Describe "Bundle C: Apply with Version Constraints" {
     }
     
     BeforeEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
-        . $script:AutosuitePath -LoadFunctionsOnly
+        $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
+        . $script:EndstatePath -LoadFunctionsOnly
         $script:WingetScript = $script:MockWingetPath
     }
     
     AfterEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $null
+        $env:ENDSTATE_WINGET_SCRIPT = $null
     }
     
     Context "Apply Decides Upgrade Path" {
@@ -1169,22 +1169,22 @@ Describe "Bundle C: Apply with Version Constraints" {
 Describe "Bundle C: Drift with Version Mismatches" {
     
     BeforeEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
-        . $script:AutosuitePath -LoadFunctionsOnly
+        $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
+        . $script:EndstatePath -LoadFunctionsOnly
         $script:WingetScript = $script:MockWingetPath
     }
     
     AfterEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $null
+        $env:ENDSTATE_WINGET_SCRIPT = $null
     }
     
     Context "Drift Summary Includes Version Mismatches" {
         It "Drift output includes VersionMismatches count (subprocess)" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
-            $output = & $script:AutosuitePath verify -Manifest $script:TestManifestPath 6>&1
+            $output = & $script:EndstatePath verify -Manifest $script:TestManifestPath 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Drift:.*VersionMismatches="
+            $outputStr | Should -Match "\[endstate\] Drift:.*VersionMismatches="
         }
     }
 }
@@ -1196,18 +1196,18 @@ Describe "Bundle C: Drift with Version Mismatches" {
 Describe "Bundle D: Capture Default Path" {
     
     BeforeAll {
-        . $script:AutosuitePath -LoadFunctionsOnly
+        . $script:EndstatePath -LoadFunctionsOnly
     }
     
     Context "Default Output Path Policy" {
         It "Default capture path is under local/ directory (gitignored)" {
             # The default path should be provisioning/manifests/local/<machine>.jsonc
-            $expectedLocalDir = Join-Path $script:AutosuiteRoot "provisioning\manifests\local"
+            $expectedLocalDir = Join-Path $script:EndstateRoot "provisioning\manifests\local"
             $script:LocalManifestsDir | Should -Be $expectedLocalDir
         }
         
         It "Examples directory path is correctly set" {
-            $expectedExamplesDir = Join-Path $script:AutosuiteRoot "provisioning\manifests\examples"
+            $expectedExamplesDir = Join-Path $script:EndstateRoot "provisioning\manifests\examples"
             $script:ExamplesManifestsDir | Should -Be $expectedExamplesDir
         }
     }
@@ -1216,7 +1216,7 @@ Describe "Bundle D: Capture Default Path" {
 Describe "Bundle D: Sanitization Functions" {
     
     BeforeAll {
-        . $script:AutosuitePath -LoadFunctionsOnly
+        . $script:EndstatePath -LoadFunctionsOnly
         
         $script:SanitizeTestDir = Join-Path $script:TestDir "sanitize-test"
         New-Item -ItemType Directory -Path $script:SanitizeTestDir -Force | Out-Null
@@ -1382,7 +1382,7 @@ Describe "Bundle D: Sanitization Functions" {
 Describe "Bundle D: Capture Guardrails" {
     
     BeforeAll {
-        . $script:AutosuitePath -LoadFunctionsOnly
+        . $script:EndstatePath -LoadFunctionsOnly
         
         $script:GuardrailTestDir = Join-Path $script:TestDir "guardrail-test"
         New-Item -ItemType Directory -Path $script:GuardrailTestDir -Force | Out-Null
@@ -1431,7 +1431,7 @@ Describe "Bundle D: Capture Guardrails" {
 Describe "Bundle D: Example Manifest Structure" {
     
     BeforeAll {
-        $script:ExampleManifestPath = Join-Path $script:AutosuiteRoot "provisioning\manifests\examples\example-windows-core.jsonc"
+        $script:ExampleManifestPath = Join-Path $script:EndstateRoot "provisioning\manifests\examples\example-windows-core.jsonc"
     }
     
     Context "Committed Example Manifest" {
@@ -1491,26 +1491,26 @@ Describe "Bundle D: Capture Output Markers" {
             # Stable wrapper lines are emitted from CLI layer via Write-Information
             # Use subprocess with 6>&1 to capture Information stream
             $examplePath = Join-Path $script:TestDir "marker-test-example.jsonc"
-            $output = & $script:AutosuitePath capture -Example -Out $examplePath 6>&1
+            $output = & $script:EndstatePath capture -Example -Out $examplePath 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Capture: starting\.\.\."
+            $outputStr | Should -Match "\[endstate\] Capture: starting\.\.\."
         }
         
         It "Capture emits output path marker" {
             $examplePath = Join-Path $script:TestDir "marker-test-path.jsonc"
-            $output = & $script:AutosuitePath capture -Example -Out $examplePath 6>&1
+            $output = & $script:EndstatePath capture -Example -Out $examplePath 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Capture: output path is"
+            $outputStr | Should -Match "\[endstate\] Capture: output path is"
         }
         
         It "Capture emits completed marker" {
             $examplePath = Join-Path $script:TestDir "marker-test-completed.jsonc"
-            $output = & $script:AutosuitePath capture -Example -Out $examplePath 6>&1
+            $output = & $script:EndstatePath capture -Example -Out $examplePath 6>&1
             $outputStr = $output -join "`n"
             
-            $outputStr | Should -Match "\[autosuite\] Capture: completed"
+            $outputStr | Should -Match "\[endstate\] Capture: completed"
         }
     }
 }
@@ -1533,31 +1533,31 @@ Describe "Report -Json Output" {
     }
     
     BeforeEach {
-        . $script:AutosuitePath -LoadFunctionsOnly
-        $script:AutosuiteStateDir = Join-Path $script:ReportTestDir ".autosuite-report-test"
-        $script:AutosuiteStatePath = Join-Path $script:AutosuiteStateDir "state.json"
+        . $script:EndstatePath -LoadFunctionsOnly
+        $script:EndstateStateDir = Join-Path $script:ReportTestDir ".endstate-report-test"
+        $script:EndstateStatePath = Join-Path $script:EndstateStateDir "state.json"
         
-        if (Test-Path $script:AutosuiteStateDir) {
-            Remove-Item $script:AutosuiteStateDir -Recurse -Force
+        if (Test-Path $script:EndstateStateDir) {
+            Remove-Item $script:EndstateStateDir -Recurse -Force
         }
     }
     
     AfterEach {
-        if (Test-Path $script:AutosuiteStateDir) {
-            Remove-Item $script:AutosuiteStateDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path $script:EndstateStateDir) {
+            Remove-Item $script:EndstateStateDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     
     Context "JSON Output Purity (in-process)" {
         It "Returns valid JSON with schemaVersion and timestampUtc" {
             # Create some state first
-            $state = New-AutosuiteState
+            $state = New-EndstateState
             $state.lastApplied = @{
                 manifestPath = "test.jsonc"
                 manifestHash = "abc123"
                 timestampUtc = "2025-01-01T00:00:00Z"
             }
-            Write-AutosuiteStateAtomic -State $state | Out-Null
+            Write-EndstateStateAtomic -State $state | Out-Null
             
             $result = Invoke-ReportCore -OutputJson $true
             
@@ -1597,7 +1597,7 @@ Describe "Report -Json Output" {
         
         It "JSON file matches stdout output" {
             # Create state
-            $state = New-AutosuiteState
+            $state = New-EndstateState
             $state.lastVerify = @{
                 manifestPath = "verify.jsonc"
                 timestampUtc = "2025-01-02T00:00:00Z"
@@ -1605,7 +1605,7 @@ Describe "Report -Json Output" {
                 okCount = 5
                 missingCount = 0
             }
-            Write-AutosuiteStateAtomic -State $state | Out-Null
+            Write-EndstateStateAtomic -State $state | Out-Null
             
             $outPath = Join-Path $script:ReportTestDir "report-match.json"
             $result = Invoke-ReportCore -OutputJson $true -OutPath $outPath
@@ -1622,7 +1622,7 @@ Describe "Report -Json Output" {
     Context "JSON Output Purity (subprocess)" {
         It "Stdout contains only valid JSON when -Json is set" {
             # Run in subprocess to verify stdout purity
-            $output = pwsh -NoProfile -Command "& '$($script:AutosuitePath)' report -Json" 2>&1
+            $output = pwsh -NoProfile -Command "& '$($script:EndstatePath)' report -Json" 2>&1
             $stdoutOnly = $output | Where-Object { $_ -is [string] -or $_.GetType().Name -eq 'String' }
             $stdoutStr = $stdoutOnly -join "`n"
             
@@ -1651,31 +1651,31 @@ Describe "State Export" {
     }
     
     BeforeEach {
-        . $script:AutosuitePath -LoadFunctionsOnly
-        $script:AutosuiteStateDir = Join-Path $script:ExportTestDir ".autosuite-export-test"
-        $script:AutosuiteStatePath = Join-Path $script:AutosuiteStateDir "state.json"
+        . $script:EndstatePath -LoadFunctionsOnly
+        $script:EndstateStateDir = Join-Path $script:ExportTestDir ".endstate-export-test"
+        $script:EndstateStatePath = Join-Path $script:EndstateStateDir "state.json"
         
-        if (Test-Path $script:AutosuiteStateDir) {
-            Remove-Item $script:AutosuiteStateDir -Recurse -Force
+        if (Test-Path $script:EndstateStateDir) {
+            Remove-Item $script:EndstateStateDir -Recurse -Force
         }
     }
     
     AfterEach {
-        if (Test-Path $script:AutosuiteStateDir) {
-            Remove-Item $script:AutosuiteStateDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path $script:EndstateStateDir) {
+            Remove-Item $script:EndstateStateDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     
     Context "Export with Existing State" {
         It "Exports state to specified path" {
             # Create state
-            $state = New-AutosuiteState
+            $state = New-EndstateState
             $state.lastApplied = @{
                 manifestPath = "export-test.jsonc"
                 manifestHash = "def456"
                 timestampUtc = "2025-01-03T00:00:00Z"
             }
-            Write-AutosuiteStateAtomic -State $state | Out-Null
+            Write-EndstateStateAtomic -State $state | Out-Null
             
             $exportPath = Join-Path $script:ExportTestDir "exported-state.json"
             $result = Invoke-StateExportCore -OutPath $exportPath
@@ -1729,18 +1729,18 @@ Describe "State Import" {
     }
     
     BeforeEach {
-        . $script:AutosuitePath -LoadFunctionsOnly
-        $script:AutosuiteStateDir = Join-Path $script:ImportTestDir ".autosuite-import-test"
-        $script:AutosuiteStatePath = Join-Path $script:AutosuiteStateDir "state.json"
+        . $script:EndstatePath -LoadFunctionsOnly
+        $script:EndstateStateDir = Join-Path $script:ImportTestDir ".endstate-import-test"
+        $script:EndstateStatePath = Join-Path $script:EndstateStateDir "state.json"
         
-        if (Test-Path $script:AutosuiteStateDir) {
-            Remove-Item $script:AutosuiteStateDir -Recurse -Force
+        if (Test-Path $script:EndstateStateDir) {
+            Remove-Item $script:EndstateStateDir -Recurse -Force
         }
     }
     
     AfterEach {
-        if (Test-Path $script:AutosuiteStateDir) {
-            Remove-Item $script:AutosuiteStateDir -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path $script:EndstateStateDir) {
+            Remove-Item $script:EndstateStateDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
     
@@ -1801,19 +1801,19 @@ Describe "State Import" {
             $result.Success | Should -Be $true
             $result.Mode | Should -Be "merge"
             
-            $state = Read-AutosuiteState
+            $state = Read-EndstateState
             $state.lastApplied.manifestPath | Should -Be "imported.jsonc"
         }
         
         It "Incoming overwrites existing when timestamp is newer" {
             # Create existing state with older timestamp
-            $existingState = New-AutosuiteState
+            $existingState = New-EndstateState
             $existingState.lastApplied = @{
                 manifestPath = "old.jsonc"
                 manifestHash = "old123"
                 timestampUtc = "2025-01-01T00:00:00Z"
             }
-            Write-AutosuiteStateAtomic -State $existingState | Out-Null
+            Write-EndstateStateAtomic -State $existingState | Out-Null
             
             # Import with newer timestamp
             $importPath = Join-Path $script:ImportTestDir "newer-state.json"
@@ -1831,19 +1831,19 @@ Describe "State Import" {
             
             $result.Success | Should -Be $true
             
-            $state = Read-AutosuiteState
+            $state = Read-EndstateState
             $state.lastApplied.manifestPath | Should -Be "new.jsonc"
         }
         
         It "Existing preserved when timestamp is newer than incoming" {
             # Create existing state with newer timestamp
-            $existingState = New-AutosuiteState
+            $existingState = New-EndstateState
             $existingState.lastApplied = @{
                 manifestPath = "existing.jsonc"
                 manifestHash = "existing123"
                 timestampUtc = "2025-01-20T00:00:00Z"
             }
-            Write-AutosuiteStateAtomic -State $existingState | Out-Null
+            Write-EndstateStateAtomic -State $existingState | Out-Null
             
             # Import with older timestamp
             $importPath = Join-Path $script:ImportTestDir "older-state.json"
@@ -1861,7 +1861,7 @@ Describe "State Import" {
             
             $result.Success | Should -Be $true
             
-            $state = Read-AutosuiteState
+            $state = Read-EndstateState
             $state.lastApplied.manifestPath | Should -Be "existing.jsonc"
         }
     }
@@ -1869,7 +1869,7 @@ Describe "State Import" {
     Context "Import Replace Behavior" {
         It "Replaces existing state entirely" {
             # Create existing state
-            $existingState = New-AutosuiteState
+            $existingState = New-EndstateState
             $existingState.lastApplied = @{
                 manifestPath = "will-be-replaced.jsonc"
                 manifestHash = "replace123"
@@ -1880,7 +1880,7 @@ Describe "State Import" {
                 timestampUtc = "2025-01-15T00:00:00Z"
                 success = $true
             }
-            Write-AutosuiteStateAtomic -State $existingState | Out-Null
+            Write-EndstateStateAtomic -State $existingState | Out-Null
             
             # Import with replace mode (no lastVerify)
             $importPath = Join-Path $script:ImportTestDir "replace-source.json"
@@ -1899,19 +1899,19 @@ Describe "State Import" {
             $result.Success | Should -Be $true
             $result.Mode | Should -Be "replace"
             
-            $state = Read-AutosuiteState
+            $state = Read-EndstateState
             $state.lastApplied.manifestPath | Should -Be "replacement.jsonc"
             $state.lastVerify | Should -BeNullOrEmpty
         }
         
         It "Creates backup before replace" {
             # Create existing state
-            $existingState = New-AutosuiteState
+            $existingState = New-EndstateState
             $existingState.lastApplied = @{
                 manifestPath = "backup-test.jsonc"
                 timestampUtc = "2025-01-10T00:00:00Z"
             }
-            Write-AutosuiteStateAtomic -State $existingState | Out-Null
+            Write-EndstateStateAtomic -State $existingState | Out-Null
             
             # Import with replace
             $importPath = Join-Path $script:ImportTestDir "replace-backup.json"
@@ -1923,7 +1923,7 @@ Describe "State Import" {
             $result.Success | Should -Be $true
             
             # Check backup exists
-            $backupDir = Join-Path $script:AutosuiteStateDir "backup"
+            $backupDir = Join-Path $script:EndstateStateDir "backup"
             $backupDir | Should -Exist
             $backups = Get-ChildItem -Path $backupDir -Filter "state.*.json"
             $backups.Count | Should -BeGreaterThan 0
@@ -1937,7 +1937,7 @@ Describe "State Import" {
 
 Describe "Capabilities Command" {
     It "Outputs valid JSON with -Json flag" {
-        $output = & $script:AutosuitePath capabilities -Json 6>&1 | Where-Object { $_ -is [string] -and $_ -match '^\s*\{' }
+        $output = & $script:EndstatePath capabilities -Json 6>&1 | Where-Object { $_ -is [string] -and $_ -match '^\s*\{' }
         $json = $output -join "`n" | ConvertFrom-Json
         
         $json.schemaVersion | Should -Be "1.0"
@@ -1949,7 +1949,7 @@ Describe "Capabilities Command" {
     }
     
     It "Outputs valid JSON with --json flag (GNU-style)" {
-        $output = & $script:AutosuitePath capabilities --json 6>&1 | Where-Object { $_ -is [string] -and $_ -match '^\s*\{' }
+        $output = & $script:EndstatePath capabilities --json 6>&1 | Where-Object { $_ -is [string] -and $_ -match '^\s*\{' }
         $json = $output -join "`n" | ConvertFrom-Json
         
         $json.schemaVersion | Should -Be "1.0"

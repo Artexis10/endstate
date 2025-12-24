@@ -6,7 +6,7 @@ Write-Host "━━━━━━━━━━━━━━━━━━━━━━�
 
 $psi = New-Object System.Diagnostics.ProcessStartInfo
 $psi.FileName = "pwsh"
-$psi.Arguments = "-NoProfile -File autosuite.ps1 report --json"
+$psi.Arguments = "-NoProfile -File endstate.ps1 report --json"
 $psi.WorkingDirectory = $PSScriptRoot
 $psi.RedirectStandardOutput = $true
 $psi.RedirectStandardError = $true

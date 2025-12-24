@@ -3,10 +3,10 @@
 
 <#
 .SYNOPSIS
-    Automation Suite - Root orchestrator CLI.
+    Endstate - Root orchestrator CLI.
 
 .DESCRIPTION
-    Primary entrypoint for the automation-suite project.
+    Primary entrypoint for the Endstate project.
     Delegates commands to appropriate subsystems (currently provisioning).
 
 .PARAMETER Command
@@ -37,19 +37,19 @@
     Output report as JSON.
 
 .EXAMPLE
-    .\autosuite.ps1 apply -Profile hugo-win11
+    .\endstate.ps1 apply -Profile hugo-win11
     Apply the hugo-win11 profile manifest.
 
 .EXAMPLE
-    .\autosuite.ps1 apply -Profile hugo-win11 -DryRun
+    .\endstate.ps1 apply -Profile hugo-win11 -DryRun
     Preview what would be applied.
 
 .EXAMPLE
-    .\autosuite.ps1 capture -Profile hugo-win11
+    .\endstate.ps1 capture -Profile hugo-win11
     Capture current machine state to hugo-win11 profile.
 
 .EXAMPLE
-    .\autosuite.ps1 report -Latest
+    .\endstate.ps1 report -Latest
     Show most recent provisioning run.
 #>
 [CmdletBinding()]
@@ -137,12 +137,12 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$script:AutosuiteRoot = $PSScriptRoot
+$script:EndstateRoot = $PSScriptRoot
 
 #region GNU-style Flag Normalization
 # Normalize GNU-style double-dash flags to PowerShell convention
-# This allows commands like: autosuite apply --profile Hugo-Laptop --json
-# to work alongside PowerShell-style: autosuite apply -Profile Hugo-Laptop -Json
+# This allows commands like: endstate apply --profile Hugo-Laptop --json
+# to work alongside PowerShell-style: endstate apply -Profile Hugo-Laptop -Json
 
 # Process remaining arguments captured by ValueFromRemainingArguments
 if ($RemainingArgs) {
@@ -231,15 +231,15 @@ if ($commandLine -match '\s--json(\s|$)') {
 
 #endregion GNU-style Flag Normalization
 
-function Get-AutosuiteVersion {
+function Get-EndstateVersion {
     <#
     .SYNOPSIS
-        Returns the current version of Automation Suite.
+        Returns the current version of Endstate.
     .DESCRIPTION
         If VERSION.txt exists (release build), returns its content.
         Otherwise returns dev version: 0.0.0-dev+<short git sha>
     #>
-    $versionFile = Join-Path $script:AutosuiteRoot "VERSION.txt"
+    $versionFile = Join-Path $script:EndstateRoot "VERSION.txt"
     
     if (Test-Path $versionFile) {
         $version = (Get-Content -Path $versionFile -Raw).Trim()
@@ -275,37 +275,37 @@ function Get-GitSha {
     return $null
 }
 
-$script:VersionString = Get-AutosuiteVersion
+$script:VersionString = Get-EndstateVersion
 
 # Provisioning CLI path will be resolved lazily by Get-ProvisioningCliPath function
 # to avoid calling Get-RepoRootPath before it's defined
 $script:ProvisioningCliPath = $null
 
 # Allow override of winget script for testing (path to .ps1 file)
-$script:WingetScript = $env:AUTOSUITE_WINGET_SCRIPT
+$script:WingetScript = $env:ENDSTATE_WINGET_SCRIPT
 
 # Local manifests directory (gitignored)
-$script:LocalManifestsDir = Join-Path $script:AutosuiteRoot "manifests\local"
+$script:LocalManifestsDir = Join-Path $script:EndstateRoot "manifests\local"
 
 # Examples directory (committed, shareable)
-$script:ExamplesManifestsDir = Join-Path $script:AutosuiteRoot "manifests\examples"
+$script:ExamplesManifestsDir = Join-Path $script:EndstateRoot "manifests\examples"
 
 # State directory (repo-local, gitignored)
-$script:AutosuiteStateDir = Join-Path $script:AutosuiteRoot ".autosuite"
-$script:AutosuiteStatePath = Join-Path $script:AutosuiteStateDir "state.json"
+$script:EndstateStateDir = Join-Path $script:EndstateRoot ".endstate"
+$script:EndstateStatePath = Join-Path $script:EndstateStateDir "state.json"
 
 #region State Store Helpers
 
-function Get-AutosuiteStatePath {
-    return $script:AutosuiteStatePath
+function Get-EndstateStatePath {
+    return $script:EndstateStatePath
 }
 
-function Get-AutosuiteStateDir {
-    return $script:AutosuiteStateDir
+function Get-EndstateStateDir {
+    return $script:EndstateStateDir
 }
 
-function Read-AutosuiteState {
-    $statePath = Get-AutosuiteStatePath
+function Read-EndstateState {
+    $statePath = Get-EndstateStatePath
     if (-not (Test-Path $statePath)) {
         return $null
     }
@@ -318,14 +318,14 @@ function Read-AutosuiteState {
     }
 }
 
-function Write-AutosuiteStateAtomic {
+function Write-EndstateStateAtomic {
     param(
         [Parameter(Mandatory = $true)]
         [hashtable]$State
     )
     
-    $stateDir = Get-AutosuiteStateDir
-    $statePath = Get-AutosuiteStatePath
+    $stateDir = Get-EndstateStateDir
+    $statePath = Get-EndstateStatePath
     
     # Ensure state directory exists
     if (-not (Test-Path $stateDir)) {
@@ -351,7 +351,7 @@ function Write-AutosuiteStateAtomic {
     }
 }
 
-function New-AutosuiteState {
+function New-EndstateState {
     return @{
         schemaVersion = 1
         lastApplied = $null
@@ -486,22 +486,22 @@ function Get-RepoRootPath {
         Get the repo root path from environment variable or persisted file.
     .DESCRIPTION
         Priority:
-        1. $env:AUTOSUITE_ROOT (if set)
-        2. %LOCALAPPDATA%\Autosuite\repo-root.txt (if exists)
+        1. $env:ENDSTATE_ROOT (if set)
+        2. %LOCALAPPDATA%\Endstate\repo-root.txt (if exists)
         3. $null (not configured)
     #>
     
     # Priority 1: Environment variable override
-    if ($env:AUTOSUITE_ROOT) {
-        if (Test-Path $env:AUTOSUITE_ROOT) {
-            return $env:AUTOSUITE_ROOT
+    if ($env:ENDSTATE_ROOT) {
+        if (Test-Path $env:ENDSTATE_ROOT) {
+            return $env:ENDSTATE_ROOT
         } else {
-            Write-Warning "AUTOSUITE_ROOT is set but path does not exist: $env:AUTOSUITE_ROOT"
+            Write-Warning "ENDSTATE_ROOT is set but path does not exist: $env:ENDSTATE_ROOT"
         }
     }
     
     # Priority 2: Persisted repo-root.txt
-    $repoRootFile = Join-Path $env:LOCALAPPDATA "Autosuite\repo-root.txt"
+    $repoRootFile = Join-Path $env:LOCALAPPDATA "Endstate\repo-root.txt"
     if (Test-Path $repoRootFile) {
         try {
             $persistedRoot = (Get-Content -Path $repoRootFile -Raw -ErrorAction Stop).Trim()
@@ -571,14 +571,14 @@ function Find-RepoRoot {
 function Set-RepoRootPath {
     <#
     .SYNOPSIS
-        Persist repo root path to %LOCALAPPDATA%\Autosuite\repo-root.txt
+        Persist repo root path to %LOCALAPPDATA%\Endstate\repo-root.txt
     #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$Path
     )
     
-    $repoRootFile = Join-Path $env:LOCALAPPDATA "Autosuite\repo-root.txt"
+    $repoRootFile = Join-Path $env:LOCALAPPDATA "Endstate\repo-root.txt"
     
     # Ensure directory exists
     $parentDir = Split-Path -Parent $repoRootFile
@@ -595,12 +595,12 @@ function Set-RepoRootPath {
     }
 }
 
-function Install-AutosuiteToPath {
+function Install-EndstateToPath {
     <#
     .SYNOPSIS
-        Install autosuite command to user PATH (idempotent).
+        Install endstate command to user PATH (idempotent).
     .DESCRIPTION
-        Creates %LOCALAPPDATA%\Autosuite\bin directory, installs CLI entrypoint,
+        Creates %LOCALAPPDATA%\Endstate\bin directory, installs CLI entrypoint,
         creates CMD shim, and adds to user PATH if not already present.
         Optionally persists repo root path for profile resolution.
         Fully idempotent - safe to run multiple times.
@@ -612,12 +612,12 @@ function Install-AutosuiteToPath {
         [string]$RepoRootPath
     )
     
-    $binDir = Join-Path $env:LOCALAPPDATA "Autosuite\bin"
-    $cliEntrypoint = Join-Path $binDir "autosuite.ps1"
-    $cmdShim = Join-Path $binDir "autosuite.cmd"
+    $binDir = Join-Path $env:LOCALAPPDATA "Endstate\bin"
+    $cliEntrypoint = Join-Path $binDir "endstate.ps1"
+    $cmdShim = Join-Path $binDir "endstate.cmd"
     
     Write-Host ""
-    Write-Host "=== Autosuite Bootstrap ==="  -ForegroundColor Cyan
+    Write-Host "=== Endstate Bootstrap ==="  -ForegroundColor Cyan
     Write-Host ""
     
     # Create bin directory if it doesn't exist
@@ -628,7 +628,7 @@ function Install-AutosuiteToPath {
         Write-Host "[OK] Directory exists: $binDir" -ForegroundColor DarkGray
     }
     
-    # Copy autosuite.ps1 to bin directory
+    # Copy endstate.ps1 to bin directory
     $sourceScript = $PSCommandPath
     if (Test-Path $cliEntrypoint) {
         Write-Host "[UPDATE] Updating CLI entrypoint: $cliEntrypoint" -ForegroundColor Yellow
@@ -640,8 +640,8 @@ function Install-AutosuiteToPath {
     # Create CMD shim
     $shimContent = @"
 @echo off
-REM Autosuite CLI shim - forwards all arguments to PowerShell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Autosuite\bin\autosuite.ps1" %*
+REM Endstate CLI shim - forwards all arguments to PowerShell
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Endstate\bin\endstate.ps1" %*
 "@
     
     if (Test-Path $cmdShim) {
@@ -712,15 +712,15 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Autosuite\bin\auto
         } else {
             Write-Host "[WARN] Could not auto-detect repo root." -ForegroundColor Yellow
             Write-Host "       To enable profile resolution, run:" -ForegroundColor Yellow
-            Write-Host "       autosuite bootstrap -RepoRoot <path-to-autosuite>" -ForegroundColor Cyan
-            Write-Host "       Or set environment variable: `$env:AUTOSUITE_ROOT" -ForegroundColor Cyan
+            Write-Host "       endstate bootstrap -RepoRoot <path-to-endstate>" -ForegroundColor Cyan
+            Write-Host "       Or set environment variable: `$env:ENDSTATE_ROOT" -ForegroundColor Cyan
         }
     }
     
     Write-Host ""
     Write-Host "[SUCCESS] Bootstrap complete!" -ForegroundColor Green
     Write-Host ""
-    Write-Host "You can now run 'autosuite --help' from any directory." -ForegroundColor Cyan
+    Write-Host "You can now run 'endstate --help' from any directory." -ForegroundColor Cyan
     
     if ($repoRootConfigured) {
         Write-Host "Profile resolution configured for: $repoRootPath" -ForegroundColor Cyan
@@ -738,11 +738,11 @@ function Show-Banner {
     # This keeps stdout pure for JSON output
     if ($Json.IsPresent) {
         Write-Information "" -InformationAction Continue
-        Write-Information "Automation Suite - $script:VersionString" -InformationAction Continue
+        Write-Information "Endstate - $script:VersionString" -InformationAction Continue
         Write-Information "" -InformationAction Continue
     } else {
         Write-Host ""
-        Write-Host "Automation Suite - $script:VersionString" -ForegroundColor Cyan
+        Write-Host "Endstate - $script:VersionString" -ForegroundColor Cyan
         Write-Host ""
     }
 }
@@ -750,17 +750,17 @@ function Show-Banner {
 function Show-Help {
     Show-Banner
     Write-Host "USAGE:" -ForegroundColor Yellow
-    Write-Host "    .\autosuite.ps1 <command> [options]"
+    Write-Host "    .\endstate.ps1 <command> [options]"
     Write-Host ""
     Write-Host "COMMANDS:" -ForegroundColor Yellow
-    Write-Host "    bootstrap     Install autosuite command to user PATH"
+    Write-Host "    bootstrap     Install endstate command to user PATH"
     Write-Host "    capture       Capture current machine state into a manifest"
     Write-Host "    apply         Apply manifest to current machine"
     Write-Host "    verify        Verify current state matches manifest"
     Write-Host "    plan          Generate execution plan from manifest"
     Write-Host "    report        Show state summary and drift"
     Write-Host "    doctor        Diagnose environment issues"
-    Write-Host "    state         Manage autosuite state (subcommands: reset, export, import)"
+    Write-Host "    state         Manage endstate state (subcommands: reset, export, import)"
     Write-Host "    capabilities  List available commands (use -Json for machine-readable output)"
     Write-Host ""
     Write-Host "CAPTURE OPTIONS:" -ForegroundColor Yellow
@@ -788,22 +788,22 @@ function Show-Help {
     Write-Host "    -Out <path>        Write JSON to file (atomic write)"
     Write-Host ""
     Write-Host "STATE SUBCOMMANDS:" -ForegroundColor Yellow
-    Write-Host "    reset              Delete .autosuite/state.json (non-destructive)"
+    Write-Host "    reset              Delete .endstate/state.json (non-destructive)"
     Write-Host "    export -Out <p>    Export state to file (atomic, valid schema even if empty)"
     Write-Host "    import -In <p>     Import state from file (default: merge)"
     Write-Host "      [-Merge]         Merge incoming (newer timestamps win)"
     Write-Host "      [-Replace]       Replace entirely (backup existing first)"
     Write-Host ""
     Write-Host "EXAMPLES:" -ForegroundColor Yellow
-    Write-Host "    .\autosuite.ps1 capture                                    # Capture to local/<machine>.jsonc"
-    Write-Host "    .\autosuite.ps1 capture -Out my-manifest.jsonc             # Capture to specific path"
-    Write-Host "    .\autosuite.ps1 capture -Sanitize -Name example-win-core   # Sanitized to examples/"
-    Write-Host "    .\autosuite.ps1 capture -Example                           # (Legacy) Generate example fixture"
-    Write-Host "    .\autosuite.ps1 apply -Manifest manifest.jsonc   # Apply manifest"
-    Write-Host "    .\autosuite.ps1 apply -Manifest manifest.jsonc -DryRun"
-    Write-Host "    .\autosuite.ps1 verify -Manifest manifest.jsonc  # Verify apps installed"
-    Write-Host "    .\autosuite.ps1 report -Latest"
-    Write-Host "    .\autosuite.ps1 doctor"
+    Write-Host "    .\endstate.ps1 capture                                    # Capture to local/<machine>.jsonc"
+    Write-Host "    .\endstate.ps1 capture -Out my-manifest.jsonc             # Capture to specific path"
+    Write-Host "    .\endstate.ps1 capture -Sanitize -Name example-win-core   # Sanitized to examples/"
+    Write-Host "    .\endstate.ps1 capture -Example                           # (Legacy) Generate example fixture"
+    Write-Host "    .\endstate.ps1 apply -Manifest manifest.jsonc   # Apply manifest"
+    Write-Host "    .\endstate.ps1 apply -Manifest manifest.jsonc -DryRun"
+    Write-Host "    .\endstate.ps1 verify -Manifest manifest.jsonc  # Verify apps installed"
+    Write-Host "    .\endstate.ps1 report -Latest"
+    Write-Host "    .\endstate.ps1 doctor"
     Write-Host ""
 }
 
@@ -812,13 +812,13 @@ function Get-ProvisioningCliPath {
     .SYNOPSIS
         Resolve provisioning CLI path using repo root resolution (lazy evaluation).
     .DESCRIPTION
-        Priority: 1) AUTOSUITE_PROVISIONING_CLI env var (testing override)
-                  2) Repo root resolution (AUTOSUITE_ROOT -> repo-root.txt -> fallback)
+        Priority: 1) ENDSTATE_PROVISIONING_CLI env var (testing override)
+                  2) Repo root resolution (ENDSTATE_ROOT -> repo-root.txt -> fallback)
     #>
     
     # Check for testing override first
-    if ($env:AUTOSUITE_PROVISIONING_CLI) {
-        return $env:AUTOSUITE_PROVISIONING_CLI
+    if ($env:ENDSTATE_PROVISIONING_CLI) {
+        return $env:ENDSTATE_PROVISIONING_CLI
     }
     
     # Determine repo root using the same logic as profile resolution
@@ -826,7 +826,7 @@ function Get-ProvisioningCliPath {
     
     if (-not $repoRoot) {
         # Fallback: if running from repo, use $PSScriptRoot
-        $repoRoot = $script:AutosuiteRoot
+        $repoRoot = $script:EndstateRoot
         
         # Verify this is actually a repo root by checking for cli.ps1
         $cliPath = Join-Path $repoRoot "cli.ps1"
@@ -851,9 +851,9 @@ function Resolve-ManifestPath {
            -> Resolves under repo manifests/ directory
         
         Uses repo root from:
-        1. $env:AUTOSUITE_ROOT (if set)
+        1. $env:ENDSTATE_ROOT (if set)
         2. Persisted repo-root.txt
-        3. $script:AutosuiteRoot (fallback for in-repo execution)
+        3. $script:EndstateRoot (fallback for in-repo execution)
     #>
     param([string]$ProfileName)
     
@@ -888,12 +888,12 @@ function Resolve-ManifestPath {
     
     if (-not $repoRoot) {
         # Fallback: if running from repo, use $PSScriptRoot
-        $repoRoot = $script:AutosuiteRoot
+        $repoRoot = $script:EndstateRoot
         
         # Verify this is actually a repo root
         $manifestsDir = Join-Path $repoRoot "manifests"
         if (-not (Test-Path $manifestsDir)) {
-            Write-Host "[ERROR] Repo root not configured. Run 'autosuite bootstrap -RepoRoot <path>' or set AUTOSUITE_ROOT." -ForegroundColor Red
+            Write-Host "[ERROR] Repo root not configured. Run 'endstate bootstrap -RepoRoot <path>' or set ENDSTATE_ROOT." -ForegroundColor Red
             return $null
         }
     }
@@ -914,10 +914,10 @@ function Invoke-ProvisioningCli {
     # Check if repo root resolution failed (cliPath is null)
     if (-not $cliPath) {
         Write-Host "[ERROR] Repo root not configured. Cannot locate provisioning CLI." -ForegroundColor Red
-        Write-Host "        Run 'autosuite bootstrap -RepoRoot <path>' or set AUTOSUITE_ROOT environment variable." -ForegroundColor Yellow
+        Write-Host "        Run 'endstate bootstrap -RepoRoot <path>' or set ENDSTATE_ROOT environment variable." -ForegroundColor Yellow
         Write-Host "" -ForegroundColor Yellow
         Write-Host "Example:" -ForegroundColor Cyan
-        Write-Host "  autosuite bootstrap -RepoRoot C:\Users\hugoa\Desktop\Projects\automation-suite" -ForegroundColor Cyan
+        Write-Host "  endstate bootstrap -RepoRoot C:\path\to\endstate" -ForegroundColor Cyan
         return @{ Success = $false; ExitCode = 1; Error = "Repo root not configured" }
     }
     
@@ -928,7 +928,7 @@ function Invoke-ProvisioningCli {
     }
     
     # Emit stable wrapper line via Write-Output for testability
-    Write-Output "[autosuite] Delegating to provisioning subsystem..."
+    Write-Output "[endstate] Delegating to provisioning subsystem..."
     Write-Host ""
     
     $params = @{ Command = $ProvisioningCommand }
@@ -953,14 +953,14 @@ function Invoke-ApplyCore {
         [switch]$SkipStateWrite
     )
     
-    Write-Output "[autosuite] Apply: reading manifest $ManifestPath"
+    Write-Output "[endstate] Apply: reading manifest $ManifestPath"
     $manifest = Read-Manifest -Path $ManifestPath
     
     if (-not $manifest) {
         return @{ Success = $false; ExitCode = 1; Error = "Failed to read manifest" }
     }
     
-    Write-Output "[autosuite] Apply: installing apps"
+    Write-Output "[endstate] Apply: installing apps"
     
     $installed = 0
     $skipped = 0
@@ -1105,7 +1105,7 @@ function Invoke-ApplyCore {
     }
     
     Write-Host ""
-    Write-Host "[autosuite] Apply: Summary" -ForegroundColor Cyan
+    Write-Host "[endstate] Apply: Summary" -ForegroundColor Cyan
     Write-Host "  Installed: $installed"
     Write-Host "  Upgraded:  $upgraded"
     Write-Host "  Skipped:   $skipped"
@@ -1116,9 +1116,9 @@ function Invoke-ApplyCore {
     # Write state for apply (unless dry-run or skipped)
     if (-not $IsDryRun -and -not $SkipStateWrite) {
         $manifestHash = Get-ManifestHash -Path $ManifestPath
-        $state = Read-AutosuiteState
+        $state = Read-EndstateState
         if (-not $state) {
-            $state = New-AutosuiteState
+            $state = New-EndstateState
         }
         
         # Convert PSCustomObject to hashtable if needed
@@ -1134,7 +1134,7 @@ function Invoke-ApplyCore {
             timestampUtc = $timestampUtc
         }
         
-        Write-AutosuiteStateAtomic -State $state | Out-Null
+        Write-EndstateStateAtomic -State $state | Out-Null
     }
     
     # Run verify unless -OnlyApps or -DryRun
@@ -1144,7 +1144,7 @@ function Invoke-ApplyCore {
         $verifyResult = Invoke-VerifyCore -ManifestPath $ManifestPath -SkipStateWrite:$SkipStateWrite
     }
     
-    Write-Output "[autosuite] Apply: completed ExitCode=$(if ($failed -gt 0) { 1 } else { 0 })"
+    Write-Output "[endstate] Apply: completed ExitCode=$(if ($failed -gt 0) { 1 } else { 0 })"
     
     # Build structured counts
     $counts = @{
@@ -1382,12 +1382,12 @@ function Test-CustomScriptPathSafe {
     $absolutePath = if ([System.IO.Path]::IsPathRooted($ScriptPath)) {
         $ScriptPath
     } else {
-        Join-Path $script:AutosuiteRoot $ScriptPath
+        Join-Path $script:EndstateRoot $ScriptPath
     }
     
     try {
         $resolvedPath = [System.IO.Path]::GetFullPath($absolutePath)
-        $repoRoot = [System.IO.Path]::GetFullPath($script:AutosuiteRoot)
+        $repoRoot = [System.IO.Path]::GetFullPath($script:EndstateRoot)
         
         # Check if resolved path starts with repo root (prevent path traversal)
         return $resolvedPath.StartsWith($repoRoot, [System.StringComparison]::OrdinalIgnoreCase)
@@ -1482,7 +1482,7 @@ function Install-CustomApp {
     $absoluteScript = if ([System.IO.Path]::IsPathRooted($scriptPath)) {
         $scriptPath
     } else {
-        Join-Path $script:AutosuiteRoot $scriptPath
+        Join-Path $script:EndstateRoot $scriptPath
     }
     
     if (-not (Test-Path $absoluteScript)) {
@@ -1490,11 +1490,11 @@ function Install-CustomApp {
     }
     
     if ($DryRun) {
-        Write-Output "[autosuite] CustomDriver: would run $absoluteScript"
+        Write-Output "[endstate] CustomDriver: would run $absoluteScript"
         return @{ Success = $true; ExitCode = 0; DryRun = $true }
     }
     
-    Write-Output "[autosuite] CustomDriver: running $absoluteScript"
+    Write-Output "[endstate] CustomDriver: running $absoluteScript"
     
     try {
         $output = & pwsh -NoProfile -File $absoluteScript 2>&1
@@ -1878,9 +1878,9 @@ function Invoke-CaptureCore {
     
     # Legacy -Example flag: generate static example manifest
     if ($IsExample -and -not $IsSanitize) {
-        $examplePath = if ($OutputPath) { $OutputPath } else { Join-Path $script:AutosuiteRoot "manifests\example.jsonc" }
+        $examplePath = if ($OutputPath) { $OutputPath } else { Join-Path $script:EndstateRoot "manifests\example.jsonc" }
         $null = Write-ExampleManifest -Path $examplePath
-        Write-Host "[autosuite] Capture: example manifest written to $examplePath" -ForegroundColor Green
+        Write-Host "[endstate] Capture: example manifest written to $examplePath" -ForegroundColor Green
         return @{ Success = $true; OutputPath = $examplePath; Sanitized = $false; IsExample = $true }
     }
     
@@ -1929,10 +1929,10 @@ function Invoke-CaptureCore {
     }
     
     if ($IsSanitize) {
-        Write-Host "[autosuite] Capture: sanitization enabled" -ForegroundColor Cyan
+        Write-Host "[endstate] Capture: sanitization enabled" -ForegroundColor Cyan
         
         # First capture to a temp location
-        $tempDir = Join-Path $env:TEMP "autosuite-capture-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+        $tempDir = Join-Path $env:TEMP "endstate-capture-$([guid]::NewGuid().ToString('N').Substring(0,8))"
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
         $tempPath = Join-Path $tempDir "raw-capture.jsonc"
         
@@ -1969,7 +1969,7 @@ function Invoke-CaptureCore {
         $header = @"
 {
   // Sanitized example manifest
-  // Generated via: autosuite capture -Sanitize
+  // Generated via: endstate capture -Sanitize
   // This file is safe to commit - no machine-specific data or timestamps
 
 "@
@@ -1981,7 +1981,7 @@ function Invoke-CaptureCore {
         # Cleanup temp
         Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
         
-        Write-Host "[autosuite] Capture: sanitized manifest written to $outPath" -ForegroundColor Green
+        Write-Host "[endstate] Capture: sanitized manifest written to $outPath" -ForegroundColor Green
         
         $appsIncluded = @()
         if ($sanitizedManifest.apps) {
@@ -2177,7 +2177,7 @@ function Invoke-VerifyCore {
     $extraCount = $drift.ExtraCount
     
     Write-Host ""
-    Write-Host "[autosuite] Verify: Summary" -ForegroundColor Cyan
+    Write-Host "[endstate] Verify: Summary" -ForegroundColor Cyan
     Write-Host "  Installed OK:       $okCount" -ForegroundColor Green
     Write-Host "  Missing:            $missingCount" -ForegroundColor $(if ($missingCount -gt 0) { "Red" } else { "Green" })
     Write-Host "  Version Mismatches: $versionMismatchCount" -ForegroundColor $(if ($versionMismatchCount -gt 0) { "Yellow" } else { "Green" })
@@ -2185,9 +2185,9 @@ function Invoke-VerifyCore {
     # Update state (unless skipped, e.g., during tests with no state dir)
     if (-not $SkipStateWrite) {
         $manifestHash = Get-ManifestHash -Path $ManifestPath
-        $state = Read-AutosuiteState
+        $state = Read-EndstateState
         if (-not $state) {
-            $state = New-AutosuiteState
+            $state = New-EndstateState
         }
         
         # Convert PSCustomObject to hashtable if needed
@@ -2217,7 +2217,7 @@ function Invoke-VerifyCore {
             $state.appsObserved[$key] = $appsObserved[$key]
         }
         
-        Write-AutosuiteStateAtomic -State $state | Out-Null
+        Write-EndstateStateAtomic -State $state | Out-Null
     }
     
     # Determine overall success: missing OR version mismatch = failure
@@ -2291,7 +2291,7 @@ function Invoke-ReportCore {
         [string]$OutPath
     )
     
-    $state = Read-AutosuiteState
+    $state = Read-EndstateState
     $hasState = $null -ne $state
     
     if ($OutputJson) {
@@ -2367,13 +2367,13 @@ function Invoke-ReportCore {
     
     # Human-readable mode - check for state first
     if (-not $state) {
-        Write-Host "No autosuite state found. Run 'apply' or 'verify' to create state." -ForegroundColor Yellow
+        Write-Host "No endstate state found. Run 'apply' or 'verify' to create state." -ForegroundColor Yellow
         return @{ Success = $true; ExitCode = 0; HasState = $false }
     }
     
     # Human-readable output
     Write-Host ""
-    Write-Host "=== Autosuite State Report ===" -ForegroundColor Cyan
+    Write-Host "=== Endstate Report ===" -ForegroundColor Cyan
     Write-Host ""
     
     if ($state.lastApplied) {
@@ -2425,11 +2425,11 @@ function Invoke-DoctorCore {
     )
     
     Write-Host ""
-    Write-Host "=== Autosuite Doctor ===" -ForegroundColor Cyan
+    Write-Host "=== Endstate Doctor ===" -ForegroundColor Cyan
     Write-Host ""
     
     # Check state
-    $state = Read-AutosuiteState
+    $state = Read-EndstateState
     $hasState = $null -ne $state
     $stateStatus = if ($hasState) { "present" } else { "absent" }
     
@@ -2507,7 +2507,7 @@ function Invoke-StateResetCore {
     .SYNOPSIS
         Core state reset logic. Returns structured result only - no stream output.
     #>
-    $statePath = Get-AutosuiteStatePath
+    $statePath = Get-EndstateStatePath
     
     if (-not (Test-Path $statePath)) {
         Write-Host "No state file found at $statePath" -ForegroundColor Yellow
@@ -2537,11 +2537,11 @@ function Invoke-StateExportCore {
     # Security: Validate output path is not outside reasonable bounds
     # (Allow any path for export - user controls destination)
     
-    $state = Read-AutosuiteState
+    $state = Read-EndstateState
     
     if (-not $state) {
         # No state exists - export empty schema
-        $state = New-AutosuiteState
+        $state = New-EndstateState
         Write-Host "No existing state - exporting empty schema" -ForegroundColor Yellow
     }
     
@@ -2585,7 +2585,7 @@ function Invoke-StateImportCore {
         - Validates JSON and schemaVersion
         - Merge (default): incoming overwrites only if timestamp is newer
         - Replace: backup existing, then replace entirely
-        - Security: Only writes under .autosuite/, never outside repo root
+        - Security: Only writes under .endstate/, never outside repo root
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -2625,8 +2625,8 @@ function Invoke-StateImportCore {
     $incomingHash = @{}
     $incoming.PSObject.Properties | ForEach-Object { $incomingHash[$_.Name] = $_.Value }
     
-    $stateDir = Get-AutosuiteStateDir
-    $statePath = Get-AutosuiteStatePath
+    $stateDir = Get-EndstateStateDir
+    $statePath = Get-EndstateStatePath
     
     # Ensure state directory exists
     if (-not (Test-Path $stateDir)) {
@@ -2652,7 +2652,7 @@ function Invoke-StateImportCore {
         }
         
         # Write incoming state directly
-        $result = Write-AutosuiteStateAtomic -State $incomingHash
+        $result = Write-EndstateStateAtomic -State $incomingHash
         if ($result) {
             Write-Host "State replaced from: $InPath" -ForegroundColor Green
             return @{ Success = $true; ExitCode = 0; Mode = "replace" }
@@ -2661,9 +2661,9 @@ function Invoke-StateImportCore {
         }
     } else {
         # Merge mode (default): merge incoming into existing
-        $existing = Read-AutosuiteState
+        $existing = Read-EndstateState
         if (-not $existing) {
-            $existing = New-AutosuiteState
+            $existing = New-EndstateState
         }
         
         # Convert existing PSCustomObject to hashtable if needed
@@ -2726,7 +2726,7 @@ function Invoke-StateImportCore {
             }
         }
         
-        $result = Write-AutosuiteStateAtomic -State $existing
+        $result = Write-EndstateStateAtomic -State $existing
         if ($result) {
             Write-Host "State merged from: $InPath" -ForegroundColor Green
             return @{ Success = $true; ExitCode = 0; Mode = "merge" }
@@ -2824,19 +2824,19 @@ $exitCode = 0
 
 switch ($Command) {
     "bootstrap" {
-        Write-Information "[autosuite] Bootstrap: installing to PATH..." -InformationAction Continue
-        $result = Install-AutosuiteToPath -RepoRootPath $RepoRoot
+        Write-Information "[endstate] Bootstrap: installing to PATH..." -InformationAction Continue
+        $result = Install-EndstateToPath -RepoRootPath $RepoRoot
         if ($result.RepoRootConfigured) {
-            Write-Information "[autosuite] Bootstrap: repo root configured: $($result.RepoRoot)" -InformationAction Continue
+            Write-Information "[endstate] Bootstrap: repo root configured: $($result.RepoRoot)" -InformationAction Continue
         } else {
-            Write-Information "[autosuite] Bootstrap: repo root not configured (profile resolution may not work)" -InformationAction Continue
+            Write-Information "[endstate] Bootstrap: repo root not configured (profile resolution may not work)" -InformationAction Continue
         }
-        Write-Information "[autosuite] Bootstrap: completed ExitCode=$($result.ExitCode)" -InformationAction Continue
+        Write-Information "[endstate] Bootstrap: completed ExitCode=$($result.ExitCode)" -InformationAction Continue
         $exitCode = $result.ExitCode
     }
     "capture" {
         if (-not $Json) {
-            Write-Information "[autosuite] Capture: starting..." -InformationAction Continue
+            Write-Information "[endstate] Capture: starting..." -InformationAction Continue
         }
         $captureResult = Invoke-CaptureCore -OutputPath $Out -IsExample $Example.IsPresent -IsSanitize $Sanitize.IsPresent -ManifestName $Name -CustomExamplesDir $ExamplesDir -ForceOverwrite $Force.IsPresent
         
@@ -2867,14 +2867,14 @@ switch ($Command) {
             }
         } else {
             if ($captureResult.OutputPath) {
-                Write-Information "[autosuite] Capture: output path is $($captureResult.OutputPath)" -InformationAction Continue
+                Write-Information "[endstate] Capture: output path is $($captureResult.OutputPath)" -InformationAction Continue
             }
             if ($captureResult.Blocked) {
-                Write-Information "[autosuite] Capture: BLOCKED - $($captureResult.Error)" -InformationAction Continue
+                Write-Information "[endstate] Capture: BLOCKED - $($captureResult.Error)" -InformationAction Continue
             }
             if ($captureResult.Success) {
                 $completedMsg = if ($captureResult.Sanitized) { "completed (sanitized, $($captureResult.AppCount) apps)" } else { "completed" }
-                Write-Information "[autosuite] Capture: $completedMsg" -InformationAction Continue
+                Write-Information "[endstate] Capture: $completedMsg" -InformationAction Continue
             }
         }
         
@@ -2921,7 +2921,7 @@ switch ($Command) {
             }
             
             if (-not $Json) {
-                Write-Information "[autosuite] Apply: starting with manifest $resolvedPath" -InformationAction Continue
+                Write-Information "[endstate] Apply: starting with manifest $resolvedPath" -InformationAction Continue
             }
             $result = Invoke-ApplyCore -ManifestPath $resolvedPath -IsDryRun $DryRun.IsPresent -IsOnlyApps $OnlyApps.IsPresent
             
@@ -2945,7 +2945,7 @@ switch ($Command) {
                 }
                 Write-JsonEnvelope -CommandName "apply" -Success $result.Success -Data $data -ExitCode $result.ExitCode
             } else {
-                Write-Information "[autosuite] Apply: completed ExitCode=$($result.ExitCode)" -InformationAction Continue
+                Write-Information "[endstate] Apply: completed ExitCode=$($result.ExitCode)" -InformationAction Continue
             }
             $exitCode = $result.ExitCode
         } catch {
@@ -2999,7 +2999,7 @@ switch ($Command) {
             }
             
             if (-not $Json) {
-                Write-Information "[autosuite] Verify: checking manifest $resolvedPath" -InformationAction Continue
+                Write-Information "[endstate] Verify: checking manifest $resolvedPath" -InformationAction Continue
             }
             $result = Invoke-VerifyCore -ManifestPath $resolvedPath
             
@@ -3017,10 +3017,10 @@ switch ($Command) {
                 }
                 Write-JsonEnvelope -CommandName "verify" -Success $result.Success -Data $data -ExitCode $result.ExitCode
             } else {
-                Write-Information "[autosuite] Verify: OkCount=$($result.OkCount) MissingCount=$($result.MissingCount) VersionMismatches=$($result.VersionMismatches) ExtraCount=$($result.ExtraCount)" -InformationAction Continue
-                Write-Information "[autosuite] Drift: Missing=$($result.MissingCount) Extra=$($result.ExtraCount) VersionMismatches=$($result.VersionMismatches)" -InformationAction Continue
+                Write-Information "[endstate] Verify: OkCount=$($result.OkCount) MissingCount=$($result.MissingCount) VersionMismatches=$($result.VersionMismatches) ExtraCount=$($result.ExtraCount)" -InformationAction Continue
+                Write-Information "[endstate] Drift: Missing=$($result.MissingCount) Extra=$($result.ExtraCount) VersionMismatches=$($result.VersionMismatches)" -InformationAction Continue
                 $passedFailed = if ($result.Success) { "PASSED" } else { "FAILED" }
-                Write-Information "[autosuite] Verify: $passedFailed" -InformationAction Continue
+                Write-Information "[endstate] Verify: $passedFailed" -InformationAction Continue
             }
             $exitCode = $result.ExitCode
         } catch {
@@ -3048,7 +3048,7 @@ switch ($Command) {
     "report" {
         # For JSON mode, emit wrapper lines only to Information stream (not stdout)
         if (-not $Json.IsPresent) {
-            Write-Information "[autosuite] Report: reading state..." -InformationAction Continue
+            Write-Information "[endstate] Report: reading state..." -InformationAction Continue
         }
         $result = Invoke-ReportCore -ManifestPath $Manifest -OutputJson $Json.IsPresent -OutPath $Out
         
@@ -3057,29 +3057,29 @@ switch ($Command) {
             Write-JsonEnvelope -CommandName "report" -Success $result.Success -Data $result.Data -ExitCode $result.ExitCode
         } elseif (-not $Json.IsPresent) {
             if ($result.HasState) {
-                Write-Information "[autosuite] Report: completed" -InformationAction Continue
+                Write-Information "[endstate] Report: completed" -InformationAction Continue
             } else {
-                Write-Information "[autosuite] Report: no state found" -InformationAction Continue
+                Write-Information "[endstate] Report: no state found" -InformationAction Continue
             }
         }
         $exitCode = $result.ExitCode
     }
     "doctor" {
-        Write-Information "[autosuite] Doctor: checking environment..." -InformationAction Continue
+        Write-Information "[endstate] Doctor: checking environment..." -InformationAction Continue
         $result = Invoke-DoctorCore -ManifestPath $Manifest
-        Write-Information "[autosuite] Doctor: state=$($result.StateStatus) driftMissing=$($result.DriftMissing) driftExtra=$($result.DriftExtra)" -InformationAction Continue
-        Write-Information "[autosuite] Doctor: completed" -InformationAction Continue
+        Write-Information "[endstate] Doctor: state=$($result.StateStatus) driftMissing=$($result.DriftMissing) driftExtra=$($result.DriftExtra)" -InformationAction Continue
+        Write-Information "[endstate] Doctor: completed" -InformationAction Continue
         $exitCode = $result.ExitCode
     }
     "state" {
         switch ($SubCommand) {
             "reset" {
-                Write-Information "[autosuite] State: resetting..." -InformationAction Continue
+                Write-Information "[endstate] State: resetting..." -InformationAction Continue
                 $result = Invoke-StateResetCore
                 if ($result.WasReset) {
-                    Write-Information "[autosuite] State: reset completed" -InformationAction Continue
+                    Write-Information "[endstate] State: reset completed" -InformationAction Continue
                 } else {
-                    Write-Information "[autosuite] State: no state file to reset" -InformationAction Continue
+                    Write-Information "[endstate] State: no state file to reset" -InformationAction Continue
                 }
                 $exitCode = $result.ExitCode
             }
@@ -3088,12 +3088,12 @@ switch ($Command) {
                     Write-Host "[ERROR] -Out <path> is required for 'state export'" -ForegroundColor Red
                     exit 1
                 }
-                Write-Information "[autosuite] State: exporting..." -InformationAction Continue
+                Write-Information "[endstate] State: exporting..." -InformationAction Continue
                 $result = Invoke-StateExportCore -OutPath $Out
                 if ($result.Success) {
-                    Write-Information "[autosuite] State: export completed to $($result.OutputPath)" -InformationAction Continue
+                    Write-Information "[endstate] State: export completed to $($result.OutputPath)" -InformationAction Continue
                 } else {
-                    Write-Information "[autosuite] State: export failed" -InformationAction Continue
+                    Write-Information "[endstate] State: export failed" -InformationAction Continue
                 }
                 $exitCode = $result.ExitCode
             }
@@ -3104,12 +3104,12 @@ switch ($Command) {
                 }
                 $replaceMode = $Replace.IsPresent
                 $modeLabel = if ($replaceMode) { "replace" } else { "merge" }
-                Write-Information "[autosuite] State: importing ($modeLabel)..." -InformationAction Continue
+                Write-Information "[endstate] State: importing ($modeLabel)..." -InformationAction Continue
                 $result = Invoke-StateImportCore -InPath $In -ReplaceMode $replaceMode
                 if ($result.Success) {
-                    Write-Information "[autosuite] State: import completed ($($result.Mode))" -InformationAction Continue
+                    Write-Information "[endstate] State: import completed ($($result.Mode))" -InformationAction Continue
                 } else {
-                    Write-Information "[autosuite] State: import failed - $($result.Error)" -InformationAction Continue
+                    Write-Information "[endstate] State: import failed - $($result.Error)" -InformationAction Continue
                 }
                 $exitCode = $result.ExitCode
             }
@@ -3120,9 +3120,9 @@ switch ($Command) {
                     Write-Host "[ERROR] State command requires a subcommand (e.g., 'reset', 'export', 'import')" -ForegroundColor Red
                 }
                 Write-Host "Usage:" -ForegroundColor Yellow
-                Write-Host "  .\autosuite.ps1 state reset" -ForegroundColor Yellow
-                Write-Host "  .\autosuite.ps1 state export -Out <path>" -ForegroundColor Yellow
-                Write-Host "  .\autosuite.ps1 state import -In <path> [-Merge] [-Replace]" -ForegroundColor Yellow
+                Write-Host "  .\endstate.ps1 state reset" -ForegroundColor Yellow
+                Write-Host "  .\endstate.ps1 state export -Out <path>" -ForegroundColor Yellow
+                Write-Host "  .\endstate.ps1 state import -In <path> [-Merge] [-Replace]" -ForegroundColor Yellow
                 $exitCode = 1
             }
         }

@@ -1,10 +1,10 @@
-# Autosuite GUI Integration Contract
+# Endstate GUI Integration Contract
 
-This document serves as the **contract-level source of truth** for the integration between Autosuite CLI and Autosuite GUI.
+This document serves as the **contract-level source of truth** for the integration between Endstate CLI and Endstate GUI.
 
 ## Overview
 
-Autosuite GUI is a thin presentation layer that consumes Autosuite CLI via JSON output. This document defines the rules, versioning, and execution model that both projects must follow.
+Endstate GUI is a thin presentation layer that consumes Endstate CLI via JSON output. This document defines the rules, versioning, and execution model that both projects must follow.
 
 ---
 
@@ -12,14 +12,14 @@ Autosuite GUI is a thin presentation layer that consumes Autosuite CLI via JSON 
 
 ### 1. Thin GUI
 
-Autosuite GUI **must not** contain:
+Endstate GUI **must not** contain:
 - Business logic
 - Provisioning logic
-- Assumptions about internal Autosuite implementation
+- Assumptions about internal Endstate implementation
 - Direct file system operations for provisioning
 - Package manager interactions
 
-Autosuite GUI **only**:
+Endstate GUI **only**:
 - Invokes CLI commands
 - Parses JSON output
 - Presents results to users
@@ -90,7 +90,7 @@ Every `--json` output includes this envelope:
 
 ### Semantic Versioning (CLI)
 
-Autosuite CLI follows [Semantic Versioning](https://semver.org/):
+Endstate CLI follows [Semantic Versioning](https://semver.org/):
 
 - **MAJOR:** Breaking changes (including JSON schema breaking changes)
 - **MINOR:** New features, backward-compatible
@@ -119,12 +119,12 @@ The JSON schema has its own version independent of CLI version:
 
 ### Development Mode
 
-During development, Autosuite GUI resolves the CLI from PATH:
+During development, Endstate GUI resolves the CLI from PATH:
 
 ```
 GUI starts
   │
-  ├─► Call: autosuite capabilities --json
+  ├─► Call: endstate capabilities --json
   │
   ├─► Parse response
   │     │
@@ -141,9 +141,9 @@ GUI starts
 
 ### Production Mode
 
-Production builds of Autosuite GUI bundle a pinned Autosuite binary:
+Production builds of Endstate GUI bundle a pinned Endstate binary:
 
-1. GUI ships with a specific Autosuite CLI version
+1. GUI ships with a specific Endstate CLI version
 2. GUI validates bundled CLI on startup via `capabilities`
 3. Version mismatch indicates corrupted installation
 
@@ -152,12 +152,12 @@ Production builds of Autosuite GUI bundle a pinned Autosuite binary:
 When schema versions are incompatible, GUI must display:
 
 ```
-Autosuite CLI Incompatible
+Endstate CLI Incompatible
 
-The installed Autosuite CLI (v0.1.0, schema 1.0) is not compatible 
-with this version of Autosuite GUI (requires schema 2.0).
+The installed Endstate CLI (v0.1.0, schema 1.0) is not compatible 
+with this version of Endstate GUI (requires schema 2.0).
 
-Please update Autosuite CLI or use a compatible GUI version.
+Please update Endstate CLI or use a compatible GUI version.
 ```
 
 ---
@@ -167,7 +167,7 @@ Please update Autosuite CLI or use a compatible GUI version.
 The `capabilities` command is the entry point for GUI integration:
 
 ```powershell
-autosuite capabilities --json
+endstate capabilities --json
 ```
 
 ### Response Structure
@@ -285,5 +285,5 @@ Standard error codes for programmatic handling:
 ## References
 
 - [CLI JSON Contract](./cli-json-contract.md) - Full schema specification
-- [Autosuite README](../readme.md) - CLI documentation
-- [Autosuite GUI README](../../autosuite-gui/README.md) - GUI documentation
+- [Endstate README](../readme.md) - CLI documentation
+- [Endstate GUI README](../../endstate-gui/README.md) - GUI documentation

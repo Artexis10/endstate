@@ -3,7 +3,7 @@
     Root test entrypoint for Pester tests.
 
 .DESCRIPTION
-    Runs all Pester tests in the autosuite repository.
+    Runs all Pester tests in the endstate repository.
     Bootstraps Pester 5.5.0+ via ensure-pester.ps1 for deterministic test runs.
 
 .PARAMETER Path
@@ -46,7 +46,7 @@ if (-not (Test-Path $ensurePesterScript)) {
 
 Write-Host ""
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host " Autosuite - Pester Tests" -ForegroundColor Cyan
+Write-Host " Endstate - Pester Tests" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 

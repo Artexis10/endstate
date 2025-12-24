@@ -4,7 +4,7 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ## Project Overview
 
-Autosuite is a declarative machine provisioning system written in PowerShell. It eliminates the "clean install tax" by enabling safe, repeatable, auditable machine rebuilds from manifests. The system follows strict principles: declarative desired state, idempotence, non-destructive defaults, and verification-first design.
+Endstate is a declarative machine provisioning system written in PowerShell. It eliminates the "clean install tax" by enabling safe, repeatable, auditable machine rebuilds from manifests. The system follows strict principles: declarative desired state, idempotence, non-destructive defaults, and verification-first design.
 
 ## Essential Commands
 
@@ -199,6 +199,6 @@ These principles apply to ALL code changes:
 
 ## Project Context
 
-Autosuite was originally the `provisioning/` subsystem in automation-suite repository. Split into standalone project in 2025. Full git history preserved. Licensed under Apache 2.0.
+Endstate was originally the `provisioning/` subsystem in automation-suite repository. Split into standalone project in 2025. Full git history preserved. Licensed under Apache 2.0.
 
 Author: Hugo Ander Kivi (Substrate Systems OÜ)

@@ -3,7 +3,7 @@
 
 <#
 .SYNOPSIS
-    Live progress UI for autosuite apply (PS 5.1 compatible).
+    Live progress UI for endstate apply (PS 5.1 compatible).
 
 .DESCRIPTION
     Provides app-based progress tracking for both sequential and parallel apply modes.

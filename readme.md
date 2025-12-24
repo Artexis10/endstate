@@ -1,14 +1,14 @@
-# Autosuite
+# Endstate
 
-**Canonical home of the Autosuite CLI** — Declarative machine provisioning and configuration management. Rebuild your machine safely, repeatably, and without guesswork.
+**Canonical home of the Endstate CLI** — A declarative system provisioning and recovery tool that restores a machine to a known-good end state safely, repeatably, and without guesswork.
 
 **Author:** Hugo Ander Kivi  
 **Primary Language:** PowerShell  
 **Status:** Functional MVP — actively evolving
 
-[![CI](https://github.com/Artexis10/autosuite/actions/workflows/ci.yml/badge.svg)](https://github.com/Artexis10/autosuite/actions/workflows/ci.yml)
+[![CI](https://github.com/Artexis10/endstate/actions/workflows/ci.yml/badge.svg)](https://github.com/Artexis10/endstate/actions/workflows/ci.yml)
 
-> **Note:** This repository is the canonical home of the Autosuite CLI. The CLI was previously part of the [automation-suite](https://github.com/Artexis10/automation-suite) repository but has been extracted into this standalone project for independent development and versioning.
+> **Note:** This repository is the canonical home of the Endstate CLI. The CLI was previously part of the [automation-suite](https://github.com/Artexis10/automation-suite) repository but has been extracted into this standalone project for independent development and versioning.
 
 ---
 
@@ -16,7 +16,7 @@
 
 Rebuilding a machine after a clean install is tedious, error-prone, and mentally draining. Configuration drift accumulates silently. Manual steps get forgotten. The result is machines that cannot be reliably reconstructed.
 
-Autosuite exists to eliminate this **clean install tax**.
+Endstate exists to eliminate this **clean install tax**.
 
 A machine should be:
 
@@ -29,7 +29,7 @@ A machine should be:
 
 ## Who This Is For
 
-Autosuite is designed for developers, power users, and small teams who:
+Endstate is designed for developers, power users, and small teams who:
 - Reinstall or migrate machines regularly
 - Care about reproducibility and auditability
 - Want automation without sacrificing safety or control
@@ -66,8 +66,8 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 ## Directory Structure
 
 ```
-autosuite/
-├── autosuite.ps1       # Main CLI entrypoint (root orchestrator)
+endstate/
+├── endstate.ps1        # Main CLI entrypoint (root orchestrator)
 ├── cli.ps1             # Provisioning subsystem CLI
 ├── engine/             # Core orchestration logic
 ├── drivers/            # Software installation adapters (winget, apt, brew)
@@ -91,8 +91,8 @@ autosuite/
 
 ```powershell
 # Clone the repo
-git clone https://github.com/Artexis10/autosuite.git
-cd autosuite
+git clone https://github.com/ArtexisX/endstate.git
+cd endstate
 
 # (Optional) Unblock downloaded scripts
 Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
@@ -102,37 +102,37 @@ Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
 
 ```powershell
 # 1. Capture current machine state
-.\autosuite.ps1 capture
+.\endstate.ps1 capture
 
 # 2. Preview what would be applied (dry-run)
-.\autosuite.ps1 apply -Manifest manifests/local/my-machine.jsonc -DryRun
+.\endstate.ps1 apply -Manifest manifests/local/my-machine.jsonc -DryRun
 
 # 3. Apply the manifest
-.\autosuite.ps1 apply -Manifest manifests/local/my-machine.jsonc
+.\endstate.ps1 apply -Manifest manifests/local/my-machine.jsonc
 
-# 4. Verify desired state is achieved
-.\autosuite.ps1 verify -Manifest manifests/local/my-machine.jsonc
+# 4. Verify end state is achieved
+.\endstate.ps1 verify -Manifest manifests/local/my-machine.jsonc
 
 # 5. Check environment health
-.\autosuite.ps1 doctor
+.\endstate.ps1 doctor
 
 # 6. Install to PATH for global access
-.\autosuite.ps1 bootstrap
-# Now you can run: autosuite <command> from anywhere
+.\endstate.ps1 bootstrap
+# Now you can run: endstate <command> from anywhere
 ```
 
 ### CLI Commands
 
 | Command | Description |
 |---------|-------------|
-| `bootstrap` | Install autosuite command to user PATH for global access |
+| `bootstrap` | Install endstate command to user PATH for global access |
 | `capture` | Capture current machine state into a manifest |
 | `plan` | Generate execution plan from manifest without applying |
 | `apply` | Execute the plan (with optional `-DryRun`) |
 | `verify` | Check current state against manifest without modifying |
 | `doctor` | Diagnose environment issues (missing drivers, permissions, etc.) |
 | `report` | Show history of previous runs and their outcomes |
-| `state` | Manage autosuite state (subcommands: reset, export, import) |
+| `state` | Manage endstate state (subcommands: reset, export, import) |
 
 ---
 
@@ -216,7 +216,7 @@ Large manifests can be split into reusable modules:
 
 ## Safety Defaults
 
-Autosuite prioritizes safety over speed:
+Endstate prioritizes safety over speed:
 
 | Default | Behavior |
 |---------|----------|
@@ -247,7 +247,7 @@ Autosuite prioritizes safety over speed:
 
 ## Testing
 
-Autosuite uses Pester 5.7.1 (vendored in `tools/pester/`) for deterministic, offline-capable testing.
+Endstate uses Pester 5.7.1 (vendored in `tools/pester/`) for deterministic, offline-capable testing.
 
 ```powershell
 # Run all tests
@@ -268,13 +268,13 @@ Autosuite uses Pester 5.7.1 (vendored in `tools/pester/`) for deterministic, off
 
 **Maturity:** This is a personal/small-team tool. It is not enterprise software. It prioritizes correctness and safety over features.
 
-> A desktop GUI is planned as a separate commercial product built on top of Autosuite’s open-source core.
+> A desktop GUI is planned as a separate commercial product built on top of Endstate's open-source core.
 
 ---
 
 ## History
 
-Autosuite was originally developed as the `provisioning/` subsystem within the [automation-suite](https://github.com/Artexis10/automation-suite) repository. It has been split into a standalone project to:
+Endstate was originally developed as the `provisioning/` subsystem within the [automation-suite](https://github.com/Artexis10/automation-suite) repository. It has been split into a standalone project to:
 
 - Focus development on machine provisioning as a first-class product
 - Enable independent versioning and releases
@@ -287,7 +287,7 @@ The full git history has been preserved in this repository.
 
 ## License
 
-Autosuite is licensed under the Apache License, Version 2.0.
+Endstate is licensed under the Apache License, Version 2.0.
 
 See the [LICENSE](LICENSE) file for details.
 

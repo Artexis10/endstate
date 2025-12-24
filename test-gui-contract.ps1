@@ -15,7 +15,7 @@ function Test-Command {
     
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "pwsh"
-    $psi.Arguments = "-NoProfile -File autosuite.ps1 $($Arguments -join ' ')"
+    $psi.Arguments = "-NoProfile -File endstate.ps1 $($Arguments -join ' ')"
     $psi.WorkingDirectory = $PSScriptRoot
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
@@ -25,7 +25,7 @@ function Test-Command {
     $process = New-Object System.Diagnostics.Process
     $process.StartInfo = $psi
     
-    Write-Host "Running: autosuite $($Arguments -join ' ')" -ForegroundColor Yellow
+    Write-Host "Running: endstate $($Arguments -join ' ')" -ForegroundColor Yellow
     
     $process.Start() | Out-Null
     $stdout = $process.StandardOutput.ReadToEnd()
@@ -254,12 +254,12 @@ $total = $allResults.Count
 Write-Host "`nTests Passed: $passed / $total" -ForegroundColor $(if ($passed -eq $total) { 'Green' } else { 'Red' })
 
 if ($passed -eq $total) {
-    Write-Host "`n✓ autosuite is GUI-grade" -ForegroundColor Green
+    Write-Host "`n✓ endstate is GUI-grade" -ForegroundColor Green
     Write-Host "✓ GUI can be implemented with zero business logic" -ForegroundColor Green
     Write-Host "✓ Parsing STDOUT only is safe" -ForegroundColor Green
     Write-Host "✓ Error handling is deterministic" -ForegroundColor Green
     exit 0
 } else {
-    Write-Host "`n✗ Some tests failed - autosuite needs fixes" -ForegroundColor Red
+    Write-Host "`n✗ Some tests failed - endstate needs fixes" -ForegroundColor Red
     exit 1
 }

@@ -3,7 +3,7 @@
     Pester tests for CLI JSON schema contract v1.0.
 .DESCRIPTION
     These tests verify that JSON outputs conform to the documented schema,
-    ensuring the contract between Autosuite CLI and GUI consumers is stable.
+    ensuring the contract between Endstate CLI and GUI consumers is stable.
 #>
 
 $script:EngineRoot = Join-Path $PSScriptRoot "..\..\engine"
@@ -22,7 +22,7 @@ Describe "JSON Schema Contract v1.0" {
         }
         
         It "Should return a valid CLI version" {
-            $version = Get-AutosuiteVersion
+            $version = Get-EndstateVersion
             $version | Should -Not -BeNullOrEmpty
             # Should match semver pattern (with optional prerelease/build metadata)
             $version | Should -Match "^\d+\.\d+\.\d+(-[a-zA-Z0-9.+-]+)?$"
@@ -80,7 +80,7 @@ Describe "JSON Schema Contract v1.0" {
         
         It "Should serialize to valid JSON" {
             $envelope = New-JsonEnvelope -Command "test" -Success $true -Data @{ items = @(1, 2, 3) }
-            $json = ConvertTo-JsonOutput -Envelope $envelope
+            $json = ConvertTo-JsonOendstate -Envelope $envelope
             
             $json | Should -Not -BeNullOrEmpty
             
@@ -174,7 +174,7 @@ Describe "JSON Schema Contract v1.0" {
         It "Should report feature flags" {
             $caps = Get-CapabilitiesData
             
-            $caps.features.jsonOutput | Should -Be $true
+            $caps.features.jsonOendstate | Should -Be $true
         }
     }
     

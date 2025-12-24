@@ -1,8 +1,8 @@
-$script:AutosuiteRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$script:AutosuitePath = Join-Path $script:AutosuiteRoot "autosuite.ps1"
+$script:EndstateRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$script:EndstatePath = Join-Path $script:EndstateRoot "endstate.ps1"
 
 # Create test directory for mock files
-$script:TestDir = Join-Path $env:TEMP "autosuite-json-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+$script:TestDir = Join-Path $env:TEMP "endstate-json-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
 $script:MockWingetPath = Join-Path $script:TestDir "mock-winget.ps1"
 $script:TestManifestPath = Join-Path $script:TestDir "test-manifest.jsonc"
 
@@ -59,7 +59,7 @@ Set-Content -Path $script:TestManifestPath -Value $testManifest
 Describe "JSON Mode - Pure stdout" {
     
     It "capabilities --json outputs valid JSON to stdout" {
-            $output = & $script:AutosuitePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             # Should be valid JSON
@@ -67,7 +67,7 @@ Describe "JSON Mode - Pure stdout" {
         }
         
         It "JSON output contains required envelope fields" {
-            $output = & $script:AutosuitePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             $json = $outputStr | ConvertFrom-Json
             
@@ -81,7 +81,7 @@ Describe "JSON Mode - Pure stdout" {
         }
         
         It "JSON data contains commands list" {
-            $output = & $script:AutosuitePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             $json = $outputStr | ConvertFrom-Json
             
@@ -92,7 +92,7 @@ Describe "JSON Mode - Pure stdout" {
         }
         
         It "Does not emit banner to stdout in JSON mode" {
-            $output = & $script:AutosuitePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             # Should not contain banner text in stdout
@@ -102,7 +102,7 @@ Describe "JSON Mode - Pure stdout" {
     
     Context "verify --json with missing manifest" {
         It "Returns JSON envelope with success:false and non-zero exit" {
-            $output = pwsh -NoProfile -Command "& '$($script:AutosuitePath)' verify --json 2>&1 | Where-Object { `$_ -is [string] }"
+            $output = pwsh -NoProfile -Command "& '$($script:EndstatePath)' verify --json 2>&1 | Where-Object { `$_ -is [string] }"
             $exitCode = $LASTEXITCODE
             $outputStr = $output -join "`n"
             
@@ -122,15 +122,15 @@ Describe "JSON Mode - Pure stdout" {
     
     Context "verify --json with valid manifest" {
         BeforeEach {
-            $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
+            $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
         }
         
         AfterEach {
-            $env:AUTOSUITE_WINGET_SCRIPT = $null
+            $env:ENDSTATE_WINGET_SCRIPT = $null
         }
         
         It "Returns JSON envelope with verify results" {
-            $output = & $script:AutosuitePath verify --manifest $script:TestManifestPath --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath verify --manifest $script:TestManifestPath --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             # Should be valid JSON
@@ -146,15 +146,15 @@ Describe "JSON Mode - Pure stdout" {
     
     Context "apply --json with valid manifest" {
         BeforeEach {
-            $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
+            $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
         }
         
         AfterEach {
-            $env:AUTOSUITE_WINGET_SCRIPT = $null
+            $env:ENDSTATE_WINGET_SCRIPT = $null
         }
         
         It "Returns JSON envelope with apply results" {
-            $output = & $script:AutosuitePath apply --manifest $script:TestManifestPath --json -DryRun -OnlyApps 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath apply --manifest $script:TestManifestPath --json -DryRun -OnlyApps 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             # Should be valid JSON
@@ -173,23 +173,23 @@ Describe "JSON Mode - Pure stdout" {
 Describe "GNU-style Flag Support" {
     
     BeforeEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $script:MockWingetPath
+        $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
     }
     
     AfterEach {
-        $env:AUTOSUITE_WINGET_SCRIPT = $null
+        $env:ENDSTATE_WINGET_SCRIPT = $null
     }
     
     Context "--json flag" {
         It "capabilities --json works" {
-            $output = & $script:AutosuitePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath capabilities --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
         }
         
         It "verify --json works" {
-            $output = & $script:AutosuitePath verify --manifest $script:TestManifestPath --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath verify --manifest $script:TestManifestPath --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
@@ -199,7 +199,7 @@ Describe "GNU-style Flag Support" {
     Context "--profile flag" {
         It "verify --profile accepts profile name" {
             # This will fail because profile doesn't exist, but it should parse the flag
-            $output = & $script:AutosuitePath verify --profile NonExistent --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath verify --profile NonExistent --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             # Should still be valid JSON (error response)
@@ -209,7 +209,7 @@ Describe "GNU-style Flag Support" {
         }
         
         It "apply --profile accepts profile name" {
-            $output = & $script:AutosuitePath apply --profile NonExistent --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath apply --profile NonExistent --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
@@ -220,7 +220,7 @@ Describe "GNU-style Flag Support" {
     
     Context "--manifest flag" {
         It "verify --manifest accepts manifest path" {
-            $output = & $script:AutosuitePath verify --manifest $script:TestManifestPath --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath verify --manifest $script:TestManifestPath --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
@@ -229,7 +229,7 @@ Describe "GNU-style Flag Support" {
         }
         
         It "apply --manifest accepts manifest path" {
-            $output = & $script:AutosuitePath apply --manifest $script:TestManifestPath --json -DryRun -OnlyApps 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath apply --manifest $script:TestManifestPath --json -DryRun -OnlyApps 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
@@ -240,14 +240,14 @@ Describe "GNU-style Flag Support" {
     
     Context "Combined GNU flags" {
         It "apply --profile <name> --json works" {
-            $output = & $script:AutosuitePath apply --profile NonExistent --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath apply --profile NonExistent --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
         }
         
         It "verify --manifest <path> --json works" {
-            $output = & $script:AutosuitePath verify --manifest $script:TestManifestPath --json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath verify --manifest $script:TestManifestPath --json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
@@ -258,14 +258,14 @@ Describe "GNU-style Flag Support" {
     
     Context "Backward compatibility with PowerShell-style flags" {
         It "verify -Manifest still works" {
-            $output = & $script:AutosuitePath verify -Manifest $script:TestManifestPath -Json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath verify -Manifest $script:TestManifestPath -Json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
         }
         
         It "apply -Profile still works" {
-            $output = & $script:AutosuitePath apply -Profile NonExistent -Json 2>&1 | Where-Object { $_ -is [string] }
+            $output = & $script:EndstatePath apply -Profile NonExistent -Json 2>&1 | Where-Object { $_ -is [string] }
             $outputStr = $output -join "`n"
             
             { $outputStr | ConvertFrom-Json } | Should -Not -Throw
@@ -277,7 +277,7 @@ Describe "Error Handling in JSON Mode" {
     
     Context "Missing required parameters" {
         It "verify without profile/manifest returns JSON error" {
-            $output = pwsh -NoProfile -Command "& '$($script:AutosuitePath)' verify --json 2>&1 | Where-Object { `$_ -is [string] }"
+            $output = pwsh -NoProfile -Command "& '$($script:EndstatePath)' verify --json 2>&1 | Where-Object { `$_ -is [string] }"
             $exitCode = $LASTEXITCODE
             $outputStr = $output -join "`n"
             
@@ -290,7 +290,7 @@ Describe "Error Handling in JSON Mode" {
         }
         
         It "apply without profile/manifest returns JSON error" {
-            $output = pwsh -NoProfile -Command "& '$($script:AutosuitePath)' apply --json 2>&1 | Where-Object { `$_ -is [string] }"
+            $output = pwsh -NoProfile -Command "& '$($script:EndstatePath)' apply --json 2>&1 | Where-Object { `$_ -is [string] }"
             $exitCode = $LASTEXITCODE
             $outputStr = $output -join "`n"
             
@@ -305,17 +305,17 @@ Describe "Error Handling in JSON Mode" {
     
     Context "Exit codes" {
         It "capabilities --json exits 0" {
-            pwsh -NoProfile -Command "& '$($script:AutosuitePath)' capabilities --json | Out-Null"
+            pwsh -NoProfile -Command "& '$($script:EndstatePath)' capabilities --json | Out-Null"
             $LASTEXITCODE | Should -Be 0
         }
         
         It "verify --json without manifest exits 1" {
-            pwsh -NoProfile -Command "& '$($script:AutosuitePath)' verify --json 2>&1 | Out-Null"
+            pwsh -NoProfile -Command "& '$($script:EndstatePath)' verify --json 2>&1 | Out-Null"
             $LASTEXITCODE | Should -Be 1
         }
         
         It "apply --json without manifest exits 1" {
-            pwsh -NoProfile -Command "& '$($script:AutosuitePath)' apply --json 2>&1 | Out-Null"
+            pwsh -NoProfile -Command "& '$($script:EndstatePath)' apply --json 2>&1 | Out-Null"
             $LASTEXITCODE | Should -Be 1
         }
     }

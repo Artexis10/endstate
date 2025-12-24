@@ -13,10 +13,10 @@
 $script:JsonOutputRoot = $PSScriptRoot | Split-Path -Parent
 $script:SchemaVersion = "1.0"
 
-function Get-AutosuiteVersion {
+function Get-EndstateVersion {
     <#
     .SYNOPSIS
-        Returns the current Autosuite CLI version.
+        Returns the current Endstate CLI version.
     #>
     $versionFile = Join-Path $script:JsonOutputRoot "VERSION.txt"
     
@@ -88,7 +88,7 @@ function New-JsonEnvelope {
     
     $envelope = [ordered]@{
         schemaVersion = Get-SchemaVersion
-        cliVersion = Get-AutosuiteVersion
+        cliVersion = Get-EndstateVersion
         command = $Command
         runId = $RunId
         timestampUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -194,6 +194,9 @@ function Get-CapabilitiesData {
         Returns the capabilities data object for the capabilities command.
     #>
     
+    Write-Host "Endstate CLI Capabilities" -ForegroundColor Cyan
+    Write-Host "==========================" -ForegroundColor Cyan
+    
     $capabilities = [ordered]@{
         supportedSchemaVersions = [ordered]@{
             min = "1.0"
@@ -288,4 +291,4 @@ function Get-ErrorCode {
     return "INTERNAL_ERROR"
 }
 
-# Functions exported: Get-AutosuiteVersion, Get-SchemaVersion, Get-RunId, New-JsonEnvelope, New-JsonError, ConvertTo-JsonOutput, Write-JsonOutput, Get-CapabilitiesData, Get-ErrorCode
+# Functions exported: Get-EndstateVersion, Get-SchemaVersion, Get-RunId, New-JsonEnvelope, New-JsonError, ConvertTo-JsonOutput, Write-JsonOutput, Get-CapabilitiesData, Get-ErrorCode

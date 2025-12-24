@@ -275,7 +275,7 @@ function Format-ReportHuman {
     # Version info
     $output += ""
     $output += "Version Info:"
-    $output += "  Autosuite: $(Get-ReportVersion)"
+    $output += "  Endstate: $(Get-ReportVersion)"
     $gitSha = Get-ReportGitSha
     if ($gitSha) {
         $output += "  Git SHA: $gitSha"

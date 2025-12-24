@@ -636,10 +636,10 @@ function Invoke-ProvisioningCapabilities {
     } else {
         # Human-readable output
         Write-Host ""
-        Write-Host "Autosuite CLI Capabilities" -ForegroundColor Cyan
+        Write-Host "Endstate CLI Capabilities" -ForegroundColor Cyan
         Write-Host "==========================" -ForegroundColor Cyan
         Write-Host ""
-        Write-Host "CLI Version: $(Get-AutosuiteVersion)" -ForegroundColor White
+        Write-Host "CLI Version: $(Get-EndstateVersion)" -ForegroundColor White
         Write-Host "Schema Version: $(Get-SchemaVersion)" -ForegroundColor White
         Write-Host ""
         Write-Host "Supported Commands:" -ForegroundColor Yellow

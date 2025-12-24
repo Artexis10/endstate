@@ -203,7 +203,7 @@ function Invoke-Verify {
                     failedVerifierCount = $failedVerifiers.Count
                     manifestPath = $ManifestPath
                 } `
-                -Remediation "Run 'autosuite apply --manifest `"$ManifestPath`"' to install missing apps"
+                -Remediation "Run 'endstate apply --manifest `"$ManifestPath`"' to install missing apps"
         }
         
         $envelope = New-JsonEnvelope -Command "verify" -RunId $runId -Success ($failCount -eq 0) -Data $data -Error $verifyError

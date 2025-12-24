@@ -1,12 +1,12 @@
-# Autosuite — Vision
+# Endstate — Vision
 
-This document captures the intent, boundaries, and long-term direction of Autosuite. It exists to prevent architectural drift and anchor decisions.
+This document captures the intent, boundaries, and long-term direction of Endstate. It exists to prevent architectural drift and anchor decisions.
 
 ---
 
 ## Why This Exists
 
-Autosuite exists to eliminate the **clean install tax** — the repeated, error-prone, mentally draining work required to rebuild a machine after reinstalling an OS, switching hardware, or starting fresh.
+Endstate exists to eliminate the **clean install tax** — the repeated, error-prone, mentally draining work required to rebuild a machine after reinstalling an OS, switching hardware, or starting fresh.
 
 This project is not about convenience scripts. It is about **trustworthy reconstruction of state**.
 
@@ -17,7 +17,7 @@ A machine should be:
 - **Deterministic** — same inputs produce same outcomes
 - **Safe to re-run** — at any time, without side effects
 
-Autosuite treats machines as **systems with intent**, not piles of imperative steps.
+Endstate treats machines as **systems with intent**, not piles of imperative steps.
 
 ---
 
@@ -25,7 +25,7 @@ Autosuite treats machines as **systems with intent**, not piles of imperative st
 
 You declare **what should be true** about a machine.
 
-Autosuite:
+Endstate:
 
 1. Observes current state (capture)
 2. Computes the delta (plan)
@@ -37,9 +37,9 @@ Re-running the same plan should always converge to the same result.
 
 ---
 
-## What Autosuite Is
+## What Endstate Is
 
-**Autosuite is a declarative machine provisioning system.** It transforms a machine from an unknown state into a known, verified desired state.
+**Endstate is a declarative system provisioning and recovery tool.** It restores a machine to a known-good end state safely, repeatably, and without guesswork.
 
 Core capabilities:
 
@@ -58,7 +58,7 @@ All operations follow consistent principles:
 
 ---
 
-## What Autosuite Is NOT
+## What Endstate Is NOT
 
 Explicit non-goals:
 
@@ -76,7 +76,7 @@ This project favors **clarity over cleverness** and **safety over speed**.
 
 ## Design Principles
 
-These principles apply to all components in Autosuite.
+These principles apply to all components in Endstate.
 
 ### 1. Idempotent by Default
 
@@ -124,13 +124,13 @@ Outputs must be:
 - Inspectable
 - Reviewable before execution
 
-Autosuite optimizes for *confidence*, not opacity.
+Endstate optimizes for *confidence*, not opacity.
 
 ---
 
 ## Long-Term Direction
 
-Over time, Autosuite should be able to:
+Over time, Endstate should be able to:
 
 - Rebuild a machine from scratch using a single repo + manifest
 - Detect drift between declared state and reality
@@ -160,4 +160,4 @@ If a feature compromises trust, determinism, or safety, it does not belong here.
 
 > Treat machines like living systems with memory and intent.
 
-Autosuite exists so that rebuilding a machine feels **boring, predictable, and safe** — instead of stressful and fragile.
+Endstate exists so that rebuilding a machine feels **boring, predictable, and safe** — instead of stressful and fragile.
