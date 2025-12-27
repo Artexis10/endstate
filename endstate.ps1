@@ -55,7 +55,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $false)]
-    [ValidateSet("apply", "capture", "plan", "verify", "report", "doctor", "state", "bootstrap", "capabilities", "")]
+    [ValidateSet("apply", "capture", "plan", "verify", "report", "doctor", "state", "bootstrap", "capabilities", "validate", "")]
     [string]$Command,
     
     # Internal flag for dot-sourcing to load functions without running main logic
@@ -758,6 +758,7 @@ function Show-Help {
     Write-Host "    apply         Apply manifest to current machine"
     Write-Host "    verify        Verify current state matches manifest"
     Write-Host "    plan          Generate execution plan from manifest"
+    Write-Host "    validate      Validate a profile manifest against the contract"
     Write-Host "    report        Show state summary and drift"
     Write-Host "    doctor        Diagnose environment issues"
     Write-Host "    state         Manage endstate state (subcommands: reset, export, import)"
@@ -2920,6 +2921,29 @@ switch ($Command) {
                 exit 1
             }
             
+            # Validate manifest against profile contract before apply
+            . "$script:EndstateRoot\engine\manifest.ps1"
+            $validationResult = Test-ProfileManifest -Path $resolvedPath
+            if (-not $validationResult.Valid) {
+                if ($Json) {
+                    $errorDetail = @{
+                        code = "MANIFEST_VALIDATION_ERROR"
+                        message = "Manifest validation failed"
+                        detail = @{ 
+                            manifestPath = $resolvedPath
+                            errors = $validationResult.Errors
+                        }
+                    }
+                    Write-JsonEnvelope -CommandName "apply" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                } else {
+                    Write-Host "[ERROR] Manifest validation failed: $resolvedPath" -ForegroundColor Red
+                    foreach ($err in $validationResult.Errors) {
+                        Write-Host "        $($err.Code): $($err.Message)" -ForegroundColor Red
+                    }
+                }
+                exit 1
+            }
+            
             if (-not $Json) {
                 Write-Information "[endstate] Apply: starting with manifest $resolvedPath" -InformationAction Continue
             }
@@ -2994,6 +3018,29 @@ switch ($Command) {
                     Write-JsonEnvelope -CommandName "verify" -Success $false -Data $null -Error $errorDetail -ExitCode 1
                 } else {
                     Write-Host "[ERROR] Manifest file not found: $resolvedPath" -ForegroundColor Red
+                }
+                exit 1
+            }
+            
+            # Validate manifest against profile contract before verify
+            . "$script:EndstateRoot\engine\manifest.ps1"
+            $validationResult = Test-ProfileManifest -Path $resolvedPath
+            if (-not $validationResult.Valid) {
+                if ($Json) {
+                    $errorDetail = @{
+                        code = "MANIFEST_VALIDATION_ERROR"
+                        message = "Manifest validation failed"
+                        detail = @{ 
+                            manifestPath = $resolvedPath
+                            errors = $validationResult.Errors
+                        }
+                    }
+                    Write-JsonEnvelope -CommandName "verify" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                } else {
+                    Write-Host "[ERROR] Manifest validation failed: $resolvedPath" -ForegroundColor Red
+                    foreach ($err in $validationResult.Errors) {
+                        Write-Host "        $($err.Code): $($err.Message)" -ForegroundColor Red
+                    }
                 }
                 exit 1
             }
@@ -3127,6 +3174,74 @@ switch ($Command) {
             }
         }
     }
+    "validate" {
+        # Validate a profile manifest against the contract
+        # Usage: endstate validate <path>
+        # The path can be provided via -Manifest or as the SubCommand (positional)
+        $targetPath = if ($Manifest) { $Manifest } elseif ($SubCommand) { $SubCommand } else { $null }
+        
+        if (-not $targetPath) {
+            if ($Json) {
+                $errorDetail = @{
+                    code = "MISSING_PATH"
+                    message = "Usage: endstate validate <path>"
+                }
+                Write-JsonEnvelope -CommandName "validate" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+            } else {
+                Write-Host "[ERROR] Usage: endstate validate <path>" -ForegroundColor Red
+                Write-Host "        Validates a profile manifest against the Endstate profile contract." -ForegroundColor Yellow
+            }
+            exit 1
+        }
+        
+        # Resolve path if relative
+        if (-not [System.IO.Path]::IsPathRooted($targetPath)) {
+            $targetPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($targetPath)
+        }
+        
+        # Import manifest.ps1 to get Test-ProfileManifest
+        . "$script:EndstateRoot\engine\manifest.ps1"
+        
+        $result = Test-ProfileManifest -Path $targetPath
+        
+        if ($Json) {
+            $data = @{
+                path = $targetPath
+                valid = $result.Valid
+                errors = $result.Errors
+            }
+            if ($result.Summary) {
+                $data.summary = $result.Summary
+            }
+            if ($result.Warnings) {
+                $data.warnings = $result.Warnings
+            }
+            $validateExitCode = if ($result.Valid) { 0 } else { 1 }
+            Write-JsonEnvelope -CommandName "validate" -Success $result.Valid -Data $data -ExitCode $validateExitCode
+        } else {
+            if ($result.Valid) {
+                Write-Host "[OK] Valid profile (v$($result.Summary.Version))" -ForegroundColor Green
+                Write-Host "     Name: $($result.Summary.Name)" -ForegroundColor Gray
+                Write-Host "     Apps: $($result.Summary.AppCount)" -ForegroundColor Gray
+                if ($result.Summary.Captured) {
+                    Write-Host "     Captured: $($result.Summary.Captured)" -ForegroundColor Gray
+                }
+                if ($result.Warnings -and $result.Warnings.Count -gt 0) {
+                    Write-Host ""
+                    Write-Host "[WARN] Warnings:" -ForegroundColor Yellow
+                    foreach ($warn in $result.Warnings) {
+                        Write-Host "       $($warn.Code): $($warn.Message)" -ForegroundColor Yellow
+                    }
+                }
+            } else {
+                Write-Host "[INVALID] Profile validation failed" -ForegroundColor Red
+                foreach ($err in $result.Errors) {
+                    Write-Host "          $($err.Code): $($err.Message)" -ForegroundColor Red
+                }
+            }
+        }
+        $exitCode = if ($result.Valid) { 0 } else { 1 }
+    }
     "capabilities" {
         # Output JSON list of available commands for GUI integration
         if ($Json) {
@@ -3138,6 +3253,7 @@ switch ($Command) {
                     "apply",
                     "plan",
                     "verify",
+                    "validate",
                     "report",
                     "doctor",
                     "state",
@@ -3147,6 +3263,7 @@ switch ($Command) {
                 supportedFlags = @{
                     apply = @("--profile", "--manifest", "--json", "--dry-run", "--enable-restore")
                     verify = @("--profile", "--manifest", "--json")
+                    validate = @("--manifest", "--json")
                     report = @("--json", "--out", "--latest", "--runid", "--last")
                     capabilities = @("--json")
                 }
@@ -3154,7 +3271,7 @@ switch ($Command) {
             Write-JsonEnvelope -CommandName "capabilities" -Success $true -Data $data -ExitCode 0
         } else {
             Write-Host "Available commands:" -ForegroundColor Cyan
-            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "report", "doctor", "state", "capabilities")
+            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "report", "doctor", "state", "capabilities")
             foreach ($cmd in $commands) {
                 Write-Host "  - $cmd" -ForegroundColor White
             }

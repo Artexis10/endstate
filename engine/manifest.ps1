@@ -972,4 +972,157 @@ function Merge-ManifestsForUpdate {
     return $merged
 }
 
-# Functions exported: Read-Manifest, Read-ManifestRaw, Write-Manifest, Read-JsoncFile, ConvertFrom-Jsonc, ConvertTo-Jsonc, ConvertFrom-SimpleYaml, ConvertTo-SimpleYaml, Get-IncludedAppIds, Merge-ManifestsForUpdate
+function Test-ProfileManifest {
+    <#
+    .SYNOPSIS
+        Validate a file against the Endstate profile contract.
+    .DESCRIPTION
+        Canonical validation function for profile manifests.
+        Checks file existence, parseability, and profile signature.
+        See docs/profile-contract.md for the full contract specification.
+    .PARAMETER Path
+        Path to the file to validate.
+    .OUTPUTS
+        Hashtable with:
+        - Valid: boolean indicating if the file is a valid profile
+        - Errors: array of error objects with Code and Message
+        - Summary: hashtable with name, version, appCount, captured (if valid)
+    .EXAMPLE
+        $result = Test-ProfileManifest -Path ".\manifests\my-profile.jsonc"
+        if ($result.Valid) { "Profile is valid" }
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+    
+    $result = @{
+        Valid = $false
+        Errors = @()
+        Summary = $null
+    }
+    
+    # Check 1: File exists
+    if (-not (Test-Path $Path)) {
+        $result.Errors += @{
+            Code = "FILE_NOT_FOUND"
+            Message = "File does not exist: $Path"
+        }
+        return $result
+    }
+    
+    # Check 2: Parseable (JSON/JSONC/JSON5)
+    $manifest = $null
+    try {
+        $content = Get-Content -Path $Path -Raw -Encoding UTF8
+        $extension = [System.IO.Path]::GetExtension($Path).ToLower()
+        
+        $manifest = switch ($extension) {
+            ".jsonc" { ConvertFrom-Jsonc -Content $content -Depth 100 }
+            ".json"  { ConvertFrom-Jsonc -Content $content -Depth 100 }
+            ".json5" { ConvertFrom-Jsonc -Content $content -Depth 100 }
+            default  { ConvertFrom-Jsonc -Content $content -Depth 100 }
+        }
+        
+        if ($manifest -is [PSCustomObject]) {
+            $manifest = Convert-PsObjectToHashtable -InputObject $manifest
+        }
+    } catch {
+        $result.Errors += @{
+            Code = "PARSE_ERROR"
+            Message = "Invalid JSON/JSONC syntax: $($_.Exception.Message)"
+        }
+        return $result
+    }
+    
+    # Check 3: Version field exists
+    if (-not $manifest.ContainsKey('version')) {
+        $result.Errors += @{
+            Code = "MISSING_VERSION"
+            Message = "No 'version' field present"
+        }
+        return $result
+    }
+    
+    # Check 4: Version is a number
+    $version = $manifest.version
+    if ($version -isnot [int] -and $version -isnot [double] -and $version -isnot [long]) {
+        $result.Errors += @{
+            Code = "INVALID_VERSION_TYPE"
+            Message = "Field 'version' must be a number, got: $($version.GetType().Name)"
+        }
+        return $result
+    }
+    
+    # Check 5: Version is supported (currently only v1)
+    if ([int]$version -ne 1) {
+        $result.Errors += @{
+            Code = "UNSUPPORTED_VERSION"
+            Message = "Unsupported profile version: $version (supported: 1)"
+        }
+        return $result
+    }
+    
+    # Check 6: Apps field exists
+    if (-not $manifest.ContainsKey('apps')) {
+        $result.Errors += @{
+            Code = "MISSING_APPS"
+            Message = "No 'apps' field present"
+        }
+        return $result
+    }
+    
+    # Check 7: Apps is an array
+    $apps = $manifest.apps
+    if ($null -eq $apps) {
+        # null is acceptable, treat as empty array
+        $apps = @()
+    } elseif ($apps -isnot [array] -and $apps -isnot [System.Collections.IEnumerable]) {
+        $result.Errors += @{
+            Code = "INVALID_APPS_TYPE"
+            Message = "Field 'apps' must be an array"
+        }
+        return $result
+    }
+    
+    # Ensure apps is an array
+    $apps = @($apps)
+    
+    # Optional: Warn about app entries missing 'id' (not a hard failure for backward compat)
+    $warnings = @()
+    $appIndex = 0
+    foreach ($app in $apps) {
+        $appIndex++
+        if ($app -is [hashtable] -or $app -is [PSCustomObject]) {
+            $appHash = if ($app -is [PSCustomObject]) { 
+                @{}; $app.PSObject.Properties | ForEach-Object { $appHash[$_.Name] = $_.Value }
+                $appHash
+            } else { $app }
+            
+            if (-not $appHash.ContainsKey('id') -or [string]::IsNullOrWhiteSpace($appHash.id)) {
+                $warnings += @{
+                    Code = "INVALID_APP_ENTRY"
+                    Message = "App entry at index $appIndex is missing 'id' field"
+                }
+            }
+        }
+    }
+    
+    # Profile is valid
+    $result.Valid = $true
+    $result.Summary = @{
+        Name = if ($manifest.name) { $manifest.name } else { "" }
+        Version = [int]$version
+        AppCount = $apps.Count
+        Captured = if ($manifest.captured) { $manifest.captured } else { $null }
+    }
+    
+    # Include warnings in errors array (they don't invalidate the profile)
+    if ($warnings.Count -gt 0) {
+        $result.Warnings = $warnings
+    }
+    
+    return $result
+}
+
+# Functions exported: Read-Manifest, Read-ManifestRaw, Write-Manifest, Read-JsoncFile, ConvertFrom-Jsonc, ConvertTo-Jsonc, ConvertFrom-SimpleYaml, ConvertTo-SimpleYaml, Get-IncludedAppIds, Merge-ManifestsForUpdate, Test-ProfileManifest
