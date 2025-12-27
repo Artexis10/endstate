@@ -134,11 +134,40 @@ Metadata files store GUI-specific information:
 
 ---
 
+## Display Label Resolution
+
+When displaying a profile to the user, the label is resolved in this order:
+
+1. **`.meta.json` displayName** — GUI-only override (highest priority)
+2. **Manifest `name` field** — Profile's self-declared name
+3. **Filename stem** — Fallback if neither above exists
+
+### Example Resolution
+
+| File | Manifest `name` | `.meta.json` displayName | Displayed As |
+|------|-----------------|--------------------------|---------------|
+| `work.json` | `"work-laptop"` | `"My Work Laptop"` | My Work Laptop |
+| `work.json` | `"work-laptop"` | *(none)* | work-laptop |
+| `work.json` | *(none)* | *(none)* | work |
+
+---
+
 ## Rename Semantics
 
-- **Display name** is stored in `.meta.json` (not the profile file)
-- **File name** is never renamed by the GUI
-- Users can rename files manually; validity is determined by content, not filename
+### Default Rename (GUI)
+
+- **"Rename"** updates the `.meta.json` displayName only
+- The profile filename is **never** renamed by the GUI
+- The manifest `name` field is **never** modified by the GUI
+- Users can rename files manually via file explorer; validity is determined by content, not filename
+
+### Advanced Rename (Not Implemented)
+
+An advanced rename could optionally:
+- Rename the file on disk
+- Update the manifest `name` field
+
+This is **not implemented** in the current GUI. Power users can rename files manually.
 
 ---
 
