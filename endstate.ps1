@@ -1217,6 +1217,10 @@ function Invoke-ApplyCore {
     $manifest = Read-Manifest -Path $ManifestPath
     
     if (-not $manifest) {
+        # Emit summary event for failure case
+        if (Test-StreamingEventsEnabled) {
+            Write-SummaryEvent -Phase "apply" -Total 0 -Success 0 -Skipped 0 -Failed 1
+        }
         return @{ Success = $false; ExitCode = 1; Error = "Failed to read manifest" }
     }
     
@@ -1248,6 +1252,10 @@ function Invoke-ApplyCore {
                 reason = "no_installable_ref"
                 message = "No installable ref for driver '$driver'"
             }
+            # Emit item event for skipped (no ref)
+            if (Test-StreamingEventsEnabled) {
+                Write-ItemEvent -Id $app.id -Driver $driver -Status "skipped" -Reason "no_installable_ref" -Message "No installable ref for driver '$driver'"
+            }
             continue
         }
         
@@ -1274,6 +1282,10 @@ function Invoke-ApplyCore {
                                 reason = "would_upgrade"
                                 message = "Would upgrade: $($versionCheck.Reason)"
                             }
+                            # Emit item event for dry-run upgrade
+                            if (Test-StreamingEventsEnabled) {
+                                Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "to_install" -Reason "would_upgrade" -Message "Would upgrade: $($versionCheck.Reason)"
+                            }
                         } else {
                             Write-Host "  [UPGRADE] $appDisplayId ($($versionCheck.Reason))" -ForegroundColor Yellow
                             $result = Install-AppWithDriver -App $app -DryRun $false -IsUpgrade $true
@@ -1286,6 +1298,10 @@ function Invoke-ApplyCore {
                                     reason = "upgraded"
                                     message = "Upgraded: $($versionCheck.Reason)"
                                 }
+                                # Emit item event for successful upgrade
+                                if (Test-StreamingEventsEnabled) {
+                                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "installed" -Reason "upgraded" -Message "Upgraded: $($versionCheck.Reason)"
+                                }
                             } else {
                                 Write-Host "    [WARN] Upgrade may have issues: $($result.Error)" -ForegroundColor Yellow
                                 $upgraded++
@@ -1295,6 +1311,10 @@ function Invoke-ApplyCore {
                                     status = "ok"
                                     reason = "upgraded"
                                     message = "Upgraded with warnings: $($result.Error)"
+                                }
+                                # Emit item event for upgrade with warnings
+                                if (Test-StreamingEventsEnabled) {
+                                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "installed" -Reason "upgraded" -Message "Upgraded with warnings: $($result.Error)"
                                 }
                             }
                         }
@@ -1307,6 +1327,10 @@ function Invoke-ApplyCore {
                             status = "failed"
                             reason = "version_mismatch"
                             message = "Version mismatch, manual intervention needed: $($versionCheck.Reason)"
+                        }
+                        # Emit item event for version mismatch failure
+                        if (Test-StreamingEventsEnabled) {
+                            Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "failed" -Reason "version_mismatch" -Message "Version mismatch, manual intervention needed: $($versionCheck.Reason)"
                         }
                     }
                     continue
@@ -1323,6 +1347,10 @@ function Invoke-ApplyCore {
                 reason = "already_installed"
                 message = "Already installed"
             }
+            # Emit item event for already installed (skipped)
+            if (Test-StreamingEventsEnabled) {
+                Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "present" -Reason "already_installed" -Message "Already installed"
+            }
             continue
         }
         
@@ -1336,6 +1364,10 @@ function Invoke-ApplyCore {
                 status = "ok"
                 reason = "would_install"
                 message = "Would install"
+            }
+            # Emit item event for dry-run install
+            if (Test-StreamingEventsEnabled) {
+                Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "to_install" -Message "Would install via $driver"
             }
         } else {
             Write-Host "  [INSTALL] $appDisplayId (driver: $driver)" -ForegroundColor Green
@@ -2334,6 +2366,15 @@ function Invoke-CaptureCore {
                     }
                     $appEntry
                 })
+                
+                # Emit item events for each captured app
+                if (Test-StreamingEventsEnabled) {
+                    foreach ($app in $manifest.apps) {
+                        $appId = if ($app.refs -and $app.refs.windows) { $app.refs.windows } else { $app.id }
+                        $driver = if ($app._source) { $app._source } else { "winget" }
+                        Write-ItemEvent -Id $appId -Driver $driver -Status "present" -Reason "detected" -Message "Captured"
+                    }
+                }
             }
         } catch {
             # If we can't read the manifest, still return success but without counts
@@ -2371,6 +2412,10 @@ function Invoke-VerifyCore {
     $manifest = Read-Manifest -Path $ManifestPath
     
     if (-not $manifest) {
+        # Emit summary event for failure case
+        if (Test-StreamingEventsEnabled) {
+            Write-SummaryEvent -Phase "verify" -Total 0 -Success 0 -Skipped 0 -Failed 1
+        }
         return @{ Success = $false; ExitCode = 1; Error = "Failed to read manifest"; OkCount = 0; MissingCount = 0; MissingApps = @(); VersionMismatches = 0 }
     }
     
@@ -3371,6 +3416,10 @@ switch ($Command) {
             }
             $exitCode = $result.ExitCode
         } catch {
+            # Emit summary event for exception case (phase was already emitted)
+            if (Test-StreamingEventsEnabled) {
+                Write-SummaryEvent -Phase "apply" -Total 0 -Success 0 -Skipped 0 -Failed 1
+            }
             if ($Json) {
                 $errorDetail = @{
                     code = "INTERNAL_ERROR"
@@ -3483,6 +3532,10 @@ switch ($Command) {
             }
             $exitCode = $result.ExitCode
         } catch {
+            # Emit summary event for exception case (phase was already emitted)
+            if (Test-StreamingEventsEnabled) {
+                Write-SummaryEvent -Phase "verify" -Total 0 -Success 0 -Skipped 0 -Failed 1
+            }
             if ($Json) {
                 $errorDetail = @{
                     code = "INTERNAL_ERROR"

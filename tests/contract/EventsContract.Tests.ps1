@@ -673,3 +673,295 @@ Describe "Entrypoint guard contract" -Tag "Contract", "Entrypoint" {
         }
     }
 }
+
+Describe "Real-mode event stream contract (smoke, minimal side effects)" -Tag "Contract", "Events", "RealMode" {
+    <#
+    .DESCRIPTION
+        These tests verify the non-negotiable contract for REAL MODE (not TESTMODE):
+        - Events are emitted as NDJSON to process stderr
+        - Stdout remains human-readable only (no NDJSON)
+        - Stream is complete: phase -> item* -> summary (and artifact for capture)
+        - All events have required schema fields
+        
+        Constraints:
+        - Must not install anything or modify the system
+        - Uses apply -DryRun to avoid side effects
+        - Uses native shim (endstate.cmd) with stream redirection
+    #>
+    
+    BeforeAll {
+        $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $script:EndstateCmd = Join-Path $script:RepoRoot "endstate.cmd"
+        $script:TempDir = Join-Path $env:TEMP "endstate-realmode-tests-$(Get-Random)"
+        New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
+        
+        # Find a manifest to use for testing (use local manifest if exists, otherwise create minimal one)
+        $script:LocalManifestsDir = Join-Path $script:RepoRoot "manifests\local"
+        $script:TestManifest = $null
+        
+        if (Test-Path $script:LocalManifestsDir) {
+            $manifests = Get-ChildItem -Path $script:LocalManifestsDir -Filter "*.jsonc" -ErrorAction SilentlyContinue
+            if ($manifests.Count -gt 0) {
+                $script:TestManifest = $manifests[0].FullName
+            }
+        }
+        
+        # If no local manifest, create a minimal test manifest
+        if (-not $script:TestManifest) {
+            $script:TestManifest = Join-Path $script:TempDir "test-manifest.jsonc"
+            $minimalManifest = @{
+                name = "test-manifest"
+                apps = @(
+                    @{
+                        id = "test-app"
+                        refs = @{ windows = "Microsoft.PowerShell" }
+                    }
+                )
+            }
+            $minimalManifest | ConvertTo-Json -Depth 10 | Set-Content -Path $script:TestManifest -Encoding UTF8
+        }
+    }
+    
+    AfterAll {
+        if (Test-Path $script:TempDir) {
+            Remove-Item -Path $script:TempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    
+    Context "apply -DryRun real-mode events" {
+        BeforeAll {
+            $script:OutFile = Join-Path $script:TempDir "apply-dryrun-out.txt"
+            $script:ErrFile = Join-Path $script:TempDir "apply-dryrun-err.jsonl"
+            
+            # Run via native shim with REAL mode (no TESTMODE)
+            $cmdLine = "`"$script:EndstateCmd`" apply -DryRun -Manifest `"$script:TestManifest`" --events jsonl 1> `"$script:OutFile`" 2> `"$script:ErrFile`""
+            cmd /c $cmdLine
+        }
+        
+        It "stderr file should exist and have content" {
+            Test-Path $script:ErrFile | Should -BeTrue
+            (Get-Item $script:ErrFile).Length | Should -BeGreaterThan 0
+        }
+        
+        It "stdout should NOT contain any NDJSON events" {
+            $content = Get-Content $script:OutFile -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
+            }
+        }
+        
+        It "every stderr line should parse as valid JSON" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lines.Count | Should -BeGreaterThan 0
+            foreach ($line in $lines) {
+                { $line | ConvertFrom-Json } | Should -Not -Throw
+            }
+        }
+        
+        It "first event MUST be phase event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $firstEvent = $lines[0] | ConvertFrom-Json
+            $firstEvent.event | Should -Be "phase"
+            $firstEvent.phase | Should -Be "apply"
+        }
+        
+        It "last event MUST be summary event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lastEvent = $lines[-1] | ConvertFrom-Json
+            $lastEvent.event | Should -Be "summary"
+            $lastEvent.phase | Should -Be "apply"
+        }
+        
+        It "should emit at least 1 item event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $itemEvents = @($events | Where-Object { $_.event -eq "item" })
+            $itemEvents.Count | Should -BeGreaterOrEqual 1
+        }
+        
+        It "all events should have required base fields: version, event, timestamp" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            foreach ($line in $lines) {
+                $event = $line | ConvertFrom-Json
+                $event.version | Should -Be 1
+                $event.event | Should -Not -BeNullOrEmpty
+                $event.timestamp | Should -Not -BeNullOrEmpty
+            }
+        }
+        
+        It "item events should have required fields: id, status, driver, message, reason" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $itemEvents = @($events | Where-Object { $_.event -eq "item" })
+            foreach ($item in $itemEvents) {
+                $item.id | Should -Not -BeNullOrEmpty
+                $item.status | Should -Not -BeNullOrEmpty
+                $item.driver | Should -Not -BeNullOrEmpty
+                $item.PSObject.Properties.Name | Should -Contain "message"
+                $item.PSObject.Properties.Name | Should -Contain "reason"
+            }
+        }
+        
+        It "summary event should have required fields: phase, total, success, skipped, failed" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $summaryEvent = $events | Where-Object { $_.event -eq "summary" } | Select-Object -First 1
+            $summaryEvent.phase | Should -Be "apply"
+            $summaryEvent.PSObject.Properties.Name | Should -Contain "total"
+            $summaryEvent.PSObject.Properties.Name | Should -Contain "success"
+            $summaryEvent.PSObject.Properties.Name | Should -Contain "skipped"
+            $summaryEvent.PSObject.Properties.Name | Should -Contain "failed"
+        }
+    }
+    
+    Context "verify real-mode events" {
+        BeforeAll {
+            $script:OutFile = Join-Path $script:TempDir "verify-out.txt"
+            $script:ErrFile = Join-Path $script:TempDir "verify-err.jsonl"
+            
+            # Run via native shim with REAL mode
+            $cmdLine = "`"$script:EndstateCmd`" verify -Manifest `"$script:TestManifest`" --events jsonl 1> `"$script:OutFile`" 2> `"$script:ErrFile`""
+            cmd /c $cmdLine
+        }
+        
+        It "stderr file should exist and have content" {
+            Test-Path $script:ErrFile | Should -BeTrue
+            (Get-Item $script:ErrFile).Length | Should -BeGreaterThan 0
+        }
+        
+        It "stdout should NOT contain any NDJSON events" {
+            $content = Get-Content $script:OutFile -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
+            }
+        }
+        
+        It "first event MUST be phase event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $firstEvent = $lines[0] | ConvertFrom-Json
+            $firstEvent.event | Should -Be "phase"
+            $firstEvent.phase | Should -Be "verify"
+        }
+        
+        It "last event MUST be summary event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lastEvent = $lines[-1] | ConvertFrom-Json
+            $lastEvent.event | Should -Be "summary"
+            $lastEvent.phase | Should -Be "verify"
+        }
+        
+        It "should emit at least 1 item event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $itemEvents = @($events | Where-Object { $_.event -eq "item" })
+            $itemEvents.Count | Should -BeGreaterOrEqual 1
+        }
+        
+        It "item events should have required fields: id, status, driver, message, reason" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $itemEvents = @($events | Where-Object { $_.event -eq "item" })
+            foreach ($item in $itemEvents) {
+                $item.id | Should -Not -BeNullOrEmpty
+                $item.status | Should -Not -BeNullOrEmpty
+                $item.driver | Should -Not -BeNullOrEmpty
+                $item.PSObject.Properties.Name | Should -Contain "message"
+                $item.PSObject.Properties.Name | Should -Contain "reason"
+            }
+        }
+    }
+    
+    Context "capture real-mode events (safe, writes to local manifests)" {
+        BeforeAll {
+            $script:OutFile = Join-Path $script:TempDir "capture-out.txt"
+            $script:ErrFile = Join-Path $script:TempDir "capture-err.jsonl"
+            
+            # Run via native shim with REAL mode
+            # Capture writes to manifests/local which is gitignored, so this is safe
+            $cmdLine = "`"$script:EndstateCmd`" capture --events jsonl 1> `"$script:OutFile`" 2> `"$script:ErrFile`""
+            cmd /c $cmdLine
+        }
+        
+        It "stderr file should exist and have content" {
+            Test-Path $script:ErrFile | Should -BeTrue
+            (Get-Item $script:ErrFile).Length | Should -BeGreaterThan 0
+        }
+        
+        It "stdout should NOT contain any NDJSON events" {
+            $content = Get-Content $script:OutFile -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
+            }
+        }
+        
+        It "first event MUST be phase event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $firstEvent = $lines[0] | ConvertFrom-Json
+            $firstEvent.event | Should -Be "phase"
+            $firstEvent.phase | Should -Be "capture"
+        }
+        
+        It "last event MUST be summary event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lastEvent = $lines[-1] | ConvertFrom-Json
+            $lastEvent.event | Should -Be "summary"
+            $lastEvent.phase | Should -Be "capture"
+        }
+        
+        It "should emit at least 1 item event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $itemEvents = @($events | Where-Object { $_.event -eq "item" })
+            $itemEvents.Count | Should -BeGreaterOrEqual 1
+        }
+        
+        It "should emit artifact event with manifest path" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $artifactEvents = @($events | Where-Object { $_.event -eq "artifact" })
+            $artifactEvents.Count | Should -BeGreaterOrEqual 1
+            $artifactEvents[0].phase | Should -Be "capture"
+            $artifactEvents[0].kind | Should -Be "manifest"
+            $artifactEvents[0].path | Should -Not -BeNullOrEmpty
+        }
+    }
+    
+    Context "failure-path: bad manifest path emits summary with failed>0" {
+        BeforeAll {
+            $script:OutFile = Join-Path $script:TempDir "failure-out.txt"
+            $script:ErrFile = Join-Path $script:TempDir "failure-err.jsonl"
+            $script:BadManifest = Join-Path $script:TempDir "nonexistent-manifest.jsonc"
+            
+            # Run verify with a non-existent manifest
+            $cmdLine = "`"$script:EndstateCmd`" verify -Manifest `"$script:BadManifest`" --events jsonl 1> `"$script:OutFile`" 2> `"$script:ErrFile`""
+            cmd /c $cmdLine
+        }
+        
+        It "stderr file should exist" {
+            Test-Path $script:ErrFile | Should -BeTrue
+        }
+        
+        It "should still emit phase event even on failure" {
+            $content = Get-Content $script:ErrFile -Raw -ErrorAction SilentlyContinue
+            if ($content -and $content.Trim()) {
+                $lines = $content.Split("`n") | Where-Object { $_.Trim() -ne "" }
+                if ($lines.Count -gt 0) {
+                    $firstEvent = $lines[0] | ConvertFrom-Json
+                    $firstEvent.event | Should -Be "phase"
+                }
+            }
+        }
+        
+        It "should emit summary event with failed>0 on failure" {
+            $content = Get-Content $script:ErrFile -Raw -ErrorAction SilentlyContinue
+            if ($content -and $content.Trim()) {
+                $lines = $content.Split("`n") | Where-Object { $_.Trim() -ne "" }
+                if ($lines.Count -gt 0) {
+                    $lastEvent = $lines[-1] | ConvertFrom-Json
+                    $lastEvent.event | Should -Be "summary"
+                    $lastEvent.failed | Should -BeGreaterThan 0
+                }
+            }
+        }
+    }
+}
