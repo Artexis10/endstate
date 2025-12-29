@@ -3179,6 +3179,7 @@ if ($eventsScript) {
 # Test mode: deterministic stub path for contract tests
 if ($env:ENDSTATE_TESTMODE -eq "1") {
     # Emit representative events and exit without real system calls
+    # Only emit events if --events jsonl was requested (streaming already enabled above)
     switch ($Command) {
         "capture" {
             Write-PhaseEvent -Phase "capture"
@@ -3192,7 +3193,8 @@ if ($env:ENDSTATE_TESTMODE -eq "1") {
             Write-PhaseEvent -Phase "apply"
             Write-ItemEvent -Id "TestApp.One" -Driver "winget" -Status "installing" -Message "Installing via winget"
             Write-ItemEvent -Id "TestApp.One" -Driver "winget" -Status "installed" -Message "Installed successfully"
-            Write-SummaryEvent -Phase "apply" -Total 1 -Success 1 -Skipped 0 -Failed 0
+            Write-ItemEvent -Id "TestApp.Two" -Driver "winget" -Status "skipped" -Reason "already_installed" -Message "Already installed"
+            Write-SummaryEvent -Phase "apply" -Total 2 -Success 1 -Skipped 1 -Failed 0
             exit 0
         }
         "verify" {

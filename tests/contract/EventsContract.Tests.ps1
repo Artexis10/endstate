@@ -111,6 +111,14 @@ Describe "NDJSON Events Contract" -Tag "Contract", "Events" {
             $artifactEvents.Count | Should -BeGreaterOrEqual 1
         }
         
+        It "First event MUST be phase event" {
+            $script:CaptureEvents[0].event | Should -Be "phase"
+        }
+        
+        It "Last event MUST be summary event" {
+            $script:CaptureEvents[-1].event | Should -Be "summary"
+        }
+        
         It "Summary event should have required fields" {
             $summaryEvent = $script:CaptureEvents | Where-Object { $_.event -eq "summary" } | Select-Object -First 1
             $summaryEvent.phase | Should -Be "capture"
@@ -158,6 +166,27 @@ Describe "NDJSON Events Contract" -Tag "Contract", "Events" {
             $itemEvents.Count | Should -BeGreaterOrEqual 1
         }
         
+        It "First event MUST be phase event" {
+            $script:ApplyEvents[0].event | Should -Be "phase"
+        }
+        
+        It "Last event MUST be summary event" {
+            $script:ApplyEvents[-1].event | Should -Be "summary"
+        }
+        
+        It "Item events should have required fields: id, status, driver, message, reason" {
+            $itemEvents = @($script:ApplyEvents | Where-Object { $_.event -eq "item" })
+            foreach ($item in $itemEvents) {
+                $item.id | Should -Not -BeNullOrEmpty
+                $item.status | Should -Not -BeNullOrEmpty
+                $item.driver | Should -Not -BeNullOrEmpty
+                # message is optional but should exist as a key
+                $item.PSObject.Properties.Name | Should -Contain "message"
+                # reason must exist (can be null)
+                $item.PSObject.Properties.Name | Should -Contain "reason"
+            }
+        }
+        
         It "Summary event should have required fields" {
             $summaryEvent = $script:ApplyEvents | Where-Object { $_.event -eq "summary" } | Select-Object -First 1
             $summaryEvent.phase | Should -Be "apply"
@@ -203,6 +232,27 @@ Describe "NDJSON Events Contract" -Tag "Contract", "Events" {
         It "Should emit item events" {
             $itemEvents = @($script:VerifyEvents | Where-Object { $_.event -eq "item" })
             $itemEvents.Count | Should -BeGreaterOrEqual 1
+        }
+        
+        It "First event MUST be phase event" {
+            $script:VerifyEvents[0].event | Should -Be "phase"
+        }
+        
+        It "Last event MUST be summary event" {
+            $script:VerifyEvents[-1].event | Should -Be "summary"
+        }
+        
+        It "Item events should have required fields: id, status, driver, message, reason" {
+            $itemEvents = @($script:VerifyEvents | Where-Object { $_.event -eq "item" })
+            foreach ($item in $itemEvents) {
+                $item.id | Should -Not -BeNullOrEmpty
+                $item.status | Should -Not -BeNullOrEmpty
+                $item.driver | Should -Not -BeNullOrEmpty
+                # message is optional but should exist as a key
+                $item.PSObject.Properties.Name | Should -Contain "message"
+                # reason must exist (can be null)
+                $item.PSObject.Properties.Name | Should -Contain "reason"
+            }
         }
         
         It "Summary event should have required fields" {
@@ -320,6 +370,18 @@ Describe "Native process stderr redirection contract" -Tag "Contract", "Events",
             $phaseEvents.Count | Should -BeGreaterOrEqual 1
             $summaryEvents.Count | Should -BeGreaterOrEqual 1
         }
+        
+        It "first event MUST be phase" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $firstEvent = $lines[0] | ConvertFrom-Json
+            $firstEvent.event | Should -Be "phase"
+        }
+        
+        It "last event MUST be summary" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lastEvent = $lines[-1] | ConvertFrom-Json
+            $lastEvent.event | Should -Be "summary"
+        }
     }
     
     Context "apply --events jsonl" {
@@ -361,6 +423,18 @@ Describe "Native process stderr redirection contract" -Tag "Contract", "Events",
                 Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
             }
         }
+        
+        It "first event MUST be phase" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $firstEvent = $lines[0] | ConvertFrom-Json
+            $firstEvent.event | Should -Be "phase"
+        }
+        
+        It "last event MUST be summary" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lastEvent = $lines[-1] | ConvertFrom-Json
+            $lastEvent.event | Should -Be "summary"
+        }
     }
     
     Context "capture --events jsonl" {
@@ -401,6 +475,25 @@ Describe "Native process stderr redirection contract" -Tag "Contract", "Events",
                 Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
             }
         }
+        
+        It "first event MUST be phase" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $firstEvent = $lines[0] | ConvertFrom-Json
+            $firstEvent.event | Should -Be "phase"
+        }
+        
+        It "last event MUST be summary" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lastEvent = $lines[-1] | ConvertFrom-Json
+            $lastEvent.event | Should -Be "summary"
+        }
+        
+        It "capture should emit artifact event" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $artifactEvents = @($events | Where-Object { $_.event -eq "artifact" })
+            $artifactEvents.Count | Should -BeGreaterOrEqual 1
+        }
     }
     
     Context "verify --events jsonl" {
@@ -440,6 +533,18 @@ Describe "Native process stderr redirection contract" -Tag "Contract", "Events",
             if ($content) {
                 Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
             }
+        }
+        
+        It "first event MUST be phase" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $firstEvent = $lines[0] | ConvertFrom-Json
+            $firstEvent.event | Should -Be "phase"
+        }
+        
+        It "last event MUST be summary" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lastEvent = $lines[-1] | ConvertFrom-Json
+            $lastEvent.event | Should -Be "summary"
         }
     }
 }
