@@ -15,6 +15,7 @@
 . "$PSScriptRoot\manifest.ps1"
 . "$PSScriptRoot\state.ps1"
 . "$PSScriptRoot\plan.ps1"
+. "$PSScriptRoot\events.ps1"
 . "$PSScriptRoot\..\drivers\winget.ps1"
 . "$PSScriptRoot\..\restorers\copy.ps1"
 . "$PSScriptRoot\..\verifiers\file-exists.ps1"
@@ -31,8 +32,16 @@ function Invoke-Apply {
         [switch]$EnableRestore,
         
         [Parameter(Mandatory = $false)]
-        [switch]$OutputJson
+        [switch]$OutputJson,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$EventsFormat = ""
     )
+    
+    # Enable streaming events if requested
+    if ($EventsFormat -eq "jsonl") {
+        Enable-StreamingEvents
+    }
     
     $runId = Get-RunId
     $logFile = Initialize-ProvisioningLog -RunId "apply-$runId"
@@ -52,15 +61,18 @@ function Invoke-Apply {
     
     # Generate plan first
     Write-ProvisioningSection "Generating Plan"
+    Write-PhaseEvent -Phase "plan"
     $plan = Invoke-Plan -ManifestPath $ManifestPath
     
     if (-not $plan) {
         Write-ProvisioningLog "Failed to generate plan" -Level ERROR
+        Write-ErrorEvent -Scope "engine" -Message "Failed to generate plan"
         return $null
     }
     
     # Execute actions
     Write-ProvisioningSection "Executing Actions"
+    Write-PhaseEvent -Phase "apply"
     
     $successCount = 0
     $skipCount = 0
@@ -78,6 +90,7 @@ function Invoke-Apply {
             "app" {
                 if ($action.status -eq "skip") {
                     Write-ProvisioningLog "$($action.ref) - Already installed" -Level SKIP
+                    Write-ItemEvent -Id $action.ref -Driver "winget" -Status "present" -Reason "already_installed" -Message "Already installed"
                     $result.status = "skipped"
                     $result.message = "Already installed"
                     $skipCount++
@@ -85,19 +98,23 @@ function Invoke-Apply {
                 elseif ($action.status -eq "install") {
                     if ($DryRun) {
                         Write-ProvisioningLog "[DRY-RUN] Would install: $($action.ref)" -Level ACTION
+                        Write-ItemEvent -Id $action.ref -Driver "winget" -Status "to_install" -Message "Would install via winget"
                         $result.status = "dry-run"
                         $result.message = "Would install via winget"
                         $successCount++
                     } else {
                         Write-ProvisioningLog "Installing: $($action.ref)" -Level ACTION
+                        Write-ItemEvent -Id $action.ref -Driver "winget" -Status "installing" -Message "Installing via winget"
                         $installResult = Install-AppViaWinget -PackageId $action.ref
                         if ($installResult.Success) {
                             Write-ProvisioningLog "$($action.ref) - Installed successfully" -Level SUCCESS
+                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "installed" -Message "Installed successfully"
                             $result.status = "success"
                             $result.message = "Installed"
                             $successCount++
                         } else {
                             Write-ProvisioningLog "$($action.ref) - Installation failed: $($installResult.Error)" -Level ERROR
+                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "failed" -Reason "install_failed" -Message $installResult.Error
                             $result.status = "failed"
                             $result.message = $installResult.Error
                             $failCount++
@@ -193,6 +210,7 @@ function Invoke-Apply {
     
     # Summary
     Write-ProvisioningSection "Results"
+    Write-SummaryEvent -Phase "apply" -Total $actionResults.Count -Success $successCount -Skipped $skipCount -Failed $failCount
     Close-ProvisioningLog -SuccessCount $successCount -SkipCount $skipCount -FailCount $failCount
     
     # Get state file path
@@ -323,6 +341,8 @@ function Invoke-ApplyFromPlan {
         Enable restore actions (opt-in for safety).
     .PARAMETER OutputJson
         Output results as JSON with standard envelope.
+    .PARAMETER EventsFormat
+        Streaming events format (jsonl for NDJSON to stderr).
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -335,8 +355,16 @@ function Invoke-ApplyFromPlan {
         [switch]$EnableRestore,
         
         [Parameter(Mandatory = $false)]
-        [switch]$OutputJson
+        [switch]$OutputJson,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$EventsFormat = ""
     )
+    
+    # Enable streaming events if requested
+    if ($EventsFormat -eq "jsonl") {
+        Enable-StreamingEvents
+    }
     
     # Validate plan file exists
     if (-not (Test-Path $PlanPath)) {
@@ -399,6 +427,7 @@ function Invoke-ApplyFromPlan {
     
     # Execute actions in order (deterministic)
     Write-ProvisioningSection "Executing Actions"
+    Write-PhaseEvent -Phase "apply"
     
     $successCount = 0
     $skippedCount = 0
@@ -417,6 +446,7 @@ function Invoke-ApplyFromPlan {
                 if ($action.status -eq "skip") {
                     $reason = if ($action.reason) { $action.reason } else { "skipped in plan" }
                     Write-ProvisioningLog "[SKIP] $($action.ref) - $reason" -Level SKIP
+                    Write-ItemEvent -Id $action.ref -Driver "winget" -Status "present" -Reason "already_installed" -Message $reason
                     $result.status = "skipped"
                     $result.message = $reason
                     $skippedCount++
@@ -424,19 +454,23 @@ function Invoke-ApplyFromPlan {
                 elseif ($action.status -eq "install") {
                     if ($DryRun) {
                         Write-ProvisioningLog "[DRY-RUN] Would install: $($action.ref)" -Level ACTION
+                        Write-ItemEvent -Id $action.ref -Driver "winget" -Status "to_install" -Message "Would install via winget"
                         $result.status = "dry-run"
                         $result.message = "Would install via winget"
                         $successCount++
                     } else {
                         Write-ProvisioningLog "Installing: $($action.ref)" -Level ACTION
+                        Write-ItemEvent -Id $action.ref -Driver "winget" -Status "installing" -Message "Installing via winget"
                         $installResult = Install-AppViaWinget -PackageId $action.ref
                         if ($installResult.Success) {
                             Write-ProvisioningLog "$($action.ref) - Installed successfully" -Level SUCCESS
+                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "installed" -Message "Installed successfully"
                             $result.status = "success"
                             $result.message = "Installed"
                             $successCount++
                         } else {
                             Write-ProvisioningLog "$($action.ref) - Installation failed: $($installResult.Error)" -Level ERROR
+                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "failed" -Reason "install_failed" -Message $installResult.Error
                             $result.status = "failed"
                             $result.message = $installResult.Error
                             $failCount++
@@ -533,6 +567,7 @@ function Invoke-ApplyFromPlan {
     
     # Summary
     Write-ProvisioningSection "Results"
+    Write-SummaryEvent -Phase "apply" -Total $actionResults.Count -Success $successCount -Skipped $skippedCount -Failed $failCount
     Close-ProvisioningLog -SuccessCount $successCount -SkipCount $skippedCount -FailCount $failCount
     
     # Get state file path

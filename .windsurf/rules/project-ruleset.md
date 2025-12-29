@@ -278,6 +278,47 @@ Commands that support `--json` flag for GUI integration:
 - GUIs should scan stdout from bottom to top to find the first line starting with `{` that parses as valid JSON with `schemaVersion`, `command`, and `success` fields.
 - If no envelope is found but exit code is 0, GUIs should treat as success with a warning.
 
+## Streaming Progress and Exit Code Semantics
+
+### Streaming Progress Output (GUI Only)
+
+When running commands with `--json`, the CLI may emit human-readable progress messages to stdout **before** the final JSON envelope. These messages are intended for real-time UI updates and follow these patterns:
+
+**Common Progress Patterns:**
+- `[OK] App.Id (driver: winget) - already installed`
+- `[INSTALL] App.Id (driver: winget)`
+- `[SKIP] App.Id - reason`
+- `[FAIL] App.Id - error message`
+- `[PLAN] App.Id - would install` (dry-run preview)
+
+**GUI Parsing Rules:**
+1. **Streaming progress is UI-only** - GUIs MAY parse these messages for live activity display
+2. **JSON envelope is source of truth** - Final success/failure MUST be determined from the JSON envelope and exit code, NOT from streaming messages
+3. **Streaming is best-effort** - Progress messages may be incomplete, out of order, or missing
+4. **No semantic guarantees** - The format of progress messages may change; GUIs must not rely on them for business logic
+
+### Exit Code Semantics
+
+The CLI uses exit codes to signal overall command outcome:
+
+| Exit Code | Meaning | JSON Envelope | GUI Behavior |
+|-----------|---------|---------------|--------------|
+| `0` | Success - all operations completed without errors | `success: true` | Show success state |
+| `1` | Fatal error - command could not execute | `success: false`, `error` object populated | Show fatal error with error message |
+| `2` | Partial failure - some apps failed but others succeeded | `success: false`, `error: null`, `counts.failed > 0` | Show "Completed with issues" with summary |
+
+**Partial Failure Semantics:**
+- Exit code `2` indicates partial success: some apps installed successfully, some failed
+- JSON envelope will have `success: false` but `error: null`
+- The `data.counts` object will show breakdown: `installed`, `alreadyInstalled`, `failed`, `skippedFiltered`
+- GUIs MUST distinguish partial failures from fatal errors:
+  - **Partial failure**: Show "Completed with issues" + summary (e.g., "60 installed • 1 failed")
+  - **Fatal error**: Show "An error occurred" + error message
+
+**Current Implementation Note:**
+As of this writing, the CLI returns exit code `1` for both fatal errors and partial failures. GUIs should detect partial failures by checking if `error` is `null` and `counts.failed > 0`, treating these as "completed with issues" rather than fatal errors.
+
+---
 ## Error Codes
 
 Standard error codes for programmatic handling:

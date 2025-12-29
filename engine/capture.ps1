@@ -17,6 +17,7 @@
 . "$PSScriptRoot\logging.ps1"
 . "$PSScriptRoot\manifest.ps1"
 . "$PSScriptRoot\external.ps1"
+. "$PSScriptRoot\events.ps1"
 
 # Sensitive paths that should never be auto-exported
 $script:SensitivePaths = @(
@@ -91,6 +92,8 @@ function Invoke-Capture {
     .PARAMETER PayloadOut
         Output directory for captured config payloads.
         Default: provisioning/payload/
+    .PARAMETER EventsFormat
+        If "jsonl", emit NDJSON streaming events to stderr.
     #>
     param(
         [Parameter(Mandatory = $false)]
@@ -133,8 +136,16 @@ function Invoke-Capture {
         [string[]]$ConfigModules = @(),
         
         [Parameter(Mandatory = $false)]
-        [string]$PayloadOut
+        [string]$PayloadOut,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$EventsFormat = ""
     )
+    
+    # Enable streaming events if requested
+    if ($EventsFormat -eq "jsonl") {
+        Enable-StreamingEvents
+    }
     
     # Default DiscoverWriteManualInclude to true when Discover is enabled
     if ($Discover -and $null -eq $DiscoverWriteManualInclude) {
@@ -213,6 +224,7 @@ function Invoke-Capture {
     
     # Capture applications
     Write-ProvisioningSection "Capturing Applications"
+    Write-PhaseEvent -Phase "capture"
     $rawApps = Get-InstalledAppsViaWinget -CaptureDir $captureDir
     Write-ProvisioningLog "Raw capture: $($rawApps.Count) applications" -Level INFO
     
@@ -222,19 +234,31 @@ function Invoke-Capture {
     
     if (-not $IncludeRuntimes) {
         $beforeCount = $filteredApps.Count
+        $runtimeApps = @($filteredApps | Where-Object { Test-IsRuntimePackage -PackageId $_.refs.windows })
         $filteredApps = @($filteredApps | Where-Object { -not (Test-IsRuntimePackage -PackageId $_.refs.windows) })
         $filterStats.runtimes = $beforeCount - $filteredApps.Count
         if ($filterStats.runtimes -gt 0) {
             Write-ProvisioningLog "Filtered $($filterStats.runtimes) runtime packages" -Level INFO
+            # Emit item events for filtered runtime packages
+            foreach ($app in $runtimeApps) {
+                $driver = if ($app._source) { $app._source } else { "winget" }
+                Write-ItemEvent -Id $app.refs.windows -Driver $driver -Status "skipped" -Reason "filtered_runtime" -Message "Excluded (runtime)"
+            }
         }
     }
     
     if (-not $IncludeStoreApps) {
         $beforeCount = $filteredApps.Count
+        $storeApps = @($filteredApps | Where-Object { Test-IsStoreApp -App $_ })
         $filteredApps = @($filteredApps | Where-Object { -not (Test-IsStoreApp -App $_) })
         $filterStats.storeApps = $beforeCount - $filteredApps.Count
         if ($filterStats.storeApps -gt 0) {
             Write-ProvisioningLog "Filtered $($filterStats.storeApps) store apps" -Level INFO
+            # Emit item events for filtered store apps
+            foreach ($app in $storeApps) {
+                $driver = if ($app._source) { $app._source } else { "msstore" }
+                Write-ItemEvent -Id $app.refs.windows -Driver $driver -Status "skipped" -Reason "filtered_store" -Message "Excluded (store app)"
+            }
         }
     }
     
@@ -251,6 +275,12 @@ function Invoke-Capture {
     $sortedApps = @($filteredApps | Sort-Object -Property { $_.id })
     Write-ProvisioningLog "Final app count: $($sortedApps.Count) applications" -Level SUCCESS
     
+    # Emit item events for included apps
+    foreach ($app in $sortedApps) {
+        $driver = if ($app._source) { $app._source } else { "winget" }
+        Write-ItemEvent -Id $app.refs.windows -Driver $driver -Status "present" -Reason "detected" -Message "Detected"
+    }
+    
     # Check for sensitive paths
     Write-ProvisioningSection "Security Check"
     $sensitiveFound = Test-SensitivePaths
@@ -258,6 +288,8 @@ function Invoke-Capture {
         Write-ProvisioningLog "Detected $($sensitiveFound.Count) sensitive paths (NOT exported):" -Level WARN
         foreach ($path in $sensitiveFound) {
             Write-ProvisioningLog "  - $path" -Level WARN
+            # Emit item event for sensitive exclusion
+            Write-ItemEvent -Id $path -Driver "fs" -Status "skipped" -Reason "sensitive_excluded" -Message "Sensitive excluded"
         }
     } else {
         Write-ProvisioningLog "No sensitive paths detected in common locations" -Level SUCCESS
@@ -515,8 +547,16 @@ function Invoke-Capture {
     Write-Manifest -Path $outputPath -Manifest $manifest
     Write-ProvisioningLog "Manifest saved: $outputPath" -Level SUCCESS
     
+    # Emit artifact event for saved manifest
+    Write-ArtifactEvent -Phase "capture" -Kind "manifest" -Path $outputPath
+    
     # Summary
     $totalFiltered = $filterStats.runtimes + $filterStats.storeApps + $filterStats.minimized
+    $totalSensitive = $sensitiveFound.Count
+    
+    # Emit summary event
+    Write-SummaryEvent -Phase "capture" -Total ($sortedApps.Count + $totalFiltered + $totalSensitive) -Success $sortedApps.Count -Skipped ($totalFiltered + $totalSensitive) -Failed 0
+    
     Close-ProvisioningLog -SuccessCount $sortedApps.Count -SkipCount $totalFiltered -FailCount 0
     
     Write-Host ""

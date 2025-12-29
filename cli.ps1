@@ -181,7 +181,12 @@ param(
     [switch]$Latest,
 
     [Parameter(Mandatory = $false)]
-    [int]$Last = 0
+    [int]$Last = 0,
+
+    # Streaming events output format (jsonl for NDJSON to stderr)
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("jsonl", "")]
+    [string]$Events
 )
 
 $ErrorActionPreference = "Stop"
@@ -309,7 +314,8 @@ function Invoke-ProvisioningCapture {
         [bool]$IsPruneMissingApps,
         [bool]$IsWithConfig,
         [string[]]$ConfigModulesList,
-        [string]$PayloadOutPath
+        [string]$PayloadOutPath,
+        [string]$EventsFormat = ""
     )
     
     # Validate: need either -Profile or -OutManifest
@@ -344,6 +350,7 @@ function Invoke-ProvisioningCapture {
     if ($IsWithConfig) { $captureParams.WithConfig = $true }
     if ($ConfigModulesList -and $ConfigModulesList.Count -gt 0) { $captureParams.ConfigModules = $ConfigModulesList }
     if ($PayloadOutPath) { $captureParams.PayloadOut = $PayloadOutPath }
+    if ($EventsFormat) { $captureParams.EventsFormat = $EventsFormat }
     
     $result = Invoke-Capture @captureParams
     return $result
@@ -371,7 +378,8 @@ function Invoke-ProvisioningApply {
         [string]$PlanPath,
         [bool]$IsDryRun,
         [bool]$IsEnableRestore = $false,
-        [bool]$OutputJson = $false
+        [bool]$OutputJson = $false,
+        [string]$EventsFormat = ""
     )
     
     # Validate: -Manifest and -Plan are mutually exclusive
@@ -398,10 +406,10 @@ function Invoke-ProvisioningApply {
     
     if ($PlanPath) {
         # Apply from pre-generated plan
-        $result = Invoke-ApplyFromPlan -PlanPath $PlanPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore -OutputJson:$OutputJson
+        $result = Invoke-ApplyFromPlan -PlanPath $PlanPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore -OutputJson:$OutputJson -EventsFormat $EventsFormat
     } else {
         # Normal apply: generate plan then execute
-        $result = Invoke-Apply -ManifestPath $ManifestPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore -OutputJson:$OutputJson
+        $result = Invoke-Apply -ManifestPath $ManifestPath -DryRun:$IsDryRun -EnableRestore:$IsEnableRestore -OutputJson:$OutputJson -EventsFormat $EventsFormat
     }
     
     return $result
@@ -410,7 +418,8 @@ function Invoke-ProvisioningApply {
 function Invoke-ProvisioningVerify {
     param(
         [string]$ManifestPath,
-        [bool]$OutputJson = $false
+        [bool]$OutputJson = $false,
+        [string]$EventsFormat = ""
     )
     
     if (-not $ManifestPath) {
@@ -422,7 +431,7 @@ function Invoke-ProvisioningVerify {
     
     . "$script:ProvisioningRoot\engine\verify.ps1"
     
-    $result = Invoke-Verify -ManifestPath $ManifestPath -OutputJson:$OutputJson
+    $result = Invoke-Verify -ManifestPath $ManifestPath -OutputJson:$OutputJson -EventsFormat $EventsFormat
     return $result
 }
 
@@ -686,12 +695,13 @@ switch ($Command) {
             -IsPruneMissingApps $PruneMissingApps.IsPresent `
             -IsWithConfig $WithConfig.IsPresent `
             -ConfigModulesList $ConfigModules `
-            -PayloadOutPath $PayloadOut
+            -PayloadOutPath $PayloadOut `
+            -EventsFormat $Events
     }
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
-    "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent -OutputJson $Json.IsPresent }
+    "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent -OutputJson $Json.IsPresent -EventsFormat $Events }
     "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }
-    "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest -OutputJson $Json.IsPresent }
+    "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest -OutputJson $Json.IsPresent -EventsFormat $Events }
     "doctor"  { Invoke-ProvisioningDoctor }
     "report"  { Invoke-ProvisioningReport -ReportRunId $RunId -IsLatest $Latest.IsPresent -LastN $Last -OutputJson $Json.IsPresent }
     "diff"    { Invoke-ProvisioningDiff -FileAPath $FileA -FileBPath $FileB -OutputJson $Json.IsPresent }

@@ -131,6 +131,11 @@ param(
     [Parameter(Mandatory = $false)]
     [string]$RepoRoot,
     
+    # Streaming events output format (jsonl for NDJSON to stderr)
+    [Parameter(Mandatory = $false)]
+    [ValidateSet("jsonl", "")]
+    [string]$Events,
+    
     # Capture remaining arguments for GNU-style flag processing
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RemainingArgs
@@ -206,6 +211,14 @@ if ($RemainingArgs) {
             '--dry-run' {
                 $DryRun = $true
                 $i++
+            }
+            '--events' {
+                if ($i + 1 -lt $RemainingArgs.Count) {
+                    $Events = $RemainingArgs[$i + 1]
+                    $i += 2
+                } else {
+                    $i++
+                }
             }
             '--enable-restore' {
                 $EnableRestore = $true

@@ -16,6 +16,7 @@
 . "$PSScriptRoot\state.ps1"
 . "$PSScriptRoot\external.ps1"
 . "$PSScriptRoot\plan.ps1"
+. "$PSScriptRoot\events.ps1"
 . "$PSScriptRoot\..\verifiers\file-exists.ps1"
 . "$PSScriptRoot\..\verifiers\command-exists.ps1"
 . "$PSScriptRoot\..\verifiers\registry-key-exists.ps1"
@@ -26,8 +27,16 @@ function Invoke-Verify {
         [string]$ManifestPath,
         
         [Parameter(Mandatory = $false)]
-        [switch]$OutputJson
+        [switch]$OutputJson,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$EventsFormat = ""
     )
+    
+    # Enable streaming events if requested
+    if ($EventsFormat -eq "jsonl") {
+        Enable-StreamingEvents
+    }
     
     $runId = Get-RunId
     Initialize-ProvisioningLog -RunId "verify-$runId" | Out-Null
@@ -47,6 +56,7 @@ function Invoke-Verify {
     
     # Get installed apps
     Write-ProvisioningSection "Verifying Applications"
+    Write-PhaseEvent -Phase "verify"
     $installedApps = Get-InstalledAppsFromWinget
     
     $passCount = 0
@@ -67,10 +77,12 @@ function Invoke-Verify {
         
         if ($isInstalled) {
             Write-ProvisioningLog "$windowsRef - INSTALLED" -Level SUCCESS
+            Write-ItemEvent -Id $windowsRef -Driver "winget" -Status "present" -Message "Verified installed"
             $result.status = "pass"
             $passCount++
         } else {
             Write-ProvisioningLog "$windowsRef - NOT INSTALLED" -Level ERROR
+            Write-ItemEvent -Id $windowsRef -Driver "winget" -Status "failed" -Reason "missing" -Message "Not installed"
             $result.status = "fail"
             $failCount++
         }
@@ -125,6 +137,7 @@ function Invoke-Verify {
     
     # Summary
     Write-ProvisioningSection "Verification Results"
+    Write-SummaryEvent -Phase "verify" -Total ($passCount + $failCount) -Success $passCount -Skipped 0 -Failed $failCount
     Close-ProvisioningLog -SuccessCount $passCount -SkipCount 0 -FailCount $failCount
     
     # Save verification state

@@ -213,11 +213,11 @@ function Get-CapabilitiesData {
             }
             apply = [ordered]@{
                 supported = $true
-                flags = @("--manifest", "--plan", "--dry-run", "--enable-restore", "--json")
+                flags = @("--manifest", "--plan", "--dry-run", "--enable-restore", "--json", "--events")
             }
             verify = [ordered]@{
                 supported = $true
-                flags = @("--manifest", "--json")
+                flags = @("--manifest", "--json", "--events")
             }
             restore = [ordered]@{
                 supported = $true
@@ -241,7 +241,8 @@ function Get-CapabilitiesData {
             }
         }
         features = [ordered]@{
-            streaming = $false
+            streaming = $true
+            streamingFormat = "jsonl"
             parallelInstall = $true
             configModules = $true
             jsonOutput = $true
