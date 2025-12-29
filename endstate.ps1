@@ -152,6 +152,23 @@ param(
 $ErrorActionPreference = "Stop"
 $script:EndstateRoot = $PSScriptRoot
 
+#region Entrypoint Guard
+# Ensure this script is invoked via the approved endstate.cmd shim, not directly.
+# Direct invocation bypasses the native process boundary needed for stdout/stderr redirection.
+# Exceptions: dot-sourcing (-LoadFunctionsOnly), test mode, or explicit bypass.
+if (-not $LoadFunctionsOnly -and 
+    -not $env:ENDSTATE_TESTMODE -and 
+    -not $env:ENDSTATE_ALLOW_DIRECT -and 
+    $env:ENDSTATE_ENTRYPOINT -ne "cmd") {
+    
+    [Console]::Error.WriteLine("ERROR: Do not run endstate.ps1 directly.")
+    [Console]::Error.WriteLine("Use 'endstate' (endstate.cmd) so stdout/stderr redirection works correctly.")
+    [Console]::Error.WriteLine("")
+    [Console]::Error.WriteLine("If you must bypass this check, set: `$env:ENDSTATE_ALLOW_DIRECT = '1'")
+    exit 1
+}
+#endregion Entrypoint Guard
+
 #region GNU-style Flag Normalization
 # Normalize GNU-style double-dash flags to PowerShell convention
 # This allows commands like: endstate apply --profile Hugo-Laptop --json
@@ -782,6 +799,11 @@ function Install-EndstateToPath {
     if (Test-Path $oldCliEntrypoint) {
         Write-Host "[MIGRATE] Removing old CLI from bin (now in lib/): $oldCliEntrypoint" -ForegroundColor Yellow
         Remove-Item -Path $oldCliEntrypoint -Force
+        Write-Host ""
+        Write-Host "[WARN] Old endstate.ps1 was found in bin/ and has been removed." -ForegroundColor Yellow
+        Write-Host "       The CLI is now in lib/ to ensure PowerShell uses the .cmd shim." -ForegroundColor Yellow
+        Write-Host "       This enables proper stdout/stderr redirection for --events jsonl." -ForegroundColor Yellow
+        Write-Host ""
     }
     
     # Copy endstate.ps1 to lib directory
@@ -815,6 +837,8 @@ function Install-EndstateToPath {
 @echo off
 REM Endstate CLI shim - forwards all arguments to PowerShell
 REM The .ps1 is in lib/ so PowerShell resolves endstate to this .cmd, not the .ps1
+REM Set ENDSTATE_ENTRYPOINT so the ps1 can verify it was invoked via the approved shim
+set ENDSTATE_ENTRYPOINT=cmd
 pwsh -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Endstate\bin\lib\endstate.ps1" %*
 "@
     

@@ -474,3 +474,97 @@ Describe "Events disabled by default" -Tag "Contract", "Events" {
         $events.Count | Should -Be 0
     }
 }
+
+Describe "Entrypoint guard contract" -Tag "Contract", "Entrypoint" {
+    <#
+    .DESCRIPTION
+        These tests verify the native shim entrypoint guard:
+        - Get-Command endstate should resolve to the .cmd shim (not .ps1)
+        - Direct execution of endstate.ps1 should fail with an error message
+    #>
+    
+    BeforeAll {
+        $script:RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        $script:EndstateScript = Join-Path $script:RepoRoot "endstate.ps1"
+        $script:EndstateCmd = Join-Path $script:RepoRoot "endstate.cmd"
+    }
+    
+    Context "Command resolution" {
+        It "Get-Command endstate should show CommandType Application" {
+            $cmd = Get-Command endstate -ErrorAction SilentlyContinue
+            $cmd | Should -Not -BeNullOrEmpty
+            $cmd.CommandType | Should -Be "Application"
+        }
+        
+        It "Get-Command endstate Source should end with endstate.cmd" {
+            $cmd = Get-Command endstate -ErrorAction SilentlyContinue
+            $cmd | Should -Not -BeNullOrEmpty
+            $cmd.Source | Should -Match 'endstate\.cmd$'
+        }
+    }
+    
+    Context "Direct ps1 execution guard" {
+        It "Direct execution of endstate.ps1 should fail with exit code 1" {
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = "pwsh"
+            $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$script:EndstateScript`" apply"
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            # Do NOT set ENDSTATE_ENTRYPOINT or ENDSTATE_TESTMODE - simulate direct invocation
+            
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $psi
+            $process.Start() | Out-Null
+            
+            $stderr = $process.StandardError.ReadToEnd()
+            $process.WaitForExit()
+            
+            $process.ExitCode | Should -Be 1
+        }
+        
+        It "Direct execution should print the expected error message" {
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = "pwsh"
+            $psi.Arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$script:EndstateScript`" apply"
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $psi
+            $process.Start() | Out-Null
+            
+            $stderr = $process.StandardError.ReadToEnd()
+            $process.WaitForExit()
+            
+            $stderr | Should -Match 'Do not run endstate\.ps1 directly'
+            $stderr | Should -Match 'endstate\.cmd'
+        }
+        
+        It "Execution via endstate.cmd should succeed (ENDSTATE_ENTRYPOINT=cmd)" {
+            $psi = [System.Diagnostics.ProcessStartInfo]::new()
+            $psi.FileName = "cmd"
+            $psi.Arguments = "/c `"`"$script:EndstateCmd`" --help`""
+            $psi.RedirectStandardOutput = $true
+            $psi.RedirectStandardError = $true
+            $psi.UseShellExecute = $false
+            $psi.CreateNoWindow = $true
+            
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $psi
+            $process.Start() | Out-Null
+            
+            $stdout = $process.StandardOutput.ReadToEnd()
+            $stderr = $process.StandardError.ReadToEnd()
+            $process.WaitForExit()
+            
+            # Should NOT contain the guard error message
+            $stderr | Should -Not -Match 'Do not run endstate\.ps1 directly'
+            # Should show help or version info
+            $stdout | Should -Match 'Endstate'
+        }
+    }
+}
