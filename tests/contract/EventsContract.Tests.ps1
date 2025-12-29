@@ -242,34 +242,143 @@ Describe "NDJSON Events Contract" -Tag "Contract", "Events" {
     }
 }
 
-Describe "Stderr redirection contract" -Tag "Contract", "Events" {
+Describe "Native process stderr redirection contract" -Tag "Contract", "Events", "Native" {
+    <#
+    .DESCRIPTION
+        These tests verify the non-negotiable contract: NDJSON events MUST be captured
+        by native process stderr redirection (2>) when using cmd /c.
+        
+        This is the authoritative test for the event emission contract.
+    #>
     
-    Context "Stream separation" {
+    BeforeAll {
+        $script:TempDir = Join-Path $env:TEMP "endstate-contract-tests-$(Get-Random)"
+        New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
+    }
+    
+    AfterAll {
+        if (Test-Path $script:TempDir) {
+            Remove-Item -Path $script:TempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    
+    Context "apply --events jsonl" {
         BeforeAll {
-            $script:StreamResult = Invoke-EndstateWithEvents -Command "apply"
+            $script:OutFile = Join-Path $script:TempDir "apply-out.txt"
+            $script:ErrFile = Join-Path $script:TempDir "apply-err.jsonl"
+            
+            # Run via cmd /c with native file redirection - this is the contract
+            $env:ENDSTATE_TESTMODE = "1"
+            $cmdLine = "pwsh -NoProfile -ExecutionPolicy Bypass -File `"$script:EndstateScript`" apply --events jsonl 1> `"$script:OutFile`" 2> `"$script:ErrFile`""
+            cmd /c $cmdLine
+            $env:ENDSTATE_TESTMODE = $null
         }
         
-        It "Stderr should contain NDJSON events" {
-            $script:StreamResult.Stderr | Should -Match '"event":'
+        It "stderr file should exist" {
+            Test-Path $script:ErrFile | Should -BeTrue
         }
         
-        It "Stdout should NOT contain NDJSON events" {
-            $script:StreamResult.Stdout | Should -Not -Match '"event":'
+        It "stderr file should have content (size > 0)" {
+            (Get-Item $script:ErrFile).Length | Should -BeGreaterThan 0
         }
         
-        It "Stdout should only contain human-readable output (banner)" {
-            # Stdout should contain the banner but no JSON
-            $script:StreamResult.Stdout | Should -Match 'Endstate'
-            $script:StreamResult.Stdout | Should -Not -Match '^\s*\{'
-        }
-        
-        It "Each stderr line should be valid NDJSON (no Write-Error prefix)" {
-            $lines = $script:StreamResult.Stderr.Split("`n") | Where-Object { $_.Trim() -ne "" }
+        It "every line in stderr should parse as valid JSON" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lines.Count | Should -BeGreaterThan 0
             foreach ($line in $lines) {
-                # Should not have Write-Error: prefix
-                $line | Should -Not -Match '^Write-Error:'
-                # Should be valid JSON
                 { $line | ConvertFrom-Json } | Should -Not -Throw
+            }
+        }
+        
+        It "stderr should contain event fields" {
+            $content = Get-Content $script:ErrFile -Raw
+            $content | Should -Match '"event"\s*:'
+        }
+        
+        It "stdout should NOT contain any NDJSON events" {
+            $content = Get-Content $script:OutFile -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
+            }
+        }
+    }
+    
+    Context "capture --events jsonl" {
+        BeforeAll {
+            $script:OutFile = Join-Path $script:TempDir "capture-out.txt"
+            $script:ErrFile = Join-Path $script:TempDir "capture-err.jsonl"
+            
+            $env:ENDSTATE_TESTMODE = "1"
+            $cmdLine = "pwsh -NoProfile -ExecutionPolicy Bypass -File `"$script:EndstateScript`" capture --events jsonl 1> `"$script:OutFile`" 2> `"$script:ErrFile`""
+            cmd /c $cmdLine
+            $env:ENDSTATE_TESTMODE = $null
+        }
+        
+        It "stderr file should exist" {
+            Test-Path $script:ErrFile | Should -BeTrue
+        }
+        
+        It "stderr file should have content (size > 0)" {
+            (Get-Item $script:ErrFile).Length | Should -BeGreaterThan 0
+        }
+        
+        It "every line in stderr should parse as valid JSON" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lines.Count | Should -BeGreaterThan 0
+            foreach ($line in $lines) {
+                { $line | ConvertFrom-Json } | Should -Not -Throw
+            }
+        }
+        
+        It "stderr should contain event fields" {
+            $content = Get-Content $script:ErrFile -Raw
+            $content | Should -Match '"event"\s*:'
+        }
+        
+        It "stdout should NOT contain any NDJSON events" {
+            $content = Get-Content $script:OutFile -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
+            }
+        }
+    }
+    
+    Context "verify --events jsonl" {
+        BeforeAll {
+            $script:OutFile = Join-Path $script:TempDir "verify-out.txt"
+            $script:ErrFile = Join-Path $script:TempDir "verify-err.jsonl"
+            
+            $env:ENDSTATE_TESTMODE = "1"
+            $cmdLine = "pwsh -NoProfile -ExecutionPolicy Bypass -File `"$script:EndstateScript`" verify --events jsonl 1> `"$script:OutFile`" 2> `"$script:ErrFile`""
+            cmd /c $cmdLine
+            $env:ENDSTATE_TESTMODE = $null
+        }
+        
+        It "stderr file should exist" {
+            Test-Path $script:ErrFile | Should -BeTrue
+        }
+        
+        It "stderr file should have content (size > 0)" {
+            (Get-Item $script:ErrFile).Length | Should -BeGreaterThan 0
+        }
+        
+        It "every line in stderr should parse as valid JSON" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lines.Count | Should -BeGreaterThan 0
+            foreach ($line in $lines) {
+                { $line | ConvertFrom-Json } | Should -Not -Throw
+            }
+        }
+        
+        It "stderr should contain event fields" {
+            $content = Get-Content $script:ErrFile -Raw
+            $content | Should -Match '"event"\s*:'
+        }
+        
+        It "stdout should NOT contain any NDJSON events" {
+            $content = Get-Content $script:OutFile -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
             }
         }
     }

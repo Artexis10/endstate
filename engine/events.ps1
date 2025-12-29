@@ -97,11 +97,11 @@ function Write-StreamingEvent {
     }
     
     # Convert to JSON (single line, no pretty print)
-    $json = $Event | ConvertTo-Json -Compress -Depth 10
+    $json = $Event | ConvertTo-Json -Compress -Depth 20
     
-    # Write to stderr using $Host.UI.WriteErrorLine which is captured by PowerShell's 2> redirection
-    # when running as a child process (pwsh -File or pwsh -Command)
-    $Host.UI.WriteErrorLine($json)
+    # Write to real process stderr - this is the ONLY acceptable output path for NDJSON events
+    [Console]::Error.WriteLine($json)
+    return
 }
 
 function Write-PhaseEvent {
