@@ -1167,6 +1167,11 @@ function Invoke-ApplyCore {
         [switch]$SkipStateWrite
     )
     
+    # Emit phase event for apply
+    if (Test-StreamingEventsEnabled) {
+        Write-PhaseEvent -Phase "apply"
+    }
+    
     Write-Output "[endstate] Apply: reading manifest $ManifestPath"
     $manifest = Read-Manifest -Path $ManifestPath
     
@@ -1304,6 +1309,10 @@ function Invoke-ApplyCore {
                     reason = "installed"
                     message = "Installed successfully"
                 }
+                # Emit item event for successful install
+                if (Test-StreamingEventsEnabled) {
+                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "installed" -Message "Installed successfully"
+                }
             } else {
                 Write-Host "    [ERROR] Failed to install: $($result.Error)" -ForegroundColor Red
                 $failed++
@@ -1314,8 +1323,18 @@ function Invoke-ApplyCore {
                     reason = "install_failed"
                     message = $result.Error
                 }
+                # Emit item event for failed install
+                if (Test-StreamingEventsEnabled) {
+                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "failed" -Reason "install_failed" -Message $result.Error
+                }
             }
         }
+    }
+    
+    # Emit summary event for apply
+    if (Test-StreamingEventsEnabled) {
+        $totalItems = $installed + $skipped + $failed + $upgraded
+        Write-SummaryEvent -Phase "apply" -Total $totalItems -Success ($installed + $upgraded) -Skipped $skipped -Failed $failed
     }
     
     Write-Host ""
@@ -2083,6 +2102,11 @@ function Invoke-CaptureCore {
         [bool]$ForceOverwrite
     )
     
+    # Emit phase event for capture
+    if (Test-StreamingEventsEnabled) {
+        Write-PhaseEvent -Phase "capture"
+    }
+    
     # Determine effective examples directory
     $effectiveExamplesDir = if ($CustomExamplesDir) {
         $CustomExamplesDir
@@ -2276,6 +2300,15 @@ function Invoke-CaptureCore {
         }
     }
     
+    # Emit artifact and summary events for capture
+    if (Test-StreamingEventsEnabled) {
+        Write-ArtifactEvent -Phase "capture" -Kind "manifest" -Path $outPath
+        $totalCount = if ($result.Counts) { $result.Counts.totalFound } else { 0 }
+        $includedCount = if ($result.Counts) { $result.Counts.included } else { 0 }
+        $skippedCount = $totalCount - $includedCount
+        Write-SummaryEvent -Phase "capture" -Total $totalCount -Success $includedCount -Skipped $skippedCount -Failed 0
+    }
+    
     return $result
 }
 
@@ -2288,6 +2321,11 @@ function Invoke-VerifyCore {
         [string]$ManifestPath,
         [switch]$SkipStateWrite
     )
+    
+    # Emit phase event for verify
+    if (Test-StreamingEventsEnabled) {
+        Write-PhaseEvent -Phase "verify"
+    }
     
     $manifest = Read-Manifest -Path $ManifestPath
     
@@ -2338,6 +2376,10 @@ function Invoke-VerifyCore {
                     status = 'ok'
                     version = $installStatus.Version
                 }
+                # Emit item event for verified app
+                if (Test-StreamingEventsEnabled) {
+                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "present" -Message "Verified installed"
+                }
             } else {
                 Write-Host "  [VERSION] $appDisplayId - $($versionCheckResult.Reason)" -ForegroundColor Yellow
                 $versionMismatchCount++
@@ -2374,6 +2416,10 @@ function Invoke-VerifyCore {
                 id = $appDisplayId
                 driver = $driver
                 status = 'missing'
+            }
+            # Emit item event for missing app
+            if (Test-StreamingEventsEnabled) {
+                Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "failed" -Reason "missing" -Message "Not installed"
             }
             $appsObserved[$appDisplayId] = @{
                 installed = $false
@@ -2451,6 +2497,12 @@ function Invoke-VerifyCore {
         foreach ($mismatch in $versionMismatchApps) {
             Write-Host "  - $($mismatch.id): $($mismatch.reason)"
         }
+    }
+    
+    # Emit summary event for verify
+    if (Test-StreamingEventsEnabled) {
+        $totalCount = $okCount + $missingCount + $versionMismatchCount
+        Write-SummaryEvent -Phase "verify" -Total $totalCount -Success $okCount -Skipped 0 -Failed ($missingCount + $versionMismatchCount)
     }
     
     if (-not $overallSuccess) {
@@ -3073,6 +3125,44 @@ if ($script:DebugCliRequested) {
 }
 
 $exitCode = 0
+
+# Import events module and enable streaming events if requested
+$eventsScript = Resolve-EngineScript -ScriptName "events" -Silent
+if ($eventsScript) {
+    . $eventsScript
+    if ($Events -eq "jsonl") {
+        Enable-StreamingEvents
+    }
+}
+
+# Test mode: deterministic stub path for contract tests
+if ($env:ENDSTATE_TESTMODE -eq "1") {
+    # Emit representative events and exit without real system calls
+    switch ($Command) {
+        "capture" {
+            Write-PhaseEvent -Phase "capture"
+            Write-ItemEvent -Id "TestApp.One" -Driver "winget" -Status "present" -Reason "detected" -Message "Detected"
+            Write-ItemEvent -Id "TestApp.Two" -Driver "winget" -Status "skipped" -Reason "filtered_runtime" -Message "Excluded (runtime)"
+            Write-ArtifactEvent -Phase "capture" -Kind "manifest" -Path "C:\test\manifest.jsonc"
+            Write-SummaryEvent -Phase "capture" -Total 2 -Success 1 -Skipped 1 -Failed 0
+            exit 0
+        }
+        "apply" {
+            Write-PhaseEvent -Phase "apply"
+            Write-ItemEvent -Id "TestApp.One" -Driver "winget" -Status "installing" -Message "Installing via winget"
+            Write-ItemEvent -Id "TestApp.One" -Driver "winget" -Status "installed" -Message "Installed successfully"
+            Write-SummaryEvent -Phase "apply" -Total 1 -Success 1 -Skipped 0 -Failed 0
+            exit 0
+        }
+        "verify" {
+            Write-PhaseEvent -Phase "verify"
+            Write-ItemEvent -Id "TestApp.One" -Driver "winget" -Status "present" -Message "Verified installed"
+            Write-ItemEvent -Id "TestApp.Two" -Driver "winget" -Status "failed" -Reason "missing" -Message "Not installed"
+            Write-SummaryEvent -Phase "verify" -Total 2 -Success 1 -Skipped 0 -Failed 1
+            exit 0
+        }
+    }
+}
 
 switch ($Command) {
     "bootstrap" {

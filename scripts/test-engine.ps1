@@ -173,6 +173,7 @@ Write-Host ""
 
 # Determine test paths
 $unitTestDir = Join-Path $script:RepoRoot "tests\unit"
+$contractTestDir = Join-Path $script:RepoRoot "tests\contract"
 $testPaths = @()
 
 if ($Path) {
@@ -183,9 +184,12 @@ if ($Path) {
         $testPaths = @(Join-Path $script:RepoRoot $Path)
     }
 } else {
-    # Default: unit tests
+    # Default: unit tests + contract tests
     if (Test-Path $unitTestDir) {
         $testPaths = @($unitTestDir)
+    }
+    if (Test-Path $contractTestDir) {
+        $testPaths += $contractTestDir
     }
     
     # Include integration tests if requested
