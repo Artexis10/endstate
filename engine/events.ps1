@@ -99,8 +99,9 @@ function Write-StreamingEvent {
     # Convert to JSON (single line, no pretty print)
     $json = $Event | ConvertTo-Json -Compress -Depth 10
     
-    # Write to stderr
-    [Console]::Error.WriteLine($json)
+    # Write to stderr using $Host.UI.WriteErrorLine which is captured by PowerShell's 2> redirection
+    # when running as a child process (pwsh -File or pwsh -Command)
+    $Host.UI.WriteErrorLine($json)
 }
 
 function Write-PhaseEvent {

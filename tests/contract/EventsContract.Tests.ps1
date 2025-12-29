@@ -242,6 +242,39 @@ Describe "NDJSON Events Contract" -Tag "Contract", "Events" {
     }
 }
 
+Describe "Stderr redirection contract" -Tag "Contract", "Events" {
+    
+    Context "Stream separation" {
+        BeforeAll {
+            $script:StreamResult = Invoke-EndstateWithEvents -Command "apply"
+        }
+        
+        It "Stderr should contain NDJSON events" {
+            $script:StreamResult.Stderr | Should -Match '"event":'
+        }
+        
+        It "Stdout should NOT contain NDJSON events" {
+            $script:StreamResult.Stdout | Should -Not -Match '"event":'
+        }
+        
+        It "Stdout should only contain human-readable output (banner)" {
+            # Stdout should contain the banner but no JSON
+            $script:StreamResult.Stdout | Should -Match 'Endstate'
+            $script:StreamResult.Stdout | Should -Not -Match '^\s*\{'
+        }
+        
+        It "Each stderr line should be valid NDJSON (no Write-Error prefix)" {
+            $lines = $script:StreamResult.Stderr.Split("`n") | Where-Object { $_.Trim() -ne "" }
+            foreach ($line in $lines) {
+                # Should not have Write-Error: prefix
+                $line | Should -Not -Match '^Write-Error:'
+                # Should be valid JSON
+                { $line | ConvertFrom-Json } | Should -Not -Throw
+            }
+        }
+    }
+}
+
 Describe "Events disabled by default" -Tag "Contract", "Events" {
     
     It "Should NOT emit events when --events jsonl is not specified" {
