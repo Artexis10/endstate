@@ -753,7 +753,8 @@ function Install-EndstateToPath {
     )
     
     $binDir = Join-Path $env:LOCALAPPDATA "Endstate\bin"
-    $cliEntrypoint = Join-Path $binDir "endstate.ps1"
+    $libDir = Join-Path $binDir "lib"
+    $cliEntrypoint = Join-Path $libDir "endstate.ps1"
     $cmdShim = Join-Path $binDir "endstate.cmd"
     
     Write-Host ""
@@ -768,7 +769,22 @@ function Install-EndstateToPath {
         Write-Host "[OK] Directory exists: $binDir" -ForegroundColor DarkGray
     }
     
-    # Copy endstate.ps1 to bin directory
+    # Create lib directory if it doesn't exist
+    if (-not (Test-Path $libDir)) {
+        Write-Host "[CREATE] Creating directory: $libDir" -ForegroundColor Green
+        New-Item -ItemType Directory -Path $libDir -Force | Out-Null
+    } else {
+        Write-Host "[OK] Directory exists: $libDir" -ForegroundColor DarkGray
+    }
+    
+    # Remove old endstate.ps1 from bin directory if it exists (migration to lib/)
+    $oldCliEntrypoint = Join-Path $binDir "endstate.ps1"
+    if (Test-Path $oldCliEntrypoint) {
+        Write-Host "[MIGRATE] Removing old CLI from bin (now in lib/): $oldCliEntrypoint" -ForegroundColor Yellow
+        Remove-Item -Path $oldCliEntrypoint -Force
+    }
+    
+    # Copy endstate.ps1 to lib directory
     $sourceScript = $PSCommandPath
     if (Test-Path $cliEntrypoint) {
         Write-Host "[UPDATE] Updating CLI entrypoint: $cliEntrypoint" -ForegroundColor Yellow
@@ -794,11 +810,12 @@ function Install-EndstateToPath {
         Write-Host "       Engine scripts will be resolved from repo root instead." -ForegroundColor Yellow
     }
     
-    # Create CMD shim
+    # Create CMD shim (references lib/ subdirectory to avoid PowerShell .ps1 preference)
     $shimContent = @"
 @echo off
 REM Endstate CLI shim - forwards all arguments to PowerShell
-pwsh -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Endstate\bin\endstate.ps1" %*
+REM The .ps1 is in lib/ so PowerShell resolves endstate to this .cmd, not the .ps1
+pwsh -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Endstate\bin\lib\endstate.ps1" %*
 "@
     
     if (Test-Path $cmdShim) {

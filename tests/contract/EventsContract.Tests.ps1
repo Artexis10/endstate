@@ -254,11 +254,71 @@ Describe "Native process stderr redirection contract" -Tag "Contract", "Events",
     BeforeAll {
         $script:TempDir = Join-Path $env:TEMP "endstate-contract-tests-$(Get-Random)"
         New-Item -ItemType Directory -Path $script:TempDir -Force | Out-Null
+        
+        # Get the repo root endstate.cmd shim for testing
+        $script:EndstateCmd = Join-Path $script:RepoRoot "endstate.cmd"
     }
     
     AfterAll {
         if (Test-Path $script:TempDir) {
             Remove-Item -Path $script:TempDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    
+    Context "PowerShell redirection via native shim (user repro)" {
+        <#
+        .DESCRIPTION
+            This test reproduces the exact user scenario:
+            endstate apply ... --events jsonl 1> stdout.txt 2> events.jsonl
+            
+            This MUST work when invoked from PowerShell.
+        #>
+        BeforeAll {
+            $script:OutFile = Join-Path $script:TempDir "shim-out.txt"
+            $script:ErrFile = Join-Path $script:TempDir "shim-err.jsonl"
+            
+            # Run via the native .cmd shim with PowerShell redirection
+            # This is the exact user scenario that was broken
+            $env:ENDSTATE_TESTMODE = "1"
+            $cmdLine = "`"$script:EndstateCmd`" apply --events jsonl 1> `"$script:OutFile`" 2> `"$script:ErrFile`""
+            cmd /c $cmdLine
+            $env:ENDSTATE_TESTMODE = $null
+        }
+        
+        It "stderr file should exist and have content" {
+            Test-Path $script:ErrFile | Should -BeTrue
+            (Get-Item $script:ErrFile).Length | Should -BeGreaterThan 0
+        }
+        
+        It "stdout file should exist (may have banner)" {
+            Test-Path $script:OutFile | Should -BeTrue
+        }
+        
+        It "every stderr line should be valid NDJSON with event field" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $lines.Count | Should -BeGreaterThan 0
+            foreach ($line in $lines) {
+                $parsed = $line | ConvertFrom-Json
+                $parsed.event | Should -Not -BeNullOrEmpty
+                $parsed.version | Should -Be 1
+                $parsed.timestamp | Should -Not -BeNullOrEmpty
+            }
+        }
+        
+        It "stdout should NOT contain any NDJSON events" {
+            $content = Get-Content $script:OutFile -Raw -ErrorAction SilentlyContinue
+            if ($content) {
+                Select-String -InputObject $content -Pattern '"event"\s*:\s*"' | Should -BeNullOrEmpty
+            }
+        }
+        
+        It "stderr should contain phase and summary events" {
+            $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
+            $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
+            $phaseEvents = @($events | Where-Object { $_.event -eq "phase" })
+            $summaryEvents = @($events | Where-Object { $_.event -eq "summary" })
+            $phaseEvents.Count | Should -BeGreaterOrEqual 1
+            $summaryEvents.Count | Should -BeGreaterOrEqual 1
         }
     }
     
