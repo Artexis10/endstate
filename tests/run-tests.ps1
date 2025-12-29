@@ -3,9 +3,10 @@
     Run Pester tests for Provisioning.
 
 .DESCRIPTION
-    Executes unit tests in the provisioning/tests/unit directory.
-    Avoids integration tests that spawn external processes.
-    Requires Pester module (Install-Module Pester -Force -SkipPublisherCheck).
+    DEPRECATED: Use scripts/test-engine.ps1 instead.
+    
+    This script now delegates to the canonical test entrypoint which
+    enforces vendored Pester 5.x for deterministic test execution.
 
 .PARAMETER IncludeIntegration
     Also run integration tests (cli.tests.ps1, capture.tests.ps1).
@@ -18,6 +19,11 @@
 .EXAMPLE
     .\run-tests.ps1 -IncludeIntegration
     Run all tests including integration tests.
+
+.NOTES
+    DEPRECATED: Prefer using scripts/test-engine.ps1 directly:
+        pwsh scripts/test-engine.ps1
+        pwsh scripts/test-engine.ps1 -IncludeIntegration
 #>
 [CmdletBinding()]
 param(
@@ -26,16 +32,58 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$script:RepoRoot = Split-Path -Parent $PSScriptRoot
+$script:MinPesterVersion = [Version]"5.0.0"
+$script:VendorPath = Join-Path $script:RepoRoot "tools\pester"
 
-# Ensure Pester is available
-$pester = Get-Module -ListAvailable -Name Pester | Sort-Object Version -Descending | Select-Object -First 1
+Write-Host ""
+Write-Host "[DEPRECATED] This script is deprecated. Use: pwsh scripts/test-engine.ps1" -ForegroundColor Yellow
+Write-Host ""
 
-if (-not $pester) {
-    Write-Host "[ERROR] Pester module not found." -ForegroundColor Red
-    Write-Host ""
-    Write-Host "Install Pester with:" -ForegroundColor Yellow
-    Write-Host "  Install-Module Pester -Force -SkipPublisherCheck" -ForegroundColor DarkGray
-    Write-Host ""
+# ============================================================================
+# PESTER 5 ENFORCEMENT - FAIL FAST
+# ============================================================================
+
+# Remove any pre-loaded Pester to avoid version conflicts
+$loadedPester = Get-Module -Name Pester
+if ($loadedPester) {
+    Remove-Module -Name Pester -Force -ErrorAction SilentlyContinue
+}
+
+# Locate vendored Pester manifest
+$pesterManifest = Get-ChildItem -Path $script:VendorPath -Filter "Pester.psd1" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+
+if (-not $pesterManifest) {
+    Write-Host "[ERROR] Vendored Pester 5 not found at: $script:VendorPath" -ForegroundColor Red
+    Write-Host "Run: Save-Module -Name Pester -Path tools/pester -RequiredVersion 5.7.1 -Repository PSGallery" -ForegroundColor Yellow
+    exit 1
+}
+
+# Validate version from manifest
+try {
+    $manifestData = Import-PowerShellDataFile -Path $pesterManifest.FullName
+    $vendoredVersion = [Version]$manifestData.ModuleVersion
+} catch {
+    Write-Host "[ERROR] Could not read Pester manifest: $_" -ForegroundColor Red
+    exit 1
+}
+
+if ($vendoredVersion -lt $script:MinPesterVersion) {
+    Write-Host "[ERROR] Pester version < 5 detected ($vendoredVersion). This repo requires Pester 5.x." -ForegroundColor Red
+    exit 1
+}
+
+# Prepend vendor path to PSModulePath
+if ($env:PSModulePath -notlike "*$script:VendorPath*") {
+    $env:PSModulePath = "$script:VendorPath$([IO.Path]::PathSeparator)$env:PSModulePath"
+}
+
+# Import vendored Pester
+Import-Module $pesterManifest.FullName -Force -ErrorAction Stop
+
+$pester = Get-Module -Name Pester
+if (-not $pester -or $pester.Version -lt $script:MinPesterVersion) {
+    Write-Host "[ERROR] Failed to load Pester 5.x" -ForegroundColor Red
     exit 1
 }
 
@@ -43,7 +91,7 @@ Write-Host ""
 Write-Host "Provisioning Tests" -ForegroundColor Cyan
 Write-Host "==================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "Pester version: $($pester.Version)" -ForegroundColor DarkGray
+Write-Host "Pester version: $($pester.Version) (vendored)" -ForegroundColor DarkGray
 
 # Build explicit test paths - unit tests only by default
 $unitTestDir = Join-Path $PSScriptRoot "unit"
@@ -75,29 +123,16 @@ if ($testPaths.Count -eq 0) {
     exit 0
 }
 
-# Import Pester
-Import-Module Pester -Force
+# Pester 5.x configuration (Pester 3.x/4.x fallback removed - not supported)
+$config = New-PesterConfiguration
+$config.Run.Path = $testPaths
+$config.Run.Exit = $false
+$config.Output.Verbosity = "Detailed"
+$config.TestResult.Enabled = $true
+$config.TestResult.OutputPath = Join-Path $PSScriptRoot "test-results.xml"
 
-# Run tests based on Pester version
-if ($pester.Version -ge [Version]"5.0.0") {
-    # Pester 5.x configuration
-    $config = New-PesterConfiguration
-    $config.Run.Path = $testPaths
-    $config.Run.Exit = $false
-    $config.Output.Verbosity = "Detailed"
-    $config.TestResult.Enabled = $true
-    $config.TestResult.OutputPath = Join-Path $PSScriptRoot "test-results.xml"
-    
-    $result = Invoke-Pester -Configuration $config
-    $failedCount = $result.FailedCount
-} else {
-    # Pester 3.x/4.x legacy mode
-    Write-Host "[INFO] Using Pester legacy mode (v$($pester.Version))" -ForegroundColor Yellow
-    Write-Host ""
-    
-    $result = Invoke-Pester -Path $testPaths -PassThru
-    $failedCount = $result.FailedCount
-}
+$result = Invoke-Pester -Configuration $config
+$failedCount = $result.FailedCount
 
 # Summary
 Write-Host ""
