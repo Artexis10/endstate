@@ -651,6 +651,90 @@ function Set-RepoRootPath {
     }
 }
 
+#region Engine Script Resolution
+
+function Get-EngineRoot {
+    <#
+    .SYNOPSIS
+        Get the engine scripts root directory.
+    .DESCRIPTION
+        Resolution priority:
+        1. $PSScriptRoot/engine (if exists - running from repo or installed with engine/)
+        2. Repo root from Get-RepoRootPath + /engine
+        3. $null if not found
+    #>
+    
+    # Priority 1: Check if engine/ exists relative to this script (repo or installed layout)
+    $localEngineRoot = Join-Path $script:EndstateRoot "engine"
+    if (Test-Path $localEngineRoot) {
+        return $localEngineRoot
+    }
+    
+    # Priority 2: Use repo root from configuration
+    $repoRoot = Get-RepoRootPath
+    if ($repoRoot) {
+        $repoEngineRoot = Join-Path $repoRoot "engine"
+        if (Test-Path $repoEngineRoot) {
+            return $repoEngineRoot
+        }
+    }
+    
+    return $null
+}
+
+function Resolve-EngineScript {
+    <#
+    .SYNOPSIS
+        Resolve path to an engine script by name.
+    .DESCRIPTION
+        Returns the full path to the engine script, or $null if not found.
+        Prints helpful error message if script is missing.
+    .PARAMETER ScriptName
+        Name of the script (without .ps1 extension), e.g., "manifest", "apply", "capture"
+    .PARAMETER Silent
+        If true, don't print error messages (for validation checks)
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScriptName,
+        [switch]$Silent
+    )
+    
+    $engineRoot = Get-EngineRoot
+    
+    if (-not $engineRoot) {
+        if (-not $Silent) {
+            Write-Host "[ERROR] Engine scripts not found." -ForegroundColor Red
+            Write-Host "        Checked locations:" -ForegroundColor Yellow
+            Write-Host "          - $script:EndstateRoot\engine\" -ForegroundColor Yellow
+            $repoRoot = Get-RepoRootPath
+            if ($repoRoot) {
+                Write-Host "          - $repoRoot\engine\" -ForegroundColor Yellow
+            }
+            Write-Host "" -ForegroundColor Yellow
+            Write-Host "        To fix, run: endstate bootstrap -RepoRoot <path-to-endstate-repo>" -ForegroundColor Cyan
+            Write-Host "        Or set: `$env:ENDSTATE_ROOT = '<path-to-endstate-repo>'" -ForegroundColor Cyan
+        }
+        return $null
+    }
+    
+    $scriptPath = Join-Path $engineRoot "$ScriptName.ps1"
+    
+    if (-not (Test-Path $scriptPath)) {
+        if (-not $Silent) {
+            Write-Host "[ERROR] Engine script not found: $ScriptName.ps1" -ForegroundColor Red
+            Write-Host "        Expected at: $scriptPath" -ForegroundColor Yellow
+            Write-Host "" -ForegroundColor Yellow
+            Write-Host "        To fix, run: endstate bootstrap -RepoRoot <path-to-endstate-repo>" -ForegroundColor Cyan
+        }
+        return $null
+    }
+    
+    return $scriptPath
+}
+
+#endregion Engine Script Resolution
+
 function Install-EndstateToPath {
     <#
     .SYNOPSIS
@@ -692,6 +776,23 @@ function Install-EndstateToPath {
         Write-Host "[INSTALL] Installing CLI entrypoint: $cliEntrypoint" -ForegroundColor Green
     }
     Copy-Item -Path $sourceScript -Destination $cliEntrypoint -Force
+    
+    # Copy engine folder to bin directory (required for standalone operation)
+    $sourceEngineDir = Join-Path (Split-Path -Parent $sourceScript) "engine"
+    $destEngineDir = Join-Path $binDir "engine"
+    
+    if (Test-Path $sourceEngineDir) {
+        if (Test-Path $destEngineDir) {
+            Write-Host "[UPDATE] Updating engine scripts: $destEngineDir" -ForegroundColor Yellow
+        } else {
+            Write-Host "[INSTALL] Installing engine scripts: $destEngineDir" -ForegroundColor Green
+        }
+        # Copy entire engine directory recursively
+        Copy-Item -Path $sourceEngineDir -Destination $binDir -Recurse -Force
+    } else {
+        Write-Host "[WARN] Engine directory not found at: $sourceEngineDir" -ForegroundColor Yellow
+        Write-Host "       Engine scripts will be resolved from repo root instead." -ForegroundColor Yellow
+    }
     
     # Create CMD shim
     $shimContent = @"
@@ -3072,7 +3173,21 @@ switch ($Command) {
             }
             
             # Validate manifest against profile contract before apply
-            . "$script:EndstateRoot\engine\manifest.ps1"
+            $manifestScript = Resolve-EngineScript -ScriptName "manifest"
+            if (-not $manifestScript) {
+                if ($Json) {
+                    $errorDetail = @{
+                        code = "ENGINE_SCRIPT_NOT_FOUND"
+                        message = "Engine script 'manifest.ps1' not found. Run 'endstate bootstrap' to configure."
+                    }
+                    Write-JsonEnvelope -CommandName "apply" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                }
+                exit 1
+            }
+            if ($script:DebugCliRequested) {
+                Write-Host "[debug-cli] Importing engine script: $manifestScript" -ForegroundColor Magenta
+            }
+            . $manifestScript
             $validationResult = Test-ProfileManifest -Path $resolvedPath
             if (-not $validationResult.Valid) {
                 if ($Json) {
@@ -3173,7 +3288,21 @@ switch ($Command) {
             }
             
             # Validate manifest against profile contract before verify
-            . "$script:EndstateRoot\engine\manifest.ps1"
+            $manifestScript = Resolve-EngineScript -ScriptName "manifest"
+            if (-not $manifestScript) {
+                if ($Json) {
+                    $errorDetail = @{
+                        code = "ENGINE_SCRIPT_NOT_FOUND"
+                        message = "Engine script 'manifest.ps1' not found. Run 'endstate bootstrap' to configure."
+                    }
+                    Write-JsonEnvelope -CommandName "verify" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                }
+                exit 1
+            }
+            if ($script:DebugCliRequested) {
+                Write-Host "[debug-cli] Importing engine script: $manifestScript" -ForegroundColor Magenta
+            }
+            . $manifestScript
             $validationResult = Test-ProfileManifest -Path $resolvedPath
             if (-not $validationResult.Valid) {
                 if ($Json) {
@@ -3350,7 +3479,21 @@ switch ($Command) {
         }
         
         # Import manifest.ps1 to get Test-ProfileManifest
-        . "$script:EndstateRoot\engine\manifest.ps1"
+        $manifestScript = Resolve-EngineScript -ScriptName "manifest"
+        if (-not $manifestScript) {
+            if ($Json) {
+                $errorDetail = @{
+                    code = "ENGINE_SCRIPT_NOT_FOUND"
+                    message = "Engine script 'manifest.ps1' not found. Run 'endstate bootstrap' to configure."
+                }
+                Write-JsonEnvelope -CommandName "validate" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+            }
+            exit 1
+        }
+        if ($script:DebugCliRequested) {
+            Write-Host "[debug-cli] Importing engine script: $manifestScript" -ForegroundColor Magenta
+        }
+        . $manifestScript
         
         $result = Test-ProfileManifest -Path $targetPath
         
