@@ -55,7 +55,6 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0, Mandatory = $false)]
-    [ValidateSet("apply", "capture", "plan", "verify", "report", "doctor", "state", "bootstrap", "capabilities", "validate", "")]
     [string]$Command,
     
     # Internal flag for dot-sourcing to load functions without running main logic
@@ -136,7 +135,16 @@ param(
     [ValidateSet("jsonl", "")]
     [string]$Events,
     
-    # Capture remaining arguments for GNU-style flag processing
+    # Debug flag to print resolved engine command line
+    [Parameter(Mandatory = $false)]
+    [switch]$DebugCli,
+    
+    # Help flag (handled early before command dispatch)
+    [Parameter(Mandatory = $false)]
+    [Alias("h")]
+    [switch]$Help,
+    
+    # Capture remaining arguments for GNU-style flag processing and pass-through
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]]$RemainingArgs
 )
@@ -148,6 +156,13 @@ $script:EndstateRoot = $PSScriptRoot
 # Normalize GNU-style double-dash flags to PowerShell convention
 # This allows commands like: endstate apply --profile Hugo-Laptop --json
 # to work alongside PowerShell-style: endstate apply -Profile Hugo-Laptop -Json
+
+# Track pass-through arguments (unrecognized flags forwarded to engine)
+$script:PassThroughArgs = @()
+
+# Track help request from GNU-style flags (script-scoped to persist)
+$script:HelpRequested = $Help.IsPresent
+$script:DebugCliRequested = $DebugCli.IsPresent
 
 # Process remaining arguments captured by ValueFromRemainingArguments
 if ($RemainingArgs) {
@@ -215,6 +230,9 @@ if ($RemainingArgs) {
             '--events' {
                 if ($i + 1 -lt $RemainingArgs.Count) {
                     $Events = $RemainingArgs[$i + 1]
+                    # Also add to pass-through for engine forwarding
+                    $script:PassThroughArgs += $arg
+                    $script:PassThroughArgs += $RemainingArgs[$i + 1]
                     $i += 2
                 } else {
                     $i++
@@ -225,11 +243,20 @@ if ($RemainingArgs) {
                 $i++
             }
             '--help' {
-                $Command = ""
+                $script:HelpRequested = $true
+                $i++
+            }
+            '-h' {
+                $script:HelpRequested = $true
+                $i++
+            }
+            '--debug-cli' {
+                $script:DebugCliRequested = $true
                 $i++
             }
             default {
-                # Skip unknown args
+                # Collect unrecognized args for pass-through to engine
+                $script:PassThroughArgs += $arg
                 $i++
             }
         }
@@ -240,6 +267,22 @@ if ($RemainingArgs) {
 $commandLine = $MyInvocation.Line
 if ($commandLine -match '\s--json(\s|$)') {
     $Json = $true
+}
+
+# Check $MyInvocation.Line for --help and --debug-cli (fallback for GNU-style flags)
+if ($commandLine -match '\s--help(\s|$)' -or $commandLine -match '\s-h(\s|$)') {
+    $script:HelpRequested = $true
+}
+if ($commandLine -match '\s--debug-cli(\s|$)') {
+    $script:DebugCliRequested = $true
+}
+# Check for --events and capture value for pass-through
+if ($commandLine -match '\s--events\s+(\S+)') {
+    $Events = $Matches[1]
+    if ($script:PassThroughArgs -notcontains '--events') {
+        $script:PassThroughArgs += '--events'
+        $script:PassThroughArgs += $Events
+    }
 }
 
 #endregion GNU-style Flag Normalization
@@ -763,7 +806,8 @@ function Show-Banner {
 function Show-Help {
     Show-Banner
     Write-Host "USAGE:" -ForegroundColor Yellow
-    Write-Host "    .\endstate.ps1 <command> [options]"
+    Write-Host "    endstate <command> [options]"
+    Write-Host "    endstate <command> --help"
     Write-Host ""
     Write-Host "COMMANDS:" -ForegroundColor Yellow
     Write-Host "    bootstrap     Install endstate command to user PATH"
@@ -777,47 +821,102 @@ function Show-Help {
     Write-Host "    state         Manage endstate state (subcommands: reset, export, import)"
     Write-Host "    capabilities  List available commands (use -Json for machine-readable output)"
     Write-Host ""
-    Write-Host "CAPTURE OPTIONS:" -ForegroundColor Yellow
+    Write-Host "GLOBAL OPTIONS:" -ForegroundColor Yellow
+    Write-Host "    --help, -h         Show help (use with command for command-specific help)"
+    Write-Host "    --version, -v      Show version"
+    Write-Host "    --debug-cli        Print the resolved engine command line (diagnostic)"
+    Write-Host ""
+    Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "    endstate --help                    # Show this help"
+    Write-Host "    endstate capture --help            # Show capture command help"
+    Write-Host "    endstate apply --profile myprofile # Apply a profile"
+    Write-Host "    endstate capture --events jsonl    # Capture with JSONL event streaming"
+    Write-Host ""
+    Write-Host "Use 'endstate <command> --help' for more information about a command."
+    Write-Host ""
+}
+
+function Show-CaptureHelp {
+    Show-Banner
+    Write-Host "CAPTURE - Capture current machine state into a manifest" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "USAGE:" -ForegroundColor Yellow
+    Write-Host "    endstate capture [options]"
+    Write-Host ""
+    Write-Host "OPTIONS:" -ForegroundColor Yellow
     Write-Host "    -Out <path>        Output path (overrides all defaults)"
     Write-Host "    -Sanitize          Remove machine-specific fields, secrets, local paths; stable sort"
     Write-Host "    -Name <string>     Manifest name (used for filename when -Sanitize)"
-    Write-Host "    -ExamplesDir <p>   Examples directory (default: provisioning/manifests/examples/)"
+    Write-Host "    -ExamplesDir <p>   Examples directory (default: manifests/examples/)"
     Write-Host "    -Force             Overwrite existing example manifests without prompting"
     Write-Host "    -Example           (Legacy) Generate sanitized example manifest"
+    Write-Host "    --events jsonl     Stream events as NDJSON to stderr"
+    Write-Host "    --debug-cli        Print the resolved engine command line"
     Write-Host ""
-    Write-Host "APPLY OPTIONS:" -ForegroundColor Yellow
+    Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "    endstate capture                                    # Capture to local/<machine>.jsonc"
+    Write-Host "    endstate capture -Out my-manifest.jsonc             # Capture to specific path"
+    Write-Host "    endstate capture -Sanitize -Name example-win-core   # Sanitized to examples/"
+    Write-Host "    endstate capture --events jsonl                     # With event streaming"
+    Write-Host ""
+}
+
+function Show-ApplyHelp {
+    Show-Banner
+    Write-Host "APPLY - Apply manifest to current machine" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "USAGE:" -ForegroundColor Yellow
+    Write-Host "    endstate apply -Manifest <path> [options]"
+    Write-Host "    endstate apply -Profile <name> [options]"
+    Write-Host ""
+    Write-Host "OPTIONS:" -ForegroundColor Yellow
     Write-Host "    -Manifest <path>   Path to manifest file"
     Write-Host "    -Profile <name>    Profile name (resolves to manifests/<name>.jsonc)"
     Write-Host "    -DryRun            Preview changes without applying"
     Write-Host "    -OnlyApps          Install apps only (skip restore/verify)"
     Write-Host "    -EnableRestore     Enable config restoration during apply"
-    Write-Host ""
-    Write-Host "VERIFY OPTIONS:" -ForegroundColor Yellow
-    Write-Host "    -Manifest <path>   Path to manifest file"
-    Write-Host "    -Profile <name>    Profile name (resolves to manifests/<name>.jsonc)"
-    Write-Host ""
-    Write-Host "REPORT OPTIONS:" -ForegroundColor Yellow
-    Write-Host "    -Manifest <path>   Include current drift against manifest"
-    Write-Host "    -Json              Output as JSON (pure JSON to stdout, no wrapper text)"
-    Write-Host "    -Out <path>        Write JSON to file (atomic write)"
-    Write-Host ""
-    Write-Host "STATE SUBCOMMANDS:" -ForegroundColor Yellow
-    Write-Host "    reset              Delete .endstate/state.json (non-destructive)"
-    Write-Host "    export -Out <p>    Export state to file (atomic, valid schema even if empty)"
-    Write-Host "    import -In <p>     Import state from file (default: merge)"
-    Write-Host "      [-Merge]         Merge incoming (newer timestamps win)"
-    Write-Host "      [-Replace]       Replace entirely (backup existing first)"
+    Write-Host "    -Json              Output as JSON envelope"
+    Write-Host "    --events jsonl     Stream events as NDJSON to stderr"
+    Write-Host "    --debug-cli        Print the resolved engine command line"
     Write-Host ""
     Write-Host "EXAMPLES:" -ForegroundColor Yellow
-    Write-Host "    .\endstate.ps1 capture                                    # Capture to local/<machine>.jsonc"
-    Write-Host "    .\endstate.ps1 capture -Out my-manifest.jsonc             # Capture to specific path"
-    Write-Host "    .\endstate.ps1 capture -Sanitize -Name example-win-core   # Sanitized to examples/"
-    Write-Host "    .\endstate.ps1 capture -Example                           # (Legacy) Generate example fixture"
-    Write-Host "    .\endstate.ps1 apply -Manifest manifest.jsonc   # Apply manifest"
-    Write-Host "    .\endstate.ps1 apply -Manifest manifest.jsonc -DryRun"
-    Write-Host "    .\endstate.ps1 verify -Manifest manifest.jsonc  # Verify apps installed"
-    Write-Host "    .\endstate.ps1 report -Latest"
-    Write-Host "    .\endstate.ps1 doctor"
+    Write-Host "    endstate apply -Manifest manifest.jsonc"
+    Write-Host "    endstate apply -Profile hugo-win11 -DryRun"
+    Write-Host "    endstate apply -Profile myprofile --events jsonl"
+    Write-Host ""
+}
+
+function Show-VerifyHelp {
+    Show-Banner
+    Write-Host "VERIFY - Verify current state matches manifest" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "USAGE:" -ForegroundColor Yellow
+    Write-Host "    endstate verify -Manifest <path> [options]"
+    Write-Host "    endstate verify -Profile <name> [options]"
+    Write-Host ""
+    Write-Host "OPTIONS:" -ForegroundColor Yellow
+    Write-Host "    -Manifest <path>   Path to manifest file"
+    Write-Host "    -Profile <name>    Profile name (resolves to manifests/<name>.jsonc)"
+    Write-Host "    -Json              Output as JSON envelope"
+    Write-Host "    --events jsonl     Stream events as NDJSON to stderr"
+    Write-Host "    --debug-cli        Print the resolved engine command line"
+    Write-Host ""
+    Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "    endstate verify -Manifest manifest.jsonc"
+    Write-Host "    endstate verify -Profile hugo-win11"
+    Write-Host ""
+}
+
+function Show-UnknownCommandHelp {
+    param([string]$UnknownCommand)
+    
+    Show-Banner
+    Write-Host "ERROR: Unknown command '$UnknownCommand'" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Available commands:" -ForegroundColor Yellow
+    Write-Host "    bootstrap, capture, apply, verify, plan, validate, report, doctor, state, capabilities"
+    Write-Host ""
+    Write-Host "Use 'endstate --help' for more information."
     Write-Host ""
 }
 
@@ -2822,6 +2921,28 @@ if ($Version.IsPresent) {
     exit 0
 }
 
+# Handle case where --help or -h was passed as the command (positional arg)
+if ($Command -eq '--help' -or $Command -eq '-h') {
+    Show-Help
+    exit 0
+}
+
+# Handle --help / -h flag early, before command dispatch
+# This ensures `endstate capture --help` shows help instead of running capture
+if ($script:HelpRequested) {
+    switch ($Command) {
+        "capture" { Show-CaptureHelp; exit 0 }
+        "apply" { Show-ApplyHelp; exit 0 }
+        "verify" { Show-VerifyHelp; exit 0 }
+        "" { Show-Help; exit 0 }
+        default {
+            # For commands without specific help, show top-level help
+            Show-Help
+            exit 0
+        }
+    }
+}
+
 # Suppress banner for JSON output mode (any command with -Json needs pure JSON to stdout)
 $suppressBanner = $Json.IsPresent
 
@@ -2832,6 +2953,22 @@ if (-not $suppressBanner) {
 if (-not $Command) {
     Show-Help
     exit 0
+}
+
+# Debug CLI output - print resolved command info before execution
+if ($script:DebugCliRequested) {
+    Write-Host "[debug-cli] Command: $Command" -ForegroundColor Magenta
+    Write-Host "[debug-cli] Profile: $Profile" -ForegroundColor Magenta
+    Write-Host "[debug-cli] Manifest: $Manifest" -ForegroundColor Magenta
+    Write-Host "[debug-cli] Events: $Events" -ForegroundColor Magenta
+    Write-Host "[debug-cli] DryRun: $($DryRun.IsPresent)" -ForegroundColor Magenta
+    Write-Host "[debug-cli] Json: $($Json.IsPresent)" -ForegroundColor Magenta
+    if ($script:PassThroughArgs -and $script:PassThroughArgs.Count -gt 0) {
+        Write-Host "[debug-cli] PassThroughArgs: $($script:PassThroughArgs -join ' ')" -ForegroundColor Magenta
+    } else {
+        Write-Host "[debug-cli] PassThroughArgs: (none)" -ForegroundColor Magenta
+    }
+    Write-Host "" -ForegroundColor Magenta
 }
 
 $exitCode = 0
@@ -3294,7 +3431,7 @@ switch ($Command) {
         $exitCode = 0
     }
     default {
-        Show-Help
+        Show-UnknownCommandHelp -UnknownCommand $Command
         exit 1
     }
 }
