@@ -44,7 +44,7 @@ Every event **MUST** include:
 | Field | Type | Description |
 |-------|------|-------------|
 | `version` | integer | Event schema version (always `1` for this contract) |
-| `runId` | string | Run identifier (e.g., `"apply-20250101-120000"`) |
+| `runId` | string | Run identifier (e.g., `"apply-20250101-120000-MACHINE"`) |
 | `timestamp` | string | RFC3339 UTC timestamp (informational; NDJSON line order is authoritative) |
 | `event` | string | Event type: `"phase"`, `"item"`, `"summary"`, `"error"`, `"artifact"` |
 
@@ -57,7 +57,7 @@ Signals transition between engine phases.
 ```json
 {
   "version": 1,
-  "runId": "apply-20250101-120000",
+  "runId": "apply-20250101-120000-MACHINE",
   "timestamp": "2025-01-01T12:00:00.123Z",
   "event": "phase",
   "phase": "apply"
@@ -80,7 +80,7 @@ Tracks progress of individual items (apps, configs, etc.).
 ```json
 {
   "version": 1,
-  "runId": "apply-20250101-120000",
+  "runId": "apply-20250101-120000-MACHINE",
   "timestamp": "2025-01-01T12:00:01.456Z",
   "event": "item",
   "id": "Microsoft.VisualStudioCode",
@@ -126,7 +126,7 @@ Emitted at end of each phase with aggregate counts.
 ```json
 {
   "version": 1,
-  "runId": "apply-20250101-120000",
+  "runId": "apply-20250101-120000-MACHINE",
   "timestamp": "2025-01-01T12:05:00.789Z",
   "event": "summary",
   "phase": "apply",
@@ -158,7 +158,7 @@ Reports errors (item-level or engine-level).
 ```json
 {
   "version": 1,
-  "runId": "apply-20250101-120000",
+  "runId": "apply-20250101-120000-MACHINE",
   "timestamp": "2025-01-01T12:03:00.000Z",
   "event": "error",
   "scope": "item",
@@ -181,7 +181,7 @@ Reports generated artifacts (e.g., captured manifests).
 ```json
 {
   "version": 1,
-  "runId": "capture-20250101-120000",
+  "runId": "capture-20250101-120000-MACHINE",
   "timestamp": "2025-01-01T12:10:00.000Z",
   "event": "artifact",
   "phase": "capture",

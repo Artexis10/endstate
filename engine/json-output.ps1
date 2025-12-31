@@ -45,9 +45,16 @@ function Get-SchemaVersion {
 function Get-RunId {
     <#
     .SYNOPSIS
-        Generates a unique run ID in format yyyyMMdd-HHmmss.
+        Generates a unique run ID in format yyyyMMdd-HHmmss-MACHINE.
     #>
-    return Get-Date -Format "yyyyMMdd-HHmmss"
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $machine = $env:COMPUTERNAME
+    if ($machine) {
+        $machine = $machine.ToUpper() -replace '[^A-Z0-9_-]', '-' -replace ' ', '-'
+    } else {
+        $machine = "UNKNOWN"
+    }
+    return "$timestamp-$machine"
 }
 
 function New-JsonEnvelope {

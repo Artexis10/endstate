@@ -213,9 +213,12 @@ function Invoke-Apply {
     Write-SummaryEvent -Phase "apply" -Total $actionResults.Count -Success $successCount -Skipped $skipCount -Failed $failCount
     Close-ProvisioningLog -SuccessCount $successCount -SkipCount $skipCount -FailCount $failCount
     
-    # Get state file path
+    # Get state file path (absolute)
     $stateDir = Join-Path $PSScriptRoot "..\state"
-    $stateFile = Join-Path $stateDir "$runId.json"
+    $stateFile = (Join-Path $stateDir "$runId.json") | Resolve-Path -ErrorAction SilentlyContinue
+    if (-not $stateFile) {
+        $stateFile = [System.IO.Path]::GetFullPath((Join-Path $stateDir "$runId.json"))
+    }
     
     if ($OutputJson) {
         # Output JSON envelope
@@ -255,6 +258,12 @@ function Invoke-Apply {
         $alreadyInstalledCount = @($items | Where-Object { $_.reason -eq "already_installed" }).Count
         $failedCount = @($items | Where-Object { $_.status -eq "failed" }).Count
         
+        # Convert logFile to absolute path
+        $logFileAbsolute = $logFile
+        if ($logFile -and -not [System.IO.Path]::IsPathRooted($logFile)) {
+            $logFileAbsolute = [System.IO.Path]::GetFullPath($logFile)
+        }
+        
         $data = [ordered]@{
             dryRun = $DryRun.IsPresent
             manifest = [ordered]@{
@@ -290,13 +299,13 @@ function Invoke-Apply {
             })
             runId = $runId
             stateFile = $stateFile
-            logFile = $logFile
+            logFile = $logFileAbsolute
         }
         
         # Add eventsFile if events are enabled
         if ($EventsFormat -eq "jsonl") {
             $logsDir = Join-Path $PSScriptRoot "..\logs"
-            $eventsFile = Join-Path $logsDir "apply-$runId.events.jsonl"
+            $eventsFile = [System.IO.Path]::GetFullPath((Join-Path $logsDir "apply-$runId.events.jsonl"))
             $data['eventsFile'] = $eventsFile
         }
         
@@ -579,9 +588,12 @@ function Invoke-ApplyFromPlan {
     Write-SummaryEvent -Phase "apply" -Total $actionResults.Count -Success $successCount -Skipped $skippedCount -Failed $failCount
     Close-ProvisioningLog -SuccessCount $successCount -SkipCount $skippedCount -FailCount $failCount
     
-    # Get state file path
+    # Get state file path (absolute)
     $stateDir = Join-Path $PSScriptRoot "..\state"
-    $stateFile = Join-Path $stateDir "$runId.json"
+    $stateFile = (Join-Path $stateDir "$runId.json") | Resolve-Path -ErrorAction SilentlyContinue
+    if (-not $stateFile) {
+        $stateFile = [System.IO.Path]::GetFullPath((Join-Path $stateDir "$runId.json"))
+    }
     
     if ($OutputJson) {
         # Output JSON envelope
@@ -616,6 +628,12 @@ function Invoke-ApplyFromPlan {
         $installedCount = @($items | Where-Object { $_.reason -eq "installed" }).Count
         $alreadyInstalledCount = @($items | Where-Object { $_.reason -eq "already_installed" }).Count
         $failedItemCount = @($items | Where-Object { $_.status -eq "failed" }).Count
+        
+        # Convert logFile to absolute path
+        $logFileAbsolute = $logFile
+        if ($logFile -and -not [System.IO.Path]::IsPathRooted($logFile)) {
+            $logFileAbsolute = [System.IO.Path]::GetFullPath($logFile)
+        }
         
         $data = [ordered]@{
             dryRun = $DryRun.IsPresent
@@ -652,8 +670,16 @@ function Invoke-ApplyFromPlan {
                     message = $_.message
                 }
             })
+            runId = $runId
             stateFile = $stateFile
-            logFile = $logFile
+            logFile = $logFileAbsolute
+        }
+        
+        # Add eventsFile if events are enabled
+        if ($EventsFormat -eq "jsonl") {
+            $logsDir = Join-Path $PSScriptRoot "..\logs"
+            $eventsFile = [System.IO.Path]::GetFullPath((Join-Path $logsDir "apply-$runId.events.jsonl"))
+            $data['eventsFile'] = $eventsFile
         }
         
         $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success ($failCount -eq 0) -Data $data

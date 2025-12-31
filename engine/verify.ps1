@@ -160,7 +160,7 @@ function Invoke-Verify {
     if (-not (Test-Path $stateDir)) {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
-    $stateFile = Join-Path $stateDir "verify-$runId.json"
+    $stateFile = [System.IO.Path]::GetFullPath((Join-Path $stateDir "verify-$runId.json"))
     $verifyState | ConvertTo-Json -Depth 10 | Out-File -FilePath $stateFile -Encoding UTF8
     
     if ($OutputJson) {
@@ -168,7 +168,7 @@ function Invoke-Verify {
         . "$PSScriptRoot\json-output.ps1"
         
         $logsDir = Join-Path $PSScriptRoot "..\logs"
-        $logFile = Join-Path $logsDir "verify-$runId.log"
+        $logFile = [System.IO.Path]::GetFullPath((Join-Path $logsDir "verify-$runId.log"))
         
         $data = [ordered]@{
             manifest = [ordered]@{
@@ -200,7 +200,7 @@ function Invoke-Verify {
         
         # Add eventsFile if events are enabled
         if ($EventsFormat -eq "jsonl") {
-            $eventsFile = Join-Path $logsDir "verify-$runId.events.jsonl"
+            $eventsFile = [System.IO.Path]::GetFullPath((Join-Path $logsDir "verify-$runId.events.jsonl"))
             $data['eventsFile'] = $eventsFile
         }
         

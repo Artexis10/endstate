@@ -145,7 +145,14 @@ Summary: $SuccessCount succeeded, $SkipCount skipped, $FailCount failed
 }
 
 function Get-RunId {
-    return Get-Date -Format "yyyyMMdd-HHmmss"
+    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+    $machine = $env:COMPUTERNAME
+    if ($machine) {
+        $machine = $machine.ToUpper() -replace '[^A-Z0-9_-]', '-' -replace ' ', '-'
+    } else {
+        $machine = "UNKNOWN"
+    }
+    return "$timestamp-$machine"
 }
 
 # Functions exported: Initialize-ProvisioningLog, Write-ProvisioningLog, Write-ProvisioningSection, Close-ProvisioningLog, Get-RunId
