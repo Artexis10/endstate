@@ -39,13 +39,30 @@
 # Module state
 $script:EventsEnabled = $false
 $script:EventsVersion = 1
+$script:EventsFile = $null
 
 function Enable-StreamingEvents {
     <#
     .SYNOPSIS
-        Enable NDJSON streaming events to stderr.
+        Enable NDJSON streaming events to stderr and disk.
+    .PARAMETER RunId
+        Run ID for events file naming (logs/<runId>.events.jsonl)
     #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$RunId = $null
+    )
+    
     $script:EventsEnabled = $true
+    
+    # Set up events file if RunId provided
+    if ($RunId) {
+        $logsDir = Join-Path $PSScriptRoot "..\logs"
+        if (-not (Test-Path $logsDir)) {
+            New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+        }
+        $script:EventsFile = Join-Path $logsDir "$RunId.events.jsonl"
+    }
 }
 
 function Disable-StreamingEvents {
@@ -101,6 +118,16 @@ function Write-StreamingEvent {
     
     # Write to real process stderr - this is the ONLY acceptable output path for NDJSON events
     [Console]::Error.WriteLine($json)
+    
+    # Also append to disk if EventsFile is set
+    if ($script:EventsFile) {
+        try {
+            $json | Out-File -FilePath $script:EventsFile -Append -Encoding UTF8 -ErrorAction Stop
+        } catch {
+            # Silently ignore file write errors to avoid disrupting event stream
+        }
+    }
+    
     return
 }
 

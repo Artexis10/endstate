@@ -215,11 +215,18 @@ endstate apply --manifest ./manifest.jsonc --dry-run --json
         "message": "Already installed"
       }
     ],
+    "runId": "20241220-143052",
     "stateFile": "C:\\endstate\\state\\20241220-143052.json",
-    "logFile": "C:\\endstate\\logs\\apply-20241220-143052.log"
+    "logFile": "C:\\endstate\\logs\\apply-20241220-143052.log",
+    "eventsFile": "C:\\endstate\\logs\\apply-20241220-143052.events.jsonl"
   },
   "error": null
 }
+```
+
+**Note:** `eventsFile` is only included when `--events jsonl` is enabled. The engine persists events to `logs/<runId>.events.jsonl` in addition to streaming to stderr.
+
+```json
 ```
 
 ---
@@ -267,10 +274,18 @@ endstate verify --manifest ./manifest.jsonc --json
         "message": "File not found"
       }
     ],
-    "stateFile": "C:\\endstate\\state\\verify-20241220-143052.json"
+    "runId": "20241220-143052",
+    "stateFile": "C:\\endstate\\state\\verify-20241220-143052.json",
+    "logFile": "C:\\endstate\\logs\\verify-20241220-143052.log",
+    "eventsFile": "C:\\endstate\\logs\\verify-20241220-143052.events.jsonl"
   },
   "error": null
 }
+```
+
+**Note:** `eventsFile` is only included when `--events jsonl` is enabled.
+
+```json
 ```
 
 ---

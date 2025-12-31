@@ -33,12 +33,12 @@ function Invoke-Verify {
         [string]$EventsFormat = ""
     )
     
+    $runId = Get-RunId
+    
     # Enable streaming events if requested
     if ($EventsFormat -eq "jsonl") {
-        Enable-StreamingEvents
+        Enable-StreamingEvents -RunId "verify-$runId"
     }
-    
-    $runId = Get-RunId
     Initialize-ProvisioningLog -RunId "verify-$runId" | Out-Null
     
     Write-ProvisioningSection "Provisioning Verify"
@@ -167,6 +167,9 @@ function Invoke-Verify {
         # Output JSON envelope
         . "$PSScriptRoot\json-output.ps1"
         
+        $logsDir = Join-Path $PSScriptRoot "..\logs"
+        $logFile = Join-Path $logsDir "verify-$runId.log"
+        
         $data = [ordered]@{
             manifest = [ordered]@{
                 path = $ManifestPath
@@ -190,7 +193,15 @@ function Invoke-Verify {
                 if ($_.message) { $item.message = $_.message }
                 $item
             })
+            runId = $runId
             stateFile = $stateFile
+            logFile = $logFile
+        }
+        
+        # Add eventsFile if events are enabled
+        if ($EventsFormat -eq "jsonl") {
+            $eventsFile = Join-Path $logsDir "verify-$runId.events.jsonl"
+            $data['eventsFile'] = $eventsFile
         }
         
         # Create error object if there are failures

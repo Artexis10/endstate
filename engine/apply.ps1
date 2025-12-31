@@ -38,12 +38,12 @@ function Invoke-Apply {
         [string]$EventsFormat = ""
     )
     
+    $runId = Get-RunId
+    
     # Enable streaming events if requested
     if ($EventsFormat -eq "jsonl") {
-        Enable-StreamingEvents
+        Enable-StreamingEvents -RunId "apply-$runId"
     }
-    
-    $runId = Get-RunId
     $logFile = Initialize-ProvisioningLog -RunId "apply-$runId"
     
     $modeText = if ($DryRun) { "DRY-RUN" } else { "APPLY" }
@@ -288,8 +288,16 @@ function Invoke-Apply {
                     message = $_.message
                 }
             })
+            runId = $runId
             stateFile = $stateFile
             logFile = $logFile
+        }
+        
+        # Add eventsFile if events are enabled
+        if ($EventsFormat -eq "jsonl") {
+            $logsDir = Join-Path $PSScriptRoot "..\logs"
+            $eventsFile = Join-Path $logsDir "apply-$runId.events.jsonl"
+            $data['eventsFile'] = $eventsFile
         }
         
         $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success ($failCount -eq 0) -Data $data
@@ -361,11 +369,6 @@ function Invoke-ApplyFromPlan {
         [string]$EventsFormat = ""
     )
     
-    # Enable streaming events if requested
-    if ($EventsFormat -eq "jsonl") {
-        Enable-StreamingEvents
-    }
-    
     # Validate plan file exists
     if (-not (Test-Path $PlanPath)) {
         Write-Host "[ERROR] Plan file not found: $PlanPath" -ForegroundColor Red
@@ -392,6 +395,12 @@ function Invoke-ApplyFromPlan {
     }
     
     $runId = Get-RunId
+    
+    # Enable streaming events if requested
+    if ($EventsFormat -eq "jsonl") {
+        Enable-StreamingEvents -RunId "apply-from-plan-$runId"
+    }
+    
     $logFile = Initialize-ProvisioningLog -RunId "apply-from-plan-$runId"
     
     $modeText = if ($DryRun) { "DRY-RUN (from plan)" } else { "APPLY (from plan)" }

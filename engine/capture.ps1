@@ -142,11 +142,6 @@ function Invoke-Capture {
         [string]$EventsFormat = ""
     )
     
-    # Enable streaming events if requested
-    if ($EventsFormat -eq "jsonl") {
-        Enable-StreamingEvents
-    }
-    
     # Default DiscoverWriteManualInclude to true when Discover is enabled
     if ($Discover -and $null -eq $DiscoverWriteManualInclude) {
         $DiscoverWriteManualInclude = $true
@@ -185,6 +180,12 @@ function Invoke-Capture {
     }
     
     $runId = Get-RunId
+    
+    # Enable streaming events if requested
+    if ($EventsFormat -eq "jsonl") {
+        Enable-StreamingEvents -RunId "capture-$runId"
+    }
+    
     $logFile = Initialize-ProvisioningLog -RunId "capture-$runId"
     
     Write-ProvisioningSection "Provisioning Capture"
