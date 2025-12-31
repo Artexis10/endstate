@@ -88,11 +88,12 @@ Describe "NDJSON Events Contract" -Tag "Contract", "Events" {
             $script:CaptureEvents.Count | Should -BeGreaterThan 0
         }
         
-        It "Should emit events with required fields: version, event, timestamp" {
+        It "Should emit events with required fields: version, runId, timestamp, event" {
             foreach ($event in $script:CaptureEvents) {
                 $event.version | Should -Be 1
-                $event.event | Should -Not -BeNullOrEmpty
+                $event.runId | Should -Not -BeNullOrEmpty
                 $event.timestamp | Should -Not -BeNullOrEmpty
+                $event.event | Should -Not -BeNullOrEmpty
             }
         }
         
@@ -143,11 +144,12 @@ Describe "NDJSON Events Contract" -Tag "Contract", "Events" {
             $script:ApplyEvents.Count | Should -BeGreaterThan 0
         }
         
-        It "Should emit events with required fields: version, event, timestamp" {
+        It "Should emit events with required fields: version, runId, timestamp, event" {
             foreach ($event in $script:ApplyEvents) {
                 $event.version | Should -Be 1
-                $event.event | Should -Not -BeNullOrEmpty
+                $event.runId | Should -Not -BeNullOrEmpty
                 $event.timestamp | Should -Not -BeNullOrEmpty
+                $event.event | Should -Not -BeNullOrEmpty
             }
         }
         
@@ -211,11 +213,12 @@ Describe "NDJSON Events Contract" -Tag "Contract", "Events" {
             $script:VerifyEvents.Count | Should -BeGreaterThan 0
         }
         
-        It "Should emit events with required fields: version, event, timestamp" {
+        It "Should emit events with required fields: version, runId, timestamp, event" {
             foreach ($event in $script:VerifyEvents) {
                 $event.version | Should -Be 1
-                $event.event | Should -Not -BeNullOrEmpty
+                $event.runId | Should -Not -BeNullOrEmpty
                 $event.timestamp | Should -Not -BeNullOrEmpty
+                $event.event | Should -Not -BeNullOrEmpty
             }
         }
         
@@ -349,9 +352,10 @@ Describe "Native process stderr redirection contract" -Tag "Contract", "Events",
             $lines.Count | Should -BeGreaterThan 0
             foreach ($line in $lines) {
                 $parsed = $line | ConvertFrom-Json
-                $parsed.event | Should -Not -BeNullOrEmpty
                 $parsed.version | Should -Be 1
+                $parsed.runId | Should -Not -BeNullOrEmpty
                 $parsed.timestamp | Should -Not -BeNullOrEmpty
+                $parsed.event | Should -Not -BeNullOrEmpty
             }
         }
         
@@ -779,13 +783,14 @@ Describe "Real-mode event stream contract (smoke, minimal side effects)" -Tag "C
             $itemEvents.Count | Should -BeGreaterOrEqual 1
         }
         
-        It "all events should have required base fields: version, event, timestamp" {
+        It "all events should have required base fields: version, runId, timestamp, event" {
             $lines = Get-Content $script:ErrFile | Where-Object { $_.Trim() -ne "" }
             foreach ($line in $lines) {
                 $event = $line | ConvertFrom-Json
                 $event.version | Should -Be 1
-                $event.event | Should -Not -BeNullOrEmpty
+                $event.runId | Should -Not -BeNullOrEmpty
                 $event.timestamp | Should -Not -BeNullOrEmpty
+                $event.event | Should -Not -BeNullOrEmpty
             }
         }
         

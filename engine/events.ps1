@@ -11,35 +11,37 @@
     stdout JSON envelope.
     
     Event Schema v1:
-    - version: 1 (always)
+    - version: 1 (always, integer)
+    - runId: string (e.g., "apply-20250101-120000")
+    - timestamp: RFC3339 UTC string
     - event: "phase" | "item" | "summary" | "artifact" | "error"
-    - timestamp: RFC3339 UTC
     
     Phase Event:
-    { "version": 1, "event": "phase", "phase": "plan" | "apply" | "verify" | "capture", "timestamp": "..." }
+    { "version": 1, "runId": "apply-...", "timestamp": "...", "event": "phase", "phase": "plan" | "apply" | "verify" | "capture" }
     
     Item Event:
-    { "version": 1, "event": "item", "id": "App.Id", "driver": "winget", 
+    { "version": 1, "runId": "apply-...", "timestamp": "...", "event": "item", "id": "App.Id", "driver": "winget", 
       "status": "to_install" | "installing" | "installed" | "present" | "skipped" | "failed",
       "reason": "already_installed" | "filtered" | "filtered_runtime" | "filtered_store" | "sensitive_excluded" | "detected" | "install_failed" | null,
-      "message": "optional human message", "timestamp": "..." }
+      "message": "optional human message" }
     
     Summary Event:
-    { "version": 1, "event": "summary", "phase": "plan" | "apply" | "verify" | "capture",
-      "total": N, "success": N, "skipped": N, "failed": N, "timestamp": "..." }
+    { "version": 1, "runId": "apply-...", "timestamp": "...", "event": "summary", "phase": "plan" | "apply" | "verify" | "capture",
+      "total": N, "success": N, "skipped": N, "failed": N }
     
     Artifact Event:
-    { "version": 1, "event": "artifact", "phase": "capture", "kind": "manifest",
-      "path": "C:\\...jsonc", "timestamp": "..." }
+    { "version": 1, "runId": "capture-...", "timestamp": "...", "event": "artifact", "phase": "capture", "kind": "manifest",
+      "path": "C:\\...jsonc" }
     
     Error Event:
-    { "version": 1, "event": "error", "scope": "item" | "engine", "message": "text", "timestamp": "..." }
+    { "version": 1, "runId": "apply-...", "timestamp": "...", "event": "error", "scope": "item" | "engine", "message": "text" }
 #>
 
 # Module state
 $script:EventsEnabled = $false
 $script:EventsVersion = 1
 $script:EventsFile = $null
+$script:EventsRunId = $null
 
 function Enable-StreamingEvents {
     <#
@@ -54,6 +56,7 @@ function Enable-StreamingEvents {
     )
     
     $script:EventsEnabled = $true
+    $script:EventsRunId = $RunId
     
     # Set up events file if RunId provided
     if ($RunId) {
@@ -105,12 +108,15 @@ function Write-StreamingEvent {
         return
     }
     
-    # Add version and timestamp if not present
+    # Add required fields if not present
     if (-not $Event.ContainsKey('version')) {
         $Event['version'] = $script:EventsVersion
     }
     if (-not $Event.ContainsKey('timestamp')) {
         $Event['timestamp'] = Get-Rfc3339Timestamp
+    }
+    if (-not $Event.ContainsKey('runId') -and $script:EventsRunId) {
+        $Event['runId'] = $script:EventsRunId
     }
     
     # Convert to JSON (single line, no pretty print)
