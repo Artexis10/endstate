@@ -130,8 +130,9 @@ Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
 | `plan` | Generate execution plan from manifest without applying |
 | `apply` | Execute the plan (with optional `-DryRun`) |
 | `restore` | Restore configuration files from manifest (requires `-EnableRestore`) |
-| `capture-config` | Capture config files from system to bundle (inverse of restore) |
-| `validate-bundle` | Validate bundle integrity before restore |
+| `export-config` | Export config files from system to export folder (inverse of restore) |
+| `validate-export` | Validate export integrity before restore |
+| `revert` | Revert last restore operation by restoring backups |
 | `verify` | Check current state against manifest without modifying |
 | `doctor` | Diagnose environment issues (missing drivers, permissions, etc.) |
 | `report` | Show history of previous runs and their outcomes |

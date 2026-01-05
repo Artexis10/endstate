@@ -3,14 +3,14 @@
 
 <#
 .SYNOPSIS
-    Bundle capture engine - captures configuration files from restore manifest entries.
+    Export capture engine - captures configuration files from restore manifest entries.
 
 .DESCRIPTION
     Implements the inverse of restore: reads restore[] entries from manifest,
-    resolves targets on current system, and copies them to bundle source paths.
+    resolves targets on current system, and copies them to export source paths.
     
-    Bundle Convention:
-    - Bundle is a folder, default: <manifestDir>/bundle/
+    Export Convention:
+    - Export is a folder, default: <manifestDir>/export/
     - Contains manifest.snapshot.jsonc (copied at capture time)
     - Contains referenced config files under relative paths
     
@@ -27,56 +27,56 @@
 . "$PSScriptRoot\restore.ps1"
 . "$PSScriptRoot\events.ps1"
 
-function Get-BundlePath {
+function Get-ExportPath {
     <#
     .SYNOPSIS
-        Resolve bundle path from manifest directory or explicit path.
+        Resolve export path from manifest directory or explicit path.
     #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$ManifestPath,
         
         [Parameter(Mandatory = $false)]
-        [string]$BundlePath = $null
+        [string]$ExportPath = $null
     )
     
-    if ($BundlePath) {
-        return [System.IO.Path]::GetFullPath($BundlePath)
+    if ($ExportPath) {
+        return [System.IO.Path]::GetFullPath($ExportPath)
     }
     
     $manifestDir = Split-Path -Parent (Resolve-Path $ManifestPath)
-    return Join-Path $manifestDir "bundle"
+    return Join-Path $manifestDir "export"
 }
 
-function Invoke-BundleCapture {
+function Invoke-ExportCapture {
     <#
     .SYNOPSIS
-        Capture configuration files from system to bundle.
+        Capture configuration files from system to export.
     .DESCRIPTION
         Reads restore[] entries from manifest, resolves targets on current system,
-        and copies them to bundle source paths.
+        and copies them to export source paths.
     #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$ManifestPath,
         
         [Parameter(Mandatory = $false)]
-        [string]$BundlePath = $null,
+        [string]$ExportPath = $null,
         
         [Parameter(Mandatory = $false)]
         [string]$EventsFormat = ""
     )
     
     $runId = Get-RunId
-    $logFile = Initialize-ProvisioningLog -RunId "capture-$runId"
+    $logFile = Initialize-ProvisioningLog -RunId "export-$runId"
     
-    Write-ProvisioningSection "Bundle Capture"
+    Write-ProvisioningSection "Export Configuration"
     Write-ProvisioningLog "Manifest: $ManifestPath" -Level INFO
     Write-ProvisioningLog "Run ID: $runId" -Level INFO
     
     # Emit phase event
     if ($EventsFormat -eq "jsonl") {
-        Emit-PhaseEvent -Phase "capture" -Status "started" -Message "Starting bundle capture"
+        Emit-PhaseEvent -Phase "export" -Status "started" -Message "Starting configuration export"
     }
     
     # Load manifest
@@ -85,7 +85,7 @@ function Invoke-BundleCapture {
         Write-Host "[ERROR] Manifest not found: $ManifestPath" -ForegroundColor Red
         
         if ($EventsFormat -eq "jsonl") {
-            Emit-PhaseEvent -Phase "capture" -Status "failed" -Message "Manifest not found"
+            Emit-PhaseEvent -Phase "export" -Status "failed" -Message "Manifest not found"
         }
         
         return @{
@@ -98,9 +98,9 @@ function Invoke-BundleCapture {
     $manifest = Read-Manifest -Path $ManifestPath
     $manifestDir = Split-Path -Parent (Resolve-Path $ManifestPath)
     
-    # Resolve bundle path
-    $resolvedBundlePath = Get-BundlePath -ManifestPath $ManifestPath -BundlePath $BundlePath
-    Write-ProvisioningLog "Bundle path: $resolvedBundlePath" -Level INFO
+    # Resolve export path
+    $resolvedExportPath = Get-ExportPath -ManifestPath $ManifestPath -ExportPath $ExportPath
+    Write-ProvisioningLog "Export path: $resolvedExportPath" -Level INFO
     
     # Check restore entries
     $restoreItems = @($manifest.restore)
@@ -109,10 +109,10 @@ function Invoke-BundleCapture {
         Write-ProvisioningLog "No restore entries in manifest" -Level WARN
         Write-Host ""
         Write-Host "No restore entries found in manifest." -ForegroundColor Yellow
-        Write-Host "Add restore entries to capture configuration files." -ForegroundColor DarkGray
+        Write-Host "Add restore entries to export configuration files." -ForegroundColor DarkGray
         
         if ($EventsFormat -eq "jsonl") {
-            Emit-PhaseEvent -Phase "capture" -Status "completed" -Message "No restore entries to capture"
+            Emit-PhaseEvent -Phase "export" -Status "completed" -Message "No restore entries to export"
         }
         
         return @{
@@ -128,10 +128,10 @@ function Invoke-BundleCapture {
     
     Write-ProvisioningLog "Found $($restoreItems.Count) restore entries" -Level INFO
     
-    # Create bundle directory
-    if (-not (Test-Path $resolvedBundlePath)) {
-        New-Item -ItemType Directory -Path $resolvedBundlePath -Force | Out-Null
-        Write-ProvisioningLog "Created bundle directory: $resolvedBundlePath" -Level INFO
+    # Create export directory
+    if (-not (Test-Path $resolvedExportPath)) {
+        New-Item -ItemType Directory -Path $resolvedExportPath -Force | Out-Null
+        Write-ProvisioningLog "Created export directory: $resolvedExportPath" -Level INFO
     }
     
     # Process restore items (capture inverse)
@@ -150,16 +150,16 @@ function Invoke-BundleCapture {
         $expandedTarget = Expand-RestorePath -Path $item.target
         $expandedSource = Expand-RestorePath -Path $item.source -BasePath $manifestDir
         
-        # For capture, we reverse: target (system) -> source (bundle)
+        # For export, we reverse: target (system) -> source (export)
         $captureSource = $expandedTarget
         $captureDestRel = $item.source
-        $captureDest = Join-Path $resolvedBundlePath $captureDestRel
+        $captureDest = Join-Path $resolvedExportPath $captureDestRel
         
         $result = @{
             id = $itemId
-            type = "capture"
+            type = "export"
             systemPath = $captureSource
-            bundlePath = $captureDestRel
+            exportPath = $captureDestRel
             status = "pending"
             reason = $null
             warnings = @()
@@ -182,7 +182,7 @@ function Invoke-BundleCapture {
             $skipCount++
             
             if ($EventsFormat -eq "jsonl") {
-                Emit-ItemEvent -Phase "capture" -ItemId $itemId -Status "skipped" -Message $result.reason
+                Emit-ItemEvent -Phase "export" -ItemId $itemId -Status "skipped" -Message $result.reason
             }
             
             $results += $result
@@ -195,7 +195,7 @@ function Invoke-BundleCapture {
             $warnCount++
         }
         
-        # Perform capture (copy system -> bundle)
+        # Perform export (copy system -> export)
         try {
             $destDir = Split-Path -Parent $captureDest
             if ($destDir -and -not (Test-Path $destDir)) {
@@ -213,13 +213,13 @@ function Invoke-BundleCapture {
                 Copy-Item -Path $captureSource -Destination $captureDest -Force
             }
             
-            $result.status = "captured"
-            $result.reason = "captured successfully"
-            Write-ProvisioningLog "CAPTURED: $itemId" -Level SUCCESS
+            $result.status = "exported"
+            $result.reason = "exported successfully"
+            Write-ProvisioningLog "EXPORTED: $itemId" -Level SUCCESS
             $captureCount++
             
             if ($EventsFormat -eq "jsonl") {
-                Emit-ItemEvent -Phase "capture" -ItemId $itemId -Status "success" -Message "Captured to bundle"
+                Emit-ItemEvent -Phase "export" -ItemId $itemId -Status "success" -Message "Exported to export folder"
             }
             
         } catch {
@@ -229,18 +229,18 @@ function Invoke-BundleCapture {
             $failCount++
             
             if ($EventsFormat -eq "jsonl") {
-                Emit-ItemEvent -Phase "capture" -ItemId $itemId -Status "failed" -Message $result.reason
+                Emit-ItemEvent -Phase "export" -ItemId $itemId -Status "failed" -Message $result.reason
             }
         }
         
         $results += $result
     }
     
-    # Copy manifest snapshot to bundle
+    # Copy manifest snapshot to export
     try {
-        $snapshotPath = Join-Path $resolvedBundlePath "manifest.snapshot.jsonc"
+        $snapshotPath = Join-Path $resolvedExportPath "manifest.snapshot.jsonc"
         Copy-Item -Path $ManifestPath -Destination $snapshotPath -Force
-        Write-ProvisioningLog "Copied manifest snapshot to bundle" -Level INFO
+        Write-ProvisioningLog "Copied manifest snapshot to export" -Level INFO
     } catch {
         Write-ProvisioningLog "WARNING: Failed to copy manifest snapshot: $($_.Exception.Message)" -Level WARN
     }
@@ -251,14 +251,14 @@ function Invoke-BundleCapture {
     $runState = @{
         runId = $runId
         timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
-        command = "capture"
+        command = "export"
         manifest = @{
             path = $ManifestPath
             name = $manifest.name
             hash = $manifestHash
         }
-        bundle = @{
-            path = $resolvedBundlePath
+        export = @{
+            path = $resolvedExportPath
         }
         summary = @{
             captured = $captureCount
@@ -273,43 +273,43 @@ function Invoke-BundleCapture {
     if (-not (Test-Path $stateDir)) {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
-    $stateFile = Join-Path $stateDir "capture-$runId.json"
+    $stateFile = Join-Path $stateDir "export-$runId.json"
     $runState | ConvertTo-Json -Depth 10 | Out-File -FilePath $stateFile -Encoding UTF8
     
     # Summary
-    Write-ProvisioningSection "Capture Results"
+    Write-ProvisioningSection "Export Results"
     Close-ProvisioningLog -SuccessCount $captureCount -SkipCount $skipCount -FailCount $failCount
     
     Write-Host ""
     if ($failCount -eq 0) {
-        Write-Host "Capture complete!" -ForegroundColor Green
-        Write-Host "  Captured: $captureCount" -ForegroundColor Green
+        Write-Host "Export complete!" -ForegroundColor Green
+        Write-Host "  Exported: $captureCount" -ForegroundColor Green
         Write-Host "  Skipped: $skipCount" -ForegroundColor Yellow
         if ($warnCount -gt 0) {
             Write-Host "  Warnings: $warnCount (sensitive paths)" -ForegroundColor Yellow
         }
     } else {
-        Write-Host "Capture completed with $failCount failure(s)." -ForegroundColor Yellow
+        Write-Host "Export completed with $failCount failure(s)." -ForegroundColor Yellow
     }
     Write-Host ""
-    Write-Host "Bundle location: $resolvedBundlePath" -ForegroundColor Cyan
+    Write-Host "Export location: $resolvedExportPath" -ForegroundColor Cyan
     Write-Host ""
     
     if ($EventsFormat -eq "jsonl") {
-        Emit-PhaseEvent -Phase "capture" -Status "completed" -Message "Bundle capture completed"
+        Emit-PhaseEvent -Phase "export" -Status "completed" -Message "Configuration export completed"
     }
     
     return @{
         RunId = $runId
         Success = ($failCount -eq 0)
-        CaptureCount = $captureCount
+        ExportCount = $captureCount
         SkipCount = $skipCount
         FailCount = $failCount
         WarnCount = $warnCount
         Results = $results
-        BundlePath = $resolvedBundlePath
+        ExportPath = $resolvedExportPath
         LogFile = $logFile
     }
 }
 
-# Functions exported: Invoke-BundleCapture, Get-BundlePath
+# Functions exported: Invoke-ExportCapture, Get-ExportPath

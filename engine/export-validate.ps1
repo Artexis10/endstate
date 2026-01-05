@@ -3,11 +3,11 @@
 
 <#
 .SYNOPSIS
-    Bundle validation engine - validates bundle integrity before restore.
+    Export validation engine - validates export integrity before restore.
 
 .DESCRIPTION
-    Validates that a bundle is complete and ready for restore:
-    - All restore[].source paths exist in bundle
+    Validates that an export is complete and ready for restore:
+    - All restore[].source paths exist in export
     - Targets are writable (or require elevation)
     - Snapshot manifest exists (warn if missing)
     - Snapshot mismatch with active manifest (warn)
@@ -21,6 +21,7 @@
 . "$PSScriptRoot\state.ps1"
 . "$PSScriptRoot\restore.ps1"
 . "$PSScriptRoot\events.ps1"
+. "$PSScriptRoot\export-capture.ps1"
 
 function Test-PathWritable {
     <#
@@ -74,32 +75,32 @@ function Test-PathWritable {
     }
 }
 
-function Invoke-BundleValidate {
+function Invoke-ExportValidate {
     <#
     .SYNOPSIS
-        Validate bundle integrity and readiness for restore.
+        Validate export integrity and readiness for restore.
     #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$ManifestPath,
         
         [Parameter(Mandatory = $false)]
-        [string]$BundlePath = $null,
+        [string]$ExportPath = $null,
         
         [Parameter(Mandatory = $false)]
         [string]$EventsFormat = ""
     )
     
     $runId = Get-RunId
-    $logFile = Initialize-ProvisioningLog -RunId "validate-$runId"
+    $logFile = Initialize-ProvisioningLog -RunId "validate-export-$runId"
     
-    Write-ProvisioningSection "Bundle Validation"
+    Write-ProvisioningSection "Export Validation"
     Write-ProvisioningLog "Manifest: $ManifestPath" -Level INFO
     Write-ProvisioningLog "Run ID: $runId" -Level INFO
     
     # Emit phase event
     if ($EventsFormat -eq "jsonl") {
-        Emit-PhaseEvent -Phase "validate-bundle" -Status "started" -Message "Starting bundle validation"
+        Emit-PhaseEvent -Phase "validate-export" -Status "started" -Message "Starting export validation"
     }
     
     # Load manifest
@@ -108,7 +109,7 @@ function Invoke-BundleValidate {
         Write-Host "[ERROR] Manifest not found: $ManifestPath" -ForegroundColor Red
         
         if ($EventsFormat -eq "jsonl") {
-            Emit-PhaseEvent -Phase "validate-bundle" -Status "failed" -Message "Manifest not found"
+            Emit-PhaseEvent -Phase "validate-export" -Status "failed" -Message "Manifest not found"
         }
         
         return @{
@@ -121,24 +122,23 @@ function Invoke-BundleValidate {
     $manifest = Read-Manifest -Path $ManifestPath
     $manifestDir = Split-Path -Parent (Resolve-Path $ManifestPath)
     
-    # Resolve bundle path
-    . "$PSScriptRoot\bundle-capture.ps1"
-    $resolvedBundlePath = Get-BundlePath -ManifestPath $ManifestPath -BundlePath $BundlePath
-    Write-ProvisioningLog "Bundle path: $resolvedBundlePath" -Level INFO
+    # Resolve export path
+    $resolvedExportPath = Get-ExportPath -ManifestPath $ManifestPath -ExportPath $ExportPath
+    Write-ProvisioningLog "Export path: $resolvedExportPath" -Level INFO
     
-    # Check bundle exists
-    if (-not (Test-Path $resolvedBundlePath)) {
-        Write-ProvisioningLog "Bundle directory not found: $resolvedBundlePath" -Level ERROR
-        Write-Host "[ERROR] Bundle directory not found: $resolvedBundlePath" -ForegroundColor Red
+    # Check export exists
+    if (-not (Test-Path $resolvedExportPath)) {
+        Write-ProvisioningLog "Export directory not found: $resolvedExportPath" -Level ERROR
+        Write-Host "[ERROR] Export directory not found: $resolvedExportPath" -ForegroundColor Red
         
         if ($EventsFormat -eq "jsonl") {
-            Emit-PhaseEvent -Phase "validate-bundle" -Status "failed" -Message "Bundle directory not found"
+            Emit-PhaseEvent -Phase "validate-export" -Status "failed" -Message "Export directory not found"
         }
         
         return @{
             RunId = $runId
             Success = $false
-            Error = "Bundle directory not found: $resolvedBundlePath"
+            Error = "Export directory not found: $resolvedExportPath"
         }
     }
     
@@ -151,7 +151,7 @@ function Invoke-BundleValidate {
         Write-Host "No restore entries found in manifest." -ForegroundColor Yellow
         
         if ($EventsFormat -eq "jsonl") {
-            Emit-PhaseEvent -Phase "validate-bundle" -Status "completed" -Message "No restore entries to validate"
+            Emit-PhaseEvent -Phase "validate-export" -Status "completed" -Message "No restore entries to validate"
         }
         
         return @{
@@ -167,11 +167,11 @@ function Invoke-BundleValidate {
     Write-ProvisioningLog "Validating $($restoreItems.Count) restore entries" -Level INFO
     
     # Validate snapshot manifest
-    $snapshotPath = Join-Path $resolvedBundlePath "manifest.snapshot.jsonc"
+    $snapshotPath = Join-Path $resolvedExportPath "manifest.snapshot.jsonc"
     $snapshotWarnings = @()
     
     if (-not (Test-Path $snapshotPath)) {
-        $warning = "Snapshot manifest not found in bundle (manifest.snapshot.jsonc)"
+        $warning = "Snapshot manifest not found in export (manifest.snapshot.jsonc)"
         $snapshotWarnings += $warning
         Write-ProvisioningLog "WARNING: $warning" -Level WARN
     } else {
@@ -208,27 +208,27 @@ function Invoke-BundleValidate {
         
         # Expand paths
         $expandedTarget = Expand-RestorePath -Path $item.target
-        $expandedSource = Expand-RestorePath -Path $item.source -BasePath $resolvedBundlePath
+        $expandedSource = Expand-RestorePath -Path $item.source -BasePath $resolvedExportPath
         
         $result = @{
             id = $itemId
             type = "validate"
-            bundleSource = $item.source
+            exportSource = $item.source
             systemTarget = $expandedTarget
             status = "pending"
             reason = $null
             warnings = @()
         }
         
-        # Check source exists in bundle
+        # Check source exists in export
         if (-not (Test-Path $expandedSource)) {
             $result.status = "fail"
-            $result.reason = "source not found in bundle: $expandedSource"
+            $result.reason = "source not found in export: $expandedSource"
             Write-ProvisioningLog "FAIL: $itemId - $($result.reason)" -Level ERROR
             $failCount++
             
             if ($EventsFormat -eq "jsonl") {
-                Emit-ItemEvent -Phase "validate-bundle" -ItemId $itemId -Status "failed" -Message $result.reason
+                Emit-ItemEvent -Phase "validate-export" -ItemId $itemId -Status "failed" -Message $result.reason
             }
             
             $results += $result
@@ -270,7 +270,7 @@ function Invoke-BundleValidate {
         
         if ($EventsFormat -eq "jsonl") {
             $msg = if ($result.warnings.Count -gt 0) { "Valid with warnings" } else { "Valid" }
-            Emit-ItemEvent -Phase "validate-bundle" -ItemId $itemId -Status "success" -Message $msg
+            Emit-ItemEvent -Phase "validate-export" -ItemId $itemId -Status "success" -Message $msg
         }
         
         $results += $result
@@ -282,14 +282,14 @@ function Invoke-BundleValidate {
     $runState = @{
         runId = $runId
         timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
-        command = "validate-bundle"
+        command = "validate-export"
         manifest = @{
             path = $ManifestPath
             name = $manifest.name
             hash = $manifestHash
         }
-        bundle = @{
-            path = $resolvedBundlePath
+        export = @{
+            path = $resolvedExportPath
             snapshotWarnings = $snapshotWarnings
         }
         summary = @{
@@ -304,7 +304,7 @@ function Invoke-BundleValidate {
     if (-not (Test-Path $stateDir)) {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
-    $stateFile = Join-Path $stateDir "validate-$runId.json"
+    $stateFile = Join-Path $stateDir "validate-export-$runId.json"
     $runState | ConvertTo-Json -Depth 10 | Out-File -FilePath $stateFile -Encoding UTF8
     
     # Summary
@@ -322,15 +322,15 @@ function Invoke-BundleValidate {
     
     Write-Host ""
     if ($failCount -eq 0) {
-        Write-Host "Bundle validation passed!" -ForegroundColor Green
+        Write-Host "Export validation passed!" -ForegroundColor Green
         Write-Host "  Valid: $validCount" -ForegroundColor Green
         if ($warnCount -gt 0) {
             Write-Host "  Warnings: $warnCount" -ForegroundColor Yellow
         }
         Write-Host ""
-        Write-Host "Bundle is ready for restore." -ForegroundColor Cyan
+        Write-Host "Export is ready for restore." -ForegroundColor Cyan
     } else {
-        Write-Host "Bundle validation failed!" -ForegroundColor Red
+        Write-Host "Export validation failed!" -ForegroundColor Red
         Write-Host "  Valid: $validCount" -ForegroundColor Green
         Write-Host "  Failed: $failCount" -ForegroundColor Red
         if ($warnCount -gt 0) {
@@ -343,7 +343,7 @@ function Invoke-BundleValidate {
     
     if ($EventsFormat -eq "jsonl") {
         $status = if ($failCount -eq 0) { "completed" } else { "failed" }
-        Emit-PhaseEvent -Phase "validate-bundle" -Status $status -Message "Bundle validation $status"
+        Emit-PhaseEvent -Phase "validate-export" -Status $status -Message "Export validation $status"
     }
     
     return @{
@@ -354,9 +354,9 @@ function Invoke-BundleValidate {
         FailCount = $failCount
         Results = $results
         SnapshotWarnings = $snapshotWarnings
-        BundlePath = $resolvedBundlePath
+        ExportPath = $resolvedExportPath
         LogFile = $logFile
     }
 }
 
-# Functions exported: Invoke-BundleValidate, Test-PathWritable
+# Functions exported: Invoke-ExportValidate, Test-PathWritable

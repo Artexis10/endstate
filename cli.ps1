@@ -105,7 +105,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet("capture", "plan", "apply", "verify", "doctor", "report", "diff", "restore", "capabilities", "capture-config", "validate-bundle")]
+    [ValidateSet("capture", "plan", "apply", "verify", "doctor", "report", "diff", "restore", "capabilities", "export-config", "validate-export", "revert")]
     [string]$Command,
 
     [Parameter(Mandatory = $false)]
@@ -166,7 +166,7 @@ param(
     [switch]$EnableRestore,
 
     [Parameter(Mandatory = $false)]
-    [string]$Bundle,
+    [string]$Export,
 
     [Parameter(Mandatory = $false)]
     [string]$FileA,
@@ -255,8 +255,9 @@ function Show-Help {
     Write-Host "    plan             Generate execution plan from manifest"
     Write-Host "    apply            Execute the plan (use -DryRun to preview)"
     Write-Host "    restore          Restore configuration files from manifest (requires -EnableRestore)"
-    Write-Host "    capture-config   Capture config files from system to bundle (inverse of restore)"
-    Write-Host "    validate-bundle  Validate bundle integrity before restore"
+    Write-Host "    export-config    Export config files from system to export folder (inverse of restore)"
+    Write-Host "    validate-export  Validate export integrity before restore"
+    Write-Host "    revert           Revert last restore operation by restoring backups"
     Write-Host "    verify           Check current state against manifest"
     Write-Host "    doctor           Diagnose environment issues"
     Write-Host "    report           Show history of previous runs (use -Latest, -Last <n>, or -RunId <id>)"
@@ -267,7 +268,7 @@ function Show-Help {
     Write-Host "    -Manifest <path>       Path to manifest file (JSONC/JSON/YAML)"
     Write-Host "    -Profile <name>        Profile name for capture (writes to manifests/<name>.jsonc)"
     Write-Host "    -OutManifest <path>    Output path for captured manifest (overrides -Profile)"
-    Write-Host "    -Bundle <path>         Bundle directory path (default: <manifestDir>/bundle/)"
+    Write-Host "    -Export <path>         Export directory path (default: <manifestDir>/export/)"
     Write-Host "    -DryRun                Preview changes without applying"
     Write-Host "    -EnableRestore         Enable restore operations (opt-in for safety)"
     Write-Host "    -FileA <path>          First artifact file for diff"
@@ -632,21 +633,21 @@ function Invoke-ProvisioningRestore {
     return $result
 }
 
-function Invoke-ProvisioningCaptureConfig {
+function Invoke-ProvisioningExportConfig {
     <#
     .SYNOPSIS
-        Capture configuration files from system to bundle.
+        Export configuration files from system to export folder.
     #>
     param(
         [string]$ManifestPath,
-        [string]$BundlePath,
+        [string]$ExportPath,
         [string]$EventsFormat = ""
     )
     
     if (-not $ManifestPath) {
-        Write-Host "[ERROR] -Manifest is required for 'capture-config' command." -ForegroundColor Red
+        Write-Host "[ERROR] -Manifest is required for 'export-config' command." -ForegroundColor Red
         Write-Host "" 
-        Write-Host "Usage: .\cli.ps1 -Command capture-config -Manifest <path> [-Bundle <path>]" -ForegroundColor Yellow
+        Write-Host "Usage: .\cli.ps1 -Command export-config -Manifest <path> [-Export <path>]" -ForegroundColor Yellow
         return $null
     }
     
@@ -655,27 +656,27 @@ function Invoke-ProvisioningCaptureConfig {
         return $null
     }
     
-    . "$script:ProvisioningRoot\engine\bundle-capture.ps1"
+    . "$script:ProvisioningRoot\engine\export-capture.ps1"
     
-    $result = Invoke-BundleCapture -ManifestPath $ManifestPath -BundlePath $BundlePath -EventsFormat $EventsFormat
+    $result = Invoke-ExportCapture -ManifestPath $ManifestPath -ExportPath $ExportPath -EventsFormat $EventsFormat
     return $result
 }
 
-function Invoke-ProvisioningValidateBundle {
+function Invoke-ProvisioningValidateExport {
     <#
     .SYNOPSIS
-        Validate bundle integrity before restore.
+        Validate export integrity before restore.
     #>
     param(
         [string]$ManifestPath,
-        [string]$BundlePath,
+        [string]$ExportPath,
         [string]$EventsFormat = ""
     )
     
     if (-not $ManifestPath) {
-        Write-Host "[ERROR] -Manifest is required for 'validate-bundle' command." -ForegroundColor Red
+        Write-Host "[ERROR] -Manifest is required for 'validate-export' command." -ForegroundColor Red
         Write-Host ""
-        Write-Host "Usage: .\cli.ps1 -Command validate-bundle -Manifest <path> [-Bundle <path>]" -ForegroundColor Yellow
+        Write-Host "Usage: .\cli.ps1 -Command validate-export -Manifest <path> [-Export <path>]" -ForegroundColor Yellow
         return $null
     }
     
@@ -684,9 +685,25 @@ function Invoke-ProvisioningValidateBundle {
         return $null
     }
     
-    . "$script:ProvisioningRoot\engine\bundle-validate.ps1"
+    . "$script:ProvisioningRoot\engine\export-validate.ps1"
     
-    $result = Invoke-BundleValidate -ManifestPath $ManifestPath -BundlePath $BundlePath -EventsFormat $EventsFormat
+    $result = Invoke-ExportValidate -ManifestPath $ManifestPath -ExportPath $ExportPath -EventsFormat $EventsFormat
+    return $result
+}
+
+function Invoke-ProvisioningRevert {
+    <#
+    .SYNOPSIS
+        Revert the last restore operation by restoring backups.
+    #>
+    param(
+        [bool]$IsDryRun,
+        [string]$EventsFormat = ""
+    )
+    
+    . "$script:ProvisioningRoot\engine\export-revert.ps1"
+    
+    $result = Invoke-ExportRevert -DryRun:$IsDryRun -EventsFormat $EventsFormat
     return $result
 }
 
@@ -765,8 +782,9 @@ switch ($Command) {
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
     "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent -OutputJson $Json.IsPresent -EventsFormat $Events }
     "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }
-    "capture-config" { Invoke-ProvisioningCaptureConfig -ManifestPath $Manifest -BundlePath $Bundle -EventsFormat $Events }
-    "validate-bundle" { Invoke-ProvisioningValidateBundle -ManifestPath $Manifest -BundlePath $Bundle -EventsFormat $Events }
+    "export-config" { Invoke-ProvisioningExportConfig -ManifestPath $Manifest -ExportPath $Export -EventsFormat $Events }
+    "validate-export" { Invoke-ProvisioningValidateExport -ManifestPath $Manifest -ExportPath $Export -EventsFormat $Events }
+    "revert"  { Invoke-ProvisioningRevert -IsDryRun $DryRun.IsPresent -EventsFormat $Events }
     "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest -OutputJson $Json.IsPresent -EventsFormat $Events }
     "doctor"  { Invoke-ProvisioningDoctor }
     "report"  { Invoke-ProvisioningReport -ReportRunId $RunId -IsLatest $Latest.IsPresent -LastN $Last -OutputJson $Json.IsPresent }
