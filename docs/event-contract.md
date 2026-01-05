@@ -109,9 +109,11 @@ Tracks progress of individual items (apps, configs, etc.).
   - `"sensitive_excluded"`
   - `"detected"`
   - `"install_failed"`
-  - `"user_denied"` - User cancelled/denied installation
+  - `"user_denied"` - User cancelled/denied installation (heuristic, unreliable)
   - `"missing"` - App not installed (verify phase)
   - `null` (no specific reason)
+
+**Note on `user_denied`:** Detection is heuristic and unreliable. Winget provides no standardized exit code for user cancellation. Pattern matching on output text may misclassify some user cancellations as `install_failed`.
 - `message` (string, optional): Human-readable message
 
 **Guarantees:**
@@ -354,9 +356,28 @@ If a breaking change is required:
 
 ---
 
+## UI Semantics
+
+This contract defines the **low-level JSONL event schema** (fields, types, ordering).
+
+For **UI status/phase semantics** (how events map to labels, colors, and user-facing language), see:
+
+**→ `../endstate-gui/docs/UX_LANGUAGE.md` (single source of truth)**
+
+Key UI semantic rules not duplicated here:
+- `verify` + `status=failed` + `reason=missing` → UI displays **MISSING** (warn), not FAILED (error)
+- `apply` + `status=skipped` + `reason=user_denied` → UI displays **CANCELLED** (warn), not FAILED (error)
+- `verify` + `status=present` → UI displays **CONFIRMED**, not "Already present"
+- **INSTALLED** vs **CONFIRMED**: Installed = installed this run; Confirmed = verified present
+
+See `UX_LANGUAGE.md` for complete phase-aware mapping tables and critical distinctions.
+
+---
+
 ## References
 
 - **CLI Contract:** `cli-json-contract.md` (authoritative stdout JSON)
+- **UI Semantics Contract:** `../endstate-gui/docs/UX_LANGUAGE.md` (status/phase mappings)
 - **Engine Implementation:** `engine/events.ps1`
 - **GUI Implementation:** `src/lib/streaming-events.ts`
 - **Contract Tests:** `tests/contract/EventsContract.Tests.ps1`

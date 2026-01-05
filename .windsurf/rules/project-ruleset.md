@@ -692,6 +692,36 @@ Only the following manifests should be committed:
 
 ## Documentation Drift Rule
 
+
+---
+
+## Status/Phase Contract Enforcement
+
+Changes to status/phase semantics **MUST** update both repos in the same change:
+
+### Single Source of Truth
+- **UI semantics contract:** `../endstate-gui/docs/UX_LANGUAGE.md` (canonical status/phase mappings)
+- **Engine event schema:** `docs/event-contract.md` (JSONL schema only, references UX_LANGUAGE.md)
+
+### Required Updates
+When modifying status/phase behavior:
+1. Update `../endstate-gui/docs/UX_LANGUAGE.md` (truth table, semantic rules)
+2. Update `docs/event-contract.md` if JSONL schema changes
+3. Update GUI implementation (`src/lib/apply-utils.ts`)
+4. Update engine implementation if event emission changes
+5. Add/update tests in both repos to lock new behavior
+
+### Critical Semantic Rules (Must Not Drift)
+- `verify` + `status=failed` + `reason=missing` → UI displays **MISSING** (warn), not FAILED (error)
+- `apply` + `status=skipped` + `reason=user_denied` → UI displays **CANCELLED** (warn), not FAILED (error)
+- `verify` + `status=present` → UI displays **CONFIRMED**, not "Already present"
+- **INSTALLED** vs **CONFIRMED**: Installed = installed this run; Confirmed = verified present
+- `user_denied` detection is heuristic and unreliable (no standardized winget exit code)
+
+### Enforcement
+- GUI tests: `src/lib/status-contract.test.ts` locks critical mappings
+- Engine tests: `tests/contract/EventsContract.Tests.ps1` validates schema
+- Both rulesets reference the contract docs
 **If CLI commands, flags, or manifest schema change, you MUST update both README.md and this ruleset in the SAME commit.**
 
 This ensures documentation stays synchronized with implementation.
