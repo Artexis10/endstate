@@ -129,6 +129,9 @@ Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
 | `capture` | Capture current machine state into a manifest |
 | `plan` | Generate execution plan from manifest without applying |
 | `apply` | Execute the plan (with optional `-DryRun`) |
+| `restore` | Restore configuration files from manifest (requires `-EnableRestore`) |
+| `capture-config` | Capture config files from system to bundle (inverse of restore) |
+| `validate-bundle` | Validate bundle integrity before restore |
 | `verify` | Check current state against manifest without modifying |
 | `doctor` | Diagnose environment issues (missing drivers, permissions, etc.) |
 | `report` | Show history of previous runs and their outcomes |

@@ -423,6 +423,28 @@ Both styles support identical commands and flags.
 
 ---
 
+
+
+## Bundle Convention (Configuration Capture + Restore)
+
+A **bundle** is a local folder containing configuration files and a manifest snapshot.
+
+**Default location**: <manifestDir>/bundle/  
+**Custom location**: Use --bundle <path> flag
+
+**Core Rules**:
+- Manifest is single source of truth (engine always uses explicitly provided manifest)
+- Never auto-load snapshot (manifest.snapshot.jsonc is for audit/comparison only)
+- Warn on snapshot mismatch (does not fail)
+- Relative paths preserved in bundle structure
+- Local folder only (no remote/encryption/zip in MVP)
+
+**Commands**:
+- capture-config: Copies system configs to bundle (inverse of restore)
+- alidate-bundle: Validates bundle integrity before restore
+- estore: Applies bundle configs to system (requires --enable-restore)
+
+**Safety**: No auto-secret capture, sensitive path warnings, backup-first restore.
 ## CLI Commands
 
 | Command | Description |

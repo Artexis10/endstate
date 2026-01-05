@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "name": "test-bundle",
+  "captured": "2025-01-05T00:00:00Z",
+  
+  "apps": [],
+  
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./configs/test-config.txt",
+      "target": "%TEMP%/endstate-test-config.txt",
+      "backup": true
+    }
+  ],
+  
+  "verify": []
+}

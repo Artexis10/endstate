@@ -105,7 +105,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $false)]
-    [ValidateSet("capture", "plan", "apply", "verify", "doctor", "report", "diff", "restore", "capabilities")]
+    [ValidateSet("capture", "plan", "apply", "verify", "doctor", "report", "diff", "restore", "capabilities", "capture-config", "validate-bundle")]
     [string]$Command,
 
     [Parameter(Mandatory = $false)]
@@ -164,6 +164,9 @@ param(
 
     [Parameter(Mandatory = $false)]
     [switch]$EnableRestore,
+
+    [Parameter(Mandatory = $false)]
+    [string]$Bundle,
 
     [Parameter(Mandatory = $false)]
     [string]$FileA,
@@ -248,20 +251,23 @@ function Show-Help {
     Write-Host "    .\cli.ps1 -Command <command> [-Manifest <path>] [-OutManifest <path>] [-DryRun]"
     Write-Host ""
     Write-Host "COMMANDS:" -ForegroundColor Yellow
-    Write-Host "    capture   Capture current machine state into a manifest"
-    Write-Host "    plan      Generate execution plan from manifest"
-    Write-Host "    apply     Execute the plan (use -DryRun to preview)"
-    Write-Host "    restore   Restore configuration files from manifest (requires -EnableRestore)"
-    Write-Host "    verify    Check current state against manifest"
-    Write-Host "    doctor    Diagnose environment issues"
-    Write-Host "    report    Show history of previous runs (use -Latest, -Last <n>, or -RunId <id>)"
-    Write-Host "    diff      Compare two plan/run artifacts"
-    Write-Host "    capabilities  Report CLI capabilities for GUI integration"
+    Write-Host "    capture          Capture current machine state into a manifest"
+    Write-Host "    plan             Generate execution plan from manifest"
+    Write-Host "    apply            Execute the plan (use -DryRun to preview)"
+    Write-Host "    restore          Restore configuration files from manifest (requires -EnableRestore)"
+    Write-Host "    capture-config   Capture config files from system to bundle (inverse of restore)"
+    Write-Host "    validate-bundle  Validate bundle integrity before restore"
+    Write-Host "    verify           Check current state against manifest"
+    Write-Host "    doctor           Diagnose environment issues"
+    Write-Host "    report           Show history of previous runs (use -Latest, -Last <n>, or -RunId <id>)"
+    Write-Host "    diff             Compare two plan/run artifacts"
+    Write-Host "    capabilities     Report CLI capabilities for GUI integration"
     Write-Host ""
     Write-Host "OPTIONS:" -ForegroundColor Yellow
     Write-Host "    -Manifest <path>       Path to manifest file (JSONC/JSON/YAML)"
     Write-Host "    -Profile <name>        Profile name for capture (writes to manifests/<name>.jsonc)"
     Write-Host "    -OutManifest <path>    Output path for captured manifest (overrides -Profile)"
+    Write-Host "    -Bundle <path>         Bundle directory path (default: <manifestDir>/bundle/)"
     Write-Host "    -DryRun                Preview changes without applying"
     Write-Host "    -EnableRestore         Enable restore operations (opt-in for safety)"
     Write-Host "    -FileA <path>          First artifact file for diff"
@@ -626,6 +632,64 @@ function Invoke-ProvisioningRestore {
     return $result
 }
 
+function Invoke-ProvisioningCaptureConfig {
+    <#
+    .SYNOPSIS
+        Capture configuration files from system to bundle.
+    #>
+    param(
+        [string]$ManifestPath,
+        [string]$BundlePath,
+        [string]$EventsFormat = ""
+    )
+    
+    if (-not $ManifestPath) {
+        Write-Host "[ERROR] -Manifest is required for 'capture-config' command." -ForegroundColor Red
+        Write-Host "" 
+        Write-Host "Usage: .\cli.ps1 -Command capture-config -Manifest <path> [-Bundle <path>]" -ForegroundColor Yellow
+        return $null
+    }
+    
+    if (-not (Test-Path $ManifestPath)) {
+        Write-Host "[ERROR] Manifest not found: $ManifestPath" -ForegroundColor Red
+        return $null
+    }
+    
+    . "$script:ProvisioningRoot\engine\bundle-capture.ps1"
+    
+    $result = Invoke-BundleCapture -ManifestPath $ManifestPath -BundlePath $BundlePath -EventsFormat $EventsFormat
+    return $result
+}
+
+function Invoke-ProvisioningValidateBundle {
+    <#
+    .SYNOPSIS
+        Validate bundle integrity before restore.
+    #>
+    param(
+        [string]$ManifestPath,
+        [string]$BundlePath,
+        [string]$EventsFormat = ""
+    )
+    
+    if (-not $ManifestPath) {
+        Write-Host "[ERROR] -Manifest is required for 'validate-bundle' command." -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Usage: .\cli.ps1 -Command validate-bundle -Manifest <path> [-Bundle <path>]" -ForegroundColor Yellow
+        return $null
+    }
+    
+    if (-not (Test-Path $ManifestPath)) {
+        Write-Host "[ERROR] Manifest not found: $ManifestPath" -ForegroundColor Red
+        return $null
+    }
+    
+    . "$script:ProvisioningRoot\engine\bundle-validate.ps1"
+    
+    $result = Invoke-BundleValidate -ManifestPath $ManifestPath -BundlePath $BundlePath -EventsFormat $EventsFormat
+    return $result
+}
+
 function Invoke-ProvisioningCapabilities {
     <#
     .SYNOPSIS
@@ -701,6 +765,8 @@ switch ($Command) {
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
     "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent -OutputJson $Json.IsPresent -EventsFormat $Events }
     "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }
+    "capture-config" { Invoke-ProvisioningCaptureConfig -ManifestPath $Manifest -BundlePath $Bundle -EventsFormat $Events }
+    "validate-bundle" { Invoke-ProvisioningValidateBundle -ManifestPath $Manifest -BundlePath $Bundle -EventsFormat $Events }
     "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest -OutputJson $Json.IsPresent -EventsFormat $Events }
     "doctor"  { Invoke-ProvisioningDoctor }
     "report"  { Invoke-ProvisioningReport -ReportRunId $RunId -IsLatest $Latest.IsPresent -LastN $Last -OutputJson $Json.IsPresent }
