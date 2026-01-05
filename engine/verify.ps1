@@ -82,8 +82,9 @@ function Invoke-Verify {
             $passCount++
         } else {
             Write-ProvisioningLog "$windowsRef - NOT INSTALLED" -Level ERROR
-            Write-ItemEvent -Id $windowsRef -Driver "winget" -Status "failed" -Reason "missing" -Message "Not installed"
+            Write-ItemEvent -Id $windowsRef -Driver "winget" -Status "failed" -Reason "missing" -Message "Missing - not installed"
             $result.status = "fail"
+            $result.reason = "missing"
             $failCount++
         }
         

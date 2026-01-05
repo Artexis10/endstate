@@ -109,7 +109,8 @@ Tracks progress of individual items (apps, configs, etc.).
   - `"sensitive_excluded"`
   - `"detected"`
   - `"install_failed"`
-  - `"missing"`
+  - `"user_denied"` - User cancelled/denied installation
+  - `"missing"` - App not installed (verify phase)
   - `null` (no specific reason)
 - `message` (string, optional): Human-readable message
 

@@ -68,6 +68,7 @@ function Install-AppViaWinget {
     $result = @{
         Success = $false
         AlreadyInstalled = $false
+        UserDenied = $false
         Error = $null
     }
     
@@ -93,6 +94,7 @@ function Install-AppViaWinget {
         
         $output = & winget @installArgs 2>&1
         $outputStr = $output | Out-String
+        $exitCode = $LASTEXITCODE
         
         # Check for success indicators
         if ($outputStr -match "Successfully installed" -or $outputStr -match "Found an existing package") {
@@ -101,7 +103,15 @@ function Install-AppViaWinget {
         elseif ($outputStr -match "No package found matching") {
             $result.Error = "Package not found: $PackageId"
         }
-        elseif ($outputStr -match "error" -or $LASTEXITCODE -ne 0) {
+        # Detect user denial/cancellation
+        # Exit code 0xC0000409 (-1073740791) or output containing cancellation indicators
+        elseif ($exitCode -eq -1073740791 -or $exitCode -eq 0xC0000409 -or 
+                $outputStr -match "(?i)(cancel|user.*cancel|operation.*cancel|user.*denied|user.*abort)" -or
+                $outputStr -match "(?i)(user.*decline|installation.*cancel)") {
+            $result.UserDenied = $true
+            $result.Error = "User cancelled installation"
+        }
+        elseif ($outputStr -match "error" -or $exitCode -ne 0) {
             $result.Error = "Installation failed: $outputStr"
         }
         else {

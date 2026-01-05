@@ -112,6 +112,12 @@ function Invoke-Apply {
                             $result.status = "success"
                             $result.message = "Installed"
                             $successCount++
+                        } elseif ($installResult.UserDenied) {
+                            Write-ProvisioningLog "$($action.ref) - User cancelled installation" -Level SKIP
+                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "skipped" -Reason "user_denied" -Message $installResult.Error
+                            $result.status = "skipped"
+                            $result.message = $installResult.Error
+                            $skipCount++
                         } else {
                             Write-ProvisioningLog "$($action.ref) - Installation failed: $($installResult.Error)" -Level ERROR
                             Write-ItemEvent -Id $action.ref -Driver "winget" -Status "failed" -Reason "install_failed" -Message $installResult.Error
@@ -486,6 +492,12 @@ function Invoke-ApplyFromPlan {
                             $result.status = "success"
                             $result.message = "Installed"
                             $successCount++
+                        } elseif ($installResult.UserDenied) {
+                            Write-ProvisioningLog "$($action.ref) - User cancelled installation" -Level SKIP
+                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "skipped" -Reason "user_denied" -Message $installResult.Error
+                            $result.status = "skipped"
+                            $result.message = $installResult.Error
+                            $skippedCount++
                         } else {
                             Write-ProvisioningLog "$($action.ref) - Installation failed: $($installResult.Error)" -Level ERROR
                             Write-ItemEvent -Id $action.ref -Driver "winget" -Status "failed" -Reason "install_failed" -Message $installResult.Error
