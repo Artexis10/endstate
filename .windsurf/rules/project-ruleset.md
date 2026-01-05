@@ -442,7 +442,8 @@ A **bundle** is a local folder containing configuration files and a manifest sna
 **Commands**:
 - capture-config: Copies system configs to bundle (inverse of restore)
 - alidate-bundle: Validates bundle integrity before restore
-- estore: Applies bundle configs to system (requires --enable-restore)
+- 
+estore: Applies bundle configs to system (requires --enable-restore)
 
 **Safety**: No auto-secret capture, sensitive path warnings, backup-first restore.
 ## CLI Commands
@@ -966,3 +967,9 @@ Failure to follow this policy results in:
 
 Project ruleset file (canonical, always edit this exact file when updating rules):
 C:\Users\win-laptop\Desktop\projects\Endstate\.windsurf\rules\project-ruleset.md
+
+
+## Config Portability Contract
+
+The engine must preserve the guarantees defined in docs/config-portability-contract.md.
+Any change affecting export, restore, or revert behavior must update that document in the same commit.

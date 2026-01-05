@@ -1,0 +1,13 @@
+{
+  "id": "powertoys",
+  "name": "PowerToys Configuration",
+  "notes": "Settings for Microsoft PowerToys utilities",
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./configs/powertoys/settings.json",
+      "target": "%LOCALAPPDATA%\\Microsoft\\PowerToys\\settings.json",
+      "backup": true
+    }
+  ]
+}
