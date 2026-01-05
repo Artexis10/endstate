@@ -64,6 +64,9 @@ function Invoke-ExportCapture {
         [string]$ExportPath = $null,
         
         [Parameter(Mandatory = $false)]
+        [switch]$DryRun,
+        
+        [Parameter(Mandatory = $false)]
         [string]$EventsFormat = ""
     )
     
@@ -73,6 +76,13 @@ function Invoke-ExportCapture {
     Write-ProvisioningSection "Export Configuration"
     Write-ProvisioningLog "Manifest: $ManifestPath" -Level INFO
     Write-ProvisioningLog "Run ID: $runId" -Level INFO
+    
+    if ($DryRun) {
+        Write-Host ""
+        Write-Host "  *** DRY-RUN MODE - No files will be copied ***" -ForegroundColor Yellow
+        Write-Host ""
+        Write-ProvisioningLog "DRY-RUN mode enabled" -Level INFO
+    }
     
     # Emit phase event
     if ($EventsFormat -eq "jsonl") {
@@ -148,7 +158,6 @@ function Invoke-ExportCapture {
         
         # Expand paths
         $expandedTarget = Expand-RestorePath -Path $item.target
-        $expandedSource = Expand-RestorePath -Path $item.source -BasePath $manifestDir
         
         # For export, we reverse: target (system) -> source (export)
         $captureSource = $expandedTarget
@@ -193,6 +202,21 @@ function Invoke-ExportCapture {
         if ($warnings.Count -gt 0) {
             Write-Host "[WARN] $itemId - Sensitive path detected" -ForegroundColor Yellow
             $warnCount++
+        }
+        
+        # Dry-run mode
+        if ($DryRun) {
+            $result.status = "dry-run"
+            $result.reason = "would export $captureSource -> $captureDestRel"
+            Write-ProvisioningLog "[DRY-RUN] Would export: $captureSource -> $captureDestRel" -Level ACTION
+            $captureCount++
+            
+            if ($EventsFormat -eq "jsonl") {
+                Emit-ItemEvent -Phase "export" -ItemId $itemId -Status "success" -Message "Would export (dry-run)"
+            }
+            
+            $results += $result
+            continue
         }
         
         # Perform export (copy system -> export)
@@ -281,7 +305,17 @@ function Invoke-ExportCapture {
     Close-ProvisioningLog -SuccessCount $captureCount -SkipCount $skipCount -FailCount $failCount
     
     Write-Host ""
-    if ($failCount -eq 0) {
+    if ($DryRun) {
+        Write-Host "Dry-run complete. No files were copied." -ForegroundColor Yellow
+        Write-Host "  Would export: $captureCount" -ForegroundColor Cyan
+        Write-Host "  Would skip: $skipCount" -ForegroundColor Yellow
+        if ($warnCount -gt 0) {
+            Write-Host "  Warnings: $warnCount (sensitive paths)" -ForegroundColor Yellow
+        }
+        Write-Host ""
+        Write-Host "To export for real:" -ForegroundColor Yellow
+        Write-Host "  .\cli.ps1 -Command export-config -Manifest $ManifestPath" -ForegroundColor DarkGray
+    } elseif ($failCount -eq 0) {
         Write-Host "Export complete!" -ForegroundColor Green
         Write-Host "  Exported: $captureCount" -ForegroundColor Green
         Write-Host "  Skipped: $skipCount" -ForegroundColor Yellow

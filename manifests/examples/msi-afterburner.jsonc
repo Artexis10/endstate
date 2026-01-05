@@ -1,0 +1,30 @@
+{
+  // MSI Afterburner Configuration Export Example
+  // This manifest demonstrates exporting MSI Afterburner configuration files
+  
+  "version": 1,
+  "name": "msi-afterburner-config",
+  "captured": "2025-01-05T19:00:00Z",
+
+  // No apps to install - this is purely for config export/restore
+  "apps": [],
+
+  // Configuration restore entries
+  // These define what files to export from the system and where to restore them
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./configs/msi-afterburner/MSIAfterburner.cfg",
+      "target": "C:\\Program Files (x86)\\MSI Afterburner\\MSIAfterburner.cfg",
+      "backup": true
+    },
+    {
+      "type": "copy",
+      "source": "./configs/msi-afterburner/Profiles",
+      "target": "C:\\Program Files (x86)\\MSI Afterburner\\Profiles",
+      "backup": true
+    }
+  ],
+
+  "verify": []
+}

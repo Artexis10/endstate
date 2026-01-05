@@ -255,7 +255,7 @@ function Show-Help {
     Write-Host "    plan             Generate execution plan from manifest"
     Write-Host "    apply            Execute the plan (use -DryRun to preview)"
     Write-Host "    restore          Restore configuration files from manifest (requires -EnableRestore)"
-    Write-Host "    export-config    Export config files from system to export folder (inverse of restore)"
+    Write-Host "    export-config    Export config files from system to export folder (inverse of restore, use -DryRun to preview)"
     Write-Host "    validate-export  Validate export integrity before restore"
     Write-Host "    revert           Revert last restore operation by restoring backups"
     Write-Host "    verify           Check current state against manifest"
@@ -641,13 +641,14 @@ function Invoke-ProvisioningExportConfig {
     param(
         [string]$ManifestPath,
         [string]$ExportPath,
+        [bool]$IsDryRun,
         [string]$EventsFormat = ""
     )
     
     if (-not $ManifestPath) {
         Write-Host "[ERROR] -Manifest is required for 'export-config' command." -ForegroundColor Red
         Write-Host "" 
-        Write-Host "Usage: .\cli.ps1 -Command export-config -Manifest <path> [-Export <path>]" -ForegroundColor Yellow
+        Write-Host "Usage: .\cli.ps1 -Command export-config -Manifest <path> [-Export <path>] [-DryRun]" -ForegroundColor Yellow
         return $null
     }
     
@@ -658,7 +659,7 @@ function Invoke-ProvisioningExportConfig {
     
     . "$script:ProvisioningRoot\engine\export-capture.ps1"
     
-    $result = Invoke-ExportCapture -ManifestPath $ManifestPath -ExportPath $ExportPath -EventsFormat $EventsFormat
+    $result = Invoke-ExportCapture -ManifestPath $ManifestPath -ExportPath $ExportPath -DryRun:$IsDryRun -EventsFormat $EventsFormat
     return $result
 }
 
@@ -782,7 +783,7 @@ switch ($Command) {
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
     "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent -OutputJson $Json.IsPresent -EventsFormat $Events }
     "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }
-    "export-config" { Invoke-ProvisioningExportConfig -ManifestPath $Manifest -ExportPath $Export -EventsFormat $Events }
+    "export-config" { Invoke-ProvisioningExportConfig -ManifestPath $Manifest -ExportPath $Export -IsDryRun $DryRun.IsPresent -EventsFormat $Events }
     "validate-export" { Invoke-ProvisioningValidateExport -ManifestPath $Manifest -ExportPath $Export -EventsFormat $Events }
     "revert"  { Invoke-ProvisioningRevert -IsDryRun $DryRun.IsPresent -EventsFormat $Events }
     "verify"  { Invoke-ProvisioningVerify -ManifestPath $Manifest -OutputJson $Json.IsPresent -EventsFormat $Events }
