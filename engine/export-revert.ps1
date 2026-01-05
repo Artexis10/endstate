@@ -26,46 +26,55 @@
 . "$PSScriptRoot\restore.ps1"
 . "$PSScriptRoot\events.ps1"
 
-function Get-LastRestoreRun {
+function Get-LastRestoreJournal {
     <#
     .SYNOPSIS
-        Find the most recent restore run that has backups.
+        Find the most recent restore journal.
     #>
     param(
         [Parameter(Mandatory = $false)]
-        [string]$StateDir = $null
+        [string]$LogsDir = $null,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$ManifestPath = $null
     )
     
-    if (-not $StateDir) {
-        $StateDir = Join-Path $PSScriptRoot "..\state"
+    if (-not $LogsDir) {
+        $LogsDir = Join-Path $PSScriptRoot "..\logs"
     }
     
-    if (-not (Test-Path $StateDir)) {
+    if (-not (Test-Path $LogsDir)) {
         return $null
     }
     
-    # Find all restore state files
-    $restoreStates = Get-ChildItem -Path $StateDir -Filter "restore-*.json" -ErrorAction SilentlyContinue |
+    # Find all restore journal files
+    $journalFiles = Get-ChildItem -Path $LogsDir -Filter "restore-journal-*.json" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending
     
-    foreach ($stateFile in $restoreStates) {
+    foreach ($journalFile in $journalFiles) {
         try {
-            $state = Get-Content -Path $stateFile.FullName -Raw | ConvertFrom-Json
+            $journal = Get-Content -Path $journalFile.FullName -Raw | ConvertFrom-Json
             
-            # Check if this restore has backups
-            $runId = $state.runId
-            $backupDir = Join-Path $StateDir "backups\$runId"
-            
-            if (Test-Path $backupDir) {
+            # If manifest path specified, try to match it
+            if ($ManifestPath) {
+                $normalizedManifest = [System.IO.Path]::GetFullPath($ManifestPath)
+                $normalizedJournalManifest = [System.IO.Path]::GetFullPath($journal.manifestPath)
+                
+                if ($normalizedManifest -eq $normalizedJournalManifest) {
+                    return @{
+                        JournalFile = $journalFile.FullName
+                        Journal = $journal
+                    }
+                }
+            } else {
+                # Return most recent journal
                 return @{
-                    RunId = $runId
-                    StateFile = $stateFile.FullName
-                    State = $state
-                    BackupDir = $backupDir
+                    JournalFile = $journalFile.FullName
+                    Journal = $journal
                 }
             }
         } catch {
-            # Skip invalid state files
+            # Skip invalid journal files
             continue
         }
     }
@@ -76,9 +85,11 @@ function Get-LastRestoreRun {
 function Invoke-ExportRevert {
     <#
     .SYNOPSIS
-        Revert the last restore operation by restoring backups.
+        Revert the last restore operation using journal.
     .DESCRIPTION
-        Finds the most recent restore run with backups and restores them.
+        Finds the most recent restore journal and reverts changes:
+        - Restores backed-up files to their original locations
+        - Deletes targets that were created by restore (targetExistedBefore=false)
         Creates a new backup before reverting for safety.
     #>
     param(
@@ -100,14 +111,14 @@ function Invoke-ExportRevert {
         Emit-PhaseEvent -Phase "revert" -Status "started" -Message "Starting restore revert"
     }
     
-    # Find last restore run
-    $lastRestore = Get-LastRestoreRun
+    # Find last restore journal
+    $lastJournal = Get-LastRestoreJournal
     
-    if (-not $lastRestore) {
-        Write-ProvisioningLog "No restore run with backups found" -Level WARN
+    if (-not $lastJournal) {
+        Write-ProvisioningLog "No restore journal found" -Level WARN
         Write-Host ""
         Write-Host "No restore operation found to revert." -ForegroundColor Yellow
-        Write-Host "Revert only works if a previous restore created backups." -ForegroundColor DarkGray
+        Write-Host "Revert requires a restore journal from a previous restore." -ForegroundColor DarkGray
         Write-Host ""
         
         if ($EventsFormat -eq "jsonl") {
@@ -124,15 +135,16 @@ function Invoke-ExportRevert {
         }
     }
     
-    $restoreRunId = $lastRestore.RunId
-    $backupDir = $lastRestore.BackupDir
+    $journal = $lastJournal.Journal
+    $journalFile = $lastJournal.JournalFile
+    $restoreRunId = $journal.runId
     
-    Write-ProvisioningLog "Found restore run to revert: $restoreRunId" -Level INFO
-    Write-ProvisioningLog "Backup directory: $backupDir" -Level INFO
+    Write-ProvisioningLog "Found restore journal: $journalFile" -Level INFO
+    Write-ProvisioningLog "Restore run ID: $restoreRunId" -Level INFO
     
     Write-Host ""
     Write-Host "Reverting restore run: $restoreRunId" -ForegroundColor Cyan
-    Write-Host "Backup location: $backupDir" -ForegroundColor DarkGray
+    Write-Host "Journal: $journalFile" -ForegroundColor DarkGray
     Write-Host ""
     
     if ($DryRun) {
@@ -140,15 +152,15 @@ function Invoke-ExportRevert {
         Write-Host ""
     }
     
-    # Find all backed-up files
-    $backupFiles = Get-ChildItem -Path $backupDir -Recurse -File -ErrorAction SilentlyContinue
+    # Get journal entries
+    $journalEntries = @($journal.entries)
     
-    if ($backupFiles.Count -eq 0) {
-        Write-ProvisioningLog "No backup files found in $backupDir" -Level WARN
-        Write-Host "No backup files found to restore." -ForegroundColor Yellow
+    if ($journalEntries.Count -eq 0) {
+        Write-ProvisioningLog "No entries in journal" -Level WARN
+        Write-Host "No entries found in journal." -ForegroundColor Yellow
         
         if ($EventsFormat -eq "jsonl") {
-            Emit-PhaseEvent -Phase "revert" -Status "completed" -Message "No backups to restore"
+            Emit-PhaseEvent -Phase "revert" -Status "completed" -Message "No entries to revert"
         }
         
         return @{
@@ -161,48 +173,36 @@ function Invoke-ExportRevert {
         }
     }
     
-    Write-ProvisioningLog "Found $($backupFiles.Count) backup files" -Level INFO
+    Write-ProvisioningLog "Processing $($journalEntries.Count) journal entries" -Level INFO
     
-    # Process each backup file
-    Write-ProvisioningSection "Restoring Backups"
+    # Process journal entries in REVERSE order
+    Write-ProvisioningSection "Reverting Restore Operations"
     
     $revertCount = 0
     $skipCount = 0
     $failCount = 0
     $results = @()
     
-    foreach ($backupFile in $backupFiles) {
-        # Reconstruct original path from backup structure
-        $relativePath = $backupFile.FullName.Substring($backupDir.Length).TrimStart('\', '/')
-        
-        # Reconstruct absolute path
-        # Backup structure: backups/<runId>/<drive-letter>/<path>
-        # Need to add drive letter back
-        $pathParts = $relativePath -split '[/\\]', 2
-        if ($pathParts.Count -lt 2) {
-            Write-ProvisioningLog "SKIP: Invalid backup path structure: $relativePath" -Level WARN
-            $skipCount++
-            continue
-        }
-        
-        $driveLetter = $pathParts[0]
-        $pathWithoutDrive = $pathParts[1]
-        $originalPath = "${driveLetter}:\$pathWithoutDrive"
+    # Reverse the entries to undo in reverse order
+    [array]::Reverse($journalEntries)
+    
+    foreach ($entry in $journalEntries) {
+        $entryId = "$($entry.source) -> $($entry.target)"
+        $targetPath = $entry.targetPath
         
         $result = @{
-            id = $relativePath
+            id = $entryId
             type = "revert"
-            backupPath = $backupFile.FullName
-            originalPath = $originalPath
+            targetPath = $targetPath
             status = "pending"
             reason = $null
         }
         
-        # Check if backup file exists
-        if (-not (Test-Path $backupFile.FullName)) {
+        # Only revert entries that were actually restored
+        if ($entry.action -ne "restored") {
             $result.status = "skip"
-            $result.reason = "backup file not found"
-            Write-ProvisioningLog "SKIP: $relativePath - backup not found" -Level SKIP
+            $result.reason = "entry was not restored (action: $($entry.action))"
+            Write-ProvisioningLog "SKIP: $entryId - $($result.reason)" -Level SKIP
             $skipCount++
             $results += $result
             continue
@@ -210,70 +210,139 @@ function Invoke-ExportRevert {
         
         # Dry-run mode
         if ($DryRun) {
-            $result.status = "dry-run"
-            $result.reason = "would revert $originalPath"
-            Write-ProvisioningLog "[DRY-RUN] Would revert: $originalPath" -Level ACTION
+            if ($entry.backupCreated -and $entry.backupPath) {
+                $result.status = "dry-run"
+                $result.reason = "would restore backup: $($entry.backupPath) -> $targetPath"
+                Write-ProvisioningLog "[DRY-RUN] Would restore backup: $targetPath" -Level ACTION
+            } elseif (-not $entry.targetExistedBefore) {
+                $result.status = "dry-run"
+                $result.reason = "would delete created target: $targetPath"
+                Write-ProvisioningLog "[DRY-RUN] Would delete: $targetPath" -Level ACTION
+            } else {
+                $result.status = "skip"
+                $result.reason = "no backup and target existed before (nothing to revert)"
+                Write-ProvisioningLog "[DRY-RUN] SKIP: $entryId - $($result.reason)" -Level SKIP
+                $skipCount++
+                $results += $result
+                continue
+            }
             $revertCount++
             $results += $result
             continue
         }
         
-        # Create backup of current state before reverting (safety layer)
-        if (Test-Path $originalPath) {
+        # CASE 1: Backup exists - restore it
+        if ($entry.backupCreated -and $entry.backupPath -and (Test-Path $entry.backupPath)) {
             try {
-                $revertBackupResult = Backup-RestoreTarget -Target $originalPath -RunId $runId
-                if (-not $revertBackupResult.Success) {
-                    $result.status = "fail"
-                    $result.reason = "failed to backup current state: $($revertBackupResult.Error)"
-                    Write-ProvisioningLog "FAIL: $relativePath - $($result.reason)" -Level ERROR
-                    $failCount++
-                    
-                    if ($EventsFormat -eq "jsonl") {
-                        Emit-ItemEvent -Phase "revert" -ItemId $relativePath -Status "failed" -Message $result.reason
+                # Create safety backup of current state
+                if (Test-Path $targetPath) {
+                    $safetyBackup = Backup-RestoreTarget -Target $targetPath -RunId $runId
+                    if (-not $safetyBackup.Success) {
+                        $result.status = "fail"
+                        $result.reason = "failed to create safety backup: $($safetyBackup.Error)"
+                        Write-ProvisioningLog "FAIL: $entryId - $($result.reason)" -Level ERROR
+                        $failCount++
+                        $results += $result
+                        continue
                     }
-                    
-                    $results += $result
-                    continue
+                }
+                
+                # Restore backup
+                $targetDir = Split-Path -Parent $targetPath
+                if ($targetDir -and -not (Test-Path $targetDir)) {
+                    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+                }
+                
+                if (Test-Path $entry.backupPath -PathType Container) {
+                    if (Test-Path $targetPath) {
+                        Remove-Item -Path $targetPath -Recurse -Force
+                    }
+                    Copy-Item -Path $entry.backupPath -Destination $targetPath -Recurse -Force
+                } else {
+                    Copy-Item -Path $entry.backupPath -Destination $targetPath -Force
+                }
+                
+                $result.status = "reverted"
+                $result.reason = "restored from backup"
+                Write-ProvisioningLog "REVERTED (backup): $targetPath" -Level SUCCESS
+                $revertCount++
+                
+                if ($EventsFormat -eq "jsonl") {
+                    Emit-ItemEvent -Phase "revert" -ItemId $entryId -Status "success" -Message "Restored from backup"
                 }
             } catch {
                 $result.status = "fail"
-                $result.reason = "failed to backup current state: $($_.Exception.Message)"
-                Write-ProvisioningLog "FAIL: $relativePath - $($result.reason)" -Level ERROR
+                $result.reason = $_.Exception.Message
+                Write-ProvisioningLog "FAIL: $entryId - $($result.reason)" -Level ERROR
                 $failCount++
+                
+                if ($EventsFormat -eq "jsonl") {
+                    Emit-ItemEvent -Phase "revert" -ItemId $entryId -Status "failed" -Message $result.reason
+                }
+            }
+            
+            $results += $result
+            continue
+        }
+        
+        # CASE 2: Target was created by restore (didn't exist before) - delete it
+        if (-not $entry.targetExistedBefore) {
+            if (-not (Test-Path $targetPath)) {
+                $result.status = "skip"
+                $result.reason = "target no longer exists"
+                Write-ProvisioningLog "SKIP: $entryId - target already deleted" -Level SKIP
+                $skipCount++
                 $results += $result
                 continue
             }
+            
+            try {
+                # Create safety backup before deleting
+                $safetyBackup = Backup-RestoreTarget -Target $targetPath -RunId $runId
+                if (-not $safetyBackup.Success) {
+                    $result.status = "fail"
+                    $result.reason = "failed to create safety backup before deletion: $($safetyBackup.Error)"
+                    Write-ProvisioningLog "FAIL: $entryId - $($result.reason)" -Level ERROR
+                    $failCount++
+                    $results += $result
+                    continue
+                }
+                
+                # Delete the target
+                if (Test-Path $targetPath -PathType Container) {
+                    Remove-Item -Path $targetPath -Recurse -Force
+                } else {
+                    Remove-Item -Path $targetPath -Force
+                }
+                
+                $result.status = "reverted"
+                $result.reason = "deleted created target"
+                Write-ProvisioningLog "REVERTED (deleted): $targetPath" -Level SUCCESS
+                $revertCount++
+                
+                if ($EventsFormat -eq "jsonl") {
+                    Emit-ItemEvent -Phase "revert" -ItemId $entryId -Status "success" -Message "Deleted created target"
+                }
+            } catch {
+                $result.status = "fail"
+                $result.reason = $_.Exception.Message
+                Write-ProvisioningLog "FAIL: $entryId - $($result.reason)" -Level ERROR
+                $failCount++
+                
+                if ($EventsFormat -eq "jsonl") {
+                    Emit-ItemEvent -Phase "revert" -ItemId $entryId -Status "failed" -Message $result.reason
+                }
+            }
+            
+            $results += $result
+            continue
         }
         
-        # Restore backup to original location
-        try {
-            $targetDir = Split-Path -Parent $originalPath
-            if ($targetDir -and -not (Test-Path $targetDir)) {
-                New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
-            }
-            
-            Copy-Item -Path $backupFile.FullName -Destination $originalPath -Force
-            
-            $result.status = "reverted"
-            $result.reason = "restored from backup"
-            Write-ProvisioningLog "REVERTED: $originalPath" -Level SUCCESS
-            $revertCount++
-            
-            if ($EventsFormat -eq "jsonl") {
-                Emit-ItemEvent -Phase "revert" -ItemId $relativePath -Status "success" -Message "Reverted successfully"
-            }
-            
-        } catch {
-            $result.status = "fail"
-            $result.reason = $_.Exception.Message
-            Write-ProvisioningLog "FAIL: $relativePath - $($result.reason)" -Level ERROR
-            $failCount++
-            
-            if ($EventsFormat -eq "jsonl") {
-                Emit-ItemEvent -Phase "revert" -ItemId $relativePath -Status "failed" -Message $result.reason
-            }
-        }
-        
+        # CASE 3: No backup and target existed before - nothing to revert
+        $result.status = "skip"
+        $result.reason = "no backup available and target existed before restore"
+        Write-ProvisioningLog "SKIP: $entryId - $($result.reason)" -Level SKIP
+        $skipCount++
         $results += $result
     }
     
@@ -334,4 +403,4 @@ function Invoke-ExportRevert {
     }
 }
 
-# Functions exported: Invoke-ExportRevert, Get-LastRestoreRun
+# Functions exported: Invoke-ExportRevert, Get-LastRestoreJournal

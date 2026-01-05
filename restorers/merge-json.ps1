@@ -293,6 +293,9 @@ function Invoke-JsonMergeRestore {
         [string]$ManifestDir = $null,
         
         [Parameter(Mandatory = $false)]
+        [string]$ExportPath = $null,
+        
+        [Parameter(Mandatory = $false)]
         [switch]$DryRun
     )
     
@@ -305,8 +308,17 @@ function Invoke-JsonMergeRestore {
         Warnings = @()
     }
     
-    # Expand paths
-    $expandedSource = Expand-RestorePathHelper -Path $Source -BasePath $ManifestDir
+    # Expand paths with Model B support
+    $expandedSource = $null
+    if ($ExportPath -and (Test-Path $ExportPath)) {
+        $exportSource = Expand-RestorePathHelper -Path $Source -BasePath $ExportPath
+        if (Test-Path $exportSource) {
+            $expandedSource = $exportSource
+        }
+    }
+    if (-not $expandedSource) {
+        $expandedSource = Expand-RestorePathHelper -Path $Source -BasePath $ManifestDir
+    }
     $expandedTarget = Expand-RestorePathHelper -Path $Target
     
     # Check source exists

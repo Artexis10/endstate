@@ -254,9 +254,9 @@ function Show-Help {
     Write-Host "    capture          Capture current machine state into a manifest"
     Write-Host "    plan             Generate execution plan from manifest"
     Write-Host "    apply            Execute the plan (use -DryRun to preview)"
-    Write-Host "    restore          Restore configuration files from manifest (requires -EnableRestore)"
+    Write-Host "    restore          Restore configuration files from manifest (requires -EnableRestore, use -Export for Model B)"
     Write-Host "    export-config    Export config files from system to export folder (inverse of restore, use -DryRun to preview)"
-    Write-Host "    validate-export  Validate export integrity before restore"
+    Write-Host "    validate-export  Validate export integrity before restore (use -Export for Model B)"
     Write-Host "    revert           Revert last restore operation by restoring backups"
     Write-Host "    verify           Check current state against manifest"
     Write-Host "    doctor           Diagnose environment issues"
@@ -269,6 +269,7 @@ function Show-Help {
     Write-Host "    -Profile <name>        Profile name for capture (writes to manifests/<name>.jsonc)"
     Write-Host "    -OutManifest <path>    Output path for captured manifest (overrides -Profile)"
     Write-Host "    -Export <path>         Export directory path (default: <manifestDir>/export/)"
+    Write-Host "                           For restore/validate-export: resolve sources from export snapshot"
     Write-Host "    -DryRun                Preview changes without applying"
     Write-Host "    -EnableRestore         Enable restore operations (opt-in for safety)"
     Write-Host "    -FileA <path>          First artifact file for diff"
@@ -294,7 +295,8 @@ function Show-Help {
     Write-Host "    .\cli.ps1 -Command plan -Manifest .\manifests\my-machine.jsonc"
     Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc -DryRun"
     Write-Host "    .\cli.ps1 -Command apply -Manifest .\manifests\my-machine.jsonc"
-    Write-Host "    .\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore"
+    Write-Host "    .\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore
+    .\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -Export .\snapshot -EnableRestore"
     Write-Host "    .\cli.ps1 -Command verify -Manifest .\manifests\my-machine.jsonc"
     Write-Host "    .\cli.ps1 -Command doctor"
     Write-Host ""
@@ -612,13 +614,14 @@ function Invoke-ProvisioningRestore {
     param(
         [string]$ManifestPath,
         [bool]$IsEnableRestore,
-        [bool]$IsDryRun
+        [bool]$IsDryRun,
+        [string]$ExportPath
     )
     
     if (-not $ManifestPath) {
         Write-Host "[ERROR] -Manifest is required for 'restore' command." -ForegroundColor Red
         Write-Host ""
-        Write-Host "Usage: .\cli.ps1 -Command restore -Manifest <path> -EnableRestore [-DryRun]" -ForegroundColor Yellow
+        Write-Host "Usage: .\cli.ps1 -Command restore -Manifest <path> -EnableRestore [-Export <path>] [-DryRun]" -ForegroundColor Yellow
         return $null
     }
     
@@ -629,7 +632,7 @@ function Invoke-ProvisioningRestore {
     
     . "$script:ProvisioningRoot\engine\restore.ps1"
     
-    $result = Invoke-Restore -ManifestPath $ManifestPath -EnableRestore:$IsEnableRestore -DryRun:$IsDryRun
+    $result = Invoke-Restore -ManifestPath $ManifestPath -EnableRestore:$IsEnableRestore -DryRun:$IsDryRun -ExportPath $ExportPath
     return $result
 }
 
@@ -782,7 +785,7 @@ switch ($Command) {
     }
     "plan"    { Invoke-ProvisioningPlan -ManifestPath $Manifest }
     "apply"   { Invoke-ProvisioningApply -ManifestPath $Manifest -PlanPath $Plan -IsDryRun $DryRun.IsPresent -IsEnableRestore $EnableRestore.IsPresent -OutputJson $Json.IsPresent -EventsFormat $Events }
-    "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent }
+    "restore" { Invoke-ProvisioningRestore -ManifestPath $Manifest -IsEnableRestore $EnableRestore.IsPresent -IsDryRun $DryRun.IsPresent -ExportPath $Export }
     "export-config" { Invoke-ProvisioningExportConfig -ManifestPath $Manifest -ExportPath $Export -IsDryRun $DryRun.IsPresent -EventsFormat $Events }
     "validate-export" { Invoke-ProvisioningValidateExport -ManifestPath $Manifest -ExportPath $Export -EventsFormat $Events }
     "revert"  { Invoke-ProvisioningRevert -IsDryRun $DryRun.IsPresent -EventsFormat $Events }

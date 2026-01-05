@@ -107,8 +107,8 @@ function Expand-RestorePath {
     
     # Handle ~ for home directory (cross-platform)
     if ($expanded.StartsWith("~")) {
-        $home = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
-        $expanded = $expanded -replace "^~", $home
+        $homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
+        $expanded = $expanded -replace "^~", $homeDir
     }
     
     # Handle relative paths (starting with ./ or ../)
@@ -204,6 +204,7 @@ function Invoke-RestoreAction {
         - merge (json): deep-merge JSON files
         - merge (ini): merge INI files
         - append: append lines to text file
+        Supports Model B: ExportPath for resolving sources from export snapshot.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -214,6 +215,9 @@ function Invoke-RestoreAction {
         
         [Parameter(Mandatory = $false)]
         [string]$ManifestDir = $null,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$ExportPath = $null,
         
         [Parameter(Mandatory = $false)]
         [switch]$DryRun
@@ -269,6 +273,7 @@ function Invoke-RestoreAction {
                         -ArrayStrategy $arrayStrategy `
                         -RunId $RunId `
                         -ManifestDir $ManifestDir `
+                        -ExportPath $ExportPath `
                         -DryRun:$DryRun
                 }
                 "ini" {
@@ -278,6 +283,7 @@ function Invoke-RestoreAction {
                         -Backup $backup `
                         -RunId $RunId `
                         -ManifestDir $ManifestDir `
+                        -ExportPath $ExportPath `
                         -DryRun:$DryRun
                 }
                 default {
@@ -298,6 +304,7 @@ function Invoke-RestoreAction {
                 -Newline $newline `
                 -RunId $RunId `
                 -ManifestDir $ManifestDir `
+                -ExportPath $ExportPath `
                 -DryRun:$DryRun
         }
         default {
@@ -308,6 +315,7 @@ function Invoke-RestoreAction {
                 -Backup $backup `
                 -RunId $RunId `
                 -ManifestDir $ManifestDir `
+                -ExportPath $ExportPath `
                 -DryRun:$DryRun
         }
     }
@@ -318,6 +326,14 @@ function Invoke-RestoreAction {
             $result.warnings = @($result.warnings) + @($restorerResult.Warnings)
         }
         $result.backupPath = $restorerResult.BackupPath
+        
+        # Pass through journaling metadata
+        if ($restorerResult.ContainsKey('TargetExistedBefore')) {
+            $result.targetExistedBefore = $restorerResult.TargetExistedBefore
+        }
+        if ($restorerResult.ContainsKey('BackupCreated')) {
+            $result.backupCreated = $restorerResult.BackupCreated
+        }
         
         if ($restorerResult.Success) {
             if ($restorerResult.Skipped) {
@@ -345,6 +361,7 @@ function Invoke-CopyRestoreAction {
         Execute a copy restore action (legacy behavior).
     .DESCRIPTION
         Copies file/directory from source to target with backup support.
+        Supports Model B: ExportPath for resolving sources from export snapshot with fallback to manifest dir.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -363,6 +380,9 @@ function Invoke-CopyRestoreAction {
         [string]$ManifestDir = $null,
         
         [Parameter(Mandatory = $false)]
+        [string]$ExportPath = $null,
+        
+        [Parameter(Mandatory = $false)]
         [switch]$DryRun
     )
     
@@ -373,17 +393,44 @@ function Invoke-CopyRestoreAction {
         Message = $null
         Error = $null
         Warnings = @()
+        TargetExistedBefore = $false
+        BackupCreated = $false
     }
     
-    # Expand paths
-    $expandedSource = Expand-RestorePath -Path $Source -BasePath $ManifestDir
+    # Expand paths with Model B support (export root with fallback)
+    $expandedSource = $null
+    $sourceRoot = "manifest-dir"
+    
+    if ($ExportPath -and (Test-Path $ExportPath)) {
+        # Try export root first (Model B)
+        $exportSource = Expand-RestorePath -Path $Source -BasePath $ExportPath
+        if (Test-Path $exportSource) {
+            $expandedSource = $exportSource
+            $sourceRoot = "export-root"
+        }
+    }
+    
+    # Fallback to manifest dir if export source not found
+    if (-not $expandedSource) {
+        $expandedSource = Expand-RestorePath -Path $Source -BasePath $ManifestDir
+        $sourceRoot = "manifest-dir"
+    }
+    
     $expandedTarget = Expand-RestorePath -Path $Target
     
     # Check source exists
     if (-not (Test-Path $expandedSource)) {
-        $result.Error = "source not found: $expandedSource"
+        $result.Error = "source not found: $expandedSource (tried $sourceRoot)"
         return $result
     }
+    
+    # Log which source root was used (for dry-run and debugging)
+    if ($DryRun -and $ExportPath) {
+        $result.Warnings += "Source resolved from: $sourceRoot"
+    }
+    
+    # Track if target existed before restore
+    $result.TargetExistedBefore = Test-Path $expandedTarget
     
     # Check if up-to-date
     if (Test-FileUpToDate -Source $expandedSource -Target $expandedTarget) {
@@ -408,6 +455,7 @@ function Invoke-CopyRestoreAction {
             return $result
         }
         $result.BackupPath = $backupResult.BackupPath
+        $result.BackupCreated = $true
     }
     
     # Perform the copy
@@ -499,6 +547,7 @@ function Invoke-Restore {
     .DESCRIPTION
         Main entry point for restore operations.
         Requires explicit opt-in via -EnableRestore flag.
+        Supports Model B: -ExportPath to resolve sources from export snapshot.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -511,7 +560,10 @@ function Invoke-Restore {
         [switch]$DryRun,
         
         [Parameter(Mandatory = $false)]
-        [string]$RunId = $null
+        [string]$RunId = $null,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$ExportPath = $null
     )
     
     if (-not $RunId) {
@@ -527,6 +579,17 @@ function Invoke-Restore {
     # Load manifest
     $manifest = Read-Manifest -Path $ManifestPath
     $manifestDir = Split-Path -Parent (Resolve-Path $ManifestPath)
+    
+    # Resolve export path (Model B support)
+    . "$PSScriptRoot\export-capture.ps1"
+    $resolvedExportPath = $null
+    if ($ExportPath) {
+        $resolvedExportPath = Get-ExportPath -ManifestPath $ManifestPath -ExportPath $ExportPath
+        Write-ProvisioningLog "Export path (Model B): $resolvedExportPath" -Level INFO
+        if (-not (Test-Path $resolvedExportPath)) {
+            Write-ProvisioningLog "WARNING: Export path does not exist, will fallback to manifest dir" -Level WARN
+        }
+    }
     
     # Check if restore steps exist
     $restoreItems = @($manifest.restore)
@@ -609,7 +672,7 @@ function Invoke-Restore {
         }
         
         # Execute restore
-        $result = Invoke-RestoreAction -Action $action -RunId $RunId -ManifestDir $manifestDir -DryRun:$DryRun
+        $result = Invoke-RestoreAction -Action $action -RunId $RunId -ManifestDir $manifestDir -ExportPath $resolvedExportPath -DryRun:$DryRun
         
         # Log result
         switch ($result.status) {
@@ -664,6 +727,74 @@ function Invoke-Restore {
     }
     $stateFile = Join-Path $stateDir "restore-$RunId.json"
     $runState | ConvertTo-Json -Depth 10 | Out-File -FilePath $stateFile -Encoding UTF8
+    
+    # Write restore journal for non-dry-run operations (Phase 3: journaling)
+    if (-not $DryRun) {
+        $logsDir = Join-Path $PSScriptRoot "..\logs"
+        if (-not (Test-Path $logsDir)) {
+            New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+        }
+        
+        $journalEntries = @()
+        foreach ($result in $results) {
+            # Determine action status for journal
+            $actionStatus = switch ($result.status) {
+                "restore" { "restored" }
+                "skip" { 
+                    if ($result.reason -like "*up to date*") { "skipped_up_to_date" }
+                    elseif ($result.reason -like "*not found*") { "skipped_missing_source" }
+                    else { "skipped" }
+                }
+                "fail" { "failed" }
+                default { $result.status }
+            }
+            
+            # Extract restorer result metadata if available
+            $targetExisted = if ($result.ContainsKey('targetExistedBefore')) { $result.targetExistedBefore } else { $false }
+            $backupCreated = if ($result.ContainsKey('backupCreated')) { $result.backupCreated } else { $false }
+            $backupPath = $result.backupPath
+            $errorMsg = $null
+            
+            if ($result.status -eq "fail") {
+                $errorMsg = $result.reason
+            }
+            
+            # Fallback: infer from backup path if metadata not available
+            if (-not $result.ContainsKey('targetExistedBefore') -and $result.backupPath) {
+                $targetExisted = $true
+                $backupCreated = $true
+            }
+            
+            $journalEntry = @{
+                kind = if ($result.restoreType) { $result.restoreType } else { "copy" }
+                source = $result.source
+                target = $result.target
+                resolvedSourcePath = $result.expandedSource
+                targetPath = $result.expandedTarget
+                backupRequested = if ($null -eq $result.backup) { $true } else { $result.backup }
+                targetExistedBefore = $targetExisted
+                backupCreated = $backupCreated
+                backupPath = $backupPath
+                action = $actionStatus
+                error = $errorMsg
+            }
+            
+            $journalEntries += $journalEntry
+        }
+        
+        $journal = @{
+            runId = $RunId
+            manifestPath = $ManifestPath
+            manifestDir = $manifestDir
+            exportRoot = $resolvedExportPath
+            timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+            entries = $journalEntries
+        }
+        
+        $journalFile = Join-Path $logsDir "restore-journal-$RunId.json"
+        $journal | ConvertTo-Json -Depth 10 | Out-File -FilePath $journalFile -Encoding UTF8
+        Write-ProvisioningLog "Restore journal written: $journalFile" -Level INFO
+    }
     
     # Summary
     Write-ProvisioningSection "Restore Results"
