@@ -17,6 +17,99 @@ $script:IncludeStack = @()
 # Flag to control config module expansion (can be disabled for raw loading)
 $script:ExpandConfigModules = $true
 
+function Resolve-RestoreEntriesFromCatalogs {
+    <#
+    .SYNOPSIS
+        Expand bundles and recipes into restore entries.
+    .DESCRIPTION
+        Resolves manifest.bundles and manifest.recipes from repo-root catalogs.
+        Returns expanded restore[] in the correct order:
+        1. Bundle recipes (in bundle order, recipe order within each bundle)
+        2. Manifest recipes (in order)
+        3. Manifest inline restore[] (appended last)
+    .PARAMETER Manifest
+        The manifest hashtable to expand.
+    .PARAMETER RepoRoot
+        The repository root path where /bundles and /recipes directories exist.
+    .OUTPUTS
+        Array of restore entry objects.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Manifest,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+    
+    $expandedRestore = @()
+    
+    # 1. Process bundles
+    if ($Manifest.bundles -and $Manifest.bundles.Count -gt 0) {
+        foreach ($bundleId in $Manifest.bundles) {
+            $bundlePath = Join-Path $RepoRoot "bundles\$bundleId.jsonc"
+            
+            if (-not (Test-Path $bundlePath)) {
+                throw "Bundle not found: $bundleId (expected at: $bundlePath)"
+            }
+            
+            try {
+                $bundle = Read-JsoncFile -Path $bundlePath
+                
+                if ($bundle.recipes -and $bundle.recipes.Count -gt 0) {
+                    foreach ($recipeId in $bundle.recipes) {
+                        $recipePath = Join-Path $RepoRoot "recipes\$recipeId.jsonc"
+                        
+                        if (-not (Test-Path $recipePath)) {
+                            throw "Recipe not found: $recipeId (referenced by bundle $bundleId, expected at: $recipePath)"
+                        }
+                        
+                        try {
+                            $recipe = Read-JsoncFile -Path $recipePath
+                            
+                            if ($recipe.restore -and $recipe.restore.Count -gt 0) {
+                                $expandedRestore += @($recipe.restore)
+                            }
+                        } catch {
+                            throw "Failed to load recipe '$recipeId' from bundle '$bundleId': $($_.Exception.Message)"
+                        }
+                    }
+                }
+            } catch {
+                throw "Failed to load bundle '$bundleId': $($_.Exception.Message)"
+            }
+        }
+    }
+    
+    # 2. Process manifest recipes
+    if ($Manifest.recipes -and $Manifest.recipes.Count -gt 0) {
+        foreach ($recipeId in $Manifest.recipes) {
+            $recipePath = Join-Path $RepoRoot "recipes\$recipeId.jsonc"
+            
+            if (-not (Test-Path $recipePath)) {
+                throw "Recipe not found: $recipeId (expected at: $recipePath)"
+            }
+            
+            try {
+                $recipe = Read-JsoncFile -Path $recipePath
+                
+                if ($recipe.restore -and $recipe.restore.Count -gt 0) {
+                    $expandedRestore += @($recipe.restore)
+                }
+            } catch {
+                throw "Failed to load recipe '$recipeId': $($_.Exception.Message)"
+            }
+        }
+    }
+    
+    # 3. Append manifest inline restore entries
+    if ($Manifest.restore -and $Manifest.restore.Count -gt 0) {
+        $expandedRestore += @($Manifest.restore)
+    }
+    
+    return $expandedRestore
+}
+
 function Read-Manifest {
     <#
     .SYNOPSIS
@@ -53,6 +146,40 @@ function Read-Manifest {
                 $manifest = Expand-ManifestConfigModules -Manifest $manifest
             }
         }
+    }
+    
+    # Expand bundles and recipes from catalogs (if present)
+    if (($manifest.bundles -and $manifest.bundles.Count -gt 0) -or 
+        ($manifest.recipes -and $manifest.recipes.Count -gt 0)) {
+        
+        # Resolve manifest path to find repo root
+        $resolvedPath = (Resolve-Path $Path -ErrorAction SilentlyContinue).Path
+        if (-not $resolvedPath) {
+            $resolvedPath = [System.IO.Path]::GetFullPath($Path)
+        }
+        
+        # Find repo root (walk up to find /bundles and /recipes)
+        $manifestDir = Split-Path -Parent $resolvedPath
+        $repoRoot = $manifestDir
+        
+        $current = $manifestDir
+        while ($current) {
+            $bundlesDir = Join-Path $current "bundles"
+            $recipesDir = Join-Path $current "recipes"
+            
+            if ((Test-Path $bundlesDir) -and (Test-Path $recipesDir)) {
+                $repoRoot = $current
+                break
+            }
+            
+            $parent = Split-Path -Parent $current
+            if ($parent -eq $current) { break }
+            $current = $parent
+        }
+        
+        # Expand catalogs into restore entries
+        $expandedRestore = Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot
+        $manifest.restore = $expandedRestore
     }
     
     return $manifest
@@ -428,7 +555,7 @@ function Normalize-Manifest {
     if (-not $Manifest.ContainsKey('name') -or $null -eq $Manifest.name) { $Manifest.name = "" }
     
     # Ensure array fields default to empty arrays and are always arrays (not single objects)
-    foreach ($arrayKey in @('apps', 'restore', 'verify', 'includes', 'configModules')) {
+    foreach ($arrayKey in @('apps', 'restore', 'verify', 'includes', 'configModules', 'bundles', 'recipes')) {
         if (-not $Manifest.ContainsKey($arrayKey) -or $null -eq $Manifest[$arrayKey]) {
             $Manifest[$arrayKey] = @()
         } else {
