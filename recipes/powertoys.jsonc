@@ -1,13 +1,19 @@
 {
   "id": "powertoys",
   "name": "PowerToys Configuration",
-  "notes": "Settings for Microsoft PowerToys utilities",
+  "notes": "All PowerToys settings and module configs",
+  "requiresClosed": [
+    "PowerToys.exe"
+  ],
   "restore": [
     {
       "type": "copy",
-      "source": "./configs/powertoys/settings.json",
-      "target": "%LOCALAPPDATA%\\Microsoft\\PowerToys\\settings.json",
-      "backup": true
+      "source": "./configs/powertoys",
+      "target": "%LOCALAPPDATA%\\Microsoft\\PowerToys",
+      "backup": true,
+      "exclude": [
+        "**\\Logs\\**"
+      ]
     }
   ]
 }
