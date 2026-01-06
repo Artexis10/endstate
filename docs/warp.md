@@ -28,37 +28,37 @@ Tests use Pester 5.7.1 (vendored in `tools/pester/`). Test results are written t
 ### CLI Commands
 ```powershell
 # Capture current machine state
-.\cli.ps1 -Command capture -Profile my-machine
+.\bin\cli.ps1 -Command capture -Profile my-machine
 
 # Capture with templates for restore/verify
-.\cli.ps1 -Command capture -Profile my-machine -IncludeRestoreTemplate -IncludeVerifyTemplate
+.\bin\cli.ps1 -Command capture -Profile my-machine -IncludeRestoreTemplate -IncludeVerifyTemplate
 
 # Update existing manifest with new capture
-.\cli.ps1 -Command capture -Profile my-machine -Update
+.\bin\cli.ps1 -Command capture -Profile my-machine -Update
 
 # Generate execution plan
-.\cli.ps1 -Command plan -Manifest manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command plan -Manifest manifests\my-machine.jsonc
 
 # Dry-run (preview changes)
-.\cli.ps1 -Command apply -Manifest manifests\my-machine.jsonc -DryRun
+.\bin\cli.ps1 -Command apply -Manifest manifests\my-machine.jsonc -DryRun
 
 # Apply manifest (execute changes)
-.\cli.ps1 -Command apply -Manifest manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command apply -Manifest manifests\my-machine.jsonc
 
 # Restore configurations (opt-in)
-.\cli.ps1 -Command restore -Manifest manifests\my-machine.jsonc -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest manifests\my-machine.jsonc -EnableRestore
 
 # Verify desired state
-.\cli.ps1 -Command verify -Manifest manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command verify -Manifest manifests\my-machine.jsonc
 
 # Check environment health
-.\cli.ps1 -Command doctor
+.\bin\cli.ps1 -Command doctor
 
 # View run history
-.\cli.ps1 -Command report -Latest
+.\bin\cli.ps1 -Command report -Latest
 
 # Compare artifacts
-.\cli.ps1 -Command diff -FileA plans\run1.json -FileB plans\run2.json
+.\bin\cli.ps1 -Command diff -FileA plans\run1.json -FileB plans\run2.json
 ```
 
 ## Architecture

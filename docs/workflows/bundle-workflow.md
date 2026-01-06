@@ -38,7 +38,7 @@ Reads `restore[]` entries from manifest, resolves targets on current system, and
 
 **Usage:**
 ```powershell
-.\cli.ps1 -Command capture-config -Manifest <path> [-Bundle <path>]
+.\bin\cli.ps1 -Command capture-config -Manifest <path> [-Bundle <path>]
 ```
 
 **Behavior:**
@@ -56,10 +56,10 @@ Reads `restore[]` entries from manifest, resolves targets on current system, and
 **Example:**
 ```powershell
 # Capture configs from current system to bundle
-.\cli.ps1 -Command capture-config -Manifest .\manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command capture-config -Manifest .\manifests\my-machine.jsonc
 
 # Capture to custom bundle location
-.\cli.ps1 -Command capture-config -Manifest .\manifests\my-machine.jsonc -Bundle C:\Backups\my-bundle
+.\bin\cli.ps1 -Command capture-config -Manifest .\manifests\my-machine.jsonc -Bundle C:\Backups\my-bundle
 ```
 
 ---
@@ -70,7 +70,7 @@ Validates that a bundle is complete and ready for restore.
 
 **Usage:**
 ```powershell
-.\cli.ps1 -Command validate-bundle -Manifest <path> [-Bundle <path>]
+.\bin\cli.ps1 -Command validate-bundle -Manifest <path> [-Bundle <path>]
 ```
 
 **Validation Checks:**
@@ -84,7 +84,7 @@ Validates that a bundle is complete and ready for restore.
 **Example:**
 ```powershell
 # Validate bundle before restore
-.\cli.ps1 -Command validate-bundle -Manifest .\manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command validate-bundle -Manifest .\manifests\my-machine.jsonc
 ```
 
 ---
@@ -95,7 +95,7 @@ Executes restore operations using bundle contents (existing command, no changes)
 
 **Usage:**
 ```powershell
-.\cli.ps1 -Command restore -Manifest <path> -EnableRestore [-DryRun]
+.\bin\cli.ps1 -Command restore -Manifest <path> -EnableRestore [-DryRun]
 ```
 
 **Behavior:**
@@ -107,10 +107,10 @@ Executes restore operations using bundle contents (existing command, no changes)
 **Example:**
 ```powershell
 # Dry-run restore
-.\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore -DryRun
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore -DryRun
 
 # Execute restore
-.\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore
 ```
 
 ---
@@ -134,7 +134,7 @@ Executes restore operations using bundle contents (existing command, no changes)
 }
 
 # 2. Capture configs to bundle
-.\cli.ps1 -Command capture-config -Manifest .\manifests\my-setup.jsonc
+.\bin\cli.ps1 -Command capture-config -Manifest .\manifests\my-setup.jsonc
 
 # Result: bundle/ folder created with:
 #   - bundle/manifest.snapshot.jsonc
@@ -155,13 +155,13 @@ Copy-Item -Path .\manifests\bundle -Destination D:\Transfer\ -Recurse
 
 ```powershell
 # 1. Validate bundle integrity
-.\cli.ps1 -Command validate-bundle -Manifest D:\Transfer\my-setup.jsonc
+.\bin\cli.ps1 -Command validate-bundle -Manifest D:\Transfer\my-setup.jsonc
 
 # 2. Preview restore (dry-run)
-.\cli.ps1 -Command restore -Manifest D:\Transfer\my-setup.jsonc -EnableRestore -DryRun
+.\bin\cli.ps1 -Command restore -Manifest D:\Transfer\my-setup.jsonc -EnableRestore -DryRun
 
 # 3. Execute restore
-.\cli.ps1 -Command restore -Manifest D:\Transfer\my-setup.jsonc -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest D:\Transfer\my-setup.jsonc -EnableRestore
 ```
 
 ---
@@ -222,17 +222,17 @@ Restore operations:
 
 ```powershell
 # Capture with manifest v1
-.\cli.ps1 -Command capture-config -Manifest .\manifests\setup.jsonc
+.\bin\cli.ps1 -Command capture-config -Manifest .\manifests\setup.jsonc
 # Creates: bundle/manifest.snapshot.jsonc (copy of setup.jsonc)
 
 # User edits setup.jsonc (adds new restore entry)
 
 # Validate warns about mismatch
-.\cli.ps1 -Command validate-bundle -Manifest .\manifests\setup.jsonc
+.\bin\cli.ps1 -Command validate-bundle -Manifest .\manifests\setup.jsonc
 # Output: "WARNING: Snapshot manifest differs from active manifest"
 
 # Restore uses active manifest (not snapshot)
-.\cli.ps1 -Command restore -Manifest .\manifests\setup.jsonc -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\setup.jsonc -EnableRestore
 # Uses current setup.jsonc, not snapshot
 ```
 

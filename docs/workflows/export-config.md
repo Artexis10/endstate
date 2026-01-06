@@ -23,7 +23,7 @@ The `export-config` command captures configuration files from your system and ex
 ### Basic Export
 
 ```powershell
-.\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc
 ```
 
 This exports to `<manifestDir>/export/` by default.
@@ -31,13 +31,13 @@ This exports to `<manifestDir>/export/` by default.
 ### Custom Export Path
 
 ```powershell
-.\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc -Export C:\Backups\configs
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc -Export C:\Backups\configs
 ```
 
 ### Preview (Dry-Run)
 
 ```powershell
-.\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc -DryRun
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc -DryRun
 ```
 
 Shows what would be exported without copying files.
@@ -111,13 +111,13 @@ manifests/
 On source machine:
 
 ```powershell
-.\cli.ps1 -Command export-config -Manifest .\manifests\my-app.jsonc
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\my-app.jsonc
 ```
 
 ### 2. Validate Export
 
 ```powershell
-.\cli.ps1 -Command validate-export -Manifest .\manifests\my-app.jsonc
+.\bin\cli.ps1 -Command validate-export -Manifest .\manifests\my-app.jsonc
 ```
 
 Checks:
@@ -132,13 +132,13 @@ Copy the entire export folder to the target machine.
 ### 4. Restore on Target Machine
 
 ```powershell
-.\cli.ps1 -Command restore -Manifest .\manifests\my-app.jsonc -EnableRestore -DryRun
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\my-app.jsonc -EnableRestore -DryRun
 ```
 
 Preview first, then:
 
 ```powershell
-.\cli.ps1 -Command restore -Manifest .\manifests\my-app.jsonc -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\my-app.jsonc -EnableRestore
 ```
 
 ### 5. Revert if Needed
@@ -146,7 +146,7 @@ Preview first, then:
 If restore causes issues:
 
 ```powershell
-.\cli.ps1 -Command revert
+.\bin\cli.ps1 -Command revert
 ```
 
 Restores the last backup created by the restore operation.
@@ -186,10 +186,10 @@ See `manifests/examples/msi-afterburner.jsonc` for a complete example.
 
 ```powershell
 # Preview what will be exported
-.\cli.ps1 -Command export-config -Manifest .\manifests\examples\msi-afterburner.jsonc -DryRun
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\examples\msi-afterburner.jsonc -DryRun
 
 # Export for real
-.\cli.ps1 -Command export-config -Manifest .\manifests\examples\msi-afterburner.jsonc
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\examples\msi-afterburner.jsonc
 ```
 
 ### Result

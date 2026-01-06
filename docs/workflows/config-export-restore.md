@@ -62,10 +62,10 @@ Captures configuration files from the system to an export folder.
 
 ```powershell
 # Export configs defined in manifest
-.\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc
 
 # Export to custom location
-.\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc -Export .\my-export
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc -Export .\my-export
 ```
 
 **Behavior:**
@@ -86,10 +86,10 @@ Validates that an export is complete and ready for restore.
 
 ```powershell
 # Validate export
-.\cli.ps1 -Command validate-export -Manifest .\manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command validate-export -Manifest .\manifests\my-machine.jsonc
 
 # Validate custom export location
-.\cli.ps1 -Command validate-export -Manifest .\manifests\my-machine.jsonc -Export .\my-export
+.\bin\cli.ps1 -Command validate-export -Manifest .\manifests\my-machine.jsonc -Export .\my-export
 ```
 
 **Validation Checks:**
@@ -108,10 +108,10 @@ Restores configuration files from export to system.
 
 ```powershell
 # Preview restore (dry-run)
-.\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore -DryRun
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore -DryRun
 
 # Execute restore
-.\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -EnableRestore
 ```
 
 **Behavior:**
@@ -133,10 +133,10 @@ Reverts the most recent restore operation by restoring backups.
 
 ```powershell
 # Preview revert (dry-run)
-.\cli.ps1 -Command revert -DryRun
+.\bin\cli.ps1 -Command revert -DryRun
 
 # Execute revert
-.\cli.ps1 -Command revert
+.\bin\cli.ps1 -Command revert
 ```
 
 **Behavior:**
@@ -305,10 +305,10 @@ state/backups/def456/
 **Source Machine:**
 ```powershell
 # 1. Capture current state
-.\cli.ps1 -Command capture -Profile source-machine
+.\bin\cli.ps1 -Command capture -Profile source-machine
 
 # 2. Export configurations
-.\cli.ps1 -Command export-config -Manifest .\manifests\source-machine.jsonc
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\source-machine.jsonc
 
 # 3. Copy manifest + export folder to target machine
 ```
@@ -316,26 +316,26 @@ state/backups/def456/
 **Target Machine:**
 ```powershell
 # 1. Validate export
-.\cli.ps1 -Command validate-export -Manifest .\manifests\source-machine.jsonc
+.\bin\cli.ps1 -Command validate-export -Manifest .\manifests\source-machine.jsonc
 
 # 2. Preview restore
-.\cli.ps1 -Command restore -Manifest .\manifests\source-machine.jsonc -EnableRestore -DryRun
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\source-machine.jsonc -EnableRestore -DryRun
 
 # 3. Execute restore
-.\cli.ps1 -Command restore -Manifest .\manifests\source-machine.jsonc -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\source-machine.jsonc -EnableRestore
 
 # 4. If needed, revert
-.\cli.ps1 -Command revert
+.\bin\cli.ps1 -Command revert
 ```
 
 ### Update Existing Export
 
 ```powershell
 # Re-export to update configurations
-.\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc
 
 # Validate updated export
-.\cli.ps1 -Command validate-export -Manifest .\manifests\my-machine.jsonc
+.\bin\cli.ps1 -Command validate-export -Manifest .\manifests\my-machine.jsonc
 ```
 
 ## Safety Guarantees

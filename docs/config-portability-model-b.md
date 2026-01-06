@@ -41,7 +41,7 @@ export/  (snapshot root, passed via -Export at restore time)
 ### 1. Export Config (Create Snapshot)
 
 ```powershell
-.\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc -Export .\snapshot
+.\bin\cli.ps1 -Command export-config -Manifest .\manifests\my-machine.jsonc -Export .\snapshot
 ```
 
 Creates:
@@ -51,7 +51,7 @@ Creates:
 ### 2. Validate Export (Before Restore)
 
 ```powershell
-.\cli.ps1 -Command validate-export -Manifest .\manifests\my-machine.jsonc -Export .\snapshot
+.\bin\cli.ps1 -Command validate-export -Manifest .\manifests\my-machine.jsonc -Export .\snapshot
 ```
 
 Validates:
@@ -62,7 +62,7 @@ Validates:
 ### 3. Restore with Export Snapshot (Model B)
 
 ```powershell
-.\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -Export .\snapshot -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest .\manifests\my-machine.jsonc -Export .\snapshot -EnableRestore
 ```
 
 Source resolution:
@@ -74,7 +74,7 @@ Logs show which root was used for each entry.
 ### 4. Revert (Journal-Based)
 
 ```powershell
-.\cli.ps1 -Command revert
+.\bin\cli.ps1 -Command revert
 ```
 
 Revert algorithm (processes journal entries in **reverse order**):
@@ -153,7 +153,7 @@ Action: Skip (nothing to revert)
 
 ### restore
 ```powershell
-.\cli.ps1 -Command restore -Manifest <path> -EnableRestore [-Export <path>] [-DryRun]
+.\bin\cli.ps1 -Command restore -Manifest <path> -EnableRestore [-Export <path>] [-DryRun]
 ```
 
 **Parameters**:
@@ -164,7 +164,7 @@ Action: Skip (nothing to revert)
 
 ### validate-export
 ```powershell
-.\cli.ps1 -Command validate-export -Manifest <path> [-Export <path>]
+.\bin\cli.ps1 -Command validate-export -Manifest <path> [-Export <path>]
 ```
 
 **Parameters**:
@@ -173,7 +173,7 @@ Action: Skip (nothing to revert)
 
 ### revert
 ```powershell
-.\cli.ps1 -Command revert [-DryRun]
+.\bin\cli.ps1 -Command revert [-DryRun]
 ```
 
 **Parameters**:
@@ -185,13 +185,13 @@ Automatically finds the latest restore journal.
 
 1. **Always validate before restore**:
    ```powershell
-   .\cli.ps1 -Command validate-export -Manifest .\manifest.jsonc -Export .\snapshot
-   .\cli.ps1 -Command restore -Manifest .\manifest.jsonc -Export .\snapshot -EnableRestore
+   .\bin\cli.ps1 -Command validate-export -Manifest .\manifest.jsonc -Export .\snapshot
+   .\bin\cli.ps1 -Command restore -Manifest .\manifest.jsonc -Export .\snapshot -EnableRestore
    ```
 
 2. **Use dry-run first**:
    ```powershell
-   .\cli.ps1 -Command restore -Manifest .\manifest.jsonc -Export .\snapshot -EnableRestore -DryRun
+   .\bin\cli.ps1 -Command restore -Manifest .\manifest.jsonc -Export .\snapshot -EnableRestore -DryRun
    ```
 
 3. **Keep export snapshots portable**:
@@ -208,18 +208,18 @@ Automatically finds the latest restore journal.
 
 Model A (legacy) still works:
 ```powershell
-.\cli.ps1 -Command restore -Manifest .\manifest.jsonc -EnableRestore
+.\bin\cli.ps1 -Command restore -Manifest .\manifest.jsonc -EnableRestore
 ```
 
 To migrate to Model B:
 1. Export config to create snapshot:
    ```powershell
-   .\cli.ps1 -Command export-config -Manifest .\manifest.jsonc -Export .\snapshot
+   .\bin\cli.ps1 -Command export-config -Manifest .\manifest.jsonc -Export .\snapshot
    ```
 
 2. Use `-Export` for future restores:
    ```powershell
-   .\cli.ps1 -Command restore -Manifest .\manifest.jsonc -Export .\snapshot -EnableRestore
+   .\bin\cli.ps1 -Command restore -Manifest .\manifest.jsonc -Export .\snapshot -EnableRestore
    ```
 
 3. Optionally remove config files from manifest directory (now in export snapshot)
