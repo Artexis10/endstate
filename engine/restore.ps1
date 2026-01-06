@@ -313,6 +313,7 @@ function Invoke-RestoreAction {
                 -Source $Action.source `
                 -Target $Action.target `
                 -Backup $backup `
+                -Exclude $Action.exclude `
                 -RunId $RunId `
                 -ManifestDir $ManifestDir `
                 -ExportPath $ExportPath `
@@ -355,6 +356,106 @@ function Invoke-RestoreAction {
     return $result
 }
 
+function Test-PathExcluded {
+    <#
+    .SYNOPSIS
+        Check if a relative path matches any exclude pattern.
+    .DESCRIPTION
+        Simple contains-based matching:
+        - Patterns like **\Logs\** are treated as "contains \Logs\"
+        - Patterns are matched against normalized backslash-separated paths
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RelativePath,
+        
+        [Parameter(Mandatory = $true)]
+        [array]$Patterns
+    )
+    
+    # Normalize to backslash separators
+    $normalizedPath = $RelativePath -replace '/', '\'
+    
+    foreach ($pattern in $Patterns) {
+        $normalizedPattern = $pattern -replace '/', '\'
+        
+        # Simple contains matching: strip leading/trailing ** and check contains
+        # e.g., **\Logs\** becomes \Logs\ and we check if path contains it
+        $searchPattern = $normalizedPattern -replace '^\*\*\\?', '' -replace '\\?\*\*$', ''
+        
+        if ($searchPattern -and $normalizedPath -like "*$searchPattern*") {
+            return $true
+        }
+    }
+    
+    return $false
+}
+
+function Copy-DirectoryWithExcludes {
+    <#
+    .SYNOPSIS
+        Copy a directory tree, skipping paths that match exclude patterns.
+    .DESCRIPTION
+        Enumerates source directory and copies only non-excluded items.
+        Excluded paths are silently skipped (no errors).
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Target,
+        
+        [Parameter(Mandatory = $true)]
+        [array]$Exclude
+    )
+    
+    # Normalize source path to full path with trailing backslash
+    $sourceRoot = (Get-Item -LiteralPath $Source).FullName.TrimEnd('\') + '\'
+    
+    # Ensure target directory exists
+    if (-not (Test-Path -LiteralPath $Target)) {
+        New-Item -ItemType Directory -Path $Target -Force | Out-Null
+    }
+    
+    # Get all items in source
+    $sourceItems = Get-ChildItem -LiteralPath $Source -Recurse -Force
+    
+    foreach ($item in $sourceItems) {
+        # Calculate relative path from source root (trailing \ ensures clean substring)
+        $relativePath = $item.FullName.Substring($sourceRoot.Length)
+        
+        # Check if this path should be excluded
+        if (Test-PathExcluded -RelativePath $relativePath -Patterns $Exclude) {
+            # Silently skip excluded paths
+            continue
+        }
+        
+        # Calculate target path
+        $targetPath = Join-Path $Target $relativePath
+        
+        try {
+            if ($item.PSIsContainer) {
+                # Create directory if it doesn't exist
+                if (-not (Test-Path -LiteralPath $targetPath)) {
+                    New-Item -ItemType Directory -Path $targetPath -Force | Out-Null
+                }
+            } else {
+                # Ensure parent directory exists
+                $targetDir = Split-Path -Parent $targetPath
+                if (-not (Test-Path -LiteralPath $targetDir)) {
+                    New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+                }
+                # Copy file
+                Copy-Item -LiteralPath $item.FullName -Destination $targetPath -Force
+            }
+        } catch {
+            # Re-throw for non-excluded items - these are real failures
+            throw
+        }
+    }
+}
+
 function Invoke-CopyRestoreAction {
     <#
     .SYNOPSIS
@@ -362,6 +463,7 @@ function Invoke-CopyRestoreAction {
     .DESCRIPTION
         Copies file/directory from source to target with backup support.
         Supports Model B: ExportPath for resolving sources from export snapshot with fallback to manifest dir.
+        Supports exclude patterns for directory copies to skip locked/runtime files.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -372,6 +474,9 @@ function Invoke-CopyRestoreAction {
         
         [Parameter(Mandatory = $false)]
         [bool]$Backup = $true,
+        
+        [Parameter(Mandatory = $false)]
+        [array]$Exclude = @(),
         
         [Parameter(Mandatory = $false)]
         [string]$RunId = $null,
@@ -466,11 +571,17 @@ function Invoke-CopyRestoreAction {
         }
         
         if (Test-Path $expandedSource -PathType Container) {
-            # Directory copy
-            if (Test-Path $expandedTarget) {
-                Remove-Item -Path $expandedTarget -Recurse -Force
+            # Directory copy with exclude support
+            if ($Exclude -and $Exclude.Count -gt 0) {
+                # Filtered directory copy - enumerate and copy non-excluded items
+                Copy-DirectoryWithExcludes -Source $expandedSource -Target $expandedTarget -Exclude $Exclude
+            } else {
+                # Standard directory copy (no excludes)
+                if (Test-Path $expandedTarget) {
+                    Remove-Item -Path $expandedTarget -Recurse -Force
+                }
+                Copy-Item -Path $expandedSource -Destination $expandedTarget -Recurse -Force
             }
-            Copy-Item -Path $expandedSource -Destination $expandedTarget -Recurse -Force
         } else {
             # File copy
             Copy-Item -Path $expandedSource -Destination $expandedTarget -Force
@@ -660,6 +771,7 @@ function Invoke-Restore {
             arrayStrategy = $item.arrayStrategy
             dedupe = $item.dedupe
             newline = $item.newline
+            exclude = $item.exclude
         }
         
         # Log sensitive path warnings

@@ -27,6 +27,7 @@ A restore entry represents the following logical mapping:
 * source: `./configs/app/file-or-folder`
 * target: `C:/System/Path/file-or-folder`
 * backup: `true`
+* exclude: `["**\\Logs\\**", "**\\Temp\\**"]` (optional)
 
 **Guarantees**
 
@@ -36,6 +37,47 @@ A restore entry represents the following logical mapping:
 
   * If the target exists before restore, a backup **must** be created
   * If the target does not exist, no backup is created
+
+### Exclude patterns (directory copy only)
+
+The optional `exclude` field allows skipping files/folders during directory copy restore operations.
+
+**When to use**
+
+Apps like PowerToys may have locked log files or runtime caches that prevent restore from succeeding. Exclude patterns let you skip these paths silently.
+
+**Example: PowerToys**
+
+```json
+{
+  "type": "copy",
+  "source": "./configs/powertoys",
+  "target": "%LOCALAPPDATA%\\Microsoft\\PowerToys",
+  "backup": true,
+  "exclude": [
+    "**\\Logs\\**",
+    "**\\Temp\\**",
+    "**\\Cache\\**"
+  ]
+}
+```
+
+**Semantics**
+
+* `exclude` is an array of glob-like patterns
+* Patterns are matched against the relative path inside the source directory
+* `**` matches any path segment(s)
+* Matching files/folders are skipped silently (no errors)
+* If a skipped file is locked, restore still succeeds
+* Non-excluded files that fail to copy cause restore to fail (existing behavior)
+* Excluded paths do not appear in the journal as failures
+
+**Common excludes**
+
+* `**\\Logs\\**` - Application log directories
+* `**\\Cache\\**` - Cache directories
+* `**\\Temp\\**` - Temporary files
+* `**\\*.lock` - Lock files
 
 ---
 
