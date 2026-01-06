@@ -1,10 +1,9 @@
 {
   "id": "powertoys",
-  "name": "PowerToys Configuration",
-  "notes": "All PowerToys settings and module configs",
-  "requiresClosed": [
-    "PowerToys.exe"
-  ],
+  "name": "Microsoft PowerToys Configuration",
+  "notes": "Full PowerToys configuration including all enabled modules. Excludes runtime logs and volatile files. PowerToys must be closed before restore.",
+  "requiresClosed": ["PowerToys.exe"],
+
   "restore": [
     {
       "type": "copy",
@@ -12,7 +11,8 @@
       "target": "%LOCALAPPDATA%\\Microsoft\\PowerToys",
       "backup": true,
       "exclude": [
-        "**\\Logs\\**"
+        "**\\Logs\\**",
+        "**\\Temp\\**"
       ]
     }
   ]
