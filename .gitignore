@@ -21,6 +21,8 @@ build/
 *.log
 
 # Endstate generated outputs (not committed)
+artifacts/
+!artifacts/.gitkeep
 logs/
 plans/
 state/
@@ -73,3 +75,5 @@ tests/fixtures/sample-*-output.json
 
 # Capture output logs (never committed)
 capture_output.txt
+capture_stderr.txt
+capture_stdout.txt
