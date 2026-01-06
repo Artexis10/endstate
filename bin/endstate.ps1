@@ -961,6 +961,7 @@ function Show-Help {
     Write-Host "    report        Show state summary and drift"
     Write-Host "    doctor        Diagnose environment issues"
     Write-Host "    state         Manage endstate state (subcommands: reset, export, import)"
+    Write-Host "    module        Generate config modules from trace snapshots"
     Write-Host "    capabilities  List available commands (use -Json for machine-readable output)"
     Write-Host ""
     Write-Host "GLOBAL OPTIONS:" -ForegroundColor Yellow
@@ -1049,6 +1050,36 @@ function Show-VerifyHelp {
     Write-Host ""
 }
 
+function Show-ModuleHelp {
+    Show-Banner
+    Write-Host "MODULE - Generate config modules from trace snapshots" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "USAGE:" -ForegroundColor Yellow
+    Write-Host "    endstate module <subcommand> [options]"
+    Write-Host ""
+    Write-Host "SUBCOMMANDS:" -ForegroundColor Yellow
+    Write-Host "    snapshot    Capture current file state to a trace snapshot"
+    Write-Host "    draft       Generate a module.jsonc from before/after snapshots"
+    Write-Host ""
+    Write-Host "SNAPSHOT OPTIONS:" -ForegroundColor Yellow
+    Write-Host "    --out <path>       Output path for the snapshot JSON file"
+    Write-Host ""
+    Write-Host "DRAFT OPTIONS:" -ForegroundColor Yellow
+    Write-Host "    --trace <dir>      Directory containing baseline.json and after.json"
+    Write-Host "    --out <file>       Output path for the generated module.jsonc"
+    Write-Host ""
+    Write-Host "WORKFLOW:" -ForegroundColor Yellow
+    Write-Host "    1. endstate module snapshot --out baseline.json"
+    Write-Host "    2. Install and configure the target application"
+    Write-Host "    3. endstate module snapshot --out after.json"
+    Write-Host "    4. endstate module draft --trace <dir> --out module.jsonc"
+    Write-Host ""
+    Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "    endstate module snapshot --out trace/baseline.json"
+    Write-Host "    endstate module draft --trace trace/ --out modules/apps/myapp/module.jsonc"
+    Write-Host ""
+}
+
 function Show-UnknownCommandHelp {
     param([string]$UnknownCommand)
     
@@ -1056,7 +1087,7 @@ function Show-UnknownCommandHelp {
     Write-Host "ERROR: Unknown command '$UnknownCommand'" -ForegroundColor Red
     Write-Host ""
     Write-Host "Available commands:" -ForegroundColor Yellow
-    Write-Host "    bootstrap, capture, apply, verify, plan, validate, report, doctor, state, capabilities"
+    Write-Host "    bootstrap, capture, apply, verify, plan, validate, report, doctor, state, module, capabilities"
     Write-Host ""
     Write-Host "Use 'endstate --help' for more information."
     Write-Host ""
@@ -3173,6 +3204,7 @@ if ($script:HelpRequested) {
         "capture" { Show-CaptureHelp; exit 0 }
         "apply" { Show-ApplyHelp; exit 0 }
         "verify" { Show-VerifyHelp; exit 0 }
+        "module" { Show-ModuleHelp; exit 0 }
         "" { Show-Help; exit 0 }
         default {
             # For commands without specific help, show top-level help
@@ -3964,13 +3996,14 @@ switch ($Command) {
                     verify = @("--profile", "--manifest", "--json")
                     validate = @("--manifest", "--json")
                     report = @("--json", "--out", "--latest", "--runid", "--last")
+                    module = @("--trace", "--out")
                     capabilities = @("--json")
                 }
             }
             Write-JsonEnvelope -CommandName "capabilities" -Success $true -Data $data -ExitCode 0
         } else {
             Write-Host "Available commands:" -ForegroundColor Cyan
-            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "report", "doctor", "state", "capabilities")
+            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "report", "doctor", "state", "module", "capabilities")
             foreach ($cmd in $commands) {
                 Write-Host "  - $cmd" -ForegroundColor White
             }
