@@ -22,7 +22,6 @@ build/
 
 # Endstate generated outputs (not committed)
 artifacts/
-!artifacts/.gitkeep
 logs/
 plans/
 state/
