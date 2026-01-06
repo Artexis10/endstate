@@ -67,8 +67,10 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 
 ```
 endstate/
-├── endstate.ps1        # Main CLI entrypoint (root orchestrator)
-├── cli.ps1             # Provisioning subsystem CLI
+├── bin/                # CLI entrypoints
+│   ├── endstate.ps1    # Main CLI entrypoint
+│   ├── endstate.cmd    # Windows CMD wrapper
+│   └── cli.ps1         # Legacy provisioning subsystem CLI
 ├── engine/             # Core orchestration logic
 ├── drivers/            # Software installation adapters (winget, apt, brew)
 ├── restorers/          # Configuration restoration modules
@@ -87,7 +89,7 @@ endstate/
 
 ## Quickstart
 
-### Bootstrap
+### Initial Setup
 
 ```powershell
 # Clone the repo
@@ -96,29 +98,30 @@ cd endstate
 
 # (Optional) Unblock downloaded scripts
 Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
+
+# Bootstrap: Install endstate to PATH for global access
+.\bin\endstate.ps1 bootstrap
 ```
+
+After bootstrap completes, the `endstate` command is available globally from any directory.
 
 ### Basic Workflow
 
 ```powershell
 # 1. Capture current machine state
-.\endstate.ps1 capture
+endstate capture
 
 # 2. Preview what would be applied (dry-run)
-.\endstate.ps1 apply -Manifest manifests/local/my-machine.jsonc -DryRun
+endstate apply -Manifest manifests/local/my-machine.jsonc -DryRun
 
 # 3. Apply the manifest
-.\endstate.ps1 apply -Manifest manifests/local/my-machine.jsonc
+endstate apply -Manifest manifests/local/my-machine.jsonc
 
 # 4. Verify end state is achieved
-.\endstate.ps1 verify -Manifest manifests/local/my-machine.jsonc
+endstate verify -Manifest manifests/local/my-machine.jsonc
 
 # 5. Check environment health
-.\endstate.ps1 doctor
-
-# 6. Install to PATH for global access
-.\endstate.ps1 bootstrap
-# Now you can run: endstate <command> from anywhere
+endstate doctor
 ```
 
 ### CLI Commands
