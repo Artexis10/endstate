@@ -1067,6 +1067,8 @@ function Show-ModuleHelp {
     Write-Host "DRAFT OPTIONS:" -ForegroundColor Yellow
     Write-Host "    --trace <dir>      Directory containing baseline.json and after.json"
     Write-Host "    --out <file>       Output path for the generated module.jsonc"
+    Write-Host "    --include <str>    (Optional) Only include paths containing this string"
+    Write-Host "                       Useful for noisy environments with background app churn"
     Write-Host ""
     Write-Host "WORKFLOW:" -ForegroundColor Yellow
     Write-Host "    1. endstate module snapshot --out baseline.json"
@@ -1077,6 +1079,7 @@ function Show-ModuleHelp {
     Write-Host "EXAMPLES:" -ForegroundColor Yellow
     Write-Host "    endstate module snapshot --out trace/baseline.json"
     Write-Host "    endstate module draft --trace trace/ --out modules/apps/myapp/module.jsonc"
+    Write-Host "    endstate module draft --trace trace/ --out module.jsonc --include PowerToys"
     Write-Host ""
 }
 
@@ -3757,16 +3760,20 @@ switch ($Command) {
         switch ($SubCommand) {
             "draft" {
                 # Generate a module draft from trace snapshots
-                # Usage: endstate module draft --trace <path> --out <module.jsonc>
+                # Usage: endstate module draft --trace <path> --out <module.jsonc> [--include <filter>]
                 
-                # Parse --trace and --out from pass-through args
+                # Parse --trace, --out, and --include from pass-through args
                 $tracePath = $null
                 $outPath = $Out
+                $includeFilter = $null
                 
                 for ($i = 0; $i -lt $script:PassThroughArgs.Count; $i++) {
                     $arg = $script:PassThroughArgs[$i]
                     if ($arg -eq '--trace' -and $i + 1 -lt $script:PassThroughArgs.Count) {
                         $tracePath = $script:PassThroughArgs[$i + 1]
+                    }
+                    if ($arg -eq '--include' -and $i + 1 -lt $script:PassThroughArgs.Count) {
+                        $includeFilter = $script:PassThroughArgs[$i + 1]
                     }
                 }
                 
@@ -3836,10 +3843,18 @@ switch ($Command) {
                 
                 try {
                     if (-not $Json) {
-                        Write-Information "[endstate] Module draft: generating from $tracePath..." -InformationAction Continue
+                        $filterMsg = if ($includeFilter) { " (filter: $includeFilter)" } else { "" }
+                        Write-Information "[endstate] Module draft: generating from $tracePath$filterMsg..." -InformationAction Continue
                     }
                     
-                    $module = New-ModuleDraft -TracePath $tracePath -OutputPath $outPath
+                    $draftParams = @{
+                        TracePath = $tracePath
+                        OutputPath = $outPath
+                    }
+                    if ($includeFilter) {
+                        $draftParams.IncludeFilter = $includeFilter
+                    }
+                    $module = New-ModuleDraft @draftParams
                     
                     if ($Json) {
                         $data = @{
@@ -3996,7 +4011,7 @@ switch ($Command) {
                     verify = @("--profile", "--manifest", "--json")
                     validate = @("--manifest", "--json")
                     report = @("--json", "--out", "--latest", "--runid", "--last")
-                    module = @("--trace", "--out")
+                    module = @("--trace", "--out", "--include")
                     capabilities = @("--json")
                 }
             }

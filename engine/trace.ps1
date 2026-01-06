@@ -408,6 +408,10 @@ function New-ModuleDraft {
         Path to write the generated module.jsonc.
     .PARAMETER AppName
         Optional app name override. If not provided, derived from trace data.
+    .PARAMETER IncludeFilter
+        Optional filter string. When provided, only diff entries whose path
+        contains this string (case-insensitive) are considered for module generation.
+        Useful for noisy environments with background app churn.
     .OUTPUTS
         The generated module hashtable.
     #>
@@ -419,7 +423,10 @@ function New-ModuleDraft {
         [string]$OutputPath,
         
         [Parameter(Mandatory = $false)]
-        [string]$AppName = $null
+        [string]$AppName = $null,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$IncludeFilter = $null
     )
     
     # Load snapshots
@@ -438,6 +445,22 @@ function New-ModuleDraft {
     
     # Compute diff
     $diff = Compare-TraceSnapshots -Baseline $baseline -After $after
+    
+    # Apply include filter if provided (before root detection)
+    if ($IncludeFilter) {
+        $filterLower = $IncludeFilter.ToLower()
+        $filteredAdded = @($diff.added | Where-Object { $_.path.ToLower().Contains($filterLower) })
+        $filteredModified = @($diff.modified | Where-Object { $_.path.ToLower().Contains($filterLower) })
+        
+        if ($filteredAdded.Count -eq 0 -and $filteredModified.Count -eq 0) {
+            throw "No changes match the include filter '$IncludeFilter'. Check the filter string and try again."
+        }
+        
+        $diff = @{
+            added = $filteredAdded
+            modified = $filteredModified
+        }
+    }
     
     if ($diff.added.Count -eq 0 -and $diff.modified.Count -eq 0) {
         throw "No changes detected between baseline and after snapshots"

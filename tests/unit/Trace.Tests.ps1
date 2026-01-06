@@ -518,6 +518,131 @@ Describe "Trace.ModuleDraft" {
     }
 }
 
+Describe "Trace.IncludeFilter" {
+    
+    Context "New-ModuleDraft with --include filter" {
+        
+        It "Should filter diff entries by include string (case-insensitive)" {
+            # Setup trace with multiple apps
+            $traceDir = Join-Path $TestDrive "filter-test-1"
+            New-Item -ItemType Directory -Path $traceDir -Force | Out-Null
+            
+            $baseline = @{
+                version = 1
+                timestamp = "2025-01-01T00:00:00Z"
+                roots = @{ LOCALAPPDATA = "C:\Users\Test\AppData\Local" }
+                files = @()
+            }
+            
+            # After has files from multiple apps (simulating noisy environment)
+            $after = @{
+                version = 1
+                timestamp = "2025-01-01T01:00:00Z"
+                roots = @{ LOCALAPPDATA = "C:\Users\Test\AppData\Local" }
+                files = @(
+                    @{ path = "%LOCALAPPDATA%\Microsoft\PowerToys\settings.json"; size = 100; lastWriteTime = "2025-01-01T01:00:00Z" }
+                    @{ path = "%LOCALAPPDATA%\Google\DriveFS\cache.db"; size = 5000; lastWriteTime = "2025-01-01T01:00:00Z" }
+                    @{ path = "%LOCALAPPDATA%\Mozilla\Firefox\profiles.ini"; size = 200; lastWriteTime = "2025-01-01T01:00:00Z" }
+                )
+            }
+            
+            $baseline | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $traceDir "baseline.json") -Encoding UTF8
+            $after | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $traceDir "after.json") -Encoding UTF8
+            
+            $outPath = Join-Path $TestDrive "filtered-module.jsonc"
+            
+            # Filter to only PowerToys (case-insensitive)
+            $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath -IncludeFilter "powertoys"
+            
+            # Should only have PowerToys root
+            $module.id | Should Match "powertoys"
+            $module.restore.Count | Should Be 1
+            $module.restore[0].target | Should Match "PowerToys"
+        }
+        
+        It "Should work without filter (unchanged behavior)" {
+            $traceDir = Join-Path $TestDrive "filter-test-2"
+            New-Item -ItemType Directory -Path $traceDir -Force | Out-Null
+            
+            $baseline = @{ version = 1; timestamp = "2025-01-01T00:00:00Z"; roots = @{ LOCALAPPDATA = "C:\Users\Test\AppData\Local" }; files = @() }
+            $after = @{ version = 1; timestamp = "2025-01-01T01:00:00Z"; roots = @{ LOCALAPPDATA = "C:\Users\Test\AppData\Local" }; files = @(@{ path = "%LOCALAPPDATA%\Vendor\App\file.json"; size = 100; lastWriteTime = "2025-01-01T01:00:00Z" }) }
+            
+            $baseline | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $traceDir "baseline.json") -Encoding UTF8
+            $after | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $traceDir "after.json") -Encoding UTF8
+            
+            $outPath = Join-Path $TestDrive "no-filter-module.jsonc"
+            
+            # No filter - should work as before
+            $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath
+            
+            $module | Should Not BeNullOrEmpty
+            $module.restore.Count | Should BeGreaterThan 0
+        }
+        
+        It "Should throw clear error when filter matches nothing" {
+            $traceDir = Join-Path $TestDrive "filter-test-3"
+            New-Item -ItemType Directory -Path $traceDir -Force | Out-Null
+            
+            $baseline = @{ version = 1; timestamp = "2025-01-01T00:00:00Z"; roots = @{ LOCALAPPDATA = "C:\Users\Test\AppData\Local" }; files = @() }
+            $after = @{ version = 1; timestamp = "2025-01-01T01:00:00Z"; roots = @{ LOCALAPPDATA = "C:\Users\Test\AppData\Local" }; files = @(@{ path = "%LOCALAPPDATA%\Vendor\App\file.json"; size = 100; lastWriteTime = "2025-01-01T01:00:00Z" }) }
+            
+            $baseline | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $traceDir "baseline.json") -Encoding UTF8
+            $after | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $traceDir "after.json") -Encoding UTF8
+            
+            $outPath = Join-Path $TestDrive "nomatch-module.jsonc"
+            
+            # Filter that matches nothing
+            $thrown = $false
+            $errorMsg = ""
+            try {
+                New-ModuleDraft -TracePath $traceDir -OutputPath $outPath -IncludeFilter "NonExistentApp"
+            } catch {
+                $thrown = $true
+                $errorMsg = $_.Exception.Message
+            }
+            
+            $thrown | Should Be $true
+            $errorMsg | Should Match "No changes match the include filter"
+            $errorMsg | Should Match "NonExistentApp"
+        }
+        
+        It "Should select correct root when filter narrows to single app" {
+            $traceDir = Join-Path $TestDrive "filter-test-4"
+            New-Item -ItemType Directory -Path $traceDir -Force | Out-Null
+            
+            $baseline = @{
+                version = 1
+                timestamp = "2025-01-01T00:00:00Z"
+                roots = @{ LOCALAPPDATA = "C:\Users\Test\AppData\Local" }
+                files = @()
+            }
+            
+            # Multiple apps with overlapping vendor
+            $after = @{
+                version = 1
+                timestamp = "2025-01-01T01:00:00Z"
+                roots = @{ LOCALAPPDATA = "C:\Users\Test\AppData\Local" }
+                files = @(
+                    @{ path = "%LOCALAPPDATA%\Microsoft\PowerToys\settings.json"; size = 100; lastWriteTime = "2025-01-01T01:00:00Z" }
+                    @{ path = "%LOCALAPPDATA%\Microsoft\VSCode\settings.json"; size = 200; lastWriteTime = "2025-01-01T01:00:00Z" }
+                    @{ path = "%LOCALAPPDATA%\Microsoft\Edge\Preferences"; size = 300; lastWriteTime = "2025-01-01T01:00:00Z" }
+                )
+            }
+            
+            $baseline | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $traceDir "baseline.json") -Encoding UTF8
+            $after | ConvertTo-Json -Depth 10 | Out-File -FilePath (Join-Path $traceDir "after.json") -Encoding UTF8
+            
+            $outPath = Join-Path $TestDrive "vscode-module.jsonc"
+            
+            # Filter to VSCode only
+            $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath -IncludeFilter "VSCode"
+            
+            $module.restore.Count | Should Be 1
+            $module.restore[0].target | Should Match "VSCode"
+        }
+    }
+}
+
 Describe "Trace.Integration" {
     
     Context "End-to-end module generation" {
