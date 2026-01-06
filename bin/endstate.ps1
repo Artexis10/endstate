@@ -3721,6 +3721,225 @@ switch ($Command) {
         }
         $exitCode = if ($result.Valid) { 0 } else { 1 }
     }
+    "module" {
+        switch ($SubCommand) {
+            "draft" {
+                # Generate a module draft from trace snapshots
+                # Usage: endstate module draft --trace <path> --out <module.jsonc>
+                
+                # Parse --trace and --out from pass-through args
+                $tracePath = $null
+                $outPath = $Out
+                
+                for ($i = 0; $i -lt $script:PassThroughArgs.Count; $i++) {
+                    $arg = $script:PassThroughArgs[$i]
+                    if ($arg -eq '--trace' -and $i + 1 -lt $script:PassThroughArgs.Count) {
+                        $tracePath = $script:PassThroughArgs[$i + 1]
+                    }
+                }
+                
+                if (-not $tracePath) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MISSING_TRACE_PATH"
+                            message = "Usage: endstate module draft --trace <path> --out <module.jsonc>"
+                        }
+                        Write-JsonEnvelope -CommandName "module draft" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] --trace <path> is required for 'module draft'" -ForegroundColor Red
+                        Write-Host "Usage: endstate module draft --trace <path> --out <module.jsonc>" -ForegroundColor Yellow
+                    }
+                    exit 1
+                }
+                
+                if (-not $outPath) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MISSING_OUT_PATH"
+                            message = "Usage: endstate module draft --trace <path> --out <module.jsonc>"
+                        }
+                        Write-JsonEnvelope -CommandName "module draft" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] --out <path> is required for 'module draft'" -ForegroundColor Red
+                        Write-Host "Usage: endstate module draft --trace <path> --out <module.jsonc>" -ForegroundColor Yellow
+                    }
+                    exit 1
+                }
+                
+                # Resolve paths
+                if (-not [System.IO.Path]::IsPathRooted($tracePath)) {
+                    $tracePath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($tracePath)
+                }
+                if (-not [System.IO.Path]::IsPathRooted($outPath)) {
+                    $outPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($outPath)
+                }
+                
+                # Import trace engine
+                $traceScript = Join-Path $script:EndstateRoot "..\engine\trace.ps1"
+                if (-not (Test-Path $traceScript)) {
+                    $traceScript = Join-Path $script:EndstateRoot "engine\trace.ps1"
+                }
+                if (-not (Test-Path $traceScript)) {
+                    # Try relative to bin directory
+                    $traceScript = Join-Path (Split-Path -Parent $script:EndstateRoot) "engine\trace.ps1"
+                }
+                
+                if (-not (Test-Path $traceScript)) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "ENGINE_SCRIPT_NOT_FOUND"
+                            message = "Engine script 'trace.ps1' not found."
+                        }
+                        Write-JsonEnvelope -CommandName "module draft" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Engine script 'trace.ps1' not found" -ForegroundColor Red
+                    }
+                    exit 1
+                }
+                
+                if ($script:DebugCliRequested) {
+                    Write-Host "[debug-cli] Importing trace engine: $traceScript" -ForegroundColor Magenta
+                }
+                . $traceScript
+                
+                try {
+                    if (-not $Json) {
+                        Write-Information "[endstate] Module draft: generating from $tracePath..." -InformationAction Continue
+                    }
+                    
+                    $module = New-ModuleDraft -TracePath $tracePath -OutputPath $outPath
+                    
+                    if ($Json) {
+                        $data = @{
+                            outputPath = $outPath
+                            moduleId = $module.id
+                            displayName = $module.displayName
+                            restoreCount = $module.restore.Count
+                            captureFilesCount = $module.capture.files.Count
+                        }
+                        Write-JsonEnvelope -CommandName "module draft" -Success $true -Data $data -ExitCode 0
+                    } else {
+                        Write-Information "[endstate] Module draft: created $outPath" -InformationAction Continue
+                        Write-Host "[OK] Generated module: $($module.id)" -ForegroundColor Green
+                        Write-Host "     Display Name: $($module.displayName)" -ForegroundColor Gray
+                        Write-Host "     Restore entries: $($module.restore.Count)" -ForegroundColor Gray
+                        Write-Host "     Capture files: $($module.capture.files.Count)" -ForegroundColor Gray
+                        Write-Host ""
+                        Write-Host "     Review and update the 'matches' section before use." -ForegroundColor Yellow
+                    }
+                    $exitCode = 0
+                } catch {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MODULE_DRAFT_FAILED"
+                            message = $_.Exception.Message
+                        }
+                        Write-JsonEnvelope -CommandName "module draft" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Module draft failed: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    exit 1
+                }
+            }
+            "snapshot" {
+                # Create a trace snapshot
+                # Usage: endstate module snapshot --out <path>
+                
+                $outPath = $Out
+                
+                if (-not $outPath) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MISSING_OUT_PATH"
+                            message = "Usage: endstate module snapshot --out <path>"
+                        }
+                        Write-JsonEnvelope -CommandName "module snapshot" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] --out <path> is required for 'module snapshot'" -ForegroundColor Red
+                        Write-Host "Usage: endstate module snapshot --out <path>" -ForegroundColor Yellow
+                    }
+                    exit 1
+                }
+                
+                # Resolve path
+                if (-not [System.IO.Path]::IsPathRooted($outPath)) {
+                    $outPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($outPath)
+                }
+                
+                # Import trace engine
+                $traceScript = Join-Path $script:EndstateRoot "..\engine\trace.ps1"
+                if (-not (Test-Path $traceScript)) {
+                    $traceScript = Join-Path $script:EndstateRoot "engine\trace.ps1"
+                }
+                if (-not (Test-Path $traceScript)) {
+                    $traceScript = Join-Path (Split-Path -Parent $script:EndstateRoot) "engine\trace.ps1"
+                }
+                
+                if (-not (Test-Path $traceScript)) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "ENGINE_SCRIPT_NOT_FOUND"
+                            message = "Engine script 'trace.ps1' not found."
+                        }
+                        Write-JsonEnvelope -CommandName "module snapshot" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Engine script 'trace.ps1' not found" -ForegroundColor Red
+                    }
+                    exit 1
+                }
+                
+                if ($script:DebugCliRequested) {
+                    Write-Host "[debug-cli] Importing trace engine: $traceScript" -ForegroundColor Magenta
+                }
+                . $traceScript
+                
+                try {
+                    if (-not $Json) {
+                        Write-Information "[endstate] Module snapshot: capturing file state..." -InformationAction Continue
+                    }
+                    
+                    $snapshot = New-TraceSnapshot -OutputPath $outPath
+                    
+                    if ($Json) {
+                        $data = @{
+                            outputPath = $outPath
+                            fileCount = $snapshot.files.Count
+                            roots = @($snapshot.roots.Keys)
+                        }
+                        Write-JsonEnvelope -CommandName "module snapshot" -Success $true -Data $data -ExitCode 0
+                    } else {
+                        Write-Information "[endstate] Module snapshot: created $outPath" -InformationAction Continue
+                        Write-Host "[OK] Snapshot created: $outPath" -ForegroundColor Green
+                        Write-Host "     Files captured: $($snapshot.files.Count)" -ForegroundColor Gray
+                        Write-Host "     Roots: $($snapshot.roots.Keys -join ', ')" -ForegroundColor Gray
+                    }
+                    $exitCode = 0
+                } catch {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "SNAPSHOT_FAILED"
+                            message = $_.Exception.Message
+                        }
+                        Write-JsonEnvelope -CommandName "module snapshot" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Snapshot failed: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    exit 1
+                }
+            }
+            default {
+                if ($SubCommand) {
+                    Write-Host "[ERROR] Unknown module subcommand: $SubCommand" -ForegroundColor Red
+                } else {
+                    Write-Host "[ERROR] Module command requires a subcommand" -ForegroundColor Red
+                }
+                Write-Host "Usage:" -ForegroundColor Yellow
+                Write-Host "  endstate module snapshot --out <path>              Create a trace snapshot" -ForegroundColor Yellow
+                Write-Host "  endstate module draft --trace <path> --out <file>  Generate module from trace" -ForegroundColor Yellow
+                $exitCode = 1
+            }
+        }
+    }
     "capabilities" {
         # Output JSON list of available commands for GUI integration
         if ($Json) {
@@ -3736,6 +3955,7 @@ switch ($Command) {
                     "report",
                     "doctor",
                     "state",
+                    "module",
                     "capabilities"
                 )
                 version = $script:VersionString
