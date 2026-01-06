@@ -194,6 +194,35 @@ function Test-IsElevated {
     }
 }
 
+function Test-ProcessesRunning {
+    <#
+    .SYNOPSIS
+        Check if any of the specified processes are currently running.
+    .PARAMETER ProcessNames
+        Array of process names to check (e.g., "PowerToys.exe", "notepad.exe").
+    .OUTPUTS
+        Array of running process names, or empty array if none are running.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$ProcessNames
+    )
+    
+    $runningProcesses = @()
+    
+    foreach ($processName in $ProcessNames) {
+        # Strip .exe extension if present for Get-Process
+        $baseName = $processName -replace '\.exe$', ''
+        
+        $running = Get-Process -Name $baseName -ErrorAction SilentlyContinue
+        if ($running) {
+            $runningProcesses += $processName
+        }
+    }
+    
+    return $runningProcesses
+}
+
 function Invoke-RestoreAction {
     <#
     .SYNOPSIS
@@ -252,6 +281,16 @@ function Invoke-RestoreAction {
         $result.status = "fail"
         $result.reason = "requires elevated privileges (run as Administrator)"
         return $result
+    }
+    
+    # Check requiresClosed - fail if required processes are running
+    if ($Action.requiresClosed -and $Action.requiresClosed.Count -gt 0) {
+        $runningProcesses = Test-ProcessesRunning -ProcessNames $Action.requiresClosed
+        if ($runningProcesses.Count -gt 0) {
+            $result.status = "fail"
+            $result.reason = "requires processes to be closed: $($runningProcesses -join ', ')"
+            return $result
+        }
     }
     
     # Dispatch to appropriate restorer based on type
@@ -391,6 +430,34 @@ function Test-PathExcluded {
     return $false
 }
 
+function Test-SharingViolation {
+    <#
+    .SYNOPSIS
+        Check if an exception is a sharing violation (file locked by another process).
+    .DESCRIPTION
+        Checks HRESULT codes for sharing violations:
+        - 0x80070020 (ERROR_SHARING_VIOLATION) - file is being used by another process
+        - 0x80070021 (ERROR_LOCK_VIOLATION) - file is locked
+    #>
+    param([System.Exception]$Exception)
+    
+    # Check HResult for sharing violation codes
+    $hresult = $Exception.HResult
+    if ($hresult -eq 0x80070020 -or $hresult -eq 0x80070021) {
+        return $true
+    }
+    
+    # Also check inner exception
+    if ($Exception.InnerException) {
+        $innerHResult = $Exception.InnerException.HResult
+        if ($innerHResult -eq 0x80070020 -or $innerHResult -eq 0x80070021) {
+            return $true
+        }
+    }
+    
+    return $false
+}
+
 function Copy-DirectoryWithExcludes {
     <#
     .SYNOPSIS
@@ -398,6 +465,9 @@ function Copy-DirectoryWithExcludes {
     .DESCRIPTION
         Enumerates source directory and copies only non-excluded items.
         Excluded paths are silently skipped (no errors).
+        Locked files (sharing violations) are skipped with warnings, not failures.
+    .OUTPUTS
+        Hashtable with SkippedFiles and Warnings arrays.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -409,6 +479,11 @@ function Copy-DirectoryWithExcludes {
         [Parameter(Mandatory = $true)]
         [array]$Exclude
     )
+    
+    $copyResult = @{
+        SkippedFiles = @()
+        Warnings = @()
+    }
     
     # Normalize source path to full path with trailing backslash
     $sourceRoot = (Get-Item -LiteralPath $Source).FullName.TrimEnd('\') + '\'
@@ -447,13 +522,21 @@ function Copy-DirectoryWithExcludes {
                     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
                 }
                 # Copy file
-                Copy-Item -LiteralPath $item.FullName -Destination $targetPath -Force
+                Copy-Item -LiteralPath $item.FullName -Destination $targetPath -Force -ErrorAction Stop
             }
         } catch {
-            # Re-throw for non-excluded items - these are real failures
-            throw
+            # Check if this is a sharing violation (locked file)
+            if (Test-SharingViolation -Exception $_.Exception) {
+                $copyResult.SkippedFiles += $relativePath
+                $copyResult.Warnings += "WARN: Skipped locked file (sharing violation): $relativePath"
+            } else {
+                # Re-throw for non-sharing-violation errors - these are real failures
+                throw
+            }
         }
     }
+    
+    return $copyResult
 }
 
 function Invoke-CopyRestoreAction {
@@ -574,21 +657,34 @@ function Invoke-CopyRestoreAction {
             # Directory copy with exclude support
             if ($Exclude -and $Exclude.Count -gt 0) {
                 # Filtered directory copy - enumerate and copy non-excluded items
-                Copy-DirectoryWithExcludes -Source $expandedSource -Target $expandedTarget -Exclude $Exclude
+                # Also handles locked files (sharing violations) gracefully
+                $copyResult = Copy-DirectoryWithExcludes -Source $expandedSource -Target $expandedTarget -Exclude $Exclude
+                
+                # Propagate warnings about skipped locked files
+                if ($copyResult.Warnings -and $copyResult.Warnings.Count -gt 0) {
+                    $result.Warnings += $copyResult.Warnings
+                }
+                
+                if ($copyResult.SkippedFiles -and $copyResult.SkippedFiles.Count -gt 0) {
+                    $result.Message = "restored with $($copyResult.SkippedFiles.Count) skipped locked file(s)"
+                } else {
+                    $result.Message = "restored successfully"
+                }
             } else {
                 # Standard directory copy (no excludes)
                 if (Test-Path $expandedTarget) {
                     Remove-Item -Path $expandedTarget -Recurse -Force
                 }
                 Copy-Item -Path $expandedSource -Destination $expandedTarget -Recurse -Force
+                $result.Message = "restored successfully"
             }
         } else {
             # File copy
             Copy-Item -Path $expandedSource -Destination $expandedTarget -Force
+            $result.Message = "restored successfully"
         }
         
         $result.Success = $true
-        $result.Message = "restored successfully"
         
     } catch {
         $result.Error = $_.Exception.Message

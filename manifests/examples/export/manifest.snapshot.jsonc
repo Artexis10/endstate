@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "catalog-test",
+  "captured": "2025-01-05T21:51:00Z",
+  
+  "apps": [],
+  
+  "bundles": [
+    "core-utilities"
+  ],
+  
+  "verify": []
+}

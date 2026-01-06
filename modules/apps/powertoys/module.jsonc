@@ -1,0 +1,49 @@
+{
+  // Config Module: Microsoft PowerToys
+  // Migrated from recipes/powertoys.jsonc
+  
+  "id": "apps.powertoys",
+  "displayName": "Microsoft PowerToys",
+  "sensitivity": "low",
+  
+  "matches": {
+    "winget": ["Microsoft.PowerToys"],
+    "exe": ["PowerToys.exe"],
+    "uninstallDisplayName": ["^PowerToys"]
+  },
+  
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Microsoft\\PowerToys\\settings.json" }
+  ],
+  
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./configs/powertoys",
+      "target": "%LOCALAPPDATA%\\Microsoft\\PowerToys",
+      "backup": true,
+      "exclude": [
+        "**\\Logs\\**",
+        "**\\Temp\\**",
+        "**\\Cache\\**",
+        "**\\GPUCache\\**",
+        "**\\Crashpad\\**"
+      ]
+    }
+  ],
+  
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\Microsoft\\PowerToys", "dest": "apps/powertoys", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Crashpad\\**"
+    ]
+  },
+  
+  "notes": "Full PowerToys configuration including all enabled modules. Excludes runtime logs and volatile files."
+}

@@ -1,0 +1,42 @@
+{
+  // Config Module: MSI Afterburner
+  // Migrated from recipes/msi-afterburner.jsonc
+  
+  "id": "apps.msi-afterburner",
+  "displayName": "MSI Afterburner",
+  "sensitivity": "low",
+  
+  "matches": {
+    "winget": ["Guru3D.Afterburner"],
+    "exe": ["MSIAfterburner.exe"],
+    "uninstallDisplayName": ["^MSI Afterburner"]
+  },
+  
+  "verify": [
+    { "type": "file-exists", "path": "C:\\Program Files (x86)\\MSI Afterburner\\MSIAfterburner.exe" }
+  ],
+  
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./configs/msi-afterburner/MSIAfterburner.cfg",
+      "target": "C:\\Program Files (x86)\\MSI Afterburner\\MSIAfterburner.cfg",
+      "backup": true
+    },
+    {
+      "type": "copy",
+      "source": "./configs/msi-afterburner/Profiles",
+      "target": "C:\\Program Files (x86)\\MSI Afterburner\\Profiles",
+      "backup": true
+    }
+  ],
+  
+  "capture": {
+    "files": [
+      { "source": "C:\\Program Files (x86)\\MSI Afterburner\\MSIAfterburner.cfg", "dest": "apps/msi-afterburner/MSIAfterburner.cfg", "optional": true },
+      { "source": "C:\\Program Files (x86)\\MSI Afterburner\\Profiles", "dest": "apps/msi-afterburner/Profiles", "optional": true }
+    ]
+  },
+  
+  "notes": "Configuration files for MSI Afterburner GPU overclocking utility"
+}

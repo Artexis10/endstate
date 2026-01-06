@@ -17,6 +17,143 @@ $script:SensitivePathSegments = @(
     '.kube', '.docker', 'id_rsa', 'id_ed25519', 'id_ecdsa'
 )
 
+function Test-SharingViolation {
+    <#
+    .SYNOPSIS
+        Check if an exception is a sharing violation (file locked by another process).
+    .DESCRIPTION
+        Checks HRESULT codes for sharing violations:
+        - 0x80070020 (ERROR_SHARING_VIOLATION) - file is being used by another process
+        - 0x80070021 (ERROR_LOCK_VIOLATION) - file is locked
+    #>
+    param([System.Exception]$Exception)
+    
+    # Check HResult for sharing violation codes
+    $hresult = $Exception.HResult
+    if ($hresult -eq 0x80070020 -or $hresult -eq 0x80070021) {
+        return $true
+    }
+    
+    # Also check inner exception
+    if ($Exception.InnerException) {
+        $innerHResult = $Exception.InnerException.HResult
+        if ($innerHResult -eq 0x80070020 -or $innerHResult -eq 0x80070021) {
+            return $true
+        }
+    }
+    
+    return $false
+}
+
+function Copy-ItemWithLockedFileHandling {
+    <#
+    .SYNOPSIS
+        Copy a file or directory, skipping locked files with warnings.
+    .DESCRIPTION
+        Copies files/directories recursively. When a file is locked:
+        - Adds a warning to the result
+        - Continues copying other files
+        - Does NOT fail the entire operation
+    .OUTPUTS
+        Hashtable with Success, SkippedFiles, Warnings
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Destination,
+        
+        [Parameter(Mandatory = $false)]
+        [string[]]$ExcludePatterns = @()
+    )
+    
+    $result = @{
+        Success = $true
+        SkippedFiles = @()
+        Warnings = @()
+        CopiedCount = 0
+    }
+    
+    $sourceItem = Get-Item $Source
+    
+    if ($sourceItem.PSIsContainer) {
+        # Directory copy with locked file handling
+        if (-not (Test-Path $Destination)) {
+            New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+        }
+        
+        $sourceFiles = Get-ChildItem -Path $Source -Recurse -Force
+        
+        foreach ($item in $sourceFiles) {
+            $relativePath = $item.FullName.Substring($Source.Length).TrimStart('\', '/')
+            $destPath = Join-Path $Destination $relativePath
+            
+            # Check exclude patterns
+            $excluded = $false
+            foreach ($pattern in $ExcludePatterns) {
+                if ($relativePath -like $pattern -or $item.FullName -like $pattern) {
+                    $excluded = $true
+                    break
+                }
+            }
+            
+            if ($excluded) {
+                continue
+            }
+            
+            if ($item.PSIsContainer) {
+                if (-not (Test-Path $destPath)) {
+                    New-Item -ItemType Directory -Path $destPath -Force | Out-Null
+                }
+            } else {
+                # File - try to copy, handle locked files
+                $destDir = Split-Path -Parent $destPath
+                if (-not (Test-Path $destDir)) {
+                    New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+                }
+                
+                try {
+                    Copy-Item -Path $item.FullName -Destination $destPath -Force -ErrorAction Stop
+                    $result.CopiedCount++
+                } catch {
+                    # Only skip for sharing violations (file locked by another process)
+                    # Do NOT skip for generic access denied - those are real errors
+                    if (Test-SharingViolation -Exception $_.Exception) {
+                        $result.SkippedFiles += $relativePath
+                        $result.Warnings += "WARN: Skipped locked file (sharing violation): $relativePath"
+                    } else {
+                        # Re-throw for non-sharing-violation errors - these are real failures
+                        throw
+                    }
+                }
+            }
+        }
+    } else {
+        # Single file copy
+        try {
+            $destDir = Split-Path -Parent $Destination
+            if ($destDir -and -not (Test-Path $destDir)) {
+                New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+            }
+            Copy-Item -Path $Source -Destination $Destination -Force -ErrorAction Stop
+            $result.CopiedCount++
+        } catch {
+            # Only skip for sharing violations (file locked by another process)
+            # Do NOT skip for generic access denied - those are real errors
+            if (Test-SharingViolation -Exception $_.Exception) {
+                $result.SkippedFiles += $Source
+                $result.Warnings += "WARN: Skipped locked file (sharing violation): $Source"
+            } else {
+                $result.Success = $false
+                $result.Warnings += "ERROR: Failed to copy: $($_.Exception.Message)"
+            }
+        }
+    }
+    
+    return $result
+}
+
 function Test-RestoreSensitivePath {
     <#
     .SYNOPSIS
@@ -198,19 +335,34 @@ function Invoke-CopyRestore {
             New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
         }
         
-        # Copy source to target
+        # Copy source to target using locked file handling
         if (Test-Path $expandedSource -PathType Container) {
-            # For directories, remove existing and copy fresh
-            if (Test-Path $expandedTarget) {
-                Remove-Item -Path $expandedTarget -Recurse -Force
+            # For directories, use locked-file-safe copy
+            # Don't remove existing - let the copy function handle overwrites
+            $copyResult = Copy-ItemWithLockedFileHandling -Source $expandedSource -Destination $expandedTarget -ExcludePatterns @()
+            
+            $result.Warnings += $copyResult.Warnings
+            
+            if ($copyResult.SkippedFiles.Count -gt 0) {
+                $result.Message = "Restored with $($copyResult.SkippedFiles.Count) skipped locked file(s)"
+            } else {
+                $result.Message = "Restored successfully"
             }
-            Copy-Item -Path $expandedSource -Destination $expandedTarget -Recurse -Force
+            $result.Success = $copyResult.Success
         } else {
-            Copy-Item -Path $expandedSource -Destination $expandedTarget -Force
+            # Single file copy with locked file handling
+            $copyResult = Copy-ItemWithLockedFileHandling -Source $expandedSource -Destination $expandedTarget
+            
+            $result.Warnings += $copyResult.Warnings
+            
+            if ($copyResult.SkippedFiles.Count -gt 0) {
+                $result.Message = "Skipped locked file"
+                $result.Success = $true  # Still success - we handled it gracefully
+            } else {
+                $result.Message = "Restored successfully"
+                $result.Success = $copyResult.Success
+            }
         }
-        
-        $result.Success = $true
-        $result.Message = "Restored successfully"
         
     } catch {
         $result.Error = $_.Exception.Message

@@ -1,8 +1,7 @@
 {
   "id": "powertoys",
   "name": "Microsoft PowerToys Configuration",
-  "notes": "Full PowerToys configuration including all enabled modules. Excludes runtime logs and volatile files. PowerToys must be closed before restore.",
-  "requiresClosed": ["PowerToys.exe"],
+  "notes": "Full PowerToys configuration including all enabled modules. Excludes runtime logs and volatile files.",
 
   "restore": [
     {
@@ -12,7 +11,10 @@
       "backup": true,
       "exclude": [
         "**\\Logs\\**",
-        "**\\Temp\\**"
+        "**\\Temp\\**",
+        "**\\Cache\\**",
+        "**\\GPUCache\\**",
+        "**\\Crashpad\\**"
       ]
     }
   ]
