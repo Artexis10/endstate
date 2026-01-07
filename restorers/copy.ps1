@@ -10,6 +10,9 @@
     with backup-before-overwrite safety and up-to-date detection.
 #>
 
+# Import centralized path resolver
+. "$PSScriptRoot\..\engine\paths.ps1"
+
 # Known sensitive path segments that trigger warnings
 $script:SensitivePathSegments = @(
     '.ssh', '.aws', '.azure', '.gnupg', '.gpg',
@@ -256,24 +259,9 @@ function Invoke-CopyRestore {
         Warnings = @()
     }
     
-    # Expand environment variables in paths
-    $expandedSource = [Environment]::ExpandEnvironmentVariables($Source)
-    $expandedTarget = [Environment]::ExpandEnvironmentVariables($Target)
-    
-    # Handle ~ for home directory (cross-platform)
-    $homeDir = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
-    if ($expandedSource.StartsWith("~")) {
-        $expandedSource = $expandedSource -replace "^~", $homeDir
-    }
-    if ($expandedTarget.StartsWith("~")) {
-        $expandedTarget = $expandedTarget -replace "^~", $homeDir
-    }
-    
-    # Handle relative paths
-    if ($ManifestDir -and ($expandedSource.StartsWith("./") -or $expandedSource.StartsWith("../"))) {
-        $expandedSource = Join-Path $ManifestDir $expandedSource
-        $expandedSource = [System.IO.Path]::GetFullPath($expandedSource)
-    }
+    # Expand paths using centralized resolver (handles env vars, ~, logical tokens, relative paths)
+    $expandedSource = Expand-EndstatePath -Path $Source -BasePath $ManifestDir
+    $expandedTarget = Expand-EndstatePath -Path $Target
     
     # Check for sensitive paths and add warnings
     if (Test-RestoreSensitivePath -Path $expandedSource) {
@@ -310,9 +298,8 @@ function Invoke-CopyRestore {
             $backupRunId = if ($RunId) { $RunId } else { Get-Date -Format 'yyyyMMdd-HHmmss' }
             $backupRoot = Join-Path $PSScriptRoot "..\state\backups\$backupRunId"
             
-            # Preserve path structure in backup
-            $normalizedTarget = $expandedTarget -replace ':', ''
-            $normalizedTarget = $normalizedTarget -replace '^[/\\]+', ''
+            # Preserve path structure in backup using centralized normalizer
+            $normalizedTarget = ConvertTo-BackupPath -Path $expandedTarget
             $backupPath = Join-Path $backupRoot $normalizedTarget
             $backupDir = Split-Path -Parent $backupPath
             
@@ -392,16 +379,9 @@ function Test-CopyRestorePrerequisites {
         Issues = @()
     }
     
-    # Expand paths
-    $expandedSource = [Environment]::ExpandEnvironmentVariables($Source)
-    $expandedTarget = [Environment]::ExpandEnvironmentVariables($Target)
-    
-    if ($expandedSource.StartsWith("~")) {
-        $expandedSource = $expandedSource -replace "^~", $env:USERPROFILE
-    }
-    if ($expandedTarget.StartsWith("~")) {
-        $expandedTarget = $expandedTarget -replace "^~", $env:USERPROFILE
-    }
+    # Expand paths using centralized resolver
+    $expandedSource = Expand-EndstatePath -Path $Source
+    $expandedTarget = Expand-EndstatePath -Path $Target
     
     # Check source
     if (Test-Path $expandedSource) {

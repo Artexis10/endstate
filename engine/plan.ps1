@@ -14,7 +14,7 @@
 . "$PSScriptRoot\logging.ps1"
 . "$PSScriptRoot\manifest.ps1"
 . "$PSScriptRoot\state.ps1"
-. "$PSScriptRoot\..\drivers\winget.ps1"
+. "$PSScriptRoot\..\drivers\driver.ps1"
 
 function Invoke-Plan {
     param(
@@ -40,7 +40,7 @@ function Invoke-Plan {
     
     # Get current state
     Write-ProvisioningSection "Analyzing Current State"
-    $installedApps = Get-InstalledAppsFromWinget
+    $installedApps = Invoke-DriverGetInstalledPackages
     Write-ProvisioningLog "Found $($installedApps.Count) installed packages" -Level INFO
     
     # Build plan
@@ -63,6 +63,7 @@ function Invoke-Plan {
     }
     
     # Process apps
+    $driverName = Get-ActiveDriverName
     foreach ($app in $manifest.apps) {
         $windowsRef = $app.refs.windows
         if (-not $windowsRef) {
@@ -76,7 +77,7 @@ function Invoke-Plan {
             type = "app"
             id = $app.id
             ref = $windowsRef
-            driver = "winget"
+            driver = $driverName
         }
         
         if ($isInstalled) {
@@ -252,6 +253,7 @@ function New-PlanFromManifest {
     }
     
     # Process apps
+    $driverName = Get-ActiveDriverName
     foreach ($app in $Manifest.apps) {
         $windowsRef = $app.refs.windows
         if (-not $windowsRef) {
@@ -264,7 +266,7 @@ function New-PlanFromManifest {
             type = "app"
             id = $app.id
             ref = $windowsRef
-            driver = "winget"
+            driver = $driverName
         }
         
         if ($isInstalled) {

@@ -15,7 +15,7 @@
 . "$PSScriptRoot\manifest.ps1"
 . "$PSScriptRoot\state.ps1"
 . "$PSScriptRoot\external.ps1"
-. "$PSScriptRoot\plan.ps1"
+. "$PSScriptRoot\..\drivers\driver.ps1"
 . "$PSScriptRoot\events.ps1"
 . "$PSScriptRoot\..\verifiers\file-exists.ps1"
 . "$PSScriptRoot\..\verifiers\command-exists.ps1"
@@ -57,7 +57,8 @@ function Invoke-Verify {
     # Get installed apps
     Write-ProvisioningSection "Verifying Applications"
     Write-PhaseEvent -Phase "verify"
-    $installedApps = Get-InstalledAppsFromWinget
+    $installedApps = Invoke-DriverGetInstalledPackages
+    $driverName = Get-ActiveDriverName
     
     $passCount = 0
     $failCount = 0
@@ -77,12 +78,12 @@ function Invoke-Verify {
         
         if ($isInstalled) {
             Write-ProvisioningLog "$windowsRef - INSTALLED" -Level SUCCESS
-            Write-ItemEvent -Id $windowsRef -Driver "winget" -Status "present" -Message "Verified installed"
+            Write-ItemEvent -Id $windowsRef -Driver $driverName -Status "present" -Message "Verified installed"
             $result.status = "pass"
             $passCount++
         } else {
             Write-ProvisioningLog "$windowsRef - NOT INSTALLED" -Level ERROR
-            Write-ItemEvent -Id $windowsRef -Driver "winget" -Status "failed" -Reason "missing" -Message "Missing - not installed"
+            Write-ItemEvent -Id $windowsRef -Driver $driverName -Status "failed" -Reason "missing" -Message "Missing - not installed"
             $result.status = "fail"
             $result.reason = "missing"
             $failCount++

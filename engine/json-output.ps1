@@ -13,6 +13,10 @@
 $script:JsonOutputRoot = $PSScriptRoot | Split-Path -Parent
 $script:SchemaVersion = "1.0"
 
+# Import driver registry and paths for platform detection
+. "$PSScriptRoot\..\drivers\driver.ps1"
+. "$PSScriptRoot\paths.ps1"
+
 function Get-EndstateVersion {
     <#
     .SYNOPSIS
@@ -255,8 +259,8 @@ function Get-CapabilitiesData {
             jsonOutput = $true
         }
         platform = [ordered]@{
-            os = "windows"
-            drivers = @("winget")
+            os = (Get-CurrentPlatform)
+            drivers = @(Get-RegisteredDrivers)
         }
     }
     

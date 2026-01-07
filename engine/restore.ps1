@@ -17,6 +17,7 @@
 . "$PSScriptRoot\logging.ps1"
 . "$PSScriptRoot\manifest.ps1"
 . "$PSScriptRoot\state.ps1"
+. "$PSScriptRoot\paths.ps1"
 . "$PSScriptRoot\..\restorers\copy.ps1"
 . "$PSScriptRoot\..\restorers\helpers.ps1"
 . "$PSScriptRoot\..\restorers\merge-json.ps1"
@@ -183,14 +184,32 @@ function Test-IsElevated {
     <#
     .SYNOPSIS
         Check if the current process is running with elevated privileges.
+    .DESCRIPTION
+        Cross-platform elevation check:
+        - Windows: checks if running as Administrator
+        - Unix/Linux/macOS: checks if running as root (uid 0)
     #>
-    if ($IsWindows -or $env:OS -eq "Windows_NT") {
-        $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-        $principal = [Security.Principal.WindowsPrincipal]$identity
-        return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+    # Import paths.ps1 for Get-CurrentPlatform if not already loaded
+    $platform = Get-CurrentPlatform
+    
+    if ($platform -eq "windows") {
+        try {
+            $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+            $principal = [Security.Principal.WindowsPrincipal]$identity
+            return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+        } catch {
+            # If Windows identity APIs fail, assume not elevated
+            return $false
+        }
     } else {
         # Unix: check if running as root
-        return (id -u) -eq 0
+        try {
+            $uid = & id -u 2>$null
+            return ($uid -eq "0")
+        } catch {
+            # If id command fails, assume not elevated
+            return $false
+        }
     }
 }
 

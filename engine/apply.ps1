@@ -16,7 +16,7 @@
 . "$PSScriptRoot\state.ps1"
 . "$PSScriptRoot\plan.ps1"
 . "$PSScriptRoot\events.ps1"
-. "$PSScriptRoot\..\drivers\winget.ps1"
+. "$PSScriptRoot\..\drivers\driver.ps1"
 . "$PSScriptRoot\..\restorers\copy.ps1"
 . "$PSScriptRoot\..\verifiers\file-exists.ps1"
 
@@ -90,37 +90,38 @@ function Invoke-Apply {
             "app" {
                 if ($action.status -eq "skip") {
                     Write-ProvisioningLog "$($action.ref) - Already installed" -Level SKIP
-                    Write-ItemEvent -Id $action.ref -Driver "winget" -Status "present" -Reason "already_installed" -Message "Already installed"
+                    Write-ItemEvent -Id $action.ref -Driver (Get-ActiveDriverName) -Status "present" -Reason "already_installed" -Message "Already installed"
                     $result.status = "skipped"
                     $result.message = "Already installed"
                     $skipCount++
                 }
                 elseif ($action.status -eq "install") {
+                    $driverName = Get-ActiveDriverName
                     if ($DryRun) {
                         Write-ProvisioningLog "[DRY-RUN] Would install: $($action.ref)" -Level ACTION
-                        Write-ItemEvent -Id $action.ref -Driver "winget" -Status "to_install" -Message "Would install via winget"
+                        Write-ItemEvent -Id $action.ref -Driver $driverName -Status "to_install" -Message "Would install via $driverName"
                         $result.status = "dry-run"
-                        $result.message = "Would install via winget"
+                        $result.message = "Would install via $driverName"
                         $successCount++
                     } else {
                         Write-ProvisioningLog "Installing: $($action.ref)" -Level ACTION
-                        Write-ItemEvent -Id $action.ref -Driver "winget" -Status "installing" -Message "Installing via winget"
-                        $installResult = Install-AppViaWinget -PackageId $action.ref
+                        Write-ItemEvent -Id $action.ref -Driver $driverName -Status "installing" -Message "Installing via $driverName"
+                        $installResult = Invoke-DriverInstallPackage -PackageId $action.ref
                         if ($installResult.Success) {
                             Write-ProvisioningLog "$($action.ref) - Installed successfully" -Level SUCCESS
-                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "installed" -Message "Installed successfully"
+                            Write-ItemEvent -Id $action.ref -Driver $driverName -Status "installed" -Message "Installed successfully"
                             $result.status = "success"
                             $result.message = "Installed"
                             $successCount++
                         } elseif ($installResult.UserDenied) {
                             Write-ProvisioningLog "$($action.ref) - User cancelled installation" -Level SKIP
-                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "skipped" -Reason "user_denied" -Message $installResult.Error
+                            Write-ItemEvent -Id $action.ref -Driver $driverName -Status "skipped" -Reason "user_denied" -Message $installResult.Error
                             $result.status = "skipped"
                             $result.message = $installResult.Error
                             $skipCount++
                         } else {
                             Write-ProvisioningLog "$($action.ref) - Installation failed: $($installResult.Error)" -Level ERROR
-                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "failed" -Reason "install_failed" -Message $installResult.Error
+                            Write-ItemEvent -Id $action.ref -Driver $driverName -Status "failed" -Reason "install_failed" -Message $installResult.Error
                             $result.status = "failed"
                             $result.message = $installResult.Error
                             $failCount++
@@ -251,7 +252,7 @@ function Invoke-Apply {
             }
             [ordered]@{
                 id = $_.action.ref
-                driver = "winget"
+                driver = (Get-ActiveDriverName)
                 status = $guiStatus
                 reason = $guiReason
                 message = $_.message
@@ -260,7 +261,6 @@ function Invoke-Apply {
         
         # Count items by category for GUI
         $installedCount = @($items | Where-Object { $_.reason -eq "installed" }).Count
-        $wouldInstallCount = @($items | Where-Object { $_.reason -eq "would_install" }).Count
         $alreadyInstalledCount = @($items | Where-Object { $_.reason -eq "already_installed" }).Count
         $failedCount = @($items | Where-Object { $_.status -eq "failed" }).Count
         
@@ -467,10 +467,11 @@ function Invoke-ApplyFromPlan {
         
         switch ($action.type) {
             "app" {
+                $driverName = Get-ActiveDriverName
                 if ($action.status -eq "skip") {
                     $reason = if ($action.reason) { $action.reason } else { "skipped in plan" }
                     Write-ProvisioningLog "[SKIP] $($action.ref) - $reason" -Level SKIP
-                    Write-ItemEvent -Id $action.ref -Driver "winget" -Status "present" -Reason "already_installed" -Message $reason
+                    Write-ItemEvent -Id $action.ref -Driver $driverName -Status "present" -Reason "already_installed" -Message $reason
                     $result.status = "skipped"
                     $result.message = $reason
                     $skippedCount++
@@ -478,29 +479,29 @@ function Invoke-ApplyFromPlan {
                 elseif ($action.status -eq "install") {
                     if ($DryRun) {
                         Write-ProvisioningLog "[DRY-RUN] Would install: $($action.ref)" -Level ACTION
-                        Write-ItemEvent -Id $action.ref -Driver "winget" -Status "to_install" -Message "Would install via winget"
+                        Write-ItemEvent -Id $action.ref -Driver $driverName -Status "to_install" -Message "Would install via $driverName"
                         $result.status = "dry-run"
-                        $result.message = "Would install via winget"
+                        $result.message = "Would install via $driverName"
                         $successCount++
                     } else {
                         Write-ProvisioningLog "Installing: $($action.ref)" -Level ACTION
-                        Write-ItemEvent -Id $action.ref -Driver "winget" -Status "installing" -Message "Installing via winget"
-                        $installResult = Install-AppViaWinget -PackageId $action.ref
+                        Write-ItemEvent -Id $action.ref -Driver $driverName -Status "installing" -Message "Installing via $driverName"
+                        $installResult = Invoke-DriverInstallPackage -PackageId $action.ref
                         if ($installResult.Success) {
                             Write-ProvisioningLog "$($action.ref) - Installed successfully" -Level SUCCESS
-                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "installed" -Message "Installed successfully"
+                            Write-ItemEvent -Id $action.ref -Driver $driverName -Status "installed" -Message "Installed successfully"
                             $result.status = "success"
                             $result.message = "Installed"
                             $successCount++
                         } elseif ($installResult.UserDenied) {
                             Write-ProvisioningLog "$($action.ref) - User cancelled installation" -Level SKIP
-                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "skipped" -Reason "user_denied" -Message $installResult.Error
+                            Write-ItemEvent -Id $action.ref -Driver $driverName -Status "skipped" -Reason "user_denied" -Message $installResult.Error
                             $result.status = "skipped"
                             $result.message = $installResult.Error
                             $skippedCount++
                         } else {
                             Write-ProvisioningLog "$($action.ref) - Installation failed: $($installResult.Error)" -Level ERROR
-                            Write-ItemEvent -Id $action.ref -Driver "winget" -Status "failed" -Reason "install_failed" -Message $installResult.Error
+                            Write-ItemEvent -Id $action.ref -Driver $driverName -Status "failed" -Reason "install_failed" -Message $installResult.Error
                             $result.status = "failed"
                             $result.message = $installResult.Error
                             $failCount++
@@ -629,7 +630,7 @@ function Invoke-ApplyFromPlan {
             }
             [ordered]@{
                 id = $_.action.ref
-                driver = "winget"
+                driver = (Get-ActiveDriverName)
                 status = $guiStatus
                 reason = $guiReason
                 message = $_.message
