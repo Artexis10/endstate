@@ -1,15 +1,16 @@
-$script:EndstateRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$script:EndstatePath = Join-Path $script:EndstateRoot "endstate.ps1"
+BeforeAll {
+    $script:EndstateRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $script:EndstatePath = Join-Path $script:EndstateRoot "endstate.ps1"
 
-# Create test directory for mock files
-$script:TestDir = Join-Path $env:TEMP "endstate-json-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-$script:MockWingetPath = Join-Path $script:TestDir "mock-winget.ps1"
-$script:TestManifestPath = Join-Path $script:TestDir "test-manifest.jsonc"
+    # Create test directory for mock files
+    $script:TestDir = Join-Path $env:TEMP "endstate-json-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+    $script:MockWingetPath = Join-Path $script:TestDir "mock-winget.ps1"
+    $script:TestManifestPath = Join-Path $script:TestDir "test-manifest.jsonc"
 
-New-Item -ItemType Directory -Path $script:TestDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $script:TestDir -Force | Out-Null
 
-# Mock winget command - simulates installed apps
-$mockWingetContent = @'
+    # Mock winget command - simulates installed apps
+    $mockWingetContent = @'
 param(
     [Parameter(Position=0)]
     [string]$Action,
@@ -39,10 +40,10 @@ if ($Action -eq "install") {
 
 exit 0
 '@
-Set-Content -Path $script:MockWingetPath -Value $mockWingetContent
+    Set-Content -Path $script:MockWingetPath -Value $mockWingetContent
 
-# Create test manifest
-$testManifest = @'
+    # Create test manifest
+    $testManifest = @'
 {
   "version": 1,
   "name": "test-manifest",
@@ -54,7 +55,8 @@ $testManifest = @'
   "verify": []
 }
 '@
-Set-Content -Path $script:TestManifestPath -Value $testManifest
+    Set-Content -Path $script:TestManifestPath -Value $testManifest
+}
 
 Describe "JSON Mode - Pure stdout" {
     
@@ -98,7 +100,6 @@ Describe "JSON Mode - Pure stdout" {
             # Should not contain banner text in stdout
             $outputStr | Should -Not -Match "Automation Suite"
         }
-    }
     
     Context "verify --json with missing manifest" {
         It "Returns JSON envelope with success:false and non-zero exit" {

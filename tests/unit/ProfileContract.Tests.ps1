@@ -3,12 +3,14 @@
     Pester tests for profile contract validation (Test-ProfileManifest).
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
-$script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
-
-# Load dependencies
-. $script:ManifestScript
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
+    $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
+    
+    # Load dependencies
+    . $script:ManifestScript
+}
 
 Describe "Test-ProfileManifest" {
     
@@ -39,12 +41,12 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $validManifest
             
-            $result.Valid | Should Be $true
-            $result.Errors.Count | Should Be 0
-            $result.Summary | Should Not BeNullOrEmpty
-            $result.Summary.Version | Should Be 1
-            $result.Summary.Name | Should Be "test-profile"
-            $result.Summary.AppCount | Should Be 1
+            $result.Valid | Should -Be $true
+            $result.Errors.Count | Should -Be 0
+            $result.Summary | Should -Not -BeNullOrEmpty
+            $result.Summary.Version | Should -Be 1
+            $result.Summary.Name | Should -Be "test-profile"
+            $result.Summary.AppCount | Should -Be 1
         }
         
         It "Should validate a minimal valid manifest (version + empty apps)" {
@@ -61,8 +63,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $minimalManifest
             
-            $result.Valid | Should Be $true
-            $result.Summary.AppCount | Should Be 0
+            $result.Valid | Should -Be $true
+            $result.Summary.AppCount | Should -Be 0
         }
         
         It "Should validate existing hugo-win11.jsonc manifest" {
@@ -71,8 +73,8 @@ Describe "Test-ProfileManifest" {
             if (Test-Path $existingManifest) {
                 $result = Test-ProfileManifest -Path $existingManifest
                 
-                $result.Valid | Should Be $true
-                $result.Summary.Version | Should Be 1
+                $result.Valid | Should -Be $true
+                $result.Summary.Version | Should -Be 1
             } else {
                 Set-ItResult -Skipped -Because "hugo-win11.jsonc not found"
             }
@@ -94,9 +96,9 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $noVersionManifest
             
-            $result.Valid | Should Be $false
-            $result.Errors.Count | Should BeGreaterThan 0
-            $result.Errors[0].Code | Should Be "MISSING_VERSION"
+            $result.Valid | Should -Be $false
+            $result.Errors.Count | Should -BeGreaterThan 0
+            $result.Errors[0].Code | Should -Be "MISSING_VERSION"
         }
     }
     
@@ -115,8 +117,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $stringVersionManifest
             
-            $result.Valid | Should Be $false
-            $result.Errors[0].Code | Should Be "INVALID_VERSION_TYPE"
+            $result.Valid | Should -Be $false
+            $result.Errors[0].Code | Should -Be "INVALID_VERSION_TYPE"
         }
     }
     
@@ -135,8 +137,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $wrongVersionManifest
             
-            $result.Valid | Should Be $false
-            $result.Errors[0].Code | Should Be "UNSUPPORTED_VERSION"
+            $result.Valid | Should -Be $false
+            $result.Errors[0].Code | Should -Be "UNSUPPORTED_VERSION"
         }
     }
     
@@ -155,8 +157,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $noAppsManifest
             
-            $result.Valid | Should Be $false
-            $result.Errors[0].Code | Should Be "MISSING_APPS"
+            $result.Valid | Should -Be $false
+            $result.Errors[0].Code | Should -Be "MISSING_APPS"
         }
     }
     
@@ -175,8 +177,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $appsObjectManifest
             
-            $result.Valid | Should Be $false
-            $result.Errors[0].Code | Should Be "INVALID_APPS_TYPE"
+            $result.Valid | Should -Be $false
+            $result.Errors[0].Code | Should -Be "INVALID_APPS_TYPE"
         }
         
         It "Should fail when apps is a string" {
@@ -192,8 +194,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $appsStringManifest
             
-            $result.Valid | Should Be $false
-            $result.Errors[0].Code | Should Be "INVALID_APPS_TYPE"
+            $result.Valid | Should -Be $false
+            $result.Errors[0].Code | Should -Be "INVALID_APPS_TYPE"
         }
     }
     
@@ -219,9 +221,9 @@ Describe "Test-ProfileManifest" {
             $result = Test-ProfileManifest -Path $noIdAppManifest
             
             # Should still be valid (backward compat) but with warnings
-            $result.Valid | Should Be $true
-            $result.Warnings | Should Not BeNullOrEmpty
-            $result.Warnings[0].Code | Should Be "INVALID_APP_ENTRY"
+            $result.Valid | Should -Be $true
+            $result.Warnings | Should -Not -BeNullOrEmpty
+            $result.Warnings[0].Code | Should -Be "INVALID_APP_ENTRY"
         }
     }
     
@@ -232,8 +234,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $nonExistentPath
             
-            $result.Valid | Should Be $false
-            $result.Errors[0].Code | Should Be "FILE_NOT_FOUND"
+            $result.Valid | Should -Be $false
+            $result.Errors[0].Code | Should -Be "FILE_NOT_FOUND"
         }
     }
     
@@ -254,8 +256,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $invalidJsonManifest
             
-            $result.Valid | Should Be $false
-            $result.Errors[0].Code | Should Be "PARSE_ERROR"
+            $result.Valid | Should -Be $false
+            $result.Errors[0].Code | Should -Be "PARSE_ERROR"
         }
     }
     
@@ -278,8 +280,8 @@ Describe "Test-ProfileManifest" {
             
             $result = Test-ProfileManifest -Path $jsoncManifest
             
-            $result.Valid | Should Be $true
-            $result.Summary.Name | Should Be "commented-profile"
+            $result.Valid | Should -Be $true
+            $result.Summary.Name | Should -Be "commented-profile"
         }
     }
 }

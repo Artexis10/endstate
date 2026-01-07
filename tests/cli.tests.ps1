@@ -15,10 +15,10 @@ Describe "Provisioning CLI Parameter Contract" {
             $exitCode = $LASTEXITCODE
             
             # Should exit with non-zero code
-            $exitCode | Should Be 1
+            $exitCode | Should -Be 1
             
             # Error message should mention -OutManifest
-            ($output -join "`n") | Should Match "-OutManifest"
+            ($output -join "`n") | Should -Match "-OutManifest"
         }
         
         It "Should proceed when -OutManifest is provided" {
@@ -32,10 +32,10 @@ Describe "Provisioning CLI Parameter Contract" {
                 $outputText = $output -join "`n"
                 
                 # Should NOT contain the -OutManifest required error
-                $outputText | Should Not Match "\[ERROR\] -OutManifest is required"
+                $outputText | Should -Not -Match "\[ERROR\] -OutManifest is required"
                 
                 # Should show capture starting (even if it fails later due to no winget)
-                $outputText | Should Match "Provisioning Capture|Starting capture|winget"
+                $outputText | Should -Match "Provisioning Capture|Starting capture|winget"
             }
             finally {
                 # Cleanup
@@ -50,7 +50,7 @@ Describe "Provisioning CLI Parameter Contract" {
         
         It "Should fail when -Manifest is missing" {
             $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath -Command plan 2>&1
-            ($output -join "`n") | Should Match "-Manifest is required"
+            ($output -join "`n") | Should -Match "-Manifest is required"
         }
     }
     
@@ -58,7 +58,7 @@ Describe "Provisioning CLI Parameter Contract" {
         
         It "Should fail when -Manifest is missing" {
             $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath -Command apply 2>&1
-            ($output -join "`n") | Should Match "-Manifest is required"
+            ($output -join "`n") | Should -Match "-Manifest is required"
         }
     }
     
@@ -66,7 +66,7 @@ Describe "Provisioning CLI Parameter Contract" {
         
         It "Should fail when -Manifest is missing" {
             $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath -Command verify 2>&1
-            ($output -join "`n") | Should Match "-Manifest is required"
+            ($output -join "`n") | Should -Match "-Manifest is required"
         }
     }
     
@@ -74,7 +74,7 @@ Describe "Provisioning CLI Parameter Contract" {
         
         It "Should run without any required parameters" {
             $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath -Command doctor 2>&1
-            ($output -join "`n") | Should Match "Provisioning Doctor"
+            ($output -join "`n") | Should -Match "Provisioning Doctor"
         }
     }
     
@@ -84,9 +84,9 @@ Describe "Provisioning CLI Parameter Contract" {
             $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath 2>&1
             $outputText = $output -join "`n"
             
-            $outputText | Should Match "Provisioning CLI"
-            $outputText | Should Match "-OutManifest"
-            $outputText | Should Match "capture"
+            $outputText | Should -Match "Provisioning CLI"
+            $outputText | Should -Match "-OutManifest"
+            $outputText | Should -Match "capture"
         }
     }
 }

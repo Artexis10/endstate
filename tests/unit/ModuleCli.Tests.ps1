@@ -1,8 +1,11 @@
-# Module CLI Routing Smoke Tests
-# Tests that the 'module' command is properly wired into the CLI
 
-$script:EndstateRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$script:EndstateBin = Join-Path $script:EndstateRoot "bin\endstate.ps1"
+BeforeAll {
+    # Module CLI Routing Smoke Tests
+    # Tests that the 'module' command is properly wired into the CLI
+    
+    $script:EndstateRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $script:EndstateBin = Join-Path $script:EndstateRoot "bin\endstate.ps1"
+}
 
 Describe "Module CLI Routing" {
     
@@ -13,8 +16,8 @@ Describe "Module CLI Routing" {
             $output = powershell.exe -NoProfile -Command "& '$script:EndstateBin' --help" 2>&1
             $outputStr = $output -join "`n"
             
-            ($outputStr -match "module") | Should Be $true
-            ($outputStr -match "Generate config modules") | Should Be $true
+            ($outputStr -match "module") | Should -Be $true
+            ($outputStr -match "Generate config modules") | Should -Be $true
         }
         
         It "Should show module help with 'endstate module --help'" {
@@ -22,9 +25,9 @@ Describe "Module CLI Routing" {
             $output = powershell.exe -NoProfile -Command "& '$script:EndstateBin' module --help" 2>&1
             $outputStr = $output -join "`n"
             
-            ($outputStr -match "MODULE") | Should Be $true
-            ($outputStr -match "snapshot") | Should Be $true
-            ($outputStr -match "draft") | Should Be $true
+            ($outputStr -match "MODULE") | Should -Be $true
+            ($outputStr -match "snapshot") | Should -Be $true
+            ($outputStr -match "draft") | Should -Be $true
         }
     }
     
@@ -35,7 +38,7 @@ Describe "Module CLI Routing" {
             $output = powershell.exe -NoProfile -Command "& '$script:EndstateBin' module" 2>&1
             $outputStr = $output -join "`n"
             
-            ($outputStr -match "requires a subcommand") | Should Be $true
+            ($outputStr -match "requires a subcommand") | Should -Be $true
         }
         
         It "Should error on unknown subcommand" {
@@ -43,7 +46,7 @@ Describe "Module CLI Routing" {
             $output = powershell.exe -NoProfile -Command "& '$script:EndstateBin' module unknown" 2>&1
             $outputStr = $output -join "`n"
             
-            ($outputStr -match "Unknown module subcommand") | Should Be $true
+            ($outputStr -match "Unknown module subcommand") | Should -Be $true
         }
         
         It "Should require --out for snapshot subcommand" {
@@ -51,7 +54,7 @@ Describe "Module CLI Routing" {
             $output = powershell.exe -NoProfile -Command "& '$script:EndstateBin' module snapshot" 2>&1
             $outputStr = $output -join "`n"
             
-            ($outputStr -match "--out.*required") | Should Be $true
+            ($outputStr -match "--out.*required") | Should -Be $true
         }
         
         It "Should require --trace for draft subcommand" {
@@ -59,7 +62,7 @@ Describe "Module CLI Routing" {
             $output = powershell.exe -NoProfile -Command "& '$script:EndstateBin' module draft --out test.jsonc" 2>&1
             $outputStr = $output -join "`n"
             
-            ($outputStr -match "--trace.*required") | Should Be $true
+            ($outputStr -match "--trace.*required") | Should -Be $true
         }
     }
     
@@ -72,7 +75,7 @@ Describe "Module CLI Routing" {
             
             # Parse JSON and check for module
             $json = $outputStr | ConvertFrom-Json
-            ($json.data.commands -contains "module") | Should Be $true
+            ($json.data.commands -contains "module") | Should -Be $true
         }
     }
 }

@@ -3,11 +3,13 @@
     Pester tests for the trace engine (module generation pipeline).
 #>
 
-$script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$script:TraceScript = Join-Path $script:ProvisioningRoot "engine" "trace.ps1"
-
-# Load the trace engine
-. $script:TraceScript
+BeforeAll {
+    $script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $script:TraceScript = Join-Path $script:ProvisioningRoot "engine" "trace.ps1"
+    
+    # Load the trace engine
+    . $script:TraceScript
+}
 
 Describe "Trace.Snapshot" {
     
@@ -17,11 +19,11 @@ Describe "Trace.Snapshot" {
             # Create a minimal snapshot (will scan real APPDATA/LOCALAPPDATA)
             $snapshot = New-TraceSnapshot
             
-            $snapshot | Should Not BeNullOrEmpty
-            $snapshot.version | Should Be 1
-            $snapshot.timestamp | Should Not BeNullOrEmpty
-            $snapshot.roots | Should Not BeNullOrEmpty
-            $snapshot.files | Should Not BeNullOrEmpty
+            $snapshot | Should -Not -BeNullOrEmpty
+            $snapshot.version | Should -Be 1
+            $snapshot.timestamp | Should -Not -BeNullOrEmpty
+            $snapshot.roots | Should -Not -BeNullOrEmpty
+            $snapshot.files | Should -Not -BeNullOrEmpty
         }
         
         It "Should write snapshot to file when OutputPath provided" {
@@ -40,11 +42,11 @@ Describe "Trace.Snapshot" {
             $json = $snapshot | ConvertTo-Json -Depth 10
             $json | Out-File -FilePath $outPath -Encoding UTF8
             
-            (Test-Path $outPath) | Should Be $true
+            (Test-Path $outPath) | Should -Be $true
             
             $loaded = Get-Content -Path $outPath -Raw | ConvertFrom-Json
-            $loaded.version | Should Be 1
-            $loaded.files.Count | Should Be 1
+            $loaded.version | Should -Be 1
+            $loaded.files.Count | Should -Be 1
         }
     }
     
@@ -67,9 +69,9 @@ Describe "Trace.Snapshot" {
             
             $loaded = Read-TraceSnapshot -Path $snapshotPath
             
-            $loaded.version | Should Be 1
-            $loaded.files.Count | Should Be 2
-            $loaded.files[0].path | Should Be "%LOCALAPPDATA%\App\config.json"
+            $loaded.version | Should -Be 1
+            $loaded.files.Count | Should -Be 2
+            $loaded.files[0].path | Should -Be "%LOCALAPPDATA%\App\config.json"
         }
         
         It "Should throw when file not found" {
@@ -79,7 +81,7 @@ Describe "Trace.Snapshot" {
             } catch {
                 $thrown = $true
             }
-            $thrown | Should Be $true
+            $thrown | Should -Be $true
         }
     }
 }
@@ -110,9 +112,9 @@ Describe "Trace.Diff" {
             
             $diff = Compare-TraceSnapshots -Baseline $baseline -After $after
             
-            $diff.added.Count | Should Be 1
-            $diff.added[0].path | Should Be "%LOCALAPPDATA%\App\new-file.json"
-            $diff.modified.Count | Should Be 0
+            $diff.added.Count | Should -Be 1
+            $diff.added[0].path | Should -Be "%LOCALAPPDATA%\App\new-file.json"
+            $diff.modified.Count | Should -Be 0
         }
     }
     
@@ -139,9 +141,9 @@ Describe "Trace.Diff" {
             
             $diff = Compare-TraceSnapshots -Baseline $baseline -After $after
             
-            $diff.added.Count | Should Be 0
-            $diff.modified.Count | Should Be 1
-            $diff.modified[0].path | Should Be "%LOCALAPPDATA%\App\config.json"
+            $diff.added.Count | Should -Be 0
+            $diff.modified.Count | Should -Be 1
+            $diff.modified[0].path | Should -Be "%LOCALAPPDATA%\App\config.json"
         }
         
         It "Should NOT detect unchanged files as modified" {
@@ -166,7 +168,7 @@ Describe "Trace.Diff" {
             $diff = Compare-TraceSnapshots -Baseline $baseline -After $after
             
             # Same size and time = no modification
-            $diff.modified.Count | Should Be 0
+            $diff.modified.Count | Should -Be 0
         }
         
         It "Should detect both added and modified files" {
@@ -191,8 +193,8 @@ Describe "Trace.Diff" {
             
             $diff = Compare-TraceSnapshots -Baseline $baseline -After $after
             
-            $diff.added.Count | Should Be 1
-            $diff.modified.Count | Should Be 1
+            $diff.added.Count | Should -Be 1
+            $diff.modified.Count | Should -Be 1
         }
     }
     
@@ -221,8 +223,8 @@ Describe "Trace.Diff" {
             $diff = Compare-TraceSnapshots -Baseline $baseline -After $after
             
             # Deleted files are ignored in v1
-            $diff.added.Count | Should Be 0
-            $diff.modified.Count | Should Be 0
+            $diff.added.Count | Should -Be 0
+            $diff.modified.Count | Should -Be 0
         }
     }
 }
@@ -242,9 +244,9 @@ Describe "Trace.RootDetection" {
             
             $roots = Get-TraceRootFolders -DiffResult $diff
             
-            $roots.Count | Should Be 1
-            $roots[0].path | Should Be "%LOCALAPPDATA%\Microsoft\PowerToys"
-            $roots[0].files.Count | Should Be 2
+            $roots.Count | Should -Be 1
+            $roots[0].path | Should -Be "%LOCALAPPDATA%\Microsoft\PowerToys"
+            $roots[0].files.Count | Should -Be 2
         }
         
         It "Should detect multiple root folders" {
@@ -258,7 +260,7 @@ Describe "Trace.RootDetection" {
             
             $roots = Get-TraceRootFolders -DiffResult $diff
             
-            $roots.Count | Should Be 2
+            $roots.Count | Should -Be 2
         }
         
         It "Should return empty array when no changes" {
@@ -269,7 +271,7 @@ Describe "Trace.RootDetection" {
             
             $roots = Get-TraceRootFolders -DiffResult $diff
             
-            $roots.Count | Should Be 0
+            $roots.Count | Should -Be 0
         }
     }
     
@@ -295,8 +297,8 @@ Describe "Trace.RootDetection" {
             
             $apps = Merge-TraceRootsToApp -Roots $roots
             
-            $apps.Count | Should Be 1
-            $apps[0].roots.Count | Should Be 2
+            $apps.Count | Should -Be 1
+            $apps[0].roots.Count | Should -Be 2
         }
         
         It "Should keep separate apps separate" {
@@ -315,7 +317,7 @@ Describe "Trace.RootDetection" {
             
             $apps = Merge-TraceRootsToApp -Roots $roots
             
-            $apps.Count | Should Be 2
+            $apps.Count | Should -Be 2
         }
     }
 }
@@ -327,16 +329,16 @@ Describe "Trace.Exclusions" {
         It "Should return array of patterns" {
             $patterns = Get-DefaultExcludePatterns
             
-            $patterns | Should Not BeNullOrEmpty
-            $patterns.Count | Should BeGreaterThan 0
+            $patterns | Should -Not -BeNullOrEmpty
+            $patterns.Count | Should -BeGreaterThan 0
         }
         
         It "Should include common exclusion patterns" {
             $patterns = Get-DefaultExcludePatterns
             
-            ($patterns -contains "**\Logs\**") | Should Be $true
-            ($patterns -contains "**\Cache\**") | Should Be $true
-            ($patterns -contains "**\Temp\**") | Should Be $true
+            ($patterns -contains "**\Logs\**") | Should -Be $true
+            ($patterns -contains "**\Cache\**") | Should -Be $true
+            ($patterns -contains "**\Temp\**") | Should -Be $true
         }
     }
     
@@ -344,22 +346,22 @@ Describe "Trace.Exclusions" {
         
         It "Should match Logs folder pattern" {
             $result = Test-PathMatchesExclude -Path "App\Logs\debug.log" -Patterns @("**\Logs\**")
-            $result | Should Be $true
+            $result | Should -Be $true
         }
         
         It "Should match nested excluded folder" {
             $result = Test-PathMatchesExclude -Path "App\subfolder\Cache\data.bin" -Patterns @("**\Cache\**")
-            $result | Should Be $true
+            $result | Should -Be $true
         }
         
         It "Should NOT match non-excluded paths" {
             $result = Test-PathMatchesExclude -Path "App\configs\settings.json" -Patterns @("**\Logs\**", "**\Cache\**")
-            $result | Should Be $false
+            $result | Should -Be $false
         }
         
         It "Should handle empty patterns array" {
             $result = Test-PathMatchesExclude -Path "App\anything\file.txt" -Patterns @()
-            $result | Should Be $false
+            $result | Should -Be $false
         }
     }
 }
@@ -397,10 +399,10 @@ Describe "Trace.ModuleDraft" {
             
             $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath
             
-            $module.id | Should Not BeNullOrEmpty
-            $module.displayName | Should Not BeNullOrEmpty
-            $module.restore | Should Not BeNullOrEmpty
-            $module.capture | Should Not BeNullOrEmpty
+            $module.id | Should -Not -BeNullOrEmpty
+            $module.displayName | Should -Not -BeNullOrEmpty
+            $module.restore | Should -Not -BeNullOrEmpty
+            $module.capture | Should -Not -BeNullOrEmpty
         }
         
         It "Should generate module file on disk" {
@@ -417,10 +419,10 @@ Describe "Trace.ModuleDraft" {
             
             New-ModuleDraft -TracePath $traceDir -OutputPath $outPath
             
-            (Test-Path $outPath) | Should Be $true
+            (Test-Path $outPath) | Should -Be $true
             $content = Get-Content -Path $outPath -Raw
-            $content | Should Match '"id"'
-            $content | Should Match '"restore"'
+            $content | Should -Match '"id"'
+            $content | Should -Match '"restore"'
         }
         
         It "Should include exclude patterns in restore entries" {
@@ -437,8 +439,8 @@ Describe "Trace.ModuleDraft" {
             
             $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath
             
-            $module.restore[0].exclude | Should Not BeNullOrEmpty
-            ($module.restore[0].exclude -contains "**\Logs\**") | Should Be $true
+            $module.restore[0].exclude | Should -Not -BeNullOrEmpty
+            ($module.restore[0].exclude -contains "**\Logs\**") | Should -Be $true
         }
         
         It "Should include exclude patterns in capture section" {
@@ -455,7 +457,7 @@ Describe "Trace.ModuleDraft" {
             
             $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath
             
-            $module.capture.exclude | Should Not BeNullOrEmpty
+            $module.capture.exclude | Should -Not -BeNullOrEmpty
         }
         
         It "Should derive module ID from app name" {
@@ -472,7 +474,7 @@ Describe "Trace.ModuleDraft" {
             
             $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath
             
-            $module.id | Should Match "^apps\."
+            $module.id | Should -Match "^apps\."
         }
     }
     
@@ -488,7 +490,7 @@ Describe "Trace.ModuleDraft" {
             } catch {
                 $thrown = $true
             }
-            $thrown | Should Be $true
+            $thrown | Should -Be $true
         }
         
         It "Should throw when no changes detected" {
@@ -513,7 +515,7 @@ Describe "Trace.ModuleDraft" {
             } catch {
                 $thrown = $true
             }
-            $thrown | Should Be $true
+            $thrown | Should -Be $true
         }
     }
 }
@@ -555,9 +557,9 @@ Describe "Trace.IncludeFilter" {
             $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath -IncludeFilter "powertoys"
             
             # Should only have PowerToys root
-            $module.id | Should Match "powertoys"
-            $module.restore.Count | Should Be 1
-            $module.restore[0].target | Should Match "PowerToys"
+            $module.id | Should -Match "powertoys"
+            $module.restore.Count | Should -Be 1
+            $module.restore[0].target | Should -Match "PowerToys"
         }
         
         It "Should work without filter (unchanged behavior)" {
@@ -575,8 +577,8 @@ Describe "Trace.IncludeFilter" {
             # No filter - should work as before
             $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath
             
-            $module | Should Not BeNullOrEmpty
-            $module.restore.Count | Should BeGreaterThan 0
+            $module | Should -Not -BeNullOrEmpty
+            $module.restore.Count | Should -BeGreaterThan 0
         }
         
         It "Should throw clear error when filter matches nothing" {
@@ -601,9 +603,9 @@ Describe "Trace.IncludeFilter" {
                 $errorMsg = $_.Exception.Message
             }
             
-            $thrown | Should Be $true
-            $errorMsg | Should Match "No changes match the include filter"
-            $errorMsg | Should Match "NonExistentApp"
+            $thrown | Should -Be $true
+            $errorMsg | Should -Match "No changes match the include filter"
+            $errorMsg | Should -Match "NonExistentApp"
         }
         
         It "Should select correct root when filter narrows to single app" {
@@ -637,8 +639,8 @@ Describe "Trace.IncludeFilter" {
             # Filter to VSCode only
             $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath -IncludeFilter "VSCode"
             
-            $module.restore.Count | Should Be 1
-            $module.restore[0].target | Should Match "VSCode"
+            $module.restore.Count | Should -Be 1
+            $module.restore[0].target | Should -Match "VSCode"
         }
     }
 }
@@ -685,21 +687,21 @@ Describe "Trace.Integration" {
             $module = New-ModuleDraft -TracePath $traceDir -OutputPath $outPath
             
             # Verify structure
-            $module.id | Should Match "^apps\."
-            $module.displayName | Should Not BeNullOrEmpty
-            $module.sensitivity | Should Be "low"
-            $module.matches | Should Not BeNullOrEmpty
-            $module.restore.Count | Should BeGreaterThan 0
-            $module.capture.files.Count | Should BeGreaterThan 0
+            $module.id | Should -Match "^apps\."
+            $module.displayName | Should -Not -BeNullOrEmpty
+            $module.sensitivity | Should -Be "low"
+            $module.matches | Should -Not -BeNullOrEmpty
+            $module.restore.Count | Should -BeGreaterThan 0
+            $module.capture.files.Count | Should -BeGreaterThan 0
             
             # Verify file was written
-            (Test-Path $outPath) | Should Be $true
+            (Test-Path $outPath) | Should -Be $true
             
             # Verify JSONC is parseable (after stripping comments)
             $content = Get-Content -Path $outPath -Raw
             $jsonContent = $content -replace '//.*', ''
             $parsed = $jsonContent | ConvertFrom-Json
-            $parsed | Should Not BeNullOrEmpty
+            $parsed | Should -Not -BeNullOrEmpty
         }
     }
 }

@@ -3,22 +3,24 @@
     Pester tests for plan generation determinism and hash stability.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
-$script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
-$script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
-$script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
-$script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
-
-# Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
-. $script:LoggingScript
-. $script:ManifestScript
-. $script:StateScript
-
-# Load plan.ps1 but suppress its dot-sourcing of dependencies (already loaded)
-$planContent = Get-Content -Path $script:PlanScript -Raw
-$functionsOnly = $planContent -replace '\. "\$PSScriptRoot\\[^"]+\.ps1"', '# (dependency already loaded)'
-Invoke-Expression $functionsOnly
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
+    $script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
+    $script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
+    $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
+    
+    # Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
+    . $script:LoggingScript
+    . $script:ManifestScript
+    . $script:StateScript
+    
+    # Load plan.ps1 but suppress its dot-sourcing of dependencies (already loaded)
+    $planContent = Get-Content -Path $script:PlanScript -Raw
+    $functionsOnly = $planContent -replace '\. "\$PSScriptRoot\\[^"]+\.ps1"', '# (dependency already loaded)'
+    Invoke-Expression $functionsOnly
+}
 
 Describe "Plan.Deterministic.HashAndRunId" {
     
@@ -30,7 +32,7 @@ Describe "Plan.Deterministic.HashAndRunId" {
             $hash1 = Get-ManifestHash -ManifestPath $yamlPath
             $hash2 = Get-ManifestHash -ManifestPath $yamlPath
             
-            $hash1 | Should Be $hash2
+            $hash1 | Should -Be $hash2
         }
         
         It "Should produce 16-character hash" {
@@ -38,8 +40,8 @@ Describe "Plan.Deterministic.HashAndRunId" {
             
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             
-            $hash | Should Not BeNullOrEmpty
-            $hash.Length | Should Be 16
+            $hash | Should -Not -BeNullOrEmpty
+            $hash.Length | Should -Be 16
         }
         
         It "Should produce different hash for different manifests" {
@@ -49,7 +51,7 @@ Describe "Plan.Deterministic.HashAndRunId" {
             $hash1 = Get-ManifestHash -ManifestPath $yamlPath
             $hash2 = Get-ManifestHash -ManifestPath $jsoncPath
             
-            $hash1 | Should Not Be $hash2
+            $hash1 | Should -Not -Be $hash2
         }
     }
     
@@ -58,7 +60,7 @@ Describe "Plan.Deterministic.HashAndRunId" {
         It "Should produce RunId in expected format (yyyyMMdd-HHmmss)" {
             $runId = Get-RunId
             
-            $runId | Should Match '^\d{8}-\d{6}$'
+            $runId | Should -Match '^\d{8}-\d{6}$'
         }
         
         It "Should produce valid date component" {
@@ -70,11 +72,11 @@ Describe "Plan.Deterministic.HashAndRunId" {
             $month = [int]$datePart.Substring(4, 2)
             $day = [int]$datePart.Substring(6, 2)
             
-            $year | Should BeGreaterThan 2019
-            $month | Should BeGreaterThan 0
-            $month | Should BeLessThan 13
-            $day | Should BeGreaterThan 0
-            $day | Should BeLessThan 32
+            $year | Should -BeGreaterThan 2019
+            $month | Should -BeGreaterThan 0
+            $month | Should -BeLessThan 13
+            $day | Should -BeGreaterThan 0
+            $day | Should -BeLessThan 32
         }
     }
     
@@ -107,12 +109,12 @@ Describe "Plan.Deterministic.HashAndRunId" {
                 -InstalledApps $installedApps
             
             # Compare key fields
-            $plan1.runId | Should Be $plan2.runId
-            $plan1.timestamp | Should Be $plan2.timestamp
-            $plan1.manifest.hash | Should Be $plan2.manifest.hash
-            $plan1.actions.Count | Should Be $plan2.actions.Count
-            $plan1.summary.install | Should Be $plan2.summary.install
-            $plan1.summary.skip | Should Be $plan2.summary.skip
+            $plan1.runId | Should -Be $plan2.runId
+            $plan1.timestamp | Should -Be $plan2.timestamp
+            $plan1.manifest.hash | Should -Be $plan2.manifest.hash
+            $plan1.actions.Count | Should -Be $plan2.actions.Count
+            $plan1.summary.install | Should -Be $plan2.summary.install
+            $plan1.summary.skip | Should -Be $plan2.summary.skip
         }
         
         It "Should produce stable action list order" {
@@ -134,14 +136,14 @@ Describe "Plan.Deterministic.HashAndRunId" {
             $restoreActions = @($plan.actions | Where-Object { $_.type -eq "restore" })
             $verifyActions = @($plan.actions | Where-Object { $_.type -eq "verify" })
             
-            $appActions.Count | Should Be 3
-            $restoreActions.Count | Should Be 1
-            $verifyActions.Count | Should Be 1
+            $appActions.Count | Should -Be 3
+            $restoreActions.Count | Should -Be 1
+            $verifyActions.Count | Should -Be 1
             
             # Verify order matches manifest
-            $appActions[0].id | Should Be "test-app-1"
-            $appActions[1].id | Should Be "test-app-2"
-            $appActions[2].id | Should Be "test-app-3"
+            $appActions[0].id | Should -Be "test-app-1"
+            $appActions[1].id | Should -Be "test-app-2"
+            $appActions[2].id | Should -Be "test-app-3"
         }
     }
 }
@@ -155,7 +157,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.runId | Should Not BeNullOrEmpty
+            $testPlan.runId | Should -Not -BeNullOrEmpty
         }
         
         It "Should have timestamp field" {
@@ -163,7 +165,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.timestamp | Should Not BeNullOrEmpty
+            $testPlan.timestamp | Should -Not -BeNullOrEmpty
         }
         
         It "Should have manifest.path field" {
@@ -171,7 +173,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.manifest.path | Should Not BeNullOrEmpty
+            $testPlan.manifest.path | Should -Not -BeNullOrEmpty
         }
         
         It "Should have manifest.name field" {
@@ -179,7 +181,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.manifest.name | Should Not BeNullOrEmpty
+            $testPlan.manifest.name | Should -Not -BeNullOrEmpty
         }
         
         It "Should have manifest.hash field" {
@@ -187,7 +189,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.manifest.hash | Should Not BeNullOrEmpty
+            $testPlan.manifest.hash | Should -Not -BeNullOrEmpty
         }
         
         It "Should have actions array" {
@@ -195,7 +197,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.actions | Should Not BeNullOrEmpty
+            $testPlan.actions | Should -Not -BeNullOrEmpty
         }
         
         It "Should have summary.install field" {
@@ -203,7 +205,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.summary.ContainsKey('install') | Should Be $true
+            $testPlan.summary.ContainsKey('install') | Should -Be $true
         }
         
         It "Should have summary.skip field" {
@@ -211,7 +213,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.summary.ContainsKey('skip') | Should Be $true
+            $testPlan.summary.ContainsKey('skip') | Should -Be $true
         }
         
         It "Should have summary.restore field" {
@@ -219,7 +221,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.summary.ContainsKey('restore') | Should Be $true
+            $testPlan.summary.ContainsKey('restore') | Should -Be $true
         }
         
         It "Should have summary.verify field" {
@@ -227,7 +229,7 @@ Describe "Plan.Structure" {
             $manifest = Read-Manifest -Path $yamlPath
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
-            $testPlan.summary.ContainsKey('verify') | Should Be $true
+            $testPlan.summary.ContainsKey('verify') | Should -Be $true
         }
     }
     
@@ -239,7 +241,7 @@ Describe "Plan.Structure" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
             $appAction = $testPlan.actions | Where-Object { $_.type -eq "app" } | Select-Object -First 1
-            $appAction.type | Should Be "app"
+            $appAction.type | Should -Be "app"
         }
         
         It "Should have driver field on app actions" {
@@ -248,7 +250,7 @@ Describe "Plan.Structure" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
             $appAction = $testPlan.actions | Where-Object { $_.type -eq "app" } | Select-Object -First 1
-            $appAction.driver | Should Be "winget"
+            $appAction.driver | Should -Be "winget"
         }
         
         It "Should have id field on app actions" {
@@ -257,7 +259,7 @@ Describe "Plan.Structure" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
             $appAction = $testPlan.actions | Where-Object { $_.type -eq "app" } | Select-Object -First 1
-            $appAction.id | Should Not BeNullOrEmpty
+            $appAction.id | Should -Not -BeNullOrEmpty
         }
         
         It "Should have ref field on app actions" {
@@ -266,7 +268,7 @@ Describe "Plan.Structure" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
             $appAction = $testPlan.actions | Where-Object { $_.type -eq "app" } | Select-Object -First 1
-            $appAction.ref | Should Not BeNullOrEmpty
+            $appAction.ref | Should -Not -BeNullOrEmpty
         }
         
         It "Should have status field on app actions" {
@@ -275,7 +277,7 @@ Describe "Plan.Structure" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $testPlan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @()
             $appAction = $testPlan.actions | Where-Object { $_.type -eq "app" } | Select-Object -First 1
-            $appAction.status | Should Not BeNullOrEmpty
+            $appAction.status | Should -Not -BeNullOrEmpty
         }
     }
 }

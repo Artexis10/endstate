@@ -3,67 +3,69 @@
     Pester tests for capture functionality: filters, templates, and deterministic output.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:CaptureScript = Join-Path $script:ProvisioningRoot "engine\capture.ps1"
-$script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
-$script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
-
-# Load dependencies
-. $script:LoggingScript
-. $script:ManifestScript
-
-# Load capture.ps1 but suppress its dot-sourcing of dependencies (already loaded)
-$captureContent = Get-Content -Path $script:CaptureScript -Raw
-$functionsOnly = $captureContent -replace '\. "\$PSScriptRoot\\[^"]+\.ps1"', '# (dependency already loaded)'
-Invoke-Expression $functionsOnly
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:CaptureScript = Join-Path $script:ProvisioningRoot "engine\capture.ps1"
+    $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
+    
+    # Load dependencies
+    . $script:LoggingScript
+    . $script:ManifestScript
+    
+    # Load capture.ps1 but suppress its dot-sourcing of dependencies (already loaded)
+    $captureContent = Get-Content -Path $script:CaptureScript -Raw
+    $functionsOnly = $captureContent -replace '\. "\$PSScriptRoot\\[^"]+\.ps1"', '# (dependency already loaded)'
+    Invoke-Expression $functionsOnly
+}
 
 Describe "Capture.Filters.RuntimePackages" {
     
     Context "Test-IsRuntimePackage function" {
         
         It "Should detect VCRedist packages" {
-            Test-IsRuntimePackage -PackageId "Microsoft.VCRedist.2015+.x64" | Should Be $true
-            Test-IsRuntimePackage -PackageId "Microsoft.VCRedist.2019.x86" | Should Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.VCRedist.2015+.x64" | Should -Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.VCRedist.2019.x86" | Should -Be $true
         }
         
         It "Should detect VCLibs packages" {
-            Test-IsRuntimePackage -PackageId "Microsoft.VCLibs.140.00" | Should Be $true
-            Test-IsRuntimePackage -PackageId "Microsoft.VCLibs.Desktop" | Should Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.VCLibs.140.00" | Should -Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.VCLibs.Desktop" | Should -Be $true
         }
         
         It "Should detect UI.Xaml packages" {
-            Test-IsRuntimePackage -PackageId "Microsoft.UI.Xaml.2.7" | Should Be $true
-            Test-IsRuntimePackage -PackageId "Microsoft.UI.Xaml.2.8" | Should Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.UI.Xaml.2.7" | Should -Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.UI.Xaml.2.8" | Should -Be $true
         }
         
         It "Should detect DotNet runtime packages" {
-            Test-IsRuntimePackage -PackageId "Microsoft.DotNet.DesktopRuntime.6" | Should Be $true
-            Test-IsRuntimePackage -PackageId "Microsoft.DotNet.HostingBundle.8" | Should Be $true
-            Test-IsRuntimePackage -PackageId "Microsoft.DotNet.SDK.8" | Should Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.DotNet.DesktopRuntime.6" | Should -Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.DotNet.HostingBundle.8" | Should -Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.DotNet.SDK.8" | Should -Be $true
         }
         
         It "Should detect WindowsAppRuntime packages" {
-            Test-IsRuntimePackage -PackageId "Microsoft.WindowsAppRuntime.1.4" | Should Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.WindowsAppRuntime.1.4" | Should -Be $true
         }
         
         It "Should detect DirectX packages" {
-            Test-IsRuntimePackage -PackageId "Microsoft.DirectX.Runtime" | Should Be $true
+            Test-IsRuntimePackage -PackageId "Microsoft.DirectX.Runtime" | Should -Be $true
         }
         
         It "Should NOT detect regular Microsoft apps as runtimes" {
-            Test-IsRuntimePackage -PackageId "Microsoft.VisualStudioCode" | Should Be $false
-            Test-IsRuntimePackage -PackageId "Microsoft.PowerShell" | Should Be $false
-            Test-IsRuntimePackage -PackageId "Microsoft.WindowsTerminal" | Should Be $false
+            Test-IsRuntimePackage -PackageId "Microsoft.VisualStudioCode" | Should -Be $false
+            Test-IsRuntimePackage -PackageId "Microsoft.PowerShell" | Should -Be $false
+            Test-IsRuntimePackage -PackageId "Microsoft.WindowsTerminal" | Should -Be $false
         }
         
         It "Should NOT detect non-Microsoft apps as runtimes" {
-            Test-IsRuntimePackage -PackageId "Git.Git" | Should Be $false
-            Test-IsRuntimePackage -PackageId "Mozilla.Firefox" | Should Be $false
+            Test-IsRuntimePackage -PackageId "Git.Git" | Should -Be $false
+            Test-IsRuntimePackage -PackageId "Mozilla.Firefox" | Should -Be $false
         }
         
         It "Should handle null/empty input gracefully" {
-            Test-IsRuntimePackage -PackageId $null | Should Be $false
-            Test-IsRuntimePackage -PackageId "" | Should Be $false
+            Test-IsRuntimePackage -PackageId $null | Should -Be $false
+            Test-IsRuntimePackage -PackageId "" | Should -Be $false
         }
     }
 }
@@ -78,7 +80,7 @@ Describe "Capture.Filters.StoreApps" {
                 refs = @{ windows = "SomeApp" }
                 _source = "msstore"
             }
-            Test-IsStoreApp -App $app | Should Be $true
+            Test-IsStoreApp -App $app | Should -Be $true
         }
         
         It "Should detect apps with 9N* pattern IDs" {
@@ -87,7 +89,7 @@ Describe "Capture.Filters.StoreApps" {
                 refs = @{ windows = "9NBLGGH4NNS1" }
                 _source = "winget"
             }
-            Test-IsStoreApp -App $app | Should Be $true
+            Test-IsStoreApp -App $app | Should -Be $true
         }
         
         It "Should detect apps with XP* pattern IDs" {
@@ -96,7 +98,7 @@ Describe "Capture.Filters.StoreApps" {
                 refs = @{ windows = "XPDC2RH70K22MN" }
                 _source = "winget"
             }
-            Test-IsStoreApp -App $app | Should Be $true
+            Test-IsStoreApp -App $app | Should -Be $true
         }
         
         It "Should NOT detect regular winget apps as store apps" {
@@ -105,7 +107,7 @@ Describe "Capture.Filters.StoreApps" {
                 refs = @{ windows = "Git.Git" }
                 _source = "winget"
             }
-            Test-IsStoreApp -App $app | Should Be $false
+            Test-IsStoreApp -App $app | Should -Be $false
         }
         
         It "Should NOT detect apps without _source if ID doesn't match store patterns" {
@@ -113,7 +115,7 @@ Describe "Capture.Filters.StoreApps" {
                 id = "vscode"
                 refs = @{ windows = "Microsoft.VisualStudioCode" }
             }
-            Test-IsStoreApp -App $app | Should Be $false
+            Test-IsStoreApp -App $app | Should -Be $false
         }
         
         It "Should handle apps without refs gracefully" {
@@ -121,7 +123,7 @@ Describe "Capture.Filters.StoreApps" {
                 id = "broken-app"
                 refs = @{}
             }
-            Test-IsStoreApp -App $app | Should Be $false
+            Test-IsStoreApp -App $app | Should -Be $false
         }
     }
 }
@@ -146,7 +148,7 @@ Describe "Capture.Templates" {
             
             Write-RestoreTemplate -Path $templatePath -ProfileName "test-profile"
             
-            Test-Path $templatePath | Should Be $true
+            Test-Path $templatePath | Should -Be $true
         }
         
         It "Should include profile name in template" {
@@ -155,7 +157,7 @@ Describe "Capture.Templates" {
             Write-RestoreTemplate -Path $templatePath -ProfileName "my-workstation"
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match "my-workstation"
+            $content | Should -Match "my-workstation"
         }
         
         It "Should include restore array in template" {
@@ -164,7 +166,7 @@ Describe "Capture.Templates" {
             Write-RestoreTemplate -Path $templatePath -ProfileName "test"
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match '"restore":'
+            $content | Should -Match '"restore":'
         }
         
         It "Should include example restore steps" {
@@ -173,8 +175,8 @@ Describe "Capture.Templates" {
             Write-RestoreTemplate -Path $templatePath -ProfileName "test"
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match "copy"
-            $content | Should Match "merge"
+            $content | Should -Match "copy"
+            $content | Should -Match "merge"
         }
     }
     
@@ -185,7 +187,7 @@ Describe "Capture.Templates" {
             
             Write-VerifyTemplate -Path $templatePath -ProfileName "test-profile"
             
-            Test-Path $templatePath | Should Be $true
+            Test-Path $templatePath | Should -Be $true
         }
         
         It "Should include profile name in template" {
@@ -194,7 +196,7 @@ Describe "Capture.Templates" {
             Write-VerifyTemplate -Path $templatePath -ProfileName "my-workstation"
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match "my-workstation"
+            $content | Should -Match "my-workstation"
         }
         
         It "Should include verify array in template" {
@@ -203,7 +205,7 @@ Describe "Capture.Templates" {
             Write-VerifyTemplate -Path $templatePath -ProfileName "test"
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match '"verify":'
+            $content | Should -Match '"verify":'
         }
         
         It "Should include example verify steps" {
@@ -212,7 +214,7 @@ Describe "Capture.Templates" {
             Write-VerifyTemplate -Path $templatePath -ProfileName "test"
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match "file-exists"
+            $content | Should -Match "file-exists"
         }
     }
 }
@@ -231,10 +233,10 @@ Describe "Capture.DeterministicOutput" {
             
             $sortedApps = @($unsortedApps | Sort-Object -Property { $_.id })
             
-            $sortedApps[0].id | Should Be "azure-cli"
-            $sortedApps[1].id | Should Be "git"
-            $sortedApps[2].id | Should Be "node"
-            $sortedApps[3].id | Should Be "zsh"
+            $sortedApps[0].id | Should -Be "azure-cli"
+            $sortedApps[1].id | Should -Be "git"
+            $sortedApps[2].id | Should -Be "node"
+            $sortedApps[3].id | Should -Be "zsh"
         }
     }
 }
@@ -287,9 +289,9 @@ Describe "Capture.Integration.MockedWinget" {
             
             $filtered = @($apps | Where-Object { -not (Test-IsRuntimePackage -PackageId $_.refs.windows) })
             
-            $filtered.Count | Should Be 2
-            $filtered[0].id | Should Be "git-git"
-            $filtered[1].id | Should Be "microsoft-visualstudiocode"
+            $filtered.Count | Should -Be 2
+            $filtered[0].id | Should -Be "git-git"
+            $filtered[1].id | Should -Be "microsoft-visualstudiocode"
         }
         
         It "Should filter store apps when IncludeStoreApps is false" {
@@ -301,8 +303,8 @@ Describe "Capture.Integration.MockedWinget" {
             
             $filtered = @($apps | Where-Object { -not (Test-IsStoreApp -App $_) })
             
-            $filtered.Count | Should Be 1
-            $filtered[0].id | Should Be "git-git"
+            $filtered.Count | Should -Be 1
+            $filtered[0].id | Should -Be "git-git"
         }
         
         It "Should apply both filters together" {
@@ -316,8 +318,8 @@ Describe "Capture.Integration.MockedWinget" {
             $filtered = @($filtered | Where-Object { -not (Test-IsRuntimePackage -PackageId $_.refs.windows) })
             $filtered = @($filtered | Where-Object { -not (Test-IsStoreApp -App $_) })
             
-            $filtered.Count | Should Be 1
-            $filtered[0].id | Should Be "git-git"
+            $filtered.Count | Should -Be 1
+            $filtered[0].id | Should -Be "git-git"
         }
         
         It "Should minimize entries without stable refs" {
@@ -329,8 +331,8 @@ Describe "Capture.Integration.MockedWinget" {
             
             $minimized = @($apps | Where-Object { $_.refs -and $_.refs.windows })
             
-            $minimized.Count | Should Be 1
-            $minimized[0].id | Should Be "git-git"
+            $minimized.Count | Should -Be 1
+            $minimized[0].id | Should -Be "git-git"
         }
     }
 }
@@ -346,7 +348,7 @@ Describe "Capture.Validation" {
             
             $shouldFail = ($includeRestoreTemplate -and -not $hasProfile)
             
-            $shouldFail | Should Be $true
+            $shouldFail | Should -Be $true
         }
         
         It "Should require -Profile for -IncludeVerifyTemplate" {
@@ -355,7 +357,7 @@ Describe "Capture.Validation" {
             
             $shouldFail = ($includeVerifyTemplate -and -not $hasProfile)
             
-            $shouldFail | Should Be $true
+            $shouldFail | Should -Be $true
         }
         
         It "Should allow templates when -Profile is provided" {
@@ -365,7 +367,7 @@ Describe "Capture.Validation" {
             
             $shouldFail = (($includeRestoreTemplate -or $includeVerifyTemplate) -and -not $hasProfile)
             
-            $shouldFail | Should Be $false
+            $shouldFail | Should -Be $false
         }
         
         It "Should require either -Profile or -OutManifest" {
@@ -374,7 +376,7 @@ Describe "Capture.Validation" {
             
             $shouldFail = (-not $hasProfile -and -not $hasOutManifest)
             
-            $shouldFail | Should Be $true
+            $shouldFail | Should -Be $true
         }
     }
 }

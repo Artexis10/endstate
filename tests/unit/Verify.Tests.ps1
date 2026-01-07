@@ -3,14 +3,16 @@
     Pester tests for verify subsystem.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\.."
-$script:VerifiersDir = Join-Path $script:ProvisioningRoot "verifiers"
-$script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
-
-# Load verifiers directly (avoid loading full verify.ps1 which has side effects)
-. (Join-Path $script:VerifiersDir "file-exists.ps1")
-. (Join-Path $script:VerifiersDir "command-exists.ps1")
-. (Join-Path $script:VerifiersDir "registry-key-exists.ps1")
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\...."
+    $script:VerifiersDir = Join-Path $script:ProvisioningRoot "verifiers"
+    $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
+    
+    # Load verifiers directly (avoid loading full verify.ps1 which has side effects)
+    . (Join-Path $script:VerifiersDir "file-exists.ps1")
+    . (Join-Path $script:VerifiersDir "command-exists.ps1")
+    . (Join-Path $script:VerifiersDir "registry-key-exists.ps1")
+}
 
 Describe "Verifier.FileExists" {
     
@@ -22,8 +24,8 @@ Describe "Verifier.FileExists" {
             
             $result = Test-FileExistsVerifier -Path $testFile
             
-            $result.Success | Should Be $true
-            $result.Message | Should Match "File exists"
+            $result.Success | Should -Be $true
+            $result.Message | Should -Match "File exists"
         }
         
         It "Should pass for existing directory" {
@@ -31,8 +33,8 @@ Describe "Verifier.FileExists" {
             
             $result = Test-FileExistsVerifier -Path $testDir
             
-            $result.Success | Should Be $true
-            $result.Message | Should Match "Directory exists"
+            $result.Success | Should -Be $true
+            $result.Message | Should -Match "Directory exists"
         }
     }
     
@@ -43,8 +45,8 @@ Describe "Verifier.FileExists" {
             
             $result = Test-FileExistsVerifier -Path $fakePath
             
-            $result.Success | Should Be $false
-            $result.Message | Should Match "does not exist"
+            $result.Success | Should -Be $false
+            $result.Message | Should -Match "does not exist"
         }
     }
     
@@ -60,7 +62,7 @@ Describe "Verifier.FileExists" {
                 $tildeFile = $testFile -replace [regex]::Escape($env:USERPROFILE), "~"
                 $result = Test-FileExistsVerifier -Path $tildeFile
                 
-                $result.Success | Should Be $true
+                $result.Success | Should -Be $true
             }
             finally {
                 if (Test-Path $testFile) {
@@ -78,14 +80,14 @@ Describe "Verifier.CommandExists" {
         It "Should pass for pwsh command" {
             $result = Test-CommandExistsVerifier -Command "pwsh"
             
-            $result.Success | Should Be $true
-            $result.Message | Should Match "Command exists"
+            $result.Success | Should -Be $true
+            $result.Message | Should -Match "Command exists"
         }
         
         It "Should pass for powershell command" {
             $result = Test-CommandExistsVerifier -Command "powershell"
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
         }
     }
     
@@ -94,8 +96,8 @@ Describe "Verifier.CommandExists" {
         It "Should fail for non-existing command" {
             $result = Test-CommandExistsVerifier -Command "nonexistent-command-xyz-12345"
             
-            $result.Success | Should Be $false
-            $result.Message | Should Match "not found"
+            $result.Success | Should -Be $false
+            $result.Message | Should -Match "not found"
         }
     }
 }
@@ -114,8 +116,8 @@ Describe "Verifier.RegistryKeyExists" {
                 return
             }
             
-            $result.Success | Should Be $true
-            $result.Message | Should Match "Registry key exists"
+            $result.Success | Should -Be $true
+            $result.Message | Should -Match "Registry key exists"
         }
         
         It "Should fail for non-existing registry key" {
@@ -127,7 +129,7 @@ Describe "Verifier.RegistryKeyExists" {
                 return
             }
             
-            $result.Success | Should Be $false
+            $result.Success | Should -Be $false
         }
         
         It "Should check specific registry value" {
@@ -140,8 +142,8 @@ Describe "Verifier.RegistryKeyExists" {
                 return
             }
             
-            $result.Success | Should Be $true
-            $result.Message | Should Match "Registry value exists"
+            $result.Success | Should -Be $true
+            $result.Message | Should -Match "Registry value exists"
         }
     }
 }
@@ -153,27 +155,27 @@ Describe "Verifier.ResultStructure" {
         It "Should return Success boolean" {
             $result = Test-FileExistsVerifier -Path $PSCommandPath
             
-            $result.ContainsKey('Success') | Should Be $true
-            $result.Success | Should BeOfType [bool]
+            $result.ContainsKey('Success') | Should -Be $true
+            $result.Success | Should -BeOfType [bool]
         }
         
         It "Should return Message string" {
             $result = Test-FileExistsVerifier -Path $PSCommandPath
             
-            $result.ContainsKey('Message') | Should Be $true
-            $result.Message | Should BeOfType [string]
+            $result.ContainsKey('Message') | Should -Be $true
+            $result.Message | Should -BeOfType [string]
         }
         
         It "Should return Path for file-exists verifier" {
             $result = Test-FileExistsVerifier -Path $PSCommandPath
             
-            $result.ContainsKey('Path') | Should Be $true
+            $result.ContainsKey('Path') | Should -Be $true
         }
         
         It "Should return Command for command-exists verifier" {
             $result = Test-CommandExistsVerifier -Command "pwsh"
             
-            $result.ContainsKey('Command') | Should Be $true
+            $result.ContainsKey('Command') | Should -Be $true
         }
     }
 }
@@ -188,7 +190,7 @@ Describe "Verifier.Determinism" {
             $result1 = Test-FileExistsVerifier -Path $path
             $result2 = Test-FileExistsVerifier -Path $path
             
-            $result1.Success | Should Be $result2.Success
+            $result1.Success | Should -Be $result2.Success
         }
         
         It "Should produce identical results for command-exists" {
@@ -197,7 +199,7 @@ Describe "Verifier.Determinism" {
             $result1 = Test-CommandExistsVerifier -Command $cmd
             $result2 = Test-CommandExistsVerifier -Command $cmd
             
-            $result1.Success | Should Be $result2.Success
+            $result1.Success | Should -Be $result2.Success
         }
     }
 }
@@ -243,11 +245,11 @@ Describe "Verify.JsonEnvelopeContract" {
                 }
             
             # Assertions
-            $verifyError | Should Not Be $null
-            $verifyError.code | Should Be "VERIFY_FAILED"
-            $verifyError.message | Should Match "Missing apps"
-            $verifyError.message.Contains("Notepad++.Notepad++") | Should Be $true
-            $verifyError.detail.missingApps -contains "Notepad++.Notepad++" | Should Be $true
+            $verifyError | Should -Not -Be $null
+            $verifyError.code | Should -Be "VERIFY_FAILED"
+            $verifyError.message | Should -Match "Missing apps"
+            $verifyError.message.Contains("Notepad++.Notepad++") | Should -Be $true
+            $verifyError.detail.missingApps -contains "Notepad++.Notepad++" | Should -Be $true
         }
         
         It "Should have null error when verify passes" {
@@ -259,7 +261,7 @@ Describe "Verify.JsonEnvelopeContract" {
                 $verifyError = New-JsonError -Code "VERIFY_FAILED" -Message "Test"
             }
             
-            $verifyError | Should Be $null
+            $verifyError | Should -Be $null
         }
         
         It "Should create envelope with success=false and error non-null when failures exist" {
@@ -268,9 +270,9 @@ Describe "Verify.JsonEnvelopeContract" {
             
             $envelope = New-JsonEnvelope -Command "verify" -Success $false -Data $data -Error $verifyError
             
-            $envelope.success | Should Be $false
-            $envelope.error | Should Not Be $null
-            $envelope.error.code | Should Be "VERIFY_FAILED"
+            $envelope.success | Should -Be $false
+            $envelope.error | Should -Not -Be $null
+            $envelope.error.code | Should -Be "VERIFY_FAILED"
         }
     }
 }

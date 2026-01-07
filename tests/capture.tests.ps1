@@ -68,10 +68,10 @@ Describe "Capture Engine" {
                 $result = Invoke-Capture -OutManifest $outManifest
                 
                 # Verify manifest was created at the specified path
-                (Test-Path $outManifest) | Should Be $true
+                (Test-Path $outManifest) | Should -Be $true
                 
                 # Verify result contains correct path
-                $result.ManifestPath | Should Be $outManifest
+                $result.ManifestPath | Should -Be $outManifest
             }
             finally {
                 Remove-TestTempDir -Path $tempDir
@@ -100,10 +100,10 @@ Describe "Capture Engine" {
                 $result = Invoke-Capture -OutManifest $nestedPath
                 
                 # Verify nested directories were created
-                (Test-Path (Split-Path -Parent $nestedPath)) | Should Be $true
+                (Test-Path (Split-Path -Parent $nestedPath)) | Should -Be $true
                 
                 # Verify manifest was created
-                (Test-Path $nestedPath) | Should Be $true
+                (Test-Path $nestedPath) | Should -Be $true
             }
             finally {
                 Remove-TestTempDir -Path $tempDir
@@ -131,16 +131,16 @@ Describe "Capture Engine" {
                 
                 # Verify file is non-empty
                 $content = Get-Content -Path $outManifest -Raw
-                $content.Length | Should BeGreaterThan 0
+                $content.Length | Should -BeGreaterThan 0
                 
                 # Parse JSONC (strip comments and parse)
                 $manifest = Read-Manifest -Path $outManifest
                 
                 # Verify structure (don't check exact app count - depends on system)
-                $manifest | Should Not BeNullOrEmpty
-                $manifest.version | Should Be 1
+                $manifest | Should -Not -BeNullOrEmpty
+                $manifest.version | Should -Be 1
                 # Apps array should exist (may be empty or have items)
-                $manifest.ContainsKey('apps') | Should Be $true
+                $manifest.ContainsKey('apps') | Should -Be $true
             }
             finally {
                 Remove-TestTempDir -Path $tempDir
@@ -170,7 +170,7 @@ Describe "Capture Engine" {
                 
                 # Parse and verify name
                 $manifest = Read-Manifest -Path $outManifest
-                $manifest.name | Should Be "my-workstation"
+                $manifest.name | Should -Be "my-workstation"
             }
             finally {
                 Remove-TestTempDir -Path $tempDir
@@ -215,7 +215,7 @@ Describe "Capture Engine" {
                     # Load capture and verify it fails gracefully
                     . $script:CaptureScript
                     $result = Invoke-Capture -OutManifest $outManifest
-                    $result | Should BeNullOrEmpty
+                    $result | Should -BeNullOrEmpty
                 }
             }
             finally {

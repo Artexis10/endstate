@@ -3,18 +3,20 @@
     Pester tests for Discovery module: PATH detection, registry detection, winget ownership.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:DiscoveryScript = Join-Path $script:ProvisioningRoot "engine\discovery.ps1"
-$script:ExternalScript = Join-Path $script:ProvisioningRoot "engine\external.ps1"
-$script:CaptureScript = Join-Path $script:ProvisioningRoot "engine\capture.ps1"
-$script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
-$script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
-
-# Load external wrapper first (discovery depends on it)
-. $script:ExternalScript
-
-# Load discovery module
-. $script:DiscoveryScript
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:DiscoveryScript = Join-Path $script:ProvisioningRoot "engine\discovery.ps1"
+    $script:ExternalScript = Join-Path $script:ProvisioningRoot "engine\external.ps1"
+    $script:CaptureScript = Join-Path $script:ProvisioningRoot "engine\capture.ps1"
+    $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
+    
+    # Load external wrapper first (discovery depends on it)
+    . $script:ExternalScript
+    
+    # Load discovery module
+    . $script:DiscoveryScript
+}
 
 Describe "Discovery.PathDetector" {
     
@@ -45,11 +47,11 @@ Describe "Discovery.PathDetector" {
             $findings = Invoke-PathDetector
             
             $gitFinding = $findings | Where-Object { $_.name -eq "git" }
-            $gitFinding | Should Not BeNullOrEmpty
-            $gitFinding.method | Should Be "path"
-            $gitFinding.path | Should Be "C:\Program Files\Git\cmd\git.exe"
-            $gitFinding.version | Should Be "2.43.0"
-            $gitFinding.suggestedWingetId | Should Be "Git.Git"
+            $gitFinding | Should -Not -BeNullOrEmpty
+            $gitFinding.method | Should -Be "path"
+            $gitFinding.path | Should -Be "C:\Program Files\Git\cmd\git.exe"
+            $gitFinding.version | Should -Be "2.43.0"
+            $gitFinding.suggestedWingetId | Should -Be "Git.Git"
         }
         
         It "Should return empty array when no tools found on PATH" {
@@ -58,7 +60,7 @@ Describe "Discovery.PathDetector" {
             
             $findings = Invoke-PathDetector
             
-            $findings.Count | Should Be 0
+            $findings.Count | Should -Be 0
         }
         
         It "Should detect multiple tools when present" {
@@ -82,9 +84,9 @@ Describe "Discovery.PathDetector" {
             
             $findings = Invoke-PathDetector
             
-            $findings.Count | Should BeGreaterThan 1
-            ($findings | Where-Object { $_.name -eq "git" }) | Should Not BeNullOrEmpty
-            ($findings | Where-Object { $_.name -eq "node" }) | Should Not BeNullOrEmpty
+            $findings.Count | Should -BeGreaterThan 1
+            ($findings | Where-Object { $_.name -eq "git" }) | Should -Not -BeNullOrEmpty
+            ($findings | Where-Object { $_.name -eq "node" }) | Should -Not -BeNullOrEmpty
         }
         
         It "Should handle null version gracefully" {
@@ -101,8 +103,8 @@ Describe "Discovery.PathDetector" {
             $findings = Invoke-PathDetector
             
             $gitFinding = $findings | Where-Object { $_.name -eq "git" }
-            $gitFinding | Should Not BeNullOrEmpty
-            $gitFinding.version | Should BeNullOrEmpty
+            $gitFinding | Should -Not -BeNullOrEmpty
+            $gitFinding.version | Should -BeNullOrEmpty
         }
     }
 }
@@ -127,11 +129,11 @@ Describe "Discovery.RegistryDetector" {
             $findings = Invoke-RegistryUninstallDetector
             
             $gitFinding = $findings | Where-Object { $_.name -eq "git" }
-            $gitFinding | Should Not BeNullOrEmpty
-            $gitFinding.method | Should Be "registry"
-            $gitFinding.displayName | Should Be "Git version 2.43.0"
-            $gitFinding.displayVersion | Should Be "2.43.0"
-            $gitFinding.suggestedWingetId | Should Be "Git.Git"
+            $gitFinding | Should -Not -BeNullOrEmpty
+            $gitFinding.method | Should -Be "registry"
+            $gitFinding.displayName | Should -Be "Git version 2.43.0"
+            $gitFinding.displayVersion | Should -Be "2.43.0"
+            $gitFinding.suggestedWingetId | Should -Be "Git.Git"
         }
         
         It "Should return empty array when no matching entries found" {
@@ -143,7 +145,7 @@ Describe "Discovery.RegistryDetector" {
             
             $findings = Invoke-RegistryUninstallDetector
             
-            $findings.Count | Should Be 0
+            $findings.Count | Should -Be 0
         }
         
         It "Should deduplicate entries with same DisplayName and Version" {
@@ -164,7 +166,7 @@ Describe "Discovery.RegistryDetector" {
             
             # Should only have one git entry despite being called for multiple paths
             $gitFindings = @($findings | Where-Object { $_.name -eq "git" })
-            $gitFindings.Count | Should Be 1
+            $gitFindings.Count | Should -Be 1
         }
     }
 }
@@ -187,7 +189,7 @@ Describe "Discovery.WingetOwnership" {
             
             $result = @(Add-WingetOwnership -Discoveries $discoveries -WingetInstalledIds $wingetIds)
             
-            $result[0]["ownedByWinget"] | Should Be $true
+            $result[0]["ownedByWinget"] | Should -Be $true
         }
         
         It "Should mark discovery as NOT owned when winget ID not found" {
@@ -204,7 +206,7 @@ Describe "Discovery.WingetOwnership" {
             
             $result = @(Add-WingetOwnership -Discoveries $discoveries -WingetInstalledIds $wingetIds)
             
-            $result[0]["ownedByWinget"] | Should Be $false
+            $result[0]["ownedByWinget"] | Should -Be $false
         }
         
         It "Should handle case-insensitive matching" {
@@ -219,7 +221,7 @@ Describe "Discovery.WingetOwnership" {
             
             $result = @(Add-WingetOwnership -Discoveries $discoveries -WingetInstalledIds $wingetIds)
             
-            $result[0]["ownedByWinget"] | Should Be $true
+            $result[0]["ownedByWinget"] | Should -Be $true
         }
         
         It "Should handle empty winget IDs array" {
@@ -232,7 +234,7 @@ Describe "Discovery.WingetOwnership" {
             
             $result = @(Add-WingetOwnership -Discoveries $discoveries -WingetInstalledIds @())
             
-            $result[0]["ownedByWinget"] | Should Be $false
+            $result[0]["ownedByWinget"] | Should -Be $false
         }
     }
 }
@@ -258,7 +260,7 @@ Describe "Discovery.Integration" {
             
             # Should be sorted by name
             if ($discoveries.Count -ge 2) {
-                $discoveries[0].name | Should BeLessThan $discoveries[1].name
+                $discoveries[0].name | Should -BeLessThan $discoveries[1].name
             }
         }
         
@@ -277,7 +279,7 @@ Describe "Discovery.Integration" {
             $discoveries = Invoke-Discovery -WingetInstalledIds @("Git.Git")
             
             $gitDiscovery = $discoveries | Where-Object { $_.name -eq "git" }
-            $gitDiscovery.PSObject.Properties.Name -contains "ownedByWinget" -or $gitDiscovery.ContainsKey("ownedByWinget") | Should Be $true
+            $gitDiscovery.PSObject.Properties.Name -contains "ownedByWinget" -or $gitDiscovery.ContainsKey("ownedByWinget") | Should -Be $true
         }
     }
 }
@@ -312,7 +314,7 @@ Describe "Discovery.ManualInclude" {
             
             Write-ManualIncludeTemplate -Path $templatePath -ProfileName "test-profile" -Discoveries $discoveries
             
-            Test-Path $templatePath | Should Be $true
+            Test-Path $templatePath | Should -Be $true
         }
         
         It "Should include profile name in template" {
@@ -330,7 +332,7 @@ Describe "Discovery.ManualInclude" {
             Write-ManualIncludeTemplate -Path $templatePath -ProfileName "my-workstation" -Discoveries $discoveries
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match "my-workstation"
+            $content | Should -Match "my-workstation"
         }
         
         It "Should include commented app suggestion for non-winget-owned discovery" {
@@ -349,8 +351,8 @@ Describe "Discovery.ManualInclude" {
             Write-ManualIncludeTemplate -Path $templatePath -ProfileName "test" -Discoveries $discoveries
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match "Git.Git"
-            $content | Should Match "//"  # Should be commented
+            $content | Should -Match "Git.Git"
+            $content | Should -Match "//"  # Should be commented
         }
         
         It "Should NOT include winget-owned discoveries in suggestions" {
@@ -367,7 +369,7 @@ Describe "Discovery.ManualInclude" {
             
             $content = Get-Content -Path $templatePath -Raw
             # Should not contain a suggestion line for Git.Git (only header comments)
-            $content | Should Match "No non-winget-managed software discovered"
+            $content | Should -Match "No non-winget-managed software discovered"
         }
         
         It "Should include detection info in comment" {
@@ -386,8 +388,8 @@ Describe "Discovery.ManualInclude" {
             Write-ManualIncludeTemplate -Path $templatePath -ProfileName "test" -Discoveries $discoveries
             
             $content = Get-Content -Path $templatePath -Raw
-            $content | Should Match "2.43.0"
-            $content | Should Match "C:\\Program Files\\Git"
+            $content | Should -Match "2.43.0"
+            $content | Should -Match "C:\\Program Files\\Git"
         }
     }
 }
@@ -403,7 +405,7 @@ Describe "Discovery.CaptureIntegration" {
             
             $shouldFail = ($discoverWriteManualInclude -and -not $hasProfile)
             
-            $shouldFail | Should Be $true
+            $shouldFail | Should -Be $true
         }
         
         It "Should allow -Discover without -Profile when -DiscoverWriteManualInclude is false" {
@@ -416,7 +418,7 @@ Describe "Discovery.CaptureIntegration" {
             # Only fail if manual include is requested without profile
             $shouldFail = ($discoverWriteManualInclude -and -not $hasProfile)
             
-            $shouldFail | Should Be $false
+            $shouldFail | Should -Be $false
         }
         
         It "Should default DiscoverWriteManualInclude to true when Discover is enabled" {
@@ -429,7 +431,7 @@ Describe "Discovery.CaptureIntegration" {
                 $discoverWriteManualInclude = $true
             }
             
-            $discoverWriteManualInclude | Should Be $true
+            $discoverWriteManualInclude | Should -Be $true
         }
     }
     
@@ -448,7 +450,7 @@ Describe "Discovery.CaptureIntegration" {
                 $result.Discovered = @()
             }
             
-            $result.ContainsKey("Discovered") | Should Be $false
+            $result.ContainsKey("Discovered") | Should -Be $false
         }
         
         It "Should have Discovered key when -Discover is true" {
@@ -464,8 +466,8 @@ Describe "Discovery.CaptureIntegration" {
                 )
             }
             
-            $result.ContainsKey("Discovered") | Should Be $true
-            $result.Discovered.Count | Should Be 1
+            $result.ContainsKey("Discovered") | Should -Be $true
+            $result.Discovered.Count | Should -Be 1
         }
     }
 }
@@ -495,7 +497,7 @@ Describe "Discovery.DeterministicSorting" {
             $sortedNames = $names | Sort-Object
             
             for ($i = 0; $i -lt $names.Count; $i++) {
-                $names[$i] | Should Be $sortedNames[$i]
+                $names[$i] | Should -Be $sortedNames[$i]
             }
         }
     }

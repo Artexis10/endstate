@@ -3,22 +3,24 @@
     Pester tests for planner skip/install classification logic.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
-$script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
-$script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
-$script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
-$script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
-
-# Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
-. $script:LoggingScript
-. $script:ManifestScript
-. $script:StateScript
-
-# Load plan.ps1 functions without re-dot-sourcing dependencies
-$planContent = Get-Content -Path $script:PlanScript -Raw
-$functionsOnly = $planContent -replace '\. "\$PSScriptRoot\\[^"]+\.ps1"', '# (dependency already loaded)'
-Invoke-Expression $functionsOnly
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
+    $script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
+    $script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
+    $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
+    
+    # Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
+    . $script:LoggingScript
+    . $script:ManifestScript
+    . $script:StateScript
+    
+    # Load plan.ps1 functions without re-dot-sourcing dependencies
+    $planContent = Get-Content -Path $script:PlanScript -Raw
+    $functionsOnly = $planContent -replace '\. "\$PSScriptRoot\\[^"]+\.ps1"', '# (dependency already loaded)'
+    Invoke-Expression $functionsOnly
+}
 
 Describe "Planner.SkipLogic" {
     
@@ -41,7 +43,7 @@ Describe "Planner.SkipLogic" {
                 -InstalledApps $installedApps
             
             $app2Action = $plan.actions | Where-Object { $_.ref -eq "Test.App2" }
-            $app2Action.status | Should Be "skip"
+            $app2Action.status | Should -Be "skip"
         }
         
         It "Should set reason to 'already installed' for skipped apps" {
@@ -60,7 +62,7 @@ Describe "Planner.SkipLogic" {
                 -InstalledApps $installedApps
             
             $app2Action = $plan.actions | Where-Object { $_.ref -eq "Test.App2" }
-            $app2Action.reason | Should Be "already installed"
+            $app2Action.reason | Should -Be "already installed"
         }
         
         It "Should mark app as install when not in installed list" {
@@ -80,7 +82,7 @@ Describe "Planner.SkipLogic" {
                 -InstalledApps $installedApps
             
             $app1Action = $plan.actions | Where-Object { $_.ref -eq "Test.App1" }
-            $app1Action.status | Should Be "install"
+            $app1Action.status | Should -Be "install"
         }
         
         It "Should not have reason field for install actions" {
@@ -99,7 +101,7 @@ Describe "Planner.SkipLogic" {
                 -InstalledApps $installedApps
             
             $app1Action = $plan.actions | Where-Object { $_.ref -eq "Test.App1" }
-            $app1Action.ContainsKey('reason') | Should Be $false
+            $app1Action.ContainsKey('reason') | Should -Be $false
         }
     }
     
@@ -121,8 +123,8 @@ Describe "Planner.SkipLogic" {
                 -Timestamp "2025-01-01T00:00:00Z" `
                 -InstalledApps $installedApps
             
-            $plan.summary.install | Should Be 0
-            $plan.summary.skip | Should Be 3
+            $plan.summary.install | Should -Be 0
+            $plan.summary.skip | Should -Be 3
         }
         
         It "Should correctly classify when no apps are installed" {
@@ -141,8 +143,8 @@ Describe "Planner.SkipLogic" {
                 -Timestamp "2025-01-01T00:00:00Z" `
                 -InstalledApps $installedApps
             
-            $plan.summary.install | Should Be 3
-            $plan.summary.skip | Should Be 0
+            $plan.summary.install | Should -Be 3
+            $plan.summary.skip | Should -Be 0
         }
         
         It "Should correctly classify mixed install/skip scenario" {
@@ -161,8 +163,8 @@ Describe "Planner.SkipLogic" {
                 -Timestamp "2025-01-01T00:00:00Z" `
                 -InstalledApps $installedApps
             
-            $plan.summary.install | Should Be 1  # Only App2
-            $plan.summary.skip | Should Be 2     # App1 and App3
+            $plan.summary.install | Should -Be 1  # Only App2
+            $plan.summary.skip | Should -Be 2     # App1 and App3
         }
     }
     
@@ -181,7 +183,7 @@ Describe "Planner.SkipLogic" {
                 -Timestamp "2025-01-01T00:00:00Z" `
                 -InstalledApps @()
             
-            $plan.summary.restore | Should Be 1
+            $plan.summary.restore | Should -Be 1
         }
         
         It "Should count verify actions correctly" {
@@ -197,7 +199,7 @@ Describe "Planner.SkipLogic" {
                 -Timestamp "2025-01-01T00:00:00Z" `
                 -InstalledApps @()
             
-            $plan.summary.verify | Should Be 1
+            $plan.summary.verify | Should -Be 1
         }
         
         It "Should have total actions equal to sum of all types" {
@@ -216,7 +218,7 @@ Describe "Planner.SkipLogic" {
                 -InstalledApps $installedApps
             
             $expectedTotal = $plan.summary.install + $plan.summary.skip + $plan.summary.restore + $plan.summary.verify
-            $plan.actions.Count | Should Be $expectedTotal
+            $plan.actions.Count | Should -Be $expectedTotal
         }
     }
 }

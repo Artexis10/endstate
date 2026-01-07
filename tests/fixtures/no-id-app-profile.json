@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "apps": [
+    {
+      "refs": {
+        "windows": "Test.App"
+      }
+    }
+  ]
+}

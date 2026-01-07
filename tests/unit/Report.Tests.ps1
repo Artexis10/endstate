@@ -3,22 +3,24 @@
     Pester tests for report schema validation and serialization stability.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
-$script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
-$script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
-$script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
-$script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
-
-# Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
-. $script:LoggingScript
-. $script:ManifestScript
-. $script:StateScript
-
-# Load plan.ps1 functions without re-dot-sourcing dependencies
-$planContent = Get-Content -Path $script:PlanScript -Raw
-$functionsOnly = $planContent -replace '\. "\$PSScriptRoot\\[^"]+\.ps1"', '# (dependency already loaded)'
-Invoke-Expression $functionsOnly
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
+    $script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
+    $script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
+    $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
+    
+    # Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
+    . $script:LoggingScript
+    . $script:ManifestScript
+    . $script:StateScript
+    
+    # Load plan.ps1 functions without re-dot-sourcing dependencies
+    $planContent = Get-Content -Path $script:PlanScript -Raw
+    $functionsOnly = $planContent -replace '\. "\$PSScriptRoot\\[^"]+\.ps1"', '# (dependency already loaded)'
+    Invoke-Expression $functionsOnly
+}
 
 Describe "Report.Schema" {
     
@@ -31,8 +33,8 @@ Describe "Report.Schema" {
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
             $report = $reportJson | ConvertFrom-Json -AsHashtable
-            $report.ContainsKey('timestamp') | Should Be $true
-            $report.timestamp | Should Not BeNullOrEmpty
+            $report.ContainsKey('timestamp') | Should -Be $true
+            $report.timestamp | Should -Not -BeNullOrEmpty
         }
         
         It "Should have runId field" {
@@ -42,8 +44,8 @@ Describe "Report.Schema" {
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
             $report = $reportJson | ConvertFrom-Json -AsHashtable
-            $report.ContainsKey('runId') | Should Be $true
-            $report.runId | Should Not BeNullOrEmpty
+            $report.ContainsKey('runId') | Should -Be $true
+            $report.runId | Should -Not -BeNullOrEmpty
         }
         
         It "Should have manifest.hash field" {
@@ -53,8 +55,8 @@ Describe "Report.Schema" {
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
             $report = $reportJson | ConvertFrom-Json -AsHashtable
-            $report.manifest.ContainsKey('hash') | Should Be $true
-            $report.manifest.hash | Should Not BeNullOrEmpty
+            $report.manifest.ContainsKey('hash') | Should -Be $true
+            $report.manifest.hash | Should -Not -BeNullOrEmpty
         }
         
         It "Should have manifest.path field" {
@@ -64,8 +66,8 @@ Describe "Report.Schema" {
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
             $report = $reportJson | ConvertFrom-Json -AsHashtable
-            $report.manifest.ContainsKey('path') | Should Be $true
-            $report.manifest.path | Should Not BeNullOrEmpty
+            $report.manifest.ContainsKey('path') | Should -Be $true
+            $report.manifest.path | Should -Not -BeNullOrEmpty
         }
         
         It "Should have summary fields" {
@@ -75,10 +77,10 @@ Describe "Report.Schema" {
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
             $report = $reportJson | ConvertFrom-Json -AsHashtable
-            $report.summary.ContainsKey('install') | Should Be $true
-            $report.summary.ContainsKey('skip') | Should Be $true
-            $report.summary.ContainsKey('restore') | Should Be $true
-            $report.summary.ContainsKey('verify') | Should Be $true
+            $report.summary.ContainsKey('install') | Should -Be $true
+            $report.summary.ContainsKey('skip') | Should -Be $true
+            $report.summary.ContainsKey('restore') | Should -Be $true
+            $report.summary.ContainsKey('verify') | Should -Be $true
         }
         
         It "Should have actions array" {
@@ -88,7 +90,7 @@ Describe "Report.Schema" {
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
             $report = $reportJson | ConvertFrom-Json -AsHashtable
-            $report.ContainsKey('actions') | Should Be $true
+            $report.ContainsKey('actions') | Should -Be $true
         }
     }
     
@@ -102,8 +104,8 @@ Describe "Report.Schema" {
             $reportJson = ConvertTo-ReportJson -Plan $plan
             $report = $reportJson | ConvertFrom-Json -AsHashtable
             foreach ($action in $report.actions) {
-                $action.ContainsKey('type') | Should Be $true
-                $action.ContainsKey('status') | Should Be $true
+                $action.ContainsKey('type') | Should -Be $true
+                $action.ContainsKey('status') | Should -Be $true
             }
         }
         
@@ -116,9 +118,9 @@ Describe "Report.Schema" {
             $report = $reportJson | ConvertFrom-Json -AsHashtable
             $appActions = $report.actions | Where-Object { $_.type -eq "app" }
             foreach ($action in $appActions) {
-                $action.ContainsKey('driver') | Should Be $true
-                $action.ContainsKey('id') | Should Be $true
-                $action.ContainsKey('ref') | Should Be $true
+                $action.ContainsKey('driver') | Should -Be $true
+                $action.ContainsKey('id') | Should -Be $true
+                $action.ContainsKey('ref') | Should -Be $true
             }
         }
     }
@@ -141,7 +143,7 @@ Describe "Report.Schema" {
             $json1 = ConvertTo-ReportJson -Plan $plan
             $json2 = ConvertTo-ReportJson -Plan $plan
             
-            $json1 | Should Be $json2
+            $json1 | Should -Be $json2
         }
         
         It "Should produce valid JSON" {
@@ -160,7 +162,7 @@ Describe "Report.Schema" {
             $json = ConvertTo-ReportJson -Plan $plan
             
             # Should not throw when parsing
-            { $json | ConvertFrom-Json } | Should Not Throw
+            { $json | ConvertFrom-Json } | Should -Not -Throw
         }
         
         It "Should have deterministic key ordering in manifest section" {
@@ -186,8 +188,8 @@ Describe "Report.Schema" {
             $nameIndex = $manifestContent.IndexOf('"name"')
             $hashIndex = $manifestContent.IndexOf('"hash"')
             
-            $pathIndex | Should BeLessThan $nameIndex
-            $nameIndex | Should BeLessThan $hashIndex
+            $pathIndex | Should -BeLessThan $nameIndex
+            $nameIndex | Should -BeLessThan $hashIndex
         }
         
         It "Should have deterministic key ordering in summary section" {
@@ -214,9 +216,9 @@ Describe "Report.Schema" {
             $restoreIndex = $summaryContent.IndexOf('"restore"')
             $verifyIndex = $summaryContent.IndexOf('"verify"')
             
-            $installIndex | Should BeLessThan $skipIndex
-            $skipIndex | Should BeLessThan $restoreIndex
-            $restoreIndex | Should BeLessThan $verifyIndex
+            $installIndex | Should -BeLessThan $skipIndex
+            $skipIndex | Should -BeLessThan $restoreIndex
+            $restoreIndex | Should -BeLessThan $verifyIndex
         }
     }
     
@@ -227,17 +229,17 @@ Describe "Report.Schema" {
             $sample = Get-Content -Path $samplePath -Raw | ConvertFrom-Json -AsHashtable
             
             # Validate sample has all required fields
-            $sample.ContainsKey('runId') | Should Be $true
-            $sample.ContainsKey('timestamp') | Should Be $true
-            $sample.ContainsKey('manifest') | Should Be $true
-            $sample.manifest.ContainsKey('hash') | Should Be $true
-            $sample.manifest.ContainsKey('path') | Should Be $true
-            $sample.ContainsKey('summary') | Should Be $true
-            $sample.summary.ContainsKey('install') | Should Be $true
-            $sample.summary.ContainsKey('skip') | Should Be $true
-            $sample.summary.ContainsKey('restore') | Should Be $true
-            $sample.summary.ContainsKey('verify') | Should Be $true
-            $sample.ContainsKey('actions') | Should Be $true
+            $sample.ContainsKey('runId') | Should -Be $true
+            $sample.ContainsKey('timestamp') | Should -Be $true
+            $sample.ContainsKey('manifest') | Should -Be $true
+            $sample.manifest.ContainsKey('hash') | Should -Be $true
+            $sample.manifest.ContainsKey('path') | Should -Be $true
+            $sample.ContainsKey('summary') | Should -Be $true
+            $sample.summary.ContainsKey('install') | Should -Be $true
+            $sample.summary.ContainsKey('skip') | Should -Be $true
+            $sample.summary.ContainsKey('restore') | Should -Be $true
+            $sample.summary.ContainsKey('verify') | Should -Be $true
+            $sample.ContainsKey('actions') | Should -Be $true
         }
     }
 }
@@ -300,15 +302,15 @@ Describe "Report.Command.FileSelection" {
         It "Should select the most recent state file by runId" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -Latest
             
-            $result.Count | Should Be 1
-            $result[0].runId | Should Be "20251219-080000"
+            $result.Count | Should -Be 1
+            $result[0].runId | Should -Be "20251219-080000"
         }
         
         It "Should return newest when no flags specified (default behavior)" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir
             
-            $result.Count | Should Be 1
-            $result[0].runId | Should Be "20251219-080000"
+            $result.Count | Should -Be 1
+            $result[0].runId | Should -Be "20251219-080000"
         }
     }
     
@@ -317,22 +319,22 @@ Describe "Report.Command.FileSelection" {
         It "Should select specific run by ID" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -RunId "20251215-120000"
             
-            $result.Count | Should Be 1
-            $result[0].runId | Should Be "20251215-120000"
-            $result[0].dryRun | Should Be $true
+            $result.Count | Should -Be 1
+            $result[0].runId | Should -Be "20251215-120000"
+            $result[0].dryRun | Should -Be $true
         }
         
         It "Should return empty array for non-existent RunId" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -RunId "99999999-999999"
             
-            $result.Count | Should Be 0
+            $result.Count | Should -Be 0
         }
         
         It "Should select oldest run when requested" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -RunId "20251201-100000"
             
-            $result.Count | Should Be 1
-            $result[0].runId | Should Be "20251201-100000"
+            $result.Count | Should -Be 1
+            $result[0].runId | Should -Be "20251201-100000"
         }
     }
     
@@ -341,22 +343,22 @@ Describe "Report.Command.FileSelection" {
         It "Should return 2 most recent runs when -Last 2" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -Last 2
             
-            $result.Count | Should Be 2
-            $result[0].runId | Should Be "20251219-080000"
-            $result[1].runId | Should Be "20251215-120000"
+            $result.Count | Should -Be 2
+            $result[0].runId | Should -Be "20251219-080000"
+            $result[1].runId | Should -Be "20251215-120000"
         }
         
         It "Should return all runs when -Last exceeds count" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -Last 100
             
-            $result.Count | Should Be 3
+            $result.Count | Should -Be 3
         }
         
         It "Should return 1 run when -Last 1" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -Last 1
             
-            $result.Count | Should Be 1
-            $result[0].runId | Should Be "20251219-080000"
+            $result.Count | Should -Be 1
+            $result[0].runId | Should -Be "20251219-080000"
         }
     }
 }
@@ -372,7 +374,7 @@ Describe "Report.Command.MutualExclusion" {
             
             $isInvalid = $hasRunId -and ($hasLatest -or $hasLast)
             
-            $isInvalid | Should Be $true
+            $isInvalid | Should -Be $true
         }
         
         It "Should detect -RunId with -Last as invalid" {
@@ -382,7 +384,7 @@ Describe "Report.Command.MutualExclusion" {
             
             $isInvalid = $hasRunId -and ($hasLatest -or $hasLast)
             
-            $isInvalid | Should Be $true
+            $isInvalid | Should -Be $true
         }
         
         It "Should allow -RunId alone" {
@@ -392,7 +394,7 @@ Describe "Report.Command.MutualExclusion" {
             
             $isValid = $hasRunId -and -not $hasLatest -and -not $hasLast
             
-            $isValid | Should Be $true
+            $isValid | Should -Be $true
         }
         
         It "Should allow -Latest alone" {
@@ -402,7 +404,7 @@ Describe "Report.Command.MutualExclusion" {
             
             $isValid = -not $hasRunId -and $hasLatest
             
-            $isValid | Should Be $true
+            $isValid | Should -Be $true
         }
         
         It "Should allow -Last alone" {
@@ -412,7 +414,7 @@ Describe "Report.Command.MutualExclusion" {
             
             $isValid = -not $hasRunId -and $hasLast
             
-            $isValid | Should Be $true
+            $isValid | Should -Be $true
         }
         
         It "Should allow no flags (defaults to -Latest)" {
@@ -422,7 +424,7 @@ Describe "Report.Command.MutualExclusion" {
             
             $isValid = $true  # No flags = default to latest
             
-            $isValid | Should Be $true
+            $isValid | Should -Be $true
         }
     }
 }
@@ -459,7 +461,7 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             
             # Should not throw when parsing
-            { $json | ConvertFrom-Json } | Should Not Throw
+            { $json | ConvertFrom-Json } | Should -Not -Throw
         }
         
         It "Should include runId in JSON output" {
@@ -467,7 +469,7 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             $parsed = $json | ConvertFrom-Json
             
-            $parsed.runId | Should Be "20251219-090000"
+            $parsed.runId | Should -Be "20251219-090000"
         }
         
         It "Should include summary counts in JSON output" {
@@ -475,9 +477,9 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             $parsed = $json | ConvertFrom-Json
             
-            $parsed.summary.success | Should Be 5
-            $parsed.summary.skipped | Should Be 10
-            $parsed.summary.failed | Should Be 2
+            $parsed.summary.success | Should -Be 5
+            $parsed.summary.skipped | Should -Be 10
+            $parsed.summary.failed | Should -Be 2
         }
         
         It "Should include manifest info in JSON output" {
@@ -485,8 +487,8 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             $parsed = $json | ConvertFrom-Json
             
-            $parsed.manifest.hash | Should Be "XYZ999"
-            $parsed.manifest.path | Should Be ".\manifests\test.jsonc"
+            $parsed.manifest.hash | Should -Be "XYZ999"
+            $parsed.manifest.path | Should -Be ".\manifests\test.jsonc"
         }
     }
     
@@ -512,7 +514,7 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             $parsed = $json | ConvertFrom-Json
             
-            $parsed.Count | Should Be 2
+            $parsed.Count | Should -Be 2
         }
     }
 }
@@ -531,13 +533,13 @@ Describe "Report.Command.EmptyState" {
         It "Should return empty array when no state files exist" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -Latest
             
-            $result.Count | Should Be 0
+            $result.Count | Should -Be 0
         }
         
         It "Should return empty array for -Last when no files" {
             $result = Get-ProvisioningReport -StateDir $script:TestStateDir -Last 5
             
-            $result.Count | Should Be 0
+            $result.Count | Should -Be 0
         }
     }
     
@@ -546,7 +548,7 @@ Describe "Report.Command.EmptyState" {
         It "Should return empty array when state dir does not exist" {
             $result = Get-ProvisioningReport -StateDir "C:\nonexistent\path\state" -Latest
             
-            $result.Count | Should Be 0
+            $result.Count | Should -Be 0
         }
     }
 }

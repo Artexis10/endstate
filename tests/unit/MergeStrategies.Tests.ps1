@@ -3,17 +3,19 @@
     Pester tests for merge strategies (JSON, INI, Append).
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:HelpersScript = Join-Path $script:ProvisioningRoot "restorers\helpers.ps1"
-$script:JsonMergeScript = Join-Path $script:ProvisioningRoot "restorers\merge-json.ps1"
-$script:IniMergeScript = Join-Path $script:ProvisioningRoot "restorers\merge-ini.ps1"
-$script:AppendScript = Join-Path $script:ProvisioningRoot "restorers\append.ps1"
-
-# Load dependencies
-. $script:HelpersScript
-. $script:JsonMergeScript
-. $script:IniMergeScript
-. $script:AppendScript
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:HelpersScript = Join-Path $script:ProvisioningRoot "restorers\helpers.ps1"
+    $script:JsonMergeScript = Join-Path $script:ProvisioningRoot "restorers\merge-json.ps1"
+    $script:IniMergeScript = Join-Path $script:ProvisioningRoot "restorers\merge-ini.ps1"
+    $script:AppendScript = Join-Path $script:ProvisioningRoot "restorers\append.ps1"
+    
+    # Load dependencies
+    . $script:HelpersScript
+    . $script:JsonMergeScript
+    . $script:IniMergeScript
+    . $script:AppendScript
+}
 
 Describe "JSON Merge" {
     
@@ -27,12 +29,12 @@ Describe "JSON Merge" {
             
             $result = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
-            $result.Skipped | Should Be $false
-            (Test-Path $targetFile) | Should Be $true
+            $result.Success | Should -Be $true
+            $result.Skipped | Should -Be $false
+            (Test-Path $targetFile) | Should -Be $true
             
             $content = Get-Content $targetFile -Raw | ConvertFrom-Json
-            $content.key | Should Be "value"
+            $content.key | Should -Be "value"
         }
     }
     
@@ -47,13 +49,13 @@ Describe "JSON Merge" {
             
             $result = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile -Raw | ConvertFrom-Json
-            $content.name | Should Be "new-name"
-            $content.keep | Should Be $true
-            $content.nested.a | Should Be 1
-            $content.nested.b | Should Be 2
+            $content.name | Should -Be "new-name"
+            $content.keep | Should -Be $true
+            $content.nested.a | Should -Be 1
+            $content.nested.b | Should -Be 2
         }
         
         It "Should add new keys from source" {
@@ -65,11 +67,11 @@ Describe "JSON Merge" {
             
             $result = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile -Raw | ConvertFrom-Json
-            $content.existingKey | Should Be "existingValue"
-            $content.newKey | Should Be "newValue"
+            $content.existingKey | Should -Be "existingValue"
+            $content.newKey | Should -Be "newValue"
         }
     }
     
@@ -84,11 +86,11 @@ Describe "JSON Merge" {
             
             $result = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $false -ArrayStrategy "replace"
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile -Raw | ConvertFrom-Json
-            @($content.items).Count | Should Be 3
-            @($content.items)[0] | Should Be 1
+            @($content.items).Count | Should -Be 3
+            @($content.items)[0] | Should -Be 1
         }
     }
     
@@ -103,13 +105,13 @@ Describe "JSON Merge" {
             
             $result = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $false -ArrayStrategy "union"
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile -Raw | ConvertFrom-Json
             # Union: [1, 2, 3] + [4] = [1, 2, 3, 4]
-            @($content.items).Count | Should Be 4
-            @($content.items) -contains 1 | Should Be $true
-            @($content.items) -contains 4 | Should Be $true
+            @($content.items).Count | Should -Be 4
+            @($content.items) -contains 1 | Should -Be $true
+            @($content.items) -contains 4 | Should -Be $true
         }
         
         It "Should produce same result on re-run (deterministic)" {
@@ -126,8 +128,8 @@ Describe "JSON Merge" {
             # Second run should skip (already up to date)
             $result2 = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $false -ArrayStrategy "union"
             
-            $result2.Skipped | Should Be $true
-            $result2.Message | Should Be "already up to date"
+            $result2.Skipped | Should -Be $true
+            $result2.Message | Should -Be "already up to date"
         }
     }
     
@@ -141,13 +143,13 @@ Describe "JSON Merge" {
             
             $result = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile -Raw
             # "apple" should appear before "zebra" in sorted output
             $appleIndex = $content.IndexOf('"apple"')
             $zebraIndex = $content.IndexOf('"zebra"')
-            $appleIndex | Should BeLessThan $zebraIndex
+            $appleIndex | Should -BeLessThan $zebraIndex
         }
     }
     
@@ -164,10 +166,10 @@ Describe "JSON Merge" {
             
             $result = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $false -DryRun
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $afterContent = Get-Content $targetFile -Raw
-            $afterContent | Should Be $originalContent
+            $afterContent | Should -Be $originalContent
         }
     }
     
@@ -182,8 +184,8 @@ Describe "JSON Merge" {
             
             $result = Invoke-JsonMergeRestore -Source $sourceFile -Target $targetFile -Backup $true -RunId "test-backup-run"
             
-            $result.Success | Should Be $true
-            $result.BackupPath | Should Not BeNullOrEmpty
+            $result.Success | Should -Be $true
+            $result.BackupPath | Should -Not -BeNullOrEmpty
         }
     }
 }
@@ -210,12 +212,12 @@ key2=value2
             
             $result = Invoke-IniMergeRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile -Raw
-            $content | Should Match "key1=newvalue1"
-            $content | Should Match "key2=value2"
-            $content | Should Match "key3=value3"
+            $content | Should -Match "key1=newvalue1"
+            $content | Should -Match "key2=value2"
+            $content | Should -Match "key3=value3"
         }
         
         It "Should preserve keys not in source" {
@@ -236,13 +238,13 @@ otherKey=otherValue
             
             $result = Invoke-IniMergeRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile -Raw
-            $content | Should Match "existingSetting=value"
-            $content | Should Match "newSetting=true"
-            $content | Should Match "\[OtherSection\]"
-            $content | Should Match "otherKey=otherValue"
+            $content | Should -Match "existingSetting=value"
+            $content | Should -Match "newSetting=true"
+            $content | Should -Match "\[OtherSection\]"
+            $content | Should -Match "otherKey=otherValue"
         }
     }
     
@@ -259,12 +261,12 @@ setting=value
             
             $result = Invoke-IniMergeRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
-            (Test-Path $targetFile) | Should Be $true
+            $result.Success | Should -Be $true
+            (Test-Path $targetFile) | Should -Be $true
             
             $content = Get-Content $targetFile -Raw
-            $content | Should Match "\[Config\]"
-            $content | Should Match "setting=value"
+            $content | Should -Match "\[Config\]"
+            $content | Should -Match "setting=value"
         }
     }
     
@@ -281,10 +283,10 @@ setting=value
             
             $result = Invoke-IniMergeRestore -Source $sourceFile -Target $targetFile -Backup $false -DryRun
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $afterContent = Get-Content $targetFile -Raw
-            $afterContent | Should Be $originalContent
+            $afterContent | Should -Be $originalContent
         }
     }
 }
@@ -302,12 +304,12 @@ Describe "Append Lines" {
             
             $result = Invoke-AppendRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile
-            ($content -join "`n") -match "line1" | Should Be $true
-            ($content -join "`n") -match "line2" | Should Be $true
-            ($content -join "`n") -match "line3" | Should Be $true
+            ($content -join "`n") -match "line1" | Should -Be $true
+            ($content -join "`n") -match "line2" | Should -Be $true
+            ($content -join "`n") -match "line3" | Should -Be $true
         }
         
         It "Should not duplicate existing lines" {
@@ -319,11 +321,11 @@ Describe "Append Lines" {
             
             $result = Invoke-AppendRestore -Source $sourceFile -Target $targetFile -Backup $false -Dedupe $true
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $content = Get-Content $targetFile
             $line1Count = ($content | Where-Object { $_ -eq "line1" }).Count
-            $line1Count | Should Be 1
+            $line1Count | Should -Be 1
         }
     }
     
@@ -337,14 +339,14 @@ Describe "Append Lines" {
             
             # First run - creates target
             $result1 = Invoke-AppendRestore -Source $sourceFile -Target $targetFile -Backup $false
-            $result1.Success | Should Be $true
-            $result1.Skipped | Should Be $false
+            $result1.Success | Should -Be $true
+            $result1.Skipped | Should -Be $false
             
             # Second run - should skip
             $result2 = Invoke-AppendRestore -Source $sourceFile -Target $targetFile -Backup $false
-            $result2.Success | Should Be $true
-            $result2.Skipped | Should Be $true
-            $result2.Message | Should Be "already up to date"
+            $result2.Success | Should -Be $true
+            $result2.Skipped | Should -Be $true
+            $result2.Message | Should -Be "already up to date"
         }
     }
     
@@ -358,12 +360,12 @@ Describe "Append Lines" {
             
             $result = Invoke-AppendRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
-            (Test-Path $targetFile) | Should Be $true
+            $result.Success | Should -Be $true
+            (Test-Path $targetFile) | Should -Be $true
             
             $content = Get-Content $targetFile
-            ($content -join "`n") -match "new line 1" | Should Be $true
-            ($content -join "`n") -match "new line 2" | Should Be $true
+            ($content -join "`n") -match "new line 1" | Should -Be $true
+            ($content -join "`n") -match "new line 2" | Should -Be $true
         }
     }
     
@@ -380,10 +382,10 @@ Describe "Append Lines" {
             
             $result = Invoke-AppendRestore -Source $sourceFile -Target $targetFile -Backup $false -DryRun
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             $afterContent = Get-Content $targetFile -Raw
-            $afterContent | Should Be $originalContent
+            $afterContent | Should -Be $originalContent
         }
     }
     
@@ -398,8 +400,8 @@ Describe "Append Lines" {
             
             $result = Invoke-AppendRestore -Source $sourceFile -Target $targetFile -Backup $true -RunId "append-backup-test"
             
-            $result.Success | Should Be $true
-            $result.BackupPath | Should Not BeNullOrEmpty
+            $result.Success | Should -Be $true
+            $result.BackupPath | Should -Not -BeNullOrEmpty
         }
     }
 }
@@ -410,7 +412,7 @@ Describe "Helpers" {
         
         It "Should return null for non-existent file" {
             $content = Read-TextFileUtf8 -Path (Join-Path $TestDrive "nonexistent.txt")
-            $content | Should Be $null
+            $content | Should -Be $null
         }
         
         It "Should read UTF-8 content" {
@@ -418,7 +420,7 @@ Describe "Helpers" {
             "Hello World" | Out-File -FilePath $testFile -Encoding UTF8
             
             $content = Read-TextFileUtf8 -Path $testFile
-            $content | Should Match "Hello World"
+            $content | Should -Match "Hello World"
         }
     }
     
@@ -429,9 +431,9 @@ Describe "Helpers" {
             
             Write-TextFileUtf8Atomic -Path $testFile -Content "atomic content"
             
-            (Test-Path $testFile) | Should Be $true
+            (Test-Path $testFile) | Should -Be $true
             $content = Get-Content $testFile -Raw
-            $content | Should Be "atomic content"
+            $content | Should -Be "atomic content"
         }
         
         It "Should create parent directories" {
@@ -439,7 +441,7 @@ Describe "Helpers" {
             
             Write-TextFileUtf8Atomic -Path $testFile -Content "nested content"
             
-            (Test-Path $testFile) | Should Be $true
+            (Test-Path $testFile) | Should -Be $true
         }
     }
 }

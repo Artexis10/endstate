@@ -17,16 +17,18 @@
     unchanged after module unification. The executor behavior is frozen.
 #>
 
-$script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$script:EngineDir = Join-Path $script:ProvisioningRoot "engine"
-$script:RecipesDir = Join-Path $script:ProvisioningRoot "recipes"
-$script:BundlesDir = Join-Path $script:ProvisioningRoot "bundles"
-
-# Load dependencies
-. (Join-Path $script:EngineDir "logging.ps1")
-. (Join-Path $script:EngineDir "manifest.ps1")
-. (Join-Path $script:EngineDir "state.ps1")
-. (Join-Path $script:EngineDir "restore.ps1")
+BeforeAll {
+    $script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $script:EngineDir = Join-Path $script:ProvisioningRoot "engine"
+    $script:RecipesDir = Join-Path $script:ProvisioningRoot "recipes"
+    $script:BundlesDir = Join-Path $script:ProvisioningRoot "bundles"
+    
+    # Load dependencies
+    . (Join-Path $script:EngineDir "logging.ps1")
+    . (Join-Path $script:EngineDir "manifest.ps1")
+    . (Join-Path $script:EngineDir "state.ps1")
+    . (Join-Path $script:EngineDir "restore.ps1")
+}
 
 Describe "Recipe.Loading" {
     
@@ -47,10 +49,10 @@ Describe "Recipe.Loading" {
             $expandedRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot)
             
             # PowerToys recipe has 1 restore entry
-            $expandedRestore.Count | Should Be 1
-            $expandedRestore[0].type | Should Be "copy"
-            $expandedRestore[0].target | Should Be "%LOCALAPPDATA%\Microsoft\PowerToys"
-            $expandedRestore[0].exclude | Should Not BeNullOrEmpty
+            $expandedRestore.Count | Should -Be 1
+            $expandedRestore[0].type | Should -Be "copy"
+            $expandedRestore[0].target | Should -Be "%LOCALAPPDATA%\Microsoft\PowerToys"
+            $expandedRestore[0].exclude | Should -Not -BeNullOrEmpty
         }
         
         It "Should load msi-afterburner recipe from actual repo" {
@@ -67,9 +69,9 @@ Describe "Recipe.Loading" {
             $expandedRestore = Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot
             
             # MSI Afterburner recipe has 2 restore entries
-            $expandedRestore.Count | Should Be 2
-            $expandedRestore[0].type | Should Be "copy"
-            $expandedRestore[1].type | Should Be "copy"
+            $expandedRestore.Count | Should -Be 2
+            $expandedRestore[0].type | Should -Be "copy"
+            $expandedRestore[1].type | Should -Be "copy"
         }
         
         It "Should load core-utilities bundle from actual repo" {
@@ -86,7 +88,7 @@ Describe "Recipe.Loading" {
             $expandedRestore = Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot
             
             # core-utilities bundle has msi-afterburner (2) + powertoys (1) = 3 entries
-            $expandedRestore.Count | Should Be 3
+            $expandedRestore.Count | Should -Be 3
         }
         
         It "Should append inline restore after recipe entries" {
@@ -103,10 +105,10 @@ Describe "Recipe.Loading" {
             $expandedRestore = Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot
             
             # PowerToys (1) + inline (1) = 2 entries
-            $expandedRestore.Count | Should Be 2
+            $expandedRestore.Count | Should -Be 2
             # Recipe first, then inline
-            $expandedRestore[0].target | Should Be "%LOCALAPPDATA%\Microsoft\PowerToys"
-            $expandedRestore[1].source | Should Be "./inline-source"
+            $expandedRestore[0].target | Should -Be "%LOCALAPPDATA%\Microsoft\PowerToys"
+            $expandedRestore[1].source | Should -Be "./inline-source"
         }
     }
 }
@@ -155,10 +157,10 @@ Describe "Recipe.RestoreExecution" {
             $result = Invoke-Restore -ManifestPath $manifestPath -EnableRestore -RunId "test-run-001"
             
             # Verify
-            $result.RestoreCount | Should Be 1
-            $result.FailCount | Should Be 0
-            (Test-Path $targetFile) | Should Be $true
-            (Get-Content $targetFile -Raw).Trim() | Should Be "test config content"
+            $result.RestoreCount | Should -Be 1
+            $result.FailCount | Should -Be 0
+            (Test-Path $targetFile) | Should -Be $true
+            (Get-Content $targetFile -Raw).Trim() | Should -Be "test config content"
         }
         
         It "Should expand environment variables in target path" {
@@ -188,8 +190,8 @@ Describe "Recipe.RestoreExecution" {
             try {
                 $result = Invoke-Restore -ManifestPath $manifestPath -EnableRestore -RunId "test-run-env"
                 
-                $result.RestoreCount | Should Be 1
-                (Test-Path $targetFile) | Should Be $true
+                $result.RestoreCount | Should -Be 1
+                (Test-Path $targetFile) | Should -Be $true
             } finally {
                 # Cleanup
                 if (Test-Path $targetFile) { Remove-Item $targetFile -Force }
@@ -227,8 +229,8 @@ Describe "Recipe.RestoreExecution" {
             
             # First restore
             $result1 = Invoke-Restore -ManifestPath $manifestPath -EnableRestore -RunId "test-run-idem-1"
-            $result1.RestoreCount | Should Be 1
-            $result1.SkipCount | Should Be 0
+            $result1.RestoreCount | Should -Be 1
+            $result1.SkipCount | Should -Be 0
             
             # Sync timestamps to simulate up-to-date
             $srcTime = (Get-Item $sourceFile).LastWriteTime
@@ -236,8 +238,8 @@ Describe "Recipe.RestoreExecution" {
             
             # Second restore should skip
             $result2 = Invoke-Restore -ManifestPath $manifestPath -EnableRestore -RunId "test-run-idem-2"
-            $result2.RestoreCount | Should Be 0
-            $result2.SkipCount | Should Be 1
+            $result2.RestoreCount | Should -Be 0
+            $result2.SkipCount | Should -Be 1
         }
     }
     
@@ -276,14 +278,14 @@ Describe "Recipe.RestoreExecution" {
             $runId = "test-run-backup-$(Get-Date -Format 'yyyyMMddHHmmss')"
             $result = Invoke-Restore -ManifestPath $manifestPath -EnableRestore -RunId $runId
             
-            $result.RestoreCount | Should Be 1
+            $result.RestoreCount | Should -Be 1
             
             # Target should have new content
-            (Get-Content $targetFile -Raw).Trim() | Should Be "new content"
+            (Get-Content $targetFile -Raw).Trim() | Should -Be "new content"
             
             # Backup should exist
             $backupRoot = Join-Path $script:ProvisioningRoot "state\backups\$runId"
-            (Test-Path $backupRoot) | Should Be $true
+            (Test-Path $backupRoot) | Should -Be $true
         }
     }
 }
@@ -329,16 +331,16 @@ Describe "Recipe.Journal" {
             
             # Check journal file exists
             $journalFile = Join-Path $script:ProvisioningRoot "logs\restore-journal-$runId.json"
-            (Test-Path $journalFile) | Should Be $true
+            (Test-Path $journalFile) | Should -Be $true
             
             # Parse and validate journal structure
             $journal = Get-Content $journalFile -Raw | ConvertFrom-Json
             
-            $journal.runId | Should Be $runId
-            $journal.manifestPath | Should Be $manifestPath
-            $journal.entries.Count | Should Be 1
-            $journal.entries[0].kind | Should Be "copy"
-            $journal.entries[0].action | Should Be "restored"
+            $journal.runId | Should -Be $runId
+            $journal.manifestPath | Should -Be $manifestPath
+            $journal.entries.Count | Should -Be 1
+            $journal.entries[0].kind | Should -Be "copy"
+            $journal.entries[0].action | Should -Be "restored"
         }
     }
 }
@@ -391,17 +393,17 @@ Describe "Recipe.Revert" {
             
             # Perform restore
             $restoreResult = Invoke-Restore -ManifestPath $manifestPath -EnableRestore -RunId $runId
-            $restoreResult.RestoreCount | Should Be 1
+            $restoreResult.RestoreCount | Should -Be 1
             
             # Verify new content
-            (Get-Content $targetFile -Raw).Trim() | Should Be "new content after restore"
+            (Get-Content $targetFile -Raw).Trim() | Should -Be "new content after restore"
             
             # Perform revert
             $revertResult = Invoke-ExportRevert
-            $revertResult.RevertCount | Should BeGreaterThan 0
+            $revertResult.RevertCount | Should -BeGreaterThan 0
             
             # Verify original content restored
-            (Get-Content $targetFile -Raw).Trim() | Should Be "original content before restore"
+            (Get-Content $targetFile -Raw).Trim() | Should -Be "original content before restore"
         }
         
         It "Should delete target if it was created by restore" {
@@ -416,7 +418,7 @@ Describe "Recipe.Revert" {
             $targetFile = Join-Path $targetDir "created.conf"
             
             # Target does NOT exist before restore
-            (Test-Path $targetFile) | Should Be $false
+            (Test-Path $targetFile) | Should -Be $false
             
             $manifestContent = @"
 {
@@ -438,11 +440,11 @@ Describe "Recipe.Revert" {
             
             # Restore creates the file
             $null = Invoke-Restore -ManifestPath $manifestPath -EnableRestore -RunId $runId
-            (Test-Path $targetFile) | Should Be $true
+            (Test-Path $targetFile) | Should -Be $true
             
             # Revert should delete it
             $null = Invoke-ExportRevert
-            (Test-Path $targetFile) | Should Be $false
+            (Test-Path $targetFile) | Should -Be $false
         }
     }
 }
@@ -465,7 +467,7 @@ Describe "Module.Loading" {
             
             # Git module exists but has no active restore entries (commented out)
             # The key test is that the function runs without error
-            { Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot } | Should Not Throw
+            { Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot } | Should -Not -Throw
         }
         
         It "Should load module with apps. prefix" {
@@ -481,7 +483,7 @@ Describe "Module.Loading" {
             }
             
             # Should strip apps. prefix and find modules/apps/git/module.jsonc
-            { Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot } | Should Not Throw
+            { Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot } | Should -Not -Throw
         }
         
         It "Should throw for non-existent module" {
@@ -502,7 +504,7 @@ Describe "Module.Loading" {
             } catch {
                 $threw = $true
             }
-            $threw | Should Be $true
+            $threw | Should -Be $true
         }
         
         It "Should return empty array for module with no restore entries" {
@@ -519,7 +521,7 @@ Describe "Module.Loading" {
             
             # Git module has restore array but entries are commented out
             $expandedRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
-            $expandedRestore.Count | Should Be 0
+            $expandedRestore.Count | Should -Be 0
         }
     }
     
@@ -544,8 +546,8 @@ Describe "Module.Loading" {
             $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             
             # Recipes should have entries, modules may not
-            $recipeRestore.Count | Should BeGreaterThan 0
-            $moduleRestore.Count | Should Be 0
+            $recipeRestore.Count | Should -BeGreaterThan 0
+            $moduleRestore.Count | Should -Be 0
         }
     }
 }
@@ -575,16 +577,16 @@ Describe "Module.Equivalence" {
             $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $moduleManifest -RepoRoot $repoRoot)
             
             # Should have same count
-            $recipeRestore.Count | Should Be $moduleRestore.Count
+            $recipeRestore.Count | Should -Be $moduleRestore.Count
             
             # Should have same target
-            $recipeRestore[0].target | Should Be $moduleRestore[0].target
+            $recipeRestore[0].target | Should -Be $moduleRestore[0].target
             
             # Should have same type
-            $recipeRestore[0].type | Should Be $moduleRestore[0].type
+            $recipeRestore[0].type | Should -Be $moduleRestore[0].type
             
             # Should have same exclude patterns
-            $recipeRestore[0].exclude.Count | Should Be $moduleRestore[0].exclude.Count
+            $recipeRestore[0].exclude.Count | Should -Be $moduleRestore[0].exclude.Count
         }
         
         It "Should produce identical restore entries for msi-afterburner" {
@@ -608,12 +610,12 @@ Describe "Module.Equivalence" {
             $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $moduleManifest -RepoRoot $repoRoot)
             
             # Should have same count (2 entries)
-            $recipeRestore.Count | Should Be 2
-            $moduleRestore.Count | Should Be 2
+            $recipeRestore.Count | Should -Be 2
+            $moduleRestore.Count | Should -Be 2
             
             # Should have same targets
-            $recipeRestore[0].target | Should Be $moduleRestore[0].target
-            $recipeRestore[1].target | Should Be $moduleRestore[1].target
+            $recipeRestore[0].target | Should -Be $moduleRestore[0].target
+            $recipeRestore[1].target | Should -Be $moduleRestore[1].target
         }
         
         It "Should produce same total entries as core-utilities bundle" {
@@ -637,8 +639,8 @@ Describe "Module.Equivalence" {
             $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $moduleManifest -RepoRoot $repoRoot)
             
             # Should have same count (3 entries total)
-            $bundleRestore.Count | Should Be 3
-            $moduleRestore.Count | Should Be 3
+            $bundleRestore.Count | Should -Be 3
+            $moduleRestore.Count | Should -Be 3
         }
     }
 }
@@ -654,8 +656,8 @@ Describe "Module.RestoreExecution" {
             # Load manifest - should work without error
             $manifest = Read-Manifest -Path $manifestPath
             
-            $manifest | Should Not BeNullOrEmpty
-            $manifest.restore.Count | Should BeGreaterThan 0
+            $manifest | Should -Not -BeNullOrEmpty
+            $manifest.restore.Count | Should -BeGreaterThan 0
         }
         
         It "Should expand modules when using Resolve-RestoreEntriesFromModules directly" {
@@ -672,7 +674,7 @@ Describe "Module.RestoreExecution" {
             $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             
             # Should have 3 restore entries (1 from powertoys, 2 from msi-afterburner)
-            $moduleRestore.Count | Should Be 3
+            $moduleRestore.Count | Should -Be 3
         }
         
         It "Should expand both modules and recipes when combined" {
@@ -690,11 +692,11 @@ Describe "Module.RestoreExecution" {
             $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             
             # Recipes: 1 from powertoys, Modules: 2 from msi-afterburner
-            $recipeRestore.Count | Should Be 1
-            $moduleRestore.Count | Should Be 2
+            $recipeRestore.Count | Should -Be 1
+            $moduleRestore.Count | Should -Be 2
             
             # Combined should be 3
-            ($recipeRestore.Count + $moduleRestore.Count) | Should Be 3
+            ($recipeRestore.Count + $moduleRestore.Count) | Should -Be 3
         }
     }
 }
@@ -714,7 +716,7 @@ Describe "Restore.RequiresClosed" {
             $expandedRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot)
             
             # PowerToys recipe should NOT have requiresClosed (opt-in, not default)
-            $expandedRestore[0].requiresClosed | Should BeNullOrEmpty
+            $expandedRestore[0].requiresClosed | Should -BeNullOrEmpty
         }
         
         It "Should NOT have requiresClosed on powertoys module (opt-in behavior)" {
@@ -729,7 +731,7 @@ Describe "Restore.RequiresClosed" {
             $expandedRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             
             # PowerToys module should NOT have requiresClosed (opt-in, not default)
-            $expandedRestore[0].requiresClosed | Should BeNullOrEmpty
+            $expandedRestore[0].requiresClosed | Should -BeNullOrEmpty
         }
         
         It "Should propagate requiresClosed when explicitly set on a module" {
@@ -759,8 +761,8 @@ Describe "Restore.RequiresClosed" {
             $expandedRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $TestDrive)
             
             # Should propagate requiresClosed from module to restore entry
-            $expandedRestore[0].requiresClosed | Should Not BeNullOrEmpty
-            $expandedRestore[0].requiresClosed[0] | Should Be "notepad.exe"
+            $expandedRestore[0].requiresClosed | Should -Not -BeNullOrEmpty
+            $expandedRestore[0].requiresClosed[0] | Should -Be "notepad.exe"
         }
     }
     
@@ -768,13 +770,13 @@ Describe "Restore.RequiresClosed" {
         
         It "Should return empty array for non-running process" {
             $result = Test-ProcessesRunning -ProcessNames @("nonexistent-process-xyz-12345.exe")
-            $result.Count | Should Be 0
+            $result.Count | Should -Be 0
         }
         
         It "Should detect running explorer process" {
             # Explorer is always running on Windows
             $result = Test-ProcessesRunning -ProcessNames @("explorer.exe")
-            $result.Count | Should BeGreaterThan 0
+            $result.Count | Should -BeGreaterThan 0
         }
     }
 }
@@ -799,11 +801,11 @@ Describe "Restore.LockedFileHandling" {
                 $result = Copy-ItemWithLockedFileHandling -Source $sourceFile -Destination $targetFile
                 
                 # Should have skipped the locked file (sharing violation)
-                $result.SkippedFiles.Count | Should BeGreaterThan 0
+                $result.SkippedFiles.Count | Should -BeGreaterThan 0
                 
                 # Should have warnings mentioning sharing violation
-                $result.Warnings.Count | Should BeGreaterThan 0
-                ($result.Warnings -join "`n") | Should Match "sharing violation"
+                $result.Warnings.Count | Should -BeGreaterThan 0
+                ($result.Warnings -join "`n") | Should -Match "sharing violation"
             } finally {
                 $lockedFile.Close()
             }
@@ -819,9 +821,9 @@ Describe "Restore.LockedFileHandling" {
             
             $result = Copy-ItemWithLockedFileHandling -Source $sourceDir -Destination $targetDir
             
-            $result.Success | Should Be $true
-            $result.SkippedFiles.Count | Should Be 0
-            $result.CopiedCount | Should Be 2
+            $result.Success | Should -Be $true
+            $result.SkippedFiles.Count | Should -Be 0
+            $result.CopiedCount | Should -Be 2
         }
     }
     
@@ -835,7 +837,7 @@ Describe "Restore.LockedFileHandling" {
             $hresultField.SetValue($exception, 0x80070020)
             
             $result = Test-SharingViolation -Exception $exception
-            $result | Should Be $true
+            $result | Should -Be $true
         }
         
         It "Should detect ERROR_LOCK_VIOLATION (0x80070021)" {
@@ -844,7 +846,7 @@ Describe "Restore.LockedFileHandling" {
             $hresultField.SetValue($exception, 0x80070021)
             
             $result = Test-SharingViolation -Exception $exception
-            $result | Should Be $true
+            $result | Should -Be $true
         }
         
         It "Should NOT detect generic access denied as sharing violation" {
@@ -852,7 +854,7 @@ Describe "Restore.LockedFileHandling" {
             $exception = New-Object System.UnauthorizedAccessException "Access denied"
             
             $result = Test-SharingViolation -Exception $exception
-            $result | Should Be $false
+            $result | Should -Be $false
         }
     }
 }
@@ -879,9 +881,9 @@ Describe "Recipe.ExcludePatterns" {
                 -Backup $false `
                 -Exclude @("**\Logs\**")
             
-            $result.Success | Should Be $true
-            (Test-Path "$targetDir\Settings\config.json") | Should Be $true
-            (Test-Path "$targetDir\Logs") | Should Be $false
+            $result.Success | Should -Be $true
+            (Test-Path "$targetDir\Settings\config.json") | Should -Be $true
+            (Test-Path "$targetDir\Logs") | Should -Be $false
         }
         
         It "Should verify powertoys recipe has exclude patterns for junk paths" {
@@ -890,14 +892,14 @@ Describe "Recipe.ExcludePatterns" {
             $recipe = Read-JsoncFile -Path $recipePath
             
             # PowerToys recipe should have exclude patterns for Logs, Temp, Cache, GPUCache, Crashpad
-            $recipe.restore[0].exclude | Should Not BeNullOrEmpty
-            $recipe.restore[0].exclude.Count | Should Be 5
+            $recipe.restore[0].exclude | Should -Not -BeNullOrEmpty
+            $recipe.restore[0].exclude.Count | Should -Be 5
             # Check patterns are present (use -contains instead of Should Contain to avoid regex issues)
-            ($recipe.restore[0].exclude -contains "**\Logs\**") | Should Be $true
-            ($recipe.restore[0].exclude -contains "**\Temp\**") | Should Be $true
-            ($recipe.restore[0].exclude -contains "**\Cache\**") | Should Be $true
-            ($recipe.restore[0].exclude -contains "**\GPUCache\**") | Should Be $true
-            ($recipe.restore[0].exclude -contains "**\Crashpad\**") | Should Be $true
+            ($recipe.restore[0].exclude -contains "**\Logs\**") | Should -Be $true
+            ($recipe.restore[0].exclude -contains "**\Temp\**") | Should -Be $true
+            ($recipe.restore[0].exclude -contains "**\Cache\**") | Should -Be $true
+            ($recipe.restore[0].exclude -contains "**\GPUCache\**") | Should -Be $true
+            ($recipe.restore[0].exclude -contains "**\Crashpad\**") | Should -Be $true
         }
     }
 }

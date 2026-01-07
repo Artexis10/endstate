@@ -10,8 +10,10 @@
     event types, and schema compliance.
 #>
 
-$script:EngineRoot = Join-Path $PSScriptRoot "..\..\engine"
-. "$script:EngineRoot\events.ps1"
+BeforeAll {
+    $script:EngineRoot = Join-Path $PSScriptRoot "..\..\engine"
+    . "$script:EngineRoot\events.ps1"
+}
 
 Describe "Streaming Events Module" {
     BeforeEach {
@@ -25,30 +27,30 @@ Describe "Streaming Events Module" {
 
     Context "Enable/Disable Events" {
         It "Should be disabled by default" {
-            Test-StreamingEventsEnabled | Should Be $false
+            Test-StreamingEventsEnabled | Should -Be $false
         }
 
         It "Should enable events when Enable-StreamingEvents is called" {
             Enable-StreamingEvents
-            Test-StreamingEventsEnabled | Should Be $true
+            Test-StreamingEventsEnabled | Should -Be $true
         }
 
         It "Should disable events when Disable-StreamingEvents is called" {
             Enable-StreamingEvents
             Disable-StreamingEvents
-            Test-StreamingEventsEnabled | Should Be $false
+            Test-StreamingEventsEnabled | Should -Be $false
         }
     }
 
     Context "RFC3339 Timestamp" {
         It "Should return valid RFC3339 UTC timestamp" {
             $timestamp = Get-Rfc3339Timestamp
-            $timestamp | Should Match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$'
+            $timestamp | Should -Match '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$'
         }
 
         It "Should return UTC time (ends with Z)" {
             $timestamp = Get-Rfc3339Timestamp
-            $timestamp | Should Match 'Z$'
+            $timestamp | Should -Match 'Z$'
         }
     }
 
@@ -67,7 +69,7 @@ Describe "Streaming Events Module" {
                 $stringWriter.Dispose()
             }
             
-            $stderr | Should BeNullOrEmpty
+            $stderr | Should -BeNullOrEmpty
         }
 
         It "Should write valid JSON when events are enabled" {
@@ -86,8 +88,8 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.event | Should Be "test"
-            $parsed.data | Should Be "value"
+            $parsed.event | Should -Be "test"
+            $parsed.data | Should -Be "value"
         }
 
         It "Should add version field automatically" {
@@ -106,7 +108,7 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.version | Should Be 1
+            $parsed.version | Should -Be 1
         }
 
         It "Should add timestamp field automatically" {
@@ -125,7 +127,7 @@ Describe "Streaming Events Module" {
             }
             
             # Verify timestamp is present in raw JSON (ConvertFrom-Json may parse it as DateTime)
-            $stderr | Should Match '"timestamp"\s*:\s*"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z"'
+            $stderr | Should -Match '"timestamp"\s*:\s*"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z"'
         }
 
         It "Should output single-line JSON (NDJSON format)" {
@@ -145,7 +147,7 @@ Describe "Streaming Events Module" {
             
             # Should be exactly one line (plus newline)
             $lines = $stderr.Split("`n") | Where-Object { $_.Trim() }
-            $lines.Count | Should Be 1
+            $lines.Count | Should -Be 1
         }
     }
 
@@ -166,10 +168,10 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.version | Should Be 1
-            $parsed.event | Should Be "phase"
-            $parsed.phase | Should Be "apply"
-            $parsed.timestamp | Should Not BeNullOrEmpty
+            $parsed.version | Should -Be 1
+            $parsed.event | Should -Be "phase"
+            $parsed.phase | Should -Be "apply"
+            $parsed.timestamp | Should -Not -BeNullOrEmpty
         }
 
         It "Should accept plan phase" {
@@ -188,7 +190,7 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.phase | Should Be "plan"
+            $parsed.phase | Should -Be "plan"
         }
 
         It "Should accept verify phase" {
@@ -207,7 +209,7 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.phase | Should Be "verify"
+            $parsed.phase | Should -Be "verify"
         }
 
         It "Should accept capture phase" {
@@ -226,7 +228,7 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.phase | Should Be "capture"
+            $parsed.phase | Should -Be "capture"
         }
     }
 
@@ -247,12 +249,12 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.version | Should Be 1
-            $parsed.event | Should Be "item"
-            $parsed.id | Should Be "Notepad++.Notepad++"
-            $parsed.driver | Should Be "winget"
-            $parsed.status | Should Be "installing"
-            $parsed.timestamp | Should Not BeNullOrEmpty
+            $parsed.version | Should -Be 1
+            $parsed.event | Should -Be "item"
+            $parsed.id | Should -Be "Notepad++.Notepad++"
+            $parsed.driver | Should -Be "winget"
+            $parsed.status | Should -Be "installing"
+            $parsed.timestamp | Should -Not -BeNullOrEmpty
         }
 
         It "Should include reason when provided" {
@@ -271,7 +273,7 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.reason | Should Be "filtered"
+            $parsed.reason | Should -Be "filtered"
         }
 
         It "Should include message when provided" {
@@ -290,7 +292,7 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.message | Should Be "Connection timeout"
+            $parsed.message | Should -Be "Connection timeout"
         }
 
         It "Should set reason to null when not provided" {
@@ -309,7 +311,7 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.reason | Should Be $null
+            $parsed.reason | Should -Be $null
         }
 
         It "Should accept all valid status values" {
@@ -331,7 +333,7 @@ Describe "Streaming Events Module" {
                 }
                 
                 $parsed = $stderr | ConvertFrom-Json
-                $parsed.status | Should Be $status
+                $parsed.status | Should -Be $status
             }
         }
     }
@@ -353,14 +355,14 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.version | Should Be 1
-            $parsed.event | Should Be "summary"
-            $parsed.phase | Should Be "apply"
-            $parsed.total | Should Be 10
-            $parsed.success | Should Be 7
-            $parsed.skipped | Should Be 2
-            $parsed.failed | Should Be 1
-            $parsed.timestamp | Should Not BeNullOrEmpty
+            $parsed.version | Should -Be 1
+            $parsed.event | Should -Be "summary"
+            $parsed.phase | Should -Be "apply"
+            $parsed.total | Should -Be 10
+            $parsed.success | Should -Be 7
+            $parsed.skipped | Should -Be 2
+            $parsed.failed | Should -Be 1
+            $parsed.timestamp | Should -Not -BeNullOrEmpty
         }
 
         It "Should accept verify phase" {
@@ -379,7 +381,7 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.phase | Should Be "verify"
+            $parsed.phase | Should -Be "verify"
         }
 
         It "Should accept capture phase" {
@@ -398,10 +400,10 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.phase | Should Be "capture"
-            $parsed.total | Should Be 15
-            $parsed.success | Should Be 12
-            $parsed.skipped | Should Be 3
+            $parsed.phase | Should -Be "capture"
+            $parsed.total | Should -Be 15
+            $parsed.success | Should -Be 12
+            $parsed.skipped | Should -Be 3
         }
     }
 
@@ -422,12 +424,12 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.version | Should Be 1
-            $parsed.event | Should Be "artifact"
-            $parsed.phase | Should Be "capture"
-            $parsed.kind | Should Be "manifest"
-            $parsed.path | Should Be "C:\profiles\test.jsonc"
-            $parsed.timestamp | Should Not BeNullOrEmpty
+            $parsed.version | Should -Be 1
+            $parsed.event | Should -Be "artifact"
+            $parsed.phase | Should -Be "capture"
+            $parsed.kind | Should -Be "manifest"
+            $parsed.path | Should -Be "C:\profiles\test.jsonc"
+            $parsed.timestamp | Should -Not -BeNullOrEmpty
         }
     }
 
@@ -448,11 +450,11 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.version | Should Be 1
-            $parsed.event | Should Be "error"
-            $parsed.scope | Should Be "engine"
-            $parsed.message | Should Be "Failed to connect"
-            $parsed.timestamp | Should Not BeNullOrEmpty
+            $parsed.version | Should -Be 1
+            $parsed.event | Should -Be "error"
+            $parsed.scope | Should -Be "engine"
+            $parsed.message | Should -Be "Failed to connect"
+            $parsed.timestamp | Should -Not -BeNullOrEmpty
         }
 
         It "Should include item ID when provided for item scope" {
@@ -471,8 +473,8 @@ Describe "Streaming Events Module" {
             }
             
             $parsed = $stderr | ConvertFrom-Json
-            $parsed.scope | Should Be "item"
-            $parsed.id | Should Be "App.Id"
+            $parsed.scope | Should -Be "item"
+            $parsed.id | Should -Be "App.Id"
         }
     }
 
@@ -496,11 +498,11 @@ Describe "Streaming Events Module" {
             }
             
             $lines = $stderr.Split("`n") | Where-Object { $_.Trim() }
-            $lines.Count | Should Be 4
+            $lines.Count | Should -Be 4
             
             # Each line should be valid JSON
             foreach ($line in $lines) {
-                { $line | ConvertFrom-Json } | Should Not Throw
+                { $line | ConvertFrom-Json } | Should -Not -Throw
             }
         }
 
@@ -529,22 +531,22 @@ Describe "Streaming Events Module" {
             # Parse each line and verify event types
             $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
             
-            $events[0].event | Should Be "phase"
-            $events[0].phase | Should Be "plan"
+            $events[0].event | Should -Be "phase"
+            $events[0].phase | Should -Be "plan"
             
-            $events[1].event | Should Be "item"
-            $events[1].status | Should Be "to_install"
+            $events[1].event | Should -Be "item"
+            $events[1].status | Should -Be "to_install"
             
-            $events[2].event | Should Be "phase"
-            $events[2].phase | Should Be "apply"
+            $events[2].event | Should -Be "phase"
+            $events[2].phase | Should -Be "apply"
             
-            $events[3].event | Should Be "item"
-            $events[3].status | Should Be "installing"
+            $events[3].event | Should -Be "item"
+            $events[3].status | Should -Be "installing"
             
-            $events[4].event | Should Be "item"
-            $events[4].status | Should Be "installed"
+            $events[4].event | Should -Be "item"
+            $events[4].status | Should -Be "installed"
             
-            $events[5].event | Should Be "summary"
+            $events[5].event | Should -Be "summary"
         }
 
         It "Should produce parseable capture NDJSON stream" {
@@ -568,31 +570,31 @@ Describe "Streaming Events Module" {
             }
             
             $lines = $stderr.Split("`n") | Where-Object { $_.Trim() }
-            $lines.Count | Should Be 6
+            $lines.Count | Should -Be 6
             
             # Parse each line and verify event types
             $events = $lines | ForEach-Object { $_ | ConvertFrom-Json }
             
-            $events[0].event | Should Be "phase"
-            $events[0].phase | Should Be "capture"
+            $events[0].event | Should -Be "phase"
+            $events[0].phase | Should -Be "capture"
             
-            $events[1].event | Should Be "item"
-            $events[1].status | Should Be "present"
-            $events[1].reason | Should Be "detected"
+            $events[1].event | Should -Be "item"
+            $events[1].status | Should -Be "present"
+            $events[1].reason | Should -Be "detected"
             
-            $events[2].event | Should Be "item"
-            $events[2].status | Should Be "skipped"
-            $events[2].reason | Should Be "filtered_runtime"
+            $events[2].event | Should -Be "item"
+            $events[2].status | Should -Be "skipped"
+            $events[2].reason | Should -Be "filtered_runtime"
             
-            $events[3].event | Should Be "item"
-            $events[3].status | Should Be "skipped"
-            $events[3].reason | Should Be "sensitive_excluded"
+            $events[3].event | Should -Be "item"
+            $events[3].status | Should -Be "skipped"
+            $events[3].reason | Should -Be "sensitive_excluded"
             
-            $events[4].event | Should Be "artifact"
-            $events[4].kind | Should Be "manifest"
+            $events[4].event | Should -Be "artifact"
+            $events[4].kind | Should -Be "manifest"
             
-            $events[5].event | Should Be "summary"
-            $events[5].phase | Should Be "capture"
+            $events[5].event | Should -Be "summary"
+            $events[5].phase | Should -Be "capture"
         }
     }
 }

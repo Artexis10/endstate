@@ -3,14 +3,16 @@
     Pester tests for directory-level exclude support in restore operations.
 #>
 
-$script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$script:RestoreScript = Join-Path $script:ProvisioningRoot "engine" "restore.ps1"
-
-# Load dependencies
-. (Join-Path $script:ProvisioningRoot "engine" "logging.ps1")
-. (Join-Path $script:ProvisioningRoot "engine" "manifest.ps1")
-. (Join-Path $script:ProvisioningRoot "engine" "state.ps1")
-. $script:RestoreScript
+BeforeAll {
+    $script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    $script:RestoreScript = Join-Path $script:ProvisioningRoot "engine" "restore.ps1"
+    
+    # Load dependencies
+    . (Join-Path $script:ProvisioningRoot "engine" "logging.ps1")
+    . (Join-Path $script:ProvisioningRoot "engine" "manifest.ps1")
+    . (Join-Path $script:ProvisioningRoot "engine" "state.ps1")
+    . $script:RestoreScript
+}
 
 Describe "Restore.Exclude.PatternMatching" {
     
@@ -18,17 +20,17 @@ Describe "Restore.Exclude.PatternMatching" {
         
         It "Should match **\Logs\** pattern" {
             $result = Test-PathExcluded -RelativePath "Logs\app.log" -Patterns @("**\Logs\**")
-            $result | Should Be $true
+            $result | Should -Be $true
         }
         
         It "Should match nested Logs folder" {
             $result = Test-PathExcluded -RelativePath "subfolder\Logs\debug.log" -Patterns @("**\Logs\**")
-            $result | Should Be $true
+            $result | Should -Be $true
         }
         
         It "Should NOT match non-excluded paths" {
             $result = Test-PathExcluded -RelativePath "configs\settings.json" -Patterns @("**\Logs\**")
-            $result | Should Be $false
+            $result | Should -Be $false
         }
         
         It "Should match multiple patterns" {
@@ -38,14 +40,14 @@ Describe "Restore.Exclude.PatternMatching" {
             $tempMatch = Test-PathExcluded -RelativePath "Temp\cache.tmp" -Patterns $patterns
             $configMatch = Test-PathExcluded -RelativePath "config.json" -Patterns $patterns
             
-            $logsMatch | Should Be $true
-            $tempMatch | Should Be $true
-            $configMatch | Should Be $false
+            $logsMatch | Should -Be $true
+            $tempMatch | Should -Be $true
+            $configMatch | Should -Be $false
         }
         
         It "Should handle forward slash patterns" {
             $result = Test-PathExcluded -RelativePath "Logs\app.log" -Patterns @("**/Logs/**")
-            $result | Should Be $true
+            $result | Should -Be $true
         }
     }
 }
@@ -73,12 +75,12 @@ Describe "Restore.Exclude.DirectoryCopy" {
                 -Backup $false `
                 -Exclude @("**\Logs\**")
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             # Verify: configs and readme should exist, Logs should NOT
-            (Test-Path "$targetDir\configs\settings.json") | Should Be $true
-            (Test-Path "$targetDir\readme.txt") | Should Be $true
-            (Test-Path "$targetDir\Logs") | Should Be $false
+            (Test-Path "$targetDir\configs\settings.json") | Should -Be $true
+            (Test-Path "$targetDir\readme.txt") | Should -Be $true
+            (Test-Path "$targetDir\Logs") | Should -Be $false
         }
         
         It "Should copy directory but skip multiple excluded patterns" {
@@ -101,13 +103,13 @@ Describe "Restore.Exclude.DirectoryCopy" {
                 -Backup $false `
                 -Exclude @("**\Logs\**", "**\Temp\**", "**\Cache\**")
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             # Only configs should exist
-            (Test-Path "$targetDir\configs\app.json") | Should Be $true
-            (Test-Path "$targetDir\Logs") | Should Be $false
-            (Test-Path "$targetDir\Temp") | Should Be $false
-            (Test-Path "$targetDir\Cache") | Should Be $false
+            (Test-Path "$targetDir\configs\app.json") | Should -Be $true
+            (Test-Path "$targetDir\Logs") | Should -Be $false
+            (Test-Path "$targetDir\Temp") | Should -Be $false
+            (Test-Path "$targetDir\Cache") | Should -Be $false
         }
     }
 }
@@ -135,9 +137,9 @@ Describe "Restore.Exclude.LockedFiles" {
                 -Backup $false `
                 -Exclude @("**\Logs\**")
             
-            $result.Success | Should Be $true
-            (Test-Path "$targetDir\configs\settings.json") | Should Be $true
-            (Test-Path "$targetDir\Logs") | Should Be $false
+            $result.Success | Should -Be $true
+            (Test-Path "$targetDir\configs\settings.json") | Should -Be $true
+            (Test-Path "$targetDir\Logs") | Should -Be $false
         }
     }
 }
@@ -174,12 +176,12 @@ Describe "Restore.Exclude.Journaling" {
                 -Exclude @("**\Logs\**")
             
             # Restore should succeed
-            $result.Success | Should Be $true
-            $result.Error | Should BeNullOrEmpty
+            $result.Success | Should -Be $true
+            $result.Error | Should -BeNullOrEmpty
             
             # The result represents the entire restore action, not individual files
             # Excluded paths don't cause failures
-            $result.Message | Should Be "restored successfully"
+            $result.Message | Should -Be "restored successfully"
         }
     }
 }
@@ -207,11 +209,11 @@ Describe "Restore.Exclude.Revert" {
                 -Exclude @("**\Logs\**") `
                 -RunId "revert-test-run"
             
-            $result.Success | Should Be $true
+            $result.Success | Should -Be $true
             
             # Verify only non-excluded content was restored
-            (Test-Path "$targetDir\configs\settings.json") | Should Be $true
-            (Test-Path "$targetDir\Logs") | Should Be $false
+            (Test-Path "$targetDir\configs\settings.json") | Should -Be $true
+            (Test-Path "$targetDir\Logs") | Should -Be $false
             
             # The journal entry for this restore would only reflect what was actually done
             # Revert would delete the target (since it was created by restore)

@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "test-profile",
+  "captured": "2025-01-15T10:30:00Z",
+  "apps": [
+    {
+      "id": "test-app",
+      "refs": {
+        "windows": "Test.App"
+      }
+    }
+  ]
+}

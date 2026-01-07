@@ -3,12 +3,14 @@
     Pester tests for diff engine.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:DiffScript = Join-Path $script:ProvisioningRoot "engine\diff.ps1"
-$script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
-
-# Load dependencies
-. $script:DiffScript
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:DiffScript = Join-Path $script:ProvisioningRoot "engine\diff.ps1"
+    $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
+    
+    # Load dependencies
+    . $script:DiffScript
+}
 
 Describe "Diff.ActionKey" {
     
@@ -24,7 +26,7 @@ Describe "Diff.ActionKey" {
             }
             
             $key = Get-ActionKey -Action $action
-            $key | Should Be "app:Test.App"
+            $key | Should -Be "app:Test.App"
         }
         
         It "Should generate key for restore action" {
@@ -37,7 +39,7 @@ Describe "Diff.ActionKey" {
             }
             
             $key = Get-ActionKey -Action $action
-            $key | Should Be "restore:./config.conf->~/.config.conf"
+            $key | Should -Be "restore:./config.conf->~/.config.conf"
         }
         
         It "Should generate key for verify action with path" {
@@ -49,7 +51,7 @@ Describe "Diff.ActionKey" {
             }
             
             $key = Get-ActionKey -Action $action
-            $key | Should Be "verify:file-exists:~/.config.conf"
+            $key | Should -Be "verify:file-exists:~/.config.conf"
         }
         
         It "Should generate key for verify action with command" {
@@ -61,7 +63,7 @@ Describe "Diff.ActionKey" {
             }
             
             $key = Get-ActionKey -Action $action
-            $key | Should Be "verify:command-exists:git"
+            $key | Should -Be "verify:command-exists:git"
         }
     }
 }
@@ -86,10 +88,10 @@ Describe "Diff.Compare" {
             
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
-            $diff.identical | Should Be $true
-            $diff.actionsAdded.Count | Should Be 0
-            $diff.actionsRemoved.Count | Should Be 0
-            $diff.actionsChanged.Count | Should Be 0
+            $diff.identical | Should -Be $true
+            $diff.actionsAdded.Count | Should -Be 0
+            $diff.actionsRemoved.Count | Should -Be 0
+            $diff.actionsChanged.Count | Should -Be 0
         }
     }
     
@@ -111,9 +113,9 @@ Describe "Diff.Compare" {
             
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
-            $diff.identical | Should Be $false
-            $diff.actionsAdded.Count | Should Be 1
-            $diff.actionsAdded[0].key | Should Be "app:Test.App2"
+            $diff.identical | Should -Be $false
+            $diff.actionsAdded.Count | Should -Be 1
+            $diff.actionsAdded[0].key | Should -Be "app:Test.App2"
         }
     }
     
@@ -135,9 +137,9 @@ Describe "Diff.Compare" {
             
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
-            $diff.identical | Should Be $false
-            $diff.actionsRemoved.Count | Should Be 1
-            $diff.actionsRemoved[0].key | Should Be "app:Test.App2"
+            $diff.identical | Should -Be $false
+            $diff.actionsRemoved.Count | Should -Be 1
+            $diff.actionsRemoved[0].key | Should -Be "app:Test.App2"
         }
     }
     
@@ -159,10 +161,10 @@ Describe "Diff.Compare" {
             
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
-            $diff.identical | Should Be $false
-            $diff.actionsChanged.Count | Should Be 1
-            $diff.actionsChanged[0].statusA | Should Be "install"
-            $diff.actionsChanged[0].statusB | Should Be "skip"
+            $diff.identical | Should -Be $false
+            $diff.actionsChanged.Count | Should -Be 1
+            $diff.actionsChanged[0].statusA | Should -Be "install"
+            $diff.actionsChanged[0].statusB | Should -Be "skip"
         }
     }
     
@@ -181,15 +183,15 @@ Describe "Diff.Compare" {
             
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
-            $diff.summaryA.install | Should Be 2
-            $diff.summaryA.skip | Should Be 3
-            $diff.summaryA.restore | Should Be 1
-            $diff.summaryA.verify | Should Be 4
+            $diff.summaryA.install | Should -Be 2
+            $diff.summaryA.skip | Should -Be 3
+            $diff.summaryA.restore | Should -Be 1
+            $diff.summaryA.verify | Should -Be 4
             
-            $diff.summaryB.install | Should Be 1
-            $diff.summaryB.skip | Should Be 4
-            $diff.summaryB.restore | Should Be 2
-            $diff.summaryB.verify | Should Be 3
+            $diff.summaryB.install | Should -Be 1
+            $diff.summaryB.skip | Should -Be 4
+            $diff.summaryB.restore | Should -Be 2
+            $diff.summaryB.verify | Should -Be 3
         }
     }
 }
@@ -205,12 +207,12 @@ Describe "Diff.FileFixtures" {
             $artifactA = Read-ArtifactFile -Path $planAPath
             $artifactB = Read-ArtifactFile -Path $planBPath
             
-            $artifactA | Should Not BeNullOrEmpty
-            $artifactB | Should Not BeNullOrEmpty
+            $artifactA | Should -Not -BeNullOrEmpty
+            $artifactB | Should -Not -BeNullOrEmpty
             
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
-            $diff.identical | Should Be $false
+            $diff.identical | Should -Be $false
         }
         
         It "Should detect App1 status changed from install to skip" {
@@ -223,9 +225,9 @@ Describe "Diff.FileFixtures" {
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
             $app1Change = $diff.actionsChanged | Where-Object { $_.key -eq "app:Test.App1" }
-            $app1Change | Should Not BeNullOrEmpty
-            $app1Change.statusA | Should Be "install"
-            $app1Change.statusB | Should Be "skip"
+            $app1Change | Should -Not -BeNullOrEmpty
+            $app1Change.statusA | Should -Be "install"
+            $app1Change.statusB | Should -Be "skip"
         }
         
         It "Should detect App3 was added in plan-b" {
@@ -238,7 +240,7 @@ Describe "Diff.FileFixtures" {
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
             $app3Added = $diff.actionsAdded | Where-Object { $_.key -eq "app:Test.App3" }
-            $app3Added | Should Not BeNullOrEmpty
+            $app3Added | Should -Not -BeNullOrEmpty
         }
         
         It "Should show correct summary differences" {
@@ -250,10 +252,10 @@ Describe "Diff.FileFixtures" {
             
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             
-            $diff.summaryA.install | Should Be 1
-            $diff.summaryA.skip | Should Be 1
-            $diff.summaryB.install | Should Be 1
-            $diff.summaryB.skip | Should Be 2
+            $diff.summaryA.install | Should -Be 1
+            $diff.summaryA.skip | Should -Be 1
+            $diff.summaryB.install | Should -Be 1
+            $diff.summaryB.skip | Should -Be 2
         }
     }
 }
@@ -279,7 +281,7 @@ Describe "Diff.JsonOutput" {
             $diff = Compare-ProvisioningArtifacts -ArtifactA $artifactA -ArtifactB $artifactB
             $json = ConvertTo-DiffJson -Diff $diff
             
-            { $json | ConvertFrom-Json } | Should Not Throw
+            { $json | ConvertFrom-Json } | Should -Not -Throw
         }
         
         It "Should have deterministic output" {
@@ -300,7 +302,7 @@ Describe "Diff.JsonOutput" {
             $json1 = ConvertTo-DiffJson -Diff $diff
             $json2 = ConvertTo-DiffJson -Diff $diff
             
-            $json1 | Should Be $json2
+            $json1 | Should -Be $json2
         }
     }
 }

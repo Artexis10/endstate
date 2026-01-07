@@ -3,16 +3,18 @@
     Pester tests for restore engine and copy restorer.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:RestoreScript = Join-Path $script:ProvisioningRoot "engine\restore.ps1"
-$script:CopyRestorerScript = Join-Path $script:ProvisioningRoot "restorers\copy.ps1"
-$script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
-
-# Load dependencies
-. (Join-Path $script:ProvisioningRoot "engine\logging.ps1")
-. (Join-Path $script:ProvisioningRoot "engine\manifest.ps1")
-. (Join-Path $script:ProvisioningRoot "engine\state.ps1")
-. $script:CopyRestorerScript
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:RestoreScript = Join-Path $script:ProvisioningRoot "engine\restore.ps1"
+    $script:CopyRestorerScript = Join-Path $script:ProvisioningRoot "restorers\copy.ps1"
+    $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
+    
+    # Load dependencies
+    . (Join-Path $script:ProvisioningRoot "engine\logging.ps1")
+    . (Join-Path $script:ProvisioningRoot "engine\manifest.ps1")
+    . (Join-Path $script:ProvisioningRoot "engine\state.ps1")
+    . $script:CopyRestorerScript
+}
 
 Describe "Restore.OptIn" {
     
@@ -51,9 +53,9 @@ Describe "Restore.OptIn" {
             $result = Invoke-Restore -ManifestPath $manifestPath
             
             # Should indicate restore was not enabled
-            $result.RestoreNotEnabled | Should Be $true
-            $result.SkipCount | Should Be 1
-            $result.RestoreCount | Should Be 0
+            $result.RestoreNotEnabled | Should -Be $true
+            $result.SkipCount | Should -Be 1
+            $result.RestoreCount | Should -Be 0
         }
     }
 }
@@ -72,10 +74,10 @@ Describe "Restore.CopyFile" {
             # Call Invoke-CopyRestore
             $result = Invoke-CopyRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
-            $result.Skipped | Should Be $false
-            (Test-Path $targetFile) | Should Be $true
-            (Get-Content $targetFile -Raw).Trim() | Should Be "test content"
+            $result.Success | Should -Be $true
+            $result.Skipped | Should -Be $false
+            (Test-Path $targetFile) | Should -Be $true
+            (Get-Content $targetFile -Raw).Trim() | Should -Be "test content"
         }
         
         It "Should create target directory if it doesn't exist" {
@@ -86,8 +88,8 @@ Describe "Restore.CopyFile" {
             
             $result = Invoke-CopyRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
-            (Test-Path $targetFile) | Should Be $true
+            $result.Success | Should -Be $true
+            (Test-Path $targetFile) | Should -Be $true
         }
     }
 }
@@ -111,10 +113,10 @@ Describe "Restore.Backup" {
             
             $result = Invoke-CopyRestore -Source $sourceFile -Target $targetFile -Backup $true -RunId "test-run-123"
             
-            $result.Success | Should Be $true
-            $result.Skipped | Should Be $false
+            $result.Success | Should -Be $true
+            $result.Skipped | Should -Be $false
             # Target should have new content after restore
-            (Get-Content $targetFile -Raw).Trim() | Should Be "new content"
+            (Get-Content $targetFile -Raw).Trim() | Should -Be "new content"
         }
         
         It "Should preserve old content in backup location" {
@@ -127,11 +129,11 @@ Describe "Restore.Backup" {
             
             $result = Invoke-CopyRestore -Source $sourceFile -Target $targetFile -Backup $true -RunId "backup-test-run"
             
-            $result.Success | Should Be $true
-            $result.Skipped | Should Be $false
+            $result.Success | Should -Be $true
+            $result.Skipped | Should -Be $false
             
             # Target should have new content
-            (Get-Content $targetFile -Raw).Trim() | Should Be "updated content"
+            (Get-Content $targetFile -Raw).Trim() | Should -Be "updated content"
         }
     }
 }
@@ -154,9 +156,9 @@ Describe "Restore.UpToDate" {
             
             $result = Invoke-CopyRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
-            $result.Skipped | Should Be $true
-            $result.Message | Should Be "already up to date"
+            $result.Success | Should -Be $true
+            $result.Skipped | Should -Be $true
+            $result.Message | Should -Be "already up to date"
         }
         
         It "Should NOT skip when file sizes differ" {
@@ -168,8 +170,8 @@ Describe "Restore.UpToDate" {
             
             $result = Invoke-CopyRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $true
-            $result.Skipped | Should Be $false
+            $result.Success | Should -Be $true
+            $result.Skipped | Should -Be $false
         }
     }
 }
@@ -189,10 +191,10 @@ Describe "Restore.Directory" {
             
             $result = Invoke-CopyRestore -Source $sourceDir -Target $targetDir -Backup $false
             
-            $result.Success | Should Be $true
-            (Test-Path $targetDir) | Should Be $true
-            (Test-Path (Join-Path $targetDir "file1.txt")) | Should Be $true
-            (Test-Path (Join-Path $targetDir "file2.txt")) | Should Be $true
+            $result.Success | Should -Be $true
+            (Test-Path $targetDir) | Should -Be $true
+            (Test-Path (Join-Path $targetDir "file1.txt")) | Should -Be $true
+            (Test-Path (Join-Path $targetDir "file2.txt")) | Should -Be $true
         }
         
         It "Should copy nested directory structure" {
@@ -205,8 +207,8 @@ Describe "Restore.Directory" {
             
             $result = Invoke-CopyRestore -Source $sourceDir -Target $targetDir -Backup $false
             
-            $result.Success | Should Be $true
-            (Test-Path "$targetDir\sub1\sub2\deep.txt") | Should Be $true
+            $result.Success | Should -Be $true
+            (Test-Path "$targetDir\sub1\sub2\deep.txt") | Should -Be $true
         }
     }
 }
@@ -217,22 +219,22 @@ Describe "Restore.SensitivePath" {
         
         It "Should detect .ssh in path" {
             $isSensitive = Test-RestoreSensitivePath -Path "C:\Users\test\.ssh\id_rsa"
-            $isSensitive | Should Be $true
+            $isSensitive | Should -Be $true
         }
         
         It "Should detect .aws in path" {
             $isSensitive = Test-RestoreSensitivePath -Path "~/.aws/credentials"
-            $isSensitive | Should Be $true
+            $isSensitive | Should -Be $true
         }
         
         It "Should detect credentials in path" {
             $isSensitive = Test-RestoreSensitivePath -Path "C:\app\credentials\secret.json"
-            $isSensitive | Should Be $true
+            $isSensitive | Should -Be $true
         }
         
         It "Should NOT flag normal paths" {
             $isSensitive = Test-RestoreSensitivePath -Path "~/.gitconfig"
-            $isSensitive | Should Be $false
+            $isSensitive | Should -Be $false
         }
         
         It "Should add warnings for sensitive paths in restore result" {
@@ -243,8 +245,8 @@ Describe "Restore.SensitivePath" {
             
             $result = Invoke-CopyRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Warnings.Count | Should BeGreaterThan 0
-            $result.Warnings[0] | Should Match "sensitive"
+            $result.Warnings.Count | Should -BeGreaterThan 0
+            $result.Warnings[0] | Should -Match "sensitive"
         }
     }
 }
@@ -260,7 +262,7 @@ Describe "Restore.UpToDateDetection" {
             "content" | Out-File -FilePath $sourceFile -Encoding UTF8
             
             $isUpToDate = Test-RestoreUpToDate -Source $sourceFile -Target $targetFile
-            $isUpToDate | Should Be $false
+            $isUpToDate | Should -Be $false
         }
         
         It "Should return true when files are identical" {
@@ -275,7 +277,7 @@ Describe "Restore.UpToDateDetection" {
             (Get-Item $targetFile).LastWriteTime = $srcTime
             
             $isUpToDate = Test-RestoreUpToDate -Source $sourceFile -Target $targetFile
-            $isUpToDate | Should Be $true
+            $isUpToDate | Should -Be $true
         }
         
         It "Should return false when file sizes differ" {
@@ -286,7 +288,7 @@ Describe "Restore.UpToDateDetection" {
             "short" | Out-File -FilePath $targetFile -Encoding UTF8
             
             $isUpToDate = Test-RestoreUpToDate -Source $sourceFile -Target $targetFile
-            $isUpToDate | Should Be $false
+            $isUpToDate | Should -Be $false
         }
     }
 }
@@ -308,7 +310,7 @@ Describe "Restore.ActionId" {
             }
             
             $id = Get-RestoreActionId -Item $item
-            $id | Should Be "my-custom-id"
+            $id | Should -Be "my-custom-id"
         }
         
         It "Should generate deterministic id from source and target" {
@@ -319,7 +321,7 @@ Describe "Restore.ActionId" {
             }
             
             $id = Get-RestoreActionId -Item $item
-            $id | Should Be "copy:./configs/test.conf->~/.test.conf"
+            $id | Should -Be "copy:./configs/test.conf->~/.test.conf"
         }
         
         It "Should normalize path separators" {
@@ -330,8 +332,8 @@ Describe "Restore.ActionId" {
             }
             
             $id = Get-RestoreActionId -Item $item
-            $id | Should Match "copy:"
-            $id | Should Match "->"
+            $id | Should -Match "copy:"
+            $id | Should -Match "->"
         }
     }
 }
@@ -346,8 +348,8 @@ Describe "Restore.SourceNotFound" {
             
             $result = Invoke-CopyRestore -Source $sourceFile -Target $targetFile -Backup $false
             
-            $result.Success | Should Be $false
-            $result.Error | Should Match "Source not found"
+            $result.Success | Should -Be $false
+            $result.Error | Should -Match "Source not found"
         }
     }
 }

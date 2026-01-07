@@ -3,16 +3,18 @@
     Pester tests for Model B export-root support and restore journaling.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
-$script:RestoreScript = Join-Path $script:ProvisioningRoot "engine\restore.ps1"
-$script:RevertScript = Join-Path $script:ProvisioningRoot "engine\export-revert.ps1"
-
-# Load dependencies
-. (Join-Path $script:ProvisioningRoot "engine\logging.ps1")
-. (Join-Path $script:ProvisioningRoot "engine\manifest.ps1")
-. (Join-Path $script:ProvisioningRoot "engine\state.ps1")
-. (Join-Path $script:ProvisioningRoot "engine\export-capture.ps1")
-. $script:RestoreScript
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:RestoreScript = Join-Path $script:ProvisioningRoot "engine\restore.ps1"
+    $script:RevertScript = Join-Path $script:ProvisioningRoot "engine\export-revert.ps1"
+    
+    # Load dependencies
+    . (Join-Path $script:ProvisioningRoot "engine\logging.ps1")
+    . (Join-Path $script:ProvisioningRoot "engine\manifest.ps1")
+    . (Join-Path $script:ProvisioningRoot "engine\state.ps1")
+    . (Join-Path $script:ProvisioningRoot "engine\export-capture.ps1")
+    . $script:RestoreScript
+}
 
 Describe "Restore.ModelB.ExportRoot" {
     

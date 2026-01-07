@@ -3,15 +3,17 @@
     Pester tests for Apply-from-Plan functionality.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:ApplyScript = Join-Path $script:ProvisioningRoot "engine\apply.ps1"
-$script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
-$script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
-$script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
-$script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
-$script:WingetDriver = Join-Path $script:ProvisioningRoot "drivers\winget.ps1"
-$script:CopyRestorer = Join-Path $script:ProvisioningRoot "restorers\copy.ps1"
-$script:FileExistsVerifier = Join-Path $script:ProvisioningRoot "verifiers\file-exists.ps1"
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:ApplyScript = Join-Path $script:ProvisioningRoot "engine\apply.ps1"
+    $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
+    $script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
+    $script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
+    $script:WingetDriver = Join-Path $script:ProvisioningRoot "drivers\winget.ps1"
+    $script:CopyRestorer = Join-Path $script:ProvisioningRoot "restorers\copy.ps1"
+    $script:FileExistsVerifier = Join-Path $script:ProvisioningRoot "verifiers\file-exists.ps1"
+}
 
 Describe "Apply-from-Plan CLI Validation" {
     
@@ -23,7 +25,7 @@ Describe "Apply-from-Plan CLI Validation" {
             
             $shouldError = $hasManifest -and $hasPlan
             
-            $shouldError | Should Be $true
+            $shouldError | Should -Be $true
         }
         
         It "Should error when neither -Manifest nor -Plan is provided" {
@@ -32,7 +34,7 @@ Describe "Apply-from-Plan CLI Validation" {
             
             $shouldError = -not $hasManifest -and -not $hasPlan
             
-            $shouldError | Should Be $true
+            $shouldError | Should -Be $true
         }
         
         It "Should allow -Manifest without -Plan" {
@@ -41,7 +43,7 @@ Describe "Apply-from-Plan CLI Validation" {
             
             $isValid = ($hasManifest -and -not $hasPlan) -or (-not $hasManifest -and $hasPlan)
             
-            $isValid | Should Be $true
+            $isValid | Should -Be $true
         }
         
         It "Should allow -Plan without -Manifest" {
@@ -50,7 +52,7 @@ Describe "Apply-from-Plan CLI Validation" {
             
             $isValid = ($hasManifest -and -not $hasPlan) -or (-not $hasManifest -and $hasPlan)
             
-            $isValid | Should Be $true
+            $isValid | Should -Be $true
         }
     }
 }
@@ -75,7 +77,7 @@ Describe "Apply-from-Plan Plan Loading" {
             
             $exists = Test-Path $planPath
             
-            $exists | Should Be $false
+            $exists | Should -Be $false
         }
         
         It "Should load valid plan JSON" {
@@ -97,8 +99,8 @@ Describe "Apply-from-Plan Plan Loading" {
             
             $loaded = Get-Content -Path $planPath -Raw | ConvertFrom-Json
             
-            $loaded.runId | Should Be "20251219-010000"
-            $loaded.actions.Count | Should Be 1
+            $loaded.runId | Should -Be "20251219-010000"
+            $loaded.actions.Count | Should -Be 1
         }
         
         It "Should validate required runId field" {
@@ -108,7 +110,7 @@ Describe "Apply-from-Plan Plan Loading" {
             
             $hasRunId = $null -ne $plan.runId
             
-            $hasRunId | Should Be $false
+            $hasRunId | Should -Be $false
         }
         
         It "Should validate required actions array" {
@@ -118,7 +120,7 @@ Describe "Apply-from-Plan Plan Loading" {
             
             $hasActions = $null -ne $plan.actions
             
-            $hasActions | Should Be $false
+            $hasActions | Should -Be $false
         }
     }
 }
@@ -153,9 +155,9 @@ Describe "Apply-from-Plan Action Execution" {
             
             $installActions = @($plan.actions | Where-Object { $_.status -eq "install" })
             
-            $installActions.Count | Should Be 2
-            $installActions[0].ref | Should Be "App.A"
-            $installActions[1].ref | Should Be "App.C"
+            $installActions.Count | Should -Be 2
+            $installActions[0].ref | Should -Be "App.A"
+            $installActions[1].ref | Should -Be "App.C"
         }
         
         It "Should identify skip actions from plan" {
@@ -170,7 +172,7 @@ Describe "Apply-from-Plan Action Execution" {
             
             $skipActions = @($plan.actions | Where-Object { $_.status -eq "skip" })
             
-            $skipActions.Count | Should Be 2
+            $skipActions.Count | Should -Be 2
         }
         
         It "Should process actions in order (deterministic)" {
@@ -184,9 +186,9 @@ Describe "Apply-from-Plan Action Execution" {
             }
             
             # Actions should be processed in array order, not sorted
-            $plan.actions[0].id | Should Be "zebra"
-            $plan.actions[1].id | Should Be "alpha"
-            $plan.actions[2].id | Should Be "beta"
+            $plan.actions[0].id | Should -Be "zebra"
+            $plan.actions[1].id | Should -Be "alpha"
+            $plan.actions[2].id | Should -Be "beta"
         }
     }
     
@@ -201,7 +203,7 @@ Describe "Apply-from-Plan Action Execution" {
                 $installCalled = $true
             }
             
-            $installCalled | Should Be $false
+            $installCalled | Should -Be $false
         }
         
         It "Should still count actions in dry-run mode" {
@@ -227,8 +229,8 @@ Describe "Apply-from-Plan Action Execution" {
                 }
             }
             
-            $successCount | Should Be 1
-            $skipCount | Should Be 1
+            $successCount | Should -Be 1
+            $skipCount | Should -Be 1
         }
     }
 }
@@ -248,7 +250,7 @@ Describe "Apply-from-Plan Result Structure" {
                 Failed = 0
             }
             
-            $result.RunId | Should Not BeNullOrEmpty
+            $result.RunId | Should -Not -BeNullOrEmpty
         }
         
         It "Should include OriginalPlanRunId in result" {
@@ -258,7 +260,7 @@ Describe "Apply-from-Plan Result Structure" {
                 PlanPath = "./plans/test.json"
             }
             
-            $result.OriginalPlanRunId | Should Be "20251219-010000"
+            $result.OriginalPlanRunId | Should -Be "20251219-010000"
         }
         
         It "Should include PlanPath in result" {
@@ -267,7 +269,7 @@ Describe "Apply-from-Plan Result Structure" {
                 PlanPath = "./plans/test.json"
             }
             
-            $result.PlanPath | Should Be "./plans/test.json"
+            $result.PlanPath | Should -Be "./plans/test.json"
         }
         
         It "Should include counts in result" {
@@ -277,9 +279,9 @@ Describe "Apply-from-Plan Result Structure" {
                 Failed = 1
             }
             
-            $result.Success | Should Be 5
-            $result.Skipped | Should Be 10
-            $result.Failed | Should Be 1
+            $result.Success | Should -Be 5
+            $result.Skipped | Should -Be 10
+            $result.Failed | Should -Be 1
         }
     }
 }
@@ -311,7 +313,7 @@ Describe "Apply-from-Plan Error Handling" {
                 $parseError = $_.Exception.Message
             }
             
-            $parseError | Should Not BeNullOrEmpty
+            $parseError | Should -Not -BeNullOrEmpty
         }
         
         It "Should detect missing actions array" {
@@ -322,7 +324,7 @@ Describe "Apply-from-Plan Error Handling" {
             
             $isValid = $null -ne $plan.actions
             
-            $isValid | Should Be $false
+            $isValid | Should -Be $false
         }
         
         It "Should detect missing runId" {
@@ -333,7 +335,7 @@ Describe "Apply-from-Plan Error Handling" {
             
             $isValid = $null -ne $plan.runId -and $plan.runId -ne ""
             
-            $isValid | Should Be $false
+            $isValid | Should -Be $false
         }
     }
 }
@@ -345,7 +347,7 @@ Describe "Apply-from-Plan State Saving" {
         It "Should save state with command type 'apply-from-plan'" {
             $command = "apply-from-plan"
             
-            $command | Should Be "apply-from-plan"
+            $command | Should -Be "apply-from-plan"
         }
         
         It "Should preserve original manifest metadata from plan" {
@@ -362,8 +364,8 @@ Describe "Apply-from-Plan State Saving" {
             $manifestPath = $plan.manifest.path
             $manifestHash = $plan.manifest.hash
             
-            $manifestPath | Should Be "./manifests/hugo-win11.jsonc"
-            $manifestHash | Should Be "ABC123DEF456"
+            $manifestPath | Should -Be "./manifests/hugo-win11.jsonc"
+            $manifestHash | Should -Be "ABC123DEF456"
         }
     }
 }

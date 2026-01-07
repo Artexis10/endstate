@@ -3,11 +3,13 @@
     Pester tests for Capture Update mode: merge, prune, include deduplication.
 #>
 
-$script:ProvisioningRoot = Join-Path $PSScriptRoot "..\\"
-$script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
-
-# Load manifest module (contains Merge-ManifestsForUpdate)
-. $script:ManifestScript
+BeforeAll {
+    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\.."
+    $script:ManifestScript = Join-Path $script:ProvisioningRoot "engine\manifest.ps1"
+    
+    # Load manifest module (contains Merge-ManifestsForUpdate)
+    . $script:ManifestScript
+}
 
 Describe "Merge-ManifestsForUpdate" {
     
@@ -32,10 +34,10 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps
             
-            $result.includes | Should Not BeNullOrEmpty
-            $result.includes.Count | Should Be 2
-            ($result.includes -contains "./includes/test-restore.jsonc") | Should Be $true
-            ($result.includes -contains "./includes/test-manual.jsonc") | Should Be $true
+            $result.includes | Should -Not -BeNullOrEmpty
+            $result.includes.Count | Should -Be 2
+            ($result.includes -contains "./includes/test-restore.jsonc") | Should -Be $true
+            ($result.includes -contains "./includes/test-manual.jsonc") | Should -Be $true
         }
         
         It "Should update captured timestamp" {
@@ -50,8 +52,8 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps @()
             
-            $result.captured | Should Not Be "2024-01-01T00:00:00Z"
-            $result.captured | Should Match "^\d{4}-\d{2}-\d{2}T"
+            $result.captured | Should -Not -Be "2024-01-01T00:00:00Z"
+            $result.captured | Should -Match "^\d{4}-\d{2}-\d{2}T"
         }
         
         It "Should preserve existing name" {
@@ -66,7 +68,7 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps @()
             
-            $result.name | Should Be "my-custom-name"
+            $result.name | Should -Be "my-custom-name"
         }
         
         It "Should preserve existing restore block" {
@@ -82,9 +84,9 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps @()
             
-            $result.restore | Should Not BeNullOrEmpty
-            $result.restore.Count | Should Be 1
-            $result.restore[0].type | Should Be "copy"
+            $result.restore | Should -Not -BeNullOrEmpty
+            $result.restore.Count | Should -Be 1
+            $result.restore[0].type | Should -Be "copy"
         }
         
         It "Should preserve existing verify block" {
@@ -100,9 +102,9 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps @()
             
-            $result.verify | Should Not BeNullOrEmpty
-            $result.verify.Count | Should Be 1
-            $result.verify[0].type | Should Be "file-exists"
+            $result.verify | Should -Not -BeNullOrEmpty
+            $result.verify.Count | Should -Be 1
+            $result.verify[0].type | Should -Be "file-exists"
         }
         
         It "Should merge apps - add new, keep existing" {
@@ -124,10 +126,10 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps
             
-            $result.apps.Count | Should Be 3
-            ($result.apps | Where-Object { $_.id -eq "app-a" }) | Should Not BeNullOrEmpty
-            ($result.apps | Where-Object { $_.id -eq "app-b" }) | Should Not BeNullOrEmpty
-            ($result.apps | Where-Object { $_.id -eq "app-c" }) | Should Not BeNullOrEmpty
+            $result.apps.Count | Should -Be 3
+            ($result.apps | Where-Object { $_.id -eq "app-a" }) | Should -Not -BeNullOrEmpty
+            ($result.apps | Where-Object { $_.id -eq "app-b" }) | Should -Not -BeNullOrEmpty
+            ($result.apps | Where-Object { $_.id -eq "app-c" }) | Should -Not -BeNullOrEmpty
         }
         
         It "Should update refs when app exists in both" {
@@ -148,7 +150,7 @@ Describe "Merge-ManifestsForUpdate" {
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps
             
             $appA = $result.apps | Where-Object { $_.id -eq "app-a" }
-            $appA.refs.windows | Should Be "App.A.New"
+            $appA.refs.windows | Should -Be "App.A.New"
         }
         
         It "Should sort apps by id" {
@@ -169,9 +171,9 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps
             
-            $result.apps[0].id | Should Be "alpha"
-            $result.apps[1].id | Should Be "beta"
-            $result.apps[2].id | Should Be "zebra"
+            $result.apps[0].id | Should -Be "alpha"
+            $result.apps[1].id | Should -Be "beta"
+            $result.apps[2].id | Should -Be "zebra"
         }
     }
     
@@ -197,8 +199,8 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps -PruneMissingApps
             
-            $result.apps.Count | Should Be 1
-            $result.apps[0].id | Should Be "app-a"
+            $result.apps.Count | Should -Be 1
+            $result.apps[0].id | Should -Be "app-a"
         }
         
         It "Should still add new apps when pruning" {
@@ -219,8 +221,8 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps -PruneMissingApps
             
-            $result.apps.Count | Should Be 2
-            ($result.apps | Where-Object { $_.id -eq "app-new" }) | Should Not BeNullOrEmpty
+            $result.apps.Count | Should -Be 2
+            ($result.apps | Where-Object { $_.id -eq "app-new" }) | Should -Not -BeNullOrEmpty
         }
     }
     
@@ -247,9 +249,9 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps -IncludedAppIds $includedAppIds
             
-            $result.apps.Count | Should Be 1
-            $result.apps[0].id | Should Be "app-a"
-            ($result.apps | Where-Object { $_.id -eq "git-git" }) | Should BeNullOrEmpty
+            $result.apps.Count | Should -Be 1
+            $result.apps[0].id | Should -Be "app-a"
+            ($result.apps | Where-Object { $_.id -eq "git-git" }) | Should -BeNullOrEmpty
         }
         
         It "Should remove app from root if it now exists in includes" {
@@ -274,8 +276,8 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps -IncludedAppIds $includedAppIds
             
-            $result.apps.Count | Should Be 1
-            $result.apps[0].id | Should Be "app-a"
+            $result.apps.Count | Should -Be 1
+            $result.apps[0].id | Should -Be "app-a"
         }
     }
     
@@ -295,9 +297,9 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps @() -NewIncludes $newIncludes
             
-            $result.includes.Count | Should Be 2
-            ($result.includes -contains "./includes/existing.jsonc") | Should Be $true
-            ($result.includes -contains "./includes/new-manual.jsonc") | Should Be $true
+            $result.includes.Count | Should -Be 2
+            ($result.includes -contains "./includes/existing.jsonc") | Should -Be $true
+            ($result.includes -contains "./includes/new-manual.jsonc") | Should -Be $true
         }
         
         It "Should not duplicate includes that already exist" {
@@ -314,7 +316,7 @@ Describe "Merge-ManifestsForUpdate" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps @() -NewIncludes $newIncludes
             
-            $result.includes.Count | Should Be 1
+            $result.includes.Count | Should -Be 1
         }
     }
 }
@@ -350,8 +352,8 @@ Describe "Get-IncludedAppIds" {
             
             $result = Get-IncludedAppIds -IncludePaths @($includePath) -BaseDir $script:TestTempDir
             
-            $result.ContainsKey("git-git") | Should Be $true
-            $result.ContainsKey("vscode") | Should Be $true
+            $result.ContainsKey("git-git") | Should -Be $true
+            $result.ContainsKey("vscode") | Should -Be $true
         }
         
         It "Should handle relative paths" {
@@ -371,13 +373,13 @@ Describe "Get-IncludedAppIds" {
             
             $result = Get-IncludedAppIds -IncludePaths @("./includes/test.json") -BaseDir $script:TestTempDir
             
-            $result.ContainsKey("app-from-include") | Should Be $true
+            $result.ContainsKey("app-from-include") | Should -Be $true
         }
         
         It "Should skip non-existent include files" {
             $result = Get-IncludedAppIds -IncludePaths @("./nonexistent.json") -BaseDir $script:TestTempDir
             
-            $result.Count | Should Be 0
+            $result.Count | Should -Be 0
         }
         
         It "Should merge IDs from multiple includes" {
@@ -392,8 +394,8 @@ Describe "Get-IncludedAppIds" {
             
             $result = Get-IncludedAppIds -IncludePaths @("./includes/inc1.json", "./includes/inc2.json") -BaseDir $script:TestTempDir
             
-            $result.ContainsKey("app-1") | Should Be $true
-            $result.ContainsKey("app-2") | Should Be $true
+            $result.ContainsKey("app-1") | Should -Be $true
+            $result.ContainsKey("app-2") | Should -Be $true
         }
     }
 }
@@ -416,7 +418,7 @@ Describe "Read-ManifestRaw" {
         It "Should return null for non-existent file" {
             $result = Read-ManifestRaw -Path (Join-Path $script:TestTempDir "nonexistent.json")
             
-            $result | Should BeNullOrEmpty
+            $result | Should -BeNullOrEmpty
         }
         
         It "Should load JSON manifest" {
@@ -431,9 +433,9 @@ Describe "Read-ManifestRaw" {
             
             $result = Read-ManifestRaw -Path $manifestPath
             
-            $result | Should Not BeNullOrEmpty
-            $result.name | Should Be "test"
-            $result.apps.Count | Should Be 1
+            $result | Should -Not -BeNullOrEmpty
+            $result.name | Should -Be "test"
+            $result.apps.Count | Should -Be 1
         }
         
         It "Should preserve includes array without resolving" {
@@ -449,8 +451,8 @@ Describe "Read-ManifestRaw" {
             
             $result = Read-ManifestRaw -Path $manifestPath
             
-            $result.includes | Should Not BeNullOrEmpty
-            $result.includes.Count | Should Be 2
+            $result.includes | Should -Not -BeNullOrEmpty
+            $result.includes.Count | Should -Be 2
         }
     }
 }
@@ -466,7 +468,7 @@ Describe "Update mode validation" {
             
             $shouldFail = ($pruneMissingApps -and -not $update)
             
-            $shouldFail | Should Be $true
+            $shouldFail | Should -Be $true
         }
         
         It "Should allow PruneMissingApps when Update is true" {
@@ -475,7 +477,7 @@ Describe "Update mode validation" {
             
             $shouldFail = ($pruneMissingApps -and -not $update)
             
-            $shouldFail | Should Be $false
+            $shouldFail | Should -Be $false
         }
     }
 }
@@ -493,7 +495,7 @@ Describe "Update mode behavior" {
             # Logic: if Update and manifest exists, do merge; else create new
             $shouldMerge = $updateMode -and $manifestExists
             
-            $shouldMerge | Should Be $false
+            $shouldMerge | Should -Be $false
         }
     }
     
@@ -505,7 +507,7 @@ Describe "Update mode behavior" {
             
             $shouldMerge = $updateMode -and $manifestExists
             
-            $shouldMerge | Should Be $true
+            $shouldMerge | Should -Be $true
         }
     }
 }
@@ -534,9 +536,9 @@ Describe "Deterministic output" {
             $result2 = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps $newApps
             
             # Compare app order
-            $result1.apps.Count | Should Be $result2.apps.Count
+            $result1.apps.Count | Should -Be $result2.apps.Count
             for ($i = 0; $i -lt $result1.apps.Count; $i++) {
-                $result1.apps[$i].id | Should Be $result2.apps[$i].id
+                $result1.apps[$i].id | Should -Be $result2.apps[$i].id
             }
         }
         
@@ -555,9 +557,9 @@ Describe "Deterministic output" {
             
             $result = Merge-ManifestsForUpdate -ExistingManifest $existing -NewCaptureApps @()
             
-            $result.apps[0].id | Should Be "a-app"
-            $result.apps[1].id | Should Be "m-app"
-            $result.apps[2].id | Should Be "z-app"
+            $result.apps[0].id | Should -Be "a-app"
+            $result.apps[1].id | Should -Be "m-app"
+            $result.apps[2].id | Should -Be "z-app"
         }
     }
 }
