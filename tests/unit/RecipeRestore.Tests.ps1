@@ -886,12 +886,12 @@ Describe "Recipe.ExcludePatterns" {
             (Test-Path "$targetDir\Logs") | Should -Be $false
         }
         
-        It "Should verify powertoys recipe has exclude patterns for junk paths" {
-            # Verify the real powertoys recipe has exclude patterns defined
-            $recipePath = Join-Path $script:ProvisioningRoot "recipes\powertoys.jsonc"
-            $recipe = Read-JsoncFile -Path $recipePath
+        It "Should verify powertoys module has exclude patterns for junk paths" {
+            # Verify the real powertoys module has exclude patterns defined
+            $modulePath = Join-Path $script:ProvisioningRoot "modules\apps\powertoys\module.jsonc"
+            $recipe = Read-JsoncFile -Path $modulePath
             
-            # PowerToys recipe should have exclude patterns for Logs, Temp, Cache, GPUCache, Crashpad
+            # PowerToys module should have exclude patterns for Logs, Temp, Cache, GPUCache, Crashpad
             $recipe.restore[0].exclude | Should -Not -BeNullOrEmpty
             $recipe.restore[0].exclude.Count | Should -Be 5
             # Check patterns are present (use -contains instead of Should Contain to avoid regex issues)

@@ -58,7 +58,7 @@ function Resolve-RestoreEntriesFromCatalogs {
                 
                 if ($bundle.recipes -and $bundle.recipes.Count -gt 0) {
                     foreach ($recipeId in $bundle.recipes) {
-                        $recipePath = Join-Path $RepoRoot "recipes\$recipeId.jsonc"
+                        $recipePath = Join-Path $RepoRoot "modules\apps\$recipeId\module.jsonc"
                         
                         if (-not (Test-Path $recipePath)) {
                             throw "Recipe not found: $recipeId (referenced by bundle $bundleId, expected at: $recipePath)"
@@ -90,7 +90,7 @@ function Resolve-RestoreEntriesFromCatalogs {
     # 2. Process manifest recipes
     if ($Manifest.recipes -and $Manifest.recipes.Count -gt 0) {
         foreach ($recipeId in $Manifest.recipes) {
-            $recipePath = Join-Path $RepoRoot "recipes\$recipeId.jsonc"
+            $recipePath = Join-Path $RepoRoot "modules\apps\$recipeId\module.jsonc"
             
             if (-not (Test-Path $recipePath)) {
                 throw "Recipe not found: $recipeId (expected at: $recipePath)"

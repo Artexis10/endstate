@@ -1,8 +1,8 @@
 {
   // MSI Afterburner Configuration Export Example
   // This manifest demonstrates exporting MSI Afterburner configuration files
-  // NOTE: This is a demo manifest generated from recipes/msi-afterburner.jsonc
-  // The restore entries below are duplicated from the recipe until engine supports recipe references
+  // NOTE: This is a demo manifest with inline restore entries.
+  // For module-based restore, use manifest.modules = [\"msi-afterburner\"]
   
   "version": 1,
   "name": "msi-afterburner-config",

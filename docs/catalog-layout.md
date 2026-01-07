@@ -15,9 +15,9 @@ Endstate organizes configuration portability through three artifact types:
 
 ---
 
-## Recipes
+## Recipes (Config Modules)
 
-**Location:** `./recipes/`
+**Location:** `./modules/apps/<app-id>/module.jsonc`
 
 **Purpose:** Define reusable configuration restore entries for a specific application or tool.
 
@@ -92,7 +92,7 @@ Endstate organizes configuration portability through three artifact types:
     "bundle-id-2"
   ],
   
-  // Optional: Reference recipes from ./recipes/
+  // Optional: Reference recipes from ./modules/apps/
   "recipes": [
     "recipe-id-1",
     "recipe-id-2"
