@@ -72,6 +72,11 @@ VERSION.txt
 tests/fixtures/plan-*.json
 tests/fixtures/sample-*-output.json
 
+# But allow specific test fixtures needed for unit tests
+!tests/fixtures/plan-a.json
+!tests/fixtures/plan-b.json
+!tests/fixtures/sample-plan-output.json
+
 # Capture output logs (never committed)
 capture_output.txt
 capture_stderr.txt

@@ -1,7 +1,7 @@
 BeforeAll {
-    # Load the endstate.ps1 script with functions only
+    # Load the bin/endstate.ps1 script with functions only
     $script:EndstateRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    . (Join-Path $script:EndstateRoot "endstate.ps1") -LoadFunctionsOnly
+    . (Join-Path $script:EndstateRoot "bin\endstate.ps1") -LoadFunctionsOnly
 }
 
 Describe "Resolve-ManifestPath" {

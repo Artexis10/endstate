@@ -3,7 +3,7 @@
 
 BeforeAll {
     $script:ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $script:CliPath = Join-Path $script:ProjectRoot "cli.ps1"
+    $script:CliPath = Join-Path $script:ProjectRoot "bin\cli.ps1"
     
     # Import engine modules
     . "$script:ProjectRoot\engine\export-capture.ps1"

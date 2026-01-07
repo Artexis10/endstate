@@ -9,12 +9,18 @@ BeforeAll {
     $script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
     $script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
     $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:DriverScript = Join-Path $script:ProvisioningRoot "drivers\driver.ps1"
     $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
     
-    # Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
+    # Load dependencies
     . $script:LoggingScript
     . $script:ManifestScript
     . $script:StateScript
+    . $script:DriverScript
+    
+    # Initialize drivers so Get-ActiveDriverName is available
+    Reset-DriversState
+    Initialize-Drivers
     
     # Load plan.ps1 functions without re-dot-sourcing dependencies
     $planContent = Get-Content -Path $script:PlanScript -Raw

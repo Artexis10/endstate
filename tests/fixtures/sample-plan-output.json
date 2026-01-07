@@ -1,0 +1,21 @@
+{
+  "runId": "20250101-120000",
+  "timestamp": "2025-01-01T12:00:00Z",
+  "manifest": {
+    "path": ".\\manifests\\test.jsonc",
+    "name": "test.jsonc",
+    "hash": "ABC123DEF456"
+  },
+  "summary": {
+    "install": 2,
+    "skip": 1,
+    "restore": 0,
+    "verify": 1
+  },
+  "actions": [
+    { "type": "app", "ref": "Test.App1", "status": "install" },
+    { "type": "app", "ref": "Test.App2", "status": "install" },
+    { "type": "app", "ref": "Test.App3", "status": "skip" },
+    { "type": "verify", "path": "C:\\test\\file.txt", "status": "pass" }
+  ]
+}

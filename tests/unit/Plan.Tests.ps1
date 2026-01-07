@@ -9,12 +9,17 @@ BeforeAll {
     $script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
     $script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
     $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:DriverScript = Join-Path $script:ProvisioningRoot "drivers\driver.ps1"
     $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
     
-    # Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
+    # Load dependencies
     . $script:LoggingScript
     . $script:ManifestScript
     . $script:StateScript
+    . $script:DriverScript
+    
+    # Initialize drivers so Get-ActiveDriverName is available
+    Initialize-Drivers
     
     # Load plan.ps1 but suppress its dot-sourcing of dependencies (already loaded)
     $planContent = Get-Content -Path $script:PlanScript -Raw
@@ -57,10 +62,11 @@ Describe "Plan.Deterministic.HashAndRunId" {
     
     Context "RunId format validation" {
         
-        It "Should produce RunId in expected format (yyyyMMdd-HHmmss)" {
+        It "Should produce RunId in expected format (yyyyMMdd-HHmmss-MACHINE)" {
             $runId = Get-RunId
             
-            $runId | Should -Match '^\d{8}-\d{6}$'
+            # Format: yyyyMMdd-HHmmss-MACHINE (machine name suffix)
+            $runId | Should -Match '^\d{8}-\d{6}-.+$'
         }
         
         It "Should produce valid date component" {

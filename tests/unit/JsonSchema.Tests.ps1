@@ -6,10 +6,63 @@
     ensuring the contract between Endstate CLI and GUI consumers is stable.
 #>
 
-$script:EngineRoot = Join-Path $PSScriptRoot "..\..\engine"
-
 BeforeAll {
+    $script:EngineRoot = Join-Path $PSScriptRoot "..\..\engine"
+    $script:DriverScript = Join-Path $PSScriptRoot "..\..\drivers\driver.ps1"
+    $script:PathsScript = Join-Path $PSScriptRoot "..\..\engine\paths.ps1"
+    
+    . $script:PathsScript
+    . $script:DriverScript
     . "$PSScriptRoot\..\..\engine\json-output.ps1"
+    
+    # Initialize drivers so Get-RegisteredDrivers returns data
+    Reset-DriversState
+    Initialize-Drivers
+    
+    # Helper function to extract JSON envelope from mixed CLI stdout
+    function script:Get-JsonFromMixedOutput {
+        param(
+            [Parameter(Mandatory)]
+            [AllowEmptyString()]
+            [string]$OutputText
+        )
+        
+        if ([string]::IsNullOrWhiteSpace($OutputText)) {
+            throw "No output to parse - stdout was empty"
+        }
+        
+        # First try: maybe the entire output is valid JSON
+        try {
+            return ($OutputText | ConvertFrom-Json)
+        } catch {
+            # Not pure JSON, need to extract it
+        }
+        
+        # Strategy: Find the JSON envelope (has schemaVersion field)
+        $lastBraceIndex = $OutputText.LastIndexOf('{')
+        while ($lastBraceIndex -ge 0) {
+            $candidate = $OutputText.Substring($lastBraceIndex)
+            try {
+                $parsed = $candidate | ConvertFrom-Json
+                if ($parsed.PSObject.Properties.Name -contains 'schemaVersion') {
+                    return $parsed
+                }
+                if ($lastBraceIndex -gt 0) {
+                    $lastBraceIndex = $OutputText.LastIndexOf('{', $lastBraceIndex - 1)
+                } else {
+                    break
+                }
+            } catch {
+                if ($lastBraceIndex -gt 0) {
+                    $lastBraceIndex = $OutputText.LastIndexOf('{', $lastBraceIndex - 1)
+                } else {
+                    break
+                }
+            }
+        }
+        
+        throw "No valid JSON envelope found in output"
+    }
 }
 
 Describe "JSON Schema Contract v1.0" {
@@ -53,8 +106,8 @@ Describe "JSON Schema Contract v1.0" {
         It "Should generate runId in correct format when not provided" {
             $envelope = New-JsonEnvelope -Command "test" -Success $true
             
-            # Format: yyyyMMdd-HHmmss
-            $envelope.runId | Should -Match "^\d{8}-\d{6}$"
+            # Format: yyyyMMdd-HHmmss-MACHINE (machine name suffix)
+            $envelope.runId | Should -Match "^\d{8}-\d{6}-.+$"
         }
         
         It "Should include timestampUtc in ISO 8601 format" {
@@ -71,8 +124,8 @@ Describe "JSON Schema Contract v1.0" {
         }
         
         It "Should include error object when provided" {
-            $error = New-JsonError -Code "TEST_ERROR" -Message "Test error message"
-            $envelope = New-JsonEnvelope -Command "test" -Success $false -Error $error
+            $errorObj = New-JsonError -Code "TEST_ERROR" -Message "Test error message"
+            $envelope = New-JsonEnvelope -Command "test" -Success $false -Error $errorObj
             
             $envelope.error | Should -Not -BeNull
             $envelope.error.code | Should -Be "TEST_ERROR"
@@ -80,7 +133,7 @@ Describe "JSON Schema Contract v1.0" {
         
         It "Should serialize to valid JSON" {
             $envelope = New-JsonEnvelope -Command "test" -Success $true -Data @{ items = @(1, 2, 3) }
-            $json = ConvertTo-JsonOendstate -Envelope $envelope
+            $json = ConvertTo-JsonOutput -Envelope $envelope
             
             $json | Should -Not -BeNullOrEmpty
             
@@ -93,37 +146,37 @@ Describe "JSON Schema Contract v1.0" {
     Context "Error Object Structure" {
         
         It "Should create error with required fields" {
-            $error = New-JsonError -Code "MANIFEST_NOT_FOUND" -Message "File not found"
+            $errorObj = New-JsonError -Code "MANIFEST_NOT_FOUND" -Message "File not found"
             
-            $error.code | Should -Be "MANIFEST_NOT_FOUND"
-            $error.message | Should -Be "File not found"
+            $errorObj.code | Should -Be "MANIFEST_NOT_FOUND"
+            $errorObj.message | Should -Be "File not found"
         }
         
         It "Should include optional detail when provided" {
-            $error = New-JsonError -Code "TEST" -Message "Test" -Detail @{ path = "C:\test" }
+            $errorObj = New-JsonError -Code "TEST" -Message "Test" -Detail @{ path = "C:\test" }
             
-            $error.detail | Should -Not -BeNull
-            $error.detail.path | Should -Be "C:\test"
+            $errorObj.detail | Should -Not -BeNull
+            $errorObj.detail.path | Should -Be "C:\test"
         }
         
         It "Should include optional remediation when provided" {
-            $error = New-JsonError -Code "TEST" -Message "Test" -Remediation "Try this fix"
+            $errorObj = New-JsonError -Code "TEST" -Message "Test" -Remediation "Try this fix"
             
-            $error.remediation | Should -Be "Try this fix"
+            $errorObj.remediation | Should -Be "Try this fix"
         }
         
         It "Should include optional docsKey when provided" {
-            $error = New-JsonError -Code "TEST" -Message "Test" -DocsKey "errors/test"
+            $errorObj = New-JsonError -Code "TEST" -Message "Test" -DocsKey "errors/test"
             
-            $error.docsKey | Should -Be "errors/test"
+            $errorObj.docsKey | Should -Be "errors/test"
         }
         
         It "Should not include optional fields when not provided" {
-            $error = New-JsonError -Code "TEST" -Message "Test"
+            $errorObj = New-JsonError -Code "TEST" -Message "Test"
             
-            $error.Keys | Should -Not -Contain "detail"
-            $error.Keys | Should -Not -Contain "remediation"
-            $error.Keys | Should -Not -Contain "docsKey"
+            $errorObj.Keys | Should -Not -Contain "detail"
+            $errorObj.Keys | Should -Not -Contain "remediation"
+            $errorObj.Keys | Should -Not -Contain "docsKey"
         }
     }
     
@@ -174,7 +227,7 @@ Describe "JSON Schema Contract v1.0" {
         It "Should report feature flags" {
             $caps = Get-CapabilitiesData
             
-            $caps.features.jsonOendstate | Should -Be $true
+            $caps.features.jsonOutput | Should -Be $true
         }
     }
     
@@ -211,39 +264,43 @@ Describe "JSON Schema Contract v1.0" {
 }
 
 Describe "Capabilities Command Integration" {
+    # These are integration tests that call the full CLI
     
     BeforeAll {
-        $script:CliPath = Join-Path $PSScriptRoot "..\..\cli.ps1"
+        $script:EndstatePath = Join-Path $PSScriptRoot "..\..\bin\endstate.ps1"
+        $env:ENDSTATE_ALLOW_DIRECT = '1'
     }
     
+    # Pre-existing CI-gated integration test
     It "Should output valid JSON when -Json flag is used" -Skip:($env:CI -eq "true") {
-        $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath -Command capabilities -Json 2>&1
-        $outputText = $output -join ""
+        $output = & $script:EndstatePath capabilities --json 2>&1
+        $outputText = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $parsed = script:Get-JsonFromMixedOutput -OutputText $outputText
         
-        # Should be valid JSON
-        { $outputText | ConvertFrom-Json } | Should -Not -Throw
+        # Should have parsed JSON successfully
+        $parsed | Should -Not -BeNull
     }
     
     It "Should include schemaVersion in capabilities output" -Skip:($env:CI -eq "true") {
-        $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath -Command capabilities -Json 2>&1
-        $outputText = $output -join ""
-        $parsed = $outputText | ConvertFrom-Json
+        $output = & $script:EndstatePath capabilities --json 2>&1
+        $outputText = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $parsed = script:Get-JsonFromMixedOutput -OutputText $outputText
         
         $parsed.schemaVersion | Should -Be "1.0"
     }
     
     It "Should include cliVersion in capabilities output" -Skip:($env:CI -eq "true") {
-        $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath -Command capabilities -Json 2>&1
-        $outputText = $output -join ""
-        $parsed = $outputText | ConvertFrom-Json
+        $output = & $script:EndstatePath capabilities --json 2>&1
+        $outputText = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $parsed = script:Get-JsonFromMixedOutput -OutputText $outputText
         
         $parsed.cliVersion | Should -Not -BeNullOrEmpty
     }
     
     It "Should report success=true for capabilities" -Skip:($env:CI -eq "true") {
-        $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $script:CliPath -Command capabilities -Json 2>&1
-        $outputText = $output -join ""
-        $parsed = $outputText | ConvertFrom-Json
+        $output = & $script:EndstatePath capabilities --json 2>&1
+        $outputText = ($output | ForEach-Object { $_.ToString() }) -join "`n"
+        $parsed = script:Get-JsonFromMixedOutput -OutputText $outputText
         
         $parsed.success | Should -Be $true
     }

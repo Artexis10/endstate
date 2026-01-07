@@ -23,6 +23,10 @@ BeforeAll {
     # Source the modules
     . $script:DriverScript
     . $script:PathsScript
+    
+    # Reset and initialize drivers to ensure clean state
+    Reset-DriversState
+    Initialize-Drivers
 }
 
 Describe "Driver Registry" {

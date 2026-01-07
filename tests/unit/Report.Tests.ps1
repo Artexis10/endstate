@@ -9,12 +9,18 @@ BeforeAll {
     $script:StateScript = Join-Path $script:ProvisioningRoot "engine\state.ps1"
     $script:PlanScript = Join-Path $script:ProvisioningRoot "engine\plan.ps1"
     $script:LoggingScript = Join-Path $script:ProvisioningRoot "engine\logging.ps1"
+    $script:DriverScript = Join-Path $script:ProvisioningRoot "drivers\driver.ps1"
     $script:FixturesDir = Join-Path $PSScriptRoot "..\fixtures"
     
-    # Load dependencies (Pester 3.x compatible - no BeforeAll at script level)
+    # Load dependencies
     . $script:LoggingScript
     . $script:ManifestScript
     . $script:StateScript
+    . $script:DriverScript
+    
+    # Initialize drivers so Get-ActiveDriverName is available
+    Reset-DriversState
+    Initialize-Drivers
     
     # Load plan.ps1 functions without re-dot-sourcing dependencies
     $planContent = Get-Content -Path $script:PlanScript -Raw
@@ -248,9 +254,11 @@ Describe "Report.Schema" {
 # Report Command Tests (CLI report functionality)
 # ============================================================================
 
-$script:ReportScript = Join-Path $script:ProvisioningRoot "engine\report.ps1"
-
 Describe "Report.Command.FileSelection" {
+    
+    BeforeAll {
+        $script:ReportScript = Join-Path $script:ProvisioningRoot "engine\report.ps1"
+    }
     
     BeforeEach {
         # Create temp state directory with fake state files
@@ -469,7 +477,8 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             $parsed = $json | ConvertFrom-Json
             
-            $parsed.runId | Should -Be "20251219-090000"
+            # Format-ReportJson returns envelope with data.reports array
+            $parsed.data.reports[0].runId | Should -Be "20251219-090000"
         }
         
         It "Should include summary counts in JSON output" {
@@ -477,9 +486,10 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             $parsed = $json | ConvertFrom-Json
             
-            $parsed.summary.success | Should -Be 5
-            $parsed.summary.skipped | Should -Be 10
-            $parsed.summary.failed | Should -Be 2
+            # Format-ReportJson returns envelope with data.reports array
+            $parsed.data.reports[0].summary.success | Should -Be 5
+            $parsed.data.reports[0].summary.skipped | Should -Be 10
+            $parsed.data.reports[0].summary.failed | Should -Be 2
         }
         
         It "Should include manifest info in JSON output" {
@@ -487,8 +497,9 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             $parsed = $json | ConvertFrom-Json
             
-            $parsed.manifest.hash | Should -Be "XYZ999"
-            $parsed.manifest.path | Should -Be ".\manifests\test.jsonc"
+            # Format-ReportJson returns envelope with data.reports array
+            $parsed.data.reports[0].manifest.hash | Should -Be "XYZ999"
+            $parsed.data.reports[0].manifest.path | Should -Be ".\manifests\test.jsonc"
         }
     }
     
@@ -514,12 +525,17 @@ Describe "Report.Command.JsonOutput" {
             $json = Format-ReportJson -States $states
             $parsed = $json | ConvertFrom-Json
             
-            $parsed.Count | Should -Be 2
+            # Format-ReportJson returns envelope with data.reports array
+            $parsed.data.reports.Count | Should -Be 2
         }
     }
 }
 
 Describe "Report.Command.EmptyState" {
+    
+    BeforeAll {
+        $script:ReportScript = Join-Path $script:ProvisioningRoot "engine\report.ps1"
+    }
     
     BeforeEach {
         $script:TestStateDir = Join-Path $TestDrive "state-empty"

@@ -28,6 +28,19 @@ $script:RegisteredDrivers = @{}
 $script:ActiveDriverName = $null
 $script:DriversLoaded = $false
 
+function Reset-DriversState {
+    <#
+    .SYNOPSIS
+        Reset driver registry state for testing purposes.
+    .DESCRIPTION
+        Clears all registered drivers and resets initialization flag.
+        This allows tests to re-initialize drivers in a clean state.
+    #>
+    $script:RegisteredDrivers = @{}
+    $script:ActiveDriverName = $null
+    $script:DriversLoaded = $false
+}
+
 function Register-Driver {
     <#
     .SYNOPSIS
@@ -166,17 +179,24 @@ function Initialize-Drivers {
         if (Test-Path $wingetDriverPath) {
             . $wingetDriverPath
             
+            # Capture function references at init-time to avoid scope issues
+            $testAvailableFn = Get-Command Test-WingetAvailable -ErrorAction SilentlyContinue
+            $testInstalledFn = Get-Command Test-AppInstalled -ErrorAction SilentlyContinue
+            $installFn = Get-Command Install-AppViaWinget -ErrorAction SilentlyContinue
+            $getVersionFn = Get-Command Get-AppVersion -ErrorAction SilentlyContinue
+            $getInstalledFn = Get-Command Get-InstalledPackagesViaDriver -ErrorAction SilentlyContinue
+            
             # Create driver interface wrapping winget functions
             $wingetDriver = @{
                 Name = "winget"
-                TestAvailable = { Test-WingetAvailable }
-                TestPackageInstalled = { param($PackageId) Test-AppInstalled -PackageId $PackageId }
+                TestAvailable = { & $testAvailableFn }.GetNewClosure()
+                TestPackageInstalled = { param($PackageId) & $testInstalledFn -PackageId $PackageId }.GetNewClosure()
                 InstallPackage = { param($PackageId, $Options) 
                     $silent = if ($Options -and $Options.Silent) { $true } else { $false }
-                    Install-AppViaWinget -PackageId $PackageId -Silent:$silent
-                }
-                GetPackageVersion = { param($PackageId) Get-AppVersion -PackageId $PackageId }
-                GetInstalledPackages = { Get-InstalledPackagesViaDriver }
+                    & $installFn -PackageId $PackageId -Silent:$silent
+                }.GetNewClosure()
+                GetPackageVersion = { param($PackageId) & $getVersionFn -PackageId $PackageId }.GetNewClosure()
+                GetInstalledPackages = { & $getInstalledFn }.GetNewClosure()
             }
             
             Register-Driver -Name "winget" -Driver $wingetDriver

@@ -1,0 +1,15 @@
+{
+  "runId": "20250101-110000",
+  "timestamp": "2025-01-01T11:00:00Z",
+  "summary": {
+    "install": 1,
+    "skip": 2,
+    "restore": 0,
+    "verify": 0
+  },
+  "actions": [
+    { "type": "app", "ref": "Test.App1", "status": "skip" },
+    { "type": "app", "ref": "Test.App2", "status": "skip" },
+    { "type": "app", "ref": "Test.App3", "status": "install" }
+  ]
+}
