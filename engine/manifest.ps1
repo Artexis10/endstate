@@ -562,13 +562,14 @@ function Convert-PsObjectToHashtable {
         return $hash
     }
     
-    # Array or collection (but not string)
-    if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -isnot [string]) {
-        $collection = @()
+    # Array or collection (but not string, not hashtable/dictionary)
+    if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -isnot [string] -and $InputObject -isnot [hashtable] -and $InputObject -isnot [System.Collections.IDictionary]) {
+        $collection = [System.Collections.ArrayList]::new()
         foreach ($item in $InputObject) {
-            $collection += Convert-PsObjectToHashtable -InputObject $item
+            [void]$collection.Add((Convert-PsObjectToHashtable -InputObject $item))
         }
-        return $collection
+        # Return as array - use comma operator to prevent single-element unwrapping
+        return ,$collection.ToArray()
     }
     
     # PSCustomObject (but not hashtable - checked above)
@@ -1298,12 +1299,33 @@ function Test-ProfileManifest {
         return $result
     }
     
-    # Check 7: Apps is an array
+    # Check 7: Apps is an array (not string, not object/hashtable)
     $apps = $manifest.apps
     if ($null -eq $apps) {
         # null is acceptable, treat as empty array
         $apps = @()
-    } elseif ($apps -isnot [array] -and $apps -isnot [System.Collections.IEnumerable]) {
+    } elseif ($apps -is [string]) {
+        # Strings are IEnumerable but NOT valid for apps
+        $result.Errors += @{
+            Code = "INVALID_APPS_TYPE"
+            Message = "Field 'apps' must be an array, got string"
+        }
+        return $result
+    } elseif ($apps -is [hashtable] -or $apps -is [System.Collections.IDictionary]) {
+        # Hashtables/dictionaries are IEnumerable but NOT valid for apps
+        $result.Errors += @{
+            Code = "INVALID_APPS_TYPE"
+            Message = "Field 'apps' must be an array, got object"
+        }
+        return $result
+    } elseif ($apps -is [PSCustomObject] -and $apps.GetType().Name -eq 'PSCustomObject') {
+        # PSCustomObject (single object, not array) is NOT valid for apps
+        $result.Errors += @{
+            Code = "INVALID_APPS_TYPE"
+            Message = "Field 'apps' must be an array, got object"
+        }
+        return $result
+    } elseif ($apps -isnot [array] -and $apps -isnot [System.Collections.IList] -and $apps -isnot [object[]]) {
         $result.Errors += @{
             Code = "INVALID_APPS_TYPE"
             Message = "Field 'apps' must be an array"

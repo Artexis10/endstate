@@ -112,8 +112,8 @@ function Expand-RestorePath {
         $expanded = $expanded -replace "^~", $homeDir
     }
     
-    # Handle relative paths (starting with ./ or ../)
-    if ($BasePath -and ($expanded.StartsWith("./") -or $expanded.StartsWith("../"))) {
+    # Handle relative paths - join with BasePath if not absolute
+    if ($BasePath -and -not [System.IO.Path]::IsPathRooted($expanded)) {
         $expanded = Join-Path $BasePath $expanded
         $expanded = [System.IO.Path]::GetFullPath($expanded)
     }
@@ -283,8 +283,19 @@ function Invoke-RestoreAction {
         warnings = @()
     }
     
-    # Expand paths for sensitive path checking
-    $expandedSource = Expand-RestorePath -Path $Action.source -BasePath $ManifestDir
+    # Expand paths with Model B support (export root with fallback to manifest dir)
+    $expandedSource = $null
+    if ($ExportPath -and (Test-Path $ExportPath)) {
+        # Try export root first (Model B)
+        $exportSource = Expand-RestorePath -Path $Action.source -BasePath $ExportPath
+        if (Test-Path $exportSource) {
+            $expandedSource = $exportSource
+        }
+    }
+    # Fallback to manifest dir if export source not found
+    if (-not $expandedSource) {
+        $expandedSource = Expand-RestorePath -Path $Action.source -BasePath $ManifestDir
+    }
     $expandedTarget = Expand-RestorePath -Path $Action.target
     
     $result.expandedSource = $expandedSource

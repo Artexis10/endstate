@@ -3252,7 +3252,9 @@ $eventsScript = Resolve-EngineScript -ScriptName "events" -Silent
 if ($eventsScript) {
     . $eventsScript
     if ($Events -eq "jsonl") {
-        Enable-StreamingEvents
+        # Generate runId for events: <command>-<timestamp>
+        $eventsRunId = "$Command-$(Get-Date -Format 'yyyyMMdd-HHmmss')"
+        Enable-StreamingEvents -RunId $eventsRunId
     }
 }
 
