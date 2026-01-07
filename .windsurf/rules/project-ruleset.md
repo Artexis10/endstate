@@ -815,34 +815,86 @@ All non-canonical documentation MUST use lowercase filenames, including:
 
 ---
 
-## Vendored Pester Policy
+## Testing Tooling: Pester
 
-This repo values hermetic, deterministic, offline-capable tooling:
+### Hard Contract: Pester 5+ Required
+
+This project **requires Pester 5.0.0 or higher**. Pester 3.x is explicitly forbidden.
+
+**Rationale:** Pester 5 introduced breaking changes to syntax (BeforeAll/AfterAll at file scope, new configuration API). All tests in this repo use Pester 5 syntax and will fail silently or with confusing errors under Pester 3.
+
+### Forbidden: Direct Invoke-Pester Calls
+
+**DO NOT** call `Invoke-Pester` directly from the command line or scripts.
+
+The system may have Pester 3.4.0 installed globally (e.g., `C:\Program Files\WindowsPowerShell\Modules\Pester\3.4.0`), which will be loaded by default and cause all tests to fail.
+
+### Blessed Entrypoint: scripts/test-unit.ps1
+
+The **only allowed way** to run unit tests is:
+
+```powershell
+# Run all unit tests
+.\scripts\test-unit.ps1
+
+# Run specific test file
+.\scripts\test-unit.ps1 -Path tests\unit\Manifest.Tests.ps1
+```
+
+This script:
+1. Removes any already-loaded Pester module
+2. Prepends vendored Pester (`tools/pester/`) to PSModulePath
+3. Imports Pester with `-MinimumVersion 5.0.0`
+4. **Hard-fails with clear error** if Pester < 5 is detected
+5. Runs tests with proper Pester 5 configuration
+
+### Vendored Pester
 
 - **Pester 5.7.1 is vendored** in `tools/pester/` and committed to the repository
 - Tests always use vendored Pester first, never global modules
-- `scripts/ensure-pester.ps1` prepends `tools/pester/` to `$env:PSModulePath`
-- If vendored Pester is missing, it bootstraps via: `Save-Module Pester -Path tools/pester -RequiredVersion 5.7.1`
+- If vendored Pester is missing, bootstrap via: `Save-Module Pester -Path tools/pester -RequiredVersion 5.7.1`
+
+### Diagnostic Checklist
+
+If tests fail with Pester errors, verify:
+
+```powershell
+# 1. Check which Pester is loaded
+Get-Module Pester | Format-List Name,Version,Path
+
+# 2. Check available Pester versions
+Get-Module Pester -ListAvailable | Select-Object Name,Version,Path
+
+# 3. Verify vendored Pester exists
+Test-Path ".\tools\pester\Pester\5.7.1\Pester.psd1"
+
+# 4. Run blessed test script (will show version info)
+.\scripts\test-unit.ps1
+```
+
+### Exit Codes
+
+- `0`: All tests passed
+- `1`: Tests failed OR Pester version check failed
 
 ---
 
 ## Running Tests
 
 ```powershell
-# From repo root - run all Pester tests (recommended)
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\test_pester.ps1
-
-# Run specific test suite
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\test_pester.ps1 -Path tests\unit
+# From repo root - run unit tests (RECOMMENDED)
+.\scripts\test-unit.ps1
 
 # Run specific test file
-pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\test_pester.ps1 -Path tests\unit\Manifest.Tests.ps1
+.\scripts\test-unit.ps1 -Path tests\unit\Manifest.Tests.ps1
+
+# Legacy runner (still works, but prefer test-unit.ps1)
+pwsh -NoProfile -ExecutionPolicy Bypass -File scripts\test_pester.ps1 -Path tests\unit
 ```
 
 **Exit codes**: The test runner exits 0 on success, non-zero on failure.
 
 ---
-
 ## Continuous Integration (CI)
 
 GitHub Actions runs hermetic unit tests on:

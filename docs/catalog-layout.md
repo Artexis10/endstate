@@ -1,7 +1,7 @@
 # Catalog Layout
 
-**Status:** Draft  
-**Purpose:** Define the structure and purpose of recipes, bundles, and manifests in Endstate.
+**Status:** Stable  
+**Purpose:** Define the structure and purpose of modules, bundles, and manifests in Endstate.
 
 ---
 
@@ -9,13 +9,13 @@
 
 Endstate organizes configuration portability through three artifact types:
 
-- **Recipes**: Reusable configuration templates
-- **Bundles**: Collections of recipes
+- **Modules**: Reusable configuration templates (single source of truth)
+- **Bundles**: Collections of modules
 - **Manifests**: Executable restore specifications
 
 ---
 
-## Recipes (Config Modules)
+## Config Modules
 
 **Location:** `./modules/apps/<app-id>/module.jsonc`
 
@@ -24,8 +24,8 @@ Endstate organizes configuration portability through three artifact types:
 **Schema:**
 ```jsonc
 {
-  "id": "string",           // Unique identifier (e.g., "msi-afterburner")
-  "name": "string",         // Human-readable name
+  "id": "string",           // Unique identifier (e.g., "apps.msi-afterburner")
+  "displayName": "string",  // Human-readable name
   "notes": "string",        // Optional description
   "restore": [              // Array of restore entries
     {
@@ -39,10 +39,10 @@ Endstate organizes configuration portability through three artifact types:
 ```
 
 **Characteristics:**
-- Recipes are **templates** that define what to restore, not when or how
+- Modules are **templates** that define what to restore, not when or how
 - Source paths are relative and portable
 - Target paths are absolute system paths
-- Recipes do not execute directly; they are referenced by manifests or bundles
+- Modules do not execute directly; they are referenced by manifests or bundles
 
 ---
 
@@ -50,7 +50,7 @@ Endstate organizes configuration portability through three artifact types:
 
 **Location:** `./bundles/`
 
-**Purpose:** Group multiple recipes into logical collections.
+**Purpose:** Group multiple modules into logical collections.
 
 **Schema (v1):**
 ```jsonc
@@ -58,17 +58,17 @@ Endstate organizes configuration portability through three artifact types:
   "version": 1,
   "id": "string",           // Unique identifier (e.g., "core-utilities")
   "name": "string",         // Human-readable name
-  "recipes": [              // Array of recipe IDs
-    "recipe-id-1",
-    "recipe-id-2"
+  "modules": [              // Array of module IDs
+    "msi-afterburner",
+    "powertoys"
   ]
 }
 ```
 
 **Characteristics:**
-- Bundles reference recipes by ID
+- Bundles reference modules by ID
 - No overrides or customization in v1
-- Bundles simplify multi-recipe workflows
+- Bundles simplify multi-module workflows
 
 ---
 
@@ -92,10 +92,10 @@ Endstate organizes configuration portability through three artifact types:
     "bundle-id-2"
   ],
   
-  // Optional: Reference recipes from ./modules/apps/
-  "recipes": [
-    "recipe-id-1",
-    "recipe-id-2"
+  // Optional: Reference modules from ./modules/apps/
+  "modules": [
+    "msi-afterburner",
+    "powertoys"
   ],
   
   // Optional: Inline restore entries
@@ -114,19 +114,19 @@ Endstate organizes configuration portability through three artifact types:
 
 **Characteristics:**
 - Manifests are what the engine executes
-- Manifests can reference bundles, recipes, or contain inline restore entries
+- Manifests can reference bundles, modules, or contain inline restore entries
 - All three approaches can be combined in a single manifest
 - Manifests live in `./manifests/examples/` (examples) or `./manifests/local/` (user-specific)
 
 **Restore Entry Resolution Order:**
 
-When a manifest contains `bundles`, `recipes`, and/or inline `restore` entries, the engine expands them in the following order:
+When a manifest contains `bundles`, `modules`, and/or inline `restore` entries, the engine expands them in the following order:
 
-1. **Bundle recipes** (in bundle order, recipe order within each bundle)
-2. **Manifest recipes** (in order)
+1. **Bundle modules** (in bundle order, module order within each bundle)
+2. **Manifest modules** (in order)
 3. **Manifest inline restore[]** (appended last)
 
-This ordering ensures predictable behavior and allows manifests to override or extend bundle/recipe configurations.
+This ordering ensures predictable behavior and allows manifests to override or extend bundle/module configurations.
 
 **Example:**
 ```jsonc
@@ -134,31 +134,31 @@ This ordering ensures predictable behavior and allows manifests to override or e
   "version": 1,
   "name": "my-setup",
   "bundles": ["core-utilities"],  // Expands to msi-afterburner + powertoys
-  "recipes": ["custom-app"],       // Adds custom-app restore entries
-  "restore": [                     // Adds final inline entry
+  "modules": ["custom-app"],      // Adds custom-app restore entries
+  "restore": [                    // Adds final inline entry
     { "type": "copy", "source": "./configs/override.cfg", ... }
   ]
 }
 ```
 
 **Error Handling:**
-- If a referenced bundle or recipe file does not exist, the engine fails with a clear error message
-- If a recipe exists but has no restore entries, it is treated as empty (no error)
+- If a referenced bundle or module file does not exist, the engine fails with a clear error message
+- If a module exists but has no restore entries, it is treated as empty (no error)
 
 ---
 
 ## Current State
 
-**Engine behavior:** The engine now supports recipe and bundle references in manifests. Catalogs are resolved at manifest load time and expanded into a single restore[] array.
+**Engine behavior:** The engine supports module and bundle references in manifests. Catalogs are resolved at manifest load time and expanded into a single restore[] array.
 
-**Demo manifests:** Manifests can now reference recipes directly instead of duplicating restore entries.
+**Architecture:** Modules under `modules/apps/*/module.jsonc` are the single source of truth for app configuration.
 
 ---
 
 ## Future Direction
 
-1. GUI will manage recipes and bundles in user directories (`%USERPROFILE%\Documents\Endstate\`)
-2. Recipe parameterization and overrides (v2)
+1. GUI will manage modules and bundles in user directories (`%USERPROFILE%\Documents\Endstate\`)
+2. Module parameterization and overrides (v2)
 3. Bundle composition and nesting (v2)
 
 ---

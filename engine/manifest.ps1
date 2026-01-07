@@ -56,29 +56,36 @@ function Resolve-RestoreEntriesFromCatalogs {
             try {
                 $bundle = Read-JsoncFile -Path $bundlePath
                 
-                if ($bundle.recipes -and $bundle.recipes.Count -gt 0) {
-                    foreach ($recipeId in $bundle.recipes) {
-                        $recipePath = Join-Path $RepoRoot "modules\apps\$recipeId\module.jsonc"
+                # Support both 'modules' (preferred) and 'recipes' (legacy) fields
+                $moduleIds = if ($bundle.modules -and $bundle.modules.Count -gt 0) {
+                    $bundle.modules
+                } elseif ($bundle.recipes -and $bundle.recipes.Count -gt 0) {
+                    $bundle.recipes
+                } else {
+                    @()
+                }
+                
+                foreach ($moduleId in $moduleIds) {
+                    $modulePath = Join-Path $RepoRoot "modules\apps\$moduleId\module.jsonc"
+                    
+                    if (-not (Test-Path $modulePath)) {
+                        throw "Module not found: $moduleId (referenced by bundle $bundleId, expected at: $modulePath)"
+                    }
+                    
+                    try {
+                        $module = Read-JsoncFile -Path $modulePath
                         
-                        if (-not (Test-Path $recipePath)) {
-                            throw "Recipe not found: $recipeId (referenced by bundle $bundleId, expected at: $recipePath)"
-                        }
-                        
-                        try {
-                            $recipe = Read-JsoncFile -Path $recipePath
-                            
-                            if ($recipe.restore -and $recipe.restore.Count -gt 0) {
-                                # Propagate requiresClosed from recipe to each restore entry
-                                foreach ($entry in $recipe.restore) {
-                                    if ($recipe.requiresClosed -and -not $entry.requiresClosed) {
-                                        $entry.requiresClosed = $recipe.requiresClosed
-                                    }
-                                    $expandedRestore += $entry
+                        if ($module.restore -and $module.restore.Count -gt 0) {
+                            # Propagate requiresClosed from module to each restore entry
+                            foreach ($entry in $module.restore) {
+                                if ($module.requiresClosed -and -not $entry.requiresClosed) {
+                                    $entry.requiresClosed = $module.requiresClosed
                                 }
+                                $expandedRestore += $entry
                             }
-                        } catch {
-                            throw "Failed to load recipe '$recipeId' from bundle '$bundleId': $($_.Exception.Message)"
                         }
+                    } catch {
+                        throw "Failed to load module '$moduleId' from bundle '$bundleId': $($_.Exception.Message)"
                     }
                 }
             } catch {

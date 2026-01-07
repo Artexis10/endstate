@@ -1,6 +1,5 @@
 {
   // Config Module: Microsoft PowerToys
-  // Migrated from recipes/powertoys.jsonc
   
   "id": "apps.powertoys",
   "displayName": "Microsoft PowerToys",

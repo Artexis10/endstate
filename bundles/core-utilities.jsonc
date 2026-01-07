@@ -2,7 +2,7 @@
   "version": 1,
   "id": "core-utilities",
   "name": "Core Utilities Bundle",
-  "recipes": [
+  "modules": [
     "msi-afterburner",
     "powertoys"
   ]

@@ -1,6 +1,5 @@
 {
   // Config Module: MSI Afterburner
-  // Migrated from recipes/msi-afterburner.jsonc
   
   "id": "apps.msi-afterburner",
   "displayName": "MSI Afterburner",
