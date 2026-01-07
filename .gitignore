@@ -76,3 +76,7 @@ tests/fixtures/sample-*-output.json
 capture_output.txt
 capture_stderr.txt
 capture_stdout.txt
+
+# Trace artifacts (local module generation, never committed)
+/trace/
+*.generated.jsonc

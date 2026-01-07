@@ -1,0 +1,13 @@
+{
+  // Sandbox Contract Test Manifest
+  // Tests: powertoys + msi-afterburner modules
+  // Purpose: Engine contract testing (apply → assert → idempotent → cleanup)
+  
+  "version": 1,
+  "name": "sandbox-contract-test",
+  
+  "modules": [
+    "powertoys",
+    "msi-afterburner"
+  ]
+}

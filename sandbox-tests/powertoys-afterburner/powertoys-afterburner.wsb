@@ -1,0 +1,12 @@
+<Configuration>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\Users\win-laptop\Desktop\projects\endstate</HostFolder>
+      <SandboxFolder>C:\Endstate</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell -NoExit -Command "cd C:\Endstate; Write-Host 'Endstate repo mapped to C:\Endstate'; Write-Host 'Run: pwsh sandbox-tests\powertoys-afterburner\run.ps1'"</Command>
+  </LogonCommand>
+</Configuration>
