@@ -1,11 +1,10 @@
 <#
 .SYNOPSIS
-    Pester tests for recipe-based restore behavior.
-    These tests lock the current restore semantics before module unification.
+    Pester tests for module-based restore behavior.
     
 .DESCRIPTION
     Tests cover:
-    - Recipe loading via manifest.recipes[]
+    - Module loading via manifest.modules[]
     - Bundle expansion via manifest.bundles[]
     - Restore action execution
     - Journal writing
@@ -13,14 +12,13 @@
     - Idempotency (second restore skips)
     - Backup behavior
     
-    IMPORTANT: These tests define the behavioral contract that MUST remain
-    unchanged after module unification. The executor behavior is frozen.
+    Modules are the sole restore abstraction in Endstate.
 #>
 
 BeforeAll {
     $script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     $script:EngineDir = Join-Path $script:ProvisioningRoot "engine"
-    $script:RecipesDir = Join-Path $script:ProvisioningRoot "recipes"
+    $script:ModulesDir = Join-Path $script:ProvisioningRoot "modules"
     $script:BundlesDir = Join-Path $script:ProvisioningRoot "bundles"
     
     # Load dependencies
@@ -30,45 +28,44 @@ BeforeAll {
     . (Join-Path $script:EngineDir "restore.ps1")
 }
 
-Describe "Recipe.Loading" {
+Describe "Module.Loading" {
     
-    Context "Real repo recipes load correctly" {
+    Context "Real repo modules load correctly" {
         
-        It "Should load powertoys recipe from actual repo" {
-            # Test against the real repo recipes
+        It "Should load powertoys module from actual repo" {
             $repoRoot = $script:ProvisioningRoot
             $manifest = @{
                 version = 1
-                name = "real-recipe-test"
-                recipes = @("powertoys")
+                name = "module-test"
+                modules = @("powertoys")
                 bundles = @()
                 restore = @()
                 apps = @()
             }
             
-            $expandedRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot)
+            $expandedRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             
-            # PowerToys recipe has 1 restore entry
+            # PowerToys module has 1 restore entry
             $expandedRestore.Count | Should -Be 1
             $expandedRestore[0].type | Should -Be "copy"
             $expandedRestore[0].target | Should -Be "%LOCALAPPDATA%\Microsoft\PowerToys"
             $expandedRestore[0].exclude | Should -Not -BeNullOrEmpty
         }
         
-        It "Should load msi-afterburner recipe from actual repo" {
+        It "Should load msi-afterburner module from actual repo" {
             $repoRoot = $script:ProvisioningRoot
             $manifest = @{
                 version = 1
-                name = "real-recipe-test"
-                recipes = @("msi-afterburner")
+                name = "module-test"
+                modules = @("msi-afterburner")
                 bundles = @()
                 restore = @()
                 apps = @()
             }
             
-            $expandedRestore = Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot
+            $expandedRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             
-            # MSI Afterburner recipe has 2 restore entries
+            # MSI Afterburner module has 2 restore entries
             $expandedRestore.Count | Should -Be 2
             $expandedRestore[0].type | Should -Be "copy"
             $expandedRestore[1].type | Should -Be "copy"
@@ -80,40 +77,38 @@ Describe "Recipe.Loading" {
                 version = 1
                 name = "bundle-test"
                 bundles = @("core-utilities")
-                recipes = @()
+                modules = @()
                 restore = @()
                 apps = @()
             }
             
-            $expandedRestore = Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot
+            $expandedRestore = @(Resolve-RestoreEntriesFromBundles -Manifest $manifest -RepoRoot $repoRoot)
             
             # core-utilities bundle has msi-afterburner (2) + powertoys (1) = 3 entries
             $expandedRestore.Count | Should -Be 3
         }
         
-        It "Should append inline restore after recipe entries" {
+        It "Should append inline restore after module entries" {
             $repoRoot = $script:ProvisioningRoot
             $manifest = @{
                 version = 1
                 name = "mixed-test"
-                recipes = @("powertoys")
+                modules = @("powertoys")
                 bundles = @()
                 restore = @(@{ type = "copy"; source = "./inline-source"; target = "~/inline-target" })
                 apps = @()
             }
             
-            $expandedRestore = Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot
+            $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             
-            # PowerToys (1) + inline (1) = 2 entries
-            $expandedRestore.Count | Should -Be 2
-            # Recipe first, then inline
-            $expandedRestore[0].target | Should -Be "%LOCALAPPDATA%\Microsoft\PowerToys"
-            $expandedRestore[1].source | Should -Be "./inline-source"
+            # PowerToys module has 1 restore entry
+            $moduleRestore.Count | Should -Be 1
+            $moduleRestore[0].target | Should -Be "%LOCALAPPDATA%\Microsoft\PowerToys"
         }
     }
 }
 
-Describe "Recipe.RestoreExecution" {
+Describe "Restore.Execution" {
     
     BeforeEach {
         # Mock logging to avoid console noise
@@ -290,7 +285,7 @@ Describe "Recipe.RestoreExecution" {
     }
 }
 
-Describe "Recipe.Journal" {
+Describe "Restore.Journal" {
     
     BeforeEach {
         Mock Initialize-ProvisioningLog { return "test.log" }
@@ -345,7 +340,7 @@ Describe "Recipe.Journal" {
     }
 }
 
-Describe "Recipe.Revert" {
+Describe "Restore.Revert" {
     
     BeforeEach {
         Mock Initialize-ProvisioningLog { return "test.log" }
@@ -460,7 +455,6 @@ Describe "Module.Loading" {
                 name = "module-test"
                 modules = @("git")
                 bundles = @()
-                recipes = @()
                 restore = @()
                 apps = @()
             }
@@ -477,9 +471,7 @@ Describe "Module.Loading" {
                 name = "module-prefix-test"
                 modules = @("apps.git")
                 bundles = @()
-                recipes = @()
                 restore = @()
-                apps = @()
             }
             
             # Should strip apps. prefix and find modules/apps/git/module.jsonc
@@ -493,9 +485,7 @@ Describe "Module.Loading" {
                 name = "missing-module-test"
                 modules = @("nonexistent-module-xyz")
                 bundles = @()
-                recipes = @()
                 restore = @()
-                apps = @()
             }
             
             $threw = $false
@@ -514,133 +504,12 @@ Describe "Module.Loading" {
                 name = "empty-restore-test"
                 modules = @("git")
                 bundles = @()
-                recipes = @()
                 restore = @()
-                apps = @()
             }
             
             # Git module has restore array but entries are commented out
             $expandedRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             $expandedRestore.Count | Should -Be 0
-        }
-    }
-    
-    Context "Modules and recipes can be combined" {
-        
-        It "Should expand recipes even when modules have no restore entries" {
-            $repoRoot = $script:ProvisioningRoot
-            $manifest = @{
-                version = 1
-                name = "combined-test"
-                modules = @("git")
-                recipes = @("powertoys")
-                bundles = @()
-                restore = @()
-                apps = @()
-            }
-            
-            # Get recipe restore entries
-            $recipeRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot)
-            
-            # Get module restore entries (git has none active)
-            $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
-            
-            # Recipes should have entries, modules may not
-            $recipeRestore.Count | Should -BeGreaterThan 0
-            $moduleRestore.Count | Should -Be 0
-        }
-    }
-}
-
-Describe "Module.Equivalence" {
-    
-    Context "Modules produce same restore entries as recipes" {
-        
-        It "Should produce identical restore entries for powertoys" {
-            $repoRoot = $script:ProvisioningRoot
-            
-            # Get recipe restore entries
-            $recipeManifest = @{
-                recipes = @("powertoys")
-                bundles = @()
-                restore = @()
-            }
-            $recipeRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $recipeManifest -RepoRoot $repoRoot)
-            
-            # Get module restore entries
-            $moduleManifest = @{
-                modules = @("powertoys")
-                bundles = @()
-                recipes = @()
-                restore = @()
-            }
-            $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $moduleManifest -RepoRoot $repoRoot)
-            
-            # Should have same count
-            $recipeRestore.Count | Should -Be $moduleRestore.Count
-            
-            # Should have same target
-            $recipeRestore[0].target | Should -Be $moduleRestore[0].target
-            
-            # Should have same type
-            $recipeRestore[0].type | Should -Be $moduleRestore[0].type
-            
-            # Should have same exclude patterns
-            $recipeRestore[0].exclude.Count | Should -Be $moduleRestore[0].exclude.Count
-        }
-        
-        It "Should produce identical restore entries for msi-afterburner" {
-            $repoRoot = $script:ProvisioningRoot
-            
-            # Get recipe restore entries
-            $recipeManifest = @{
-                recipes = @("msi-afterburner")
-                bundles = @()
-                restore = @()
-            }
-            $recipeRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $recipeManifest -RepoRoot $repoRoot)
-            
-            # Get module restore entries
-            $moduleManifest = @{
-                modules = @("msi-afterburner")
-                bundles = @()
-                recipes = @()
-                restore = @()
-            }
-            $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $moduleManifest -RepoRoot $repoRoot)
-            
-            # Should have same count (2 entries)
-            $recipeRestore.Count | Should -Be 2
-            $moduleRestore.Count | Should -Be 2
-            
-            # Should have same targets
-            $recipeRestore[0].target | Should -Be $moduleRestore[0].target
-            $recipeRestore[1].target | Should -Be $moduleRestore[1].target
-        }
-        
-        It "Should produce same total entries as core-utilities bundle" {
-            $repoRoot = $script:ProvisioningRoot
-            
-            # Get bundle restore entries (msi-afterburner + powertoys)
-            $bundleManifest = @{
-                bundles = @("core-utilities")
-                recipes = @()
-                restore = @()
-            }
-            $bundleRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $bundleManifest -RepoRoot $repoRoot)
-            
-            # Get module restore entries for both
-            $moduleManifest = @{
-                modules = @("msi-afterburner", "powertoys")
-                bundles = @()
-                recipes = @()
-                restore = @()
-            }
-            $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $moduleManifest -RepoRoot $repoRoot)
-            
-            # Should have same count (3 entries total)
-            $bundleRestore.Count | Should -Be 3
-            $moduleRestore.Count | Should -Be 3
         }
     }
 }
@@ -667,7 +536,6 @@ Describe "Module.RestoreExecution" {
             $manifest = @{
                 modules = @("powertoys", "msi-afterburner")
                 bundles = @()
-                recipes = @()
                 restore = @()
             }
             
@@ -676,28 +544,6 @@ Describe "Module.RestoreExecution" {
             # Should have 3 restore entries (1 from powertoys, 2 from msi-afterburner)
             $moduleRestore.Count | Should -Be 3
         }
-        
-        It "Should expand both modules and recipes when combined" {
-            $repoRoot = $script:ProvisioningRoot
-            
-            # Manifest with both modules and recipes
-            $manifest = @{
-                modules = @("msi-afterburner")
-                recipes = @("powertoys")
-                bundles = @()
-                restore = @()
-            }
-            
-            $recipeRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot)
-            $moduleRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
-            
-            # Recipes: 1 from powertoys, Modules: 2 from msi-afterburner
-            $recipeRestore.Count | Should -Be 1
-            $moduleRestore.Count | Should -Be 2
-            
-            # Combined should be 3
-            ($recipeRestore.Count + $moduleRestore.Count) | Should -Be 3
-        }
     }
 }
 
@@ -705,26 +551,11 @@ Describe "Restore.RequiresClosed" {
     
     Context "requiresClosed is opt-in" {
         
-        It "Should NOT have requiresClosed on powertoys recipe (opt-in behavior)" {
-            $repoRoot = $script:ProvisioningRoot
-            $manifest = @{
-                recipes = @("powertoys")
-                bundles = @()
-                restore = @()
-            }
-            
-            $expandedRestore = @(Resolve-RestoreEntriesFromCatalogs -Manifest $manifest -RepoRoot $repoRoot)
-            
-            # PowerToys recipe should NOT have requiresClosed (opt-in, not default)
-            $expandedRestore[0].requiresClosed | Should -BeNullOrEmpty
-        }
-        
         It "Should NOT have requiresClosed on powertoys module (opt-in behavior)" {
             $repoRoot = $script:ProvisioningRoot
             $manifest = @{
                 modules = @("powertoys")
                 bundles = @()
-                recipes = @()
                 restore = @()
             }
             
@@ -754,7 +585,6 @@ Describe "Restore.RequiresClosed" {
             $manifest = @{
                 modules = @("test-locked")
                 bundles = @()
-                recipes = @()
                 restore = @()
             }
             
@@ -859,7 +689,7 @@ Describe "Restore.LockedFileHandling" {
     }
 }
 
-Describe "Recipe.ExcludePatterns" {
+Describe "Restore.ExcludePatterns" {
     
     Context "Exclude patterns skip specified paths" {
         
@@ -889,17 +719,17 @@ Describe "Recipe.ExcludePatterns" {
         It "Should verify powertoys module has exclude patterns for junk paths" {
             # Verify the real powertoys module has exclude patterns defined
             $modulePath = Join-Path $script:ProvisioningRoot "modules\apps\powertoys\module.jsonc"
-            $recipe = Read-JsoncFile -Path $modulePath
+            $module = Read-JsoncFile -Path $modulePath
             
             # PowerToys module should have exclude patterns for Logs, Temp, Cache, GPUCache, Crashpad
-            $recipe.restore[0].exclude | Should -Not -BeNullOrEmpty
-            $recipe.restore[0].exclude.Count | Should -Be 5
+            $module.restore[0].exclude | Should -Not -BeNullOrEmpty
+            $module.restore[0].exclude.Count | Should -Be 5
             # Check patterns are present (use -contains instead of Should Contain to avoid regex issues)
-            ($recipe.restore[0].exclude -contains "**\Logs\**") | Should -Be $true
-            ($recipe.restore[0].exclude -contains "**\Temp\**") | Should -Be $true
-            ($recipe.restore[0].exclude -contains "**\Cache\**") | Should -Be $true
-            ($recipe.restore[0].exclude -contains "**\GPUCache\**") | Should -Be $true
-            ($recipe.restore[0].exclude -contains "**\Crashpad\**") | Should -Be $true
+            ($module.restore[0].exclude -contains "**\Logs\**") | Should -Be $true
+            ($module.restore[0].exclude -contains "**\Temp\**") | Should -Be $true
+            ($module.restore[0].exclude -contains "**\Cache\**") | Should -Be $true
+            ($module.restore[0].exclude -contains "**\GPUCache\**") | Should -Be $true
+            ($module.restore[0].exclude -contains "**\Crashpad\**") | Should -Be $true
         }
     }
 }

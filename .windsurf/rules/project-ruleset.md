@@ -118,6 +118,16 @@ Every meaningful action must be verifiable. "It ran" is not success—success me
 - Plans reproducible given same manifest + installed state
 - Capture output sorted alphabetically by app id
 
+
+### 8. Modules-Only Architecture (Hard Rule)
+
+**Modules are the only supported restore abstraction.** Recipes are deprecated and must not be reintroduced.
+
+- The engine resolves only `modules/apps/*/module.jsonc`
+- No fallback for recipes exists
+- No compatibility layer for recipes will be added
+- Tests must not assume or require a `recipes/` directory
+- This is a permanent architectural decision
 ---
 
 ## CLI ↔ GUI Contract

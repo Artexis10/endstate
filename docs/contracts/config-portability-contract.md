@@ -15,7 +15,7 @@ Endstate configuration portability is defined entirely by **restore entries**.
 
 A restore entry maps a **portable source path** to a **system target path**.
 
-All higher-level features (export, restore, revert, GUI flows, recipes, bundles) are built on top of this primitive.
+All higher-level features (export, restore, revert, GUI flows, modules, bundles) are built on top of this primitive.
 
 ---
 
@@ -207,7 +207,7 @@ Behavior must conform to this contract regardless of CLI help formatting.
 
 **User-authored (GUI-managed)**
 
-* `%USERPROFILE%\\Documents\\Endstate\\Recipes`
+* `%USERPROFILE%\\Documents\\Endstate\\Modules`
 * `%USERPROFILE%\\Documents\\Endstate\\Bundles`
 * `%USERPROFILE%\\Documents\\Endstate\\Profiles`
 
