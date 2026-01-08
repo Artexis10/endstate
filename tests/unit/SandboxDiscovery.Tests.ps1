@@ -91,6 +91,24 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content = Get-Content -Path $script:DiscoveryScript -Raw
             $content | Should -Match 'winget'
         }
+        
+        It "Should use powershell.exe not pwsh in LogonCommand" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            $content | Should -Match 'powershell\.exe'
+            $content | Should -Not -Match 'pwsh\s+-NoExit\s+-Command'
+        }
+        
+        It "Should use -ExecutionPolicy Bypass" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            $content | Should -Match '-ExecutionPolicy Bypass'
+        }
+        
+        It "Should use -File invocation for sandbox-install.ps1" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            # The script builds the path in $scriptPath and uses -File `"$scriptPath`"
+            $content | Should -Match 'sandbox-install\.ps1'
+            $content | Should -Match '-File\s+`"\$scriptPath'
+        }
     }
     
     Context "sandbox-install.ps1 structure" {
@@ -147,6 +165,18 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
             $content | Should -Match 'diff\.json'
+        }
+        
+        It "Should write DONE.txt sentinel on success" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'DONE\.txt'
+        }
+        
+        It "Should write ERROR.txt sentinel on failure" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'ERROR\.txt'
         }
     }
 }

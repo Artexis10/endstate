@@ -125,11 +125,21 @@ function New-SandboxConfig {
     $sandboxRepoPath = "C:\Endstate"
     $sandboxArtifactPath = $ArtifactDir -replace [regex]::Escape($RepoRoot), $sandboxRepoPath
     
-    # Build command line
-    $rootsArg = if ($Roots) { "-Roots `"$($Roots -join ',')`"" } else { "" }
-    $dryRunArg = if ($DryRun) { "-DryRun" } else { "" }
+    # Build command line using powershell.exe (Windows PowerShell 5.1) with -File invocation
+    # Use cmd.exe /c start to ensure a visible console window
+    $scriptPath = "$sandboxRepoPath\sandbox-tests\discovery-harness\sandbox-install.ps1"
     
-    $command = "pwsh -NoExit -Command `"cd $sandboxRepoPath; . sandbox-tests\discovery-harness\sandbox-install.ps1 -WingetId '$WingetId' -OutputDir '$sandboxArtifactPath' $rootsArg $dryRunArg`""
+    # Build argument list for -File invocation
+    $argList = @("-WingetId", "`"$WingetId`"", "-OutputDir", "`"$sandboxArtifactPath`"")
+    if ($Roots) {
+        $argList += @("-Roots", "`"$($Roots -join ',')`"")
+    }
+    if ($DryRun) {
+        $argList += "-DryRun"
+    }
+    $argsString = $argList -join " "
+    
+    $command = "cmd.exe /c start `"`" powershell.exe -ExecutionPolicy Bypass -NoExit -File `"$scriptPath`" $argsString"
     
     $wsb = @"
 <Configuration>
@@ -334,6 +344,8 @@ Write-Step "Checking for artifacts..."
 $preJsonPath = Join-Path $OutDir "pre.json"
 $postJsonPath = Join-Path $OutDir "post.json"
 $diffJsonPath = Join-Path $OutDir "diff.json"
+$doneFile = Join-Path $OutDir "DONE.txt"
+$errorFile = Join-Path $OutDir "ERROR.txt"
 
 $artifactsExist = (Test-Path $preJsonPath) -and (Test-Path $postJsonPath) -and (Test-Path $diffJsonPath)
 
@@ -343,6 +355,22 @@ if (-not $artifactsExist) {
     Write-Info "  - $preJsonPath"
     Write-Info "  - $postJsonPath"
     Write-Info "  - $diffJsonPath"
+    
+    # Check for ERROR.txt from sandbox-install.ps1
+    if (Test-Path $errorFile) {
+        Write-Host ""
+        Write-Host "[ERROR] sandbox-install.ps1 reported an error:" -ForegroundColor Red
+        Get-Content -Path $errorFile | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    } else {
+        Write-Host ""
+        Write-Host "[HINT] LogonCommand likely failed to execute. Common causes:" -ForegroundColor Yellow
+        Write-Host "  - powershell.exe not available or blocked" -ForegroundColor Yellow
+        Write-Host "  - Execution policy preventing script execution" -ForegroundColor Yellow
+        Write-Host "  - Script path or parameters malformed in .wsb" -ForegroundColor Yellow
+        Write-Host "  - Windows Sandbox closed before script completed" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Check the generated .wsb file: $wsbPath" -ForegroundColor Yellow
+    }
     exit 1
 }
 
