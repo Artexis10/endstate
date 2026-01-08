@@ -1,5 +1,5 @@
 ---
-trigger: always
+trigger: always_on
 ---
 
 # Windsurf Project Ruleset — Endstate

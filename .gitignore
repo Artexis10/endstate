@@ -28,6 +28,12 @@ state/
 capture/
 .endstate/
 
+# ---------------------------------------------------------------------------
+# Windows Sandbox discovery outputs (generated per run)
+# ---------------------------------------------------------------------------
+sandbox-tests/discovery/**
+!sandbox-tests/discovery/.gitkeep
+
 # OS
 .DS_Store
 Thumbs.db
