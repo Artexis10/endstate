@@ -330,16 +330,33 @@ if ($NoLaunch) {
     exit 0
 }
 
-# Step 2: Launch sandbox
+# Step 2: Launch sandbox via WindowsSandbox.exe explicitly
 Write-Step "Launching Windows Sandbox..."
+
+# Verify WindowsSandbox.exe exists
+$wsExe = Join-Path $env:WINDIR 'System32\WindowsSandbox.exe'
+if (-not (Test-Path $wsExe)) {
+    Write-Host "[ERROR] WindowsSandbox.exe not found at: $wsExe" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "[HINT] Windows Sandbox is not installed. To enable it:" -ForegroundColor Yellow
+    Write-Host "  1. Open 'Turn Windows features on or off'" -ForegroundColor Yellow
+    Write-Host "  2. Check 'Windows Sandbox'" -ForegroundColor Yellow
+    Write-Host "  3. Restart your computer" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Or run: Enable-WindowsOptionalFeature -Online -FeatureName 'Containers-DisposableClientVM'" -ForegroundColor Yellow
+    exit 1
+}
+
 Write-Info "The sandbox will install $WingetId and capture filesystem changes."
-Write-Info "Close the sandbox window when installation is complete."
+Write-Info "The sandbox window will close automatically when complete."
 Write-Host ""
 
-Start-Process -FilePath $wsbPath -Wait
+# Launch sandbox explicitly via WindowsSandbox.exe (not via .wsb file association)
+# This ensures -Wait actually waits for the sandbox process to exit
+Start-Process -FilePath $wsExe -ArgumentList "`"$wsbPath`"" -Wait
 
-# Step 3: Check for artifacts
-Write-Step "Checking for artifacts..."
+# Step 3: Wait for sentinel file (DONE.txt or ERROR.txt) with polling
+Write-Step "Waiting for harness completion..."
 
 $preJsonPath = Join-Path $OutDir "pre.json"
 $postJsonPath = Join-Path $OutDir "post.json"
@@ -347,30 +364,67 @@ $diffJsonPath = Join-Path $OutDir "diff.json"
 $doneFile = Join-Path $OutDir "DONE.txt"
 $errorFile = Join-Path $OutDir "ERROR.txt"
 
+# Poll for sentinel files with timeout (handles filesystem propagation delay)
+$timeoutSeconds = 180
+$pollIntervalMs = 500
+$elapsed = 0
+$sentinelFound = $false
+
+while ($elapsed -lt ($timeoutSeconds * 1000)) {
+    if ((Test-Path $doneFile) -or (Test-Path $errorFile)) {
+        $sentinelFound = $true
+        break
+    }
+    Start-Sleep -Milliseconds $pollIntervalMs
+    $elapsed += $pollIntervalMs
+}
+
+# Step 4: Check sentinel and artifacts
+Write-Step "Checking for artifacts..."
+
+# Check for ERROR.txt first (harness reported an error)
+if (Test-Path $errorFile) {
+    Write-Host "[ERROR] sandbox-install.ps1 reported an error:" -ForegroundColor Red
+    Write-Host ""
+    Get-Content -Path $errorFile | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
+    Write-Host ""
+    exit 1
+}
+
+# Check if sentinel was found
+if (-not $sentinelFound) {
+    Write-Host "[ERROR] Timeout waiting for harness completion (${timeoutSeconds}s)." -ForegroundColor Red
+    Write-Host ""
+    Write-Host "[HINT] The sandbox harness did not write DONE.txt or ERROR.txt." -ForegroundColor Yellow
+    Write-Host "  Common causes:" -ForegroundColor Yellow
+    Write-Host "  - LogonCommand failed to execute (powershell.exe blocked/missing)" -ForegroundColor Yellow
+    Write-Host "  - Execution policy preventing script execution" -ForegroundColor Yellow
+    Write-Host "  - Script path or parameters malformed in .wsb" -ForegroundColor Yellow
+    Write-Host "  - Sandbox closed before harness completed" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Check the generated .wsb file: $wsbPath" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "  Output directory contents:" -ForegroundColor Yellow
+    if (Test-Path $OutDir) {
+        Get-ChildItem -Path $OutDir | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+    } else {
+        Write-Host "    (directory does not exist)" -ForegroundColor Gray
+    }
+    exit 1
+}
+
+# Verify all artifact files exist
 $artifactsExist = (Test-Path $preJsonPath) -and (Test-Path $postJsonPath) -and (Test-Path $diffJsonPath)
 
 if (-not $artifactsExist) {
-    Write-Host "[ERROR] Artifacts not found. Sandbox may not have completed successfully." -ForegroundColor Red
+    Write-Host "[ERROR] Artifacts not found despite DONE.txt being present." -ForegroundColor Red
     Write-Info "Expected files:"
-    Write-Info "  - $preJsonPath"
-    Write-Info "  - $postJsonPath"
-    Write-Info "  - $diffJsonPath"
-    
-    # Check for ERROR.txt from sandbox-install.ps1
-    if (Test-Path $errorFile) {
-        Write-Host ""
-        Write-Host "[ERROR] sandbox-install.ps1 reported an error:" -ForegroundColor Red
-        Get-Content -Path $errorFile | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
-    } else {
-        Write-Host ""
-        Write-Host "[HINT] LogonCommand likely failed to execute. Common causes:" -ForegroundColor Yellow
-        Write-Host "  - powershell.exe not available or blocked" -ForegroundColor Yellow
-        Write-Host "  - Execution policy preventing script execution" -ForegroundColor Yellow
-        Write-Host "  - Script path or parameters malformed in .wsb" -ForegroundColor Yellow
-        Write-Host "  - Windows Sandbox closed before script completed" -ForegroundColor Yellow
-        Write-Host ""
-        Write-Host "  Check the generated .wsb file: $wsbPath" -ForegroundColor Yellow
-    }
+    Write-Info "  - $preJsonPath (exists: $(Test-Path $preJsonPath))"
+    Write-Info "  - $postJsonPath (exists: $(Test-Path $postJsonPath))"
+    Write-Info "  - $diffJsonPath (exists: $(Test-Path $diffJsonPath))"
+    Write-Host ""
+    Write-Host "  Output directory contents:" -ForegroundColor Yellow
+    Get-ChildItem -Path $OutDir | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
     exit 1
 }
 

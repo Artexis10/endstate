@@ -109,6 +109,37 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content | Should -Match 'sandbox-install\.ps1'
             $content | Should -Match '-File\s+`"\$scriptPath'
         }
+        
+        It "Should launch sandbox via WindowsSandbox.exe explicitly" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            # Must use WindowsSandbox.exe directly, not rely on .wsb file association
+            $content | Should -Match 'WindowsSandbox\.exe'
+            $content | Should -Match '\$wsExe\s*=\s*Join-Path\s+\$env:WINDIR'
+            $content | Should -Match 'Start-Process\s+-FilePath\s+\$wsExe'
+        }
+        
+        It "Should poll for sentinel files with timeout" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            # Must have a poll loop for DONE.txt/ERROR.txt
+            $content | Should -Match '\$timeoutSeconds'
+            $content | Should -Match '\$pollIntervalMs'
+            $content | Should -Match 'while.*\$elapsed.*\$timeoutSeconds'
+            $content | Should -Match 'Test-Path\s+\$doneFile.*Test-Path\s+\$errorFile'
+        }
+        
+        It "Should check ERROR.txt before reporting missing artifacts" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            # ERROR.txt check must come before artifact existence check
+            $errorCheckPos = $content.IndexOf('Test-Path $errorFile')
+            $artifactCheckPos = $content.IndexOf('$artifactsExist')
+            $errorCheckPos | Should -BeLessThan $artifactCheckPos
+        }
+        
+        It "Should provide helpful error when WindowsSandbox.exe is missing" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            $content | Should -Match 'Windows Sandbox is not installed'
+            $content | Should -Match 'Containers-DisposableClientVM'
+        }
     }
     
     Context "sandbox-install.ps1 structure" {
