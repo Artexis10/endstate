@@ -64,6 +64,145 @@ function Write-Pass {
     Write-Host "[PASS] $Message" -ForegroundColor Green
 }
 
+function Ensure-Winget {
+    <#
+    .SYNOPSIS
+        Ensures winget is available, bootstrapping it if necessary.
+    .DESCRIPTION
+        Checks if winget is installed. If not, downloads and installs the
+        App Installer MSIX bundle and its dependencies (VCLibs, UI.Xaml).
+        This is needed because Windows Sandbox does not include winget by default.
+    #>
+    
+    Write-Step "Checking for winget..."
+    
+    # Check if winget is already available
+    $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+    if ($wingetCmd) {
+        Write-Pass "winget is available at: $($wingetCmd.Source)"
+        return
+    }
+    
+    Write-Info "winget not found. Bootstrapping..."
+    
+    # Ensure TLS 1.2+ for downloads
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    
+    # Create temp directory for downloads
+    $tempDir = Join-Path $env:TEMP "winget-bootstrap"
+    if (-not (Test-Path $tempDir)) {
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    }
+    
+    # Download URLs (documented for maintainability)
+    # VCLibs: Required C++ runtime dependency
+    $vcLibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
+    $vcLibsPath = Join-Path $tempDir "Microsoft.VCLibs.x64.14.00.Desktop.appx"
+    
+    # UI.Xaml: Required UI framework dependency (using stable 2.8.x release)
+    # Source: https://www.nuget.org/packages/Microsoft.UI.Xaml
+    $uiXamlUrl = "https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6"
+    $uiXamlNupkg = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.6.nupkg"
+    $uiXamlAppx = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.appx"
+    
+    # Winget (App Installer): The main package
+    $wingetUrl = "https://aka.ms/getwinget"
+    $wingetPath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
+    
+    # Download VCLibs
+    Write-Info "Downloading VCLibs dependency..."
+    try {
+        Invoke-WebRequest -Uri $vcLibsUrl -OutFile $vcLibsPath -UseBasicParsing
+        Write-Pass "Downloaded: $vcLibsPath"
+    }
+    catch {
+        throw "Failed to download VCLibs: $_"
+    }
+    
+    # Download UI.Xaml (comes as nupkg, need to extract appx)
+    Write-Info "Downloading UI.Xaml dependency..."
+    try {
+        Invoke-WebRequest -Uri $uiXamlUrl -OutFile $uiXamlNupkg -UseBasicParsing
+        Write-Pass "Downloaded: $uiXamlNupkg"
+        
+        # Extract the appx from the nupkg (it's a zip file)
+        $uiXamlExtract = Join-Path $tempDir "uixaml-extract"
+        Expand-Archive -Path $uiXamlNupkg -DestinationPath $uiXamlExtract -Force
+        
+        # Find the x64 appx
+        $appxFile = Get-ChildItem -Path $uiXamlExtract -Recurse -Filter "*.appx" | 
+            Where-Object { $_.Name -match "x64" } | 
+            Select-Object -First 1
+        
+        if (-not $appxFile) {
+            throw "Could not find x64 appx in UI.Xaml package"
+        }
+        
+        Copy-Item -Path $appxFile.FullName -Destination $uiXamlAppx -Force
+        Write-Pass "Extracted: $uiXamlAppx"
+    }
+    catch {
+        throw "Failed to download/extract UI.Xaml: $_"
+    }
+    
+    # Download winget
+    Write-Info "Downloading winget (App Installer)..."
+    try {
+        Invoke-WebRequest -Uri $wingetUrl -OutFile $wingetPath -UseBasicParsing
+        Write-Pass "Downloaded: $wingetPath"
+    }
+    catch {
+        throw "Failed to download winget: $_"
+    }
+    
+    # Install dependencies first, then winget
+    Write-Step "Installing dependencies..."
+    
+    try {
+        Write-Info "Installing VCLibs..."
+        Add-AppxPackage -Path $vcLibsPath
+        Write-Pass "Installed VCLibs"
+    }
+    catch {
+        Write-Host "[WARN] VCLibs install failed (may already be present): $_" -ForegroundColor Yellow
+    }
+    
+    try {
+        Write-Info "Installing UI.Xaml..."
+        Add-AppxPackage -Path $uiXamlAppx
+        Write-Pass "Installed UI.Xaml"
+    }
+    catch {
+        Write-Host "[WARN] UI.Xaml install failed (may already be present): $_" -ForegroundColor Yellow
+    }
+    
+    Write-Step "Installing winget..."
+    try {
+        Add-AppxPackage -Path $wingetPath
+        Write-Pass "Installed winget"
+    }
+    catch {
+        throw "Failed to install winget: $_"
+    }
+    
+    # Verify winget is now available
+    # Need to refresh PATH - winget installs to WindowsApps which should be in PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    
+    $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+    if (-not $wingetCmd) {
+        # Try common install location directly
+        $wingetExe = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\winget.exe"
+        if (Test-Path $wingetExe) {
+            Write-Pass "winget installed at: $wingetExe"
+            return
+        }
+        throw "winget installation completed but winget command is still not available"
+    }
+    
+    Write-Pass "winget bootstrap complete: $($wingetCmd.Source)"
+}
+
 # Parse roots
 $snapshotRoots = if ($Roots) {
     $Roots -split ','
@@ -106,7 +245,12 @@ try {
     $preSnapshot | ConvertTo-Json -Depth 10 -Compress | Out-File -FilePath $preJsonPath -Encoding UTF8
     Write-Pass "Saved: $preJsonPath"
 
-    # Step 2: Install via winget
+    # Step 2: Ensure winget is available (bootstrap if needed)
+    if (-not $DryRun) {
+        Ensure-Winget
+    }
+    
+    # Step 3: Install via winget
     if ($DryRun) {
         Write-Step "DRY RUN: Skipping winget install for $WingetId"
         Write-Info "Would run: winget install --id $WingetId --silent --accept-package-agreements --accept-source-agreements"
@@ -140,7 +284,7 @@ try {
         Start-Sleep -Seconds 5
     }
 
-    # Step 3: Post-install snapshot
+    # Step 4: Post-install snapshot
     Write-Step "Capturing post-install snapshot..."
     $postSnapshot = Get-FilesystemSnapshot -Roots $snapshotRoots -MaxDepth 8
     Write-Info "Post-snapshot: $($postSnapshot.Count) items"
@@ -149,7 +293,7 @@ try {
     $postSnapshot | ConvertTo-Json -Depth 10 -Compress | Out-File -FilePath $postJsonPath -Encoding UTF8
     Write-Pass "Saved: $postJsonPath"
 
-    # Step 4: Compute diff inside sandbox (for immediate feedback)
+    # Step 5: Compute diff inside sandbox (for immediate feedback)
     Write-Step "Computing diff..."
     $diff = Compare-FilesystemSnapshots -PreSnapshot $preSnapshot -PostSnapshot $postSnapshot
     Write-Info "Added: $($diff.added.Count) items"

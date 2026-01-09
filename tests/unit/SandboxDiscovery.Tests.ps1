@@ -209,6 +209,50 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content = Get-Content -Path $installScript -Raw
             $content | Should -Match 'ERROR\.txt'
         }
+        
+        It "Should check for winget presence before install" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must check if winget is available
+            $content | Should -Match 'Get-Command\s+winget'
+        }
+        
+        It "Should have winget bootstrap function" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must have Ensure-Winget function
+            $content | Should -Match 'function\s+Ensure-Winget'
+        }
+        
+        It "Should download winget from aka.ms/getwinget" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must use official winget download URL
+            $content | Should -Match 'aka\.ms/getwinget'
+        }
+        
+        It "Should use Add-AppxPackage for winget installation" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must install via Add-AppxPackage
+            $content | Should -Match 'Add-AppxPackage'
+        }
+        
+        It "Should download VCLibs dependency" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must download VCLibs dependency
+            $content | Should -Match 'VCLibs'
+        }
+        
+        It "Should call Ensure-Winget before winget install" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Ensure-Winget must be called before winget install
+            $ensurePos = $content.IndexOf('Ensure-Winget')
+            $wingetInstallPos = $content.IndexOf('& winget @wingetArgs')
+            $ensurePos | Should -BeLessThan $wingetInstallPos
+        }
     }
 }
 
