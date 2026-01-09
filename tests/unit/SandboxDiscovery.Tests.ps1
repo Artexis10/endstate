@@ -245,11 +245,11 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content | Should -Match 'VCLibs'
         }
         
-        It "Should use recursive search for UI.Xaml package candidates" {
+        It "Should use recursive search for UI.Xaml package candidates in NuGet fallback" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            # Must search recursively for appx/msix/msixbundle files
-            $content | Should -Match 'Get-ChildItem.*-Recurse.*-Include.*\*\.appx.*\*\.msix'
+            # Must search recursively for appx files in UI.Xaml NuGet fallback
+            $content | Should -Match 'Get-ChildItem.*-Recurse.*-Include.*\*\.appx'
         }
         
         It "Should detect x64 candidates by filename or folder path" {
@@ -272,9 +272,9 @@ Describe "SandboxDiscovery.ScriptValidation" {
         It "Should include package list in error diagnostics" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            # Must build diagnostic list with found deps and all packages
-            $content | Should -Match '\$foundDeps'
-            $content | Should -Match '\$allPackages.*FullName.*Length'
+            # Must build diagnostic list with downloaded deps and dependency paths
+            $content | Should -Match '\$downloadedDeps'
+            $content | Should -Match '\$dependencyPaths'
         }
         
         It "Should call Ensure-Winget before winget install" {
@@ -286,7 +286,7 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $ensurePos | Should -BeLessThan $wingetInstallPos
         }
         
-        It "Should have Ensure-WindowsAppRuntime18 function as fallback" {
+        It "Should have Ensure-WindowsAppRuntime18 function" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
             $content | Should -Match 'function\s+Ensure-WindowsAppRuntime18'
@@ -298,41 +298,36 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content | Should -Match 'Get-AppxPackage\s+-Name\s+[''"]Microsoft\.WindowsAppRuntime\.1\.8[''"]'
         }
         
-        It "Should NOT use api.nuget.org (bundle-driven approach)" {
+        It "Should download WindowsAppRuntime redist zip (not EXE installer)" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            # No NuGet flatcontainer references - we extract deps from bundle
-            $content | Should -Not -Match 'api\.nuget\.org'
+            # Must use redist zip approach with MSIX packages
+            $content | Should -Match 'Microsoft\.WindowsAppRuntime\.Redist\.1\.8\.zip'
+            $content | Should -Match 'Expand-Archive.*redistZipPath'
         }
         
-        It "Should copy msixbundle to .zip for Expand-Archive (PS 5.1 compat)" {
+        It "Should download VCLibs Desktop explicitly from aka.ms" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            # Must copy bundle to .zip before Expand-Archive
+            # Must download VCLibs Desktop from official URL
+            $content | Should -Match 'aka\.ms/Microsoft\.VCLibs\.x64\.14\.00\.Desktop\.appx'
+        }
+        
+        It "Should download UI.Xaml explicitly (not from bundle)" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must download UI.Xaml from external source
+            $content | Should -Match 'Microsoft\.UI\.Xaml.*\.appx'
+            $content | Should -Match 'uiXamlPath'
+        }
+        
+        It "Should have UI.Xaml NuGet fallback with Expand-Archive" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Fallback via NuGet package extraction
+            $content | Should -Match 'uiXamlNugetUrl'
             $content | Should -Match 'ChangeExtension.*\.zip'
-            $content | Should -Match 'Copy-Item.*bundleZipPath'
-            $content | Should -Match 'Expand-Archive.*bundleZipPath'
-        }
-        
-        It "Should recursively search for VCLibs dependency in extracted bundle" {
-            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
-            $content = Get-Content -Path $installScript -Raw
-            $content | Should -Match 'Microsoft\.VCLibs\.140\.00'
-            $content | Should -Match 'vclibsCandidates'
-        }
-        
-        It "Should recursively search for UI.Xaml dependency in extracted bundle" {
-            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
-            $content = Get-Content -Path $installScript -Raw
-            $content | Should -Match 'Microsoft\.UI\.Xaml'
-            $content | Should -Match 'uiXamlCandidates'
-        }
-        
-        It "Should recursively search for WindowsAppRuntime dependency in extracted bundle" {
-            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
-            $content = Get-Content -Path $installScript -Raw
-            $content | Should -Match 'Microsoft\.WindowsAppRuntime'
-            $content | Should -Match 'runtimeCandidates'
+            $content | Should -Match 'Expand-Archive.*uiXamlZip'
         }
         
         It "Should use -DependencyPath when installing App Installer bundle" {
@@ -357,6 +352,17 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
             $content | Should -Match 'winget\s+source\s+update'
+        }
+        
+        It "Should include comprehensive diagnostics on failure" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must include diagnostic info about installed packages
+            $content | Should -Match 'downloadedDeps'
+            $content | Should -Match 'dependencyPaths'
+            $content | Should -Match 'Get-AppxPackage.*VCLibs'
+            $content | Should -Match 'Get-AppxPackage.*UI\.Xaml'
+            $content | Should -Match 'Get-AppxPackage.*WindowsAppRuntime'
         }
     }
 }

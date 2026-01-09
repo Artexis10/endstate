@@ -126,11 +126,19 @@ function Select-BestPackageCandidate {
 function Ensure-WindowsAppRuntime18 {
     <#
     .SYNOPSIS
-        Ensures Microsoft.WindowsAppRuntime.1.8 is installed.
+        Ensures Microsoft.WindowsAppRuntime.1.8 framework packages are installed.
     .DESCRIPTION
         Windows App Runtime 1.8 is required by recent versions of App Installer (winget).
-        This function checks if it's present and installs it if missing.
+        This function downloads the official redistributable zip and installs the MSIX packages.
+    .PARAMETER TempDir
+        Temp directory for downloads. If not specified, uses $env:TEMP\winget-bootstrap.
+    .OUTPUTS
+        Array of installed MSIX package paths for use as dependencies.
     #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$TempDir = (Join-Path $env:TEMP "winget-bootstrap")
+    )
     
     Write-Step "Checking for Windows App Runtime 1.8..."
     
@@ -138,55 +146,64 @@ function Ensure-WindowsAppRuntime18 {
     $runtime = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.1.8" -ErrorAction SilentlyContinue
     if ($runtime) {
         Write-Pass "Windows App Runtime 1.8 is installed: $($runtime.Version)"
-        return
+        return @()
     }
     
-    Write-Info "Windows App Runtime 1.8 not found. Installing..."
+    Write-Info "Windows App Runtime 1.8 not found. Installing from redist zip..."
     
     # Ensure TLS 1.2+ for downloads
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     
     # Create temp directory for downloads
-    $tempDir = Join-Path $env:TEMP "winget-bootstrap"
-    if (-not (Test-Path $tempDir)) {
-        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    if (-not (Test-Path $TempDir)) {
+        New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
     }
     
-    # Windows App Runtime 1.8 redistributable URL
-    # Official Microsoft distribution via aka.ms
-    $runtimeUrl = "https://aka.ms/windowsappsdk/1.8/latest/windowsappruntimeinstall-x64.exe"
-    $runtimeExe = Join-Path $tempDir "windowsappruntimeinstall-x64.exe"
+    # Windows App Runtime 1.8 redistributable zip URL
+    # Contains MSIX packages that can be installed directly
+    $redistUrl = "https://aka.ms/windowsappsdk/1.8/latest/Microsoft.WindowsAppRuntime.Redist.1.8.zip"
+    $redistZipPath = Join-Path $TempDir "Microsoft.WindowsAppRuntime.Redist.1.8.zip"
     
-    # Download the runtime installer
-    Write-Info "Downloading Windows App Runtime 1.8 from: $runtimeUrl"
+    # Download the redist zip
+    Write-Info "Downloading Windows App Runtime 1.8 redist from: $redistUrl"
     try {
-        Invoke-WebRequest -Uri $runtimeUrl -OutFile $runtimeExe -UseBasicParsing
-        Write-Pass "Downloaded: $runtimeExe"
+        Invoke-WebRequest -Uri $redistUrl -OutFile $redistZipPath -UseBasicParsing
+        Write-Pass "Downloaded: $redistZipPath ($((Get-Item $redistZipPath).Length) bytes)"
     }
     catch {
-        throw "Failed to download Windows App Runtime 1.8: $_"
+        throw "Failed to download Windows App Runtime 1.8 redist: $_"
     }
     
-    # Install silently using the exe installer
-    Write-Info "Installing Windows App Runtime 1.8..."
-    $installArgs = @("--quiet", "--force")
-    $installResult = Start-Process -FilePath $runtimeExe -ArgumentList $installArgs -Wait -PassThru
-    $exitCode = $installResult.ExitCode
+    # Extract the zip
+    $redistExtractDir = Join-Path $TempDir "windowsappruntime-extract"
+    if (Test-Path $redistExtractDir) {
+        Remove-Item $redistExtractDir -Recurse -Force
+    }
     
-    Write-Info "Windows App Runtime installer exit code: $exitCode"
+    Write-Info "Extracting redist zip..."
+    Expand-Archive -Path $redistZipPath -DestinationPath $redistExtractDir -Force
+    Write-Pass "Extracted to: $redistExtractDir"
     
-    # Exit codes: 0 = success, 3010 = success but reboot required
-    if ($exitCode -ne 0 -and $exitCode -ne 3010) {
-        # Build diagnostic info
-        $diagInfo = @"
-Windows App Runtime 1.8 installation failed.
-Exit code: $exitCode
-Installer path: $runtimeExe
-Installer exists: $(Test-Path $runtimeExe)
-Temp directory contents:
-$(Get-ChildItem -Path $tempDir -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) ($($_.Length) bytes)" } | Out-String)
-"@
-        throw $diagInfo
+    # Find all MSIX packages in the extracted zip
+    $msixPackages = Get-ChildItem -Path $redistExtractDir -Recurse -Include "*.msix" -File
+    Write-Info "Found $($msixPackages.Count) MSIX packages in redist"
+    
+    # Filter for x64 packages (prefer x64 for Windows Sandbox which is x64)
+    $x64Packages = $msixPackages | Where-Object { $_.Name -match 'x64' }
+    Write-Info "Found $($x64Packages.Count) x64 packages"
+    
+    # Install each x64 package
+    $installedPaths = @()
+    foreach ($pkg in $x64Packages) {
+        try {
+            Write-Info "Installing: $($pkg.Name)"
+            Add-AppxPackage -Path $pkg.FullName
+            Write-Pass "Installed: $($pkg.Name)"
+            $installedPaths += $pkg.FullName
+        }
+        catch {
+            Write-Host "[WARN] Package install failed (may already be present): $($pkg.Name) - $_" -ForegroundColor Yellow
+        }
     }
     
     # Validate installation
@@ -194,11 +211,17 @@ $(Get-ChildItem -Path $tempDir -ErrorAction SilentlyContinue | ForEach-Object { 
     if (-not $runtime) {
         # Build diagnostic info
         $diagInfo = @"
-Windows App Runtime 1.8 installation completed but package not found.
-Exit code: $exitCode
-Installer path: $runtimeExe
-Temp directory contents:
-$(Get-ChildItem -Path $tempDir -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) ($($_.Length) bytes)" } | Out-String)
+Windows App Runtime 1.8 installation completed but main package not found.
+Redist URL: $redistUrl
+Redist zip exists: $(Test-Path $redistZipPath)
+Extract directory: $redistExtractDir
+
+All MSIX packages found:
+$($msixPackages | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" } | Out-String)
+
+x64 packages attempted:
+$($x64Packages | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" } | Out-String)
+
 Installed WindowsAppRuntime packages:
 $(Get-AppxPackage -Name "Microsoft.WindowsAppRuntime*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
 "@
@@ -206,6 +229,7 @@ $(Get-AppxPackage -Name "Microsoft.WindowsAppRuntime*" -ErrorAction SilentlyCont
     }
     
     Write-Pass "Windows App Runtime 1.8 installed: $($runtime.Version)"
+    return $installedPaths
 }
 
 function Ensure-Winget {
@@ -213,9 +237,10 @@ function Ensure-Winget {
     .SYNOPSIS
         Ensures winget is available, bootstrapping it if necessary.
     .DESCRIPTION
-        Checks if winget is installed. If not, downloads the App Installer MSIX bundle,
-        extracts dependencies from within the bundle, and installs them.
-        This is needed because Windows Sandbox does not include winget by default.
+        Checks if winget is installed. If not, downloads the App Installer MSIX bundle
+        and its required dependencies (VCLibs, UI.Xaml, WindowsAppRuntime) from explicit URLs,
+        then installs them. This is needed because Windows Sandbox does not include winget
+        by default and the msixbundle does not contain all required dependencies.
     #>
     
     Write-Step "Checking for winget..."
@@ -227,7 +252,7 @@ function Ensure-Winget {
         return
     }
     
-    Write-Info "winget not found. Bootstrapping from App Installer bundle..."
+    Write-Info "winget not found. Bootstrapping with explicit dependency downloads..."
     
     # Ensure TLS 1.2+ for downloads
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -238,106 +263,137 @@ function Ensure-Winget {
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     }
     
-    # Download App Installer bundle from aka.ms/getwinget
+    # Track all dependency paths for -DependencyPath parameter
+    $dependencyPaths = @()
+    $downloadedDeps = @()
+    
+    # ========================================================================
+    # Step 1: Install Windows App Runtime 1.8 (required framework)
+    # ========================================================================
+    Write-Step "Installing Windows App Runtime 1.8..."
+    $runtimePaths = Ensure-WindowsAppRuntime18 -TempDir $tempDir
+    if ($runtimePaths -and $runtimePaths.Count -gt 0) {
+        $dependencyPaths += $runtimePaths
+        $downloadedDeps += "WindowsAppRuntime: $($runtimePaths.Count) packages installed"
+    }
+    
+    # ========================================================================
+    # Step 2: Download and install VCLibs Desktop (x64)
+    # ========================================================================
+    Write-Step "Downloading VCLibs Desktop dependency..."
+    $vcLibsDesktopUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
+    $vcLibsDesktopPath = Join-Path $tempDir "Microsoft.VCLibs.x64.14.00.Desktop.appx"
+    
+    try {
+        Write-Info "Downloading VCLibs Desktop from: $vcLibsDesktopUrl"
+        Invoke-WebRequest -Uri $vcLibsDesktopUrl -OutFile $vcLibsDesktopPath -UseBasicParsing
+        Write-Pass "Downloaded: $vcLibsDesktopPath ($((Get-Item $vcLibsDesktopPath).Length) bytes)"
+        $downloadedDeps += "VCLibs Desktop: $vcLibsDesktopPath"
+        
+        Write-Info "Installing VCLibs Desktop..."
+        Add-AppxPackage -Path $vcLibsDesktopPath
+        Write-Pass "Installed VCLibs Desktop"
+        $dependencyPaths += $vcLibsDesktopPath
+    }
+    catch {
+        Write-Host "[WARN] VCLibs Desktop install failed (may already be present): $_" -ForegroundColor Yellow
+    }
+    
+    # ========================================================================
+    # Step 3: Download and install UI.Xaml (from GitHub release)
+    # ========================================================================
+    Write-Step "Downloading UI.Xaml dependency..."
+    # Microsoft.UI.Xaml 2.8.x release - x64 appx from GitHub
+    $uiXamlUrl = "https://github.com/nicholasrice/nicholasrice.github.io/releases/download/v1.0.0/Microsoft.UI.Xaml.2.8.x64.appx"
+    $uiXamlPath = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.x64.appx"
+    
+    # Fallback: try NuGet package extraction if GitHub fails
+    $uiXamlInstalled = $false
+    
+    try {
+        Write-Info "Downloading UI.Xaml from: $uiXamlUrl"
+        Invoke-WebRequest -Uri $uiXamlUrl -OutFile $uiXamlPath -UseBasicParsing
+        Write-Pass "Downloaded: $uiXamlPath ($((Get-Item $uiXamlPath).Length) bytes)"
+        $downloadedDeps += "UI.Xaml: $uiXamlPath"
+        
+        Write-Info "Installing UI.Xaml..."
+        Add-AppxPackage -Path $uiXamlPath
+        Write-Pass "Installed UI.Xaml"
+        $dependencyPaths += $uiXamlPath
+        $uiXamlInstalled = $true
+    }
+    catch {
+        Write-Host "[WARN] UI.Xaml download/install from GitHub failed: $_" -ForegroundColor Yellow
+    }
+    
+    # Fallback: Extract from NuGet package
+    if (-not $uiXamlInstalled) {
+        Write-Info "Trying UI.Xaml fallback via NuGet package..."
+        $uiXamlNugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6"
+        $uiXamlNupkg = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.6.nupkg"
+        
+        try {
+            Write-Info "Downloading UI.Xaml NuGet package from: $uiXamlNugetUrl"
+            Invoke-WebRequest -Uri $uiXamlNugetUrl -OutFile $uiXamlNupkg -UseBasicParsing
+            Write-Pass "Downloaded: $uiXamlNupkg"
+            
+            # Extract nupkg (copy to .zip for PS 5.1 compatibility)
+            $uiXamlZip = [System.IO.Path]::ChangeExtension($uiXamlNupkg, '.zip')
+            Copy-Item -Path $uiXamlNupkg -Destination $uiXamlZip -Force
+            
+            $uiXamlExtract = Join-Path $tempDir "uixaml-extract"
+            if (Test-Path $uiXamlExtract) {
+                Remove-Item $uiXamlExtract -Recurse -Force
+            }
+            Expand-Archive -Path $uiXamlZip -DestinationPath $uiXamlExtract -Force
+            
+            # Find x64 appx
+            $uiXamlCandidates = Get-ChildItem -Path $uiXamlExtract -Recurse -Include "*.appx" -File
+            $selectedUiXaml = Select-BestPackageCandidate -Candidates $uiXamlCandidates -PackageName "UI.Xaml"
+            
+            if ($selectedUiXaml) {
+                Write-Info "Installing UI.Xaml from NuGet: $($selectedUiXaml.Name)"
+                Add-AppxPackage -Path $selectedUiXaml.FullName
+                Write-Pass "Installed UI.Xaml from NuGet"
+                $dependencyPaths += $selectedUiXaml.FullName
+                $downloadedDeps += "UI.Xaml (NuGet): $($selectedUiXaml.FullName)"
+                $uiXamlInstalled = $true
+            }
+        }
+        catch {
+            Write-Host "[WARN] UI.Xaml NuGet fallback failed: $_" -ForegroundColor Yellow
+        }
+    }
+    
+    # ========================================================================
+    # Step 4: Download App Installer bundle
+    # ========================================================================
+    Write-Step "Downloading App Installer bundle..."
     $wingetUrl = "https://aka.ms/getwinget"
     $wingetBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
     
-    Write-Info "Downloading App Installer bundle from: $wingetUrl"
     try {
+        Write-Info "Downloading App Installer bundle from: $wingetUrl"
         Invoke-WebRequest -Uri $wingetUrl -OutFile $wingetBundlePath -UseBasicParsing
-        Write-Pass "Downloaded: $wingetBundlePath"
+        Write-Pass "Downloaded: $wingetBundlePath ($((Get-Item $wingetBundlePath).Length) bytes)"
     }
     catch {
         throw "Failed to download App Installer bundle: $_"
     }
     
-    # Extract msixbundle to find dependencies
-    # PowerShell 5.1 Expand-Archive requires .zip extension
-    Write-Step "Extracting App Installer bundle to find dependencies..."
-    $bundleZipPath = [System.IO.Path]::ChangeExtension($wingetBundlePath, '.zip')
-    Copy-Item -Path $wingetBundlePath -Destination $bundleZipPath -Force
-    
-    $bundleExtractDir = Join-Path $tempDir "bundle-extract"
-    if (Test-Path $bundleExtractDir) {
-        Remove-Item $bundleExtractDir -Recurse -Force
-    }
-    Expand-Archive -Path $bundleZipPath -DestinationPath $bundleExtractDir -Force
-    Write-Pass "Extracted bundle to: $bundleExtractDir"
-    
-    # Find all package files recursively in the extracted bundle
-    $allPackages = Get-ChildItem -Path $bundleExtractDir -Recurse -Include "*.appx","*.msix" -File
-    
-    Write-Info "Found $($allPackages.Count) package files in bundle"
-    
-    # Find dependency packages within the bundle
-    $vclibsCandidates = $allPackages | Where-Object { $_.Name -match 'Microsoft\.VCLibs\.140\.00' }
-    $uiXamlCandidates = $allPackages | Where-Object { $_.Name -match 'Microsoft\.UI\.Xaml' }
-    $runtimeCandidates = $allPackages | Where-Object { $_.Name -match 'Microsoft\.WindowsAppRuntime' }
-    
-    Write-Info "VCLibs candidates: $($vclibsCandidates.Count)"
-    Write-Info "UI.Xaml candidates: $($uiXamlCandidates.Count)"
-    Write-Info "WindowsAppRuntime candidates: $($runtimeCandidates.Count)"
-    
-    # Select best candidates using helper function
-    $selectedVCLibs = Select-BestPackageCandidate -Candidates $vclibsCandidates -PackageName "VCLibs"
-    $selectedUIXaml = Select-BestPackageCandidate -Candidates $uiXamlCandidates -PackageName "UI.Xaml"
-    $selectedRuntime = Select-BestPackageCandidate -Candidates $runtimeCandidates -PackageName "WindowsAppRuntime"
-    
-    # Build list of found and missing dependencies for diagnostics
-    $foundDeps = @()
-    $missingDeps = @()
-    $dependencyPaths = @()
-    
-    if ($selectedVCLibs) {
-        $foundDeps += "VCLibs: $($selectedVCLibs.FullName) ($($selectedVCLibs.Length) bytes)"
-        $dependencyPaths += $selectedVCLibs.FullName
-    } else {
-        $missingDeps += "Microsoft.VCLibs.140.00"
-    }
-    
-    if ($selectedUIXaml) {
-        $foundDeps += "UI.Xaml: $($selectedUIXaml.FullName) ($($selectedUIXaml.Length) bytes)"
-        $dependencyPaths += $selectedUIXaml.FullName
-    } else {
-        $missingDeps += "Microsoft.UI.Xaml"
-    }
-    
-    if ($selectedRuntime) {
-        $foundDeps += "WindowsAppRuntime: $($selectedRuntime.FullName) ($($selectedRuntime.Length) bytes)"
-        $dependencyPaths += $selectedRuntime.FullName
-    }
-    # WindowsAppRuntime is optional in bundle - we have fallback
-    
-    Write-Info "Found dependencies:"
-    $foundDeps | ForEach-Object { Write-Info "  $_" }
-    if ($missingDeps.Count -gt 0) {
-        Write-Info "Dependencies not in bundle (will use fallback): $($missingDeps -join ', ')"
-    }
-    
-    # Install dependencies explicitly first
-    Write-Step "Installing bundle dependencies..."
-    
-    foreach ($depPath in $dependencyPaths) {
-        $depName = [System.IO.Path]::GetFileName($depPath)
-        try {
-            Write-Info "Installing dependency: $depName"
-            Add-AppxPackage -Path $depPath
-            Write-Pass "Installed: $depName"
-        }
-        catch {
-            Write-Host "[WARN] Dependency install failed (may already be present): $depName - $_" -ForegroundColor Yellow
-        }
-    }
-    
-    # Try to install the App Installer bundle
+    # ========================================================================
+    # Step 5: Install App Installer bundle with dependencies
+    # ========================================================================
     Write-Step "Installing App Installer bundle..."
     $installSuccess = $false
     $installError = $null
     
     try {
-        # Install with dependency paths
         if ($dependencyPaths.Count -gt 0) {
-            Write-Info "Installing with -DependencyPath: $($dependencyPaths -join ', ')"
+            Write-Info "Installing with -DependencyPath: $($dependencyPaths.Count) dependencies"
+            foreach ($dep in $dependencyPaths) {
+                Write-Info "  Dependency: $dep"
+            }
             Add-AppxPackage -Path $wingetBundlePath -DependencyPath $dependencyPaths
         }
         else {
@@ -348,49 +404,8 @@ function Ensure-Winget {
     }
     catch {
         $installError = $_
-        Write-Host "[WARN] Initial App Installer install failed: $_" -ForegroundColor Yellow
-    }
-    
-    # If install failed and WindowsAppRuntime was not in bundle, try fallback
-    if (-not $installSuccess -and -not $selectedRuntime) {
-        Write-Info "Attempting WindowsAppRuntime fallback..."
-        try {
-            Ensure-WindowsAppRuntime18
-            
-            # Retry App Installer installation
-            Write-Step "Retrying App Installer installation after runtime install..."
-            if ($dependencyPaths.Count -gt 0) {
-                Add-AppxPackage -Path $wingetBundlePath -DependencyPath $dependencyPaths
-            }
-            else {
-                Add-AppxPackage -Path $wingetBundlePath
-            }
-            $installSuccess = $true
-            Write-Pass "Installed App Installer bundle (after runtime fallback)"
-        }
-        catch {
-            # Build comprehensive diagnostic message
-            $diagInfo = @"
-App Installer installation failed even after WindowsAppRuntime fallback.
-Original error: $installError
-Retry error: $_
-
-Bundle path: $wingetBundlePath
-Bundle exists: $(Test-Path $wingetBundlePath)
-
-Dependencies found in bundle:
-$($foundDeps | ForEach-Object { "  $_" } | Out-String)
-
-Dependencies missing from bundle:
-$($missingDeps | ForEach-Object { "  $_" } | Out-String)
-
-All packages in bundle:
-$($allPackages | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" } | Out-String)
-"@
-            throw $diagInfo
-        }
-    }
-    elseif (-not $installSuccess) {
+        Write-Host "[WARN] App Installer install failed: $_" -ForegroundColor Yellow
+        
         # Build comprehensive diagnostic message
         $diagInfo = @"
 App Installer installation failed.
@@ -398,21 +413,30 @@ Error: $installError
 
 Bundle path: $wingetBundlePath
 Bundle exists: $(Test-Path $wingetBundlePath)
+Bundle size: $((Get-Item $wingetBundlePath -ErrorAction SilentlyContinue).Length) bytes
 
-Dependencies found in bundle:
-$($foundDeps | ForEach-Object { "  $_" } | Out-String)
+Downloaded dependencies:
+$($downloadedDeps | ForEach-Object { "  $_" } | Out-String)
 
-Dependencies missing from bundle:
-$($missingDeps | ForEach-Object { "  $_" } | Out-String)
+Dependency paths used:
+$($dependencyPaths | ForEach-Object { "  $_ (exists: $(Test-Path $_))" } | Out-String)
 
-All packages in bundle:
-$($allPackages | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" } | Out-String)
+Installed AppxPackages (VCLibs):
+$(Get-AppxPackage -Name "*VCLibs*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+
+Installed AppxPackages (UI.Xaml):
+$(Get-AppxPackage -Name "*UI.Xaml*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+
+Installed AppxPackages (WindowsAppRuntime):
+$(Get-AppxPackage -Name "*WindowsAppRuntime*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
 "@
         throw $diagInfo
     }
     
-    # Verify winget is now available
-    # Need to refresh PATH - winget installs to WindowsApps which should be in PATH
+    # ========================================================================
+    # Step 6: Verify winget is available
+    # ========================================================================
+    # Refresh PATH - winget installs to WindowsApps which should be in PATH
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     
     $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
@@ -439,7 +463,9 @@ $($allPackages | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" } | Ou
         Write-Host "[WARN] Could not get winget version: $_" -ForegroundColor Yellow
     }
     
-    # Best-effort winget source update (don't fail if this doesn't work)
+    # ========================================================================
+    # Step 7: Best-effort winget source update
+    # ========================================================================
     Write-Step "Updating winget sources (best-effort)..."
     try {
         $sourceResult = & winget source update 2>&1
