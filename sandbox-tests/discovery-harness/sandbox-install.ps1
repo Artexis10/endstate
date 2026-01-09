@@ -126,8 +126,15 @@ function Ensure-Winget {
         Write-Pass "Downloaded: $uiXamlNupkg"
         
         # Extract the appx from the nupkg (it's a zip file)
+        # PowerShell 5.1 Expand-Archive refuses .nupkg extension, so copy to .zip first
+        $uiXamlZip = [System.IO.Path]::ChangeExtension($uiXamlNupkg, '.zip')
+        Copy-Item -Path $uiXamlNupkg -Destination $uiXamlZip -Force
+        
         $uiXamlExtract = Join-Path $tempDir "uixaml-extract"
-        Expand-Archive -Path $uiXamlNupkg -DestinationPath $uiXamlExtract -Force
+        if (Test-Path $uiXamlExtract) {
+            Remove-Item $uiXamlExtract -Recurse -Force
+        }
+        Expand-Archive -Path $uiXamlZip -DestinationPath $uiXamlExtract -Force
         
         # Find the x64 appx
         $appxFile = Get-ChildItem -Path $uiXamlExtract -Recurse -Filter "*.appx" | 
