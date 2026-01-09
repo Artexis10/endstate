@@ -269,11 +269,12 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content | Should -Match 'Sort-Object.*Length.*Descending'
         }
         
-        It "Should include candidate list in error diagnostics" {
+        It "Should include package list in error diagnostics" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            # Must build diagnostic list with paths and sizes
-            $content | Should -Match '\$candidateList.*candidates.*FullName.*Length'
+            # Must build diagnostic list with found deps and all packages
+            $content | Should -Match '\$foundDeps'
+            $content | Should -Match '\$allPackages.*FullName.*Length'
         }
         
         It "Should call Ensure-Winget before winget install" {
@@ -285,7 +286,7 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $ensurePos | Should -BeLessThan $wingetInstallPos
         }
         
-        It "Should have Ensure-WindowsAppRuntime18 function" {
+        It "Should have Ensure-WindowsAppRuntime18 function as fallback" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
             $content | Should -Match 'function\s+Ensure-WindowsAppRuntime18'
@@ -297,54 +298,65 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content | Should -Match 'Get-AppxPackage\s+-Name\s+[''"]Microsoft\.WindowsAppRuntime\.1\.8[''"]'
         }
         
-        It "Should call Ensure-WindowsAppRuntime18 before installing App Installer" {
+        It "Should NOT use api.nuget.org (bundle-driven approach)" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            # Ensure-WindowsAppRuntime18 must be called before Add-AppxPackage for winget
-            $runtimePos = $content.IndexOf('Ensure-WindowsAppRuntime18')
-            $wingetInstallPos = $content.IndexOf('Add-AppxPackage -Path $wingetPath')
-            $runtimePos | Should -BeLessThan $wingetInstallPos
+            # No NuGet flatcontainer references - we extract deps from bundle
+            $content | Should -Not -Match 'api\.nuget\.org'
         }
         
-        It "Should have Ensure-VCLibs140 function" {
+        It "Should copy msixbundle to .zip for Expand-Archive (PS 5.1 compat)" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            $content | Should -Match 'function\s+Ensure-VCLibs140'
+            # Must copy bundle to .zip before Expand-Archive
+            $content | Should -Match 'ChangeExtension.*\.zip'
+            $content | Should -Match 'Copy-Item.*bundleZipPath'
+            $content | Should -Match 'Expand-Archive.*bundleZipPath'
         }
         
-        It "Should fetch VCLibs version list from NuGet v3 flatcontainer" {
+        It "Should recursively search for VCLibs dependency in extracted bundle" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            $content | Should -Match 'api\.nuget\.org/v3-flatcontainer/microsoft\.vclibs\.140\.00/index\.json'
-        }
-        
-        It "Should download VCLibs nupkg from NuGet v3 flatcontainer" {
-            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
-            $content = Get-Content -Path $installScript -Raw
-            $content | Should -Match 'api\.nuget\.org/v3-flatcontainer/microsoft\.vclibs\.140\.00/.*\.nupkg'
-        }
-        
-        It "Should call Ensure-VCLibs140 before installing App Installer" {
-            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
-            $content = Get-Content -Path $installScript -Raw
-            # Ensure-VCLibs140 must be called before Add-AppxPackage for winget
-            $vclibsPos = $content.IndexOf('Ensure-VCLibs140')
-            $wingetInstallPos = $content.IndexOf('Add-AppxPackage -Path $wingetPath')
-            $vclibsPos | Should -BeLessThan $wingetInstallPos
-        }
-        
-        It "Should use -DependencyPath when installing App Installer" {
-            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
-            $content = Get-Content -Path $installScript -Raw
-            $content | Should -Match 'Add-AppxPackage\s+-Path\s+\$wingetPath\s+-DependencyPath'
-        }
-        
-        It "Should check Get-AppxPackage for Microsoft.VCLibs.140.00 (non-Desktop)" {
-            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
-            $content = Get-Content -Path $installScript -Raw
-            # Must check for VCLibs.140.00 but exclude Desktop variant
             $content | Should -Match 'Microsoft\.VCLibs\.140\.00'
-            $content | Should -Match '-notlike.*Desktop'
+            $content | Should -Match 'vclibsCandidates'
+        }
+        
+        It "Should recursively search for UI.Xaml dependency in extracted bundle" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'Microsoft\.UI\.Xaml'
+            $content | Should -Match 'uiXamlCandidates'
+        }
+        
+        It "Should recursively search for WindowsAppRuntime dependency in extracted bundle" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'Microsoft\.WindowsAppRuntime'
+            $content | Should -Match 'runtimeCandidates'
+        }
+        
+        It "Should use -DependencyPath when installing App Installer bundle" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'Add-AppxPackage\s+-Path\s+\$wingetBundlePath\s+-DependencyPath'
+        }
+        
+        It "Should have Select-BestPackageCandidate helper function" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'function\s+Select-BestPackageCandidate'
+        }
+        
+        It "Should verify winget version after install" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'winget\s+--version'
+        }
+        
+        It "Should have best-effort winget source update" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'winget\s+source\s+update'
         }
     }
 }

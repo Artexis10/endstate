@@ -64,6 +64,65 @@ function Write-Pass {
     Write-Host "[PASS] $Message" -ForegroundColor Green
 }
 
+function Select-BestPackageCandidate {
+    <#
+    .SYNOPSIS
+        Selects the best package candidate from a list, preferring x64 > neutral > largest.
+    .PARAMETER Candidates
+        Array of FileInfo objects representing package candidates.
+    .PARAMETER PackageName
+        Name of the package (for logging purposes).
+    .OUTPUTS
+        The selected FileInfo object, or $null if no candidates.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [System.IO.FileInfo[]]$Candidates,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$PackageName = "package"
+    )
+    
+    if (-not $Candidates -or $Candidates.Count -eq 0) {
+        return $null
+    }
+    
+    # Prefer x64 candidates
+    $x64Candidates = $Candidates | Where-Object {
+        $_.Name -match 'x64' -or 
+        $_.FullName -match '\\x64\\' -or 
+        $_.FullName -match '\\win10-x64\\' -or
+        $_.FullName -match '\\runtimes\\win10-x64\\'
+    }
+    
+    # Neutral candidates
+    $neutralCandidates = $Candidates | Where-Object {
+        $_.Name -match 'neutral' -or
+        $_.FullName -match '\\neutral\\'
+    }
+    
+    $selected = $null
+    if ($x64Candidates -and $x64Candidates.Count -gt 0) {
+        $selected = $x64Candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
+        Write-Info "Selected x64 $PackageName candidate: $($selected.Name) ($($selected.Length) bytes)"
+    }
+    elseif ($neutralCandidates -and $neutralCandidates.Count -gt 0) {
+        $selected = $neutralCandidates | Sort-Object -Property Length -Descending | Select-Object -First 1
+        Write-Info "Selected neutral $PackageName candidate: $($selected.Name) ($($selected.Length) bytes)"
+    }
+    elseif ($Candidates.Count -eq 1) {
+        $selected = $Candidates[0]
+        Write-Info "Using single $PackageName candidate: $($selected.Name) ($($selected.Length) bytes)"
+    }
+    else {
+        $selected = $Candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
+        Write-Info "Selected largest $PackageName candidate: $($selected.Name) ($($selected.Length) bytes)"
+    }
+    
+    return $selected
+}
+
 function Ensure-WindowsAppRuntime18 {
     <#
     .SYNOPSIS
@@ -149,157 +208,13 @@ $(Get-AppxPackage -Name "Microsoft.WindowsAppRuntime*" -ErrorAction SilentlyCont
     Write-Pass "Windows App Runtime 1.8 installed: $($runtime.Version)"
 }
 
-function Ensure-VCLibs140 {
-    <#
-    .SYNOPSIS
-        Ensures Microsoft.VCLibs.140.00 framework is installed.
-    .DESCRIPTION
-        App Installer requires Microsoft.VCLibs.140.00 (not just the Desktop variant).
-        This function checks if it's present and installs it from NuGet if missing.
-    .OUTPUTS
-        Returns the path to the installed appx file for use as a dependency.
-    #>
-    
-    Write-Step "Checking for Microsoft.VCLibs.140.00..."
-    
-    # Check if already installed (match package name containing Microsoft.VCLibs.140.00)
-    $vclibs = Get-AppxPackage | Where-Object { $_.Name -like "Microsoft.VCLibs.140.00*" -and $_.Name -notlike "*Desktop*" }
-    if ($vclibs) {
-        Write-Pass "Microsoft.VCLibs.140.00 is installed: $($vclibs.Name) v$($vclibs.Version)"
-        return $null
-    }
-    
-    Write-Info "Microsoft.VCLibs.140.00 not found. Installing from NuGet..."
-    
-    # Ensure TLS 1.2+ for downloads
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    
-    # Create temp directory for downloads
-    $tempDir = Join-Path $env:TEMP "winget-bootstrap"
-    if (-not (Test-Path $tempDir)) {
-        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
-    }
-    
-    # Fetch version list from NuGet v3 flatcontainer
-    $indexUrl = "https://api.nuget.org/v3-flatcontainer/microsoft.vclibs.140.00/index.json"
-    Write-Info "Fetching version list from: $indexUrl"
-    
-    try {
-        $indexJson = Invoke-WebRequest -Uri $indexUrl -UseBasicParsing | ConvertFrom-Json
-        $versions = $indexJson.versions
-        if (-not $versions -or $versions.Count -eq 0) {
-            throw "No versions found in NuGet index"
-        }
-        
-        # Pick highest version (NuGet versions are semver-sorted, last is highest)
-        $latestVersion = $versions[-1]
-        Write-Info "Latest version: $latestVersion"
-    }
-    catch {
-        throw "Failed to fetch VCLibs version list from NuGet: $_"
-    }
-    
-    # Download nupkg
-    $nupkgUrl = "https://api.nuget.org/v3-flatcontainer/microsoft.vclibs.140.00/$latestVersion/microsoft.vclibs.140.00.$latestVersion.nupkg"
-    $nupkgPath = Join-Path $tempDir "microsoft.vclibs.140.00.$latestVersion.nupkg"
-    
-    Write-Info "Downloading: $nupkgUrl"
-    try {
-        Invoke-WebRequest -Uri $nupkgUrl -OutFile $nupkgPath -UseBasicParsing
-        Write-Pass "Downloaded: $nupkgPath"
-    }
-    catch {
-        throw "Failed to download VCLibs nupkg: $_"
-    }
-    
-    # Extract nupkg (copy to .zip first for PS 5.1 compatibility)
-    $zipPath = [System.IO.Path]::ChangeExtension($nupkgPath, '.zip')
-    Copy-Item -Path $nupkgPath -Destination $zipPath -Force
-    
-    $extractDir = Join-Path $tempDir "vclibs140-extract"
-    if (Test-Path $extractDir) {
-        Remove-Item $extractDir -Recurse -Force
-    }
-    Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
-    
-    # Find candidate appx files recursively
-    $candidates = Get-ChildItem -Path $extractDir -Recurse -Include "*.appx","*.msix","*.msixbundle" -File
-    
-    if (-not $candidates -or $candidates.Count -eq 0) {
-        throw "Could not find any appx/msix files in VCLibs package at: $extractDir"
-    }
-    
-    # Prefer x64 or neutral packages
-    $x64Candidates = $candidates | Where-Object {
-        $_.Name -match 'x64' -or 
-        $_.FullName -match '\\x64\\' -or 
-        $_.FullName -match '\\win10-x64\\' -or
-        $_.FullName -match '\\runtimes\\win10-x64\\'
-    }
-    
-    $neutralCandidates = $candidates | Where-Object {
-        $_.Name -match 'neutral' -or
-        $_.FullName -match '\\neutral\\'
-    }
-    
-    $selectedCandidate = $null
-    if ($x64Candidates -and $x64Candidates.Count -gt 0) {
-        # Pick largest x64 candidate
-        $selectedCandidate = $x64Candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
-        Write-Info "Selected x64 candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
-    }
-    elseif ($neutralCandidates -and $neutralCandidates.Count -gt 0) {
-        # Pick largest neutral candidate
-        $selectedCandidate = $neutralCandidates | Sort-Object -Property Length -Descending | Select-Object -First 1
-        Write-Info "Selected neutral candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
-    }
-    elseif ($candidates.Count -eq 1) {
-        $selectedCandidate = $candidates[0]
-        Write-Info "Using single candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
-    }
-    else {
-        # Multiple non-x64/neutral candidates, pick largest
-        $selectedCandidate = $candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
-        Write-Info "Selected largest candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
-    }
-    
-    if (-not $selectedCandidate) {
-        $candidateList = ($candidates | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" }) -join "`n"
-        throw "Could not select VCLibs package candidate. Found $($candidates.Count) candidates:`n$candidateList"
-    }
-    
-    # Copy to known location
-    $vclibsAppx = Join-Path $tempDir "Microsoft.VCLibs.140.00.appx"
-    Copy-Item -Path $selectedCandidate.FullName -Destination $vclibsAppx -Force
-    
-    # Install
-    Write-Info "Installing Microsoft.VCLibs.140.00..."
-    try {
-        Add-AppxPackage -Path $vclibsAppx
-        Write-Pass "Installed Microsoft.VCLibs.140.00"
-    }
-    catch {
-        throw "Failed to install Microsoft.VCLibs.140.00: $_"
-    }
-    
-    # Verify installation
-    $vclibs = Get-AppxPackage | Where-Object { $_.Name -like "Microsoft.VCLibs.140.00*" -and $_.Name -notlike "*Desktop*" }
-    if (-not $vclibs) {
-        $candidateList = ($candidates | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" }) -join "`n"
-        throw "Microsoft.VCLibs.140.00 installation completed but package not found. Candidates were:`n$candidateList"
-    }
-    
-    Write-Pass "Microsoft.VCLibs.140.00 verified: $($vclibs.Name) v$($vclibs.Version)"
-    return $vclibsAppx
-}
-
 function Ensure-Winget {
     <#
     .SYNOPSIS
         Ensures winget is available, bootstrapping it if necessary.
     .DESCRIPTION
-        Checks if winget is installed. If not, downloads and installs the
-        App Installer MSIX bundle and its dependencies (Windows App Runtime 1.8, VCLibs, UI.Xaml).
+        Checks if winget is installed. If not, downloads the App Installer MSIX bundle,
+        extracts dependencies from within the bundle, and installs them.
         This is needed because Windows Sandbox does not include winget by default.
     #>
     
@@ -312,13 +227,7 @@ function Ensure-Winget {
         return
     }
     
-    Write-Info "winget not found. Bootstrapping..."
-    
-    # First ensure Windows App Runtime 1.8 is installed (required by App Installer)
-    Ensure-WindowsAppRuntime18
-    
-    # Ensure Microsoft.VCLibs.140.00 is installed (required framework for App Installer)
-    $vclibsAppxPath = Ensure-VCLibs140
+    Write-Info "winget not found. Bootstrapping from App Installer bundle..."
     
     # Ensure TLS 1.2+ for downloads
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -329,146 +238,177 @@ function Ensure-Winget {
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     }
     
-    # Download URLs (documented for maintainability)
-    # VCLibs: Required C++ runtime dependency
-    $vcLibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
-    $vcLibsPath = Join-Path $tempDir "Microsoft.VCLibs.x64.14.00.Desktop.appx"
-    
-    # UI.Xaml: Required UI framework dependency (using stable 2.8.x release)
-    # Source: https://www.nuget.org/packages/Microsoft.UI.Xaml
-    $uiXamlUrl = "https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6"
-    $uiXamlNupkg = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.6.nupkg"
-    $uiXamlAppx = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.appx"
-    
-    # Winget (App Installer): The main package
+    # Download App Installer bundle from aka.ms/getwinget
     $wingetUrl = "https://aka.ms/getwinget"
-    $wingetPath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
+    $wingetBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
     
-    # Download VCLibs
-    Write-Info "Downloading VCLibs dependency..."
+    Write-Info "Downloading App Installer bundle from: $wingetUrl"
     try {
-        Invoke-WebRequest -Uri $vcLibsUrl -OutFile $vcLibsPath -UseBasicParsing
-        Write-Pass "Downloaded: $vcLibsPath"
+        Invoke-WebRequest -Uri $wingetUrl -OutFile $wingetBundlePath -UseBasicParsing
+        Write-Pass "Downloaded: $wingetBundlePath"
     }
     catch {
-        throw "Failed to download VCLibs: $_"
+        throw "Failed to download App Installer bundle: $_"
     }
     
-    # Download UI.Xaml (comes as nupkg, need to extract appx)
-    Write-Info "Downloading UI.Xaml dependency..."
+    # Extract msixbundle to find dependencies
+    # PowerShell 5.1 Expand-Archive requires .zip extension
+    Write-Step "Extracting App Installer bundle to find dependencies..."
+    $bundleZipPath = [System.IO.Path]::ChangeExtension($wingetBundlePath, '.zip')
+    Copy-Item -Path $wingetBundlePath -Destination $bundleZipPath -Force
+    
+    $bundleExtractDir = Join-Path $tempDir "bundle-extract"
+    if (Test-Path $bundleExtractDir) {
+        Remove-Item $bundleExtractDir -Recurse -Force
+    }
+    Expand-Archive -Path $bundleZipPath -DestinationPath $bundleExtractDir -Force
+    Write-Pass "Extracted bundle to: $bundleExtractDir"
+    
+    # Find all package files recursively in the extracted bundle
+    $allPackages = Get-ChildItem -Path $bundleExtractDir -Recurse -Include "*.appx","*.msix" -File
+    
+    Write-Info "Found $($allPackages.Count) package files in bundle"
+    
+    # Find dependency packages within the bundle
+    $vclibsCandidates = $allPackages | Where-Object { $_.Name -match 'Microsoft\.VCLibs\.140\.00' }
+    $uiXamlCandidates = $allPackages | Where-Object { $_.Name -match 'Microsoft\.UI\.Xaml' }
+    $runtimeCandidates = $allPackages | Where-Object { $_.Name -match 'Microsoft\.WindowsAppRuntime' }
+    
+    Write-Info "VCLibs candidates: $($vclibsCandidates.Count)"
+    Write-Info "UI.Xaml candidates: $($uiXamlCandidates.Count)"
+    Write-Info "WindowsAppRuntime candidates: $($runtimeCandidates.Count)"
+    
+    # Select best candidates using helper function
+    $selectedVCLibs = Select-BestPackageCandidate -Candidates $vclibsCandidates -PackageName "VCLibs"
+    $selectedUIXaml = Select-BestPackageCandidate -Candidates $uiXamlCandidates -PackageName "UI.Xaml"
+    $selectedRuntime = Select-BestPackageCandidate -Candidates $runtimeCandidates -PackageName "WindowsAppRuntime"
+    
+    # Build list of found and missing dependencies for diagnostics
+    $foundDeps = @()
+    $missingDeps = @()
+    $dependencyPaths = @()
+    
+    if ($selectedVCLibs) {
+        $foundDeps += "VCLibs: $($selectedVCLibs.FullName) ($($selectedVCLibs.Length) bytes)"
+        $dependencyPaths += $selectedVCLibs.FullName
+    } else {
+        $missingDeps += "Microsoft.VCLibs.140.00"
+    }
+    
+    if ($selectedUIXaml) {
+        $foundDeps += "UI.Xaml: $($selectedUIXaml.FullName) ($($selectedUIXaml.Length) bytes)"
+        $dependencyPaths += $selectedUIXaml.FullName
+    } else {
+        $missingDeps += "Microsoft.UI.Xaml"
+    }
+    
+    if ($selectedRuntime) {
+        $foundDeps += "WindowsAppRuntime: $($selectedRuntime.FullName) ($($selectedRuntime.Length) bytes)"
+        $dependencyPaths += $selectedRuntime.FullName
+    }
+    # WindowsAppRuntime is optional in bundle - we have fallback
+    
+    Write-Info "Found dependencies:"
+    $foundDeps | ForEach-Object { Write-Info "  $_" }
+    if ($missingDeps.Count -gt 0) {
+        Write-Info "Dependencies not in bundle (will use fallback): $($missingDeps -join ', ')"
+    }
+    
+    # Install dependencies explicitly first
+    Write-Step "Installing bundle dependencies..."
+    
+    foreach ($depPath in $dependencyPaths) {
+        $depName = [System.IO.Path]::GetFileName($depPath)
+        try {
+            Write-Info "Installing dependency: $depName"
+            Add-AppxPackage -Path $depPath
+            Write-Pass "Installed: $depName"
+        }
+        catch {
+            Write-Host "[WARN] Dependency install failed (may already be present): $depName - $_" -ForegroundColor Yellow
+        }
+    }
+    
+    # Try to install the App Installer bundle
+    Write-Step "Installing App Installer bundle..."
+    $installSuccess = $false
+    $installError = $null
+    
     try {
-        Invoke-WebRequest -Uri $uiXamlUrl -OutFile $uiXamlNupkg -UseBasicParsing
-        Write-Pass "Downloaded: $uiXamlNupkg"
-        
-        # Extract the appx from the nupkg (it's a zip file)
-        # PowerShell 5.1 Expand-Archive refuses .nupkg extension, so copy to .zip first
-        $uiXamlZip = [System.IO.Path]::ChangeExtension($uiXamlNupkg, '.zip')
-        Copy-Item -Path $uiXamlNupkg -Destination $uiXamlZip -Force
-        
-        $uiXamlExtract = Join-Path $tempDir "uixaml-extract"
-        if (Test-Path $uiXamlExtract) {
-            Remove-Item $uiXamlExtract -Recurse -Force
-        }
-        Expand-Archive -Path $uiXamlZip -DestinationPath $uiXamlExtract -Force
-        
-        # Find candidate packages (appx, msix, msixbundle) recursively
-        $candidates = Get-ChildItem -Path $uiXamlExtract -Recurse -Include "*.appx","*.msix","*.msixbundle" -File
-        
-        if (-not $candidates -or $candidates.Count -eq 0) {
-            throw "Could not find any appx/msix/msixbundle files in UI.Xaml package at: $uiXamlExtract"
-        }
-        
-        # Identify x64 candidates by filename or folder path
-        $x64Candidates = $candidates | Where-Object {
-            $_.Name -match 'x64' -or 
-            $_.FullName -match '\\x64\\' -or 
-            $_.FullName -match '\\win10-x64\\' -or 
-            $_.FullName -match '\\runtimes\\win10-x64\\'
-        }
-        
-        $selectedCandidate = $null
-        if ($x64Candidates -and $x64Candidates.Count -gt 0) {
-            # Pick largest x64 candidate
-            $selectedCandidate = $x64Candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
-            Write-Info "Selected x64 candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
-        }
-        elseif ($candidates.Count -eq 1) {
-            # Only one candidate, use it
-            $selectedCandidate = $candidates[0]
-            Write-Info "Using single candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
-        }
-        else {
-            # Multiple non-x64 candidates, pick largest
-            $selectedCandidate = $candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
-            Write-Info "Selected largest candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
-        }
-        
-        if (-not $selectedCandidate) {
-            # Build diagnostic message with all candidates
-            $candidateList = ($candidates | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" }) -join "`n"
-            throw "Could not select UI.Xaml package candidate. Found $($candidates.Count) candidates:`n$candidateList"
-        }
-        
-        Copy-Item -Path $selectedCandidate.FullName -Destination $uiXamlAppx -Force
-        Write-Pass "Extracted: $uiXamlAppx"
-    }
-    catch {
-        throw "Failed to download/extract UI.Xaml: $_"
-    }
-    
-    # Download winget
-    Write-Info "Downloading winget (App Installer)..."
-    try {
-        Invoke-WebRequest -Uri $wingetUrl -OutFile $wingetPath -UseBasicParsing
-        Write-Pass "Downloaded: $wingetPath"
-    }
-    catch {
-        throw "Failed to download winget: $_"
-    }
-    
-    # Install dependencies first, then winget
-    Write-Step "Installing dependencies..."
-    
-    try {
-        Write-Info "Installing VCLibs Desktop..."
-        Add-AppxPackage -Path $vcLibsPath
-        Write-Pass "Installed VCLibs Desktop"
-    }
-    catch {
-        Write-Host "[WARN] VCLibs Desktop install failed (may already be present): $_" -ForegroundColor Yellow
-    }
-    
-    try {
-        Write-Info "Installing UI.Xaml..."
-        Add-AppxPackage -Path $uiXamlAppx
-        Write-Pass "Installed UI.Xaml"
-    }
-    catch {
-        Write-Host "[WARN] UI.Xaml install failed (may already be present): $_" -ForegroundColor Yellow
-    }
-    
-    Write-Step "Installing winget (App Installer)..."
-    try {
-        # Build dependency path array for Add-AppxPackage
-        $dependencyPaths = @()
-        if ($vclibsAppxPath -and (Test-Path $vclibsAppxPath)) {
-            $dependencyPaths += $vclibsAppxPath
-        }
-        if (Test-Path $uiXamlAppx) {
-            $dependencyPaths += $uiXamlAppx
-        }
-        
+        # Install with dependency paths
         if ($dependencyPaths.Count -gt 0) {
-            Write-Info "Installing with dependencies: $($dependencyPaths -join ', ')"
-            Add-AppxPackage -Path $wingetPath -DependencyPath $dependencyPaths
+            Write-Info "Installing with -DependencyPath: $($dependencyPaths -join ', ')"
+            Add-AppxPackage -Path $wingetBundlePath -DependencyPath $dependencyPaths
         }
         else {
-            Add-AppxPackage -Path $wingetPath
+            Add-AppxPackage -Path $wingetBundlePath
         }
-        Write-Pass "Installed winget"
+        $installSuccess = $true
+        Write-Pass "Installed App Installer bundle"
     }
     catch {
-        throw "Failed to install winget: $_"
+        $installError = $_
+        Write-Host "[WARN] Initial App Installer install failed: $_" -ForegroundColor Yellow
+    }
+    
+    # If install failed and WindowsAppRuntime was not in bundle, try fallback
+    if (-not $installSuccess -and -not $selectedRuntime) {
+        Write-Info "Attempting WindowsAppRuntime fallback..."
+        try {
+            Ensure-WindowsAppRuntime18
+            
+            # Retry App Installer installation
+            Write-Step "Retrying App Installer installation after runtime install..."
+            if ($dependencyPaths.Count -gt 0) {
+                Add-AppxPackage -Path $wingetBundlePath -DependencyPath $dependencyPaths
+            }
+            else {
+                Add-AppxPackage -Path $wingetBundlePath
+            }
+            $installSuccess = $true
+            Write-Pass "Installed App Installer bundle (after runtime fallback)"
+        }
+        catch {
+            # Build comprehensive diagnostic message
+            $diagInfo = @"
+App Installer installation failed even after WindowsAppRuntime fallback.
+Original error: $installError
+Retry error: $_
+
+Bundle path: $wingetBundlePath
+Bundle exists: $(Test-Path $wingetBundlePath)
+
+Dependencies found in bundle:
+$($foundDeps | ForEach-Object { "  $_" } | Out-String)
+
+Dependencies missing from bundle:
+$($missingDeps | ForEach-Object { "  $_" } | Out-String)
+
+All packages in bundle:
+$($allPackages | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" } | Out-String)
+"@
+            throw $diagInfo
+        }
+    }
+    elseif (-not $installSuccess) {
+        # Build comprehensive diagnostic message
+        $diagInfo = @"
+App Installer installation failed.
+Error: $installError
+
+Bundle path: $wingetBundlePath
+Bundle exists: $(Test-Path $wingetBundlePath)
+
+Dependencies found in bundle:
+$($foundDeps | ForEach-Object { "  $_" } | Out-String)
+
+Dependencies missing from bundle:
+$($missingDeps | ForEach-Object { "  $_" } | Out-String)
+
+All packages in bundle:
+$($allPackages | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" } | Out-String)
+"@
+        throw $diagInfo
     }
     
     # Verify winget is now available
@@ -481,12 +421,35 @@ function Ensure-Winget {
         $wingetExe = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\winget.exe"
         if (Test-Path $wingetExe) {
             Write-Pass "winget installed at: $wingetExe"
-            return
         }
-        throw "winget installation completed but winget command is still not available"
+        else {
+            throw "winget installation completed but winget command is still not available"
+        }
+    }
+    else {
+        Write-Pass "winget available at: $($wingetCmd.Source)"
     }
     
-    Write-Pass "winget bootstrap complete: $($wingetCmd.Source)"
+    # Verify winget version
+    try {
+        $wingetVersion = & winget --version 2>&1
+        Write-Pass "winget version: $wingetVersion"
+    }
+    catch {
+        Write-Host "[WARN] Could not get winget version: $_" -ForegroundColor Yellow
+    }
+    
+    # Best-effort winget source update (don't fail if this doesn't work)
+    Write-Step "Updating winget sources (best-effort)..."
+    try {
+        $sourceResult = & winget source update 2>&1
+        Write-Pass "winget source update completed"
+    }
+    catch {
+        Write-Host "[WARN] winget source update failed (non-fatal): $_" -ForegroundColor Yellow
+    }
+    
+    Write-Pass "winget bootstrap complete"
 }
 
 # Parse roots
