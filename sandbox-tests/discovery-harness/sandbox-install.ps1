@@ -37,6 +37,25 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# ============================================================================
+# IMMEDIATE STARTUP MARKER - Write before ANY other logic
+# ============================================================================
+if ($OutputDir -and -not (Test-Path $OutputDir)) {
+    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+}
+if ($OutputDir) {
+    $startedFile = Join-Path $OutputDir "STARTED.txt"
+    "Script started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')`nPID: $PID`nWingetId: $WingetId`nOutputDir: $OutputDir`nDryRun: $DryRun" | Out-File -FilePath $startedFile -Encoding UTF8
+}
+
+# Global output directory for heartbeat (set after param validation)
+$script:HeartbeatDir = $OutputDir
+$script:StepFile = if ($OutputDir) { Join-Path $OutputDir "STEP.txt" } else { $null }
+$script:ErrorFile = if ($OutputDir) { Join-Path $OutputDir "ERROR.txt" } else { $null }
+
+# Ensure TLS 1.2+ globally for all downloads
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+
 # Resolve script location
 $script:HarnessRoot = $PSScriptRoot
 $script:RepoRoot = (Resolve-Path (Join-Path $script:HarnessRoot "..\..")).Path
@@ -52,6 +71,227 @@ if (-not (Test-Path $snapshotModule)) {
 function Write-Step {
     param([string]$Message)
     Write-Host "[STEP] $Message" -ForegroundColor Yellow
+    # Also write to STEP.txt for diagnostics
+    if ($script:StepFile) {
+        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $Message" | Out-File -FilePath $script:StepFile -Encoding UTF8
+    }
+}
+
+function Write-FatalError {
+    <#
+    .SYNOPSIS
+        Writes ERROR.txt and exits with code 1.
+    #>
+    param(
+        [string]$Step,
+        [string]$Message,
+        [string]$Details = ""
+    )
+    
+    $content = @"
+FATAL ERROR at step: $Step
+Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+Message: $Message
+
+Details:
+$Details
+
+Installed AppxPackages (relevant):
+VCLibs:
+$(Get-AppxPackage -Name "*VCLibs*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+UI.Xaml:
+$(Get-AppxPackage -Name "*UI.Xaml*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+WindowsAppRuntime:
+$(Get-AppxPackage -Name "*WindowsAppRuntime*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+DesktopAppInstaller:
+$(Get-AppxPackage -Name "*DesktopAppInstaller*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+"@
+    
+    if ($script:ErrorFile) {
+        $content | Out-File -FilePath $script:ErrorFile -Encoding UTF8
+    }
+    Write-Heartbeat "FATAL: $Step" -Details $Message
+    Write-Host "[FATAL] $Message" -ForegroundColor Red
+    exit 1
+}
+
+function Invoke-WithTimeout {
+    <#
+    .SYNOPSIS
+        Runs a script block with a timeout. On timeout, writes ERROR.txt and exits.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock,
+        [Parameter(Mandatory = $true)]
+        [int]$TimeoutSeconds,
+        [Parameter(Mandatory = $true)]
+        [string]$StepName
+    )
+    
+    Write-Heartbeat "$StepName`: starting (timeout ${TimeoutSeconds}s)"
+    
+    $job = Start-Job -ScriptBlock $ScriptBlock
+    $completed = $job | Wait-Job -Timeout $TimeoutSeconds
+    
+    if ($null -eq $completed) {
+        # Timeout occurred
+        $job | Stop-Job
+        $job | Remove-Job -Force
+        Write-FatalError -Step $StepName -Message "Operation timed out after ${TimeoutSeconds} seconds" -Details "The operation did not complete within the allowed time."
+    }
+    
+    $result = $job | Receive-Job
+    $hadError = $job.State -eq 'Failed'
+    $job | Remove-Job -Force
+    
+    if ($hadError) {
+        Write-FatalError -Step $StepName -Message "Operation failed" -Details ($result | Out-String)
+    }
+    
+    Write-Heartbeat "$StepName`: completed"
+    return $result
+}
+
+function Invoke-RobustDownload {
+    <#
+    .SYNOPSIS
+        Downloads a file with timeout, retries, size validation, and diagnostics.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url,
+        [Parameter(Mandatory = $true)]
+        [string]$OutFile,
+        [Parameter(Mandatory = $true)]
+        [string]$StepName,
+        [int]$TimeoutSeconds = 180,
+        [int]$MinExpectedBytes = 1000000,
+        [int]$MaxRetries = 3
+    )
+    
+    Write-Step "Downloading: $StepName"
+    Write-Heartbeat "$StepName`: downloading" -Details "URL: $Url"
+    
+    for ($retry = 1; $retry -le $MaxRetries; $retry++) {
+        try {
+            if (Test-Path $OutFile) {
+                Remove-Item $OutFile -Force
+            }
+            
+            Write-Info "Download attempt $retry of $MaxRetries..."
+            Write-Heartbeat "$StepName`: attempt $retry"
+            
+            # Use WebClient for better timeout control
+            $webClient = New-Object System.Net.WebClient
+            $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0")
+            
+            # Download with timeout using async + wait
+            $downloadTask = $webClient.DownloadFileTaskAsync($Url, $OutFile)
+            $completed = $downloadTask.Wait($TimeoutSeconds * 1000)
+            
+            if (-not $completed) {
+                $webClient.CancelAsync()
+                Write-Host "[WARN] Download timed out after ${TimeoutSeconds}s, retrying..." -ForegroundColor Yellow
+                Write-Heartbeat "$StepName`: timeout on attempt $retry"
+                continue
+            }
+            
+            if ($downloadTask.IsFaulted) {
+                throw $downloadTask.Exception.InnerException
+            }
+            
+            # Validate file exists and size
+            if (-not (Test-Path $OutFile)) {
+                Write-Host "[WARN] Download did not create file, retrying..." -ForegroundColor Yellow
+                continue
+            }
+            
+            $fileSize = (Get-Item $OutFile).Length
+            Write-Info "Downloaded file size: $fileSize bytes"
+            
+            if ($fileSize -lt $MinExpectedBytes) {
+                # File too small - likely HTML error page
+                $fileContent = Get-Content -Path $OutFile -TotalCount 20 -ErrorAction SilentlyContinue
+                $contentPreview = $fileContent -join "`n"
+                
+                Write-Host "[WARN] Downloaded file too small ($fileSize bytes < $MinExpectedBytes expected)" -ForegroundColor Yellow
+                Write-Heartbeat "$StepName`: file too small" -Details "Size: $fileSize bytes`nContent preview:`n$contentPreview"
+                
+                if ($retry -eq $MaxRetries) {
+                    Write-FatalError -Step $StepName -Message "Downloaded file too small after $MaxRetries attempts" -Details "Expected: >= $MinExpectedBytes bytes`nActual: $fileSize bytes`nURL: $Url`n`nFile content (first 20 lines):`n$contentPreview"
+                }
+                Start-Sleep -Seconds 2
+                continue
+            }
+            
+            # Validate it's not HTML (common error response)
+            $bytes = [System.IO.File]::ReadAllBytes($OutFile)
+            if ($bytes.Length -ge 5) {
+                $header = [System.Text.Encoding]::ASCII.GetString($bytes[0..4])
+                if ($header -match '^<!DOC' -or $header -match '^<html' -or $header -match '^<HTML') {
+                    $fileContent = Get-Content -Path $OutFile -TotalCount 20 -ErrorAction SilentlyContinue
+                    $contentPreview = $fileContent -join "`n"
+                    Write-FatalError -Step $StepName -Message "Downloaded file is HTML (error page)" -Details "URL: $Url`n`nContent:`n$contentPreview"
+                }
+            }
+            
+            Write-Pass "Downloaded: $OutFile ($fileSize bytes)"
+            Write-Heartbeat "$StepName`: downloaded" -Details "Size: $fileSize bytes"
+            return $true
+        }
+        catch {
+            Write-Host "[WARN] Download attempt $retry failed: $_" -ForegroundColor Yellow
+            Write-Heartbeat "$StepName`: attempt $retry failed" -Details "$_"
+            if ($retry -lt $MaxRetries) {
+                Start-Sleep -Seconds 2
+            }
+        }
+    }
+    
+    Write-FatalError -Step $StepName -Message "Download failed after $MaxRetries attempts" -Details "URL: $Url"
+}
+
+function Invoke-AppxInstall {
+    <#
+    .SYNOPSIS
+        Installs an AppX package with error handling.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$StepName,
+        [string[]]$DependencyPath = @(),
+        [switch]$AllowFailure
+    )
+    
+    Write-Step "Installing: $StepName"
+    Write-Heartbeat "$StepName`: installing" -Details "Path: $Path, Dependencies: $($DependencyPath.Count)"
+    
+    try {
+        # Run Add-AppxPackage directly (not in a job to preserve array parameters)
+        if ($DependencyPath -and $DependencyPath.Count -gt 0) {
+            Write-Info "Installing with $($DependencyPath.Count) dependencies"
+            Add-AppxPackage -Path $Path -DependencyPath $DependencyPath
+        } else {
+            Add-AppxPackage -Path $Path
+        }
+        
+        Write-Pass "Installed: $StepName"
+        Write-Heartbeat "$StepName`: installed"
+        return $true
+    }
+    catch {
+        if ($AllowFailure) {
+            $errorDetails = Get-AppxErrorDetails -Exception $_
+            Write-Host "[WARN] $StepName failed (allowed): $_" -ForegroundColor Yellow
+            Write-Heartbeat "$StepName`: failed (allowed)" -Details $errorDetails
+            return $false
+        }
+        $errorDetails = Get-AppxErrorDetails -Exception $_
+        Write-FatalError -Step $StepName -Message "Add-AppxPackage failed" -Details $errorDetails
+    }
 }
 
 function Write-Info {
@@ -62,6 +302,75 @@ function Write-Info {
 function Write-Pass {
     param([string]$Message)
     Write-Host "[PASS] $Message" -ForegroundColor Green
+}
+
+function Write-Heartbeat {
+    <#
+    .SYNOPSIS
+        Writes a heartbeat file to track progress through risky operations.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Step,
+        [string]$Details = ""
+    )
+    
+    if (-not $script:HeartbeatDir) { return }
+    
+    $heartbeatFile = Join-Path $script:HeartbeatDir "HEARTBEAT.txt"
+    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    $content = "[$timestamp] $Step"
+    if ($Details) {
+        $content += "`n  $Details"
+    }
+    $content += "`n"
+    
+    # Append to heartbeat file
+    Add-Content -Path $heartbeatFile -Value $content -Encoding UTF8
+    Write-Info "Heartbeat: $Step"
+}
+
+function Get-AppxErrorDetails {
+    <#
+    .SYNOPSIS
+        Extracts detailed error information from Add-AppxPackage failures.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        $Exception
+    )
+    
+    $details = @()
+    $details += "Exception: $($Exception.Exception.Message)"
+    
+    # Try to extract ActivityId from error message
+    $activityIdPattern = 'ActivityId:\s*([a-fA-F0-9\-]+)'
+    if ($Exception.Exception.Message -match $activityIdPattern) {
+        $activityId = $matches[1]
+        $details += "ActivityId: $activityId"
+        
+        # Try to get AppxPackageLog for this activity
+        try {
+            $logPath = Join-Path $env:TEMP "AppxPackageLog_$activityId.txt"
+            $log = Get-AppPackageLog -ActivityId $activityId -ErrorAction SilentlyContinue
+            if ($log) {
+                $log | Out-File -FilePath $logPath -Encoding UTF8
+                $details += "AppPackageLog saved to: $logPath"
+                $details += "Log content (first 50 lines):"
+                $details += ($log | Select-Object -First 50)
+            }
+        }
+        catch {
+            $details += "Could not retrieve AppPackageLog: $_"
+        }
+    }
+    
+    # Include inner exception if present
+    if ($Exception.Exception.InnerException) {
+        $details += "InnerException: $($Exception.Exception.InnerException.Message)"
+    }
+    
+    return $details -join "`n"
 }
 
 function Select-BestPackageCandidate {
@@ -141,18 +450,22 @@ function Ensure-WindowsAppRuntime18 {
     )
     
     Write-Step "Checking for Windows App Runtime 1.8..."
+    Write-Heartbeat "WindowsAppRuntime18: checking"
     
-    # Check if already installed
-    $runtime = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.1.8" -ErrorAction SilentlyContinue
-    if ($runtime) {
-        Write-Pass "Windows App Runtime 1.8 is installed: $($runtime.Version)"
+    # Check if already installed - use Where-Object for reliable wildcard matching
+    # Get-AppxPackage -Name does NOT support wildcards reliably in all PS versions
+    $allRuntimePackages = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { 
+        $_.Name -like "*WindowsAppRuntime*1.8*" -or $_.Name -like "*WindowsAppRuntime.CBS.1.8*"
+    }
+    
+    if ($allRuntimePackages) {
+        $first = $allRuntimePackages | Select-Object -First 1
+        Write-Pass "Windows App Runtime 1.8 found: $($first.Name) v$($first.Version)"
+        Write-Heartbeat "WindowsAppRuntime18: already installed" -Details "Package: $($first.Name), Version: $($first.Version)"
         return @()
     }
     
     Write-Info "Windows App Runtime 1.8 not found. Installing from redist zip..."
-    
-    # Ensure TLS 1.2+ for downloads
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     
     # Create temp directory for downloads
     if (-not (Test-Path $TempDir)) {
@@ -160,19 +473,11 @@ function Ensure-WindowsAppRuntime18 {
     }
     
     # Windows App Runtime 1.8 redistributable zip URL
-    # Contains MSIX packages that can be installed directly
     $redistUrl = "https://aka.ms/windowsappsdk/1.8/latest/Microsoft.WindowsAppRuntime.Redist.1.8.zip"
     $redistZipPath = Join-Path $TempDir "Microsoft.WindowsAppRuntime.Redist.1.8.zip"
     
-    # Download the redist zip
-    Write-Info "Downloading Windows App Runtime 1.8 redist from: $redistUrl"
-    try {
-        Invoke-WebRequest -Uri $redistUrl -OutFile $redistZipPath -UseBasicParsing
-        Write-Pass "Downloaded: $redistZipPath ($((Get-Item $redistZipPath).Length) bytes)"
-    }
-    catch {
-        throw "Failed to download Windows App Runtime 1.8 redist: $_"
-    }
+    # Download with robust helper (timeout, retries, size validation)
+    Invoke-RobustDownload -Url $redistUrl -OutFile $redistZipPath -StepName "WindowsAppRuntime18-download" -MinExpectedBytes 1000000
     
     # Extract the zip
     $redistExtractDir = Join-Path $TempDir "windowsappruntime-extract"
@@ -180,29 +485,29 @@ function Ensure-WindowsAppRuntime18 {
         Remove-Item $redistExtractDir -Recurse -Force
     }
     
-    Write-Info "Extracting redist zip..."
-    Expand-Archive -Path $redistZipPath -DestinationPath $redistExtractDir -Force
-    Write-Pass "Extracted to: $redistExtractDir"
+    Write-Step "Extracting Windows App Runtime zip..."
+    Write-Heartbeat "WindowsAppRuntime18: extracting"
+    try {
+        Expand-Archive -Path $redistZipPath -DestinationPath $redistExtractDir -Force
+        Write-Pass "Extracted to: $redistExtractDir"
+        Write-Heartbeat "WindowsAppRuntime18: extracted"
+    }
+    catch {
+        $fileInfo = Get-Item $redistZipPath -ErrorAction SilentlyContinue
+        Write-FatalError -Step "WindowsAppRuntime18-extract" -Message "Failed to extract zip" -Details "File: $redistZipPath, Size: $($fileInfo.Length) bytes`nError: $_"
+    }
     
-    # Find all MSIX packages in the extracted zip
+    # Find and install x64 MSIX packages
     $msixPackages = Get-ChildItem -Path $redistExtractDir -Recurse -Include "*.msix" -File
-    Write-Info "Found $($msixPackages.Count) MSIX packages in redist"
-    
-    # Filter for x64 packages (prefer x64 for Windows Sandbox which is x64)
     $x64Packages = $msixPackages | Where-Object { $_.Name -match 'x64' }
-    Write-Info "Found $($x64Packages.Count) x64 packages"
+    Write-Info "Found $($x64Packages.Count) x64 packages to install"
+    Write-Heartbeat "WindowsAppRuntime18: installing packages" -Details "Count: $($x64Packages.Count)"
     
-    # Install each x64 package
     $installedPaths = @()
     foreach ($pkg in $x64Packages) {
-        try {
-            Write-Info "Installing: $($pkg.Name)"
-            Add-AppxPackage -Path $pkg.FullName
-            Write-Pass "Installed: $($pkg.Name)"
+        $installed = Invoke-AppxInstall -Path $pkg.FullName -StepName "WindowsAppRuntime18-$($pkg.BaseName)" -AllowFailure
+        if ($installed) {
             $installedPaths += $pkg.FullName
-        }
-        catch {
-            Write-Host "[WARN] Package install failed (may already be present): $($pkg.Name) - $_" -ForegroundColor Yellow
         }
     }
     
@@ -225,10 +530,12 @@ $($x64Packages | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" } | Ou
 Installed WindowsAppRuntime packages:
 $(Get-AppxPackage -Name "Microsoft.WindowsAppRuntime*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
 "@
+        Write-Heartbeat "WindowsAppRuntime18: FAILED" -Details $diagInfo
         throw $diagInfo
     }
     
     Write-Pass "Windows App Runtime 1.8 installed: $($runtime.Version)"
+    Write-Heartbeat "WindowsAppRuntime18: SUCCESS" -Details "Version: $($runtime.Version)"
     return $installedPaths
 }
 
@@ -244,15 +551,18 @@ function Ensure-Winget {
     #>
     
     Write-Step "Checking for winget..."
+    Write-Heartbeat "Winget: checking"
     
     # Check if winget is already available
     $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
     if ($wingetCmd) {
         Write-Pass "winget is available at: $($wingetCmd.Source)"
+        Write-Heartbeat "Winget: already available" -Details "Path: $($wingetCmd.Source)"
         return
     }
     
     Write-Info "winget not found. Bootstrapping with explicit dependency downloads..."
+    Write-Heartbeat "Winget: bootstrapping"
     
     # Ensure TLS 1.2+ for downloads
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -279,163 +589,169 @@ function Ensure-Winget {
     
     # ========================================================================
     # Step 2: Download and install VCLibs Desktop (x64)
+    # Use official aka.ms URL which is stable and Microsoft-hosted
     # ========================================================================
-    Write-Step "Downloading VCLibs Desktop dependency..."
     $vcLibsDesktopUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
     $vcLibsDesktopPath = Join-Path $tempDir "Microsoft.VCLibs.x64.14.00.Desktop.appx"
     
-    try {
-        Write-Info "Downloading VCLibs Desktop from: $vcLibsDesktopUrl"
-        Invoke-WebRequest -Uri $vcLibsDesktopUrl -OutFile $vcLibsDesktopPath -UseBasicParsing
-        Write-Pass "Downloaded: $vcLibsDesktopPath ($((Get-Item $vcLibsDesktopPath).Length) bytes)"
-        $downloadedDeps += "VCLibs Desktop: $vcLibsDesktopPath"
-        
-        Write-Info "Installing VCLibs Desktop..."
-        Add-AppxPackage -Path $vcLibsDesktopPath
-        Write-Pass "Installed VCLibs Desktop"
+    Invoke-RobustDownload -Url $vcLibsDesktopUrl -OutFile $vcLibsDesktopPath -StepName "VCLibs-download" -MinExpectedBytes 500000
+    $downloadedDeps += "VCLibs Desktop: $vcLibsDesktopPath"
+    
+    $vcLibsInstalled = Invoke-AppxInstall -Path $vcLibsDesktopPath -StepName "VCLibs-install" -AllowFailure
+    if ($vcLibsInstalled) {
         $dependencyPaths += $vcLibsDesktopPath
     }
-    catch {
-        Write-Host "[WARN] VCLibs Desktop install failed (may already be present): $_" -ForegroundColor Yellow
-    }
     
     # ========================================================================
-    # Step 3: Download and install UI.Xaml (from GitHub release)
+    # Step 3: Download and install UI.Xaml from NuGet
     # ========================================================================
-    Write-Step "Downloading UI.Xaml dependency..."
-    # Microsoft.UI.Xaml 2.8.x release - x64 appx from GitHub
-    $uiXamlUrl = "https://github.com/nicholasrice/nicholasrice.github.io/releases/download/v1.0.0/Microsoft.UI.Xaml.2.8.x64.appx"
-    $uiXamlPath = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.x64.appx"
-    
-    # Fallback: try NuGet package extraction if GitHub fails
     $uiXamlInstalled = $false
+    $uiXamlNugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6"
+    $uiXamlNupkg = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.6.nupkg"
     
     try {
-        Write-Info "Downloading UI.Xaml from: $uiXamlUrl"
-        Invoke-WebRequest -Uri $uiXamlUrl -OutFile $uiXamlPath -UseBasicParsing
-        Write-Pass "Downloaded: $uiXamlPath ($((Get-Item $uiXamlPath).Length) bytes)"
-        $downloadedDeps += "UI.Xaml: $uiXamlPath"
+        Invoke-RobustDownload -Url $uiXamlNugetUrl -OutFile $uiXamlNupkg -StepName "UI.Xaml-download" -MinExpectedBytes 100000
         
-        Write-Info "Installing UI.Xaml..."
-        Add-AppxPackage -Path $uiXamlPath
-        Write-Pass "Installed UI.Xaml"
-        $dependencyPaths += $uiXamlPath
-        $uiXamlInstalled = $true
-    }
-    catch {
-        Write-Host "[WARN] UI.Xaml download/install from GitHub failed: $_" -ForegroundColor Yellow
-    }
-    
-    # Fallback: Extract from NuGet package
-    if (-not $uiXamlInstalled) {
-        Write-Info "Trying UI.Xaml fallback via NuGet package..."
-        $uiXamlNugetUrl = "https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.8.6"
-        $uiXamlNupkg = Join-Path $tempDir "Microsoft.UI.Xaml.2.8.6.nupkg"
+        # Extract nupkg (copy to .zip for PS 5.1 compatibility)
+        Write-Step "Extracting UI.Xaml NuGet package..."
+        Write-Heartbeat "UI.Xaml: extracting"
+        $uiXamlZip = [System.IO.Path]::ChangeExtension($uiXamlNupkg, '.zip')
+        Copy-Item -Path $uiXamlNupkg -Destination $uiXamlZip -Force
         
-        try {
-            Write-Info "Downloading UI.Xaml NuGet package from: $uiXamlNugetUrl"
-            Invoke-WebRequest -Uri $uiXamlNugetUrl -OutFile $uiXamlNupkg -UseBasicParsing
-            Write-Pass "Downloaded: $uiXamlNupkg"
-            
-            # Extract nupkg (copy to .zip for PS 5.1 compatibility)
-            $uiXamlZip = [System.IO.Path]::ChangeExtension($uiXamlNupkg, '.zip')
-            Copy-Item -Path $uiXamlNupkg -Destination $uiXamlZip -Force
-            
-            $uiXamlExtract = Join-Path $tempDir "uixaml-extract"
-            if (Test-Path $uiXamlExtract) {
-                Remove-Item $uiXamlExtract -Recurse -Force
-            }
-            Expand-Archive -Path $uiXamlZip -DestinationPath $uiXamlExtract -Force
-            
-            # Find x64 appx
-            $uiXamlCandidates = Get-ChildItem -Path $uiXamlExtract -Recurse -Include "*.appx" -File
-            $selectedUiXaml = Select-BestPackageCandidate -Candidates $uiXamlCandidates -PackageName "UI.Xaml"
-            
-            if ($selectedUiXaml) {
-                Write-Info "Installing UI.Xaml from NuGet: $($selectedUiXaml.Name)"
-                Add-AppxPackage -Path $selectedUiXaml.FullName
-                Write-Pass "Installed UI.Xaml from NuGet"
+        $uiXamlExtract = Join-Path $tempDir "uixaml-extract"
+        if (Test-Path $uiXamlExtract) {
+            Remove-Item $uiXamlExtract -Recurse -Force
+        }
+        Expand-Archive -Path $uiXamlZip -DestinationPath $uiXamlExtract -Force
+        Write-Heartbeat "UI.Xaml: extracted"
+        
+        # Find x64 appx
+        $uiXamlCandidates = Get-ChildItem -Path $uiXamlExtract -Recurse -Include "*.appx" -File
+        Write-Info "Found $($uiXamlCandidates.Count) appx candidates in NuGet package"
+        $selectedUiXaml = Select-BestPackageCandidate -Candidates $uiXamlCandidates -PackageName "UI.Xaml"
+        
+        if ($selectedUiXaml) {
+            $uiXamlInstalled = Invoke-AppxInstall -Path $selectedUiXaml.FullName -StepName "UI.Xaml-install" -AllowFailure
+            if ($uiXamlInstalled) {
                 $dependencyPaths += $selectedUiXaml.FullName
                 $downloadedDeps += "UI.Xaml (NuGet): $($selectedUiXaml.FullName)"
-                $uiXamlInstalled = $true
             }
+        } else {
+            Write-Host "[WARN] No suitable UI.Xaml appx found in NuGet package" -ForegroundColor Yellow
+            Write-Heartbeat "UI.Xaml: no suitable appx in NuGet package"
         }
-        catch {
-            Write-Host "[WARN] UI.Xaml NuGet fallback failed: $_" -ForegroundColor Yellow
-        }
+    }
+    catch {
+        Write-Host "[WARN] UI.Xaml NuGet approach failed: $_" -ForegroundColor Yellow
+        Write-Heartbeat "UI.Xaml: NuGet failed" -Details "$_"
+    }
+    
+    if (-not $uiXamlInstalled) {
+        Write-Host "[WARN] UI.Xaml could not be installed (may already be present)" -ForegroundColor Yellow
+        Write-Heartbeat "UI.Xaml: install skipped or failed"
     }
     
     # ========================================================================
     # Step 4: Download App Installer bundle
     # ========================================================================
-    Write-Step "Downloading App Installer bundle..."
     $wingetUrl = "https://aka.ms/getwinget"
     $wingetBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
     
-    try {
-        Write-Info "Downloading App Installer bundle from: $wingetUrl"
-        Invoke-WebRequest -Uri $wingetUrl -OutFile $wingetBundlePath -UseBasicParsing
-        Write-Pass "Downloaded: $wingetBundlePath ($((Get-Item $wingetBundlePath).Length) bytes)"
-    }
-    catch {
-        throw "Failed to download App Installer bundle: $_"
-    }
+    Invoke-RobustDownload -Url $wingetUrl -OutFile $wingetBundlePath -StepName "AppInstaller-download" -MinExpectedBytes 1000000
     
     # ========================================================================
     # Step 5: Install App Installer bundle with dependencies
     # ========================================================================
     Write-Step "Installing App Installer bundle..."
-    $installSuccess = $false
-    $installError = $null
+    Write-Heartbeat "AppInstaller: installing" -Details "Bundle: $wingetBundlePath, Dependencies: $($dependencyPaths.Count)"
+    Write-Info "Installing with $($dependencyPaths.Count) dependencies"
+    $dependencyPaths | ForEach-Object { Write-Info "  Dependency: $_" }
     
     try {
-        if ($dependencyPaths.Count -gt 0) {
-            Write-Info "Installing with -DependencyPath: $($dependencyPaths.Count) dependencies"
-            foreach ($dep in $dependencyPaths) {
-                Write-Info "  Dependency: $dep"
-            }
-            Add-AppxPackage -Path $wingetBundlePath -DependencyPath $dependencyPaths
+        if ($dependencyPaths -and $dependencyPaths.Count -gt 0) {
+            Add-AppxPackage -Path $wingetBundlePath -DependencyPath $dependencyPaths -ErrorAction Stop
+        } else {
+            Add-AppxPackage -Path $wingetBundlePath -ErrorAction Stop
         }
-        else {
-            Add-AppxPackage -Path $wingetBundlePath
-        }
-        $installSuccess = $true
         Write-Pass "Installed App Installer bundle"
+        Write-Heartbeat "AppInstaller: installed"
     }
     catch {
-        $installError = $_
-        Write-Host "[WARN] App Installer install failed: $_" -ForegroundColor Yellow
+        # Build rich diagnostic output for App Installer installation failure
+        Write-Heartbeat "AppInstaller: FAILED" -Details $_.Exception.Message
         
-        # Build comprehensive diagnostic message
-        $diagInfo = @"
-App Installer installation failed.
-Error: $installError
+        # Full exception dump
+        $exceptionDump = $_ | Format-List * -Force | Out-String
+        
+        # Try to extract ActivityId and get AppPackageLog
+        $appPackageLog = ""
+        $activityIdPattern = '([a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})'
+        if ($_.Exception.Message -match $activityIdPattern) {
+            $activityId = $matches[1]
+            try {
+                $logOutput = Get-AppPackageLog -ActivityID $activityId -ErrorAction SilentlyContinue
+                if ($logOutput) {
+                    $appPackageLog = "=== Get-AppPackageLog for ActivityId $activityId ===`n$logOutput"
+                } else {
+                    $appPackageLog = "=== Get-AppPackageLog for ActivityId $activityId returned no output ==="
+                }
+            }
+            catch {
+                $appPackageLog = "=== Get-AppPackageLog failed: $_ ==="
+            }
+        }
+        
+        # List currently installed packages
+        $installerPkgs = Get-AppxPackage Microsoft.DesktopAppInstaller* -ErrorAction SilentlyContinue | Format-List * | Out-String
+        $vclibsPkgs = Get-AppxPackage Microsoft.VCLibs* -ErrorAction SilentlyContinue | Select-Object Name, Version, Architecture | Format-Table -AutoSize | Out-String
+        $uixamlPkgs = Get-AppxPackage Microsoft.UI.Xaml* -ErrorAction SilentlyContinue | Select-Object Name, Version, Architecture | Format-Table -AutoSize | Out-String
+        $runtimePkgs = Get-AppxPackage Microsoft.WindowsAppRuntime* -ErrorAction SilentlyContinue | Select-Object Name, Version, Architecture | Format-Table -AutoSize | Out-String
+        
+        $diagContent = @"
+=== APP INSTALLER INSTALLATION FAILED ===
+Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
 
+=== EXCEPTION DUMP ===
+$exceptionDump
+
+$appPackageLog
+
+=== BUNDLE INFO ===
 Bundle path: $wingetBundlePath
 Bundle exists: $(Test-Path $wingetBundlePath)
 Bundle size: $((Get-Item $wingetBundlePath -ErrorAction SilentlyContinue).Length) bytes
 
-Downloaded dependencies:
-$($downloadedDeps | ForEach-Object { "  $_" } | Out-String)
+=== DEPENDENCY PATHS ===
+$($dependencyPaths | ForEach-Object { "$_ (exists: $(Test-Path $_))" } | Out-String)
 
-Dependency paths used:
-$($dependencyPaths | ForEach-Object { "  $_ (exists: $(Test-Path $_))" } | Out-String)
+=== INSTALLED PACKAGES: Microsoft.DesktopAppInstaller* ===
+$installerPkgs
 
-Installed AppxPackages (VCLibs):
-$(Get-AppxPackage -Name "*VCLibs*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+=== INSTALLED PACKAGES: Microsoft.VCLibs* ===
+$vclibsPkgs
 
-Installed AppxPackages (UI.Xaml):
-$(Get-AppxPackage -Name "*UI.Xaml*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+=== INSTALLED PACKAGES: Microsoft.UI.Xaml* ===
+$uixamlPkgs
 
-Installed AppxPackages (WindowsAppRuntime):
-$(Get-AppxPackage -Name "*WindowsAppRuntime*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+=== INSTALLED PACKAGES: Microsoft.WindowsAppRuntime* ===
+$runtimePkgs
 "@
-        throw $diagInfo
+        
+        # Write to ERROR.txt
+        if ($script:ErrorFile) {
+            $diagContent | Out-File -FilePath $script:ErrorFile -Encoding UTF8
+        }
+        
+        # Also output to console
+        Write-Host $diagContent -ForegroundColor Red
+        Write-Host "[FATAL] App Installer installation failed. See ERROR.txt for details." -ForegroundColor Red
+        exit 1
     }
     
     # ========================================================================
     # Step 6: Verify winget is available
     # ========================================================================
+    Write-Heartbeat "Winget: verifying installation"
     # Refresh PATH - winget installs to WindowsApps which should be in PATH
     $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
     
@@ -445,37 +761,46 @@ $(Get-AppxPackage -Name "*WindowsAppRuntime*" -ErrorAction SilentlyContinue | Fo
         $wingetExe = Join-Path $env:LOCALAPPDATA "Microsoft\WindowsApps\winget.exe"
         if (Test-Path $wingetExe) {
             Write-Pass "winget installed at: $wingetExe"
+            Write-Heartbeat "Winget: found at $wingetExe"
         }
         else {
+            Write-Heartbeat "Winget: NOT FOUND after install"
             throw "winget installation completed but winget command is still not available"
         }
     }
     else {
         Write-Pass "winget available at: $($wingetCmd.Source)"
+        Write-Heartbeat "Winget: available" -Details "Path: $($wingetCmd.Source)"
     }
     
     # Verify winget version
     try {
         $wingetVersion = & winget --version 2>&1
         Write-Pass "winget version: $wingetVersion"
+        Write-Heartbeat "Winget: version $wingetVersion"
     }
     catch {
         Write-Host "[WARN] Could not get winget version: $_" -ForegroundColor Yellow
+        Write-Heartbeat "Winget: version check failed" -Details "$_"
     }
     
     # ========================================================================
     # Step 7: Best-effort winget source update
     # ========================================================================
     Write-Step "Updating winget sources (best-effort)..."
+    Write-Heartbeat "Winget: updating sources"
     try {
         $sourceResult = & winget source update 2>&1
         Write-Pass "winget source update completed"
+        Write-Heartbeat "Winget: sources updated"
     }
     catch {
         Write-Host "[WARN] winget source update failed (non-fatal): $_" -ForegroundColor Yellow
+        Write-Heartbeat "Winget: source update failed (non-fatal)" -Details "$_"
     }
     
     Write-Pass "winget bootstrap complete"
+    Write-Heartbeat "Winget: bootstrap COMPLETE"
 }
 
 # Parse roots
@@ -501,17 +826,26 @@ Write-Info "Output directory: $OutputDir"
 Write-Info "Snapshot roots: $($snapshotRoots -join ', ')"
 Write-Info "Dry run: $DryRun"
 
-# Ensure output directory exists
-if (-not (Test-Path $OutputDir)) {
-    New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
-}
+# Output directory already created at top of script (for STARTED.txt)
+# HeartbeatDir already set at top of script
+
+Write-Heartbeat "Harness main: starting" -Details "WingetId: $WingetId, DryRun: $DryRun"
 
 # Sentinel file paths
 $doneFile = Join-Path $OutputDir "DONE.txt"
 $errorFile = Join-Path $OutputDir "ERROR.txt"
 
 try {
+    # Step 0: Ensure winget is available (bootstrap if needed) - BEFORE snapshots
+    # This must happen first because winget bootstrap modifies the filesystem
+    if (-not $DryRun) {
+        Write-Heartbeat "Bootstrap: starting winget bootstrap"
+        Ensure-Winget
+        Write-Heartbeat "Bootstrap: winget ready"
+    }
+    
     # Step 1: Pre-install snapshot
+    Write-Heartbeat "Snapshot: capturing pre-install"
     Write-Step "Capturing pre-install snapshot..."
     $preSnapshot = Get-FilesystemSnapshot -Roots $snapshotRoots -MaxDepth 8
     Write-Info "Pre-snapshot: $($preSnapshot.Count) items"
@@ -519,17 +853,15 @@ try {
     $preJsonPath = Join-Path $OutputDir "pre.json"
     $preSnapshot | ConvertTo-Json -Depth 10 -Compress | Out-File -FilePath $preJsonPath -Encoding UTF8
     Write-Pass "Saved: $preJsonPath"
-
-    # Step 2: Ensure winget is available (bootstrap if needed)
-    if (-not $DryRun) {
-        Ensure-Winget
-    }
+    Write-Heartbeat "Snapshot: pre-install saved" -Details "Items: $($preSnapshot.Count)"
     
-    # Step 3: Install via winget
+    # Step 2: Install via winget
     if ($DryRun) {
         Write-Step "DRY RUN: Skipping winget install for $WingetId"
         Write-Info "Would run: winget install --id $WingetId --silent --accept-package-agreements --accept-source-agreements"
+        Write-Heartbeat "Install: DRY RUN skipped"
     } else {
+        Write-Heartbeat "Install: starting $WingetId"
         Write-Step "Installing $WingetId via winget..."
         
         $wingetArgs = @(
@@ -550,8 +882,10 @@ try {
         
         if ($exitCode -ne 0) {
             Write-Host "[WARN] Winget exited with code $exitCode (may be OK if already installed)" -ForegroundColor Yellow
+            Write-Heartbeat "Install: winget exit code $exitCode" -Details ($result -join "`n")
         } else {
             Write-Pass "Winget install completed"
+            Write-Heartbeat "Install: $WingetId completed"
         }
         
         # Wait for installers to settle
@@ -559,7 +893,8 @@ try {
         Start-Sleep -Seconds 5
     }
 
-    # Step 4: Post-install snapshot
+    # Step 3: Post-install snapshot
+    Write-Heartbeat "Snapshot: capturing post-install"
     Write-Step "Capturing post-install snapshot..."
     $postSnapshot = Get-FilesystemSnapshot -Roots $snapshotRoots -MaxDepth 8
     Write-Info "Post-snapshot: $($postSnapshot.Count) items"
@@ -567,8 +902,10 @@ try {
     $postJsonPath = Join-Path $OutputDir "post.json"
     $postSnapshot | ConvertTo-Json -Depth 10 -Compress | Out-File -FilePath $postJsonPath -Encoding UTF8
     Write-Pass "Saved: $postJsonPath"
+    Write-Heartbeat "Snapshot: post-install saved" -Details "Items: $($postSnapshot.Count)"
 
-    # Step 5: Compute diff inside sandbox (for immediate feedback)
+    # Step 4: Compute diff inside sandbox (for immediate feedback)
+    Write-Heartbeat "Diff: computing"
     Write-Step "Computing diff..."
     $diff = Compare-FilesystemSnapshots -PreSnapshot $preSnapshot -PostSnapshot $postSnapshot
     Write-Info "Added: $($diff.added.Count) items"
@@ -577,10 +914,12 @@ try {
     $diffJsonPath = Join-Path $OutputDir "diff.json"
     $diff | ConvertTo-Json -Depth 10 | Out-File -FilePath $diffJsonPath -Encoding UTF8
     Write-Pass "Saved: $diffJsonPath"
+    Write-Heartbeat "Diff: saved" -Details "Added: $($diff.added.Count), Modified: $($diff.modified.Count)"
 
     # Write DONE.txt sentinel on success
     "SUCCESS" | Out-File -FilePath $doneFile -Encoding UTF8
     Write-Pass "Wrote sentinel: $doneFile"
+    Write-Heartbeat "Harness: SUCCESS"
 
     # Summary
     Write-Host ""
@@ -598,13 +937,28 @@ try {
     exit 0
 }
 catch {
-    # Write ERROR.txt with exception details
+    # Write ERROR.txt with comprehensive exception details
+    $appxErrorDetails = Get-AppxErrorDetails -Exception $_
     $errorContent = @"
 Exception: $($_.Exception.Message)
 ScriptStackTrace: $($_.ScriptStackTrace)
 InvocationInfo: $($_.InvocationInfo.PositionMessage)
+
+Appx Error Details:
+$appxErrorDetails
+
+Installed AppxPackages (relevant):
+VCLibs:
+$(Get-AppxPackage -Name "*VCLibs*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+UI.Xaml:
+$(Get-AppxPackage -Name "*UI.Xaml*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+WindowsAppRuntime:
+$(Get-AppxPackage -Name "*WindowsAppRuntime*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+DesktopAppInstaller:
+$(Get-AppxPackage -Name "*DesktopAppInstaller*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
 "@
     $errorContent | Out-File -FilePath $errorFile -Encoding UTF8
+    Write-Heartbeat "Harness: FAILED" -Details $_.Exception.Message
     Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
     Write-Host "[ERROR] Details written to: $errorFile" -ForegroundColor Red
     exit 1

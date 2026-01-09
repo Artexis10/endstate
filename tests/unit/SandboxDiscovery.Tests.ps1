@@ -316,9 +316,10 @@ Describe "SandboxDiscovery.ScriptValidation" {
         It "Should download UI.Xaml explicitly (not from bundle)" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            # Must download UI.Xaml from external source
-            $content | Should -Match 'Microsoft\.UI\.Xaml.*\.appx'
-            $content | Should -Match 'uiXamlPath'
+            # Must download UI.Xaml from NuGet and extract appx
+            $content | Should -Match 'Microsoft\.UI\.Xaml'
+            $content | Should -Match '\*\.appx'
+            $content | Should -Match 'selectedUiXaml'
         }
         
         It "Should have UI.Xaml NuGet fallback with Expand-Archive" {
@@ -333,6 +334,7 @@ Describe "SandboxDiscovery.ScriptValidation" {
         It "Should use -DependencyPath when installing App Installer bundle" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
+            # Must use Add-AppxPackage with -DependencyPath for App Installer
             $content | Should -Match 'Add-AppxPackage\s+-Path\s+\$wingetBundlePath\s+-DependencyPath'
         }
         
@@ -363,6 +365,20 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content | Should -Match 'Get-AppxPackage.*VCLibs'
             $content | Should -Match 'Get-AppxPackage.*UI\.Xaml'
             $content | Should -Match 'Get-AppxPackage.*WindowsAppRuntime'
+        }
+        
+        It "Should include Get-AppPackageLog on AppInstaller failure" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must call Get-AppPackageLog for ActivityId extraction
+            $content | Should -Match 'Get-AppPackageLog\s+-ActivityID'
+        }
+        
+        It "Should list DesktopAppInstaller packages on failure" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must list DesktopAppInstaller packages in diagnostics
+            $content | Should -Match 'Get-AppxPackage\s+Microsoft\.DesktopAppInstaller'
         }
     }
 }
