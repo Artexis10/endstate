@@ -305,6 +305,47 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $wingetInstallPos = $content.IndexOf('Add-AppxPackage -Path $wingetPath')
             $runtimePos | Should -BeLessThan $wingetInstallPos
         }
+        
+        It "Should have Ensure-VCLibs140 function" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'function\s+Ensure-VCLibs140'
+        }
+        
+        It "Should fetch VCLibs version list from NuGet v3 flatcontainer" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'api\.nuget\.org/v3-flatcontainer/microsoft\.vclibs\.140\.00/index\.json'
+        }
+        
+        It "Should download VCLibs nupkg from NuGet v3 flatcontainer" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'api\.nuget\.org/v3-flatcontainer/microsoft\.vclibs\.140\.00/.*\.nupkg'
+        }
+        
+        It "Should call Ensure-VCLibs140 before installing App Installer" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Ensure-VCLibs140 must be called before Add-AppxPackage for winget
+            $vclibsPos = $content.IndexOf('Ensure-VCLibs140')
+            $wingetInstallPos = $content.IndexOf('Add-AppxPackage -Path $wingetPath')
+            $vclibsPos | Should -BeLessThan $wingetInstallPos
+        }
+        
+        It "Should use -DependencyPath when installing App Installer" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'Add-AppxPackage\s+-Path\s+\$wingetPath\s+-DependencyPath'
+        }
+        
+        It "Should check Get-AppxPackage for Microsoft.VCLibs.140.00 (non-Desktop)" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must check for VCLibs.140.00 but exclude Desktop variant
+            $content | Should -Match 'Microsoft\.VCLibs\.140\.00'
+            $content | Should -Match '-notlike.*Desktop'
+        }
     }
 }
 

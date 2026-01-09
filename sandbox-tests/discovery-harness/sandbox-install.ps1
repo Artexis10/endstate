@@ -149,6 +149,150 @@ $(Get-AppxPackage -Name "Microsoft.WindowsAppRuntime*" -ErrorAction SilentlyCont
     Write-Pass "Windows App Runtime 1.8 installed: $($runtime.Version)"
 }
 
+function Ensure-VCLibs140 {
+    <#
+    .SYNOPSIS
+        Ensures Microsoft.VCLibs.140.00 framework is installed.
+    .DESCRIPTION
+        App Installer requires Microsoft.VCLibs.140.00 (not just the Desktop variant).
+        This function checks if it's present and installs it from NuGet if missing.
+    .OUTPUTS
+        Returns the path to the installed appx file for use as a dependency.
+    #>
+    
+    Write-Step "Checking for Microsoft.VCLibs.140.00..."
+    
+    # Check if already installed (match package name containing Microsoft.VCLibs.140.00)
+    $vclibs = Get-AppxPackage | Where-Object { $_.Name -like "Microsoft.VCLibs.140.00*" -and $_.Name -notlike "*Desktop*" }
+    if ($vclibs) {
+        Write-Pass "Microsoft.VCLibs.140.00 is installed: $($vclibs.Name) v$($vclibs.Version)"
+        return $null
+    }
+    
+    Write-Info "Microsoft.VCLibs.140.00 not found. Installing from NuGet..."
+    
+    # Ensure TLS 1.2+ for downloads
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    
+    # Create temp directory for downloads
+    $tempDir = Join-Path $env:TEMP "winget-bootstrap"
+    if (-not (Test-Path $tempDir)) {
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    }
+    
+    # Fetch version list from NuGet v3 flatcontainer
+    $indexUrl = "https://api.nuget.org/v3-flatcontainer/microsoft.vclibs.140.00/index.json"
+    Write-Info "Fetching version list from: $indexUrl"
+    
+    try {
+        $indexJson = Invoke-WebRequest -Uri $indexUrl -UseBasicParsing | ConvertFrom-Json
+        $versions = $indexJson.versions
+        if (-not $versions -or $versions.Count -eq 0) {
+            throw "No versions found in NuGet index"
+        }
+        
+        # Pick highest version (NuGet versions are semver-sorted, last is highest)
+        $latestVersion = $versions[-1]
+        Write-Info "Latest version: $latestVersion"
+    }
+    catch {
+        throw "Failed to fetch VCLibs version list from NuGet: $_"
+    }
+    
+    # Download nupkg
+    $nupkgUrl = "https://api.nuget.org/v3-flatcontainer/microsoft.vclibs.140.00/$latestVersion/microsoft.vclibs.140.00.$latestVersion.nupkg"
+    $nupkgPath = Join-Path $tempDir "microsoft.vclibs.140.00.$latestVersion.nupkg"
+    
+    Write-Info "Downloading: $nupkgUrl"
+    try {
+        Invoke-WebRequest -Uri $nupkgUrl -OutFile $nupkgPath -UseBasicParsing
+        Write-Pass "Downloaded: $nupkgPath"
+    }
+    catch {
+        throw "Failed to download VCLibs nupkg: $_"
+    }
+    
+    # Extract nupkg (copy to .zip first for PS 5.1 compatibility)
+    $zipPath = [System.IO.Path]::ChangeExtension($nupkgPath, '.zip')
+    Copy-Item -Path $nupkgPath -Destination $zipPath -Force
+    
+    $extractDir = Join-Path $tempDir "vclibs140-extract"
+    if (Test-Path $extractDir) {
+        Remove-Item $extractDir -Recurse -Force
+    }
+    Expand-Archive -Path $zipPath -DestinationPath $extractDir -Force
+    
+    # Find candidate appx files recursively
+    $candidates = Get-ChildItem -Path $extractDir -Recurse -Include "*.appx","*.msix","*.msixbundle" -File
+    
+    if (-not $candidates -or $candidates.Count -eq 0) {
+        throw "Could not find any appx/msix files in VCLibs package at: $extractDir"
+    }
+    
+    # Prefer x64 or neutral packages
+    $x64Candidates = $candidates | Where-Object {
+        $_.Name -match 'x64' -or 
+        $_.FullName -match '\\x64\\' -or 
+        $_.FullName -match '\\win10-x64\\' -or
+        $_.FullName -match '\\runtimes\\win10-x64\\'
+    }
+    
+    $neutralCandidates = $candidates | Where-Object {
+        $_.Name -match 'neutral' -or
+        $_.FullName -match '\\neutral\\'
+    }
+    
+    $selectedCandidate = $null
+    if ($x64Candidates -and $x64Candidates.Count -gt 0) {
+        # Pick largest x64 candidate
+        $selectedCandidate = $x64Candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
+        Write-Info "Selected x64 candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
+    }
+    elseif ($neutralCandidates -and $neutralCandidates.Count -gt 0) {
+        # Pick largest neutral candidate
+        $selectedCandidate = $neutralCandidates | Sort-Object -Property Length -Descending | Select-Object -First 1
+        Write-Info "Selected neutral candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
+    }
+    elseif ($candidates.Count -eq 1) {
+        $selectedCandidate = $candidates[0]
+        Write-Info "Using single candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
+    }
+    else {
+        # Multiple non-x64/neutral candidates, pick largest
+        $selectedCandidate = $candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
+        Write-Info "Selected largest candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
+    }
+    
+    if (-not $selectedCandidate) {
+        $candidateList = ($candidates | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" }) -join "`n"
+        throw "Could not select VCLibs package candidate. Found $($candidates.Count) candidates:`n$candidateList"
+    }
+    
+    # Copy to known location
+    $vclibsAppx = Join-Path $tempDir "Microsoft.VCLibs.140.00.appx"
+    Copy-Item -Path $selectedCandidate.FullName -Destination $vclibsAppx -Force
+    
+    # Install
+    Write-Info "Installing Microsoft.VCLibs.140.00..."
+    try {
+        Add-AppxPackage -Path $vclibsAppx
+        Write-Pass "Installed Microsoft.VCLibs.140.00"
+    }
+    catch {
+        throw "Failed to install Microsoft.VCLibs.140.00: $_"
+    }
+    
+    # Verify installation
+    $vclibs = Get-AppxPackage | Where-Object { $_.Name -like "Microsoft.VCLibs.140.00*" -and $_.Name -notlike "*Desktop*" }
+    if (-not $vclibs) {
+        $candidateList = ($candidates | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" }) -join "`n"
+        throw "Microsoft.VCLibs.140.00 installation completed but package not found. Candidates were:`n$candidateList"
+    }
+    
+    Write-Pass "Microsoft.VCLibs.140.00 verified: $($vclibs.Name) v$($vclibs.Version)"
+    return $vclibsAppx
+}
+
 function Ensure-Winget {
     <#
     .SYNOPSIS
@@ -172,6 +316,9 @@ function Ensure-Winget {
     
     # First ensure Windows App Runtime 1.8 is installed (required by App Installer)
     Ensure-WindowsAppRuntime18
+    
+    # Ensure Microsoft.VCLibs.140.00 is installed (required framework for App Installer)
+    $vclibsAppxPath = Ensure-VCLibs140
     
     # Ensure TLS 1.2+ for downloads
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -283,12 +430,12 @@ function Ensure-Winget {
     Write-Step "Installing dependencies..."
     
     try {
-        Write-Info "Installing VCLibs..."
+        Write-Info "Installing VCLibs Desktop..."
         Add-AppxPackage -Path $vcLibsPath
-        Write-Pass "Installed VCLibs"
+        Write-Pass "Installed VCLibs Desktop"
     }
     catch {
-        Write-Host "[WARN] VCLibs install failed (may already be present): $_" -ForegroundColor Yellow
+        Write-Host "[WARN] VCLibs Desktop install failed (may already be present): $_" -ForegroundColor Yellow
     }
     
     try {
@@ -300,9 +447,24 @@ function Ensure-Winget {
         Write-Host "[WARN] UI.Xaml install failed (may already be present): $_" -ForegroundColor Yellow
     }
     
-    Write-Step "Installing winget..."
+    Write-Step "Installing winget (App Installer)..."
     try {
-        Add-AppxPackage -Path $wingetPath
+        # Build dependency path array for Add-AppxPackage
+        $dependencyPaths = @()
+        if ($vclibsAppxPath -and (Test-Path $vclibsAppxPath)) {
+            $dependencyPaths += $vclibsAppxPath
+        }
+        if (Test-Path $uiXamlAppx) {
+            $dependencyPaths += $uiXamlAppx
+        }
+        
+        if ($dependencyPaths.Count -gt 0) {
+            Write-Info "Installing with dependencies: $($dependencyPaths -join ', ')"
+            Add-AppxPackage -Path $wingetPath -DependencyPath $dependencyPaths
+        }
+        else {
+            Add-AppxPackage -Path $wingetPath
+        }
         Write-Pass "Installed winget"
     }
     catch {
