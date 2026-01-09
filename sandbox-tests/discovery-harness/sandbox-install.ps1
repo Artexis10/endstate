@@ -136,16 +136,45 @@ function Ensure-Winget {
         }
         Expand-Archive -Path $uiXamlZip -DestinationPath $uiXamlExtract -Force
         
-        # Find the x64 appx
-        $appxFile = Get-ChildItem -Path $uiXamlExtract -Recurse -Filter "*.appx" | 
-            Where-Object { $_.Name -match "x64" } | 
-            Select-Object -First 1
+        # Find candidate packages (appx, msix, msixbundle) recursively
+        $candidates = Get-ChildItem -Path $uiXamlExtract -Recurse -Include "*.appx","*.msix","*.msixbundle" -File
         
-        if (-not $appxFile) {
-            throw "Could not find x64 appx in UI.Xaml package"
+        if (-not $candidates -or $candidates.Count -eq 0) {
+            throw "Could not find any appx/msix/msixbundle files in UI.Xaml package at: $uiXamlExtract"
         }
         
-        Copy-Item -Path $appxFile.FullName -Destination $uiXamlAppx -Force
+        # Identify x64 candidates by filename or folder path
+        $x64Candidates = $candidates | Where-Object {
+            $_.Name -match 'x64' -or 
+            $_.FullName -match '\\x64\\' -or 
+            $_.FullName -match '\\win10-x64\\' -or 
+            $_.FullName -match '\\runtimes\\win10-x64\\'
+        }
+        
+        $selectedCandidate = $null
+        if ($x64Candidates -and $x64Candidates.Count -gt 0) {
+            # Pick largest x64 candidate
+            $selectedCandidate = $x64Candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
+            Write-Info "Selected x64 candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
+        }
+        elseif ($candidates.Count -eq 1) {
+            # Only one candidate, use it
+            $selectedCandidate = $candidates[0]
+            Write-Info "Using single candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
+        }
+        else {
+            # Multiple non-x64 candidates, pick largest
+            $selectedCandidate = $candidates | Sort-Object -Property Length -Descending | Select-Object -First 1
+            Write-Info "Selected largest candidate: $($selectedCandidate.FullName) ($($selectedCandidate.Length) bytes)"
+        }
+        
+        if (-not $selectedCandidate) {
+            # Build diagnostic message with all candidates
+            $candidateList = ($candidates | ForEach-Object { "  $($_.FullName) ($($_.Length) bytes)" }) -join "`n"
+            throw "Could not select UI.Xaml package candidate. Found $($candidates.Count) candidates:`n$candidateList"
+        }
+        
+        Copy-Item -Path $selectedCandidate.FullName -Destination $uiXamlAppx -Force
         Write-Pass "Extracted: $uiXamlAppx"
     }
     catch {

@@ -245,6 +245,37 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content | Should -Match 'VCLibs'
         }
         
+        It "Should use recursive search for UI.Xaml package candidates" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must search recursively for appx/msix/msixbundle files
+            $content | Should -Match 'Get-ChildItem.*-Recurse.*-Include.*\*\.appx.*\*\.msix'
+        }
+        
+        It "Should detect x64 candidates by filename or folder path" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must check for x64 in name or path patterns
+            $content | Should -Match "Name\s+-match\s+'x64'"
+            $content | Should -Match "FullName\s+-match\s+'\\\\x64\\\\'"
+            $content | Should -Match "\\\\win10-x64\\\\"
+        }
+        
+        It "Should have fallback logic when no x64 candidate found" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must handle single candidate case and largest candidate fallback
+            $content | Should -Match 'candidates\.Count\s*-eq\s*1'
+            $content | Should -Match 'Sort-Object.*Length.*Descending'
+        }
+        
+        It "Should include candidate list in error diagnostics" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must build diagnostic list with paths and sizes
+            $content | Should -Match '\$candidateList.*candidates.*FullName.*Length'
+        }
+        
         It "Should call Ensure-Winget before winget install" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
