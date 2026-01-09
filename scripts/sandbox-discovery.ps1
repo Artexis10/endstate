@@ -365,7 +365,8 @@ $doneFile = Join-Path $OutDir "DONE.txt"
 $errorFile = Join-Path $OutDir "ERROR.txt"
 
 # Poll for sentinel files with timeout (handles filesystem propagation delay)
-$timeoutSeconds = 180
+# Timeout set to 900s (15 minutes) to allow for winget/runtime bootstrap which can take several minutes
+$timeoutSeconds = 900
 $pollIntervalMs = 500
 $elapsed = 0
 $sentinelFound = $false
@@ -396,11 +397,13 @@ if (-not $sentinelFound) {
     Write-Host "[ERROR] Timeout waiting for harness completion (${timeoutSeconds}s)." -ForegroundColor Red
     Write-Host ""
     Write-Host "[HINT] The sandbox harness did not write DONE.txt or ERROR.txt." -ForegroundColor Yellow
+    Write-Host "  Note: winget/runtime bootstrap can take several minutes on first run." -ForegroundColor Yellow
     Write-Host "  Common causes:" -ForegroundColor Yellow
     Write-Host "  - LogonCommand failed to execute (powershell.exe blocked/missing)" -ForegroundColor Yellow
     Write-Host "  - Execution policy preventing script execution" -ForegroundColor Yellow
     Write-Host "  - Script path or parameters malformed in .wsb" -ForegroundColor Yellow
     Write-Host "  - Sandbox closed before harness completed" -ForegroundColor Yellow
+    Write-Host "  - Windows App Runtime or winget download/install still in progress" -ForegroundColor Yellow
     Write-Host ""
     Write-Host "  Check the generated .wsb file: $wsbPath" -ForegroundColor Yellow
     Write-Host ""
@@ -410,6 +413,8 @@ if (-not $sentinelFound) {
     } else {
         Write-Host "    (directory does not exist)" -ForegroundColor Gray
     }
+    Write-Host ""
+    Write-Host "  Note: ERROR.txt may be written after this timeout if installs are slow." -ForegroundColor Yellow
     exit 1
 }
 

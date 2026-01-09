@@ -64,13 +64,98 @@ function Write-Pass {
     Write-Host "[PASS] $Message" -ForegroundColor Green
 }
 
+function Ensure-WindowsAppRuntime18 {
+    <#
+    .SYNOPSIS
+        Ensures Microsoft.WindowsAppRuntime.1.8 is installed.
+    .DESCRIPTION
+        Windows App Runtime 1.8 is required by recent versions of App Installer (winget).
+        This function checks if it's present and installs it if missing.
+    #>
+    
+    Write-Step "Checking for Windows App Runtime 1.8..."
+    
+    # Check if already installed
+    $runtime = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.1.8" -ErrorAction SilentlyContinue
+    if ($runtime) {
+        Write-Pass "Windows App Runtime 1.8 is installed: $($runtime.Version)"
+        return
+    }
+    
+    Write-Info "Windows App Runtime 1.8 not found. Installing..."
+    
+    # Ensure TLS 1.2+ for downloads
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    
+    # Create temp directory for downloads
+    $tempDir = Join-Path $env:TEMP "winget-bootstrap"
+    if (-not (Test-Path $tempDir)) {
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    }
+    
+    # Windows App Runtime 1.8 redistributable URL
+    # Official Microsoft distribution via aka.ms
+    $runtimeUrl = "https://aka.ms/windowsappsdk/1.8/latest/windowsappruntimeinstall-x64.exe"
+    $runtimeExe = Join-Path $tempDir "windowsappruntimeinstall-x64.exe"
+    
+    # Download the runtime installer
+    Write-Info "Downloading Windows App Runtime 1.8 from: $runtimeUrl"
+    try {
+        Invoke-WebRequest -Uri $runtimeUrl -OutFile $runtimeExe -UseBasicParsing
+        Write-Pass "Downloaded: $runtimeExe"
+    }
+    catch {
+        throw "Failed to download Windows App Runtime 1.8: $_"
+    }
+    
+    # Install silently using the exe installer
+    Write-Info "Installing Windows App Runtime 1.8..."
+    $installArgs = @("--quiet", "--force")
+    $installResult = Start-Process -FilePath $runtimeExe -ArgumentList $installArgs -Wait -PassThru
+    $exitCode = $installResult.ExitCode
+    
+    Write-Info "Windows App Runtime installer exit code: $exitCode"
+    
+    # Exit codes: 0 = success, 3010 = success but reboot required
+    if ($exitCode -ne 0 -and $exitCode -ne 3010) {
+        # Build diagnostic info
+        $diagInfo = @"
+Windows App Runtime 1.8 installation failed.
+Exit code: $exitCode
+Installer path: $runtimeExe
+Installer exists: $(Test-Path $runtimeExe)
+Temp directory contents:
+$(Get-ChildItem -Path $tempDir -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) ($($_.Length) bytes)" } | Out-String)
+"@
+        throw $diagInfo
+    }
+    
+    # Validate installation
+    $runtime = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.1.8" -ErrorAction SilentlyContinue
+    if (-not $runtime) {
+        # Build diagnostic info
+        $diagInfo = @"
+Windows App Runtime 1.8 installation completed but package not found.
+Exit code: $exitCode
+Installer path: $runtimeExe
+Temp directory contents:
+$(Get-ChildItem -Path $tempDir -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) ($($_.Length) bytes)" } | Out-String)
+Installed WindowsAppRuntime packages:
+$(Get-AppxPackage -Name "Microsoft.WindowsAppRuntime*" -ErrorAction SilentlyContinue | ForEach-Object { "  $($_.Name) v$($_.Version)" } | Out-String)
+"@
+        throw $diagInfo
+    }
+    
+    Write-Pass "Windows App Runtime 1.8 installed: $($runtime.Version)"
+}
+
 function Ensure-Winget {
     <#
     .SYNOPSIS
         Ensures winget is available, bootstrapping it if necessary.
     .DESCRIPTION
         Checks if winget is installed. If not, downloads and installs the
-        App Installer MSIX bundle and its dependencies (VCLibs, UI.Xaml).
+        App Installer MSIX bundle and its dependencies (Windows App Runtime 1.8, VCLibs, UI.Xaml).
         This is needed because Windows Sandbox does not include winget by default.
     #>
     
@@ -84,6 +169,9 @@ function Ensure-Winget {
     }
     
     Write-Info "winget not found. Bootstrapping..."
+    
+    # First ensure Windows App Runtime 1.8 is installed (required by App Installer)
+    Ensure-WindowsAppRuntime18
     
     # Ensure TLS 1.2+ for downloads
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

@@ -284,6 +284,49 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $wingetInstallPos = $content.IndexOf('& winget @wingetArgs')
             $ensurePos | Should -BeLessThan $wingetInstallPos
         }
+        
+        It "Should have Ensure-WindowsAppRuntime18 function" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'function\s+Ensure-WindowsAppRuntime18'
+        }
+        
+        It "Should check Get-AppxPackage for Microsoft.WindowsAppRuntime.1.8" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'Get-AppxPackage\s+-Name\s+[''"]Microsoft\.WindowsAppRuntime\.1\.8[''"]'
+        }
+        
+        It "Should call Ensure-WindowsAppRuntime18 before installing App Installer" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Ensure-WindowsAppRuntime18 must be called before Add-AppxPackage for winget
+            $runtimePos = $content.IndexOf('Ensure-WindowsAppRuntime18')
+            $wingetInstallPos = $content.IndexOf('Add-AppxPackage -Path $wingetPath')
+            $runtimePos | Should -BeLessThan $wingetInstallPos
+        }
+    }
+}
+
+Describe "SandboxDiscovery.TimeoutConfiguration" {
+    
+    Context "sandbox-discovery.ps1 timeout settings" {
+        
+        It "Should have timeout of at least 900 seconds" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            # Extract timeout value using regex
+            if ($content -match '\$timeoutSeconds\s*=\s*(\d+)') {
+                [int]$timeout = $matches[1]
+                $timeout | Should -BeGreaterOrEqual 900
+            } else {
+                throw "Could not find timeoutSeconds variable in script"
+            }
+        }
+        
+        It "Should mention winget/runtime bootstrap in timeout messaging" {
+            $content = Get-Content -Path $script:DiscoveryScript -Raw
+            $content | Should -Match 'winget.*runtime.*bootstrap|runtime.*bootstrap.*winget'
+        }
     }
 }
 
