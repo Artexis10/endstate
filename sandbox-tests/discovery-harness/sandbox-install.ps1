@@ -454,27 +454,31 @@ function Ensure-WindowsAppRuntime18 {
     Write-Step "Checking for Windows App Runtime 1.8..."
     Write-Heartbeat "WindowsAppRuntime18: checking"
     
-    # Check if already installed - use Where-Object for reliable wildcard matching
+    # Check if already installed - query framework and CBS identities separately
     # CRITICAL: CBS packages (Microsoft.WindowsAppRuntime.CBS.1.8) do NOT satisfy App Installer's
-    # dependency requirement. We must check for the actual framework identity:
-    # Microsoft.WindowsAppRuntime.1.8* (NOT .CBS.)
-    $allRuntimePackages = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { 
-        $_.Name -like "Microsoft.WindowsAppRuntime.1.8*" -and $_.Name -notlike "*.CBS.*"
+    # dependency requirement. We must check for the actual framework identity.
+    #
+    # Framework identity: Microsoft.WindowsAppRuntime.1.8* (e.g. Microsoft.WindowsAppRuntime.1.8_8000.xxx_x64__8wekyb3d8bbwe)
+    # CBS identity:       Microsoft.WindowsAppRuntime.CBS.1.8* (NOT sufficient for App Installer)
+    
+    # Query framework packages (explicit namespace - NOT CBS)
+    $frameworkPackages = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { 
+        $_.Name -like "Microsoft.WindowsAppRuntime.1.8*" -and $_.Name -notlike "Microsoft.WindowsAppRuntime.CBS.*"
     }
     
-    # Also check for CBS packages (for logging purposes only - they don't satisfy the requirement)
+    # Query CBS packages separately (for logging only - they NEVER satisfy the requirement)
     $cbsPackages = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { 
-        $_.Name -like "*WindowsAppRuntime.CBS.1.8*"
+        $_.Name -like "Microsoft.WindowsAppRuntime.CBS.1.8*"
     }
     
-    if ($cbsPackages -and -not $allRuntimePackages) {
+    if ($cbsPackages -and -not $frameworkPackages) {
         Write-Info "Found CBS package (does NOT satisfy App Installer requirement):"
         $cbsPackages | ForEach-Object { Write-Info "  $($_.Name) v$($_.Version)" }
         Write-Heartbeat "WindowsAppRuntime18: CBS present but insufficient" -Details ($cbsPackages | ForEach-Object { "$($_.Name) v$($_.Version)" } | Out-String)
     }
     
-    if ($allRuntimePackages) {
-        $first = $allRuntimePackages | Select-Object -First 1
+    if ($frameworkPackages) {
+        $first = $frameworkPackages | Select-Object -First 1
         Write-Pass "Windows App Runtime 1.8 framework found: $($first.Name) v$($first.Version)"
         Write-Heartbeat "WindowsAppRuntime18: already installed" -Details "Package: $($first.Name), Version: $($first.Version)"
         return @()
@@ -526,9 +530,9 @@ function Ensure-WindowsAppRuntime18 {
         }
     }
     
-    # Validate installation - check for actual framework identity (not CBS)
+    # Validate installation - check for actual framework identity (explicit namespace, not CBS)
     $runtime = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { 
-        $_.Name -like "Microsoft.WindowsAppRuntime.1.8*" -and $_.Name -notlike "*.CBS.*"
+        $_.Name -like "Microsoft.WindowsAppRuntime.1.8*" -and $_.Name -notlike "Microsoft.WindowsAppRuntime.CBS.*"
     } | Select-Object -First 1
     if (-not $runtime) {
         # Build diagnostic info

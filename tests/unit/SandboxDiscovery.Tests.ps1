@@ -295,9 +295,10 @@ Describe "SandboxDiscovery.ScriptValidation" {
         It "Should check Get-AppxPackage for Microsoft.WindowsAppRuntime.1.8 (non-CBS)" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            # Must check for framework identity pattern that excludes CBS packages
+            # Must check for framework identity pattern that excludes CBS packages using explicit namespace
             $content | Should -Match 'Microsoft\.WindowsAppRuntime\.1\.8\*'
-            $content | Should -Match '-notlike.*\.CBS\.'
+            # Explicit CBS namespace exclusion (not substring heuristic)
+            $content | Should -Match '-notlike\s+[''"]Microsoft\.WindowsAppRuntime\.CBS\.\*[''"]'
         }
         
         It "Should explicitly exclude CBS packages from WAR 1.8 detection" {
@@ -305,6 +306,8 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content = Get-Content -Path $installScript -Raw
             # CBS packages do NOT satisfy App Installer's dependency requirement
             $content | Should -Match 'CBS.*NOT.*satisfy|does NOT satisfy.*CBS'
+            # Must query CBS identity separately with explicit namespace
+            $content | Should -Match 'Microsoft\.WindowsAppRuntime\.CBS\.1\.8\*'
         }
         
         It "Should log when CBS package is present but insufficient" {
