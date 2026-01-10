@@ -409,6 +409,118 @@ Describe "SandboxDiscovery.ScriptValidation" {
     }
 }
 
+Describe "SandboxDiscovery.DownloadHelpers" {
+    
+    Context "Resolve-FinalUrl function" {
+        
+        It "Should have Resolve-FinalUrl function" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'function\s+Resolve-FinalUrl'
+        }
+        
+        It "Should return FinalUrl, RedirectChain, ContentType, Success properties" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'FinalUrl\s*='
+            $content | Should -Match 'RedirectChain\s*='
+            $content | Should -Match 'ContentType\s*='
+            $content | Should -Match 'Success\s*='
+        }
+        
+        It "Should try curl.exe first for redirect resolution" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'curl\.exe.*-L.*-I'
+        }
+        
+        It "Should have HttpClient fallback for redirect resolution" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'System\.Net\.Http\.HttpClient'
+            $content | Should -Match 'AllowAutoRedirect\s*=\s*\$true'
+        }
+    }
+    
+    Context "Test-ZipMagic function" {
+        
+        It "Should have Test-ZipMagic function" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'function\s+Test-ZipMagic'
+        }
+        
+        It "Should check for valid ZIP signatures (50 4B)" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must check for PK magic bytes
+            $content | Should -Match '0x50.*0x4B.*0x03.*0x04'
+        }
+        
+        It "Should return IsValid, MagicBytes, FirstBytesHex, FileSize properties" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'IsValid\s*='
+            $content | Should -Match 'MagicBytes\s*='
+            $content | Should -Match 'FirstBytesHex\s*='
+            $content | Should -Match 'FileSize\s*='
+        }
+        
+        It "Should detect HTML content as invalid ZIP" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'File appears to be HTML, not ZIP'
+        }
+    }
+    
+    Context "Invoke-RobustDownload integration" {
+        
+        It "Should have ValidateZip parameter" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match '\[switch\]\$ValidateZip'
+        }
+        
+        It "Should call Resolve-FinalUrl before downloading" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Resolve-FinalUrl should be called before the download loop
+            $resolvePos = $content.IndexOf('Resolve-FinalUrl -Url')
+            $downloadLoopPos = $content.IndexOf('for ($retry = 1')
+            $resolvePos | Should -BeLessThan $downloadLoopPos
+        }
+        
+        It "Should download to temp file first then move on success" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match '\$tempFile\s*=.*\.tmp'
+            $content | Should -Match 'Move-Item.*\$tempFile.*\$OutFile'
+        }
+        
+        It "Should call Test-ZipMagic when ValidateZip is set" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'if\s*\(\$ValidateZip\)'
+            $content | Should -Match 'Test-ZipMagic\s+-FilePath'
+        }
+        
+        It "Should include rich diagnostics on ZIP validation failure" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Diagnostics should include final URL, Content-Type, magic bytes, first bytes hex
+            $content | Should -Match 'Final URL:.*\$finalUrl'
+            $content | Should -Match 'Magic bytes:.*\$.*MagicBytes'
+            $content | Should -Match 'First 32 bytes \(hex\):.*\$.*FirstBytesHex'
+        }
+        
+        It "Should use ValidateZip for WindowsAppRuntime download" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'WindowsAppRuntime18-download.*-ValidateZip'
+        }
+    }
+}
+
 Describe "SandboxDiscovery.TimeoutConfiguration" {
     
     Context "sandbox-discovery.ps1 timeout settings" {

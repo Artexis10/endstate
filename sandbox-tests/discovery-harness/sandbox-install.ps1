@@ -153,10 +153,197 @@ function Invoke-WithTimeout {
     return $result
 }
 
+function Resolve-FinalUrl {
+    <#
+    .SYNOPSIS
+        Resolves redirects and returns the final URL with metadata.
+    .DESCRIPTION
+        Uses curl.exe (preferred) or HttpClient to follow redirects and capture:
+        - Final URL after all redirects
+        - Redirect chain (list of intermediate URLs)
+        - Response headers (Content-Type, Content-Length)
+    .OUTPUTS
+        PSCustomObject with: FinalUrl, RedirectChain, ContentType, ContentLength, Success, Error
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Url
+    )
+    
+    $result = [PSCustomObject]@{
+        FinalUrl = $Url
+        RedirectChain = @()
+        ContentType = $null
+        ContentLength = $null
+        Success = $false
+        Error = $null
+    }
+    
+    # Try curl.exe first (most reliable for redirect handling in PS 5.1)
+    $curlExe = Get-Command curl.exe -ErrorAction SilentlyContinue
+    if ($curlExe) {
+        try {
+            # Use curl to follow redirects and get final URL + headers
+            # -L = follow redirects, -I = HEAD request, -s = silent, -w = write-out format
+            $curlOutput = & curl.exe -L -I -s -w "`n%{url_effective}`n%{content_type}" $Url 2>&1
+            $lines = $curlOutput -split "`n"
+            
+            # Parse Location headers for redirect chain
+            $redirectChain = @()
+            foreach ($line in $lines) {
+                if ($line -match '^Location:\s*(.+)$') {
+                    $redirectChain += $matches[1].Trim()
+                }
+            }
+            
+            # Last two lines are effective URL and content type from -w format
+            if ($lines.Count -ge 2) {
+                $result.FinalUrl = $lines[-2].Trim()
+                $result.ContentType = $lines[-1].Trim()
+            }
+            
+            # Parse Content-Length if present
+            foreach ($line in $lines) {
+                if ($line -match '^Content-Length:\s*(\d+)') {
+                    $result.ContentLength = [int64]$matches[1]
+                    break
+                }
+            }
+            
+            $result.RedirectChain = $redirectChain
+            $result.Success = $true
+            return $result
+        }
+        catch {
+            $result.Error = "curl.exe failed: $_"
+        }
+    }
+    
+    # Fallback to HttpClient
+    try {
+        $handler = New-Object System.Net.Http.HttpClientHandler
+        $handler.AllowAutoRedirect = $true
+        $handler.MaxAutomaticRedirections = 10
+        
+        $client = New-Object System.Net.Http.HttpClient($handler)
+        $client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0")
+        
+        # Use GET with range header to minimize download (HEAD often rejected)
+        $request = New-Object System.Net.Http.HttpRequestMessage([System.Net.Http.HttpMethod]::Get, $Url)
+        $request.Headers.Range = New-Object System.Net.Headers.RangeHeaderValue(0, 0)
+        
+        $response = $client.SendAsync($request).GetAwaiter().GetResult()
+        
+        $result.FinalUrl = $response.RequestMessage.RequestUri.ToString()
+        if ($response.Content.Headers.ContentType) {
+            $result.ContentType = $response.Content.Headers.ContentType.ToString()
+        }
+        if ($response.Content.Headers.ContentLength) {
+            $result.ContentLength = $response.Content.Headers.ContentLength
+        }
+        $result.Success = $true
+        
+        $response.Dispose()
+        $client.Dispose()
+        $handler.Dispose()
+    }
+    catch {
+        $result.Error = "HttpClient failed: $_"
+    }
+    
+    return $result
+}
+
+function Test-ZipMagic {
+    <#
+    .SYNOPSIS
+        Validates that a file has valid ZIP magic bytes.
+    .DESCRIPTION
+        Reads first 4 bytes and checks for valid ZIP signatures:
+        - 50 4B 03 04 (regular ZIP)
+        - 50 4B 05 06 (empty archive)
+        - 50 4B 07 08 (spanned archive)
+    .OUTPUTS
+        PSCustomObject with: IsValid, MagicBytes (hex), FirstBytesHex, FirstBytesAscii, FileSize, Error
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath
+    )
+    
+    $result = [PSCustomObject]@{
+        IsValid = $false
+        MagicBytes = $null
+        FirstBytesHex = $null
+        FirstBytesAscii = $null
+        FileSize = 0
+        Error = $null
+    }
+    
+    if (-not (Test-Path $FilePath)) {
+        $result.Error = "File not found: $FilePath"
+        return $result
+    }
+    
+    try {
+        $fileInfo = Get-Item $FilePath
+        $result.FileSize = $fileInfo.Length
+        
+        if ($result.FileSize -lt 4) {
+            $result.Error = "File too small for ZIP header (< 4 bytes)"
+            return $result
+        }
+        
+        # Read first 32 bytes for diagnostics
+        $bytes = [byte[]]::new(32)
+        $stream = [System.IO.File]::OpenRead($FilePath)
+        $bytesRead = $stream.Read($bytes, 0, [Math]::Min(32, $result.FileSize))
+        $stream.Close()
+        
+        # Format hex and ASCII preview
+        $result.FirstBytesHex = ($bytes[0..([Math]::Min($bytesRead, 32) - 1)] | ForEach-Object { $_.ToString("X2") }) -join " "
+        $result.FirstBytesAscii = -join ($bytes[0..([Math]::Min($bytesRead, 32) - 1)] | ForEach-Object { 
+            if ($_ -ge 32 -and $_ -le 126) { [char]$_ } else { "." }
+        })
+        
+        # Check magic bytes (first 4 bytes)
+        $magic = $bytes[0..3]
+        $result.MagicBytes = ($magic | ForEach-Object { $_.ToString("X2") }) -join " "
+        
+        # Valid ZIP signatures
+        $validSignatures = @(
+            @(0x50, 0x4B, 0x03, 0x04),  # Regular ZIP
+            @(0x50, 0x4B, 0x05, 0x06),  # Empty archive
+            @(0x50, 0x4B, 0x07, 0x08)   # Spanned archive
+        )
+        
+        foreach ($sig in $validSignatures) {
+            if ($magic[0] -eq $sig[0] -and $magic[1] -eq $sig[1] -and 
+                $magic[2] -eq $sig[2] -and $magic[3] -eq $sig[3]) {
+                $result.IsValid = $true
+                return $result
+            }
+        }
+        
+        # Check if it's HTML (common redirect/error page)
+        $headerStr = [System.Text.Encoding]::ASCII.GetString($bytes[0..([Math]::Min($bytesRead, 20) - 1)])
+        if ($headerStr -match '^<!DOCTYPE' -or $headerStr -match '^<html' -or $headerStr -match '^<HTML') {
+            $result.Error = "File appears to be HTML, not ZIP"
+        } else {
+            $result.Error = "Invalid ZIP magic bytes"
+        }
+    }
+    catch {
+        $result.Error = "Failed to read file: $_"
+    }
+    
+    return $result
+}
+
 function Invoke-RobustDownload {
     <#
     .SYNOPSIS
-        Downloads a file with timeout, retries, size validation, and diagnostics.
+        Downloads a file with timeout, retries, size validation, redirect resolution, and ZIP validation.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -167,14 +354,36 @@ function Invoke-RobustDownload {
         [string]$StepName,
         [int]$TimeoutSeconds = 180,
         [int]$MinExpectedBytes = 1000000,
-        [int]$MaxRetries = 3
+        [int]$MaxRetries = 3,
+        [switch]$ValidateZip
     )
     
     Write-Step "Downloading: $StepName"
     Write-Heartbeat "$StepName`: downloading" -Details "URL: $Url"
     
+    # Resolve redirects first to get final URL and metadata
+    $urlInfo = Resolve-FinalUrl -Url $Url
+    $finalUrl = if ($urlInfo.Success) { $urlInfo.FinalUrl } else { $Url }
+    $downloadUrl = $finalUrl
+    
+    if ($urlInfo.Success -and $urlInfo.FinalUrl -ne $Url) {
+        Write-Info "Resolved final URL: $finalUrl"
+        if ($urlInfo.RedirectChain.Count -gt 0) {
+            Write-Info "Redirect chain: $($urlInfo.RedirectChain.Count) hops"
+        }
+        if ($urlInfo.ContentType) {
+            Write-Info "Content-Type: $($urlInfo.ContentType)"
+        }
+        Write-Heartbeat "$StepName`: resolved URL" -Details "Final: $finalUrl`nContent-Type: $($urlInfo.ContentType)"
+    }
+    
     for ($retry = 1; $retry -le $MaxRetries; $retry++) {
         try {
+            # Download to temp file first, then move on success
+            $tempFile = "$OutFile.tmp"
+            if (Test-Path $tempFile) {
+                Remove-Item $tempFile -Force
+            }
             if (Test-Path $OutFile) {
                 Remove-Item $OutFile -Force
             }
@@ -187,7 +396,7 @@ function Invoke-RobustDownload {
             $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0")
             
             # Download with timeout using async + wait
-            $downloadTask = $webClient.DownloadFileTaskAsync($Url, $OutFile)
+            $downloadTask = $webClient.DownloadFileTaskAsync($downloadUrl, $tempFile)
             $completed = $downloadTask.Wait($TimeoutSeconds * 1000)
             
             if (-not $completed) {
@@ -202,39 +411,99 @@ function Invoke-RobustDownload {
             }
             
             # Validate file exists and size
-            if (-not (Test-Path $OutFile)) {
+            if (-not (Test-Path $tempFile)) {
                 Write-Host "[WARN] Download did not create file, retrying..." -ForegroundColor Yellow
                 continue
             }
             
-            $fileSize = (Get-Item $OutFile).Length
+            $fileSize = (Get-Item $tempFile).Length
             Write-Info "Downloaded file size: $fileSize bytes"
             
             if ($fileSize -lt $MinExpectedBytes) {
                 # File too small - likely HTML error page
-                $fileContent = Get-Content -Path $OutFile -TotalCount 20 -ErrorAction SilentlyContinue
+                $fileContent = Get-Content -Path $tempFile -TotalCount 20 -ErrorAction SilentlyContinue
                 $contentPreview = $fileContent -join "`n"
                 
                 Write-Host "[WARN] Downloaded file too small ($fileSize bytes < $MinExpectedBytes expected)" -ForegroundColor Yellow
                 Write-Heartbeat "$StepName`: file too small" -Details "Size: $fileSize bytes`nContent preview:`n$contentPreview"
                 
                 if ($retry -eq $MaxRetries) {
-                    Write-FatalError -Step $StepName -Message "Downloaded file too small after $MaxRetries attempts" -Details "Expected: >= $MinExpectedBytes bytes`nActual: $fileSize bytes`nURL: $Url`n`nFile content (first 20 lines):`n$contentPreview"
+                    $diagDetails = @"
+Expected: >= $MinExpectedBytes bytes
+Actual: $fileSize bytes
+Original URL: $Url
+Final URL: $finalUrl
+Content-Type: $($urlInfo.ContentType)
+
+Diagnostics:
+- Redirect chain: $($urlInfo.RedirectChain -join ' -> ')
+- URL resolution success: $($urlInfo.Success)
+
+File content (first 20 lines):
+$contentPreview
+"@
+                    Write-FatalError -Step $StepName -Message "Downloaded file too small after $MaxRetries attempts" -Details $diagDetails
                 }
                 Start-Sleep -Seconds 2
                 continue
             }
             
             # Validate it's not HTML (common error response)
-            $bytes = [System.IO.File]::ReadAllBytes($OutFile)
+            $bytes = [System.IO.File]::ReadAllBytes($tempFile)
             if ($bytes.Length -ge 5) {
                 $header = [System.Text.Encoding]::ASCII.GetString($bytes[0..4])
                 if ($header -match '^<!DOC' -or $header -match '^<html' -or $header -match '^<HTML') {
-                    $fileContent = Get-Content -Path $OutFile -TotalCount 20 -ErrorAction SilentlyContinue
+                    $fileContent = Get-Content -Path $tempFile -TotalCount 20 -ErrorAction SilentlyContinue
                     $contentPreview = $fileContent -join "`n"
-                    Write-FatalError -Step $StepName -Message "Downloaded file is HTML (error page)" -Details "URL: $Url`n`nContent:`n$contentPreview"
+                    $diagDetails = @"
+Downloaded file is HTML (error page or redirect page)
+
+Original URL: $Url
+Final URL: $finalUrl
+Content-Type: $($urlInfo.ContentType)
+File size: $fileSize bytes
+
+Diagnostics:
+- Redirect chain: $($urlInfo.RedirectChain -join ' -> ')
+
+Content:
+$contentPreview
+"@
+                    Write-FatalError -Step $StepName -Message "Downloaded file is HTML (error page)" -Details $diagDetails
                 }
             }
+            
+            # Validate ZIP magic bytes if requested
+            if ($ValidateZip) {
+                $zipCheck = Test-ZipMagic -FilePath $tempFile
+                if (-not $zipCheck.IsValid) {
+                    $diagDetails = @"
+ZIP validation failed: $($zipCheck.Error)
+
+Original URL: $Url
+Final URL: $finalUrl
+Content-Type: $($urlInfo.ContentType)
+File size: $($zipCheck.FileSize) bytes
+
+Diagnostics:
+- Magic bytes: $($zipCheck.MagicBytes)
+- First 32 bytes (hex): $($zipCheck.FirstBytesHex)
+- First 32 bytes (ASCII): $($zipCheck.FirstBytesAscii)
+- Redirect chain: $($urlInfo.RedirectChain -join ' -> ')
+"@
+                    if ($retry -eq $MaxRetries) {
+                        Write-FatalError -Step $StepName -Message "Downloaded file is not a valid ZIP" -Details $diagDetails
+                    }
+                    Write-Host "[WARN] Invalid ZIP file, retrying..." -ForegroundColor Yellow
+                    Write-Heartbeat "$StepName`: invalid ZIP" -Details $diagDetails
+                    Start-Sleep -Seconds 2
+                    continue
+                }
+                Write-Info "ZIP validation passed (magic: $($zipCheck.MagicBytes))"
+            }
+            
+            # Move temp file to final location
+            Move-Item -Path $tempFile -Destination $OutFile -Force
             
             Write-Pass "Downloaded: $OutFile ($fileSize bytes)"
             Write-Heartbeat "$StepName`: downloaded" -Details "Size: $fileSize bytes"
@@ -247,9 +516,27 @@ function Invoke-RobustDownload {
                 Start-Sleep -Seconds 2
             }
         }
+        finally {
+            # Clean up temp file on failure
+            if (Test-Path $tempFile -ErrorAction SilentlyContinue) {
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
     
-    Write-FatalError -Step $StepName -Message "Download failed after $MaxRetries attempts" -Details "URL: $Url"
+    $diagDetails = @"
+Download failed after $MaxRetries attempts
+
+Original URL: $Url
+Final URL: $finalUrl
+Content-Type: $($urlInfo.ContentType)
+
+Diagnostics:
+- URL resolution success: $($urlInfo.Success)
+- Redirect chain: $($urlInfo.RedirectChain -join ' -> ')
+- Resolution error: $($urlInfo.Error)
+"@
+    Write-FatalError -Step $StepName -Message "Download failed after $MaxRetries attempts" -Details $diagDetails
 }
 
 function Invoke-AppxInstall {
@@ -495,8 +782,8 @@ function Ensure-WindowsAppRuntime18 {
     $redistUrl = "https://aka.ms/windowsappsdk/1.8/latest/Microsoft.WindowsAppRuntime.Redist.1.8.zip"
     $redistZipPath = Join-Path $TempDir "Microsoft.WindowsAppRuntime.Redist.1.8.zip"
     
-    # Download with robust helper (timeout, retries, size validation)
-    Invoke-RobustDownload -Url $redistUrl -OutFile $redistZipPath -StepName "WindowsAppRuntime18-download" -MinExpectedBytes 1000000
+    # Download with robust helper (timeout, retries, size validation, ZIP validation)
+    Invoke-RobustDownload -Url $redistUrl -OutFile $redistZipPath -StepName "WindowsAppRuntime18-download" -MinExpectedBytes 1000000 -ValidateZip
     
     # Extract the zip
     $redistExtractDir = Join-Path $TempDir "windowsappruntime-extract"
