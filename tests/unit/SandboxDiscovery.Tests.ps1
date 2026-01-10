@@ -473,6 +473,111 @@ Describe "SandboxDiscovery.DownloadHelpers" {
         }
     }
     
+    Context "Test-ZipMagic runtime behavior" {
+        
+        BeforeAll {
+            # Load the sandbox-install.ps1 to get the Test-ZipMagic function
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            # Extract just the Test-ZipMagic function and dot-source it
+            $content = Get-Content -Path $installScript -Raw
+            if ($content -match '(?s)(function Test-ZipMagic \{.+?\n\})') {
+                $functionDef = $matches[1]
+                Invoke-Expression $functionDef
+            }
+        }
+        
+        It "Should return IsValid=true for valid ZIP magic bytes (PK header)" {
+            $tempFile = [System.IO.Path]::GetTempFileName()
+            try {
+                # Write valid ZIP magic bytes: PK\x03\x04
+                [byte[]]$zipBytes = @(0x50, 0x4B, 0x03, 0x04) + @(0x00) * 28
+                [System.IO.File]::WriteAllBytes($tempFile, $zipBytes)
+                
+                $result = Test-ZipMagic -FilePath $tempFile
+                $result.IsValid | Should -Be $true
+                $result.MagicBytes | Should -Be "50 4B 03 04"
+                $result.FileSize | Should -Be 32
+                $result.Error | Should -BeNullOrEmpty
+            }
+            finally {
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should return IsValid=false for HTML content masquerading as ZIP" {
+            $tempFile = [System.IO.Path]::GetTempFileName()
+            try {
+                # Write HTML content (common redirect/error page)
+                $htmlContent = "<!DOCTYPE html><html><body>Redirect</body></html>"
+                [System.IO.File]::WriteAllText($tempFile, $htmlContent)
+                
+                $result = Test-ZipMagic -FilePath $tempFile
+                $result.IsValid | Should -Be $false
+                $result.Error | Should -Match "HTML"
+                $result.FirstBytesHex | Should -Not -BeNullOrEmpty
+                $result.FirstBytesAscii | Should -Match "<!DOCTYPE"
+            }
+            finally {
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should return IsValid=false for random binary (not ZIP)" {
+            $tempFile = [System.IO.Path]::GetTempFileName()
+            try {
+                # Write random non-ZIP bytes
+                [byte[]]$randomBytes = @(0xDE, 0xAD, 0xBE, 0xEF) + @(0x00) * 28
+                [System.IO.File]::WriteAllBytes($tempFile, $randomBytes)
+                
+                $result = Test-ZipMagic -FilePath $tempFile
+                $result.IsValid | Should -Be $false
+                $result.MagicBytes | Should -Be "DE AD BE EF"
+                $result.Error | Should -Match "Invalid ZIP magic bytes"
+            }
+            finally {
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should include first-bytes hex and ASCII in result for diagnostics" {
+            $tempFile = [System.IO.Path]::GetTempFileName()
+            try {
+                # Write recognizable ASCII content
+                $content = "This is not a ZIP file at all!"
+                [System.IO.File]::WriteAllText($tempFile, $content)
+                
+                $result = Test-ZipMagic -FilePath $tempFile
+                $result.FirstBytesHex | Should -Match "54 68 69 73"  # "This" in hex
+                $result.FirstBytesAscii | Should -Match "This is not"
+            }
+            finally {
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should handle file not found gracefully" {
+            $result = Test-ZipMagic -FilePath "C:\nonexistent\file.zip"
+            $result.IsValid | Should -Be $false
+            $result.Error | Should -Match "not found"
+        }
+        
+        It "Should handle empty file gracefully" {
+            $tempFile = [System.IO.Path]::GetTempFileName()
+            try {
+                # Create empty file
+                [System.IO.File]::WriteAllBytes($tempFile, @())
+                
+                $result = Test-ZipMagic -FilePath $tempFile
+                $result.IsValid | Should -Be $false
+                $result.FileSize | Should -Be 0
+                $result.Error | Should -Match "too small"
+            }
+            finally {
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    
     Context "Invoke-RobustDownload integration" {
         
         It "Should have ValidateZip parameter" {
