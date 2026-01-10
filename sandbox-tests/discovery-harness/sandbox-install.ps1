@@ -354,10 +354,12 @@ function Get-AppxErrorDetails {
             $logPath = Join-Path $env:TEMP "AppxPackageLog_$activityId.txt"
             $log = Get-AppPackageLog -ActivityId $activityId -ErrorAction SilentlyContinue
             if ($log) {
-                $log | Out-File -FilePath $logPath -Encoding UTF8
+                # Format EventLogRecord objects as readable text (not raw type names)
+                $formattedLog = $log | Format-List TimeCreated, Id, LevelDisplayName, Message | Out-String -Width 200
+                $formattedLog | Out-File -FilePath $logPath -Encoding UTF8
                 $details += "AppPackageLog saved to: $logPath"
-                $details += "Log content (first 50 lines):"
-                $details += ($log | Select-Object -First 50)
+                $details += "Log content:"
+                $details += $formattedLog
             }
         }
         catch {
@@ -453,14 +455,27 @@ function Ensure-WindowsAppRuntime18 {
     Write-Heartbeat "WindowsAppRuntime18: checking"
     
     # Check if already installed - use Where-Object for reliable wildcard matching
-    # Get-AppxPackage -Name does NOT support wildcards reliably in all PS versions
+    # CRITICAL: CBS packages (Microsoft.WindowsAppRuntime.CBS.1.8) do NOT satisfy App Installer's
+    # dependency requirement. We must check for the actual framework identity:
+    # Microsoft.WindowsAppRuntime.1.8* (NOT .CBS.)
     $allRuntimePackages = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { 
-        $_.Name -like "*WindowsAppRuntime*1.8*" -or $_.Name -like "*WindowsAppRuntime.CBS.1.8*"
+        $_.Name -like "Microsoft.WindowsAppRuntime.1.8*" -and $_.Name -notlike "*.CBS.*"
+    }
+    
+    # Also check for CBS packages (for logging purposes only - they don't satisfy the requirement)
+    $cbsPackages = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { 
+        $_.Name -like "*WindowsAppRuntime.CBS.1.8*"
+    }
+    
+    if ($cbsPackages -and -not $allRuntimePackages) {
+        Write-Info "Found CBS package (does NOT satisfy App Installer requirement):"
+        $cbsPackages | ForEach-Object { Write-Info "  $($_.Name) v$($_.Version)" }
+        Write-Heartbeat "WindowsAppRuntime18: CBS present but insufficient" -Details ($cbsPackages | ForEach-Object { "$($_.Name) v$($_.Version)" } | Out-String)
     }
     
     if ($allRuntimePackages) {
         $first = $allRuntimePackages | Select-Object -First 1
-        Write-Pass "Windows App Runtime 1.8 found: $($first.Name) v$($first.Version)"
+        Write-Pass "Windows App Runtime 1.8 framework found: $($first.Name) v$($first.Version)"
         Write-Heartbeat "WindowsAppRuntime18: already installed" -Details "Package: $($first.Name), Version: $($first.Version)"
         return @()
     }
@@ -511,8 +526,10 @@ function Ensure-WindowsAppRuntime18 {
         }
     }
     
-    # Validate installation
-    $runtime = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime.1.8" -ErrorAction SilentlyContinue
+    # Validate installation - check for actual framework identity (not CBS)
+    $runtime = Get-AppxPackage -ErrorAction SilentlyContinue | Where-Object { 
+        $_.Name -like "Microsoft.WindowsAppRuntime.1.8*" -and $_.Name -notlike "*.CBS.*"
+    } | Select-Object -First 1
     if (-not $runtime) {
         # Build diagnostic info
         $diagInfo = @"
@@ -691,7 +708,9 @@ function Ensure-Winget {
             try {
                 $logOutput = Get-AppPackageLog -ActivityID $activityId -ErrorAction SilentlyContinue
                 if ($logOutput) {
-                    $appPackageLog = "=== Get-AppPackageLog for ActivityId $activityId ===`n$logOutput"
+                    # Format EventLogRecord objects as readable text (not raw type names)
+                    $formattedLog = $logOutput | Format-List TimeCreated, Id, LevelDisplayName, Message | Out-String -Width 200
+                    $appPackageLog = "=== Get-AppPackageLog for ActivityId $activityId ===`n$formattedLog"
                 } else {
                     $appPackageLog = "=== Get-AppPackageLog for ActivityId $activityId returned no output ==="
                 }

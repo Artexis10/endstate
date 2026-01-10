@@ -292,10 +292,26 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content | Should -Match 'function\s+Ensure-WindowsAppRuntime18'
         }
         
-        It "Should check Get-AppxPackage for Microsoft.WindowsAppRuntime.1.8" {
+        It "Should check Get-AppxPackage for Microsoft.WindowsAppRuntime.1.8 (non-CBS)" {
             $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
             $content = Get-Content -Path $installScript -Raw
-            $content | Should -Match 'Get-AppxPackage\s+-Name\s+[''"]Microsoft\.WindowsAppRuntime\.1\.8[''"]'
+            # Must check for framework identity pattern that excludes CBS packages
+            $content | Should -Match 'Microsoft\.WindowsAppRuntime\.1\.8\*'
+            $content | Should -Match '-notlike.*\.CBS\.'
+        }
+        
+        It "Should explicitly exclude CBS packages from WAR 1.8 detection" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # CBS packages do NOT satisfy App Installer's dependency requirement
+            $content | Should -Match 'CBS.*NOT.*satisfy|does NOT satisfy.*CBS'
+        }
+        
+        It "Should log when CBS package is present but insufficient" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must log CBS presence for diagnostics
+            $content | Should -Match 'CBS present but insufficient'
         }
         
         It "Should download WindowsAppRuntime redist zip (not EXE installer)" {
@@ -372,6 +388,13 @@ Describe "SandboxDiscovery.ScriptValidation" {
             $content = Get-Content -Path $installScript -Raw
             # Must call Get-AppPackageLog for ActivityId extraction
             $content | Should -Match 'Get-AppPackageLog\s+-ActivityID'
+        }
+        
+        It "Should format Get-AppPackageLog output as readable text (not raw EventLogRecord)" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Must format EventLogRecord objects with Format-List for readable output
+            $content | Should -Match 'Format-List\s+TimeCreated.*Message.*Out-String'
         }
         
         It "Should list DesktopAppInstaller packages on failure" {
