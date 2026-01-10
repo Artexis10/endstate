@@ -986,3 +986,338 @@ Describe "SandboxDiscovery.SnapshotModule" {
         }
     }
 }
+
+Describe "SandboxDiscovery.SmokeMode" {
+    
+    Context "sandbox-install.ps1 smoke mode parameter" {
+        
+        It "Should have SmokeWindowsAppRuntime parameter" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match '\[switch\]\$SmokeWindowsAppRuntime'
+        }
+        
+        It "Should have Invoke-SmokeWindowsAppRuntime function" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'function\s+Invoke-SmokeWindowsAppRuntime'
+        }
+        
+        It "Should have smoke mode early exit logic" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'if\s*\(\$SmokeWindowsAppRuntime\)'
+        }
+        
+        It "Should document smoke mode in synopsis" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match 'SMOKE MODE'
+        }
+    }
+    
+    Context "Invoke-SmokeWindowsAppRuntime function structure" {
+        
+        It "Should have ResolveFinalUrlFn parameter for DI" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Check within Invoke-SmokeWindowsAppRuntime function
+            $content | Should -Match 'Invoke-SmokeWindowsAppRuntime[\s\S]*?\[scriptblock\]\$ResolveFinalUrlFn'
+        }
+        
+        It "Should have DownloadFn parameter for DI" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Check within Invoke-SmokeWindowsAppRuntime function
+            $content | Should -Match 'Invoke-SmokeWindowsAppRuntime[\s\S]*?\[scriptblock\]\$DownloadFn'
+        }
+        
+        It "Should return result object with diagnostic fields" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            # Check for key diagnostic fields in result object
+            $content | Should -Match 'FinalUrl\s*=\s*\$null'
+            $content | Should -Match 'RedirectChain\s*=\s*@\(\)'
+            $content | Should -Match 'RedirectHopCount\s*='
+            $content | Should -Match 'MagicBytes\s*='
+            $content | Should -Match 'FirstBytesHex\s*='
+            $content | Should -Match 'FirstBytesAscii\s*='
+        }
+    }
+    
+    Context "Invoke-SmokeWindowsAppRuntime runtime behavior" {
+        
+        BeforeAll {
+            # Load required functions from sandbox-install.ps1
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            
+            # Extract Resolve-FinalUrl function
+            if ($content -match '(?s)(function Resolve-FinalUrl \{.+?\n\})\s*\n\s*function') {
+                Invoke-Expression $matches[1]
+            }
+            
+            # Extract Test-ZipMagic function
+            if ($content -match '(?s)(function Test-ZipMagic \{.+?\n\})') {
+                Invoke-Expression $matches[1]
+            }
+            
+            # Extract Invoke-SmokeWindowsAppRuntime function
+            if ($content -match '(?s)(function Invoke-SmokeWindowsAppRuntime \{.+?\n\})\s*\n\s*function Ensure-WindowsAppRuntime18') {
+                Invoke-Expression $matches[1]
+            }
+        }
+        
+        It "Should return Success=true when download produces valid ZIP" {
+            $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "smoke-test-$(Get-Random)"
+            
+            try {
+                # Fake resolver
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/runtime.zip"
+                        RedirectChain = @("https://aka.ms/redirect1")
+                        ContentType = "application/zip"
+                        ContentLength = 2000000
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes valid ZIP
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    [byte[]]$zipBytes = @(0x50, 0x4B, 0x03, 0x04) + @(0x00) * 1000
+                    [System.IO.File]::WriteAllBytes($outFile, $zipBytes)
+                    return $true
+                }
+                
+                $result = Invoke-SmokeWindowsAppRuntime `
+                    -TempDir $tempDir `
+                    -ResolveFinalUrlFn $fakeResolver `
+                    -DownloadFn $fakeDownloader
+                
+                $result.Success | Should -Be $true
+                $result.FinalUrl | Should -Be "https://cdn.example.com/runtime.zip"
+                $result.RedirectHopCount | Should -Be 1
+                $result.ZipValid | Should -Be $true
+                $result.MagicBytes | Should -Be "50 4B 03 04"
+                $result.Error | Should -BeNullOrEmpty
+            }
+            finally {
+                Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should return Success=false with diagnostics when download produces HTML" {
+            $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "smoke-test-$(Get-Random)"
+            
+            try {
+                # Fake resolver
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/error.html"
+                        RedirectChain = @("https://aka.ms/redirect1", "https://aka.ms/redirect2")
+                        ContentType = "text/html"
+                        ContentLength = 500
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes HTML
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    $htmlContent = "<!DOCTYPE html><html><body>Error</body></html>"
+                    [System.IO.File]::WriteAllText($outFile, $htmlContent)
+                    return $true
+                }
+                
+                $result = Invoke-SmokeWindowsAppRuntime `
+                    -TempDir $tempDir `
+                    -ResolveFinalUrlFn $fakeResolver `
+                    -DownloadFn $fakeDownloader
+                
+                $result.Success | Should -Be $false
+                $result.FinalUrl | Should -Be "https://cdn.example.com/error.html"
+                $result.RedirectHopCount | Should -Be 2
+                $result.ZipValid | Should -Be $false
+                $result.FirstBytesAscii | Should -Match "<!DOCTYPE"
+                $result.Error | Should -Match "HTML|ZIP"
+            }
+            finally {
+                Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should return Success=false with diagnostics when download produces non-ZIP binary" {
+            $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "smoke-test-$(Get-Random)"
+            
+            try {
+                # Fake resolver
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/bad.bin"
+                        RedirectChain = @()
+                        ContentType = "application/octet-stream"
+                        ContentLength = 1000
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes non-ZIP binary
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    [byte[]]$badBytes = @(0xCA, 0xFE, 0xBA, 0xBE) + @(0x00) * 100
+                    [System.IO.File]::WriteAllBytes($outFile, $badBytes)
+                    return $true
+                }
+                
+                $result = Invoke-SmokeWindowsAppRuntime `
+                    -TempDir $tempDir `
+                    -ResolveFinalUrlFn $fakeResolver `
+                    -DownloadFn $fakeDownloader
+                
+                $result.Success | Should -Be $false
+                $result.ZipValid | Should -Be $false
+                $result.MagicBytes | Should -Be "CA FE BA BE"
+                $result.Error | Should -Match "ZIP validation failed"
+            }
+            finally {
+                Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should include redirect chain in result" {
+            $tempDir = Join-Path ([System.IO.Path]::GetTempPath()) "smoke-test-$(Get-Random)"
+            
+            try {
+                # Fake resolver with multi-hop redirect
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/final.zip"
+                        RedirectChain = @("https://aka.ms/step1", "https://aka.ms/step2", "https://cdn.example.com/final.zip")
+                        ContentType = "application/zip"
+                        ContentLength = 2000000
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes valid ZIP
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    [byte[]]$zipBytes = @(0x50, 0x4B, 0x03, 0x04) + @(0x00) * 1000
+                    [System.IO.File]::WriteAllBytes($outFile, $zipBytes)
+                    return $true
+                }
+                
+                $result = Invoke-SmokeWindowsAppRuntime `
+                    -TempDir $tempDir `
+                    -ResolveFinalUrlFn $fakeResolver `
+                    -DownloadFn $fakeDownloader
+                
+                $result.RedirectChain.Count | Should -Be 3
+                $result.RedirectHopCount | Should -Be 3
+                $result.RedirectChain[0] | Should -Be "https://aka.ms/step1"
+            }
+            finally {
+                Remove-Item $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    
+    Context "Invoke-RobustDownload final error includes first-bytes diagnostics" {
+        
+        BeforeAll {
+            # Load required functions from sandbox-install.ps1
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            
+            # Extract Test-ZipMagic function
+            if ($content -match '(?s)(function Test-ZipMagic \{.+?\n\})') {
+                Invoke-Expression $matches[1]
+            }
+            
+            # Extract Invoke-RobustDownload function
+            if ($content -match '(?s)(function Invoke-RobustDownload \{.+?\n\})\s*\n\s*function Invoke-AppxInstall') {
+                Invoke-Expression $matches[1]
+            }
+            
+            # Mock Write-* functions
+            function global:Write-Step { param($msg) }
+            function global:Write-Heartbeat { param($msg, $Details) }
+            function global:Write-Info { param($msg) }
+            function global:Write-Pass { param($msg) }
+            function global:Write-FatalError { param($Step, $Message, $Details) throw "$Message`n$Details" }
+        }
+        
+        AfterAll {
+            Remove-Item Function:\Write-Step -ErrorAction SilentlyContinue
+            Remove-Item Function:\Write-Heartbeat -ErrorAction SilentlyContinue
+            Remove-Item Function:\Write-Info -ErrorAction SilentlyContinue
+            Remove-Item Function:\Write-Pass -ErrorAction SilentlyContinue
+            Remove-Item Function:\Write-FatalError -ErrorAction SilentlyContinue
+        }
+        
+        It "Should include first-bytes diagnostics in final error when ValidateZip fails and retries exhaust" {
+            $tempDir = [System.IO.Path]::GetTempPath()
+            $outFile = Join-Path $tempDir "test-download-$(Get-Random).zip"
+            
+            try {
+                # Fake resolver
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/bad.zip"
+                        RedirectChain = @("https://aka.ms/redirect")
+                        ContentType = "application/octet-stream"
+                        ContentLength = 1000000
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes non-ZIP binary (large enough to pass size check)
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    [byte[]]$badBytes = @(0xDE, 0xAD, 0xBE, 0xEF) + @(0x00) * 1000000
+                    [System.IO.File]::WriteAllBytes($outFile, $badBytes)
+                    return $true
+                }
+                
+                $errorThrown = $null
+                try {
+                    Invoke-RobustDownload `
+                        -Url "https://aka.ms/test" `
+                        -OutFile $outFile `
+                        -StepName "TestDownload" `
+                        -MinExpectedBytes 100 `
+                        -MaxRetries 1 `
+                        -ValidateZip `
+                        -ResolveFinalUrlFn $fakeResolver `
+                        -DownloadFn $fakeDownloader
+                } catch {
+                    $errorThrown = $_.Exception.Message
+                }
+                
+                $errorThrown | Should -Not -BeNullOrEmpty
+                # Verify final error includes first-bytes diagnostics
+                $errorThrown | Should -Match "Final URL:"
+                $errorThrown | Should -Match "Redirect chain:"
+                $errorThrown | Should -Match "Magic bytes:"
+                $errorThrown | Should -Match "First 32 bytes \(hex\):"
+                $errorThrown | Should -Match "First 32 bytes \(ASCII\):"
+            }
+            finally {
+                Remove-Item $outFile -Force -ErrorAction SilentlyContinue
+                Remove-Item "$outFile.tmp" -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}

@@ -9,6 +9,10 @@
     3. Capture post-install filesystem snapshot
     4. Copy artifacts to mapped output folder
 
+    SMOKE MODE (-SmokeWindowsAppRuntime):
+    When -SmokeWindowsAppRuntime is specified, runs ONLY the WindowsAppRuntime ZIP
+    download step (no install), prints diagnostic report, then exits.
+
 .PARAMETER WingetId
     The winget package ID to install.
 
@@ -20,6 +24,26 @@
 
 .PARAMETER DryRun
     If set, skip winget install (for testing wiring).
+
+.PARAMETER SmokeWindowsAppRuntime
+    If set, run ONLY the WindowsAppRuntime download smoke test (no install).
+    Prints diagnostic report and exits with success/failure code.
+
+.EXAMPLE
+    # Normal smoke test in Sandbox:
+    .\sandbox-install.ps1 -WingetId "dummy" -OutputDir "C:\output" -SmokeWindowsAppRuntime
+
+.EXAMPLE
+    # Forced bad response smoke (from PowerShell, inject DownloadFn to simulate HTML response):
+    # 1. Dot-source the script to load functions:
+    #    . .\sandbox-install.ps1 -WingetId "dummy" -OutputDir "C:\temp\smoke"
+    # 2. Call Invoke-SmokeWindowsAppRuntime with injected bad downloader:
+    #    $badDownloader = { param($url, $outFile, $timeout)
+    #        "<!DOCTYPE html><html><body>Error</body></html>" | Out-File $outFile
+    #        return $true
+    #    }
+    #    $result = Invoke-SmokeWindowsAppRuntime -DownloadFn $badDownloader
+    #    # Result will show: Success=$false, FirstBytesAscii="<!DOCTYPE...", Error="ZIP validation failed..."
 #>
 param(
     [Parameter(Mandatory = $true)]
@@ -32,7 +56,10 @@ param(
     [string]$Roots = "",
     
     [Parameter(Mandatory = $false)]
-    [switch]$DryRun
+    [switch]$DryRun,
+    
+    [Parameter(Mandatory = $false)]
+    [switch]$SmokeWindowsAppRuntime
 )
 
 $ErrorActionPreference = 'Stop'
@@ -389,6 +416,10 @@ function Invoke-RobustDownload {
         Write-Heartbeat "$StepName`: resolved URL" -Details "Final: $finalUrl`nContent-Type: $($urlInfo.ContentType)"
     }
     
+    # Track last ZIP check for final error diagnostics
+    $lastZipCheck = $null
+    $lastError = $null
+    
     for ($retry = 1; $retry -le $MaxRetries; $retry++) {
         try {
             # Download to temp file first, then move on success
@@ -497,7 +528,9 @@ $contentPreview
             # Validate ZIP magic bytes if requested
             if ($ValidateZip) {
                 $zipCheck = Test-ZipMagic -FilePath $tempFile
+                $lastZipCheck = $zipCheck  # Track for final error diagnostics
                 if (-not $zipCheck.IsValid) {
+                    $lastError = "ZIP validation failed: $($zipCheck.Error)"
                     $diagDetails = @"
 ZIP validation failed: $($zipCheck.Error)
 
@@ -545,6 +578,7 @@ Diagnostics:
         }
     }
     
+    # Build final error message with all available diagnostics
     $diagDetails = @"
 Download failed after $MaxRetries attempts
 
@@ -556,7 +590,22 @@ Diagnostics:
 - URL resolution success: $($urlInfo.Success)
 - Redirect chain: $($urlInfo.RedirectChain -join ' -> ')
 - Resolution error: $($urlInfo.Error)
+- Last error: $lastError
 "@
+    
+    # Include first-bytes diagnostics if ValidateZip was used and we have ZIP check data
+    if ($ValidateZip -and $lastZipCheck) {
+        $diagDetails += @"
+
+ZIP validation diagnostics:
+- Magic bytes: $($lastZipCheck.MagicBytes)
+- First 32 bytes (hex): $($lastZipCheck.FirstBytesHex)
+- First 32 bytes (ASCII): $($lastZipCheck.FirstBytesAscii)
+- File size: $($lastZipCheck.FileSize) bytes
+- ZIP error: $($lastZipCheck.Error)
+"@
+    }
+    
     Write-FatalError -Step $StepName -Message "Download failed after $MaxRetries attempts" -Details $diagDetails
 }
 
@@ -740,6 +789,199 @@ function Select-BestPackageCandidate {
     }
     
     return $selected
+}
+
+function Invoke-SmokeWindowsAppRuntime {
+    <#
+    .SYNOPSIS
+        Smoke test for WindowsAppRuntime ZIP download (no install).
+    .DESCRIPTION
+        Downloads the WindowsAppRuntime redist ZIP and prints diagnostic report.
+        Used to validate download path without running full install.
+    .PARAMETER TempDir
+        Temp directory for downloads.
+    .PARAMETER ResolveFinalUrlFn
+        Optional scriptblock for redirect resolution (for DI/testing).
+    .PARAMETER DownloadFn
+        Optional scriptblock for downloading (for DI/testing).
+    .OUTPUTS
+        PSCustomObject with diagnostic fields: Success, FinalUrl, RedirectChain, ContentType,
+        ContentLength, FilePath, FileSize, ZipValid, MagicBytes, FirstBytesHex, FirstBytesAscii, Error
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$TempDir = (Join-Path $env:TEMP "winget-bootstrap-smoke"),
+        
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$ResolveFinalUrlFn = $null,
+        
+        [Parameter(Mandatory = $false)]
+        [scriptblock]$DownloadFn = $null
+    )
+    
+    $result = [PSCustomObject]@{
+        Success = $false
+        FinalUrl = $null
+        RedirectChain = @()
+        RedirectHopCount = 0
+        ContentType = $null
+        ContentLength = $null
+        FilePath = $null
+        FileSize = 0
+        ZipValid = $false
+        MagicBytes = $null
+        FirstBytesHex = $null
+        FirstBytesAscii = $null
+        Error = $null
+    }
+    
+    Write-Host ""
+    Write-Host "=" * 60 -ForegroundColor Cyan
+    Write-Host " SMOKE MODE: WindowsAppRuntime Download Test" -ForegroundColor Cyan
+    Write-Host "=" * 60 -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Create temp directory
+    if (-not (Test-Path $TempDir)) {
+        New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
+    }
+    
+    $redistUrl = "https://aka.ms/windowsappsdk/1.8/latest/Microsoft.WindowsAppRuntime.Redist.1.8.zip"
+    $redistZipPath = Join-Path $TempDir "Microsoft.WindowsAppRuntime.Redist.1.8.zip"
+    
+    Write-Host "[SMOKE] Source URL: $redistUrl" -ForegroundColor Yellow
+    Write-Host ""
+    
+    # Step 1: Resolve redirects
+    Write-Host "[SMOKE] Step 1: Resolving redirects..." -ForegroundColor Yellow
+    try {
+        if ($ResolveFinalUrlFn) {
+            $urlInfo = & $ResolveFinalUrlFn $redistUrl
+        } else {
+            $urlInfo = Resolve-FinalUrl -Url $redistUrl
+        }
+        
+        $result.FinalUrl = $urlInfo.FinalUrl
+        $result.RedirectChain = $urlInfo.RedirectChain
+        $result.RedirectHopCount = $urlInfo.RedirectChain.Count
+        $result.ContentType = $urlInfo.ContentType
+        $result.ContentLength = $urlInfo.ContentLength
+        
+        Write-Host "[SMOKE] Final URL: $($urlInfo.FinalUrl)" -ForegroundColor Gray
+        Write-Host "[SMOKE] Content-Type: $($urlInfo.ContentType)" -ForegroundColor Gray
+        Write-Host "[SMOKE] Content-Length: $($urlInfo.ContentLength)" -ForegroundColor Gray
+        Write-Host "[SMOKE] Redirect chain ($($urlInfo.RedirectChain.Count) hops):" -ForegroundColor Gray
+        foreach ($hop in $urlInfo.RedirectChain) {
+            Write-Host "[SMOKE]   -> $hop" -ForegroundColor Gray
+        }
+        
+        if (-not $urlInfo.Success) {
+            $result.Error = "URL resolution failed: $($urlInfo.Error)"
+            Write-Host "[SMOKE] ERROR: $($result.Error)" -ForegroundColor Red
+            return $result
+        }
+    }
+    catch {
+        $result.Error = "URL resolution exception: $_"
+        Write-Host "[SMOKE] ERROR: $($result.Error)" -ForegroundColor Red
+        return $result
+    }
+    
+    Write-Host ""
+    
+    # Step 2: Download
+    Write-Host "[SMOKE] Step 2: Downloading to $redistZipPath..." -ForegroundColor Yellow
+    try {
+        if (Test-Path $redistZipPath) {
+            Remove-Item $redistZipPath -Force
+        }
+        
+        if ($DownloadFn) {
+            $downloadSuccess = & $DownloadFn $urlInfo.FinalUrl $redistZipPath 180
+            if (-not $downloadSuccess) {
+                $result.Error = "Download function returned false"
+                Write-Host "[SMOKE] ERROR: $($result.Error)" -ForegroundColor Red
+                return $result
+            }
+        } else {
+            $webClient = New-Object System.Net.WebClient
+            $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0")
+            $downloadTask = $webClient.DownloadFileTaskAsync($urlInfo.FinalUrl, $redistZipPath)
+            $completed = $downloadTask.Wait(180 * 1000)
+            if (-not $completed) {
+                $webClient.CancelAsync()
+                $result.Error = "Download timed out after 180 seconds"
+                Write-Host "[SMOKE] ERROR: $($result.Error)" -ForegroundColor Red
+                return $result
+            }
+            if ($downloadTask.IsFaulted) {
+                $result.Error = "Download failed: $($downloadTask.Exception.InnerException.Message)"
+                Write-Host "[SMOKE] ERROR: $($result.Error)" -ForegroundColor Red
+                return $result
+            }
+        }
+        
+        $result.FilePath = $redistZipPath
+        
+        if (-not (Test-Path $redistZipPath)) {
+            $result.Error = "Download completed but file not found"
+            Write-Host "[SMOKE] ERROR: $($result.Error)" -ForegroundColor Red
+            return $result
+        }
+        
+        $fileInfo = Get-Item $redistZipPath
+        $result.FileSize = $fileInfo.Length
+        Write-Host "[SMOKE] Downloaded file: $redistZipPath" -ForegroundColor Gray
+        Write-Host "[SMOKE] File size: $($result.FileSize) bytes" -ForegroundColor Gray
+    }
+    catch {
+        $result.Error = "Download exception: $_"
+        Write-Host "[SMOKE] ERROR: $($result.Error)" -ForegroundColor Red
+        return $result
+    }
+    
+    Write-Host ""
+    
+    # Step 3: ZIP validation
+    Write-Host "[SMOKE] Step 3: Validating ZIP magic bytes..." -ForegroundColor Yellow
+    $zipCheck = Test-ZipMagic -FilePath $redistZipPath
+    $result.ZipValid = $zipCheck.IsValid
+    $result.MagicBytes = $zipCheck.MagicBytes
+    $result.FirstBytesHex = $zipCheck.FirstBytesHex
+    $result.FirstBytesAscii = $zipCheck.FirstBytesAscii
+    
+    Write-Host "[SMOKE] ZIP Valid: $($zipCheck.IsValid)" -ForegroundColor $(if ($zipCheck.IsValid) { "Green" } else { "Red" })
+    Write-Host "[SMOKE] Magic bytes: $($zipCheck.MagicBytes)" -ForegroundColor Gray
+    Write-Host "[SMOKE] First bytes (hex): $($zipCheck.FirstBytesHex)" -ForegroundColor Gray
+    Write-Host "[SMOKE] First bytes (ASCII): $($zipCheck.FirstBytesAscii)" -ForegroundColor Gray
+    
+    if (-not $zipCheck.IsValid) {
+        $result.Error = "ZIP validation failed: $($zipCheck.Error)"
+        Write-Host "[SMOKE] ERROR: $($result.Error)" -ForegroundColor Red
+    }
+    
+    Write-Host ""
+    
+    # Final summary
+    Write-Host "=" * 60 -ForegroundColor Cyan
+    if ($zipCheck.IsValid) {
+        $result.Success = $true
+        Write-Host " SMOKE TEST PASSED" -ForegroundColor Green
+    } else {
+        Write-Host " SMOKE TEST FAILED" -ForegroundColor Red
+        Write-Host ""
+        Write-Host " Failure details:" -ForegroundColor Red
+        Write-Host "   Final URL: $($result.FinalUrl)" -ForegroundColor Red
+        Write-Host "   Content-Type: $($result.ContentType)" -ForegroundColor Red
+        Write-Host "   Redirect chain: $($result.RedirectChain -join ' -> ')" -ForegroundColor Red
+        Write-Host "   First bytes (hex): $($result.FirstBytesHex)" -ForegroundColor Red
+        Write-Host "   First bytes (ASCII): $($result.FirstBytesAscii)" -ForegroundColor Red
+        Write-Host "   Error: $($result.Error)" -ForegroundColor Red
+    }
+    Write-Host "=" * 60 -ForegroundColor Cyan
+    Write-Host ""
+    
+    return $result
 }
 
 function Ensure-WindowsAppRuntime18 {
@@ -1132,6 +1374,29 @@ $runtimePkgs
     
     Write-Pass "winget bootstrap complete"
     Write-Heartbeat "Winget: bootstrap COMPLETE"
+}
+
+# ============================================================================
+# SMOKE MODE: Early exit for WindowsAppRuntime download test
+# ============================================================================
+if ($SmokeWindowsAppRuntime) {
+    Write-Heartbeat "SmokeMode: WindowsAppRuntime download test"
+    $smokeResult = Invoke-SmokeWindowsAppRuntime
+    
+    # Write result to output directory
+    if ($OutputDir) {
+        $smokeResultPath = Join-Path $OutputDir "SMOKE_RESULT.json"
+        $smokeResult | ConvertTo-Json -Depth 5 | Out-File -FilePath $smokeResultPath -Encoding UTF8
+        Write-Host "[SMOKE] Result saved to: $smokeResultPath" -ForegroundColor Gray
+    }
+    
+    if ($smokeResult.Success) {
+        Write-Heartbeat "SmokeMode: PASSED"
+        exit 0
+    } else {
+        Write-Heartbeat "SmokeMode: FAILED" -Details $smokeResult.Error
+        exit 1
+    }
 }
 
 # Parse roots
