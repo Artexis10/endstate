@@ -344,6 +344,12 @@ function Invoke-RobustDownload {
     <#
     .SYNOPSIS
         Downloads a file with timeout, retries, size validation, redirect resolution, and ZIP validation.
+    .PARAMETER ResolveFinalUrlFn
+        Optional scriptblock for redirect resolution. Receives URL, returns object with FinalUrl, RedirectChain, ContentType, Success.
+        Default: calls Resolve-FinalUrl function.
+    .PARAMETER DownloadFn
+        Optional scriptblock for downloading. Receives (Url, OutFile, TimeoutSeconds), returns $true on success.
+        Default: uses WebClient with async download.
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -355,14 +361,20 @@ function Invoke-RobustDownload {
         [int]$TimeoutSeconds = 180,
         [int]$MinExpectedBytes = 1000000,
         [int]$MaxRetries = 3,
-        [switch]$ValidateZip
+        [switch]$ValidateZip,
+        [scriptblock]$ResolveFinalUrlFn = $null,
+        [scriptblock]$DownloadFn = $null
     )
     
     Write-Step "Downloading: $StepName"
     Write-Heartbeat "$StepName`: downloading" -Details "URL: $Url"
     
     # Resolve redirects first to get final URL and metadata
-    $urlInfo = Resolve-FinalUrl -Url $Url
+    if ($ResolveFinalUrlFn) {
+        $urlInfo = & $ResolveFinalUrlFn $Url
+    } else {
+        $urlInfo = Resolve-FinalUrl -Url $Url
+    }
     $finalUrl = if ($urlInfo.Success) { $urlInfo.FinalUrl } else { $Url }
     $downloadUrl = $finalUrl
     
@@ -391,23 +403,32 @@ function Invoke-RobustDownload {
             Write-Info "Download attempt $retry of $MaxRetries..."
             Write-Heartbeat "$StepName`: attempt $retry"
             
-            # Use WebClient for better timeout control
-            $webClient = New-Object System.Net.WebClient
-            $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0")
-            
-            # Download with timeout using async + wait
-            $downloadTask = $webClient.DownloadFileTaskAsync($downloadUrl, $tempFile)
-            $completed = $downloadTask.Wait($TimeoutSeconds * 1000)
-            
-            if (-not $completed) {
-                $webClient.CancelAsync()
-                Write-Host "[WARN] Download timed out after ${TimeoutSeconds}s, retrying..." -ForegroundColor Yellow
-                Write-Heartbeat "$StepName`: timeout on attempt $retry"
-                continue
-            }
-            
-            if ($downloadTask.IsFaulted) {
-                throw $downloadTask.Exception.InnerException
+            # Use injected download function or default WebClient
+            if ($DownloadFn) {
+                $downloadSuccess = & $DownloadFn $downloadUrl $tempFile $TimeoutSeconds
+                if (-not $downloadSuccess) {
+                    Write-Host "[WARN] Download function returned false, retrying..." -ForegroundColor Yellow
+                    continue
+                }
+            } else {
+                # Use WebClient for better timeout control
+                $webClient = New-Object System.Net.WebClient
+                $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0")
+                
+                # Download with timeout using async + wait
+                $downloadTask = $webClient.DownloadFileTaskAsync($downloadUrl, $tempFile)
+                $completed = $downloadTask.Wait($TimeoutSeconds * 1000)
+                
+                if (-not $completed) {
+                    $webClient.CancelAsync()
+                    Write-Host "[WARN] Download timed out after ${TimeoutSeconds}s, retrying..." -ForegroundColor Yellow
+                    Write-Heartbeat "$StepName`: timeout on attempt $retry"
+                    continue
+                }
+                
+                if ($downloadTask.IsFaulted) {
+                    throw $downloadTask.Exception.InnerException
+                }
             }
             
             # Validate file exists and size

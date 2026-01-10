@@ -623,6 +623,311 @@ Describe "SandboxDiscovery.DownloadHelpers" {
             $content = Get-Content -Path $installScript -Raw
             $content | Should -Match 'WindowsAppRuntime18-download.*-ValidateZip'
         }
+        
+        It "Should have ResolveFinalUrlFn parameter for dependency injection" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match '\[scriptblock\]\$ResolveFinalUrlFn'
+        }
+        
+        It "Should have DownloadFn parameter for dependency injection" {
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            $content | Should -Match '\[scriptblock\]\$DownloadFn'
+        }
+    }
+    
+    Context "Invoke-RobustDownload runtime behavior" {
+        
+        BeforeAll {
+            # Load required functions from sandbox-install.ps1
+            $installScript = Join-Path $script:HarnessDir "sandbox-install.ps1"
+            $content = Get-Content -Path $installScript -Raw
+            
+            # Extract Test-ZipMagic function
+            if ($content -match '(?s)(function Test-ZipMagic \{.+?\n\})') {
+                Invoke-Expression $matches[1]
+            }
+            
+            # Extract Invoke-RobustDownload function
+            if ($content -match '(?s)(function Invoke-RobustDownload \{.+?\n\})\s*\n\s*function') {
+                Invoke-Expression $matches[1]
+            }
+            
+            # Mock Write-* functions to avoid output during tests
+            function global:Write-Step { param($msg) }
+            function global:Write-Heartbeat { param($msg, $Details) }
+            function global:Write-Info { param($msg) }
+            function global:Write-Pass { param($msg) }
+            function global:Write-FatalError { param($Step, $Message, $Details) throw "$Message`n$Details" }
+        }
+        
+        AfterAll {
+            # Clean up global mocks
+            Remove-Item Function:\Write-Step -ErrorAction SilentlyContinue
+            Remove-Item Function:\Write-Heartbeat -ErrorAction SilentlyContinue
+            Remove-Item Function:\Write-Info -ErrorAction SilentlyContinue
+            Remove-Item Function:\Write-Pass -ErrorAction SilentlyContinue
+            Remove-Item Function:\Write-FatalError -ErrorAction SilentlyContinue
+        }
+        
+        It "Should use injected ResolveFinalUrlFn and return final URL in diagnostics" {
+            $tempDir = [System.IO.Path]::GetTempPath()
+            $outFile = Join-Path $tempDir "test-download-$(Get-Random).zip"
+            
+            try {
+                # Fake resolver that simulates redirect chain
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/final.zip"
+                        RedirectChain = @("https://aka.ms/redirect1", "https://aka.ms/redirect2")
+                        ContentType = "application/zip"
+                        ContentLength = 1000000
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes valid ZIP
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    [byte[]]$zipBytes = @(0x50, 0x4B, 0x03, 0x04) + @(0x00) * 1000000
+                    [System.IO.File]::WriteAllBytes($outFile, $zipBytes)
+                    return $true
+                }
+                
+                $result = Invoke-RobustDownload `
+                    -Url "https://aka.ms/test" `
+                    -OutFile $outFile `
+                    -StepName "TestDownload" `
+                    -MinExpectedBytes 100 `
+                    -MaxRetries 1 `
+                    -ValidateZip `
+                    -ResolveFinalUrlFn $fakeResolver `
+                    -DownloadFn $fakeDownloader
+                
+                $result | Should -Be $true
+                Test-Path $outFile | Should -Be $true
+            }
+            finally {
+                Remove-Item $outFile -Force -ErrorAction SilentlyContinue
+                Remove-Item "$outFile.tmp" -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should throw with diagnostics when ValidateZip rejects non-ZIP binary payload" {
+            $tempDir = [System.IO.Path]::GetTempPath()
+            $outFile = Join-Path $tempDir "test-download-$(Get-Random).zip"
+            
+            try {
+                # Fake resolver
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/bad.bin"
+                        RedirectChain = @("https://aka.ms/redirect")
+                        ContentType = "application/octet-stream"
+                        ContentLength = 1000000
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes non-ZIP binary (not HTML, so ZIP validation runs)
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    # Write binary content that's not HTML and not ZIP (large enough to pass size check)
+                    [byte[]]$badBytes = @(0xCA, 0xFE, 0xBA, 0xBE) + @(0x00) * 1000000
+                    [System.IO.File]::WriteAllBytes($outFile, $badBytes)
+                    return $true
+                }
+                
+                $errorThrown = $null
+                try {
+                    Invoke-RobustDownload `
+                        -Url "https://aka.ms/test" `
+                        -OutFile $outFile `
+                        -StepName "TestDownload" `
+                        -MinExpectedBytes 100 `
+                        -MaxRetries 1 `
+                        -ValidateZip `
+                        -ResolveFinalUrlFn $fakeResolver `
+                        -DownloadFn $fakeDownloader
+                } catch {
+                    $errorThrown = $_.Exception.Message
+                }
+                
+                $errorThrown | Should -Not -BeNullOrEmpty
+                # Verify error includes diagnostic fields (from final error after ZIP validation fails)
+                $errorThrown | Should -Match "Final URL:"
+                $errorThrown | Should -Match "Content-Type:"
+                $errorThrown | Should -Match "Redirect chain:"
+            }
+            finally {
+                Remove-Item $outFile -Force -ErrorAction SilentlyContinue
+                Remove-Item "$outFile.tmp" -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should detect HTML content before ZIP validation and include diagnostics" {
+            $tempDir = [System.IO.Path]::GetTempPath()
+            $outFile = Join-Path $tempDir "test-download-$(Get-Random).zip"
+            
+            try {
+                # Fake resolver
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/error.html"
+                        RedirectChain = @("https://aka.ms/redirect")
+                        ContentType = "text/html"
+                        ContentLength = 500
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes HTML
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    $htmlContent = "<!DOCTYPE html><html><body>Error: File not found</body></html>"
+                    [System.IO.File]::WriteAllText($outFile, $htmlContent)
+                    return $true
+                }
+                
+                $errorThrown = $null
+                try {
+                    Invoke-RobustDownload `
+                        -Url "https://aka.ms/test" `
+                        -OutFile $outFile `
+                        -StepName "TestDownload" `
+                        -MinExpectedBytes 10 `
+                        -MaxRetries 1 `
+                        -ValidateZip `
+                        -ResolveFinalUrlFn $fakeResolver `
+                        -DownloadFn $fakeDownloader
+                } catch {
+                    $errorThrown = $_.Exception.Message
+                }
+                
+                $errorThrown | Should -Not -BeNullOrEmpty
+                # HTML detection happens before ZIP validation
+                $errorThrown | Should -Match "HTML"
+                $errorThrown | Should -Match "Final URL:"
+                $errorThrown | Should -Match "Content-Type:"
+                $errorThrown | Should -Match "Redirect chain:"
+            }
+            finally {
+                Remove-Item $outFile -Force -ErrorAction SilentlyContinue
+                Remove-Item "$outFile.tmp" -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should succeed when DownloadFn writes valid ZIP magic bytes" {
+            $tempDir = [System.IO.Path]::GetTempPath()
+            $outFile = Join-Path $tempDir "test-download-$(Get-Random).zip"
+            
+            try {
+                # Fake resolver (no redirects)
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = $url
+                        RedirectChain = @()
+                        ContentType = "application/zip"
+                        ContentLength = 2000000
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes valid ZIP
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    [byte[]]$zipBytes = @(0x50, 0x4B, 0x03, 0x04) + @(0x00) * 2000000
+                    [System.IO.File]::WriteAllBytes($outFile, $zipBytes)
+                    return $true
+                }
+                
+                $result = Invoke-RobustDownload `
+                    -Url "https://example.com/file.zip" `
+                    -OutFile $outFile `
+                    -StepName "TestDownload" `
+                    -MinExpectedBytes 1000000 `
+                    -MaxRetries 1 `
+                    -ValidateZip `
+                    -ResolveFinalUrlFn $fakeResolver `
+                    -DownloadFn $fakeDownloader
+                
+                $result | Should -Be $true
+                Test-Path $outFile | Should -Be $true
+                
+                # Verify the file has valid ZIP magic
+                $bytes = [System.IO.File]::ReadAllBytes($outFile)
+                $bytes[0] | Should -Be 0x50
+                $bytes[1] | Should -Be 0x4B
+                $bytes[2] | Should -Be 0x03
+                $bytes[3] | Should -Be 0x04
+            }
+            finally {
+                Remove-Item $outFile -Force -ErrorAction SilentlyContinue
+                Remove-Item "$outFile.tmp" -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should include redirect chain in error diagnostics" {
+            $tempDir = [System.IO.Path]::GetTempPath()
+            $outFile = Join-Path $tempDir "test-download-$(Get-Random).zip"
+            
+            try {
+                # Fake resolver with redirect chain
+                $fakeResolver = {
+                    param($url)
+                    [PSCustomObject]@{
+                        FinalUrl = "https://cdn.example.com/bad.zip"
+                        RedirectChain = @("https://aka.ms/step1", "https://aka.ms/step2", "https://cdn.example.com/bad.zip")
+                        ContentType = "application/octet-stream"
+                        ContentLength = 1000000
+                        Success = $true
+                        Error = $null
+                    }
+                }
+                
+                # Fake downloader that writes invalid content (large enough to pass size check)
+                $fakeDownloader = {
+                    param($url, $outFile, $timeout)
+                    [byte[]]$badBytes = @(0xDE, 0xAD, 0xBE, 0xEF) + @(0x00) * 1000000
+                    [System.IO.File]::WriteAllBytes($outFile, $badBytes)
+                    return $true
+                }
+                
+                $errorThrown = $null
+                try {
+                    Invoke-RobustDownload `
+                        -Url "https://aka.ms/test" `
+                        -OutFile $outFile `
+                        -StepName "TestDownload" `
+                        -MinExpectedBytes 100 `
+                        -MaxRetries 1 `
+                        -ValidateZip `
+                        -ResolveFinalUrlFn $fakeResolver `
+                        -DownloadFn $fakeDownloader
+                } catch {
+                    $errorThrown = $_.Exception.Message
+                }
+                
+                $errorThrown | Should -Not -BeNullOrEmpty
+                # Verify redirect chain is in diagnostics (from final error after retries exhausted)
+                $errorThrown | Should -Match "Redirect chain:"
+                $errorThrown | Should -Match "Final URL:"
+                $errorThrown | Should -Match "Content-Type:"
+            }
+            finally {
+                Remove-Item $outFile -Force -ErrorAction SilentlyContinue
+                Remove-Item "$outFile.tmp" -Force -ErrorAction SilentlyContinue
+            }
+        }
     }
 }
 
