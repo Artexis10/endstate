@@ -30,6 +30,9 @@
 .PARAMETER WriteModule
     Write the draft module to modules/apps/git/module.jsonc.
 
+.PARAMETER Promote
+    Alias for -WriteModule. Promotes curated module to modules/apps/git/.
+
 .EXAMPLE
     .\curate-git.ps1
     # Runs full curation in Windows Sandbox
@@ -58,7 +61,10 @@ param(
     [switch]$DryRun,
     
     [Parameter(Mandatory = $false)]
-    [switch]$WriteModule
+    [switch]$WriteModule,
+    
+    [Parameter(Mandatory = $false)]
+    [switch]$Promote
 )
 
 $ErrorActionPreference = 'Stop'
@@ -472,8 +478,9 @@ if ($Mode -eq 'local') {
     $result = Invoke-SandboxCuration -OutDir $OutDir -DryRun:$DryRun
 }
 
-# Write module if requested
-if ($WriteModule -and $result.ModulePath -and (Test-Path $result.ModulePath)) {
+# Write module if requested (-Promote is alias for -WriteModule)
+$shouldWriteModule = $WriteModule -or $Promote
+if ($shouldWriteModule -and $result.ModulePath -and (Test-Path $result.ModulePath)) {
     Write-Step "Writing module to modules/apps/git/..."
     $targetDir = Join-Path $script:ModulesDir "git"
     $targetPath = Join-Path $targetDir "module.jsonc"
