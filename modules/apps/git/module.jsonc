@@ -1,10 +1,11 @@
 {
   // Config Module: Git
   // Provides verify/restore/capture configuration for Git version control
+  // Curated module - captures user configuration, excludes credentials
   
   "id": "apps.git",
   "displayName": "Git",
-  "sensitivity": "low",
+  "sensitivity": "medium",
   
   "matches": {
     "winget": ["Git.Git"],
@@ -13,19 +14,76 @@
   },
   
   "verify": [
-    { "type": "command-exists", "command": "git" },
-    { "type": "file-exists", "path": "~/.gitconfig" }
+    { "type": "command-exists", "command": "git" }
+    // Note: .gitconfig is optional - user may not have configured Git yet
+    // Verify only checks Git is installed, not that config exists
   ],
   
   "restore": [
-    // Restore user's .gitconfig from captured payload
-    // { "type": "copy", "source": "./payload/apps/git/.gitconfig", "target": "~/.gitconfig", "backup": true }
+    {
+      "type": "copy",
+      "source": "./payload/apps/git/.gitconfig",
+      "target": "~/.gitconfig",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git/.gitattributes",
+      "target": "~/.gitattributes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git/config",
+      "target": "~/.config/git/config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git/ignore",
+      "target": "~/.config/git/ignore",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git/attributes",
+      "target": "~/.config/git/attributes",
+      "backup": true,
+      "optional": true
+    }
   ],
   
   "capture": {
     "files": [
+      // Primary user config (Windows default location)
       { "source": "~/.gitconfig", "dest": "apps/git/.gitconfig", "optional": true },
-      { "source": "~/.gitattributes", "dest": "apps/git/.gitattributes", "optional": true }
+      { "source": "~/.gitattributes", "dest": "apps/git/.gitattributes", "optional": true },
+      
+      // XDG config location (~/.config/git/)
+      { "source": "~/.config/git/config", "dest": "apps/git/config", "optional": true },
+      { "source": "~/.config/git/ignore", "dest": "apps/git/ignore", "optional": true },
+      { "source": "~/.config/git/attributes", "dest": "apps/git/attributes", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**/.git-credentials",
+      "**/credentials",
+      "**/*.credential*"
     ]
-  }
+  },
+  
+  "sensitive": {
+    "files": [
+      "~/.git-credentials",
+      "~/.config/git/credentials",
+      "%APPDATA%/git/credentials"
+    ],
+    "warning": "Git credential files contain authentication tokens and MUST NOT be auto-restored. Re-authenticate after restore.",
+    "restorer": "warn-only"
+  },
+  
+  "notes": "Captures Git user configuration (aliases, editor, signing, merge settings). Credential files are explicitly excluded - users must re-authenticate after restore. Supports both ~/.gitconfig and ~/.config/git/ locations."
 }
