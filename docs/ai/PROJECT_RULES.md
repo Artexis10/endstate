@@ -101,6 +101,16 @@ Runtime requirements:
 
 ## 6. Testing and Verification Contract
 
+### Verification Entrypoint
+
+The canonical verification command for this repository is:
+
+```powershell
+.\scripts\test-unit.ps1
+```
+
+This is the **required entrypoint** for CI and pre-commit verification. Exit code 0 indicates success.
+
 ### Push-Safe Tests (CI)
 - All tests in `tests/unit/` are hermetic and CI-safe
 - No real winget installs; all external calls mocked
@@ -110,18 +120,13 @@ Runtime requirements:
 - `tests/Endstate.Tests.ps1` — may require real environment
 - `sandbox-tests/` — sandbox environment tests
 
-### Canonical Test Commands
+### Test Commands
 
-```powershell
-# Run all unit tests (RECOMMENDED)
-.\scripts\test-unit.ps1
-
-# Run specific test file
-.\scripts\test-unit.ps1 -Path tests\unit\Manifest.Tests.ps1
-
-# Legacy runner
-.\scripts\test_pester.ps1 -Path tests/unit
-```
+| Command | Purpose |
+|---------|---------|
+| `.\scripts\test-unit.ps1` | Run all unit tests (RECOMMENDED) |
+| `.\scripts\test-unit.ps1 -Path tests\unit\Manifest.Tests.ps1` | Run specific test file |
+| `.\scripts\test_pester.ps1 -Path tests/unit` | Legacy runner |
 
 ### Pester Version Contract
 - **Required:** Pester 5.0.0 or higher
@@ -189,6 +194,7 @@ Set-Content -LiteralPath $Path -Value $content -Encoding UTF8 -NoNewline
 
 - [AI_CONTRACT.md](./AI_CONTRACT.md) — global AI behavior contract
 - [PROJECT_SHADOW.md](./PROJECT_SHADOW.md) — architectural truth
+- [deltas/](./deltas/) — Delta Shadow history
 - [CLI JSON Contract](../contracts/cli-json-contract.md) — JSON output schema
 - [GUI Integration Contract](../contracts/gui-integration-contract.md) — GUI ↔ CLI rules
 - [Event Contract](../contracts/event-contract.md) — streaming events schema
