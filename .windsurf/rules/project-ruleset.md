@@ -18,7 +18,7 @@ Follow these documents in order of precedence:
 
 If any instruction in this file conflicts with the above, the governance documents win.
 
-If code conflicts with PROJECT_SHADOW.md, code wins and a Delta Shadow should be proposed.
+If code conflicts with PROJECT_SHADOW.md, code wins and a PROJECT_SHADOW.md update should be proposed.
 
 ---
 

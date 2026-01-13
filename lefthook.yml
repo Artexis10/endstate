@@ -1,0 +1,9 @@
+# Lefthook configuration for Endstate
+# Install hooks: npm run hooks:install
+# See: https://github.com/evilmartians/lefthook
+
+pre-push:
+  commands:
+    openspec-validate:
+      run: pwsh -NoProfile -File scripts/openspec_validate.ps1
+      fail_text: "OpenSpec validation failed. Fix errors or set OPENSPEC_BYPASS=1 for emergency bypass."

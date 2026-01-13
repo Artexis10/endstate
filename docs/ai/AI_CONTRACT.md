@@ -97,7 +97,7 @@ If the Project Shadow and repository code appear to conflict, prefer the reposit
 
 - Prefer **concise, high-signal output**
 - Avoid speculation and roadmap content
-- Use patch-style language for Shadow or Delta updates
+- Use patch-style language for Shadow updates
 - Do not restate unchanged context
 - Do not pad responses with filler or hedging
 

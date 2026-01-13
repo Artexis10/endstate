@@ -194,19 +194,29 @@ Set-Content -LiteralPath $Path -Value $content -Encoding UTF8 -NoNewline
 
 This repository enforces **OpenSpec Level 2** (workflow gate).
 
+### Setup
+
+```powershell
+npm install
+npm run hooks:install
+```
+
 ### Scripts
 
 | Command | Purpose |
 |---------|--------|
+| `npm run hooks:install` | Install lefthook pre-push hook |
 | `npm run openspec:list` | List all specs and changes |
 | `npm run openspec:validate` | Validate all specs (strict mode) |
 | `npm run openspec:validate:ci` | Validation via PowerShell wrapper |
 
 ### Pre-Push Hook
 
-The pre-push hook runs `openspec:validate:ci`. Validation failure blocks the push.
+The pre-push hook is managed by **lefthook** (repo-tracked in `lefthook.yml`). Do not rely on `.git/hooks/` files directly.
 
-**Emergency bypass:** Set `OPENSPEC_BYPASS=1` environment variable. Use sparingly.
+Validation failure blocks the push.
+
+**Emergency bypass:** Set `OPENSPEC_BYPASS=1` environment variable. Use sparingly and only for non-behavior changes.
 
 ### Adding Specs
 

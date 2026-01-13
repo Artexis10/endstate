@@ -7,9 +7,28 @@ This runbook covers OpenSpec workflow for the Endstate repository.
 ## Enforcement Level
 
 This repository enforces **Level 2** (workflow gate):
-- Pre-push hook validates all specs
+- Pre-push hook validates all specs via lefthook
 - Push is blocked on validation failure
 - CI validation is advisory (Level 3 not yet enabled)
+
+---
+
+## Setup
+
+### Install Dependencies and Hooks
+
+```powershell
+npm install
+npm run hooks:install
+```
+
+This installs lefthook and configures the pre-push hook. **Do not rely on `.git/hooks/` files directly** — use lefthook for repo-tracked, repeatable hook management.
+
+### Why Lefthook?
+
+- **Repo-tracked**: Hook configuration lives in `lefthook.yml`, not untracked `.git/hooks/`
+- **Repeatable**: Every contributor gets the same hooks after `npm run hooks:install`
+- **No npx**: OpenSpec is a pinned devDependency; no global installs or npx required
 
 ---
 
@@ -32,7 +51,7 @@ $env:OPENSPEC_BYPASS = "1"
 git push
 ```
 
-Use bypass sparingly. Document reason in commit message.
+Use bypass sparingly. Document reason in commit message. Bypass is for non-behavior changes only.
 
 ---
 
@@ -63,3 +82,4 @@ Common issues:
 
 - [AI_CONTRACT.md](../ai/AI_CONTRACT.md) — enforcement levels definition
 - [PROJECT_RULES.md](../ai/PROJECT_RULES.md) — OpenSpec scripts reference
+- [lefthook.yml](../../lefthook.yml) — hook configuration
