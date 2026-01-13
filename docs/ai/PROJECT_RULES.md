@@ -190,11 +190,35 @@ Set-Content -LiteralPath $Path -Value $content -Encoding UTF8 -NoNewline
 
 ---
 
-## 9. References
+## 9. OpenSpec Enforcement
+
+This repository enforces **OpenSpec Level 2** (workflow gate).
+
+### Scripts
+
+| Command | Purpose |
+|---------|--------|
+| `npm run openspec:list` | List all specs and changes |
+| `npm run openspec:validate` | Validate all specs (strict mode) |
+| `npm run openspec:validate:ci` | Validation via PowerShell wrapper |
+
+### Pre-Push Hook
+
+The pre-push hook runs `openspec:validate:ci`. Validation failure blocks the push.
+
+**Emergency bypass:** Set `OPENSPEC_BYPASS=1` environment variable. Use sparingly.
+
+### Adding Specs
+
+Behavior specifications live in `openspec/specs/`. See `docs/runbooks/OPENSPEC_ENFORCEMENT.md` for workflow.
+
+---
+
+## 10. References
 
 - [AI_CONTRACT.md](./AI_CONTRACT.md) — global AI behavior contract
 - [PROJECT_SHADOW.md](./PROJECT_SHADOW.md) — architectural truth
-- [deltas/](./deltas/) — Delta Shadow history
+- [OpenSpec Enforcement Runbook](../runbooks/OPENSPEC_ENFORCEMENT.md) — spec workflow
 - [CLI JSON Contract](../contracts/cli-json-contract.md) — JSON output schema
 - [GUI Integration Contract](../contracts/gui-integration-contract.md) — GUI ↔ CLI rules
 - [Event Contract](../contracts/event-contract.md) — streaming events schema

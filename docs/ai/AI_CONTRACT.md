@@ -6,6 +6,30 @@ Tool-specific rule files (e.g., Windsurf, Cursor) must delegate to this contract
 
 ---
 
+## Behavior Specification System
+
+**OpenSpec is the canonical system for behavior specifications in this repository.**
+
+- Behavior changes MUST be represented in OpenSpec specs (`openspec/specs/`)
+- Architecture truth lives in `docs/ai/PROJECT_SHADOW.md`
+- Procedures live in runbooks (`docs/runbooks/`)
+
+### Enforcement Levels
+
+| Level | Gate | Description |
+|-------|------|-------------|
+| 1 | Advisory | `openspec validate` available but not enforced |
+| 2 | Workflow | Pre-push hook blocks on validation failure |
+| 3 | CI | CI pipeline fails on validation failure |
+
+This repository enforces **Level 2** (workflow gate). See `docs/runbooks/OPENSPEC_ENFORCEMENT.md`.
+
+### Repo-Local Enforcement
+
+OpenSpec is installed as a devDependency and invoked via npm scripts. No global installs or npx required. Bypass is available via `OPENSPEC_BYPASS=1` for emergencies only.
+
+---
+
 ## Authority & Context
 
 ### Project Shadow
@@ -13,12 +37,12 @@ Tool-specific rule files (e.g., Windsurf, Cursor) must delegate to this contract
 If `docs/ai/PROJECT_SHADOW.md` exists:
 - Treat it as authoritative architectural context
 - Do not contradict it
-- If it appears outdated or incomplete, generate a Delta Shadow using the delta generator prompt and propose the minimal update — do not free-form architectural assumptions
+- If it appears outdated or incomplete, propose a minimal update via PR — do not free-form architectural assumptions
 
 If `docs/ai/PROJECT_SHADOW.md` does not exist and the task is architecture-sensitive:
-- Generate it first using the Project Shadow generator prompt before proceeding
+- Generate it first before proceeding
 
-If the Project Shadow and repository code appear to conflict, prefer the repository code and propose a Delta Shadow to reconcile the discrepancy.
+If the Project Shadow and repository code appear to conflict, prefer the repository code and propose an update to reconcile the discrepancy.
 
 ### Decision Authority
 
@@ -79,9 +103,9 @@ If the Project Shadow and repository code appear to conflict, prefer the reposit
 
 ---
 
-## When to Trigger Delta Shadow
+## When to Update Project Shadow
 
-Generate a Delta Shadow when changes affect any of the following:
+Propose a Project Shadow update when changes affect any of the following:
 
 | Category | Examples |
 |----------|----------|
@@ -94,7 +118,7 @@ Generate a Delta Shadow when changes affect any of the following:
 | Testing philosophy | Strategy changes (not individual test additions) |
 | Development workflow assumptions | Build process, environment requirements |
 
-Do **not** trigger Delta Shadow for:
+Do **not** update Project Shadow for:
 - Bug fixes within existing architecture
 - Documentation updates
 - Dependency version bumps
@@ -109,6 +133,7 @@ AI collaborators operating in this repository must:
 
 1. Read and follow this contract
 2. Respect Project Shadow authority when present
-3. Propose Delta Shadows for shadow-level changes
-4. Stop when acceptance criteria are met
-5. Ask when uncertain rather than assume
+3. Represent behavior changes in OpenSpec specs
+4. Propose Project Shadow updates for architectural changes
+5. Stop when acceptance criteria are met
+6. Ask when uncertain rather than assume

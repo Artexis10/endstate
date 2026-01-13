@@ -1,0 +1,15 @@
+{
+  "name": "endstate",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Declarative system provisioning and recovery tool",
+  "scripts": {
+    "openspec:list": "openspec list",
+    "openspec:list:specs": "openspec list --specs",
+    "openspec:validate": "openspec validate --all --strict --no-interactive",
+    "openspec:validate:ci": "pwsh -NoProfile -File scripts/openspec_validate.ps1"
+  },
+  "devDependencies": {
+    "@fission-ai/openspec": "~0.19.0"
+  }
+}

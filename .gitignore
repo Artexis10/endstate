@@ -91,3 +91,7 @@ capture_stdout.txt
 # Trace artifacts (local module generation, never committed)
 /trace/
 *.generated.jsonc
+
+# Node.js (OpenSpec tooling)
+node_modules/
+package-lock.json
