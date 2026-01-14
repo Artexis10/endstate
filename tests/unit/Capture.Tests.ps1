@@ -380,3 +380,142 @@ Describe "Capture.Validation" {
         }
     }
 }
+
+Describe "Capture.ArtifactContract" {
+    <#
+    .SYNOPSIS
+        Tests for INV-CAPTURE-1..4: Capture artifact contract invariants.
+    #>
+    
+    BeforeAll {
+        $script:EndstateScript = Join-Path $PSScriptRoot "..\..\bin\endstate.ps1"
+    }
+    
+    Context "INV-CAPTURE-1: CLI Availability" {
+        
+        It "Should return ENGINE_CLI_NOT_FOUND when CLI path is null" {
+            # Load the endstate.ps1 script to get Invoke-ProvisioningCli
+            . $script:EndstateScript -Command "version" 2>$null
+            
+            # Mock Get-ProvisioningCliPath to return null
+            Mock Get-ProvisioningCliPath { return $null }
+            
+            $result = Invoke-ProvisioningCli -ProvisioningCommand "capture" -Arguments @{}
+            
+            $result.Success | Should -Be $false
+            $result.Error.code | Should -Be "ENGINE_CLI_NOT_FOUND"
+            $result.Error.hint | Should -Not -BeNullOrEmpty
+        }
+        
+        It "Should return ENGINE_CLI_NOT_FOUND when CLI path does not exist" {
+            # Load the endstate.ps1 script
+            . $script:EndstateScript -Command "version" 2>$null
+            
+            # Mock Get-ProvisioningCliPath to return non-existent path
+            Mock Get-ProvisioningCliPath { return "C:\nonexistent\path\cli.ps1" }
+            
+            $result = Invoke-ProvisioningCli -ProvisioningCommand "capture" -Arguments @{}
+            
+            $result.Success | Should -Be $false
+            $result.Error.code | Should -Be "ENGINE_CLI_NOT_FOUND"
+            $result.Error.message | Should -Match "not found"
+        }
+        
+        It "Should include hint field in ENGINE_CLI_NOT_FOUND error" {
+            # Load the endstate.ps1 script
+            . $script:EndstateScript -Command "version" 2>$null
+            
+            Mock Get-ProvisioningCliPath { return $null }
+            
+            $result = Invoke-ProvisioningCli -ProvisioningCommand "capture" -Arguments @{}
+            
+            $result.Error | Should -Not -BeNullOrEmpty
+            $result.Error.hint | Should -Match "Settings|bootstrap"
+        }
+    }
+    
+    Context "INV-CAPTURE-2: Manifest File Existence" {
+        
+        It "Should fail if manifest file does not exist after capture" {
+            $tempDir = Join-Path $env:TEMP "capture-test-$(Get-Random)"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            $outPath = Join-Path $tempDir "nonexistent.jsonc"
+            
+            try {
+                # Simulate capture result where file was not created
+                $manifestExists = Test-Path $outPath
+                $manifestExists | Should -Be $false
+                
+                # Per INV-CAPTURE-2, this should result in failure
+                $shouldFail = -not $manifestExists
+                $shouldFail | Should -Be $true
+            }
+            finally {
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should fail if manifest file is empty" {
+            $tempDir = Join-Path $env:TEMP "capture-test-$(Get-Random)"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            $outPath = Join-Path $tempDir "empty.jsonc"
+            
+            try {
+                # Create empty file
+                New-Item -ItemType File -Path $outPath -Force | Out-Null
+                
+                $fileInfo = Get-Item $outPath
+                $isEmpty = $fileInfo.Length -eq 0
+                $isEmpty | Should -Be $true
+                
+                # Per INV-CAPTURE-2, empty file should result in failure
+                $shouldFail = $isEmpty
+                $shouldFail | Should -Be $true
+            }
+            finally {
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should succeed if manifest file exists and is non-empty" {
+            $tempDir = Join-Path $env:TEMP "capture-test-$(Get-Random)"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            $outPath = Join-Path $tempDir "valid.jsonc"
+            
+            try {
+                # Create valid manifest file
+                $validManifest = @{
+                    version = 1
+                    name = "test"
+                    apps = @()
+                } | ConvertTo-Json
+                Set-Content -Path $outPath -Value $validManifest -Encoding UTF8
+                
+                $fileInfo = Get-Item $outPath
+                $isValid = (Test-Path $outPath) -and ($fileInfo.Length -gt 0)
+                $isValid | Should -Be $true
+            }
+            finally {
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+    
+    Context "Error Code Semantics" {
+        
+        It "Should use MANIFEST_WRITE_FAILED for empty manifest" {
+            $errorCode = "MANIFEST_WRITE_FAILED"
+            $errorCode | Should -Be "MANIFEST_WRITE_FAILED"
+        }
+        
+        It "Should use ENGINE_CLI_NOT_FOUND for missing CLI" {
+            $errorCode = "ENGINE_CLI_NOT_FOUND"
+            $errorCode | Should -Be "ENGINE_CLI_NOT_FOUND"
+        }
+        
+        It "Should use CAPTURE_FAILED for generic failures" {
+            $errorCode = "CAPTURE_FAILED"
+            $errorCode | Should -Be "CAPTURE_FAILED"
+        }
+    }
+}

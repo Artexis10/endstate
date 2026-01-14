@@ -1207,13 +1207,29 @@ function Invoke-ProvisioningCli {
         Write-Host "" -ForegroundColor Yellow
         Write-Host "Example:" -ForegroundColor Cyan
         Write-Host "  endstate bootstrap -RepoRoot C:\path\to\endstate" -ForegroundColor Cyan
-        return @{ Success = $false; ExitCode = 1; Error = "Repo root not configured" }
+        return @{ 
+            Success = $false
+            ExitCode = 1
+            Error = @{
+                code = "ENGINE_CLI_NOT_FOUND"
+                message = "Engine CLI not found. Repo root not configured."
+                hint = "Run 'endstate bootstrap -RepoRoot <path>' or configure Engine path in Settings."
+            }
+        }
     }
     
     if (-not (Test-Path $cliPath)) {
         Write-Host "[ERROR] Provisioning CLI not found: $cliPath" -ForegroundColor Red
         Write-Host "        Verify repo root is configured correctly." -ForegroundColor Yellow
-        return @{ Success = $false; ExitCode = 1; Error = "Provisioning CLI not found" }
+        return @{ 
+            Success = $false
+            ExitCode = 1
+            Error = @{
+                code = "ENGINE_CLI_NOT_FOUND"
+                message = "Engine CLI not found at path: $cliPath"
+                hint = "Verify repo root is configured correctly or configure Engine path in Settings."
+            }
+        }
     }
     
     # Emit stable wrapper line via Write-Output for testability
@@ -2360,7 +2376,55 @@ function Invoke-CaptureCore {
     
     # Non-sanitized capture: delegate to provisioning CLI
     $cliArgs = @{ OutManifest = $outPath }
-    $null = Invoke-ProvisioningCli -ProvisioningCommand "capture" -Arguments $cliArgs
+    $cliResult = Invoke-ProvisioningCli -ProvisioningCommand "capture" -Arguments $cliArgs
+    
+    # INV-CAPTURE-1: If CLI is missing, capture must fail with structured error
+    if ($cliResult -and -not $cliResult.Success) {
+        # Propagate structured error from CLI invocation
+        $errorInfo = if ($cliResult.Error -is [hashtable]) {
+            $cliResult.Error
+        } else {
+            @{
+                code = "CAPTURE_FAILED"
+                message = if ($cliResult.Error) { $cliResult.Error } else { "Capture failed" }
+                hint = "Check engine logs for details."
+            }
+        }
+        return @{
+            Success = $false
+            Error = $errorInfo.message
+            ErrorDetail = $errorInfo
+            ExitCode = if ($cliResult.ExitCode) { $cliResult.ExitCode } else { 1 }
+        }
+    }
+    
+    # INV-CAPTURE-2: Capture success requires manifest file exists and is non-empty
+    if (-not (Test-Path $outPath)) {
+        return @{
+            Success = $false
+            Error = "Manifest file was not created"
+            ErrorDetail = @{
+                code = "MANIFEST_WRITE_FAILED"
+                message = "Capture completed but manifest file was not created at: $outPath"
+                hint = "Check disk space and write permissions."
+            }
+            ExitCode = 1
+        }
+    }
+    
+    $fileInfo = Get-Item $outPath -ErrorAction SilentlyContinue
+    if (-not $fileInfo -or $fileInfo.Length -eq 0) {
+        return @{
+            Success = $false
+            Error = "Manifest file is empty"
+            ErrorDetail = @{
+                code = "MANIFEST_WRITE_FAILED"
+                message = "Capture completed but manifest file is empty: $outPath"
+                hint = "Check engine logs for capture errors."
+            }
+            ExitCode = 1
+        }
+    }
     
     # Read the generated manifest to get app count and list
     $result = @{ 
@@ -2378,7 +2442,8 @@ function Invoke-CaptureCore {
         AppsIncluded = @()
     }
     
-    if (Test-Path $outPath) {
+    # Manifest exists and is non-empty (verified above)
+    if ($true) {
         try {
             $rawContent = Get-Content -Path $outPath -Raw
             # Strip JSONC comments for parsing
@@ -3325,9 +3390,14 @@ switch ($Command) {
                 }
                 Write-JsonEnvelope -CommandName "capture" -Success $true -Data $data -ExitCode 0
             } else {
-                $errorDetail = @{
-                    code = if ($captureResult.Blocked) { "CAPTURE_BLOCKED" } else { "CAPTURE_FAILED" }
-                    message = if ($captureResult.Error) { $captureResult.Error } else { "Capture failed" }
+                # Use structured ErrorDetail if available (from INV-CAPTURE invariants)
+                $errorDetail = if ($captureResult.ErrorDetail) {
+                    $captureResult.ErrorDetail
+                } else {
+                    @{
+                        code = if ($captureResult.Blocked) { "CAPTURE_BLOCKED" } else { "CAPTURE_FAILED" }
+                        message = if ($captureResult.Error) { $captureResult.Error } else { "Capture failed" }
+                    }
                 }
                 $captureExitCode = if ($captureResult.ExitCode) { $captureResult.ExitCode } else { 1 }
                 Write-JsonEnvelope -CommandName "capture" -Success $false -Data $null -Error $errorDetail -ExitCode $captureExitCode

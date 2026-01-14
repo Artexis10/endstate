@@ -82,9 +82,13 @@ When `success` is `false`, the `error` field contains:
 | `MANIFEST_NOT_FOUND` | Manifest file does not exist |
 | `MANIFEST_PARSE_ERROR` | Manifest file is invalid JSON/JSONC |
 | `MANIFEST_VALIDATION_ERROR` | Manifest schema validation failed |
+| `MANIFEST_WRITE_FAILED` | Manifest file could not be written or is empty |
 | `PLAN_NOT_FOUND` | Plan file does not exist |
 | `PLAN_PARSE_ERROR` | Plan file is invalid |
 | `WINGET_NOT_AVAILABLE` | winget is not installed or accessible |
+| `ENGINE_CLI_NOT_FOUND` | Engine CLI not found (repo root not configured) |
+| `CAPTURE_FAILED` | Capture operation failed |
+| `CAPTURE_BLOCKED` | Capture blocked by guardrail |
 | `INSTALL_FAILED` | Package installation failed |
 | `RESTORE_FAILED` | Configuration restore failed |
 | `VERIFY_FAILED` | Verification check failed |
