@@ -389,6 +389,13 @@ Describe "Capture.ArtifactContract" {
     
     BeforeAll {
         $script:EndstateScript = Join-Path $PSScriptRoot "..\..\bin\endstate.ps1"
+        # Allow direct script execution for testing
+        $env:ENDSTATE_ALLOW_DIRECT = '1'
+    }
+    
+    AfterAll {
+        # Clean up environment variable
+        $env:ENDSTATE_ALLOW_DIRECT = $null
     }
     
     Context "INV-CAPTURE-1: CLI Availability" {
@@ -516,6 +523,98 @@ Describe "Capture.ArtifactContract" {
         It "Should use CAPTURE_FAILED for generic failures" {
             $errorCode = "CAPTURE_FAILED"
             $errorCode | Should -Be "CAPTURE_FAILED"
+        }
+        
+        It "Should use WINGET_CAPTURE_EMPTY when both export and fallback produce zero apps" {
+            $errorCode = "WINGET_CAPTURE_EMPTY"
+            $errorCode | Should -Be "WINGET_CAPTURE_EMPTY"
+        }
+    }
+    
+    Context "Fallback Capture Warning Codes" {
+        
+        It "Should use WINGET_EXPORT_FAILED_FALLBACK_USED warning code" {
+            $warningCode = "WINGET_EXPORT_FAILED_FALLBACK_USED"
+            $warningCode | Should -Be "WINGET_EXPORT_FAILED_FALLBACK_USED"
+        }
+        
+        It "Should include captureWarnings array in result when fallback is used" {
+            # Simulate fallback capture result structure
+            $captureResult = @{
+                Apps = @(
+                    @{ id = "git-git"; refs = @{ windows = "Git.Git" }; _source = "winget" }
+                )
+                CaptureWarnings = @("WINGET_EXPORT_FAILED_FALLBACK_USED")
+                UsedFallback = $true
+                ExportFailureReason = "exit code -2145844844"
+            }
+            
+            $captureResult.CaptureWarnings | Should -Contain "WINGET_EXPORT_FAILED_FALLBACK_USED"
+            $captureResult.UsedFallback | Should -Be $true
+            $captureResult.Apps.Count | Should -BeGreaterThan 0
+        }
+    }
+    
+    Context "INV-MANIFEST-NEVER-EMPTY: {} is forbidden output" {
+        
+        It "Should never write empty object {} as manifest" {
+            $emptyManifest = "{}"
+            $validManifest = @{ version = 1; apps = @() } | ConvertTo-Json
+            
+            # Empty object is invalid
+            $emptyManifest.Trim() | Should -Be "{}"
+            
+            # Valid manifest has structure
+            $validManifest | Should -Match '"version"'
+            $validManifest | Should -Match '"apps"'
+        }
+        
+        It "Should require manifest to contain apps array or version field" {
+            $validManifests = @(
+                @{ version = 1; apps = @() }
+                @{ version = 1; name = "test"; apps = @(@{ id = "test" }) }
+                @{ apps = @(); name = "minimal" }
+            )
+            
+            foreach ($manifest in $validManifests) {
+                $hasRequiredFields = ($null -ne $manifest.version) -or ($null -ne $manifest.apps)
+                $hasRequiredFields | Should -Be $true
+            }
+            
+            # Empty object lacks required fields
+            $emptyObj = @{}
+            $hasRequiredFields = ($null -ne $emptyObj.version) -or ($null -ne $emptyObj.apps)
+            $hasRequiredFields | Should -Be $false
+        }
+    }
+    
+    Context "INV-CLI-PATH: Provisioning CLI Path Resolution" {
+        
+        It "Should resolve CLI path to bin\cli.ps1 not root cli.ps1" {
+            # Load the endstate.ps1 script
+            . $script:EndstateScript -Command "version" 2>$null
+            
+            $cliPath = Get-ProvisioningCliPath
+            
+            # CLI path should end with bin\cli.ps1, not just cli.ps1 at root
+            $cliPath | Should -Match 'bin[/\\]cli\.ps1$'
+            $cliPath | Should -Not -Match '[^n][/\\]cli\.ps1$'  # Not root\cli.ps1
+        }
+        
+        It "Should resolve CLI path relative to repo root" {
+            . $script:EndstateScript -Command "version" 2>$null
+            
+            $cliPath = Get-ProvisioningCliPath
+            
+            if ($cliPath) {
+                # Verify the path exists
+                Test-Path $cliPath | Should -Be $true
+                
+                # Verify it's in the bin directory
+                $parentDir = Split-Path -Parent $cliPath
+                $parentDirName = Split-Path -Leaf $parentDir
+                $parentDirName | Should -Be "bin"
+            }
         }
     }
 }

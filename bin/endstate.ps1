@@ -150,7 +150,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$script:EndstateRoot = $PSScriptRoot
+# endstate.ps1 is in bin/, so repo root is parent directory
+$script:EndstateRoot = Split-Path -Parent $PSScriptRoot
 
 #region Entrypoint Guard
 # Ensure this script is invoked via the approved endstate.cmd shim, not directly.
@@ -1114,18 +1115,18 @@ function Get-ProvisioningCliPath {
     $repoRoot = Get-RepoRootPath
     
     if (-not $repoRoot) {
-        # Fallback: if running from repo, use $PSScriptRoot
-        $repoRoot = $script:EndstateRoot
+        # Fallback: if running from repo, use parent of $PSScriptRoot (bin/ -> repo root)
+        $repoRoot = Split-Path -Parent $script:EndstateRoot
         
-        # Verify this is actually a repo root by checking for cli.ps1
-        $cliPath = Join-Path $repoRoot "cli.ps1"
+        # Verify this is actually a repo root by checking for bin\cli.ps1
+        $cliPath = Join-Path $repoRoot "bin\cli.ps1"
         if (-not (Test-Path $cliPath)) {
             # Not in repo and no configured repo root - return null
             return $null
         }
     }
     
-    return Join-Path $repoRoot "cli.ps1"
+    return Join-Path $repoRoot "bin\cli.ps1"
 }
 
 function Resolve-ManifestPath {
@@ -2440,6 +2441,12 @@ function Invoke-CaptureCore {
             sensitiveExcludedCount = 0
         }
         AppsIncluded = @()
+        CaptureWarnings = @()
+    }
+    
+    # Propagate captureWarnings from CLI result if present
+    if ($cliResult -and $cliResult.CaptureWarnings) {
+        $result.CaptureWarnings = @($cliResult.CaptureWarnings)
     }
     
     # Manifest exists and is non-empty (verified above)
@@ -3387,6 +3394,10 @@ switch ($Command) {
                 # Include apps list
                 if ($captureResult.AppsIncluded) {
                     $data.appsIncluded = $captureResult.AppsIncluded
+                }
+                # Include capture warnings (e.g., WINGET_EXPORT_FAILED_FALLBACK_USED)
+                if ($captureResult.CaptureWarnings -and $captureResult.CaptureWarnings.Count -gt 0) {
+                    $data.captureWarnings = @($captureResult.CaptureWarnings)
                 }
                 Write-JsonEnvelope -CommandName "capture" -Success $true -Data $data -ExitCode 0
             } else {

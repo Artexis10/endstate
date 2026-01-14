@@ -226,8 +226,14 @@ function Invoke-Capture {
     # Capture applications
     Write-ProvisioningSection "Capturing Applications"
     Write-PhaseEvent -Phase "capture"
-    $rawApps = Get-InstalledAppsViaWinget -CaptureDir $captureDir
+    $captureResult = Get-InstalledAppsViaWinget -CaptureDir $captureDir
+    $rawApps = $captureResult.Apps
+    $captureWarnings = @($captureResult.CaptureWarnings)
+    
     Write-ProvisioningLog "Raw capture: $($rawApps.Count) applications" -Level INFO
+    if ($captureResult.UsedFallback) {
+        Write-ProvisioningLog "Used fallback capture (export failed: $($captureResult.ExportFailureReason))" -Level WARN
+    }
     
     # Apply filters
     $filteredApps = $rawApps
@@ -275,6 +281,24 @@ function Invoke-Capture {
     # Sort apps deterministically by id
     $sortedApps = @($filteredApps | Sort-Object -Property { $_.id })
     Write-ProvisioningLog "Final app count: $($sortedApps.Count) applications" -Level SUCCESS
+    
+    # INV-CAPTURE: If both export and fallback produce zero apps, fail with structured error
+    if ($sortedApps.Count -eq 0 -and $rawApps.Count -eq 0) {
+        Write-ProvisioningLog "Capture failed: no applications found" -Level ERROR
+        Write-SummaryEvent -Phase "capture" -Total 0 -Success 0 -Skipped 0 -Failed 1
+        Close-ProvisioningLog -SuccessCount 0 -SkipCount 0 -FailCount 1
+        
+        return @{
+            Success = $false
+            Error = @{
+                code = "WINGET_CAPTURE_EMPTY"
+                message = "No applications were captured. Both winget export and fallback capture returned zero apps."
+                hint = "Ensure winget is properly configured and has access to package sources. Run 'winget source update' and try again."
+            }
+            CaptureWarnings = $captureWarnings
+            UsedFallback = $captureResult.UsedFallback
+        }
+    }
     
     # Emit item events for included apps
     foreach ($app in $sortedApps) {
@@ -565,8 +589,8 @@ function Invoke-Capture {
     Write-Host ""
     Write-Host "Next steps:" -ForegroundColor Yellow
     Write-Host "  1. Review the manifest: $outputPath"
-    Write-Host "  2. Generate a plan:     .\cli.ps1 -Command plan -Manifest `"$outputPath`""
-    Write-Host "  3. Dry-run apply:       .\cli.ps1 -Command apply -Manifest `"$outputPath`" -DryRun"
+    Write-Host "  2. Generate a plan:     .\bin\cli.ps1 -Command plan -Manifest `"$outputPath`""
+    Write-Host "  3. Dry-run apply:       .\bin\cli.ps1 -Command apply -Manifest `"$outputPath`" -DryRun"
     Write-Host ""
     
     $result = @{
@@ -577,6 +601,7 @@ function Invoke-Capture {
         FilterStats = $filterStats
         GeneratedTemplates = $generatedTemplates
         LogFile = $logFile
+        CaptureWarnings = $captureWarnings
     }
     
     # Add discovery results if discovery was enabled
@@ -615,17 +640,137 @@ function Invoke-WingetExport {
     <#
     .SYNOPSIS
         Execute winget export command. Separated for testability.
+    .OUTPUTS
+        Hashtable with Success, ExitCode, and ErrorOutput fields.
     #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$ExportPath
     )
     
-    $null = & winget export -o $ExportPath --accept-source-agreements 2>&1
-    return (Test-Path $ExportPath)
+    $errorOutput = $null
+    try {
+        $errorOutput = & winget export -o $ExportPath --accept-source-agreements 2>&1
+        $exitCode = $LASTEXITCODE
+    } catch {
+        $exitCode = -1
+        $errorOutput = $_.Exception.Message
+    }
+    
+    $fileExists = Test-Path $ExportPath
+    $fileHasContent = $false
+    if ($fileExists) {
+        $fileInfo = Get-Item $ExportPath -ErrorAction SilentlyContinue
+        $fileHasContent = $fileInfo -and $fileInfo.Length -gt 10
+    }
+    
+    return @{
+        Success = ($exitCode -eq 0) -and $fileExists -and $fileHasContent
+        ExitCode = $exitCode
+        ErrorOutput = if ($errorOutput) { ($errorOutput | Out-String).Trim().Substring(0, [Math]::Min(500, ($errorOutput | Out-String).Length)) } else { $null }
+        FileExists = $fileExists
+        FileHasContent = $fileHasContent
+    }
+}
+
+function Get-InstalledAppsViaWingetList {
+    <#
+    .SYNOPSIS
+        Fallback capture via winget list when winget export fails.
+        Extracts apps where Source == winget and Id is present.
+    #>
+    param()
+    
+    Write-ProvisioningLog "Running winget list fallback..." -Level INFO
+    
+    $apps = @()
+    
+    try {
+        # Run winget list with source filter
+        $listOutput = & winget list --source winget 2>&1
+        $exitCode = $LASTEXITCODE
+        
+        if ($exitCode -ne 0) {
+            Write-ProvisioningLog "winget list failed with exit code $exitCode" -Level WARN
+            # Try without source filter as last resort
+            $listOutput = & winget list 2>&1
+        }
+        
+        # Parse the tabular output
+        # winget list outputs: Name, Id, Version, Available, Source
+        $lines = $listOutput -split "`n" | Where-Object { $_.Trim() }
+        
+        # Find the header line to determine column positions
+        $headerLine = $lines | Where-Object { $_ -match '^Name\s+Id\s+' } | Select-Object -First 1
+        if (-not $headerLine) {
+            # Try alternate header detection
+            $headerLine = $lines | Where-Object { $_ -match 'Id\s+' -and $_ -match 'Version' } | Select-Object -First 1
+        }
+        
+        if ($headerLine) {
+            $idIndex = $headerLine.IndexOf('Id')
+            $versionIndex = $headerLine.IndexOf('Version')
+            $sourceIndex = $headerLine.IndexOf('Source')
+            
+            # Skip header and separator lines
+            $dataLines = $lines | Select-Object -Skip 2
+            
+            foreach ($line in $dataLines) {
+                if ($line.Length -lt $versionIndex) { continue }
+                if ($line -match '^-+$') { continue }  # Skip separator lines
+                
+                # Extract Id field
+                $idEnd = if ($versionIndex -gt 0) { $versionIndex } else { $line.Length }
+                $packageId = $line.Substring($idIndex, $idEnd - $idIndex).Trim()
+                
+                # Extract Source if available
+                $source = "winget"
+                if ($sourceIndex -gt 0 -and $line.Length -gt $sourceIndex) {
+                    $source = $line.Substring($sourceIndex).Trim()
+                }
+                
+                # Skip if no valid package ID or if it's a store app
+                if (-not $packageId -or $packageId -match '^\s*$') { continue }
+                if ($packageId -match '^9[A-Z0-9]{10,}$' -or $packageId -match '^XP[A-Z0-9]{10,}$') { continue }
+                if ($source -eq 'msstore') { continue }
+                # Skip ARP entries (not real winget package IDs, contain backslashes)
+                if ($packageId -match '^ARP\\' -or $packageId -match '\\') { continue }
+                # Skip MSIX entries (store packages listed via winget)
+                if ($packageId -match '^MSIX\\') { continue }
+                
+                # Create app entry
+                $appId = $packageId -replace '\.', '-' -replace '_', '-'
+                $appId = $appId.ToLower()
+                
+                $app = @{
+                    id = $appId
+                    refs = @{
+                        windows = $packageId
+                    }
+                    _source = $source
+                }
+                
+                $apps += $app
+                Write-ProvisioningLog "  + $packageId (source: $source) [fallback]" -Level ACTION
+            }
+        }
+        
+        Write-ProvisioningLog "Parsed $($apps.Count) packages from winget list fallback" -Level INFO
+        
+    } catch {
+        Write-ProvisioningLog "Error during winget list fallback: $_" -Level ERROR
+    }
+    
+    return $apps
 }
 
 function Get-InstalledAppsViaWinget {
+    <#
+    .SYNOPSIS
+        Get installed apps via winget export, with fallback to winget list.
+    .OUTPUTS
+        Hashtable with Apps array and optional CaptureWarnings array.
+    #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$CaptureDir
@@ -636,51 +781,81 @@ function Get-InstalledAppsViaWinget {
     # Export to JSON for parsing
     $exportPath = Join-Path $CaptureDir "winget-export.json"
     
-    try {
-        # Run winget export (via wrapper for testability)
-        $exportSuccess = Invoke-WingetExport -ExportPath $exportPath
-        
-        if (-not $exportSuccess) {
-            Write-ProvisioningLog "winget export did not produce output file" -Level ERROR
-            return @()
-        }
-        
+    # Try winget export first
+    $exportResult = Invoke-WingetExport -ExportPath $exportPath
+    
+    if ($exportResult.Success) {
         # Parse the export
-        $exportData = Get-Content -Path $exportPath -Raw | ConvertFrom-Json
-        
-        $apps = @()
-        $sources = $exportData.Sources
-        
-        foreach ($source in $sources) {
-            $sourceName = $source.SourceDetails.Name
-            Write-ProvisioningLog "Processing source: $sourceName" -Level INFO
+        try {
+            $exportData = Get-Content -Path $exportPath -Raw | ConvertFrom-Json
             
-            foreach ($package in $source.Packages) {
-                $packageId = $package.PackageIdentifier
+            $apps = @()
+            $sources = $exportData.Sources
+            
+            foreach ($source in $sources) {
+                $sourceName = $source.SourceDetails.Name
+                Write-ProvisioningLog "Processing source: $sourceName" -Level INFO
                 
-                # Create app entry with platform-agnostic ID
-                $appId = $packageId -replace '\.', '-' -replace '_', '-'
-                $appId = $appId.ToLower()
-                
-                $app = @{
-                    id = $appId
-                    refs = @{
-                        windows = $packageId
+                foreach ($package in $source.Packages) {
+                    $packageId = $package.PackageIdentifier
+                    
+                    # Create app entry with platform-agnostic ID
+                    $appId = $packageId -replace '\.', '-' -replace '_', '-'
+                    $appId = $appId.ToLower()
+                    
+                    $app = @{
+                        id = $appId
+                        refs = @{
+                            windows = $packageId
+                        }
+                        _source = $sourceName
                     }
-                    _source = $sourceName  # Internal metadata for filtering (msstore vs winget)
+                    
+                    $apps += $app
+                    Write-ProvisioningLog "  + $packageId (source: $sourceName)" -Level ACTION
                 }
-                
-                $apps += $app
-                Write-ProvisioningLog "  + $packageId (source: $sourceName)" -Level ACTION
             }
+            
+            Write-ProvisioningLog "Parsed $($apps.Count) packages from winget export" -Level INFO
+            
+            if ($apps.Count -gt 0) {
+                return @{
+                    Apps = $apps
+                    CaptureWarnings = @()
+                    UsedFallback = $false
+                }
+            }
+        } catch {
+            Write-ProvisioningLog "Error parsing winget export: $_" -Level WARN
         }
-        
-        Write-ProvisioningLog "Parsed $($apps.Count) packages from winget export" -Level INFO
-        return $apps
-        
-    } catch {
-        Write-ProvisioningLog "Error during winget export: $_" -Level ERROR
-        return @()
+    }
+    
+    # Export failed or produced no apps - use fallback
+    $failureReason = if (-not $exportResult.FileExists) {
+        "no output file"
+    } elseif (-not $exportResult.FileHasContent) {
+        "empty output file"
+    } elseif ($exportResult.ExitCode -ne 0) {
+        "exit code $($exportResult.ExitCode)"
+    } else {
+        "unknown"
+    }
+    
+    Write-ProvisioningLog "winget export failed ($failureReason), using fallback capture" -Level WARN
+    if ($exportResult.ErrorOutput) {
+        Write-ProvisioningLog "  stderr: $($exportResult.ErrorOutput)" -Level WARN
+    }
+    
+    # Fallback to winget list
+    $fallbackApps = Get-InstalledAppsViaWingetList
+    $captureWarnings += "WINGET_EXPORT_FAILED_FALLBACK_USED"
+    
+    return @{
+        Apps = $fallbackApps
+        CaptureWarnings = $captureWarnings
+        UsedFallback = $true
+        ExportFailureReason = $failureReason
+        ExportExitCode = $exportResult.ExitCode
     }
 }
 
