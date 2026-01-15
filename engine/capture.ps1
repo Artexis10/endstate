@@ -738,9 +738,17 @@ function Get-InstalledAppsViaWingetList {
                 # Skip MSIX entries (store packages listed via winget)
                 if ($packageId -match '^MSIX\\') { continue }
                 
+                # Sanitize package ID: strip leading non-ASCII/non-printable characters (e.g., 'ª')
+                # Valid winget package IDs start with alphanumeric characters
+                $packageId = $packageId -replace '^[^\x20-\x7E]+', ''
+                $packageId = $packageId.Trim()
+                if (-not $packageId -or $packageId -match '^\s*$') { continue }
+                
                 # Create app entry
                 $appId = $packageId -replace '\.', '-' -replace '_', '-'
-                $appId = $appId.ToLower()
+                # Also sanitize appId: strip any remaining non-ASCII from the normalized ID
+                $appId = $appId -replace '[^\x20-\x7E]', ''
+                $appId = $appId.ToLower().Trim()
                 
                 $app = @{
                     id = $appId

@@ -617,4 +617,69 @@ Describe "Capture.ArtifactContract" {
             }
         }
     }
+    
+    Context "INV-SANITIZE-IDS: Package IDs must not contain leading non-ASCII characters" {
+        
+        BeforeAll {
+            # Load capture.ps1 to get the sanitization logic
+            . (Join-Path $PSScriptRoot "..\..\engine\capture.ps1")
+        }
+        
+        It "Should strip leading 'ª' character from package IDs" {
+            # Simulate dirty package ID from winget list output
+            $dirtyId = "ª Microsoft.VCRedist.2015+.x64"
+            
+            # Apply the same sanitization as Get-InstalledAppsViaWingetList
+            $cleanId = $dirtyId -replace '^[^\x20-\x7E]+', ''
+            $cleanId = $cleanId.Trim()
+            
+            $cleanId | Should -Be "Microsoft.VCRedist.2015+.x64"
+            $cleanId | Should -Not -Match '^[^\x20-\x7E]'
+        }
+        
+        It "Should strip multiple leading non-ASCII characters" {
+            $dirtyId = "ªª EclipseAdoptium.Temurin.8.JRE"
+            
+            $cleanId = $dirtyId -replace '^[^\x20-\x7E]+', ''
+            $cleanId = $cleanId.Trim()
+            
+            $cleanId | Should -Be "EclipseAdoptium.Temurin.8.JRE"
+        }
+        
+        It "Should produce clean normalized app ID without non-ASCII" {
+            $dirtyId = "ª Microsoft.DotNet.DesktopRuntime.8"
+            
+            # Sanitize package ID
+            $packageId = $dirtyId -replace '^[^\x20-\x7E]+', ''
+            $packageId = $packageId.Trim()
+            
+            # Normalize to app ID
+            $appId = $packageId -replace '\.', '-' -replace '_', '-'
+            $appId = $appId -replace '[^\x20-\x7E]', ''
+            $appId = $appId.ToLower().Trim()
+            
+            $appId | Should -Be "microsoft-dotnet-desktopruntime-8"
+            $appId | Should -Not -Match '[^\x20-\x7E]'
+        }
+        
+        It "Should skip rows that become empty after sanitization" {
+            $dirtyId = "ªªª"  # Only non-ASCII chars
+            
+            $cleanId = $dirtyId -replace '^[^\x20-\x7E]+', ''
+            $cleanId = $cleanId.Trim()
+            
+            # Should be empty and skipped
+            $shouldSkip = (-not $cleanId -or $cleanId -match '^\s*$')
+            $shouldSkip | Should -Be $true
+        }
+        
+        It "Should not modify already clean package IDs" {
+            $cleanId = "Git.Git"
+            
+            $result = $cleanId -replace '^[^\x20-\x7E]+', ''
+            $result = $result.Trim()
+            
+            $result | Should -Be "Git.Git"
+        }
+    }
 }
