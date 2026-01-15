@@ -3391,9 +3391,12 @@ switch ($Command) {
                 if ($captureResult.Counts) {
                     $data.counts = $captureResult.Counts
                 }
-                # Include apps list
-                if ($captureResult.AppsIncluded) {
-                    $data.appsIncluded = $captureResult.AppsIncluded
+                # Include apps list (always include, even if empty, per contract)
+                # INV-CONTINUITY-1: appsIncluded must always be present in envelope
+                $data.appsIncluded = if ($captureResult.AppsIncluded) { 
+                    @($captureResult.AppsIncluded) 
+                } else { 
+                    @() 
                 }
                 # Include capture warnings (e.g., WINGET_EXPORT_FAILED_FALLBACK_USED)
                 if ($captureResult.CaptureWarnings -and $captureResult.CaptureWarnings.Count -gt 0) {
