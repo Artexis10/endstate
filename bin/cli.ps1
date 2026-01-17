@@ -193,7 +193,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$script:ProvisioningRoot = $PSScriptRoot
+# cli.ps1 is in bin/, so repo root is parent directory
+$script:ProvisioningRoot = Split-Path -Parent $PSScriptRoot
 
 function Get-ProvisioningVersion {
     <#

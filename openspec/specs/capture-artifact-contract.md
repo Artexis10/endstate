@@ -30,6 +30,36 @@ This specification defines the contract for capture operations, including fallba
   - Error code: `WINGET_CAPTURE_EMPTY`
   - Error MUST include actionable `hint` field
 
+### INV-CONTINUITY-1: Counts Must Match Apps List Length
+- `counts.included` MUST equal `appsIncluded.length`
+- `counts.included` MUST equal `manifest.apps.length` (same captured set)
+- Engine MUST derive both from the same source (manifest.apps)
+- GUI MUST NOT filter or transform appsIncluded in ways that change count
+
+### INV-SANITIZE-IDS-1: App IDs Must Be Sanitized Before Persistence
+- All app IDs in `appsIncluded` MUST be sanitized:
+  - No leading non-ASCII characters (e.g., 'ª' from encoding issues)
+  - No backslashes (ARP/MSIX entries are not valid winget package IDs)
+  - Trimmed of leading/trailing whitespace
+- Sanitization MUST occur in engine before manifest write
+- GUI relies on this contract; it does NOT re-sanitize
+
+### INV-DETAILS-1: Capture Details UI Must Render App List
+- Capture Details modal MUST show scrollable list of captured apps
+- Canonical source: `appsIncluded` from engine envelope (preferred)
+- Fallback: derive from manifest if `appsIncluded` unavailable
+- Count displayed MUST equal list length shown
+- If list unavailable but count > 0: show "N apps captured" with note
+
+## Failure Modes Table
+
+| Condition | UI Behavior |
+|-----------|-------------|
+| `appsIncluded` present, length > 0 | Show scrollable app list |
+| `appsIncluded` empty or missing, count > 0 | Show "N apps captured" summary |
+| `appsIncluded` empty, count = 0 | Show "No applications detected" |
+| Capture failed | Show error message from envelope |
+
 ## Warning Codes
 
 | Code | Description |
@@ -109,8 +139,13 @@ This specification defines the contract for capture operations, including fallba
 - Export fails → fallback used → manifest has apps
 - Export fails + fallback empty → capture fails with `WINGET_CAPTURE_EMPTY`
 - No `{}` manifests ever written
+- **INV-CONTINUITY-1**: `counts.included` equals `appsIncluded.length`
+- **INV-SANITIZE-IDS-1**: No app IDs start with non-ASCII characters
 
 ### GUI (Vitest)
 - Fallback warning toast appears when `captureWarnings` present
 - Save blocked on invalid manifest (`{}`, metadata-only)
 - Success path requires non-empty manifest with `version` or `apps`
+- **INV-CONTINUITY-1**: Derived count equals appsIncluded length
+- **INV-DETAILS-1**: Capture Details receives and can render app list
+- **INV-SANITIZE-IDS-1**: Dirty IDs (non-ASCII prefix) are detected/rejected
