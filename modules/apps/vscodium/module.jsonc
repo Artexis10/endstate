@@ -32,5 +32,24 @@
       "**\\GPUCache\\**",
       "**\\CachedData\\**"
     ]
+  },
+  
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%",
+      "%USERPROFILE%\\.vscode-oss"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/Cache/**",
+      "**/CachedData/**",
+      "**/GPUCache/**",
+      "**/Crashpad/**",
+      "**/logs/**"
+    ]
   }
 }

@@ -85,5 +85,24 @@
     "restorer": "warn-only"
   },
   
-  "notes": "Captures Git user configuration (aliases, editor, signing, merge settings). Credential files are explicitly excluded - users must re-authenticate after restore. Supports both ~/.gitconfig and ~/.config/git/ locations."
+  "notes": "Captures Git user configuration (aliases, editor, signing, merge settings). Credential files are explicitly excluded - users must re-authenticate after restore. Supports both ~/.gitconfig and ~/.config/git/ locations.",
+  
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%USERPROFILE%",
+      "%APPDATA%",
+      "%LOCALAPPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/Cache/**",
+      "**/Temp/**",
+      "**/.git-credentials",
+      "**/credentials"
+    ]
+  }
 }
