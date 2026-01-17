@@ -92,6 +92,10 @@ capture_stdout.txt
 /trace/
 *.generated.jsonc
 
+# Sandbox harness scratch files (never committed)
+sandbox-tests/discovery-harness/*.legacy
+sandbox-tests/discovery-harness/*.new
+
 # Node.js (OpenSpec tooling)
 node_modules/
 package-lock.json
