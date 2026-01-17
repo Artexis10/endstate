@@ -99,3 +99,8 @@ sandbox-tests/discovery-harness/*.new
 # Node.js (OpenSpec tooling)
 node_modules/
 package-lock.json
+
+# Local capture / test artifacts
+capture-test.json
+test-installed-capture.json
+
