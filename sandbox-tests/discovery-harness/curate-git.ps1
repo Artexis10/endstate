@@ -1,8 +1,18 @@
 <#
 .SYNOPSIS
-    Automated Git curation workflow for generating/validating the apps.git module.
+    [DEPRECATED] Automated Git curation workflow for generating/validating the apps.git module.
 
 .DESCRIPTION
+    *** DEPRECATED: Use the generic data-driven curate.ps1 instead ***
+    
+    New usage:
+      .\curate.ps1 -ModuleId apps.git
+      .\curate.ps1 -ModuleId apps.git -Mode local -AllowHostMutation -Seed
+    
+    This script is kept for reference but should not be used for new curation work.
+    
+    ---
+    
     Runs a complete curation workflow for Git (apps.git) that:
     1. Ensures Git is installed (via winget id Git.Git)
     2. Seeds meaningful Git user state (aliases, default branch, editor, diff tool)

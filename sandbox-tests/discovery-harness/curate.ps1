@@ -1,25 +1,37 @@
 <#
 .SYNOPSIS
-    Unified curation runner for Endstate config modules.
+    Data-driven curation runner for Endstate config modules.
 
 .DESCRIPTION
-    Single entrypoint for running curation workflows across different apps.
-    Supports both local mode (direct execution) and sandbox mode (Windows Sandbox isolation).
+    Generic, data-driven curation workflow that reads module.jsonc for all
+    configuration. Supports sandbox-first execution with explicit safety gates
+    for local mode operations.
     
-    This script:
-    1. Auto-scaffolds modules/apps/<app>/module.jsonc if missing
-    2. Locates and runs per-app runner scripts (curate-<app>.ps1)
-    3. Passes through DI params for download/URL resolution
-    4. Optionally runs targeted unit tests
+    Pipeline stages:
+    1. Load module by -ModuleId
+    2. Resolve install source (winget)
+    3. Install app (sandbox/local)
+    4. Run seed (per curation.seed config)
+    5. Snapshot filesystem (pre/post)
+    6. Diff results
+    7. Generate artifacts (CURATION_REPORT.txt, curation-report.json)
+    8. Optionally validate and promote
 
-.PARAMETER App
-    The app to curate (e.g., 'git', 'vscodium'). Mandatory.
+    SAFETY: Local mode seeding requires BOTH -AllowHostMutation AND -Seed flags.
+
+.PARAMETER ModuleId
+    The module ID to curate (e.g., 'apps.git', 'apps.vscodium'). Mandatory.
 
 .PARAMETER Mode
-    Execution mode: 'sandbox' (default) or 'local'.
+    Execution mode: 'sandbox' (default, safe) or 'local'.
 
-.PARAMETER ScaffoldOnly
-    Only scaffold the module file, do not run curation.
+.PARAMETER AllowHostMutation
+    Required for local mode seeding. Acknowledges that local seeding will
+    modify host filesystem state.
+
+.PARAMETER Seed
+    Enable seeding step. In local mode, requires -AllowHostMutation.
+    In sandbox mode, seeding is always safe and enabled by default.
 
 .PARAMETER SkipInstall
     Skip app installation (assumes app is already installed).
@@ -27,42 +39,42 @@
 .PARAMETER Promote
     Promote the curated module to modules/apps/<app>/.
 
-.PARAMETER RunTests
-    Run targeted unit tests after curation.
+.PARAMETER Validate
+    Run validation loop: capture -> wipe -> restore -> verify.
 
-.PARAMETER ResolveFinalUrlFn
-    Optional scriptblock for redirect resolution (DI for testing).
-
-.PARAMETER DownloadFn
-    Optional scriptblock for downloading (DI for testing).
+.PARAMETER OutDir
+    Output directory for artifacts. Default: sandbox-tests/curation/<app>/<timestamp>
 
 .EXAMPLE
-    .\curate.ps1 -App git -Mode local
-    # Curates Git locally
+    .\curate.ps1 -ModuleId apps.git
+    # Curates Git in Windows Sandbox (default, safe)
 
 .EXAMPLE
-    .\curate.ps1 -App git -Mode sandbox
-    # Curates Git in Windows Sandbox
+    .\curate.ps1 -ModuleId apps.git -Mode local
+    # Local discovery without seeding (read-only)
 
 .EXAMPLE
-    .\curate.ps1 -App vscodium -Mode sandbox -Promote -RunTests
-    # Curates VSCodium in sandbox, promotes module, runs tests
+    .\curate.ps1 -ModuleId apps.git -Mode local -AllowHostMutation -Seed
+    # Local discovery WITH seeding (dangerous, explicit triple opt-in)
 
 .EXAMPLE
-    .\curate.ps1 -App git -ScaffoldOnly
-    # Only scaffolds the module file
+    .\curate.ps1 -ModuleId apps.vscodium -Promote
+    # Curates VSCodium in sandbox and promotes module
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
-    [string]$App,
+    [string]$ModuleId,
     
     [Parameter(Mandatory = $false)]
     [ValidateSet('sandbox', 'local')]
     [string]$Mode = 'sandbox',
     
     [Parameter(Mandatory = $false)]
-    [switch]$ScaffoldOnly,
+    [switch]$AllowHostMutation,
+    
+    [Parameter(Mandatory = $false)]
+    [switch]$Seed,
     
     [Parameter(Mandatory = $false)]
     [switch]$SkipInstall,
@@ -71,13 +83,10 @@ param(
     [switch]$Promote,
     
     [Parameter(Mandatory = $false)]
-    [switch]$RunTests,
+    [switch]$Validate,
     
     [Parameter(Mandatory = $false)]
-    [scriptblock]$ResolveFinalUrlFn,
-    
-    [Parameter(Mandatory = $false)]
-    [scriptblock]$DownloadFn
+    [string]$OutDir
 )
 
 $ErrorActionPreference = 'Stop'
@@ -87,10 +96,6 @@ $ErrorActionPreference = 'Stop'
 # ============================================================================
 
 function Get-RepoRoot {
-    <#
-    .SYNOPSIS
-        Resolves the repository root from the script location.
-    #>
     $scriptDir = $PSScriptRoot
     if (-not $scriptDir) {
         $scriptDir = Split-Path -Parent $PSCommandPath
@@ -102,6 +107,12 @@ function Get-RepoRoot {
 $script:RepoRoot = Get-RepoRoot
 $script:HarnessDir = $PSScriptRoot
 $script:ModulesDir = Join-Path $script:RepoRoot "modules\apps"
+$script:SnapshotModule = Join-Path $script:RepoRoot "engine\snapshot.ps1"
+
+# Load snapshot module
+if (Test-Path $script:SnapshotModule) {
+    . $script:SnapshotModule
+}
 
 # ============================================================================
 # OUTPUT HELPERS
@@ -136,313 +147,608 @@ function Write-Fail {
     Write-Host "[FAIL] $Message" -ForegroundColor Red
 }
 
+function Write-Warn {
+    param([string]$Message)
+    Write-Host "[WARN] $Message" -ForegroundColor DarkYellow
+}
+
 # ============================================================================
-# SCAFFOLDING
+# MODULE LOADING
 # ============================================================================
 
-function New-AppScaffold {
+function Get-ModulePath {
     <#
     .SYNOPSIS
-        Ensures the module directory and module.jsonc exist for an app.
-    .OUTPUTS
-        The path to the module.jsonc file.
+        Resolves module ID to module.jsonc path.
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [string]$AppName
+        [string]$ModuleId
     )
     
-    $appDir = Join-Path $script:ModulesDir $AppName
-    $modulePath = Join-Path $appDir "module.jsonc"
-    
-    # Create directory if needed
-    if (-not (Test-Path $appDir)) {
-        Write-Step "Creating module directory: $appDir"
-        New-Item -ItemType Directory -Path $appDir -Force | Out-Null
+    # Parse module ID: apps.git -> apps/git
+    $parts = $ModuleId -split '\.'
+    if ($parts.Count -lt 2) {
+        throw "Invalid module ID format: $ModuleId (expected: category.name, e.g., apps.git)"
     }
     
-    # Create minimal module.jsonc if missing
+    $category = $parts[0]
+    $name = ($parts[1..($parts.Count - 1)]) -join '.'
+    
+    # Resolve to path
+    $modulePath = Join-Path $script:RepoRoot "modules\$category\$name\module.jsonc"
+    
     if (-not (Test-Path $modulePath)) {
-        Write-Step "Scaffolding module: $modulePath"
-        
-        $template = @"
-{
-  // Config Module: $AppName
-  // Auto-scaffolded by curate.ps1 - replace with curated content
-  
-  "id": "apps.$AppName",
-  "displayName": "$AppName",
-  "sensitivity": "medium",
-  
-  "matches": {
-    "winget": [],
-    "exe": []
-  },
-  
-  "verify": [],
-  
-  "restore": [],
-  
-  "capture": {
-    "files": [],
-    "excludeGlobs": []
-  },
-  
-  "notes": "Auto-scaffolded module. Run curation workflow to populate."
-}
-"@
-        
-        try {
-            $template | Set-Content -Path $modulePath -Encoding UTF8 -NoNewline
-            Write-Pass "Scaffolded: $modulePath"
-        }
-        catch {
-            Write-Fail "Failed to write module file: $_"
-            throw "Could not scaffold module at $modulePath"
-        }
-    }
-    else {
-        Write-Info "Module exists: $modulePath"
+        throw "Module not found: $modulePath"
     }
     
     return $modulePath
 }
 
-# ============================================================================
-# RUNNER RESOLUTION
-# ============================================================================
-
-function Get-AppRunner {
+function Read-ModuleConfig {
     <#
     .SYNOPSIS
-        Finds the per-app curation runner script.
-    .OUTPUTS
-        The path to curate-<app>.ps1.
+        Loads and parses module.jsonc, stripping comments.
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [string]$AppName
+        [string]$ModulePath
     )
     
-    $runnerPath = Join-Path $script:HarnessDir "curate-$AppName.ps1"
+    $content = Get-Content -Path $ModulePath -Raw -Encoding UTF8
     
-    if (-not (Test-Path $runnerPath)) {
-        throw "Runner script not found: $runnerPath`nCreate curate-$AppName.ps1 to support curation for '$AppName'."
+    # Strip JSONC comments (// and /* */)
+    $content = $content -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
+    
+    try {
+        $module = $content | ConvertFrom-Json
+        return $module
     }
+    catch {
+        throw "Failed to parse module.jsonc at $ModulePath`: $_"
+    }
+}
+
+function Get-ModuleDir {
+    <#
+    .SYNOPSIS
+        Gets the directory containing the module.jsonc.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ModulePath
+    )
     
-    return $runnerPath
+    return Split-Path -Parent $ModulePath
 }
 
 # ============================================================================
-# RUNNER EXECUTION
+# SAFETY GATES
 # ============================================================================
 
-function Invoke-AppRunner {
+function Assert-LocalSeedingSafe {
     <#
     .SYNOPSIS
-        Executes the per-app curation runner with appropriate arguments.
+        Enforces triple opt-in for local seeding.
     #>
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$RunnerPath,
-        
-        [Parameter(Mandatory = $true)]
         [string]$Mode,
-        
-        [switch]$SkipInstall,
-        [switch]$Promote,
-        [scriptblock]$ResolveFinalUrlFn,
-        [scriptblock]$DownloadFn
+        [switch]$AllowHostMutation,
+        [switch]$Seed
     )
     
-    Write-Step "Invoking runner: $RunnerPath"
-    
-    # Build arguments hashtable for splatting
-    $runnerArgs = @{
-        Mode = $Mode
+    if ($Mode -eq 'local' -and $Seed) {
+        if (-not $AllowHostMutation) {
+            throw @"
+SAFETY BLOCK: Local seeding requires explicit acknowledgment.
+
+Local seeding will MODIFY your host filesystem. This is a dangerous operation
+that should only be used for development/testing.
+
+To proceed, you must specify BOTH flags:
+  -AllowHostMutation -Seed
+
+Example:
+  .\curate.ps1 -ModuleId apps.git -Mode local -AllowHostMutation -Seed
+
+If you only want to observe without seeding, omit -Seed:
+  .\curate.ps1 -ModuleId apps.git -Mode local
+"@
+        }
+        
+        Write-Warn "LOCAL SEEDING ENABLED - Host filesystem will be modified!"
+        Write-Host ""
     }
-    
-    if ($SkipInstall) {
-        $runnerArgs['SkipInstall'] = $true
-    }
-    
-    # Check if runner supports -Promote (inspect script)
-    $runnerContent = Get-Content -Path $RunnerPath -Raw -ErrorAction SilentlyContinue
-    
-    if ($Promote -and $runnerContent -match '\$Promote|\-Promote') {
-        $runnerArgs['Promote'] = $true
-    }
-    elseif ($Promote -and $runnerContent -match '\$WriteModule|\-WriteModule') {
-        # Fallback: some runners use -WriteModule instead of -Promote
-        $runnerArgs['WriteModule'] = $true
-    }
-    elseif ($Promote) {
-        Write-Info "Runner does not support -Promote, skipping promotion flag"
-    }
-    
-    # Pass through DI params if runner supports them
-    if ($ResolveFinalUrlFn -and $runnerContent -match '\$ResolveFinalUrlFn') {
-        $runnerArgs['ResolveFinalUrlFn'] = $ResolveFinalUrlFn
-    }
-    
-    if ($DownloadFn -and $runnerContent -match '\$DownloadFn') {
-        $runnerArgs['DownloadFn'] = $DownloadFn
-    }
-    
-    # Execute runner
-    & $RunnerPath @runnerArgs
-    $exitCode = $LASTEXITCODE
-    
-    if ($exitCode -ne 0) {
-        throw "Runner exited with code $exitCode"
-    }
-    
-    return $exitCode
 }
 
 # ============================================================================
-# TEST EXECUTION
+# INSTALL HELPERS
 # ============================================================================
 
-function Invoke-TargetedTests {
+function Get-WingetId {
     <#
     .SYNOPSIS
-        Runs targeted Pester tests for the specified app.
+        Extracts winget ID from module config.
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [string]$AppName
+        $Module
     )
     
-    Write-Step "Running targeted tests for: $AppName"
+    if ($Module.matches -and $Module.matches.winget -and $Module.matches.winget.Count -gt 0) {
+        return $Module.matches.winget[0]
+    }
     
-    # Look for app-specific test file
-    $testDir = Join-Path $script:RepoRoot "tests\unit"
-    
-    # Try different naming conventions
-    $testCandidates = @(
-        (Join-Path $testDir "$($AppName)Module.Tests.ps1"),
-        (Join-Path $testDir "$(($AppName.Substring(0,1).ToUpper() + $AppName.Substring(1)))Module.Tests.ps1"),
-        (Join-Path $testDir "Curate.Tests.ps1")
+    throw "Module does not specify a winget ID in matches.winget"
+}
+
+function Install-ViaWinget {
+    <#
+    .SYNOPSIS
+        Installs an app via winget.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$WingetId
     )
     
-    $testFile = $null
-    foreach ($candidate in $testCandidates) {
-        if (Test-Path $candidate) {
-            $testFile = $candidate
-            break
+    Write-Step "Installing $WingetId via winget..."
+    
+    $result = & winget install --id $WingetId --silent --accept-package-agreements --accept-source-agreements 2>&1
+    
+    if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
+        # -1978335189 = already installed
+        throw "winget install failed: $result"
+    }
+    
+    # Refresh PATH
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+    
+    Write-Pass "Installed: $WingetId"
+}
+
+# ============================================================================
+# SEEDING
+# ============================================================================
+
+function Invoke-Seed {
+    <#
+    .SYNOPSIS
+        Runs the seed script defined in module curation config.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        $Module,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$ModuleDir
+    )
+    
+    if (-not $Module.curation -or -not $Module.curation.seed) {
+        Write-Info "No seed configuration in module, skipping seeding"
+        return
+    }
+    
+    $seedConfig = $Module.curation.seed
+    
+    if ($seedConfig.type -eq 'script') {
+        $seedScript = Join-Path $ModuleDir $seedConfig.script
+        
+        if (-not (Test-Path $seedScript)) {
+            throw "Seed script not found: $seedScript"
+        }
+        
+        Write-Step "Running seed script: $seedScript"
+        & $seedScript
+        
+        if ($LASTEXITCODE -ne 0) {
+            throw "Seed script failed with exit code $LASTEXITCODE"
+        }
+        
+        Write-Pass "Seeding complete"
+    }
+    elseif ($seedConfig.type -eq 'inline') {
+        Write-Warn "Inline seeding not yet implemented"
+    }
+    else {
+        throw "Unknown seed type: $($seedConfig.type)"
+    }
+}
+
+# ============================================================================
+# SNAPSHOT & DIFF
+# ============================================================================
+
+function Get-SnapshotRoots {
+    <#
+    .SYNOPSIS
+        Resolves snapshot roots from module curation config.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        $Module
+    )
+    
+    $defaultRoots = @(
+        $env:USERPROFILE,
+        $env:APPDATA,
+        $env:LOCALAPPDATA
+    )
+    
+    if ($Module.curation -and $Module.curation.snapshotRoots) {
+        $roots = @()
+        foreach ($root in $Module.curation.snapshotRoots) {
+            # Expand environment variables
+            $expanded = [System.Environment]::ExpandEnvironmentVariables($root)
+            if (Test-Path $expanded) {
+                $roots += $expanded
+            }
+        }
+        return $roots
+    }
+    
+    return $defaultRoots
+}
+
+function New-CurationReport {
+    <#
+    .SYNOPSIS
+        Generate human-readable and machine-readable curation reports.
+    #>
+    param(
+        [string]$ModuleId,
+        [string]$WingetId,
+        [string]$DiffJsonPath,
+        [string]$OutputDir,
+        $Module
+    )
+    
+    $diff = Get-Content -Path $DiffJsonPath -Raw | ConvertFrom-Json
+    
+    # Combine added and modified
+    $allChanges = @()
+    if ($diff.added) { $allChanges += $diff.added }
+    if ($diff.modified) { $allChanges += $diff.modified }
+    
+    $files = @($allChanges | Where-Object { -not $_.isDirectory })
+    
+    # Build human-readable report
+    $reportPath = Join-Path $OutputDir "CURATION_REPORT.txt"
+    $report = @"
+================================================================================
+                         CURATION REPORT
+================================================================================
+Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+Module ID: $ModuleId
+Winget ID: $WingetId
+
+--------------------------------------------------------------------------------
+SUMMARY
+--------------------------------------------------------------------------------
+Total files changed: $($files.Count)
+  - Added:    $(if ($diff.added) { $diff.added.Count } else { 0 })
+  - Modified: $(if ($diff.modified) { $diff.modified.Count } else { 0 })
+
+--------------------------------------------------------------------------------
+CHANGED FILES
+--------------------------------------------------------------------------------
+"@
+    
+    foreach ($file in $files) {
+        $tokenized = if (Get-Command ConvertTo-LogicalToken -ErrorAction SilentlyContinue) {
+            ConvertTo-LogicalToken -Path $file.path
+        } else {
+            $file.path
+        }
+        $report += "  $tokenized`n"
+    }
+    
+    $report += @"
+
+================================================================================
+                              END OF REPORT
+================================================================================
+"@
+    
+    $report | Out-File -FilePath $reportPath -Encoding UTF8
+    
+    # Build machine-readable report
+    $jsonReportPath = Join-Path $OutputDir "curation-report.json"
+    $jsonReport = @{
+        moduleId = $ModuleId
+        wingetId = $WingetId
+        timestamp = (Get-Date -Format 'o')
+        summary = @{
+            totalFiles = $files.Count
+            added = if ($diff.added) { $diff.added.Count } else { 0 }
+            modified = if ($diff.modified) { $diff.modified.Count } else { 0 }
+        }
+        files = @($files | ForEach-Object { $_.path })
+    }
+    
+    $jsonReport | ConvertTo-Json -Depth 5 | Out-File -FilePath $jsonReportPath -Encoding UTF8
+    
+    return @{
+        TextReport = $reportPath
+        JsonReport = $jsonReportPath
+    }
+}
+
+# ============================================================================
+# LOCAL CURATION
+# ============================================================================
+
+function Invoke-LocalCuration {
+    <#
+    .SYNOPSIS
+        Run curation workflow locally.
+    #>
+    param(
+        [string]$ModuleId,
+        $Module,
+        [string]$ModuleDir,
+        [string]$OutDir,
+        [switch]$SkipInstall,
+        [switch]$Seed
+    )
+    
+    Write-Header "Local Curation: $ModuleId"
+    
+    $wingetId = Get-WingetId -Module $Module
+    Write-Info "Winget ID: $wingetId"
+    
+    # Step 1: Install (if not skipped)
+    if (-not $SkipInstall) {
+        Install-ViaWinget -WingetId $wingetId
+    } else {
+        Write-Info "Skipping installation"
+    }
+    
+    # Step 2: Capture pre-state
+    Write-Step "Capturing pre-seeding state..."
+    $roots = Get-SnapshotRoots -Module $Module
+    Write-Info "Snapshot roots: $($roots -join ', ')"
+    
+    $preSnapshot = @()
+    if (Get-Command Get-FilesystemSnapshot -ErrorAction SilentlyContinue) {
+        $preSnapshot = Get-FilesystemSnapshot -Roots $roots -MaxDepth 5
+    }
+    Write-Info "Pre-state: $($preSnapshot.Count) entries"
+    
+    # Step 3: Run seed (if enabled)
+    if ($Seed) {
+        Invoke-Seed -Module $Module -ModuleDir $ModuleDir
+    } else {
+        Write-Info "Seeding skipped (use -Seed to enable)"
+    }
+    
+    # Step 4: Capture post-state
+    Write-Step "Capturing post-seeding state..."
+    $postSnapshot = @()
+    if (Get-Command Get-FilesystemSnapshot -ErrorAction SilentlyContinue) {
+        $postSnapshot = Get-FilesystemSnapshot -Roots $roots -MaxDepth 5
+    }
+    Write-Info "Post-state: $($postSnapshot.Count) entries"
+    
+    # Step 5: Compute diff
+    Write-Step "Computing diff..."
+    $diff = @{ added = @(); modified = @() }
+    if (Get-Command Compare-FilesystemSnapshots -ErrorAction SilentlyContinue) {
+        $diff = Compare-FilesystemSnapshots -PreSnapshot $preSnapshot -PostSnapshot $postSnapshot
+    }
+    
+    $diffPath = Join-Path $OutDir "diff.json"
+    $diff | ConvertTo-Json -Depth 5 | Out-File -FilePath $diffPath -Encoding UTF8
+    Write-Pass "Diff saved: $diffPath"
+    
+    # Step 6: Generate reports
+    Write-Step "Generating reports..."
+    $reports = New-CurationReport -ModuleId $ModuleId -WingetId $wingetId -DiffJsonPath $diffPath -OutputDir $OutDir -Module $Module
+    Write-Pass "Reports generated"
+    
+    return @{
+        DiffPath = $diffPath
+        ReportPath = $reports.TextReport
+        JsonReportPath = $reports.JsonReport
+    }
+}
+
+# ============================================================================
+# SANDBOX CURATION
+# ============================================================================
+
+function Invoke-SandboxCuration {
+    <#
+    .SYNOPSIS
+        Run curation workflow in Windows Sandbox.
+    #>
+    param(
+        [string]$ModuleId,
+        $Module,
+        [string]$ModuleDir,
+        [string]$OutDir
+    )
+    
+    Write-Header "Sandbox Curation: $ModuleId"
+    
+    $wingetId = Get-WingetId -Module $Module
+    Write-Info "Winget ID: $wingetId"
+    
+    # Use sandbox-discovery.ps1 for sandbox execution
+    $discoveryScript = Join-Path $script:RepoRoot "scripts\sandbox-discovery.ps1"
+    
+    if (-not (Test-Path $discoveryScript)) {
+        throw "sandbox-discovery.ps1 not found: $discoveryScript"
+    }
+    
+    Write-Step "Launching sandbox discovery..."
+    & $discoveryScript -WingetId $wingetId -OutDir $OutDir
+    
+    if ($LASTEXITCODE -ne 0) {
+        throw "Sandbox discovery failed with exit code $LASTEXITCODE"
+    }
+    
+    # Generate curation report from discovery results
+    $diffPath = Join-Path $OutDir "diff.json"
+    if (Test-Path $diffPath) {
+        Write-Step "Generating curation reports..."
+        $reports = New-CurationReport -ModuleId $ModuleId -WingetId $wingetId -DiffJsonPath $diffPath -OutputDir $OutDir -Module $Module
+        Write-Pass "Reports generated"
+        
+        return @{
+            DiffPath = $diffPath
+            ReportPath = $reports.TextReport
+            JsonReportPath = $reports.JsonReport
         }
     }
     
-    if (-not $testFile) {
-        Write-Info "No targeted test file found for '$AppName', skipping tests"
-        return 0
+    return @{
+        DiffPath = $diffPath
+        ReportPath = $null
+        JsonReportPath = $null
+    }
+}
+
+# ============================================================================
+# PROMOTION
+# ============================================================================
+
+function Invoke-Promotion {
+    <#
+    .SYNOPSIS
+        Promotes curated module to modules directory.
+    #>
+    param(
+        [string]$ModuleId,
+        [string]$OutDir,
+        [string]$ModulePath
+    )
+    
+    $draftPath = Join-Path $OutDir "module.jsonc"
+    
+    if (-not (Test-Path $draftPath)) {
+        Write-Warn "No draft module found at $draftPath, skipping promotion"
+        return
     }
     
-    Write-Info "Test file: $testFile"
+    $targetDir = Split-Path -Parent $ModulePath
+    $targetPath = $ModulePath
     
-    # Run Pester
-    $pesterModule = Join-Path $script:RepoRoot "tools\pester\Pester"
-    if (Test-Path $pesterModule) {
-        Import-Module $pesterModule -Force
-    }
-    else {
-        Import-Module Pester -MinimumVersion 5.0 -ErrorAction Stop
-    }
-    
-    $config = New-PesterConfiguration
-    $config.Run.Path = $testFile
-    $config.Run.Exit = $false
-    $config.Output.Verbosity = 'Detailed'
-    
-    $result = Invoke-Pester -Configuration $config
-    
-    if ($result.FailedCount -gt 0) {
-        Write-Fail "Tests failed: $($result.FailedCount) failures"
-        return 1
-    }
-    
-    Write-Pass "Tests passed: $($result.PassedCount) passed"
-    return 0
+    Write-Step "Promoting module to: $targetPath"
+    Copy-Item -Path $draftPath -Destination $targetPath -Force
+    Write-Pass "Module promoted"
 }
 
 # ============================================================================
 # MAIN
 # ============================================================================
 
-Write-Header "Endstate Curation Runner"
+Write-Header "Endstate Data-Driven Curation Runner"
 
-# Normalize app name to lowercase
-$App = $App.ToLower()
+# Display configuration
+Write-Info "Module ID:         $ModuleId"
+Write-Info "Mode:              $Mode"
+Write-Info "AllowHostMutation: $AllowHostMutation"
+Write-Info "Seed:              $Seed"
+Write-Info "SkipInstall:       $SkipInstall"
+Write-Info "Promote:           $Promote"
+Write-Info "Validate:          $Validate"
 
-Write-Info "Repo Root:    $script:RepoRoot"
-Write-Info "Harness Dir:  $script:HarnessDir"
-Write-Info "Modules Dir:  $script:ModulesDir"
-Write-Info ""
-Write-Info "App:          $App"
-Write-Info "Mode:         $Mode"
-Write-Info "ScaffoldOnly: $ScaffoldOnly"
-Write-Info "SkipInstall:  $SkipInstall"
-Write-Info "Promote:      $Promote"
-Write-Info "RunTests:     $RunTests"
+# Step 1: Safety checks
+Write-Header "Step 1: Safety Checks"
+Assert-LocalSeedingSafe -Mode $Mode -AllowHostMutation:$AllowHostMutation -Seed:$Seed
+Write-Pass "Safety checks passed"
 
-# Step 1: Ensure module scaffold exists
-Write-Header "Step 1: Module Scaffold"
-$modulePath = New-AppScaffold -AppName $App
-Write-Info "Module path: $modulePath"
-
-if ($ScaffoldOnly) {
-    Write-Header "Scaffold Complete"
-    Write-Pass "Module scaffolded at: $modulePath"
-    Write-Host ""
-    exit 0
-}
-
-# Step 2: Locate runner
-Write-Header "Step 2: Locate Runner"
+# Step 2: Load module
+Write-Header "Step 2: Load Module"
 try {
-    $runnerPath = Get-AppRunner -AppName $App
-    Write-Info "Runner path: $runnerPath"
+    $modulePath = Get-ModulePath -ModuleId $ModuleId
+    Write-Info "Module path: $modulePath"
+    
+    $module = Read-ModuleConfig -ModulePath $modulePath
+    Write-Info "Module loaded: $($module.displayName)"
+    
+    $moduleDir = Get-ModuleDir -ModulePath $modulePath
+    Write-Info "Module dir: $moduleDir"
+    
+    # Check for curation config
+    if (-not $module.curation) {
+        Write-Warn "Module does not have a curation block - using defaults"
+    } else {
+        Write-Pass "Curation config found"
+    }
 }
 catch {
-    Write-Fail $_
+    Write-Fail "Failed to load module: $_"
     exit 1
 }
 
-# Step 3: Execute runner
-Write-Header "Step 3: Execute Curation"
+# Step 3: Setup output directory
+Write-Header "Step 3: Setup Output"
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$appName = ($ModuleId -split '\.')[-1]
+
+if (-not $OutDir) {
+    $OutDir = Join-Path $script:RepoRoot "sandbox-tests\curation\$appName\$timestamp"
+}
+
+if (-not (Test-Path $OutDir)) {
+    New-Item -ItemType Directory -Path $OutDir -Force | Out-Null
+}
+Write-Info "Output directory: $OutDir"
+
+# Step 4: Run curation
+Write-Header "Step 4: Execute Curation"
 try {
-    $null = Invoke-AppRunner `
-        -RunnerPath $runnerPath `
-        -Mode $Mode `
-        -SkipInstall:$SkipInstall `
-        -Promote:$Promote `
-        -ResolveFinalUrlFn $ResolveFinalUrlFn `
-        -DownloadFn $DownloadFn
+    if ($Mode -eq 'local') {
+        $result = Invoke-LocalCuration `
+            -ModuleId $ModuleId `
+            -Module $module `
+            -ModuleDir $moduleDir `
+            -OutDir $OutDir `
+            -SkipInstall:$SkipInstall `
+            -Seed:$Seed
+    } else {
+        $result = Invoke-SandboxCuration `
+            -ModuleId $ModuleId `
+            -Module $module `
+            -ModuleDir $moduleDir `
+            -OutDir $OutDir
+    }
     
-    Write-Pass "Curation completed successfully"
+    Write-Pass "Curation completed"
 }
 catch {
     Write-Fail "Curation failed: $_"
     exit 1
 }
 
-# Step 4: Run tests if requested
-if ($RunTests) {
-    Write-Header "Step 4: Run Tests"
-    $testExitCode = Invoke-TargetedTests -AppName $App
-    
-    if ($testExitCode -ne 0) {
-        Write-Fail "Tests failed"
-        exit $testExitCode
-    }
+# Step 5: Promote (if requested)
+if ($Promote) {
+    Write-Header "Step 5: Promote Module"
+    Invoke-Promotion -ModuleId $ModuleId -OutDir $OutDir -ModulePath $modulePath
+}
+
+# Step 6: Validate (if requested)
+if ($Validate) {
+    Write-Header "Step 6: Validate"
+    Write-Warn "Validation loop not yet implemented"
+    # TODO: capture -> wipe -> restore -> verify
 }
 
 # Summary
 Write-Header "Curation Complete"
-Write-Host "  App:        $App" -ForegroundColor Green
-Write-Host "  Mode:       $Mode" -ForegroundColor Green
-Write-Host "  Module:     $modulePath" -ForegroundColor Green
+
+Write-Host "  Module ID:   $ModuleId" -ForegroundColor Green
+Write-Host "  Mode:        $Mode" -ForegroundColor Green
+Write-Host "  Output:      $OutDir" -ForegroundColor Green
 Write-Host ""
+
+if ($result.ReportPath -and (Test-Path $result.ReportPath)) {
+    Write-Host "  Reports:" -ForegroundColor White
+    Write-Host "    - $($result.ReportPath)" -ForegroundColor Gray
+    Write-Host "    - $($result.JsonReportPath)" -ForegroundColor Gray
+    Write-Host ""
+}
 
 exit 0

@@ -1,8 +1,18 @@
 <#
 .SYNOPSIS
-    Curation runner stub for VSCodium.
+    [DEPRECATED] Curation runner stub for VSCodium.
 
 .DESCRIPTION
+    *** DEPRECATED: Use the generic data-driven curate.ps1 instead ***
+    
+    New usage:
+      .\curate.ps1 -ModuleId apps.vscodium
+      .\curate.ps1 -ModuleId apps.vscodium -Mode local -AllowHostMutation -Seed
+    
+    This script is kept for reference but should not be used for new curation work.
+    
+    ---
+    
     Placeholder for VSCodium curation workflow. Currently not implemented.
     
     When implemented, this script will:
