@@ -1,0 +1,26 @@
+{
+  // Provisioning Manifest
+  // Generated: 2026-01-14 23:11:37
+  // Machine: EXECUTOR
+  // Format: JSONC (JSON with comments)
+
+  "version": 1,
+  "name": "executor",
+  "captured": "2026-01-14T23:11:37Z",
+
+  // Applications to install
+  "apps": [
+  ],
+
+  // Configuration restore (opt-in)
+  // Uncomment and customize paths to restore configurations.
+  // IMPORTANT: Review paths before uncommenting - never auto-export secrets.
+  "restore": [
+    // Example:
+    // { "type": "copy", "source": "./configs/.gitconfig", "target": "~/.gitconfig", "backup": true }
+  ],
+
+  // Verification steps
+  "verify": [
+  ]
+}
