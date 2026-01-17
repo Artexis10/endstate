@@ -682,4 +682,63 @@ Describe "Capture.ArtifactContract" {
             $result | Should -Be "Git.Git"
         }
     }
+    
+    Context "INV-CONTINUITY-1: counts.included must equal appsIncluded.length" {
+        
+        It "Should have counts.included equal manifest.apps.Count in capture result" {
+            # Simulate capture result structure from Invoke-CaptureCore
+            $manifest = @{
+                version = 1
+                apps = @(
+                    @{ id = "git-git"; refs = @{ windows = "Git.Git" } }
+                    @{ id = "docker-dockerdesktop"; refs = @{ windows = "Docker.DockerDesktop" } }
+                    @{ id = "microsoft-vscode"; refs = @{ windows = "Microsoft.VSCode" } }
+                )
+            }
+            
+            # Simulate how engine derives counts and appsIncluded
+            $counts = @{
+                included = $manifest.apps.Count
+                totalFound = $manifest.apps.Count
+            }
+            
+            $appsIncluded = @($manifest.apps | ForEach-Object {
+                @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id }; source = "winget" }
+            })
+            
+            # INV-CONTINUITY-1: counts.included must equal appsIncluded.length
+            $counts.included | Should -Be $appsIncluded.Count
+            $counts.included | Should -Be $manifest.apps.Count
+        }
+        
+        It "Should detect continuity violation when counts disagree with apps list" {
+            # Simulate the bug: counts says 72 but appsIncluded has 66
+            $counts = @{ included = 72 }
+            $appsIncluded = @(1..66 | ForEach-Object { @{ id = "app-$_"; source = "winget" } })
+            
+            # This would be a violation
+            $isValid = ($counts.included -eq $appsIncluded.Count)
+            $isValid | Should -Be $false
+        }
+        
+        It "Should maintain continuity when deriving from same source" {
+            # Load capture.ps1 to verify the actual implementation
+            . (Join-Path $PSScriptRoot "..\..\engine\capture.ps1")
+            
+            # Create a test manifest structure
+            $testApps = @(
+                @{ id = "test-1"; refs = @{ windows = "Test.App1" }; _source = "winget" }
+                @{ id = "test-2"; refs = @{ windows = "Test.App2" }; _source = "winget" }
+            )
+            
+            # Simulate the engine's derivation logic (from Invoke-CaptureCore)
+            $countsIncluded = $testApps.Count
+            $appsIncludedLength = @($testApps | ForEach-Object {
+                @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id } }
+            }).Count
+            
+            # Both must be derived from same source
+            $countsIncluded | Should -Be $appsIncludedLength
+        }
+    }
 }

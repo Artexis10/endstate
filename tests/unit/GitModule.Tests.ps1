@@ -18,7 +18,8 @@ BeforeAll {
     $script:HarnessDir = Join-Path $script:RepoRoot "sandbox-tests\discovery-harness"
     $script:GitModulePath = Join-Path $script:ModulesDir "git\module.jsonc"
     $script:CurateGitPath = Join-Path $script:HarnessDir "curate-git.ps1"
-    $script:SeedGitPath = Join-Path $script:HarnessDir "seed-git-config.ps1"
+    $script:SeedGitPath = Join-Path $script:ModulesDir "git\seed.ps1"
+    $script:LegacySeedPath = Join-Path $script:HarnessDir "seed-git-config.ps1"
     
     # Load manifest helper for JSONC parsing
     $manifestModule = Join-Path $script:RepoRoot "engine\manifest.ps1"
@@ -39,8 +40,12 @@ Describe "GitModule.FileStructure" {
             Test-Path $script:CurateGitPath | Should -Be $true
         }
         
-        It "Should have seed-git-config.ps1 seeding script" {
+        It "Should have seed.ps1 in git module folder" {
             Test-Path $script:SeedGitPath | Should -Be $true
+        }
+        
+        It "Should have legacy seed-git-config.ps1 (deprecated)" {
+            Test-Path $script:LegacySeedPath | Should -Be $true
         }
     }
 }
@@ -52,7 +57,9 @@ Describe "GitModule.Schema" {
         if (Test-Path $script:GitModulePath) {
             $content = Get-Content -Path $script:GitModulePath -Raw
             # Remove JSONC comments for parsing
-            $jsonContent = $content -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
+            $lines = $content -split "`n"
+            $cleanLines = $lines | ForEach-Object { $_ -replace '//.*$', '' }
+            $jsonContent = $cleanLines -join "`n"
             $script:GitModule = $jsonContent | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
         }
     }
@@ -123,7 +130,9 @@ Describe "GitModule.SensitiveFiles" {
     BeforeAll {
         if (Test-Path $script:GitModulePath) {
             $content = Get-Content -Path $script:GitModulePath -Raw
-            $jsonContent = $content -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
+            $lines = $content -split "`n"
+            $cleanLines = $lines | ForEach-Object { $_ -replace '//.*$', '' }
+            $jsonContent = $cleanLines -join "`n"
             $script:GitModule = $jsonContent | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
         }
     }
@@ -214,7 +223,7 @@ Describe "GitCuration.ScriptStructure" {
         }
     }
     
-    Context "seed-git-config.ps1 structure" {
+    Context "seed.ps1 structure (module folder)" {
         
         It "Should have Scope parameter" {
             $content = Get-Content -Path $script:SeedGitPath -Raw
@@ -305,7 +314,9 @@ Describe "GitModule.RestoreOptional" {
     BeforeAll {
         if (Test-Path $script:GitModulePath) {
             $content = Get-Content -Path $script:GitModulePath -Raw
-            $jsonContent = $content -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
+            $lines = $content -split "`n"
+            $cleanLines = $lines | ForEach-Object { $_ -replace '//.*$', '' }
+            $jsonContent = $cleanLines -join "`n"
             $script:GitModule = $jsonContent | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
         }
     }

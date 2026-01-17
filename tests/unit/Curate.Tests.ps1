@@ -1,37 +1,37 @@
 <#
 .SYNOPSIS
-    Pester tests for the unified curate.ps1 curation runner.
+    Pester tests for the data-driven curate.ps1 curation runner.
 
 .DESCRIPTION
     Validates:
-    - Module scaffolding when missing
-    - Runner path resolution
-    - Argument passing to per-app runners
-    - ScaffoldOnly mode
+    - Module loading by ModuleId
+    - Safety gates for local seeding
+    - Curation metadata in module.jsonc
+    - Seed script resolution
     
     NOTE: These are deterministic unit tests - no network, sandbox, or winget required.
-    Uses disposable temp directories with fake repo structure.
 #>
 
 BeforeAll {
     $script:RepoRoot = Join-Path $PSScriptRoot "..\.."
     $script:CuratePath = Join-Path $script:RepoRoot "sandbox-tests\discovery-harness\curate.ps1"
     $script:HarnessDir = Join-Path $script:RepoRoot "sandbox-tests\discovery-harness"
+    $script:ModulesDir = Join-Path $script:RepoRoot "modules\apps"
 }
 
 Describe "Curate.FileStructure" {
     
     Context "Required files exist" {
         
-        It "Should have curate.ps1 unified runner" {
+        It "Should have curate.ps1 data-driven runner" {
             Test-Path $script:CuratePath | Should -Be $true
         }
         
-        It "Should have curate-git.ps1 runner" {
+        It "Should have curate-git.ps1 legacy runner (deprecated)" {
             Test-Path (Join-Path $script:HarnessDir "curate-git.ps1") | Should -Be $true
         }
         
-        It "Should have curate-vscodium.ps1 stub" {
+        It "Should have curate-vscodium.ps1 legacy stub (deprecated)" {
             Test-Path (Join-Path $script:HarnessDir "curate-vscodium.ps1") | Should -Be $true
         }
     }
@@ -45,9 +45,9 @@ Describe "Curate.ScriptStructure" {
     
     Context "Parameters" {
         
-        It "Should have mandatory App parameter" {
+        It "Should have mandatory ModuleId parameter" {
             $script:CurateContent | Should -Match 'Mandatory'
-            $script:CurateContent | Should -Match 'string.*App'
+            $script:CurateContent | Should -Match 'string.*ModuleId'
         }
         
         It "Should have Mode parameter with ValidateSet" {
@@ -56,8 +56,12 @@ Describe "Curate.ScriptStructure" {
             $script:CurateContent | Should -Match 'local'
         }
         
-        It "Should have ScaffoldOnly switch" {
-            $script:CurateContent | Should -Match 'switch.*ScaffoldOnly'
+        It "Should have AllowHostMutation switch for safety" {
+            $script:CurateContent | Should -Match 'switch.*AllowHostMutation'
+        }
+        
+        It "Should have Seed switch" {
+            $script:CurateContent | Should -Match 'switch.*Seed'
         }
         
         It "Should have SkipInstall switch" {
@@ -68,16 +72,12 @@ Describe "Curate.ScriptStructure" {
             $script:CurateContent | Should -Match 'switch.*Promote'
         }
         
-        It "Should have RunTests switch" {
-            $script:CurateContent | Should -Match 'switch.*RunTests'
+        It "Should have Validate switch" {
+            $script:CurateContent | Should -Match 'switch.*Validate'
         }
         
-        It "Should have ResolveFinalUrlFn DI parameter" {
-            $script:CurateContent | Should -Match 'ResolveFinalUrlFn'
-        }
-        
-        It "Should have DownloadFn DI parameter" {
-            $script:CurateContent | Should -Match 'DownloadFn'
+        It "Should have OutDir parameter" {
+            $script:CurateContent | Should -Match 'string.*OutDir'
         }
     }
     
@@ -87,16 +87,28 @@ Describe "Curate.ScriptStructure" {
             $script:CurateContent | Should -Match 'function Get-RepoRoot'
         }
         
-        It "Should have New-AppScaffold function" {
-            $script:CurateContent | Should -Match 'function New-AppScaffold'
+        It "Should have Get-ModulePath function" {
+            $script:CurateContent | Should -Match 'function Get-ModulePath'
         }
         
-        It "Should have Get-AppRunner function" {
-            $script:CurateContent | Should -Match 'function Get-AppRunner'
+        It "Should have Read-ModuleConfig function" {
+            $script:CurateContent | Should -Match 'function Read-ModuleConfig'
         }
         
-        It "Should have Invoke-AppRunner function" {
-            $script:CurateContent | Should -Match 'function Invoke-AppRunner'
+        It "Should have Assert-LocalSeedingSafe function" {
+            $script:CurateContent | Should -Match 'function Assert-LocalSeedingSafe'
+        }
+        
+        It "Should have Invoke-Seed function" {
+            $script:CurateContent | Should -Match 'function Invoke-Seed'
+        }
+        
+        It "Should have Invoke-LocalCuration function" {
+            $script:CurateContent | Should -Match 'function Invoke-LocalCuration'
+        }
+        
+        It "Should have Invoke-SandboxCuration function" {
+            $script:CurateContent | Should -Match 'function Invoke-SandboxCuration'
         }
     }
     
@@ -107,108 +119,84 @@ Describe "Curate.ScriptStructure" {
             $script:CurateContent | Should -Match 'Stop'
         }
     }
-}
-
-Describe "Curate.Scaffolding" {
     
-    BeforeAll {
-        $script:TempRoot = Join-Path ([System.IO.Path]::GetTempPath()) "endstate-curate-test-$([guid]::NewGuid().ToString('N').Substring(0,8))"
-        $script:TempModulesDir = Join-Path $script:TempRoot "modules\apps"
-        $script:TempHarnessDir = Join-Path $script:TempRoot "sandbox-tests\discovery-harness"
+    Context "Safety gates" {
         
-        New-Item -ItemType Directory -Path $script:TempModulesDir -Force | Out-Null
-        New-Item -ItemType Directory -Path $script:TempHarnessDir -Force | Out-Null
+        It "Should block local seeding without AllowHostMutation" {
+            $script:CurateContent | Should -Match 'SAFETY BLOCK'
+            $script:CurateContent | Should -Match 'AllowHostMutation'
+        }
         
-        Copy-Item -Path $script:CuratePath -Destination $script:TempHarnessDir -Force
-    }
-    
-    AfterAll {
-        if ($script:TempRoot -and (Test-Path $script:TempRoot)) {
-            Remove-Item -Path $script:TempRoot -Recurse -Force -ErrorAction SilentlyContinue
+        It "Should require triple opt-in for local seeding" {
+            $script:CurateContent | Should -Match 'Mode.*local'
+            $script:CurateContent | Should -Match 'AllowHostMutation'
+            $script:CurateContent | Should -Match 'Seed'
         }
     }
+}
+
+Describe "Curate.ModuleLoading" {
     
-    Context "Module scaffolding" {
+    Context "Module path resolution" {
         
-        It "Should scaffold module.jsonc when missing" {
-            $testAppDir = Join-Path $script:TempModulesDir "newapp"
-            if (Test-Path $testAppDir) {
-                Remove-Item -Path $testAppDir -Recurse -Force
-            }
-            
-            $modulePath = Join-Path $script:TempModulesDir "newapp\module.jsonc"
-            New-Item -ItemType Directory -Path (Join-Path $script:TempModulesDir "newapp") -Force | Out-Null
-            
-            $templateObj = @{
-                id = "apps.newapp"
-                displayName = "newapp"
-                sensitivity = "medium"
-                matches = @{ winget = @(); exe = @() }
-                verify = @()
-                restore = @()
-                capture = @{ files = @(); excludeGlobs = @() }
-                notes = "Auto-scaffolded module."
-            }
-            $templateObj | ConvertTo-Json -Depth 5 | Set-Content -Path $modulePath -Encoding UTF8
-            
+        It "Should have git module with curation metadata" {
+            $modulePath = Join-Path $script:ModulesDir "git\module.jsonc"
             Test-Path $modulePath | Should -Be $true
             
             $content = Get-Content -Path $modulePath -Raw
-            { $content | ConvertFrom-Json } | Should -Not -Throw
+            # Strip comments for parsing
+            $lines = $content -split "`n"
+            $cleanLines = $lines | ForEach-Object { $_ -replace '//.*$', '' }
+            $content = $cleanLines -join "`n"
+            $module = $content | ConvertFrom-Json
+            
+            $module.curation | Should -Not -BeNullOrEmpty
+            $module.curation.seed | Should -Not -BeNullOrEmpty
+            $module.curation.seed.type | Should -Be "script"
+            $module.curation.seed.script | Should -Be "seed.ps1"
         }
         
-        It "Scaffolded module should have required fields" {
-            $modulePath = Join-Path $script:TempModulesDir "newapp\module.jsonc"
-            $module = Get-Content -Path $modulePath -Raw | ConvertFrom-Json
+        It "Should have vscodium module with curation metadata" {
+            $modulePath = Join-Path $script:ModulesDir "vscodium\module.jsonc"
+            Test-Path $modulePath | Should -Be $true
             
-            $module.id | Should -Be "apps.newapp"
-            $module.displayName | Should -Be "newapp"
-            $module.sensitivity | Should -Not -BeNullOrEmpty
-            $module.matches | Should -Not -BeNullOrEmpty
-            # Empty arrays may be null after JSON round-trip, just check they exist as properties
-            $module.PSObject.Properties.Name | Should -Contain 'verify'
-            $module.PSObject.Properties.Name | Should -Contain 'restore'
-            $module.capture | Should -Not -BeNullOrEmpty
+            $content = Get-Content -Path $modulePath -Raw
+            $lines = $content -split "`n"
+            $cleanLines = $lines | ForEach-Object { $_ -replace '//.*$', '' }
+            $content = $cleanLines -join "`n"
+            $module = $content | ConvertFrom-Json
+            
+            $module.curation | Should -Not -BeNullOrEmpty
+            $module.curation.seed | Should -Not -BeNullOrEmpty
+        }
+        
+        It "Should have git seed.ps1 script" {
+            $seedPath = Join-Path $script:ModulesDir "git\seed.ps1"
+            Test-Path $seedPath | Should -Be $true
+        }
+        
+        It "Should have vscodium seed.ps1 script" {
+            $seedPath = Join-Path $script:ModulesDir "vscodium\seed.ps1"
+            Test-Path $seedPath | Should -Be $true
         }
     }
-}
-
-Describe "Curate.RunnerResolution" {
     
-    Context "Get-AppRunner logic" {
+    Context "Module ID parsing" {
         
-        It "Should find curate-git.ps1 for git app" {
-            $runnerPath = Join-Path $script:HarnessDir "curate-git.ps1"
-            Test-Path $runnerPath | Should -Be $true
+        It "Should parse apps.git correctly" {
+            # Simulate module ID parsing logic
+            $moduleId = "apps.git"
+            $parts = $moduleId -split '\.'
+            $parts.Count | Should -BeGreaterOrEqual 2
+            $parts[0] | Should -Be "apps"
+            $parts[1] | Should -Be "git"
         }
         
-        It "Should find curate-vscodium.ps1 for vscodium app" {
-            $runnerPath = Join-Path $script:HarnessDir "curate-vscodium.ps1"
-            Test-Path $runnerPath | Should -Be $true
-        }
-        
-        It "Should use lowercase app name in runner path" {
-            $curateContent = Get-Content -Path $script:CuratePath -Raw
-            $curateContent | Should -Match 'ToLower'
-        }
-    }
-}
-
-Describe "Curate.ArgumentPassing" {
-    
-    Context "Runner invocation inspects script content" {
-        
-        It "Invoke-AppRunner should check runner for supported params" {
-            $curateContent = Get-Content -Path $script:CuratePath -Raw
-            
-            $curateContent | Should -Match 'runnerContent'
-            $curateContent | Should -Match 'Get-Content'
-            $curateContent | Should -Match 'Promote'
-        }
-        
-        It "Should fallback to WriteModule if Promote not supported" {
-            $curateContent = Get-Content -Path $script:CuratePath -Raw
-            $curateContent | Should -Match 'WriteModule'
+        It "Should parse apps.msi-afterburner correctly" {
+            $moduleId = "apps.msi-afterburner"
+            $parts = $moduleId -split '\.'
+            $parts[0] | Should -Be "apps"
+            ($parts[1..($parts.Count - 1)]) -join '.' | Should -Be "msi-afterburner"
         }
     }
 }
