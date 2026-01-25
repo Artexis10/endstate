@@ -34,6 +34,12 @@ capture/
 sandbox-tests/discovery/**
 !sandbox-tests/discovery/.gitkeep
 
+# ---------------------------------------------------------------------------
+# Windows Sandbox validation outputs (generated per run)
+# ---------------------------------------------------------------------------
+sandbox-tests/validation/**
+!sandbox-tests/validation/.gitkeep
+
 # OS
 .DS_Store
 Thumbs.db

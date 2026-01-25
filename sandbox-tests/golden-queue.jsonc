@@ -1,0 +1,11 @@
+{
+  // Golden Queue: Apps to validate in Sandbox
+  // Used by scripts/sandbox-validate-batch.ps1
+  
+  "apps": [
+    { "appId": "git", "wingetId": "Git.Git" },
+    { "appId": "vscodium", "wingetId": "VSCodium.VSCodium" },
+    { "appId": "powertoys", "wingetId": "Microsoft.PowerToys" },
+    { "appId": "msi-afterburner", "wingetId": "Guru3D.Afterburner" }
+  ]
+}
