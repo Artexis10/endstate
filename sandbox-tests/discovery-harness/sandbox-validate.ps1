@@ -200,84 +200,115 @@ function Ensure-Winget {
     Write-Info "Winget not found, attempting bootstrap..."
     $bootstrapLog = Join-Path $OutputDir "winget-bootstrap.log"
     $logContent = @("Bootstrap started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+    $logContent += "OS Version: $([System.Environment]::OSVersion.VersionString)"
+    $logContent += "PowerShell Version: $($PSVersionTable.PSVersion)"
     
-    # Strategy 1: Try to register existing App Installer
-    Write-Info "Trying App Installer registration..."
-    $logContent += "Step 1: Attempting Add-AppxPackage -RegisterByFamilyName"
-    try {
-        Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
-        if ($wingetCmd) {
-            $logContent += "SUCCESS: Winget registered via family name"
-            $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
-            Write-Pass "Winget registered successfully"
-            return $true
-        }
-        $logContent += "FAILED: Registration did not make winget available"
-    } catch {
-        $logContent += "FAILED: $_"
-    }
-    
-    # Strategy 2: Download and install App Installer bundle
-    Write-Info "Downloading App Installer from aka.ms/getwinget..."
-    $logContent += "Step 2: Downloading from aka.ms/getwinget"
-    
+    # Bootstrap: Download and install App Installer bundle with dependencies
     $tempDir = Join-Path $env:TEMP "winget-bootstrap"
     if (-not (Test-Path $tempDir)) {
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     }
+    $logContent += "Temp directory: $tempDir"
     
-    $msixBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
+    # Step 1: Download VCLibs dependency
+    $vclibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
+    $vclibsPath = Join-Path $tempDir "Microsoft.VCLibs.x64.appx"
+    Write-Info "Downloading VCLibs dependency..."
+    $logContent += ""
+    $logContent += "Step 1: Download VCLibs"
+    $logContent += "URL: $vclibsUrl"
     
     try {
-        # Download the App Installer bundle
-        $downloadUrl = "https://aka.ms/getwinget"
-        Write-Info "Downloading: $downloadUrl"
-        $logContent += "Downloading: $downloadUrl"
-        
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $msixBundlePath -UseBasicParsing -ErrorAction Stop
-        $logContent += "Downloaded to: $msixBundlePath"
-        Write-Info "Downloaded App Installer bundle"
-        
-        # Also need VCLibs dependency
-        $vclibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
-        $vclibsPath = Join-Path $tempDir "Microsoft.VCLibs.x64.appx"
-        Write-Info "Downloading VCLibs dependency..."
-        $logContent += "Downloading VCLibs: $vclibsUrl"
         Invoke-WebRequest -Uri $vclibsUrl -OutFile $vclibsPath -UseBasicParsing -ErrorAction Stop
-        
-        # Install VCLibs first
-        Write-Info "Installing VCLibs..."
-        $logContent += "Installing VCLibs"
-        Add-AppxPackage -Path $vclibsPath -ErrorAction SilentlyContinue
-        
-        # Install App Installer
-        Write-Info "Installing App Installer..."
-        $logContent += "Installing App Installer bundle"
-        Add-AppxPackage -Path $msixBundlePath -ErrorAction Stop
-        
-        Start-Sleep -Seconds 3
-        
-        # Verify winget is now available
-        $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
-        if ($wingetCmd) {
-            $logContent += "SUCCESS: Winget installed and available"
-            $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
-            Write-Pass "Winget bootstrap succeeded"
-            return $true
-        } else {
-            $logContent += "FAILED: Winget still not available after install"
-        }
+        $logContent += "SUCCESS: Downloaded to $vclibsPath"
+        Write-Info "Downloaded VCLibs"
     } catch {
-        $logContent += "FAILED: Download/install error: $_"
-        Write-Info "Bootstrap download failed: $_"
+        $logContent += "FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        $logContent += "Stack: $($_.ScriptStackTrace)"
+        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+        Write-Info "VCLibs download failed - see winget-bootstrap.log"
+        return $false
     }
     
-    $logContent += "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - FAILED"
-    $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
-    Write-Info "Winget bootstrap failed - see winget-bootstrap.log"
-    return $false
+    # Step 2: Install VCLibs
+    Write-Info "Installing VCLibs..."
+    $logContent += ""
+    $logContent += "Step 2: Install VCLibs"
+    try {
+        Add-AppxPackage -Path $vclibsPath -ErrorAction Stop
+        $logContent += "SUCCESS: VCLibs installed"
+        Write-Info "VCLibs installed"
+    } catch {
+        # VCLibs may already be installed or have a newer version
+        $logContent += "WARNING: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        $logContent += "(Continuing - VCLibs may already be present)"
+        Write-Info "VCLibs install warning (may already exist): $($_.Exception.Message)"
+    }
+    
+    # Step 3: Download App Installer bundle
+    $downloadUrl = "https://aka.ms/getwinget"
+    $msixBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
+    Write-Info "Downloading App Installer from aka.ms/getwinget..."
+    $logContent += ""
+    $logContent += "Step 3: Download App Installer"
+    $logContent += "URL: $downloadUrl"
+    
+    try {
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $msixBundlePath -UseBasicParsing -ErrorAction Stop
+        $fileSize = (Get-Item $msixBundlePath).Length
+        $logContent += "SUCCESS: Downloaded to $msixBundlePath ($fileSize bytes)"
+        Write-Info "Downloaded App Installer bundle ($fileSize bytes)"
+    } catch {
+        $logContent += "FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        $logContent += "Stack: $($_.ScriptStackTrace)"
+        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+        Write-Info "App Installer download failed - see winget-bootstrap.log"
+        return $false
+    }
+    
+    # Step 4: Install App Installer
+    Write-Info "Installing App Installer..."
+    $logContent += ""
+    $logContent += "Step 4: Install App Installer"
+    try {
+        Add-AppxPackage -Path $msixBundlePath -ErrorAction Stop
+        $logContent += "SUCCESS: App Installer package installed"
+        Write-Info "App Installer installed"
+    } catch {
+        $logContent += "FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        $logContent += "Stack: $($_.ScriptStackTrace)"
+        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+        Write-Info "App Installer install failed - see winget-bootstrap.log"
+        return $false
+    }
+    
+    # Step 5: Verify winget is now available
+    Start-Sleep -Seconds 3
+    $logContent += ""
+    $logContent += "Step 5: Verify winget availability"
+    $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+    if ($wingetCmd) {
+        $logContent += "SUCCESS: Winget is now available at $($wingetCmd.Source)"
+        $logContent += ""
+        $logContent += "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - SUCCESS"
+        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+        Write-Pass "Winget bootstrap succeeded"
+        return $true
+    } else {
+        $logContent += "FAILED: Winget command not found after installation"
+        $logContent += "Checking installed packages..."
+        try {
+            $appxPackages = Get-AppxPackage -Name "*DesktopAppInstaller*" | Select-Object Name, Version, Status
+            $logContent += ($appxPackages | Format-Table -AutoSize | Out-String)
+        } catch {
+            $logContent += "Could not enumerate AppX packages: $($_.Exception.Message)"
+        }
+        $logContent += ""
+        $logContent += "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - FAILED"
+        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+        Write-Info "Winget bootstrap failed - see winget-bootstrap.log"
+        return $false
+    }
 }
 
 # ============================================================================
@@ -385,26 +416,37 @@ if ($wingetAvailable) {
         try {
             # Determine installer type and execute
             $extension = [System.IO.Path]::GetExtension($fullInstallerPath).ToLower()
+            $isAppxType = $extension -in @(".msix", ".msixbundle", ".appx", ".appxbundle")
+            $installOutput = $null
+            $installExitCode = 0
             
-            switch ($extension) {
-                ".msi" {
-                    $installOutput = & msiexec /i "$fullInstallerPath" $InstallerArgs 2>&1
-                }
-                ".exe" {
-                    $installOutput = & "$fullInstallerPath" $InstallerArgs 2>&1
-                }
-                { $_ -in ".msix", ".msixbundle", ".appx", ".appxbundle" } {
-                    $installOutput = Add-AppxPackage -Path $fullInstallerPath 2>&1
-                }
-                default {
-                    Write-FatalError -Stage "install" -Message "Unsupported installer type: $extension"
-                }
+            "Extension: $extension (isAppxType: $isAppxType)" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            
+            if ($extension -eq ".msi") {
+                "Executing: msiexec /i `"$fullInstallerPath`" $InstallerArgs" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+                $installOutput = & msiexec /i "$fullInstallerPath" $InstallerArgs 2>&1
+                $installExitCode = $LASTEXITCODE
+            } elseif ($extension -eq ".exe") {
+                "Executing: `"$fullInstallerPath`" $InstallerArgs" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+                $installOutput = & "$fullInstallerPath" $InstallerArgs 2>&1
+                $installExitCode = $LASTEXITCODE
+            } elseif ($isAppxType) {
+                "Executing: Add-AppxPackage -Path `"$fullInstallerPath`"" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+                # For AppX packages, success = no exception thrown; don't rely on $LASTEXITCODE
+                Add-AppxPackage -Path $fullInstallerPath -ErrorAction Stop
+                $installOutput = "AppX package installed successfully"
+                $installExitCode = 0
+            } else {
+                Write-FatalError -Stage "install" -Message "Unsupported installer type: $extension"
             }
             
-            $installExitCode = $LASTEXITCODE
-            $installOutput | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            if ($installOutput) {
+                $installOutput | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            }
+            "Exit code: $installExitCode" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
             
-            if ($installExitCode -ne 0 -and $extension -ne ".msix") {
+            # Only check exit code for exe/msi (AppX success is determined by no exception)
+            if (-not $isAppxType -and $installExitCode -ne 0) {
                 Write-FatalError -Stage "install" -Message "Offline installer failed with exit code $installExitCode" -Details ($installOutput | Out-String)
             }
             
@@ -422,7 +464,9 @@ if ($wingetAvailable) {
                 Write-Pass "Installed via offline installer"
             }
         } catch {
-            Write-FatalError -Stage "install" -Message "Offline installer threw exception: $_"
+            $errorDetail = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
+            "EXCEPTION: $errorDetail" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            Write-FatalError -Stage "install" -Message "Offline installer threw exception" -Details $errorDetail
         }
     } else {
         # No fallback available - provide actionable error
