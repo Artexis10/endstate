@@ -17,7 +17,7 @@ auto_execution_mode: 3
 2. Validate the change ID by running `openspec list` (or `openspec show <id>`) and stop if the change is missing, already archived, or otherwise not ready to archive.
 3. Run `openspec archive <id> --yes` so the CLI moves the change and applies spec updates without prompts (use `--skip-specs` only for tooling-only work).
 4. Review the command output to confirm the target specs were updated and the change landed in `changes/archive/`.
-5. Validate with `openspec validate --strict` and inspect with `openspec show <id>` if anything looks off.
+5. Validate with `openspec validate --strict --no-interactive` and inspect with `openspec show <id>` if anything looks off.
 
 **Reference**
 - Use `openspec list` to confirm change IDs before archiving.
