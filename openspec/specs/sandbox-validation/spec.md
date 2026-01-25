@@ -90,3 +90,59 @@ The system SHALL NOT modify the host machine during validation. All changes occu
 - **THEN** only the mapped output folder receives artifacts
 - **AND** no files are modified on the host outside the output folder
 
+### Requirement: Winget Bootstrap (Strategy A)
+
+The system SHALL attempt to bootstrap winget inside Windows Sandbox when it is not available.
+
+#### Scenario: Winget missing in Sandbox
+
+- **WHEN** validation starts and winget is not available
+- **THEN** the system attempts to download and install App Installer from aka.ms/getwinget
+- **AND** each bootstrap step is logged
+- **AND** winget availability is re-checked after bootstrap
+
+#### Scenario: Bootstrap succeeds
+
+- **WHEN** winget bootstrap succeeds
+- **THEN** validation continues with winget install
+
+#### Scenario: Bootstrap fails with fallback available
+
+- **WHEN** winget bootstrap fails
+- **AND** the app entry in golden-queue.jsonc has `installer` metadata
+- **THEN** the system uses the offline installer fallback
+
+#### Scenario: Bootstrap fails without fallback
+
+- **WHEN** winget bootstrap fails
+- **AND** no `installer` metadata exists for the app
+- **THEN** validation fails with actionable error message
+- **AND** error message instructs user to add installer metadata
+
+### Requirement: Offline Installer Fallback (Strategy B)
+
+The system SHALL support offline installation as a fallback when winget is unavailable.
+
+#### Scenario: Offline installer metadata format
+
+- **WHEN** an app entry in golden-queue.jsonc includes `installer` metadata
+- **THEN** the metadata contains:
+  - `path` (required): relative path to installer under `sandbox-tests/installers/`
+  - `silentArgs` (required): command-line arguments for silent install
+  - `exePath` (optional): path to executable for install verification
+
+#### Scenario: Offline install execution
+
+- **WHEN** offline fallback is triggered
+- **THEN** the installer is executed with silentArgs inside Sandbox
+- **AND** install success is verified using exePath if provided
+
+### Requirement: Sandbox Networking
+
+The system SHALL enable networking in the generated .wsb configuration to allow winget bootstrap downloads.
+
+#### Scenario: Networking enabled
+
+- **WHEN** validate.wsb is generated
+- **THEN** the configuration includes `<Networking>Default</Networking>` or omits the tag (networking enabled by default)
+

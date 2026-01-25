@@ -52,7 +52,16 @@ param(
     [string]$OutDir,
     
     [Parameter(Mandatory = $false)]
-    [switch]$NoLaunch
+    [switch]$NoLaunch,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$InstallerPath,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$InstallerArgs,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$InstallerExePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -217,12 +226,23 @@ $argList = @(
 if (-not $Seed -or -not $hasSeed) {
     $argList += "-NoSeed"
 }
+# Add offline installer fallback parameters if provided
+if ($InstallerPath) {
+    $argList += @("-InstallerPath", "`"$InstallerPath`"")
+}
+if ($InstallerArgs) {
+    $argList += @("-InstallerArgs", "`"$InstallerArgs`"")
+}
+if ($InstallerExePath) {
+    $argList += @("-InstallerExePath", "`"$InstallerExePath`"")
+}
 $argsString = $argList -join " "
 
 $command = "cmd.exe /c start `"`" powershell.exe -ExecutionPolicy Bypass -NoExit -File `"$scriptPath`" $argsString"
 
 $wsbContent = @"
 <Configuration>
+  <Networking>Default</Networking>
   <MappedFolders>
     <MappedFolder>
       <HostFolder>$($script:RepoRoot)</HostFolder>

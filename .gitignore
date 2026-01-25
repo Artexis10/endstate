@@ -102,6 +102,17 @@ capture_stdout.txt
 sandbox-tests/discovery-harness/*.legacy
 sandbox-tests/discovery-harness/*.new
 
+# ---------------------------------------------------------------------------
+# Offline installers (binaries not committed, only README tracked)
+# ---------------------------------------------------------------------------
+sandbox-tests/installers/*.exe
+sandbox-tests/installers/*.msi
+sandbox-tests/installers/*.msix
+sandbox-tests/installers/*.msixbundle
+sandbox-tests/installers/*.appx
+sandbox-tests/installers/*.appxbundle
+!sandbox-tests/installers/README.md
+
 # Node.js (OpenSpec tooling)
 node_modules/
 package-lock.json

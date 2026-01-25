@@ -40,7 +40,16 @@ param(
     [string]$OutputDir,
     
     [Parameter(Mandatory = $false)]
-    [switch]$NoSeed
+    [switch]$NoSeed,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$InstallerPath,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$InstallerArgs,
+    
+    [Parameter(Mandatory = $false)]
+    [string]$InstallerExePath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -170,6 +179,108 @@ function Expand-ConfigPath {
 }
 
 # ============================================================================
+# WINGET BOOTSTRAP FUNCTION
+# ============================================================================
+
+function Ensure-Winget {
+    <#
+    .SYNOPSIS
+        Ensures winget is available, attempting bootstrap if missing.
+    .OUTPUTS
+        Returns $true if winget is available, $false otherwise.
+    #>
+    
+    # Check if winget already exists
+    $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+    if ($wingetCmd) {
+        Write-Info "Winget is available: $($wingetCmd.Source)"
+        return $true
+    }
+    
+    Write-Info "Winget not found, attempting bootstrap..."
+    $bootstrapLog = Join-Path $OutputDir "winget-bootstrap.log"
+    $logContent = @("Bootstrap started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
+    
+    # Strategy 1: Try to register existing App Installer
+    Write-Info "Trying App Installer registration..."
+    $logContent += "Step 1: Attempting Add-AppxPackage -RegisterByFamilyName"
+    try {
+        Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+        if ($wingetCmd) {
+            $logContent += "SUCCESS: Winget registered via family name"
+            $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+            Write-Pass "Winget registered successfully"
+            return $true
+        }
+        $logContent += "FAILED: Registration did not make winget available"
+    } catch {
+        $logContent += "FAILED: $_"
+    }
+    
+    # Strategy 2: Download and install App Installer bundle
+    Write-Info "Downloading App Installer from aka.ms/getwinget..."
+    $logContent += "Step 2: Downloading from aka.ms/getwinget"
+    
+    $tempDir = Join-Path $env:TEMP "winget-bootstrap"
+    if (-not (Test-Path $tempDir)) {
+        New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+    }
+    
+    $msixBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
+    
+    try {
+        # Download the App Installer bundle
+        $downloadUrl = "https://aka.ms/getwinget"
+        Write-Info "Downloading: $downloadUrl"
+        $logContent += "Downloading: $downloadUrl"
+        
+        Invoke-WebRequest -Uri $downloadUrl -OutFile $msixBundlePath -UseBasicParsing -ErrorAction Stop
+        $logContent += "Downloaded to: $msixBundlePath"
+        Write-Info "Downloaded App Installer bundle"
+        
+        # Also need VCLibs dependency
+        $vclibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
+        $vclibsPath = Join-Path $tempDir "Microsoft.VCLibs.x64.appx"
+        Write-Info "Downloading VCLibs dependency..."
+        $logContent += "Downloading VCLibs: $vclibsUrl"
+        Invoke-WebRequest -Uri $vclibsUrl -OutFile $vclibsPath -UseBasicParsing -ErrorAction Stop
+        
+        # Install VCLibs first
+        Write-Info "Installing VCLibs..."
+        $logContent += "Installing VCLibs"
+        Add-AppxPackage -Path $vclibsPath -ErrorAction SilentlyContinue
+        
+        # Install App Installer
+        Write-Info "Installing App Installer..."
+        $logContent += "Installing App Installer bundle"
+        Add-AppxPackage -Path $msixBundlePath -ErrorAction Stop
+        
+        Start-Sleep -Seconds 3
+        
+        # Verify winget is now available
+        $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+        if ($wingetCmd) {
+            $logContent += "SUCCESS: Winget installed and available"
+            $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+            Write-Pass "Winget bootstrap succeeded"
+            return $true
+        } else {
+            $logContent += "FAILED: Winget still not available after install"
+        }
+    } catch {
+        $logContent += "FAILED: Download/install error: $_"
+        Write-Info "Bootstrap download failed: $_"
+    }
+    
+    $logContent += "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - FAILED"
+    $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+    Write-Info "Winget bootstrap failed - see winget-bootstrap.log"
+    return $false
+}
+
+# ============================================================================
 # MAIN VALIDATION FLOW
 # ============================================================================
 
@@ -213,50 +324,127 @@ if (-not $module) {
 Write-Pass "Loaded module: $($module.displayName)"
 
 # ============================================================================
-# STAGE 2: Install App via Winget
+# STAGE 2: Install App via Winget (or Offline Fallback)
 # ============================================================================
-Write-Step "Installing $WingetId via winget..."
+Write-Step "Installing $WingetId..."
 
-# Bootstrap winget if needed (reuse logic from sandbox-install.ps1)
-$wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
-if (-not $wingetCmd) {
-    Write-Info "Winget not found, attempting bootstrap..."
-    
-    # Try to register App Installer
+# Try to ensure winget is available (Strategy A: Bootstrap)
+$wingetAvailable = Ensure-Winget
+
+if ($wingetAvailable) {
+    # Install via winget
+    Write-Info "Installing via winget..."
     try {
-        Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller_8wekyb3d8bbwe -ErrorAction SilentlyContinue
-        Start-Sleep -Seconds 2
-        $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
-    } catch {
-        Write-Info "App Installer registration failed: $_"
-    }
-}
-
-if (-not $wingetCmd) {
-    Write-FatalError -Stage "install" -Message "Winget is not available in Sandbox"
-}
-
-# Install the app
-try {
-    $installOutput = & winget install --id $WingetId --accept-source-agreements --accept-package-agreements --silent 2>&1
-    $installExitCode = $LASTEXITCODE
-    
-    # Log install output
-    $installLogPath = Join-Path $OutputDir "install.log"
-    $installOutput | Out-File -FilePath $installLogPath -Encoding UTF8
-    
-    if ($installExitCode -ne 0) {
-        # Check if already installed (exit code 0x8A150061 or similar)
-        if ($installOutput -match "already installed" -or $installExitCode -eq -1978335135) {
-            Write-Info "App already installed, continuing..."
+        $installOutput = & winget install --id $WingetId --accept-source-agreements --accept-package-agreements --silent 2>&1
+        $installExitCode = $LASTEXITCODE
+        
+        # Log install output
+        $installLogPath = Join-Path $OutputDir "install.log"
+        $installOutput | Out-File -FilePath $installLogPath -Encoding UTF8
+        
+        if ($installExitCode -ne 0) {
+            # Check if already installed (exit code 0x8A150061 or similar)
+            if ($installOutput -match "already installed" -or $installExitCode -eq -1978335135) {
+                Write-Info "App already installed, continuing..."
+            } else {
+                Write-FatalError -Stage "install" -Message "Winget install failed with exit code $installExitCode" -Details ($installOutput | Out-String)
+            }
         } else {
-            Write-FatalError -Stage "install" -Message "Winget install failed with exit code $installExitCode" -Details ($installOutput | Out-String)
+            Write-Pass "Installed via winget: $WingetId"
+        }
+    } catch {
+        Write-FatalError -Stage "install" -Message "Winget install threw exception: $_"
+    }
+} else {
+    # Strategy B: Offline Installer Fallback
+    Write-Info "Winget unavailable, checking for offline installer fallback..."
+    
+    if ($InstallerPath) {
+        Write-Step "Using offline installer fallback..."
+        
+        # Resolve installer path (relative to repo root in sandbox)
+        $fullInstallerPath = if ([System.IO.Path]::IsPathRooted($InstallerPath)) {
+            $InstallerPath
+        } else {
+            Join-Path $script:RepoRoot $InstallerPath
+        }
+        
+        if (-not (Test-Path $fullInstallerPath)) {
+            Write-FatalError -Stage "install" -Message "Offline installer not found: $fullInstallerPath" -Details "Ensure the installer file exists at the specified path."
+        }
+        
+        Write-Info "Installer: $fullInstallerPath"
+        Write-Info "Args: $InstallerArgs"
+        
+        # Log offline install attempt
+        $installLogPath = Join-Path $OutputDir "install.log"
+        "Offline install started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File -FilePath $installLogPath -Encoding UTF8
+        "Installer: $fullInstallerPath" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        "Args: $InstallerArgs" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        
+        try {
+            # Determine installer type and execute
+            $extension = [System.IO.Path]::GetExtension($fullInstallerPath).ToLower()
+            
+            switch ($extension) {
+                ".msi" {
+                    $installOutput = & msiexec /i "$fullInstallerPath" $InstallerArgs 2>&1
+                }
+                ".exe" {
+                    $installOutput = & "$fullInstallerPath" $InstallerArgs 2>&1
+                }
+                { $_ -in ".msix", ".msixbundle", ".appx", ".appxbundle" } {
+                    $installOutput = Add-AppxPackage -Path $fullInstallerPath 2>&1
+                }
+                default {
+                    Write-FatalError -Stage "install" -Message "Unsupported installer type: $extension"
+                }
+            }
+            
+            $installExitCode = $LASTEXITCODE
+            $installOutput | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            
+            if ($installExitCode -ne 0 -and $extension -ne ".msix") {
+                Write-FatalError -Stage "install" -Message "Offline installer failed with exit code $installExitCode" -Details ($installOutput | Out-String)
+            }
+            
+            # Verify installation if exePath provided
+            if ($InstallerExePath) {
+                Start-Sleep -Seconds 2
+                $expandedExePath = Expand-ConfigPath -Path $InstallerExePath
+                if (Test-Path $expandedExePath) {
+                    Write-Pass "Installed via offline installer (verified: $expandedExePath)"
+                } else {
+                    Write-Info "Warning: Could not verify install at $expandedExePath"
+                    Write-Pass "Installed via offline installer (unverified)"
+                }
+            } else {
+                Write-Pass "Installed via offline installer"
+            }
+        } catch {
+            Write-FatalError -Stage "install" -Message "Offline installer threw exception: $_"
         }
     } else {
-        Write-Pass "Installed: $WingetId"
+        # No fallback available - provide actionable error
+        $errorMsg = @"
+Winget bootstrap failed and no offline installer fallback is configured.
+
+To fix this, add installer metadata to sandbox-tests/golden-queue.jsonc:
+
+{
+  "appId": "$AppId",
+  "wingetId": "$WingetId",
+  "installer": {
+    "path": "sandbox-tests/installers/<installer-file>",
+    "silentArgs": "/S or /quiet or appropriate args",
+    "exePath": "C:\\Path\\To\\installed\\app.exe"
+  }
+}
+
+Then place the installer file in sandbox-tests/installers/
+"@
+        Write-FatalError -Stage "install" -Message "Winget unavailable and no offline installer configured for $AppId" -Details $errorMsg
     }
-} catch {
-    Write-FatalError -Stage "install" -Message "Winget install threw exception: $_"
 }
 
 # Refresh PATH

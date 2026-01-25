@@ -1,6 +1,26 @@
 {
   // Golden Queue: Apps to validate in Sandbox
   // Used by scripts/sandbox-validate-batch.ps1
+  //
+  // Each entry requires:
+  //   - appId: Module folder name under modules/apps/
+  //   - wingetId: Winget package ID for installation
+  //
+  // Optional offline installer fallback (Strategy B):
+  //   - installer.path: Relative path to installer under sandbox-tests/installers/
+  //   - installer.silentArgs: Command-line arguments for silent install
+  //   - installer.exePath: Path to verify installation (optional but recommended)
+  //
+  // Example with fallback:
+  // {
+  //   "appId": "example",
+  //   "wingetId": "Example.App",
+  //   "installer": {
+  //     "path": "sandbox-tests/installers/example-setup.exe",
+  //     "silentArgs": "/S",
+  //     "exePath": "C:\\Program Files\\Example\\example.exe"
+  //   }
+  // }
   
   "apps": [
     { "appId": "git", "wingetId": "Git.Git" },

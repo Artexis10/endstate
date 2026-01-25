@@ -163,6 +163,50 @@ The `result.json` file contains:
 - Counts for captured/wiped/restored files
 - Verification pass/total counts
 
+## Winget Bootstrap (Strategy A)
+
+When validation starts, the system automatically attempts to bootstrap winget if it's not available:
+
+1. **Registration attempt**: Tries `Add-AppxPackage -RegisterByFamilyName` for existing App Installer
+2. **Download and install**: Downloads App Installer from `aka.ms/getwinget` with VCLibs dependency
+3. **Verification**: Re-checks winget availability after each attempt
+
+Bootstrap progress is logged to `winget-bootstrap.log` in the output directory.
+
+## Offline Installer Fallback (Strategy B)
+
+If winget bootstrap fails, you can configure an offline installer fallback:
+
+1. Download the installer for your app
+2. Place it in `sandbox-tests/installers/`
+3. Add installer metadata to `sandbox-tests/golden-queue.jsonc`:
+
+```jsonc
+{
+  "appId": "your-app",
+  "wingetId": "Publisher.AppName",
+  "installer": {
+    "path": "sandbox-tests/installers/your-installer.exe",
+    "silentArgs": "/S",
+    "exePath": "C:\\Program Files\\YourApp\\app.exe"
+  }
+}
+```
+
+Or pass directly to the single-app validator:
+
+```powershell
+.\scripts\sandbox-validate.ps1 -AppId git -InstallerPath "sandbox-tests/installers/Git-Setup.exe" -InstallerArgs "/VERYSILENT" -InstallerExePath "C:\Program Files\Git\bin\git.exe"
+```
+
+### Installer Metadata Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `path` | Yes | Relative path to installer from repo root |
+| `silentArgs` | Yes | Command-line args for silent install |
+| `exePath` | No | Path to verify installation succeeded |
+
 ## Troubleshooting
 
 ### Sandbox doesn't start
@@ -171,9 +215,10 @@ The `result.json` file contains:
 - Verify virtualization is enabled in BIOS
 
 ### Winget not available in Sandbox
-- The harness attempts to bootstrap winget automatically
-- If bootstrap fails, check `install.log` for details
-- Some packages require Windows App Runtime which may take time to install
+- The harness attempts to bootstrap winget automatically (Strategy A)
+- Check `winget-bootstrap.log` for detailed bootstrap steps
+- If bootstrap fails, configure an offline installer fallback (Strategy B)
+- See `sandbox-tests/installers/README.md` for instructions
 
 ### Validation times out
 - Default timeout is 15 minutes (900 seconds)

@@ -171,6 +171,19 @@ foreach ($app in $queue.apps) {
             "-OutDir", $appOutDir
         )
         
+        # Add offline installer fallback parameters if present in queue entry
+        if ($app.installer) {
+            if ($app.installer.path) {
+                $validateArgs += @("-InstallerPath", $app.installer.path)
+            }
+            if ($app.installer.silentArgs) {
+                $validateArgs += @("-InstallerArgs", $app.installer.silentArgs)
+            }
+            if ($app.installer.exePath) {
+                $validateArgs += @("-InstallerExePath", $app.installer.exePath)
+            }
+        }
+        
         $process = Start-Process -FilePath "powershell.exe" -ArgumentList $validateArgs -Wait -PassThru -NoNewWindow
         $exitCode = $process.ExitCode
         
