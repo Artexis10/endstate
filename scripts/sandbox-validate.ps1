@@ -216,35 +216,37 @@ Write-Step "Generating sandbox configuration..."
 $sandboxRepoPath = "C:\Endstate"
 $sandboxArtifactPath = $OutDir -replace [regex]::Escape($script:RepoRoot), $sandboxRepoPath
 
-# Build command line
+# Build command line - call powershell.exe directly (no cmd.exe /c start)
 $scriptPath = "$sandboxRepoPath\sandbox-tests\discovery-harness\sandbox-validate.ps1"
 
-# Build argument list for powershell.exe -File mode
-# Note: -File mode passes arguments literally, so we use double quotes for paths with spaces
-# and avoid embedding quotes into the values themselves
-$argParts = @(
-    "-AppId", "`"$AppId`"",
-    "-WingetId", "`"$WingetId`"",
-    "-OutputDir", "`"$sandboxArtifactPath`""
+# Build command string for direct powershell.exe invocation in LogonCommand
+# Quote paths (scriptPath, OutputDir, InstallerPath, InstallerExePath) for spaces
+# Do not quote simple identifiers (AppId, WingetId)
+$cmdParts = @(
+    "powershell.exe",
+    "-ExecutionPolicy Bypass",
+    "-NoExit",
+    "-File `"$scriptPath`"",
+    "-AppId $AppId",
+    "-WingetId $WingetId",
+    "-OutputDir `"$sandboxArtifactPath`""
 )
 if (-not $Seed -or -not $hasSeed) {
-    $argParts += "-NoSeed"
+    $cmdParts += "-NoSeed"
 }
-# Add offline installer fallback parameters if provided
 if ($InstallerPath) {
-    $argParts += @("-InstallerPath", "`"$InstallerPath`"")
+    $cmdParts += "-InstallerPath `"$InstallerPath`""
 }
 if ($InstallerArgs) {
-    # InstallerArgs may contain special chars; escape double quotes for cmd.exe
+    # Escape double quotes within InstallerArgs for the command line
     $escapedArgs = $InstallerArgs -replace '"', '\"'
-    $argParts += @("-InstallerArgs", "`"$escapedArgs`"")
+    $cmdParts += "-InstallerArgs `"$escapedArgs`""
 }
 if ($InstallerExePath) {
-    $argParts += @("-InstallerExePath", "`"$InstallerExePath`"")
+    $cmdParts += "-InstallerExePath `"$InstallerExePath`""
 }
-$argsString = $argParts -join " "
 
-$command = "cmd.exe /c start `"`" powershell.exe -ExecutionPolicy Bypass -NoExit -File `"$scriptPath`" $argsString"
+$command = $cmdParts -join " "
 
 $wsbContent = @"
 <Configuration>
