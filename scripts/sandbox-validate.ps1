@@ -219,27 +219,28 @@ $sandboxArtifactPath = $OutDir -replace [regex]::Escape($script:RepoRoot), $sand
 # Build command line
 $scriptPath = "$sandboxRepoPath\sandbox-tests\discovery-harness\sandbox-validate.ps1"
 
-# Build argument string with proper quoting for cmd.exe -> powershell.exe chain
-# Use single quotes inside PowerShell args to avoid cmd.exe quote parsing issues
+# Build argument list for powershell.exe -File mode
+# Note: -File mode passes arguments literally, so we use double quotes for paths with spaces
+# and avoid embedding quotes into the values themselves
 $argParts = @(
-    "-AppId '$AppId'",
-    "-WingetId '$WingetId'",
-    "-OutputDir '$sandboxArtifactPath'"
+    "-AppId", "`"$AppId`"",
+    "-WingetId", "`"$WingetId`"",
+    "-OutputDir", "`"$sandboxArtifactPath`""
 )
 if (-not $Seed -or -not $hasSeed) {
     $argParts += "-NoSeed"
 }
 # Add offline installer fallback parameters if provided
 if ($InstallerPath) {
-    $argParts += "-InstallerPath '$InstallerPath'"
+    $argParts += @("-InstallerPath", "`"$InstallerPath`"")
 }
 if ($InstallerArgs) {
-    # InstallerArgs may contain special chars; escape single quotes
-    $escapedArgs = $InstallerArgs -replace "'", "''"
-    $argParts += "-InstallerArgs '$escapedArgs'"
+    # InstallerArgs may contain special chars; escape double quotes for cmd.exe
+    $escapedArgs = $InstallerArgs -replace '"', '\"'
+    $argParts += @("-InstallerArgs", "`"$escapedArgs`"")
 }
 if ($InstallerExePath) {
-    $argParts += "-InstallerExePath '$InstallerExePath'"
+    $argParts += @("-InstallerExePath", "`"$InstallerExePath`"")
 }
 $argsString = $argParts -join " "
 

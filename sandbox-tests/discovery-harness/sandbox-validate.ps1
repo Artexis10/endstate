@@ -55,6 +55,34 @@ param(
 $ErrorActionPreference = 'Stop'
 
 # ============================================================================
+# PATH SANITIZATION
+# ============================================================================
+function Remove-SurroundingQuotes {
+    <#
+    .SYNOPSIS
+        Strips surrounding matching quotes (single or double) from a string.
+    #>
+    param([string]$Value)
+    if ([string]::IsNullOrEmpty($Value)) { return $Value }
+    $Value = $Value.Trim()
+    if ($Value.Length -ge 2) {
+        $first = $Value[0]
+        $last = $Value[$Value.Length - 1]
+        if (($first -eq "'" -and $last -eq "'") -or ($first -eq '"' -and $last -eq '"')) {
+            return $Value.Substring(1, $Value.Length - 2)
+        }
+    }
+    return $Value
+}
+
+# Sanitize path arguments that may arrive with literal quotes from cmd.exe -> powershell chain
+$OutputDir = Remove-SurroundingQuotes $OutputDir
+$AppId = Remove-SurroundingQuotes $AppId
+$WingetId = Remove-SurroundingQuotes $WingetId
+if ($InstallerPath) { $InstallerPath = Remove-SurroundingQuotes $InstallerPath }
+if ($InstallerExePath) { $InstallerExePath = Remove-SurroundingQuotes $InstallerExePath }
+
+# ============================================================================
 # IMMEDIATE STARTUP MARKER
 # ============================================================================
 if (-not (Test-Path $OutputDir)) {
