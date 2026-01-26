@@ -231,19 +231,66 @@ function Ensure-Winget {
     $logContent += "OS Version: $([System.Environment]::OSVersion.VersionString)"
     $logContent += "PowerShell Version: $($PSVersionTable.PSVersion)"
     
-    # Bootstrap: Download and install App Installer bundle with dependencies
+    # Bootstrap: Download and install App Installer bundle with all dependencies
     $tempDir = Join-Path $env:TEMP "winget-bootstrap"
     if (-not (Test-Path $tempDir)) {
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     }
     $logContent += "Temp directory: $tempDir"
     
-    # Step 1: Download VCLibs dependency
+    # Step 1: Download Windows App Runtime 1.8 (required by modern winget)
+    # Using the direct MSIX package URL for x64 framework
+    $appRuntimeUrl = "https://aka.ms/windowsappsdk/1.8/1.8.250410000/windowsappruntimeinstall-x64.exe"
+    $appRuntimePath = Join-Path $tempDir "windowsappruntimeinstall-x64.exe"
+    Write-Info "Downloading Windows App Runtime 1.8..."
+    $logContent += ""
+    $logContent += "Step 1: Download Windows App Runtime 1.8"
+    $logContent += "URL: $appRuntimeUrl"
+    
+    try {
+        Invoke-WebRequest -Uri $appRuntimeUrl -OutFile $appRuntimePath -UseBasicParsing -ErrorAction Stop
+        $fileSize = (Get-Item $appRuntimePath).Length
+        $logContent += "SUCCESS: Downloaded to $appRuntimePath ($fileSize bytes)"
+        Write-Info "Downloaded Windows App Runtime ($fileSize bytes)"
+    } catch {
+        $logContent += "FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        $logContent += "Stack: $($_.ScriptStackTrace)"
+        $logContent += "(Continuing - will attempt App Installer install anyway)"
+        Write-Info "Windows App Runtime download failed (continuing): $($_.Exception.Message)"
+    }
+    
+    # Step 2: Install Windows App Runtime
+    if (Test-Path $appRuntimePath) {
+        Write-Info "Installing Windows App Runtime 1.8..."
+        $logContent += ""
+        $logContent += "Step 2: Install Windows App Runtime 1.8"
+        try {
+            $proc = Start-Process -FilePath $appRuntimePath -ArgumentList "--quiet" -Wait -PassThru -ErrorAction Stop
+            if ($proc.ExitCode -eq 0) {
+                $logContent += "SUCCESS: Windows App Runtime installed (exit code 0)"
+                Write-Info "Windows App Runtime installed"
+            } else {
+                $logContent += "WARNING: Windows App Runtime installer exited with code $($proc.ExitCode)"
+                $logContent += "(Continuing - runtime may already be present or partially installed)"
+                Write-Info "Windows App Runtime install warning (exit code $($proc.ExitCode))"
+            }
+        } catch {
+            $logContent += "WARNING: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+            $logContent += "(Continuing - will attempt App Installer install anyway)"
+            Write-Info "Windows App Runtime install warning: $($_.Exception.Message)"
+        }
+    } else {
+        $logContent += ""
+        $logContent += "Step 2: Install Windows App Runtime 1.8"
+        $logContent += "SKIPPED: Installer not downloaded"
+    }
+    
+    # Step 3: Download VCLibs dependency
     $vclibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
     $vclibsPath = Join-Path $tempDir "Microsoft.VCLibs.x64.appx"
     Write-Info "Downloading VCLibs dependency..."
     $logContent += ""
-    $logContent += "Step 1: Download VCLibs"
+    $logContent += "Step 3: Download VCLibs"
     $logContent += "URL: $vclibsUrl"
     
     try {
@@ -258,10 +305,10 @@ function Ensure-Winget {
         return $false
     }
     
-    # Step 2: Install VCLibs
+    # Step 4: Install VCLibs
     Write-Info "Installing VCLibs..."
     $logContent += ""
-    $logContent += "Step 2: Install VCLibs"
+    $logContent += "Step 4: Install VCLibs"
     try {
         Add-AppxPackage -Path $vclibsPath -ErrorAction Stop
         $logContent += "SUCCESS: VCLibs installed"
@@ -273,12 +320,12 @@ function Ensure-Winget {
         Write-Info "VCLibs install warning (may already exist): $($_.Exception.Message)"
     }
     
-    # Step 3: Download App Installer bundle
+    # Step 5: Download App Installer bundle
     $downloadUrl = "https://aka.ms/getwinget"
     $msixBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
     Write-Info "Downloading App Installer from aka.ms/getwinget..."
     $logContent += ""
-    $logContent += "Step 3: Download App Installer"
+    $logContent += "Step 5: Download App Installer"
     $logContent += "URL: $downloadUrl"
     
     try {
@@ -294,10 +341,10 @@ function Ensure-Winget {
         return $false
     }
     
-    # Step 4: Install App Installer
+    # Step 6: Install App Installer
     Write-Info "Installing App Installer..."
     $logContent += ""
-    $logContent += "Step 4: Install App Installer"
+    $logContent += "Step 6: Install App Installer"
     try {
         Add-AppxPackage -Path $msixBundlePath -ErrorAction Stop
         $logContent += "SUCCESS: App Installer package installed"
@@ -310,10 +357,10 @@ function Ensure-Winget {
         return $false
     }
     
-    # Step 5: Verify winget is now available
+    # Step 7: Verify winget is now available
     Start-Sleep -Seconds 3
     $logContent += ""
-    $logContent += "Step 5: Verify winget availability"
+    $logContent += "Step 7: Verify winget availability"
     $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
     if ($wingetCmd) {
         $logContent += "SUCCESS: Winget is now available at $($wingetCmd.Source)"

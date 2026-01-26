@@ -167,11 +167,12 @@ The `result.json` file contains:
 
 When validation starts, the system automatically attempts to bootstrap winget if it's not available:
 
-1. **Registration attempt**: Tries `Add-AppxPackage -RegisterByFamilyName` for existing App Installer
-2. **Download and install**: Downloads App Installer from `aka.ms/getwinget` with VCLibs dependency
-3. **Verification**: Re-checks winget availability after each attempt
+1. **Windows App Runtime 1.8**: Downloads and installs the runtime required by modern winget
+2. **VCLibs**: Downloads and installs Visual C++ runtime dependency
+3. **App Installer**: Downloads and installs from `aka.ms/getwinget`
+4. **Verification**: Re-checks winget availability after installation
 
-Bootstrap progress is logged to `winget-bootstrap.log` in the output directory.
+Bootstrap progress is logged to `winget-bootstrap.log` in the output directory with detailed step-by-step diagnostics.
 
 ## Offline Installer Fallback (Strategy B)
 
@@ -219,6 +220,18 @@ Or pass directly to the single-app validator:
 - Check `winget-bootstrap.log` for detailed bootstrap steps
 - If bootstrap fails, configure an offline installer fallback (Strategy B)
 - See `sandbox-tests/installers/README.md` for instructions
+
+### Windows App Runtime dependency error
+If `winget-bootstrap.log` shows an error like:
+```
+Package failed updates, dependency or conflict validation.
+Windows cannot install package Microsoft.DesktopAppInstaller because this package depends on a framework that could not be found. Provide the framework "Microsoft.WindowsAppRuntime.1.8"
+```
+
+This means the Windows App Runtime installation failed. The bootstrap now automatically attempts to install this dependency, but if it fails:
+- Check network connectivity in the Sandbox
+- Verify the Windows App Runtime download URL is accessible
+- Consider using Strategy B (offline installer fallback) as an alternative
 
 ### Validation times out
 - Default timeout is 15 minutes (900 seconds)
