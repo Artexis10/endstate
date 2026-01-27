@@ -95,6 +95,25 @@ $startedFile = Join-Path $OutputDir "STARTED.txt"
 $script:StepFile = Join-Path $OutputDir "STEP.txt"
 $script:ErrorFile = Join-Path $OutputDir "ERROR.txt"
 $script:ResultFile = Join-Path $OutputDir "result.json"
+$script:BootstrapLog = Join-Path $OutputDir "winget-bootstrap.log"
+$script:CurrentStage = "init"
+
+# Create bootstrap log immediately
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Bootstrap log initialized" | Out-File -FilePath $script:BootstrapLog -Encoding UTF8
+
+function Write-Log {
+    param([string]$Message)
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    "[$timestamp] $Message" | Out-File -FilePath $script:BootstrapLog -Append -Encoding UTF8
+}
+
+function Set-Stage {
+    param([string]$Stage)
+    $script:CurrentStage = $Stage
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    "$timestamp stage=$Stage" | Out-File -FilePath $script:StepFile -Encoding UTF8
+    Write-Log "STAGE: $Stage"
+}
 
 # Ensure TLS 1.2+
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -390,6 +409,9 @@ function Ensure-Winget {
 # MAIN VALIDATION FLOW
 # ============================================================================
 
+Set-Stage "main-init"
+Write-Log "Starting main validation flow for AppId=$AppId WingetId=$WingetId"
+
 Write-Host ""
 Write-Host "=" * 60 -ForegroundColor Cyan
 Write-Host " Sandbox Validation: $AppId" -ForegroundColor Cyan
@@ -410,9 +432,12 @@ $result = @{
     timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
 }
 
+try {
+
 # ============================================================================
 # STAGE 1: Load Module
 # ============================================================================
+Set-Stage "load-module"
 Write-Step "Loading module definition..."
 
 $moduleDir = Join-Path $script:ModulesDir $AppId
@@ -432,6 +457,7 @@ Write-Pass "Loaded module: $($module.displayName)"
 # ============================================================================
 # STAGE 2: Install App via Winget (or Offline Fallback)
 # ============================================================================
+Set-Stage "winget-bootstrap"
 Write-Step "Installing $WingetId..."
 
 # Try to ensure winget is available (Strategy A: Bootstrap)
@@ -572,6 +598,7 @@ $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";
 # ============================================================================
 # STAGE 3: Run Seed Script (if present and enabled)
 # ============================================================================
+Set-Stage "seed"
 $seedScript = Join-Path $moduleDir "seed.ps1"
 $hasSeed = Test-Path $seedScript
 
@@ -602,6 +629,7 @@ if ($hasSeed -and -not $NoSeed) {
 # ============================================================================
 # STAGE 4: Capture Config Files
 # ============================================================================
+Set-Stage "capture"
 Write-Step "Capturing config files..."
 
 $captureDir = Join-Path $OutputDir "capture"
@@ -657,6 +685,7 @@ $captureManifest | ConvertTo-Json -Depth 5 | Out-File -FilePath (Join-Path $Outp
 # ============================================================================
 # STAGE 5: Wipe (Simulate Loss)
 # ============================================================================
+Set-Stage "wipe"
 Write-Step "Wiping config files (simulating loss)..."
 
 $wipeDir = Join-Path $OutputDir "wipe-backup"
@@ -700,6 +729,7 @@ $wipeManifest | ConvertTo-Json -Depth 5 | Out-File -FilePath (Join-Path $OutputD
 # ============================================================================
 # STAGE 6: Restore
 # ============================================================================
+Set-Stage "restore"
 Write-Step "Restoring config files..."
 
 $restoredFiles = @()
@@ -766,6 +796,7 @@ $restoreManifest | ConvertTo-Json -Depth 5 | Out-File -FilePath (Join-Path $Outp
 # ============================================================================
 # STAGE 7: Verify
 # ============================================================================
+Set-Stage "verify"
 Write-Step "Running verification checks..."
 
 # Load verifiers
@@ -918,6 +949,46 @@ $doneContent | Out-File -FilePath (Join-Path $OutputDir "DONE.txt") -Encoding UT
 
 Write-Host "Artifacts written to: $OutputDir" -ForegroundColor Green
 Write-Host ""
+
+Write-Log "END stage=$($script:CurrentStage) status=$($result.status)"
+
+} catch {
+    # Catch any unhandled exception
+    $errorMsg = $_.Exception.Message
+    $errorStack = $_.ScriptStackTrace
+    Write-Log "EXCEPTION in stage=$($script:CurrentStage): $errorMsg"
+    Write-Log "Stack: $errorStack"
+    
+    # Write ERROR.txt
+    $errorContent = @"
+FATAL ERROR at stage: $($script:CurrentStage)
+Timestamp: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+Exception: $errorMsg
+
+Stack Trace:
+$errorStack
+"@
+    $errorContent | Out-File -FilePath $script:ErrorFile -Encoding UTF8
+    
+    # Update STEP.txt to error state
+    "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') error:$($script:CurrentStage)" | Out-File -FilePath $script:StepFile -Encoding UTF8
+    
+    # Write failure result
+    $failResult = @{
+        status = "FAIL"
+        appId = $AppId
+        wingetId = $WingetId
+        failedStage = $script:CurrentStage
+        failReason = $errorMsg
+        timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+    }
+    $failResult | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:ResultFile -Encoding UTF8
+    
+    Write-Host "[FATAL] Unhandled exception: $errorMsg" -ForegroundColor Red
+    exit 1
+} finally {
+    Write-Log "FINALLY stage=$($script:CurrentStage)"
+}
 
 if ($result.status -eq "PASS") {
     exit 0

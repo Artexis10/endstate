@@ -277,6 +277,24 @@ if ($NoLaunch) {
 }
 
 # ============================================================================
+# Host-side mapped-folder sanity check
+# ============================================================================
+Write-Step "Verifying mapped folder write access..."
+
+$hostWriteTestFile = Join-Path $OutDir "HOST_WRITE_TEST.txt"
+try {
+    "Host write test at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File -FilePath $hostWriteTestFile -Encoding UTF8
+    if (-not (Test-Path $hostWriteTestFile)) {
+        Write-Host "[ERROR] Failed to create HOST_WRITE_TEST.txt - mapped folder may not be writable" -ForegroundColor Red
+        exit 1
+    }
+    Write-Pass "Mapped folder write access verified"
+} catch {
+    Write-Host "[ERROR] Cannot write to output directory: $($_.Exception.Message)" -ForegroundColor Red
+    exit 1
+}
+
+# ============================================================================
 # Launch Sandbox
 # ============================================================================
 Write-Step "Launching Windows Sandbox..."
@@ -295,7 +313,8 @@ if (-not (Test-Path $wsExe)) {
 Write-Info "Sandbox will validate: install -> seed -> capture -> wipe -> restore -> verify"
 Write-Host ""
 
-Start-Process -FilePath $wsExe -ArgumentList "`"$wsbPath`"" -Wait
+# Launch sandbox - WindowsSandbox.exe exits immediately after spawning the sandbox
+Start-Process -FilePath $wsExe -ArgumentList "`"$wsbPath`""
 
 # ============================================================================
 # Wait for sentinel and check results
@@ -305,15 +324,27 @@ Write-Step "Checking for results..."
 $doneFile = Join-Path $OutDir "DONE.txt"
 $errorFile = Join-Path $OutDir "ERROR.txt"
 $resultFile = Join-Path $OutDir "result.json"
+$startedFile = Join-Path $OutDir "STARTED.txt"
 
 # Poll for sentinel files
 $timeoutSeconds = 900
-$pollIntervalMs = 500
+$pollIntervalMs = 2000
 $elapsed = 0
+$startedSeen = $false
 
 while ($elapsed -lt ($timeoutSeconds * 1000)) {
     if ((Test-Path $doneFile) -or (Test-Path $errorFile)) {
         break
+    }
+    # Track if STARTED.txt appeared (confirms sandbox script is running)
+    if (-not $startedSeen -and (Test-Path $startedFile)) {
+        $startedSeen = $true
+        Write-Info "Sandbox script started, waiting for completion..."
+    }
+    # Show progress every 30 seconds
+    if ($elapsed -gt 0 -and ($elapsed % 30000) -eq 0) {
+        $stepContent = if (Test-Path (Join-Path $OutDir "STEP.txt")) { Get-Content (Join-Path $OutDir "STEP.txt") -Raw } else { "waiting" }
+        Write-Info "Still running ($([int]($elapsed/1000))s): $($stepContent.Trim())"
     }
     Start-Sleep -Milliseconds $pollIntervalMs
     $elapsed += $pollIntervalMs
@@ -334,6 +365,18 @@ if (-not (Test-Path $doneFile)) {
     Write-Fail "Validation TIMEOUT"
     Write-Host ""
     Write-Host "[ERROR] Sandbox did not complete within ${timeoutSeconds}s" -ForegroundColor Red
+    
+    # Force-kill Windows Sandbox processes
+    Write-Host "[INFO] Force-killing Windows Sandbox processes..." -ForegroundColor Yellow
+    $sandboxProcesses = @('WindowsSandbox', 'WindowsSandboxClient', 'WindowsSandboxServer', 'VmmemWSB')
+    foreach ($procName in $sandboxProcesses) {
+        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
+        if ($procs) {
+            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            Write-Host "[INFO] Killed: $procName" -ForegroundColor Yellow
+        }
+    }
+    
     Write-Host "Artifacts: $OutDir" -ForegroundColor Yellow
     exit 1
 }
