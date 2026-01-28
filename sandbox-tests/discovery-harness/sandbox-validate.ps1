@@ -233,175 +233,567 @@ function Ensure-Winget {
     <#
     .SYNOPSIS
         Ensures winget is available, attempting bootstrap if missing.
+    .DESCRIPTION
+        Uses the Windows App SDK redistributable ZIP (MSIX packages) instead of the
+        EXE bootstrapper to avoid download corruption issues in Windows Sandbox.
     .OUTPUTS
         Returns $true if winget is available, $false otherwise.
     #>
     
+    # Minimum file sizes to detect truncated/corrupted downloads
+    $script:MinFileSizes = @{
+        'redist-zip'   = 50MB    # Windows App Runtime redist ZIP should be ~80MB+
+        'vclibs'       = 500KB   # VCLibs appx should be ~700KB+
+        'appinstaller' = 10MB    # App Installer msixbundle should be ~60MB+
+    }
+    
+    # =========================================================================
+    # Robust Download Helper - handles redirects, TLS, content validation
+    # =========================================================================
+    function Invoke-RobustDownload {
+        <#
+        .SYNOPSIS
+            Downloads a file with robust redirect handling, TLS config, and content validation.
+        .PARAMETER Url
+            The URL to download from.
+        .PARAMETER OutFile
+            The local file path to save to.
+        .PARAMETER FileType
+            The type key for minimum size lookup (redist-zip, vclibs, appinstaller).
+        .PARAMETER ExpectBinary
+            If true, validates the file starts with PK signature (ZIP/MSIX).
+        .OUTPUTS
+            Returns $true if download succeeded and passed validation, $false otherwise.
+            On failure, writes detailed diagnostics to log.
+        #>
+        param(
+            [Parameter(Mandatory)]
+            [string]$Url,
+            [Parameter(Mandatory)]
+            [string]$OutFile,
+            [Parameter(Mandatory)]
+            [string]$FileType,
+            [switch]$ExpectBinary
+        )
+        
+        Write-Log "--- Invoke-RobustDownload ---"
+        Write-Log "  URL: $Url"
+        Write-Log "  OutFile: $OutFile"
+        Write-Log "  FileType: $FileType"
+        Write-Log "  ExpectBinary: $ExpectBinary"
+        
+        # Ensure TLS 1.2+ is enabled (TLS 1.3 may not be available on all systems)
+        try {
+            $tlsProtocols = [Net.SecurityProtocolType]::Tls12
+            if ([Enum]::IsDefined([Net.SecurityProtocolType], 'Tls13')) {
+                $tlsProtocols = $tlsProtocols -bor [Net.SecurityProtocolType]::Tls13
+            }
+            [Net.ServicePointManager]::SecurityProtocol = $tlsProtocols
+            Write-Log "  TLS protocols set: $([Net.ServicePointManager]::SecurityProtocol)"
+        } catch {
+            Write-Log "  WARNING: Could not set TLS protocols: $($_.Exception.Message)"
+        }
+        
+        $downloadInfo = @{
+            OriginalUrl = $Url
+            FinalUrl = $null
+            StatusCode = $null
+            ContentType = $null
+            ContentLength = $null
+            ActualSize = $null
+            FirstBytes = $null
+            FirstText = $null
+            IsValidBinary = $false
+            Error = $null
+        }
+        
+        try {
+            # Use Invoke-WebRequest with explicit redirect handling
+            # -MaximumRedirection 10 ensures we follow redirects
+            # -UseBasicParsing avoids IE engine dependency
+            # -TimeoutSec 600 (10 min) - sandbox downloads can be very slow
+            $response = Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -PassThru -MaximumRedirection 10 -TimeoutSec 600 -ErrorAction Stop
+            
+            # Capture response metadata
+            $downloadInfo.StatusCode = $response.StatusCode
+            $downloadInfo.FinalUrl = if ($response.BaseResponse.ResponseUri) { 
+                $response.BaseResponse.ResponseUri.ToString() 
+            } else { 
+                $Url 
+            }
+            
+            # Try to get headers
+            if ($response.Headers) {
+                $downloadInfo.ContentType = $response.Headers['Content-Type']
+                $downloadInfo.ContentLength = $response.Headers['Content-Length']
+            }
+            
+            Write-Log "  HTTP Status: $($downloadInfo.StatusCode)"
+            Write-Log "  Final URL: $($downloadInfo.FinalUrl)"
+            Write-Log "  Content-Type: $($downloadInfo.ContentType)"
+            Write-Log "  Content-Length header: $($downloadInfo.ContentLength)"
+            
+        } catch {
+            $downloadInfo.Error = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
+            Write-Log "  DOWNLOAD FAILED: $($downloadInfo.Error)"
+            Write-Log "  Stack: $($_.ScriptStackTrace)"
+            return $false
+        }
+        
+        # Verify file exists and get actual size
+        if (-not (Test-Path $OutFile)) {
+            Write-Log "  FAIL: Output file does not exist after download"
+            return $false
+        }
+        
+        $fileInfo = Get-Item $OutFile
+        $downloadInfo.ActualSize = $fileInfo.Length
+        Write-Log "  Actual file size: $($downloadInfo.ActualSize) bytes ($([math]::Round($downloadInfo.ActualSize / 1MB, 2)) MB)"
+        
+        # Read first bytes for signature validation
+        try {
+            $stream = [System.IO.File]::OpenRead($OutFile)
+            $buffer = New-Object byte[] 4
+            $bytesRead = $stream.Read($buffer, 0, 4)
+            $stream.Close()
+            
+            if ($bytesRead -ge 2) {
+                $downloadInfo.FirstBytes = [BitConverter]::ToString($buffer[0..($bytesRead-1)])
+                Write-Log "  First bytes (hex): $($downloadInfo.FirstBytes)"
+                
+                # Check for PK signature (ZIP/MSIX/APPX)
+                if ($buffer[0] -eq 0x50 -and $buffer[1] -eq 0x4B) {
+                    $downloadInfo.IsValidBinary = $true
+                    Write-Log "  Signature: PK (valid ZIP/MSIX)"
+                } else {
+                    Write-Log "  Signature: NOT PK - may be HTML/text"
+                }
+            }
+        } catch {
+            Write-Log "  WARNING: Could not read first bytes: $($_.Exception.Message)"
+        }
+        
+        # If file is small or not valid binary, read first text for diagnostics
+        if ($downloadInfo.ActualSize -lt 1MB -or (-not $downloadInfo.IsValidBinary -and $ExpectBinary)) {
+            try {
+                $textContent = Get-Content -Path $OutFile -Raw -ErrorAction SilentlyContinue
+                if ($textContent) {
+                    $downloadInfo.FirstText = $textContent.Substring(0, [Math]::Min(500, $textContent.Length))
+                    Write-Log "  First 500 chars of content:"
+                    Write-Log "  ----"
+                    foreach ($line in ($downloadInfo.FirstText -split "`n" | Select-Object -First 10)) {
+                        Write-Log "  $line"
+                    }
+                    Write-Log "  ----"
+                }
+            } catch {
+                Write-Log "  Could not read text content: $($_.Exception.Message)"
+            }
+        }
+        
+        # Validate minimum size
+        $minSize = $script:MinFileSizes[$FileType]
+        if ($minSize -and $downloadInfo.ActualSize -lt $minSize) {
+            Write-Log "  INTEGRITY FAIL: File too small"
+            Write-Log "    Expected minimum: $([math]::Round($minSize / 1MB, 2)) MB ($minSize bytes)"
+            Write-Log "    Actual size: $([math]::Round($downloadInfo.ActualSize / 1MB, 2)) MB ($($downloadInfo.ActualSize) bytes)"
+            Write-Log "    Final URL: $($downloadInfo.FinalUrl)"
+            Write-Log "    Content-Type: $($downloadInfo.ContentType)"
+            return $false
+        }
+        
+        # Validate binary signature if expected
+        if ($ExpectBinary -and -not $downloadInfo.IsValidBinary) {
+            Write-Log "  INTEGRITY FAIL: Expected ZIP/MSIX but file does not have PK signature"
+            Write-Log "    First bytes: $($downloadInfo.FirstBytes)"
+            Write-Log "    This is likely an HTML error page or redirect page"
+            Write-Log "    Final URL: $($downloadInfo.FinalUrl)"
+            Write-Log "    Content-Type: $($downloadInfo.ContentType)"
+            return $false
+        }
+        
+        Write-Log "  DOWNLOAD OK: Size=$($downloadInfo.ActualSize) bytes, ValidBinary=$($downloadInfo.IsValidBinary)"
+        Write-Log "--- End Invoke-RobustDownload ---"
+        return $true
+    }
+    
+    function Get-DownloadDiagnostics {
+        <#
+        .SYNOPSIS
+            Returns a formatted string with download failure diagnostics.
+        #>
+        param(
+            [string]$Url,
+            [string]$FilePath,
+            [string]$FileType
+        )
+        
+        $diag = @()
+        $diag += "URL: $Url"
+        
+        if (Test-Path $FilePath) {
+            $fileInfo = Get-Item $FilePath
+            $diag += "File size: $($fileInfo.Length) bytes"
+            $diag += "Expected minimum: $($script:MinFileSizes[$FileType]) bytes"
+            
+            # Read first bytes
+            try {
+                $stream = [System.IO.File]::OpenRead($FilePath)
+                $buffer = New-Object byte[] 4
+                $bytesRead = $stream.Read($buffer, 0, 4)
+                $stream.Close()
+                $diag += "First bytes (hex): $([BitConverter]::ToString($buffer[0..($bytesRead-1)]))"
+            } catch { }
+            
+            # Read first text if small
+            if ($fileInfo.Length -lt 1MB) {
+                try {
+                    $text = Get-Content -Path $FilePath -Raw -ErrorAction SilentlyContinue
+                    if ($text) {
+                        $snippet = $text.Substring(0, [Math]::Min(200, $text.Length))
+                        $diag += "Content preview: $snippet"
+                    }
+                } catch { }
+            }
+        } else {
+            $diag += "File does not exist"
+        }
+        
+        return ($diag -join "`n")
+    }
+    
+    function Write-DiagnosticPackageListing {
+        Write-Log ""
+        Write-Log "=== DIAGNOSTIC: Package Listings ==="
+        
+        Write-Log "--- Microsoft.WindowsAppRuntime packages ---"
+        try {
+            $runtimePkgs = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime*" -ErrorAction SilentlyContinue
+            if ($runtimePkgs) {
+                foreach ($pkg in $runtimePkgs) {
+                    Write-Log "  $($pkg.Name) v$($pkg.Version) [$($pkg.Architecture)]"
+                }
+            } else {
+                Write-Log "  (none found)"
+            }
+        } catch {
+            Write-Log "  ERROR: $($_.Exception.Message)"
+        }
+        
+        Write-Log "--- Microsoft.DesktopAppInstaller packages ---"
+        try {
+            $installerPkgs = Get-AppxPackage -Name "Microsoft.DesktopAppInstaller*" -ErrorAction SilentlyContinue
+            if ($installerPkgs) {
+                foreach ($pkg in $installerPkgs) {
+                    Write-Log "  $($pkg.Name) v$($pkg.Version) [$($pkg.Architecture)]"
+                }
+            } else {
+                Write-Log "  (none found)"
+            }
+        } catch {
+            Write-Log "  ERROR: $($_.Exception.Message)"
+        }
+        
+        Write-Log "--- Microsoft.VCLibs packages ---"
+        try {
+            $vclibsPkgs = Get-AppxPackage -Name "Microsoft.VCLibs*" -ErrorAction SilentlyContinue
+            if ($vclibsPkgs) {
+                foreach ($pkg in $vclibsPkgs) {
+                    Write-Log "  $($pkg.Name) v$($pkg.Version) [$($pkg.Architecture)]"
+                }
+            } else {
+                Write-Log "  (none found)"
+            }
+        } catch {
+            Write-Log "  ERROR: $($_.Exception.Message)"
+        }
+        
+        Write-Log "=== END DIAGNOSTIC ==="
+        Write-Log ""
+    }
+    
     # Check if winget already exists
+    Set-Stage "winget-bootstrap:check-existing"
     $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
     if ($wingetCmd) {
+        Write-Log "Winget already available: $($wingetCmd.Source)"
         Write-Info "Winget is available: $($wingetCmd.Source)"
         return $true
     }
     
+    Write-Log "Winget not found, starting bootstrap..."
+    Write-Log "OS Version: $([System.Environment]::OSVersion.VersionString)"
+    Write-Log "PowerShell Version: $($PSVersionTable.PSVersion)"
     Write-Info "Winget not found, attempting bootstrap..."
-    $bootstrapLog = Join-Path $OutputDir "winget-bootstrap.log"
-    $logContent = @("Bootstrap started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
-    $logContent += "OS Version: $([System.Environment]::OSVersion.VersionString)"
-    $logContent += "PowerShell Version: $($PSVersionTable.PSVersion)"
     
-    # Bootstrap: Download and install App Installer bundle with all dependencies
+    # Create temp directory for downloads
     $tempDir = Join-Path $env:TEMP "winget-bootstrap"
     if (-not (Test-Path $tempDir)) {
         New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
     }
-    $logContent += "Temp directory: $tempDir"
+    Write-Log "Temp directory: $tempDir"
     
-    # Step 1: Download Windows App Runtime 1.8 (required by modern winget)
-    # Using the direct MSIX package URL for x64 framework
-    $appRuntimeUrl = "https://aka.ms/windowsappsdk/1.8/1.8.250410000/windowsappruntimeinstall-x64.exe"
-    $appRuntimePath = Join-Path $tempDir "windowsappruntimeinstall-x64.exe"
-    Write-Info "Downloading Windows App Runtime 1.8..."
-    $logContent += ""
-    $logContent += "Step 1: Download Windows App Runtime 1.8"
-    $logContent += "URL: $appRuntimeUrl"
+    # =========================================================================
+    # STEP 1: Download winget dependencies from GitHub (includes Windows App Runtime)
+    # =========================================================================
+    Set-Stage "winget-bootstrap:download-deps"
     
-    try {
-        Invoke-WebRequest -Uri $appRuntimeUrl -OutFile $appRuntimePath -UseBasicParsing -ErrorAction Stop
-        $fileSize = (Get-Item $appRuntimePath).Length
-        $logContent += "SUCCESS: Downloaded to $appRuntimePath ($fileSize bytes)"
-        Write-Info "Downloaded Windows App Runtime ($fileSize bytes)"
-    } catch {
-        $logContent += "FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
-        $logContent += "Stack: $($_.ScriptStackTrace)"
-        $logContent += "(Continuing - will attempt App Installer install anyway)"
-        Write-Info "Windows App Runtime download failed (continuing): $($_.Exception.Message)"
+    # Use GitHub direct URLs - aka.ms URLs redirect to Bing search in Windows Sandbox
+    # The winget-cli releases include a Dependencies.zip with all required packages
+    $wingetVersion = "v1.12.460"
+    $depsZipUrl = "https://github.com/microsoft/winget-cli/releases/download/$wingetVersion/DesktopAppInstaller_Dependencies.zip"
+    $depsZipPath = Join-Path $tempDir "DesktopAppInstaller_Dependencies.zip"
+    
+    Write-Log ""
+    Write-Log "Step 1: Download winget dependencies from GitHub"
+    Write-Log "URL: $depsZipUrl"
+    Write-Info "Downloading winget dependencies (~98MB)..."
+    
+    $downloadOk = Invoke-RobustDownload -Url $depsZipUrl -OutFile $depsZipPath -FileType 'redist-zip' -ExpectBinary
+    if (-not $downloadOk) {
+        Write-DiagnosticPackageListing
+        $diagDetails = Get-DownloadDiagnostics -Url $depsZipUrl -FilePath $depsZipPath -FileType 'redist-zip'
+        Write-FatalError -Stage "winget-bootstrap:download-deps" `
+            -Message "Winget dependencies download failed (not a valid ZIP)" `
+            -Details $diagDetails
     }
     
-    # Step 2: Install Windows App Runtime
-    if (Test-Path $appRuntimePath) {
-        Write-Info "Installing Windows App Runtime 1.8..."
-        $logContent += ""
-        $logContent += "Step 2: Install Windows App Runtime 1.8"
-        try {
-            $proc = Start-Process -FilePath $appRuntimePath -ArgumentList "--quiet" -Wait -PassThru -ErrorAction Stop
-            if ($proc.ExitCode -eq 0) {
-                $logContent += "SUCCESS: Windows App Runtime installed (exit code 0)"
-                Write-Info "Windows App Runtime installed"
-            } else {
-                $logContent += "WARNING: Windows App Runtime installer exited with code $($proc.ExitCode)"
-                $logContent += "(Continuing - runtime may already be present or partially installed)"
-                Write-Info "Windows App Runtime install warning (exit code $($proc.ExitCode))"
-            }
-        } catch {
-            $logContent += "WARNING: $($_.Exception.GetType().Name): $($_.Exception.Message)"
-            $logContent += "(Continuing - will attempt App Installer install anyway)"
-            Write-Info "Windows App Runtime install warning: $($_.Exception.Message)"
+    $fileSize = (Get-Item $depsZipPath).Length
+    Write-Info "Downloaded winget dependencies ($([math]::Round($fileSize / 1MB, 2)) MB)"
+    
+    # =========================================================================
+    # STEP 2: Extract and Install dependency packages (includes Windows App Runtime)
+    # =========================================================================
+    Set-Stage "winget-bootstrap:install-deps"
+    
+    $depsExtractDir = Join-Path $tempDir "winget-deps"
+    Write-Log ""
+    Write-Log "Step 2: Extract and install dependency packages"
+    Write-Log "Extracting to: $depsExtractDir"
+    Write-Info "Extracting dependency packages..."
+    
+    try {
+        if (Test-Path $depsExtractDir) {
+            Remove-Item -Path $depsExtractDir -Recurse -Force
         }
+        Expand-Archive -Path $depsZipPath -DestinationPath $depsExtractDir -Force -ErrorAction Stop
+        Write-Log "Extraction successful"
+    } catch {
+        Write-Log "FAILED to extract ZIP: $($_.Exception.GetType().Name): $($_.Exception.Message)"
+        Write-DiagnosticPackageListing
+        Write-FatalError -Stage "winget-bootstrap:install-deps" `
+            -Message "Failed to extract dependencies ZIP (file may be corrupted)" `
+            -Details "$($_.Exception.GetType().Name): $($_.Exception.Message)"
+    }
+    
+    # Find all MSIX/APPX packages in the extracted directory
+    Write-Log "Scanning for packages in extracted directory..."
+    $msixFiles = @()
+    $msixFiles += Get-ChildItem -Path $depsExtractDir -Filter "*.msix" -Recurse -ErrorAction SilentlyContinue
+    $msixFiles += Get-ChildItem -Path $depsExtractDir -Filter "*.appx" -Recurse -ErrorAction SilentlyContinue
+    Write-Log "Found $($msixFiles.Count) package files:"
+    foreach ($msix in $msixFiles) {
+        Write-Log "  - $($msix.FullName) ($($msix.Length) bytes)"
+    }
+    
+    # Filter for x64 packages only - check FULL PATH since files have same name in different arch folders
+    # The ZIP structure is: x64/*.msix, x86/*.msix, arm64/*.msix
+    $x64Packages = $msixFiles | Where-Object { 
+        $_.FullName -match '[/\\]x64[/\\]' -or $_.Name -match '\.x64\.'
+    }
+    
+    Write-Log "Filtered to $($x64Packages.Count) x64 packages:"
+    foreach ($pkg in $x64Packages) {
+        Write-Log "  - $($pkg.FullName)"
+    }
+    
+    # Separate by type for install order: VCLibs -> UI.Xaml -> WindowsAppRuntime
+    $vclibsPackages = $x64Packages | Where-Object { $_.Name -match 'VCLibs' }
+    $uixamlPackages = $x64Packages | Where-Object { $_.Name -match 'UI\.Xaml' }
+    $runtimePackages = $x64Packages | Where-Object { $_.Name -match 'WindowsAppRuntime' }
+    
+    # Install in dependency order: VCLibs -> UI.Xaml -> WindowsAppRuntime
+    $installOrder = @()
+    $installOrder += $vclibsPackages
+    $installOrder += $uixamlPackages
+    $installOrder += $runtimePackages
+    
+    # Remove duplicates and nulls
+    $installOrder = $installOrder | Where-Object { $_ } | Select-Object -Unique
+    
+    Write-Log "Installing $($installOrder.Count) dependency packages in order:"
+    $installedCount = 0
+    $failedPackages = @()
+    
+    foreach ($package in $installOrder) {
+        Write-Log "  Installing: $($package.Name)"
+        try {
+            Add-AppxPackage -Path $package.FullName -ErrorAction Stop
+            Write-Log "    SUCCESS"
+            $installedCount++
+        } catch {
+            $errorMsg = $_.Exception.Message
+            $hresult = ""
+            if ($errorMsg -match '0x[0-9A-Fa-f]+') {
+                $hresult = $Matches[0]
+            }
+            
+            # Some packages may already be installed or have newer versions
+            if ($errorMsg -match 'already installed|higher version|provided package is already installed') {
+                Write-Log "    SKIPPED (already installed or newer version present)"
+                $installedCount++
+            } else {
+                Write-Log "    FAILED: $errorMsg"
+                if ($hresult) { Write-Log "    HRESULT: $hresult" }
+                $failedPackages += @{ Name = $package.Name; Error = $errorMsg; HResult = $hresult }
+            }
+        }
+    }
+    
+    Write-Log "Installed $installedCount dependency packages"
+    Write-Info "Installed $installedCount dependency packages"
+    
+    # Verify Windows App Runtime is now present
+    Write-Log "Verifying Microsoft.WindowsAppRuntime installation..."
+    $runtimeCheck = Get-AppxPackage -Name "Microsoft.WindowsAppRuntime*" -ErrorAction SilentlyContinue
+    if (-not $runtimeCheck) {
+        Write-Log "WARNING: Microsoft.WindowsAppRuntime not found after install (may be OK if pre-installed)"
+        Write-DiagnosticPackageListing
     } else {
-        $logContent += ""
-        $logContent += "Step 2: Install Windows App Runtime 1.8"
-        $logContent += "SKIPPED: Installer not downloaded"
+        Write-Log "VERIFIED: Microsoft.WindowsAppRuntime is installed"
+        foreach ($pkg in $runtimeCheck) {
+            Write-Log "  $($pkg.Name) v$($pkg.Version)"
+        }
     }
+    Write-Info "Dependencies installed"
     
-    # Step 3: Download VCLibs dependency
-    $vclibsUrl = "https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx"
-    $vclibsPath = Join-Path $tempDir "Microsoft.VCLibs.x64.appx"
-    Write-Info "Downloading VCLibs dependency..."
-    $logContent += ""
-    $logContent += "Step 3: Download VCLibs"
-    $logContent += "URL: $vclibsUrl"
+    # =========================================================================
+    # STEP 3: Download App Installer bundle from GitHub
+    # =========================================================================
+    Set-Stage "winget-bootstrap:download-appinstaller"
     
-    try {
-        Invoke-WebRequest -Uri $vclibsUrl -OutFile $vclibsPath -UseBasicParsing -ErrorAction Stop
-        $logContent += "SUCCESS: Downloaded to $vclibsPath"
-        Write-Info "Downloaded VCLibs"
-    } catch {
-        $logContent += "FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
-        $logContent += "Stack: $($_.ScriptStackTrace)"
-        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
-        Write-Info "VCLibs download failed - see winget-bootstrap.log"
-        return $false
-    }
-    
-    # Step 4: Install VCLibs
-    Write-Info "Installing VCLibs..."
-    $logContent += ""
-    $logContent += "Step 4: Install VCLibs"
-    try {
-        Add-AppxPackage -Path $vclibsPath -ErrorAction Stop
-        $logContent += "SUCCESS: VCLibs installed"
-        Write-Info "VCLibs installed"
-    } catch {
-        # VCLibs may already be installed or have a newer version
-        $logContent += "WARNING: $($_.Exception.GetType().Name): $($_.Exception.Message)"
-        $logContent += "(Continuing - VCLibs may already be present)"
-        Write-Info "VCLibs install warning (may already exist): $($_.Exception.Message)"
-    }
-    
-    # Step 5: Download App Installer bundle
-    $downloadUrl = "https://aka.ms/getwinget"
+    # Use GitHub direct URL - aka.ms URLs redirect to Bing search in Windows Sandbox
+    $appInstallerUrl = "https://github.com/microsoft/winget-cli/releases/download/$wingetVersion/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
     $msixBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
-    Write-Info "Downloading App Installer from aka.ms/getwinget..."
-    $logContent += ""
-    $logContent += "Step 5: Download App Installer"
-    $logContent += "URL: $downloadUrl"
     
-    try {
-        Invoke-WebRequest -Uri $downloadUrl -OutFile $msixBundlePath -UseBasicParsing -ErrorAction Stop
-        $fileSize = (Get-Item $msixBundlePath).Length
-        $logContent += "SUCCESS: Downloaded to $msixBundlePath ($fileSize bytes)"
-        Write-Info "Downloaded App Installer bundle ($fileSize bytes)"
-    } catch {
-        $logContent += "FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
-        $logContent += "Stack: $($_.ScriptStackTrace)"
-        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
-        Write-Info "App Installer download failed - see winget-bootstrap.log"
-        return $false
+    Write-Log ""
+    Write-Log "Step 3: Download App Installer bundle from GitHub"
+    Write-Log "URL: $appInstallerUrl"
+    Write-Info "Downloading App Installer (~205MB)..."
+    
+    $downloadOk = Invoke-RobustDownload -Url $appInstallerUrl -OutFile $msixBundlePath -FileType 'appinstaller' -ExpectBinary
+    if (-not $downloadOk) {
+        Write-DiagnosticPackageListing
+        $diagDetails = Get-DownloadDiagnostics -Url $appInstallerUrl -FilePath $msixBundlePath -FileType 'appinstaller'
+        Write-FatalError -Stage "winget-bootstrap:download-appinstaller" `
+            -Message "App Installer download failed or corrupted (not a valid MSIX)" `
+            -Details $diagDetails
     }
     
-    # Step 6: Install App Installer
+    $fileSize = (Get-Item $msixBundlePath).Length
+    Write-Info "Downloaded App Installer bundle ($([math]::Round($fileSize / 1MB, 2)) MB)"
+    
+    # =========================================================================
+    # STEP 4: Install App Installer
+    # =========================================================================
+    Set-Stage "winget-bootstrap:install-appinstaller"
+    
+    Write-Log ""
+    Write-Log "Step 4: Install App Installer"
     Write-Info "Installing App Installer..."
-    $logContent += ""
-    $logContent += "Step 6: Install App Installer"
+    
     try {
         Add-AppxPackage -Path $msixBundlePath -ErrorAction Stop
-        $logContent += "SUCCESS: App Installer package installed"
+        Write-Log "SUCCESS: App Installer package installed"
         Write-Info "App Installer installed"
     } catch {
-        $logContent += "FAILED: $($_.Exception.GetType().Name): $($_.Exception.Message)"
-        $logContent += "Stack: $($_.ScriptStackTrace)"
-        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
-        Write-Info "App Installer install failed - see winget-bootstrap.log"
-        return $false
+        $errorMsg = $_.Exception.Message
+        $hresult = ""
+        if ($errorMsg -match '(0x[0-9A-Fa-f]+)') {
+            $hresult = $Matches[1]
+        }
+        
+        Write-Log "FAILED: $($_.Exception.GetType().Name): $errorMsg"
+        if ($hresult) { Write-Log "HRESULT: $hresult" }
+        Write-DiagnosticPackageListing
+        Write-FatalError -Stage "winget-bootstrap:install-appinstaller" `
+            -Message "Failed to install App Installer (HRESULT: $hresult)" `
+            -Details "$($_.Exception.GetType().Name): $errorMsg"
     }
     
-    # Step 7: Verify winget is now available
+    # =========================================================================
+    # STEP 5: Verify winget is now available
+    # =========================================================================
+    Set-Stage "winget-bootstrap:verify-winget"
+    
+    Write-Log ""
+    Write-Log "Step 5: Verify winget availability"
+    Write-Info "Verifying winget..."
+    
+    # Give Windows a moment to register the package
     Start-Sleep -Seconds 3
-    $logContent += ""
-    $logContent += "Step 7: Verify winget availability"
+    
+    # Try multiple methods to find winget
     $wingetCmd = Get-Command winget -ErrorAction SilentlyContinue
+    
+    if (-not $wingetCmd) {
+        # Try resolving the expected path directly
+        Write-Log "Get-Command failed, trying direct path resolution..."
+        $possiblePaths = @(
+            "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe",
+            "$env:ProgramFiles\WindowsApps\Microsoft.DesktopAppInstaller_*_x64__8wekyb3d8bbwe\winget.exe"
+        )
+        
+        foreach ($pathPattern in $possiblePaths) {
+            $resolved = Get-Item -Path $pathPattern -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($resolved) {
+                Write-Log "Found winget at: $($resolved.FullName)"
+                $wingetCmd = $resolved
+                break
+            }
+        }
+    }
+    
     if ($wingetCmd) {
-        $logContent += "SUCCESS: Winget is now available at $($wingetCmd.Source)"
-        $logContent += ""
-        $logContent += "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - SUCCESS"
-        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
+        $wingetPath = if ($wingetCmd.Source) { $wingetCmd.Source } else { $wingetCmd.FullName }
+        Write-Log "SUCCESS: Winget found at $wingetPath"
+        
+        # Try to get version
+        try {
+            $versionOutput = & $wingetPath --version 2>&1
+            Write-Log "Winget version: $versionOutput"
+            Write-Info "Winget version: $versionOutput"
+        } catch {
+            Write-Log "Could not get winget version: $($_.Exception.Message)"
+        }
+        
+        Write-Log ""
+        Write-Log "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - SUCCESS"
+        Write-DiagnosticPackageListing
         Write-Pass "Winget bootstrap succeeded"
         return $true
     } else {
-        $logContent += "FAILED: Winget command not found after installation"
-        $logContent += "Checking installed packages..."
+        Write-Log "FAILED: Winget command not found after installation"
+        Write-Log ""
+        Write-Log "Diagnostic information:"
+        Write-Log "  PATH: $env:Path"
+        Write-Log ""
+        
         try {
-            $appxPackages = Get-AppxPackage -Name "*DesktopAppInstaller*" | Select-Object Name, Version, Status
-            $logContent += ($appxPackages | Format-Table -AutoSize | Out-String)
+            $allWingetCmds = Get-Command winget -All -ErrorAction SilentlyContinue
+            Write-Log "  Get-Command winget -All: $($allWingetCmds | Out-String)"
         } catch {
-            $logContent += "Could not enumerate AppX packages: $($_.Exception.Message)"
+            Write-Log "  Get-Command winget -All: (none found)"
         }
-        $logContent += ""
-        $logContent += "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - FAILED"
-        $logContent | Out-File -FilePath $bootstrapLog -Encoding UTF8
-        Write-Info "Winget bootstrap failed - see winget-bootstrap.log"
-        return $false
+        
+        Write-DiagnosticPackageListing
+        
+        Write-Log ""
+        Write-Log "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - FAILED"
+        
+        Write-FatalError -Stage "winget-bootstrap:verify-winget" `
+            -Message "Winget command not found after installation" `
+            -Details "App Installer was installed but winget.exe is not accessible. Check winget-bootstrap.log for diagnostic package listings."
     }
 }
 

@@ -327,7 +327,7 @@ $resultFile = Join-Path $OutDir "result.json"
 $startedFile = Join-Path $OutDir "STARTED.txt"
 
 # Poll for sentinel files
-$timeoutSeconds = 900
+$timeoutSeconds = 1200
 $pollIntervalMs = 2000
 $elapsed = 0
 $startedSeen = $false
