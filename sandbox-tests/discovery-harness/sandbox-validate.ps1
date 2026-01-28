@@ -262,6 +262,9 @@ function Ensure-Winget {
             The type key for minimum size lookup (redist-zip, vclibs, appinstaller).
         .PARAMETER ExpectBinary
             If true, validates the file starts with PK signature (ZIP/MSIX).
+        .PARAMETER UseLargeDownload
+            If true, uses System.Net.WebClient.DownloadFile instead of Invoke-WebRequest.
+            This is more reliable for large files (>10MB) in Windows Sandbox.
         .OUTPUTS
             Returns $true if download succeeded and passed validation, $false otherwise.
             On failure, writes detailed diagnostics to log.
@@ -273,7 +276,8 @@ function Ensure-Winget {
             [string]$OutFile,
             [Parameter(Mandatory)]
             [string]$FileType,
-            [switch]$ExpectBinary
+            [switch]$ExpectBinary,
+            [switch]$UseLargeDownload
         )
         
         Write-Log "--- Invoke-RobustDownload ---"
@@ -281,6 +285,7 @@ function Ensure-Winget {
         Write-Log "  OutFile: $OutFile"
         Write-Log "  FileType: $FileType"
         Write-Log "  ExpectBinary: $ExpectBinary"
+        Write-Log "  UseLargeDownload: $UseLargeDownload"
         
         # Ensure TLS 1.2+ is enabled (TLS 1.3 may not be available on all systems)
         try {
@@ -305,33 +310,62 @@ function Ensure-Winget {
             FirstText = $null
             IsValidBinary = $false
             Error = $null
+            DownloadMethod = $null
+            ElapsedMs = $null
         }
         
         try {
-            # Use Invoke-WebRequest with explicit redirect handling
-            # -MaximumRedirection 10 ensures we follow redirects
-            # -UseBasicParsing avoids IE engine dependency
-            # -TimeoutSec 600 (10 min) - sandbox downloads can be very slow
-            $response = Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -PassThru -MaximumRedirection 10 -TimeoutSec 600 -ErrorAction Stop
-            
-            # Capture response metadata
-            $downloadInfo.StatusCode = $response.StatusCode
-            $downloadInfo.FinalUrl = if ($response.BaseResponse.ResponseUri) { 
-                $response.BaseResponse.ResponseUri.ToString() 
-            } else { 
-                $Url 
+            if ($UseLargeDownload) {
+                # Use WebClient.DownloadFile for large files - more reliable in Windows Sandbox
+                Write-Log "  Using WebClient.DownloadFile (large download mode)"
+                $downloadInfo.DownloadMethod = "WebClient"
+                
+                $webClient = New-Object System.Net.WebClient
+                $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0")
+                
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                $webClient.DownloadFile($Url, $OutFile)
+                $stopwatch.Stop()
+                
+                $downloadInfo.ElapsedMs = $stopwatch.ElapsedMilliseconds
+                $downloadInfo.FinalUrl = $Url  # WebClient follows redirects automatically
+                
+                Write-Log "  WebClient download completed in $($downloadInfo.ElapsedMs) ms"
+                
+            } else {
+                # Use Invoke-WebRequest with explicit redirect handling
+                # -MaximumRedirection 10 ensures we follow redirects
+                # -UseBasicParsing avoids IE engine dependency
+                # -TimeoutSec 600 (10 min) - sandbox downloads can be very slow
+                Write-Log "  Using Invoke-WebRequest"
+                $downloadInfo.DownloadMethod = "Invoke-WebRequest"
+                
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                $response = Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -PassThru -MaximumRedirection 10 -TimeoutSec 600 -ErrorAction Stop
+                $stopwatch.Stop()
+                
+                $downloadInfo.ElapsedMs = $stopwatch.ElapsedMilliseconds
+                
+                # Capture response metadata
+                $downloadInfo.StatusCode = $response.StatusCode
+                $downloadInfo.FinalUrl = if ($response.BaseResponse.ResponseUri) { 
+                    $response.BaseResponse.ResponseUri.ToString() 
+                } else { 
+                    $Url 
+                }
+                
+                # Try to get headers
+                if ($response.Headers) {
+                    $downloadInfo.ContentType = $response.Headers['Content-Type']
+                    $downloadInfo.ContentLength = $response.Headers['Content-Length']
+                }
+                
+                Write-Log "  HTTP Status: $($downloadInfo.StatusCode)"
+                Write-Log "  Final URL: $($downloadInfo.FinalUrl)"
+                Write-Log "  Content-Type: $($downloadInfo.ContentType)"
+                Write-Log "  Content-Length header: $($downloadInfo.ContentLength)"
+                Write-Log "  Download completed in $($downloadInfo.ElapsedMs) ms"
             }
-            
-            # Try to get headers
-            if ($response.Headers) {
-                $downloadInfo.ContentType = $response.Headers['Content-Type']
-                $downloadInfo.ContentLength = $response.Headers['Content-Length']
-            }
-            
-            Write-Log "  HTTP Status: $($downloadInfo.StatusCode)"
-            Write-Log "  Final URL: $($downloadInfo.FinalUrl)"
-            Write-Log "  Content-Type: $($downloadInfo.ContentType)"
-            Write-Log "  Content-Length header: $($downloadInfo.ContentLength)"
             
         } catch {
             $downloadInfo.Error = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
@@ -681,7 +715,7 @@ function Ensure-Winget {
     Write-Log "URL: $appInstallerUrl"
     Write-Info "Downloading App Installer (~205MB)..."
     
-    $downloadOk = Invoke-RobustDownload -Url $appInstallerUrl -OutFile $msixBundlePath -FileType 'appinstaller' -ExpectBinary
+    $downloadOk = Invoke-RobustDownload -Url $appInstallerUrl -OutFile $msixBundlePath -FileType 'appinstaller' -ExpectBinary -UseLargeDownload
     if (-not $downloadOk) {
         Write-DiagnosticPackageListing
         $diagDetails = Get-DownloadDiagnostics -Url $appInstallerUrl -FilePath $msixBundlePath -FileType 'appinstaller'
