@@ -890,27 +890,68 @@ Write-Step "Installing $WingetId..."
 $wingetAvailable = Ensure-Winget
 
 if ($wingetAvailable) {
-    # Install via winget
+    # Install via winget - MUST pin source to avoid ambiguity (msstore vs winget)
     Write-Info "Installing via winget..."
+    
+    # Build canonical winget command with all required flags
+    $wingetArgs = @(
+        'install',
+        '--id', $WingetId,
+        '--exact',
+        '--source', 'winget',
+        '--accept-source-agreements',
+        '--accept-package-agreements',
+        '--disable-interactivity',
+        '--silent'
+    )
+    $wingetCmd = "winget $($wingetArgs -join ' ')"
+    
+    # Log command before execution
+    $installLogPath = Join-Path $OutputDir "install.log"
+    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Executing: $wingetCmd" | Out-File -FilePath $installLogPath -Encoding UTF8
+    Write-Log "Executing: $wingetCmd"
+    
     try {
-        $installOutput = & winget install --id $WingetId --accept-source-agreements --accept-package-agreements --silent 2>&1
+        $installOutput = & winget @wingetArgs 2>&1
         $installExitCode = $LASTEXITCODE
         
-        # Log install output
-        $installLogPath = Join-Path $OutputDir "install.log"
-        $installOutput | Out-File -FilePath $installLogPath -Encoding UTF8
+        # Append output to install.log
+        "" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        "[STDOUT/STDERR]" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        $installOutput | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        "" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        "[EXIT CODE] $installExitCode" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
         
         if ($installExitCode -ne 0) {
-            # Check if already installed (exit code 0x8A150061 or similar)
+            # Check if already installed (exit code 0x8A150061 = -1978335135)
             if ($installOutput -match "already installed" -or $installExitCode -eq -1978335135) {
                 Write-Info "App already installed, continuing..."
+                Write-Log "App already installed (exit code $installExitCode)"
             } else {
-                Write-FatalError -Stage "install" -Message "Winget install failed with exit code $installExitCode" -Details ($installOutput | Out-String)
+                # Write ERROR.txt with structured failure info
+                $stderrLines = ($installOutput | Out-String).Trim()
+                $errorContent = @"
+Winget install failed
+Command: $wingetCmd
+Exit code: $installExitCode
+Last output:
+$stderrLines
+"@
+                $errorContent | Out-File -FilePath $script:ErrorFile -Encoding UTF8
+                Write-FatalError -Stage "install" -Message "Winget install failed with exit code $installExitCode" -Details $stderrLines
             }
         } else {
             Write-Pass "Installed via winget: $WingetId"
+            Write-Log "Install succeeded for $WingetId"
         }
     } catch {
+        # Write ERROR.txt on exception
+        $errorContent = @"
+Winget install exception
+Command: $wingetCmd
+Exception: $($_.Exception.Message)
+"@
+        $errorContent | Out-File -FilePath $script:ErrorFile -Encoding UTF8
         Write-FatalError -Stage "install" -Message "Winget install threw exception: $_"
     }
 } else {
