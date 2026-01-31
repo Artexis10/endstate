@@ -96,10 +96,22 @@ $script:StepFile = Join-Path $OutputDir "STEP.txt"
 $script:ErrorFile = Join-Path $OutputDir "ERROR.txt"
 $script:ResultFile = Join-Path $OutputDir "result.json"
 $script:BootstrapLog = Join-Path $OutputDir "winget-bootstrap.log"
+$script:InstallLog = Join-Path $OutputDir "install.log"
 $script:CurrentStage = "init"
+$script:RunStartedAt = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+
+# Proof artifact tracking
+$script:Stages = @()
+$script:WingetBootstrapOk = $false
+$script:WingetVersion = $null
+$script:InstallCommand = $null
+$script:InstallExitCode = $null
 
 # Create bootstrap log immediately
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Bootstrap log initialized" | Out-File -FilePath $script:BootstrapLog -Encoding UTF8
+
+# Create install.log immediately (always exists)
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Install log initialized" | Out-File -FilePath $script:InstallLog -Encoding UTF8
 
 function Write-Log {
     param([string]$Message)
@@ -109,10 +121,42 @@ function Write-Log {
 
 function Set-Stage {
     param([string]$Stage)
+    
+    # Complete previous stage if exists
+    if ($script:Stages.Count -gt 0) {
+        $lastStage = $script:Stages[$script:Stages.Count - 1]
+        if (-not $lastStage.completedAt) {
+            $lastStage.completedAt = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+            $lastStage.outcome = "completed"
+        }
+    }
+    
+    # Start new stage
     $script:CurrentStage = $Stage
     $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $isoTimestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+    
+    $stageEntry = @{
+        name = $Stage
+        startedAt = $isoTimestamp
+        completedAt = $null
+        outcome = "in_progress"
+    }
+    $script:Stages += $stageEntry
+    
     "$timestamp stage=$Stage" | Out-File -FilePath $script:StepFile -Encoding UTF8
     Write-Log "STAGE: $Stage"
+}
+
+function Complete-Stage {
+    param(
+        [string]$Outcome = "completed"
+    )
+    if ($script:Stages.Count -gt 0) {
+        $lastStage = $script:Stages[$script:Stages.Count - 1]
+        $lastStage.completedAt = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+        $lastStage.outcome = $Outcome
+    }
 }
 
 # Ensure TLS 1.2+
@@ -795,16 +839,19 @@ function Ensure-Winget {
         # Try to get version
         try {
             $versionOutput = & $wingetPath --version 2>&1
-            Write-Log "Winget version: $versionOutput"
-            Write-Info "Winget version: $versionOutput"
+            $script:WingetVersion = ($versionOutput | Out-String).Trim()
+            Write-Log "Winget version: $script:WingetVersion"
+            Write-Info "Winget version: $script:WingetVersion"
         } catch {
             Write-Log "Could not get winget version: $($_.Exception.Message)"
+            $script:WingetVersion = "unknown"
         }
         
         Write-Log ""
         Write-Log "Bootstrap completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - SUCCESS"
         Write-DiagnosticPackageListing
         Write-Pass "Winget bootstrap succeeded"
+        $script:WingetBootstrapOk = $true
         return $true
     } else {
         Write-Log "FAILED: Winget command not found after installation"
@@ -906,27 +953,32 @@ if ($wingetAvailable) {
     )
     $wingetCmd = "winget $($wingetArgs -join ' ')"
     
-    # Log command before execution
-    $installLogPath = Join-Path $OutputDir "install.log"
-    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Executing: $wingetCmd" | Out-File -FilePath $installLogPath -Encoding UTF8
+    # Capture proof milestones
+    $script:InstallCommand = $wingetCmd
+    
+    # Log command before execution (use script-level install log)
+    "" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+    "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Executing: $wingetCmd" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
     Write-Log "Executing: $wingetCmd"
     
     try {
         $installOutput = & winget @wingetArgs 2>&1
         $installExitCode = $LASTEXITCODE
+        $script:InstallExitCode = $installExitCode
         
         # Append output to install.log
-        "" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-        "[STDOUT/STDERR]" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-        $installOutput | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-        "" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-        "[EXIT CODE] $installExitCode" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        "" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        "[STDOUT/STDERR]" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        $installOutput | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        "" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        "[EXIT CODE] $installExitCode" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
         
         if ($installExitCode -ne 0) {
             # Check if already installed (exit code 0x8A150061 = -1978335135)
             if ($installOutput -match "already installed" -or $installExitCode -eq -1978335135) {
                 Write-Info "App already installed, continuing..."
                 Write-Log "App already installed (exit code $installExitCode)"
+                "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] App already installed" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
             } else {
                 # Write ERROR.txt with structured failure info
                 $stderrLines = ($installOutput | Out-String).Trim()
@@ -943,8 +995,10 @@ $stderrLines
         } else {
             Write-Pass "Installed via winget: $WingetId"
             Write-Log "Install succeeded for $WingetId"
+            "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Install succeeded" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
         }
     } catch {
+        $script:InstallExitCode = -1
         # Write ERROR.txt on exception
         $errorContent = @"
 Winget install exception
@@ -1380,6 +1434,9 @@ $verifyManifest | ConvertTo-Json -Depth 5 | Out-File -FilePath (Join-Path $Outpu
 Write-Host ""
 Write-Host "=" * 60 -ForegroundColor Cyan
 
+# Complete final stage
+Complete-Stage -Outcome "completed"
+
 if ($verifyFail -eq 0) {
     $result.status = "PASS"
     Write-Host " VALIDATION PASSED" -ForegroundColor Green
@@ -1402,13 +1459,22 @@ Write-Host "  Restored: $($result.restoredFiles) files" -ForegroundColor White
 Write-Host "  Verified: $verifyPass/$($verifyResults.Count) checks passed" -ForegroundColor White
 Write-Host ""
 
+# Add proof milestones and timestamps to result
+$result.startedAt = $script:RunStartedAt
+$result.completedAt = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+$result.stages = $script:Stages
+$result.wingetBootstrapOk = $script:WingetBootstrapOk
+$result.wingetVersion = $script:WingetVersion
+$result.installCommand = $script:InstallCommand
+$result.installExitCode = $script:InstallExitCode
+
 # Write result file
 Write-Result -Result $result
 
-# Write DONE sentinel
+# Write DONE sentinel with status=passed
 $doneContent = @"
 Validation completed at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
-Status: $($result.status)
+status=passed
 App: $AppId
 Winget: $WingetId
 "@
@@ -1440,14 +1506,23 @@ $errorStack
     # Update STEP.txt to error state
     "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') error:$($script:CurrentStage)" | Out-File -FilePath $script:StepFile -Encoding UTF8
     
-    # Write failure result
+    # Complete current stage as failed
+    Complete-Stage -Outcome "failed"
+    
+    # Write failure result with full proof schema
     $failResult = @{
         status = "FAIL"
         appId = $AppId
         wingetId = $WingetId
         failedStage = $script:CurrentStage
         failReason = $errorMsg
-        timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+        startedAt = $script:RunStartedAt
+        completedAt = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+        stages = $script:Stages
+        wingetBootstrapOk = $script:WingetBootstrapOk
+        wingetVersion = $script:WingetVersion
+        installCommand = $script:InstallCommand
+        installExitCode = $script:InstallExitCode
     }
     $failResult | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:ResultFile -Encoding UTF8
     
