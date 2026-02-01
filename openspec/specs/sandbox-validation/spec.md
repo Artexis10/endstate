@@ -174,11 +174,19 @@ The system SHALL provide live download progress updates during long-running down
 - **AND** the update includes: `stage=<stageName> <pct>% (<mbNow>MB/<mbTotal>MB)` when total is known
 - **AND** the update includes: `stage=<stageName> <mbNow>MB` when total is unknown
 
+#### Scenario: Both downloads use WebClient async with progress
+
+- **WHEN** downloading DesktopAppInstaller_Dependencies.zip or Microsoft.DesktopAppInstaller.msixbundle
+- **THEN** the download MUST use WebClient.DownloadFileAsync with progress polling
+- **AND** Content-Length MUST be obtained via HEAD request when possible
+- **AND** progress updates MUST be written to STEP.txt at least every 3 seconds
+
 #### Scenario: Host displays live progress
 
-- **WHEN** the host script polls `STEP.txt`
+- **WHEN** the host script polls `STEP.txt` (every 1 second)
 - **THEN** any change in content is immediately displayed to the user
 - **AND** the user sees download progress values change at least twice during download stages
+- **AND** a 30-second heartbeat fallback is shown only if no progress updates occurred recently
 
 ### Requirement: Host Fail-Fast Guard
 
@@ -203,9 +211,20 @@ The system SHALL produce a complete set of artifacts when validation passes.
   - `STARTED.txt` - script startup marker with timestamp and PID
   - `STEP.txt` - last stage marker (updated during progress)
   - `winget-bootstrap.log` - bootstrap log with DOWNLOAD OK lines and Winget version
-  - `install.log` - install command and output
+  - `install.log` - install command and output (MUST always exist)
   - `result.json` - status PASS and completedAt timestamp
   - `DONE.txt` - completion sentinel
+
+#### Scenario: result.json required fields
+
+- **WHEN** result.json is written
+- **THEN** it MUST contain:
+  - `status` - "PASS" or "FAIL"
+  - `startedAt` - ISO 8601 timestamp
+  - `completedAt` - ISO 8601 timestamp
+  - `wingetVersion` - version string from winget --version
+  - `installExitCode` - integer exit code from winget install
+  - `installCommand` - single-line string (no embedded newlines)
 
 #### Scenario: winget-bootstrap.log content
 
@@ -213,4 +232,72 @@ The system SHALL produce a complete set of artifacts when validation passes.
 - **THEN** `winget-bootstrap.log` contains:
   - At least one `DOWNLOAD OK` line per successful download
   - `Winget version:` line with version string
+
+### Requirement: Deterministic Sandbox Teardown
+
+The system MUST terminate the Windows Sandbox session after run completion to prevent resource leaks and multi-session interference.
+
+#### Scenario: Post-run cleanup on PASS
+
+- **WHEN** validation completes with PASS (DONE.txt produced)
+- **THEN** the host script MUST call the teardown helper before exiting
+- **AND** no sandbox processes remain running after script exit
+
+#### Scenario: Post-run cleanup on FAIL
+
+- **WHEN** validation completes with FAIL (ERROR.txt produced)
+- **THEN** the host script MUST call the teardown helper before exiting
+- **AND** no sandbox processes remain running after script exit
+
+#### Scenario: Post-run cleanup on timeout
+
+- **WHEN** validation times out without producing DONE.txt or ERROR.txt
+- **THEN** the host script MUST call the teardown helper before exiting
+- **AND** no sandbox processes remain running after script exit
+
+#### Scenario: Pre-run guard closes existing session
+
+- **WHEN** the host script detects an existing sandbox session before launch
+- **THEN** the host script MUST close the existing session using the teardown helper
+- **AND** then proceed to launch the new validation run
+
+#### Scenario: Teardown process detection
+
+- **WHEN** the teardown helper checks for running sandbox processes
+- **THEN** it MUST check for the following process names:
+  - `WindowsSandboxRemoteSession` (primary on Windows 11 24H2+)
+  - `WindowsSandboxClient`, `WindowsSandboxServer`, `WindowsSandbox` (compat)
+  - `VmmemWSB`, `vmmemWindowsSandbox`, `vmmemCmZygote` (VM fallback)
+
+#### Scenario: Primary teardown path
+
+- **WHEN** `WindowsSandboxRemoteSession` is running
+- **THEN** the teardown helper MUST stop it first via `Stop-Process -Force`
+- **AND** allow a brief grace period for VM processes to terminate automatically
+- **AND** then force-stop any remaining sandbox processes as fallback
+
+#### Scenario: Acceptable lingering process
+
+- **WHEN** teardown completes
+- **AND** only `vmmemCmZygote` remains with 0 working set
+- **THEN** this is NOT treated as a teardown failure
+- **AND** the script exits normally
+
+#### Acceptance Criteria: Verify no processes remain
+
+To verify deterministic teardown:
+1. Run: `.\scripts\sandbox-validate.ps1 -AppId git`
+2. Wait for script to complete (PASS or FAIL)
+3. Run: `Get-Process | ? { $_.Name -match 'sandbox|wsb|wdag|vmmem' } | select Name,Id`
+4. Expected: No processes returned, OR only `vmmemCmZygote` with 0 working set (orphaned VM stub)
+
+#### Scenario: Host proof summary output
+
+- **WHEN** validation completes (PASS or FAIL)
+- **THEN** the host script MUST print a proof summary including:
+  - `startedAt` timestamp
+  - `completedAt` timestamp
+  - `wingetVersion`
+  - `installExitCode`
+  - `status` (PASS/FAIL)
 

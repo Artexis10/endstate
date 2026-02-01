@@ -100,6 +100,93 @@ function Write-Fail {
     Write-Host "[FAIL] $Message" -ForegroundColor Red
 }
 
+# ============================================================================
+# SANDBOX LIFECYCLE HELPER
+# ============================================================================
+
+# Process names for sandbox detection/teardown (order matters for primary close path)
+$script:SandboxProcessNames = @(
+    'WindowsSandboxRemoteSession',  # Primary on Windows 11 24H2+
+    'WindowsSandboxClient',
+    'WindowsSandboxServer',
+    'WindowsSandbox',
+    'VmmemWSB',
+    'vmmemWindowsSandbox',
+    'vmmemCmZygote'
+)
+
+function Test-SandboxRunning {
+    <#
+    .SYNOPSIS
+        Returns $true if any sandbox-related process is running.
+    #>
+    foreach ($procName in $script:SandboxProcessNames) {
+        if (Get-Process -Name $procName -ErrorAction SilentlyContinue) {
+            return $true
+        }
+    }
+    return $false
+}
+
+function Stop-SandboxSession {
+    <#
+    .SYNOPSIS
+        Terminates any running Windows Sandbox session deterministically.
+    .DESCRIPTION
+        Primary close path: Stop-Process -Name WindowsSandboxRemoteSession -Force
+        Fallback: force-stop remaining sandbox-related processes after grace period.
+        Safe to call multiple times (idempotent).
+    #>
+    [CmdletBinding()]
+    param()
+    
+    # Check if anything is running
+    if (-not (Test-SandboxRunning)) {
+        return
+    }
+    
+    Write-Info "Terminating sandbox session..."
+    
+    # Primary close path: WindowsSandboxRemoteSession (Windows 11 24H2+)
+    $remoteSession = Get-Process -Name 'WindowsSandboxRemoteSession' -ErrorAction SilentlyContinue
+    if ($remoteSession) {
+        Write-Info "  Stopping WindowsSandboxRemoteSession (primary)..."
+        $remoteSession | Stop-Process -Force -ErrorAction SilentlyContinue
+        # Grace period for VM processes to follow
+        Start-Sleep -Seconds 3
+    }
+    
+    # Fallback: force-stop any remaining sandbox processes (with retries)
+    $maxRetries = 3
+    for ($retry = 1; $retry -le $maxRetries; $retry++) {
+        $stillRunning = $false
+        foreach ($procName in $script:SandboxProcessNames) {
+            $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
+            if ($procs) {
+                $stillRunning = $true
+                if ($retry -eq 1) {
+                    Write-Info "  Stopping $procName..."
+                }
+                $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+            }
+        }
+        if (-not $stillRunning) {
+            break
+        }
+        if ($retry -lt $maxRetries) {
+            Start-Sleep -Seconds 2
+        }
+    }
+    
+    # Final verification with wait
+    Start-Sleep -Seconds 1
+    if (Test-SandboxRunning) {
+        Write-Info "  Warning: Some sandbox processes may still be terminating"
+    } else {
+        Write-Info "  Sandbox session terminated"
+    }
+}
+
 # Load manifest.ps1 for JSONC parsing
 $manifestModule = Join-Path $script:RepoRoot "engine\manifest.ps1"
 if (Test-Path $manifestModule) {
@@ -299,6 +386,12 @@ try {
 # ============================================================================
 Write-Step "Launching Windows Sandbox..."
 
+# Pre-run guard: close any existing sandbox session to prevent multi-session interference
+if (Test-SandboxRunning) {
+    Write-Info "Existing sandbox session detected, closing..."
+    Stop-SandboxSession
+}
+
 $wsExe = Join-Path $env:WINDIR 'System32\WindowsSandbox.exe'
 if (-not (Test-Path $wsExe)) {
     Write-Host "[ERROR] WindowsSandbox.exe not found at: $wsExe" -ForegroundColor Red
@@ -326,12 +419,13 @@ $errorFile = Join-Path $OutDir "ERROR.txt"
 $resultFile = Join-Path $OutDir "result.json"
 $startedFile = Join-Path $OutDir "STARTED.txt"
 
-# Poll for sentinel files
+# Poll for sentinel files (1s interval for responsive progress display)
 $timeoutSeconds = 1200
-$pollIntervalMs = 2000
+$pollIntervalMs = 1000
 $elapsed = 0
 $startedSeen = $false
 $lastStepContent = ""
+$lastHeartbeat = 0
 $stepFile = Join-Path $OutDir "STEP.txt"
 
 while ($elapsed -lt ($timeoutSeconds * 1000)) {
@@ -340,14 +434,7 @@ while ($elapsed -lt ($timeoutSeconds * 1000)) {
     }
     
     # Fail-fast guard: if sandbox processes are gone and no DONE/ERROR, exit immediately
-    $sandboxProcessNames = @('WindowsSandboxClient', 'WindowsSandboxServer', 'VmmemWSB')
-    $sandboxRunning = $false
-    foreach ($procName in $sandboxProcessNames) {
-        if (Get-Process -Name $procName -ErrorAction SilentlyContinue) {
-            $sandboxRunning = $true
-            break
-        }
-    }
+    $sandboxRunning = Test-SandboxRunning
     if (-not $sandboxRunning -and $startedSeen) {
         # Sandbox exited without producing DONE or ERROR
         Write-Fail "Sandbox exited before producing DONE/ERROR"
@@ -358,6 +445,7 @@ while ($elapsed -lt ($timeoutSeconds * 1000)) {
             $lastStep = Get-Content $stepFile -Raw -ErrorAction SilentlyContinue
             Write-Host "        Last STEP: $($lastStep.Trim())" -ForegroundColor Yellow
         }
+        Stop-SandboxSession  # Cleanup any stragglers
         exit 1
     }
     
@@ -373,12 +461,13 @@ while ($elapsed -lt ($timeoutSeconds * 1000)) {
         if ($currentStepContent -and $currentStepContent -ne $lastStepContent) {
             Write-Info "Progress: $currentStepContent"
             $lastStepContent = $currentStepContent
+            $lastHeartbeat = $elapsed
         }
     }
     
-    # Show elapsed time every 30 seconds
-    if ($elapsed -gt 0 -and ($elapsed % 30000) -eq 0) {
-        Write-Info "Elapsed: $([int]($elapsed/1000))s"
+    # Show elapsed time every 30 seconds as heartbeat fallback (only if no progress shown recently)
+    if ($elapsed -gt 0 -and ($elapsed % 30000) -eq 0 -and ($elapsed - $lastHeartbeat) -ge 25000) {
+        Write-Info "Still running... ($([int]($elapsed/1000))s elapsed)"
     }
     Start-Sleep -Milliseconds $pollIntervalMs
     $elapsed += $pollIntervalMs
@@ -392,6 +481,7 @@ if (Test-Path $errorFile) {
     Get-Content -Path $errorFile | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
     Write-Host ""
     Write-Host "Artifacts: $OutDir" -ForegroundColor Yellow
+    Stop-SandboxSession  # Post-run cleanup
     exit 1
 }
 
@@ -399,18 +489,7 @@ if (-not (Test-Path $doneFile)) {
     Write-Fail "Validation TIMEOUT"
     Write-Host ""
     Write-Host "[ERROR] Sandbox did not complete within ${timeoutSeconds}s" -ForegroundColor Red
-    
-    # Force-kill Windows Sandbox processes
-    Write-Host "[INFO] Force-killing Windows Sandbox processes..." -ForegroundColor Yellow
-    $sandboxProcesses = @('WindowsSandbox', 'WindowsSandboxClient', 'WindowsSandboxServer', 'VmmemWSB')
-    foreach ($procName in $sandboxProcesses) {
-        $procs = Get-Process -Name $procName -ErrorAction SilentlyContinue
-        if ($procs) {
-            $procs | Stop-Process -Force -ErrorAction SilentlyContinue
-            Write-Host "[INFO] Killed: $procName" -ForegroundColor Yellow
-        }
-    }
-    
+    Stop-SandboxSession  # Post-run cleanup (timeout)
     Write-Host "Artifacts: $OutDir" -ForegroundColor Yellow
     exit 1
 }
@@ -450,6 +529,21 @@ if (Test-Path $resultFile) {
 Write-Host ""
 Write-Host "Artifacts: $OutDir" -ForegroundColor Green
 Write-Host ""
+
+# Proof summary output
+if (Test-Path $resultFile) {
+    $result = Get-Content -Path $resultFile -Raw | ConvertFrom-Json
+    Write-Host "--- Proof Summary ---" -ForegroundColor Cyan
+    Write-Host "  startedAt:      $($result.startedAt)" -ForegroundColor White
+    Write-Host "  completedAt:    $($result.completedAt)" -ForegroundColor White
+    Write-Host "  wingetVersion:  $($result.wingetVersion)" -ForegroundColor White
+    Write-Host "  installExitCode: $($result.installExitCode)" -ForegroundColor White
+    Write-Host "  status:         $($result.status)" -ForegroundColor $(if ($result.status -eq 'PASS') { 'Green' } else { 'Red' })
+    Write-Host "---------------------" -ForegroundColor Cyan
+}
+
+# Post-run cleanup: always terminate sandbox session
+Stop-SandboxSession
 
 # Exit with appropriate code
 if (Test-Path $resultFile) {
