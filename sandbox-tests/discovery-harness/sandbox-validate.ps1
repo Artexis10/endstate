@@ -360,21 +360,75 @@ function Ensure-Winget {
         
         try {
             if ($UseLargeDownload) {
-                # Use WebClient.DownloadFile for large files - more reliable in Windows Sandbox
-                Write-Log "  Using WebClient.DownloadFile (large download mode)"
+                # Use WebClient.DownloadFileAsync for large files with progress heartbeat
+                Write-Log "  Using WebClient.DownloadFileAsync (large download mode with progress)"
                 $downloadInfo.DownloadMethod = "WebClient"
+                
+                # Try to get Content-Length via HEAD request for expected size
+                $expectedBytes = $null
+                try {
+                    $headRequest = [System.Net.WebRequest]::Create($Url)
+                    $headRequest.Method = "HEAD"
+                    $headRequest.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0"
+                    $headRequest.Timeout = 30000
+                    $headResponse = $headRequest.GetResponse()
+                    $expectedBytes = $headResponse.ContentLength
+                    $headResponse.Close()
+                    Write-Log "  Content-Length from HEAD: $expectedBytes bytes ($([math]::Round($expectedBytes / 1MB, 1)) MB)"
+                } catch {
+                    Write-Log "  Could not get Content-Length via HEAD: $($_.Exception.Message)"
+                }
                 
                 $webClient = New-Object System.Net.WebClient
                 $webClient.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Endstate-Sandbox/1.0")
                 
-                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-                $webClient.DownloadFile($Url, $OutFile)
-                $stopwatch.Stop()
+                # Remove partial file if exists
+                if (Test-Path $OutFile) {
+                    Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+                }
                 
+                $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+                
+                # Start async download
+                $uri = New-Object System.Uri($Url)
+                $webClient.DownloadFileAsync($uri, $OutFile)
+                
+                # Poll for progress every 3 seconds, update STEP.txt with heartbeat
+                $lastHeartbeat = [DateTime]::MinValue
+                while ($webClient.IsBusy) {
+                    Start-Sleep -Milliseconds 500
+                    
+                    $now = Get-Date
+                    if (($now - $lastHeartbeat).TotalSeconds -ge 3) {
+                        $lastHeartbeat = $now
+                        $currentBytes = 0
+                        if (Test-Path $OutFile) {
+                            try {
+                                $currentBytes = (Get-Item $OutFile -ErrorAction SilentlyContinue).Length
+                            } catch { }
+                        }
+                        $currentMB = [math]::Round($currentBytes / 1MB, 1)
+                        
+                        # Build progress string with percentage when available
+                        if ($expectedBytes -and $expectedBytes -gt 0) {
+                            $expectedMB = [math]::Round($expectedBytes / 1MB, 1)
+                            $pct = [math]::Round(($currentBytes / $expectedBytes) * 100, 0)
+                            $progressStr = "stage=$($script:CurrentStage) ${pct}% (${currentMB}MB/${expectedMB}MB)"
+                        } else {
+                            $progressStr = "stage=$($script:CurrentStage) ${currentMB}MB"
+                        }
+                        
+                        # Update STEP.txt with progress heartbeat
+                        $progressStr | Out-File -FilePath $script:StepFile -Encoding UTF8
+                        Write-Log "  Progress: $progressStr"
+                    }
+                }
+                
+                $stopwatch.Stop()
                 $downloadInfo.ElapsedMs = $stopwatch.ElapsedMilliseconds
                 $downloadInfo.FinalUrl = $Url  # WebClient follows redirects automatically
                 
-                Write-Log "  WebClient download completed in $($downloadInfo.ElapsedMs) ms"
+                Write-Log "  WebClient async download completed in $($downloadInfo.ElapsedMs) ms"
                 
             } else {
                 # Use Invoke-WebRequest with explicit redirect handling
@@ -627,7 +681,7 @@ function Ensure-Winget {
     Write-Log "URL: $depsZipUrl"
     Write-Info "Downloading winget dependencies (~98MB)..."
     
-    $downloadOk = Invoke-RobustDownload -Url $depsZipUrl -OutFile $depsZipPath -FileType 'redist-zip' -ExpectBinary
+    $downloadOk = Invoke-RobustDownload -Url $depsZipUrl -OutFile $depsZipPath -FileType 'redist-zip' -ExpectBinary -UseLargeDownload
     if (-not $downloadOk) {
         Write-DiagnosticPackageListing
         $diagDetails = Get-DownloadDiagnostics -Url $depsZipUrl -FilePath $depsZipPath -FileType 'redist-zip'

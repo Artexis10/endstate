@@ -163,3 +163,54 @@ The system SHALL enable networking in the generated .wsb configuration to allow 
 - **WHEN** validate.wsb is generated
 - **THEN** the configuration includes `<Networking>Default</Networking>` or omits the tag (networking enabled by default)
 
+### Requirement: Download Progress Transparency
+
+The system SHALL provide live download progress updates during long-running download stages to prevent the appearance of a hung process.
+
+#### Scenario: STEP.txt progress updates during downloads
+
+- **WHEN** a download stage is in progress (download-deps, download-appinstaller)
+- **THEN** `STEP.txt` is updated at least once every 5 seconds
+- **AND** the update includes: `stage=<stageName> <pct>% (<mbNow>MB/<mbTotal>MB)` when total is known
+- **AND** the update includes: `stage=<stageName> <mbNow>MB` when total is unknown
+
+#### Scenario: Host displays live progress
+
+- **WHEN** the host script polls `STEP.txt`
+- **THEN** any change in content is immediately displayed to the user
+- **AND** the user sees download progress values change at least twice during download stages
+
+### Requirement: Host Fail-Fast Guard
+
+The system SHALL detect when Windows Sandbox exits unexpectedly and fail immediately with a clear message.
+
+#### Scenario: Sandbox exits before completion
+
+- **WHEN** sandbox processes (WindowsSandboxClient, WindowsSandboxServer, VmmemWSB) are not running
+- **AND** `STARTED.txt` was seen (script began execution)
+- **AND** neither `DONE.txt` nor `ERROR.txt` exist
+- **THEN** the host script exits immediately with error
+- **AND** prints: "Sandbox exited before producing DONE/ERROR"
+
+### Requirement: Required Artifacts on PASS
+
+The system SHALL produce a complete set of artifacts when validation passes.
+
+#### Scenario: PASS artifacts
+
+- **WHEN** validation completes with status PASS
+- **THEN** the output directory contains:
+  - `STARTED.txt` - script startup marker with timestamp and PID
+  - `STEP.txt` - last stage marker (updated during progress)
+  - `winget-bootstrap.log` - bootstrap log with DOWNLOAD OK lines and Winget version
+  - `install.log` - install command and output
+  - `result.json` - status PASS and completedAt timestamp
+  - `DONE.txt` - completion sentinel
+
+#### Scenario: winget-bootstrap.log content
+
+- **WHEN** winget bootstrap succeeds
+- **THEN** `winget-bootstrap.log` contains:
+  - At least one `DOWNLOAD OK` line per successful download
+  - `Winget version:` line with version string
+

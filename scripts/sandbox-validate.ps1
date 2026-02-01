@@ -331,20 +331,54 @@ $timeoutSeconds = 1200
 $pollIntervalMs = 2000
 $elapsed = 0
 $startedSeen = $false
+$lastStepContent = ""
+$stepFile = Join-Path $OutDir "STEP.txt"
 
 while ($elapsed -lt ($timeoutSeconds * 1000)) {
     if ((Test-Path $doneFile) -or (Test-Path $errorFile)) {
         break
     }
+    
+    # Fail-fast guard: if sandbox processes are gone and no DONE/ERROR, exit immediately
+    $sandboxProcessNames = @('WindowsSandboxClient', 'WindowsSandboxServer', 'VmmemWSB')
+    $sandboxRunning = $false
+    foreach ($procName in $sandboxProcessNames) {
+        if (Get-Process -Name $procName -ErrorAction SilentlyContinue) {
+            $sandboxRunning = $true
+            break
+        }
+    }
+    if (-not $sandboxRunning -and $startedSeen) {
+        # Sandbox exited without producing DONE or ERROR
+        Write-Fail "Sandbox exited before producing DONE/ERROR"
+        Write-Host ""
+        Write-Host "[FATAL] Windows Sandbox terminated unexpectedly." -ForegroundColor Red
+        Write-Host "        Check artifacts in: $OutDir" -ForegroundColor Red
+        if (Test-Path $stepFile) {
+            $lastStep = Get-Content $stepFile -Raw -ErrorAction SilentlyContinue
+            Write-Host "        Last STEP: $($lastStep.Trim())" -ForegroundColor Yellow
+        }
+        exit 1
+    }
+    
     # Track if STARTED.txt appeared (confirms sandbox script is running)
     if (-not $startedSeen -and (Test-Path $startedFile)) {
         $startedSeen = $true
         Write-Info "Sandbox script started, waiting for completion..."
     }
-    # Show progress every 30 seconds
+    
+    # Show progress when STEP.txt changes (live download progress)
+    if (Test-Path $stepFile) {
+        $currentStepContent = (Get-Content $stepFile -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($currentStepContent -and $currentStepContent -ne $lastStepContent) {
+            Write-Info "Progress: $currentStepContent"
+            $lastStepContent = $currentStepContent
+        }
+    }
+    
+    # Show elapsed time every 30 seconds
     if ($elapsed -gt 0 -and ($elapsed % 30000) -eq 0) {
-        $stepContent = if (Test-Path (Join-Path $OutDir "STEP.txt")) { Get-Content (Join-Path $OutDir "STEP.txt") -Raw } else { "waiting" }
-        Write-Info "Still running ($([int]($elapsed/1000))s): $($stepContent.Trim())"
+        Write-Info "Elapsed: $([int]($elapsed/1000))s"
     }
     Start-Sleep -Milliseconds $pollIntervalMs
     $elapsed += $pollIntervalMs
