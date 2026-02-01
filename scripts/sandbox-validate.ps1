@@ -465,9 +465,13 @@ while ($elapsed -lt ($timeoutSeconds * 1000)) {
         }
     }
     
-    # Show elapsed time every 30 seconds as heartbeat fallback (only if no progress shown recently)
-    if ($elapsed -gt 0 -and ($elapsed % 30000) -eq 0 -and ($elapsed - $lastHeartbeat) -ge 25000) {
-        Write-Info "Still running... ($([int]($elapsed/1000))s elapsed)"
+    # Show heartbeat every 15 seconds if no progress shown recently (includes last stage)
+    if ($elapsed -gt 0 -and ($elapsed % 15000) -eq 0 -and ($elapsed - $lastHeartbeat) -ge 12000) {
+        $heartbeatMsg = "Heartbeat: $([int]($elapsed/1000))s elapsed"
+        if ($lastStepContent) {
+            $heartbeatMsg += " (last: $lastStepContent)"
+        }
+        Write-Info $heartbeatMsg
     }
     Start-Sleep -Milliseconds $pollIntervalMs
     $elapsed += $pollIntervalMs
@@ -534,11 +538,13 @@ Write-Host ""
 if (Test-Path $resultFile) {
     $result = Get-Content -Path $resultFile -Raw | ConvertFrom-Json
     Write-Host "--- Proof Summary ---" -ForegroundColor Cyan
-    Write-Host "  startedAt:      $($result.startedAt)" -ForegroundColor White
-    Write-Host "  completedAt:    $($result.completedAt)" -ForegroundColor White
-    Write-Host "  wingetVersion:  $($result.wingetVersion)" -ForegroundColor White
-    Write-Host "  installExitCode: $($result.installExitCode)" -ForegroundColor White
-    Write-Host "  status:         $($result.status)" -ForegroundColor $(if ($result.status -eq 'PASS') { 'Green' } else { 'Red' })
+    Write-Host "  startedAt:        $($result.startedAt)" -ForegroundColor White
+    Write-Host "  completedAt:      $($result.completedAt)" -ForegroundColor White
+    Write-Host "  wingetVersion:    $($result.wingetVersion)" -ForegroundColor White
+    Write-Host "  installExitCode:  $($result.installExitCode)" -ForegroundColor White
+    Write-Host "  postInstallSmokeOk: $($result.postInstallSmokeOk)" -ForegroundColor $(if ($result.postInstallSmokeOk) { 'Green' } else { 'Yellow' })
+    Write-Host "  policyBlockDetected: $($result.policyBlockDetected)" -ForegroundColor $(if ($result.policyBlockDetected) { 'Red' } else { 'Green' })
+    Write-Host "  status:           $($result.status)" -ForegroundColor $(if ($result.status -eq 'PASS') { 'Green' } else { 'Red' })
     Write-Host "---------------------" -ForegroundColor Cyan
 }
 

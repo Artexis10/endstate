@@ -106,6 +106,11 @@ $script:WingetBootstrapOk = $false
 $script:WingetVersion = $null
 $script:InstallCommand = $null
 $script:InstallExitCode = $null
+$script:PostInstallSmokeOk = $false
+$script:PostInstallSmokeOutput = $null
+$script:PolicyBlockDetected = $false
+$script:PolicyBlockEvidence = $null
+$script:SmokeLog = Join-Path $OutputDir "smoke.log"
 
 # Create bootstrap log immediately
 "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Bootstrap log initialized" | Out-File -FilePath $script:BootstrapLog -Encoding UTF8
@@ -1171,6 +1176,143 @@ Then place the installer file in sandbox-tests/installers/
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
 # ============================================================================
+# STAGE 2.5: Post-Install Smoke Test (detect WDAC/Smart App Control blocks)
+# ============================================================================
+Set-Stage "smoke-test"
+Write-Step "Running post-install smoke test..."
+
+# Initialize smoke log
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Smoke test started for $AppId" | Out-File -FilePath $script:SmokeLog -Encoding UTF8
+
+$smokeOutput = @()
+$policyBlockPatterns = @(
+    '0xC0E90002',           # WDAC/Smart App Control block code
+    'Code Integrity',
+    'blocked',
+    'cannot verify publisher',
+    'Bad Image',
+    'not allowed to run',
+    'Windows Defender Application Control',
+    'Smart App Control',
+    'AppLocker'
+)
+
+function Test-PolicyBlock {
+    param([string]$Output)
+    foreach ($pattern in $policyBlockPatterns) {
+        if ($Output -match [regex]::Escape($pattern)) {
+            return $pattern
+        }
+    }
+    return $null
+}
+
+# Smoke test 1: Run app --version command (for git: git --version)
+$smokeCommands = @()
+switch ($AppId) {
+    'git' {
+        $smokeCommands += @{ Cmd = 'git'; Args = @('--version'); Desc = 'git --version' }
+        $smokeCommands += @{ Cmd = 'where.exe'; Args = @('git'); Desc = 'where.exe git' }
+        # Optional: test bash.exe if Git is installed
+        $gitBashPath = "${env:ProgramFiles}\Git\bin\bash.exe"
+        if (Test-Path $gitBashPath) {
+            $smokeCommands += @{ Cmd = $gitBashPath; Args = @('--version'); Desc = 'bash.exe --version' }
+        }
+    }
+    default {
+        # Generic smoke: try where.exe on the app name
+        $smokeCommands += @{ Cmd = 'where.exe'; Args = @($AppId); Desc = "where.exe $AppId" }
+    }
+}
+
+$allSmokeOk = $true
+$blockEvidence = @()
+
+foreach ($smoke in $smokeCommands) {
+    "--- Running: $($smoke.Desc) ---" | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+    Write-Info "Smoke: $($smoke.Desc)"
+    
+    try {
+        $cmdOutput = & $smoke.Cmd $smoke.Args 2>&1 | Out-String
+        $exitCode = $LASTEXITCODE
+        
+        "Exit code: $exitCode" | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+        "Output:" | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+        $cmdOutput | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+        
+        $smokeOutput += "[$($smoke.Desc)] Exit=$exitCode Output: $($cmdOutput.Trim())"
+        
+        # Check for policy block patterns
+        $blockMatch = Test-PolicyBlock -Output $cmdOutput
+        if ($blockMatch) {
+            $allSmokeOk = $false
+            $blockEvidence += "Command '$($smoke.Desc)' output contains policy block indicator: $blockMatch"
+            "POLICY BLOCK DETECTED: $blockMatch" | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+        }
+        
+        # Non-zero exit code is also a potential issue
+        if ($exitCode -ne 0 -and $smoke.Cmd -ne 'where.exe') {
+            $allSmokeOk = $false
+            $blockEvidence += "Command '$($smoke.Desc)' failed with exit code $exitCode"
+        }
+    } catch {
+        $errorMsg = $_.Exception.Message
+        "EXCEPTION: $errorMsg" | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+        $smokeOutput += "[$($smoke.Desc)] EXCEPTION: $errorMsg"
+        
+        # Check exception message for policy block patterns
+        $blockMatch = Test-PolicyBlock -Output $errorMsg
+        if ($blockMatch) {
+            $allSmokeOk = $false
+            $blockEvidence += "Command '$($smoke.Desc)' exception contains policy block indicator: $blockMatch"
+        }
+    }
+}
+
+# Store results
+$script:PostInstallSmokeOutput = ($smokeOutput -join "`n") | Select-Object -First 2000
+$script:PostInstallSmokeOk = $allSmokeOk
+
+if ($blockEvidence.Count -gt 0) {
+    $script:PolicyBlockDetected = $true
+    $script:PolicyBlockEvidence = $blockEvidence -join "; "
+    
+    # Write to smoke log
+    "" | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+    "=== POLICY BLOCK DETECTED ===" | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+    $script:PolicyBlockEvidence | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+    
+    # This is a FAIL condition - write ERROR.txt and fail
+    $errorContent = @"
+WDAC/Smart App Control Policy Block Detected
+
+The installed application cannot execute due to Windows security policy enforcement.
+This is likely caused by WDAC (Windows Defender Application Control) or Smart App Control.
+
+Evidence:
+$($script:PolicyBlockEvidence)
+
+Smoke test output:
+$($script:PostInstallSmokeOutput)
+
+To resolve:
+1. Check if Smart App Control is enabled in Windows Security > App & browser control
+2. Check for WDAC policies: Get-CIPolicy -FilePath (Get-CIPolicyInfo).FilePath
+3. The sandbox may have stricter security policies than the host
+"@
+    $errorContent | Out-File -FilePath $script:ErrorFile -Encoding UTF8
+    Write-FatalError -Stage "smoke-test" -Message "Policy block detected - app cannot execute" -Details $script:PolicyBlockEvidence
+}
+
+if ($allSmokeOk) {
+    Write-Pass "Smoke test passed - app executes without policy blocks"
+} else {
+    Write-Info "Smoke test completed with warnings (see smoke.log)"
+}
+
+"[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Smoke test completed: ok=$allSmokeOk policyBlock=$($script:PolicyBlockDetected)" | Out-File -FilePath $script:SmokeLog -Append -Encoding UTF8
+
+# ============================================================================
 # STAGE 3: Run Seed Script (if present and enabled)
 # ============================================================================
 Set-Stage "seed"
@@ -1521,6 +1663,10 @@ $result.wingetBootstrapOk = $script:WingetBootstrapOk
 $result.wingetVersion = $script:WingetVersion
 $result.installCommand = $script:InstallCommand
 $result.installExitCode = $script:InstallExitCode
+$result.postInstallSmokeOk = $script:PostInstallSmokeOk
+$result.postInstallSmokeOutput = $script:PostInstallSmokeOutput
+$result.policyBlockDetected = $script:PolicyBlockDetected
+$result.policyBlockEvidence = $script:PolicyBlockEvidence
 
 # Write result file
 Write-Result -Result $result
@@ -1577,6 +1723,10 @@ $errorStack
         wingetVersion = $script:WingetVersion
         installCommand = $script:InstallCommand
         installExitCode = $script:InstallExitCode
+        postInstallSmokeOk = $script:PostInstallSmokeOk
+        postInstallSmokeOutput = $script:PostInstallSmokeOutput
+        policyBlockDetected = $script:PolicyBlockDetected
+        policyBlockEvidence = $script:PolicyBlockEvidence
     }
     $failResult | ConvertTo-Json -Depth 5 | Out-File -FilePath $script:ResultFile -Encoding UTF8
     

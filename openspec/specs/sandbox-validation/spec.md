@@ -186,7 +186,8 @@ The system SHALL provide live download progress updates during long-running down
 - **WHEN** the host script polls `STEP.txt` (every 1 second)
 - **THEN** any change in content is immediately displayed to the user
 - **AND** the user sees download progress values change at least twice during download stages
-- **AND** a 30-second heartbeat fallback is shown only if no progress updates occurred recently
+- **AND** a 15-second heartbeat fallback is shown only if no progress updates occurred recently
+- **AND** the heartbeat includes elapsed time and last known stage
 
 ### Requirement: Host Fail-Fast Guard
 
@@ -225,6 +226,10 @@ The system SHALL produce a complete set of artifacts when validation passes.
   - `wingetVersion` - version string from winget --version
   - `installExitCode` - integer exit code from winget install
   - `installCommand` - single-line string (no embedded newlines)
+  - `postInstallSmokeOk` - boolean indicating smoke test passed
+  - `postInstallSmokeOutput` - string with smoke test output (last ~2000 chars)
+  - `policyBlockDetected` - boolean indicating WDAC/Smart App Control block
+  - `policyBlockEvidence` - string with evidence if policy block detected
 
 #### Scenario: winget-bootstrap.log content
 
@@ -299,5 +304,62 @@ To verify deterministic teardown:
   - `completedAt` timestamp
   - `wingetVersion`
   - `installExitCode`
+  - `postInstallSmokeOk`
+  - `policyBlockDetected`
   - `status` (PASS/FAIL)
+
+### Requirement: Post-Install Smoke Test
+
+The system MUST verify that the installed application can execute without policy blocks after winget install completes.
+
+#### Scenario: Smoke test execution
+
+- **WHEN** winget install completes successfully
+- **THEN** the system MUST run a smoke test stage before proceeding to seed
+- **AND** for git: run `git --version`, `where.exe git`, and optionally `bash.exe --version`
+- **AND** capture all output and exit codes in `smoke.log`
+
+#### Scenario: Smoke test passes
+
+- **WHEN** all smoke test commands succeed without policy block indicators
+- **THEN** `postInstallSmokeOk` is set to `true` in result.json
+- **AND** validation continues to the seed stage
+
+#### Scenario: PASS requires smoke test success
+
+- **WHEN** validation completes with status PASS
+- **THEN** `postInstallSmokeOk` MUST be `true`
+- **AND** `policyBlockDetected` MUST be `false`
+
+### Requirement: WDAC/Smart App Control Detection
+
+The system MUST detect and fail explicitly when Windows security policies block application execution.
+
+#### Scenario: Policy block patterns
+
+- **WHEN** smoke test output contains any of these patterns:
+  - `0xC0E90002` (WDAC block code)
+  - `Code Integrity`
+  - `blocked`
+  - `cannot verify publisher`
+  - `Bad Image`
+  - `not allowed to run`
+  - `Windows Defender Application Control`
+  - `Smart App Control`
+  - `AppLocker`
+- **THEN** `policyBlockDetected` is set to `true`
+- **AND** `policyBlockEvidence` contains the matched pattern and context
+
+#### Scenario: Policy block causes FAIL
+
+- **WHEN** `policyBlockDetected` is `true`
+- **THEN** validation MUST fail with status "FAIL"
+- **AND** `ERROR.txt` MUST be written with policy block details
+- **AND** the error message MUST explain WDAC/Smart App Control as the likely cause
+
+#### Scenario: Required artifacts include smoke.log
+
+- **WHEN** validation completes (PASS or FAIL)
+- **THEN** `smoke.log` MUST exist in the output directory
+- **AND** it MUST contain the smoke test commands executed and their output
 
