@@ -1361,6 +1361,46 @@ if ($hasSeed -and -not $NoSeed) {
     Write-Info "Seed script skipped (NoSeed=$NoSeed, hasSeed=$hasSeed)"
 }
 
+# Post-seed validation: verify seed produced expected files
+if ($result.seedRan -and $module.capture -and $module.capture.files) {
+    $seedExpectedPaths = @()
+    foreach ($fileEntry in $module.capture.files) {
+        $expandedPath = Expand-ConfigPath -Path $fileEntry.source
+        if (-not $fileEntry.optional) {
+            $seedExpectedPaths += $expandedPath
+        } elseif (Test-Path $expandedPath) {
+            $seedExpectedPaths += $expandedPath
+        }
+    }
+    # For git module, always check ~/.gitconfig specifically
+    $gitconfigPath = Join-Path $env:USERPROFILE ".gitconfig"
+    if (($seedExpectedPaths.Count -eq 0) -and (Test-Path $gitconfigPath)) {
+        $seedExpectedPaths += $gitconfigPath
+    }
+    $foundAny = $false
+    foreach ($sp in $seedExpectedPaths) {
+        if (Test-Path $sp) {
+            $fileSize = (Get-Item $sp).Length
+            Write-Log "Post-seed check: $sp exists ($fileSize bytes)"
+            if ($fileSize -gt 0) { $foundAny = $true }
+        } else {
+            Write-Log "Post-seed check: $sp NOT FOUND"
+        }
+    }
+    if (-not $foundAny) {
+        Write-Log "WARNING: Seed completed but no expected config files found"
+        Write-Log "Checking git config --global --list:"
+        try {
+            $configList = & git config --global --list 2>&1
+            $configList | ForEach-Object { Write-Log "  $_" }
+        } catch {
+            Write-Log "  (git config --list failed: $($_.Exception.Message))"
+        }
+        Write-FatalError -Stage "seed" -Message "Seed completed but no config files were produced (expected at least one non-empty file)" -Details "Checked paths: $($seedExpectedPaths -join ', ')"
+    }
+    Write-Pass "Post-seed validation: config files present"
+}
+
 # ============================================================================
 # STAGE 4: Capture Config Files
 # ============================================================================
