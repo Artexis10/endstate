@@ -995,7 +995,102 @@ Write-Step "Installing $WingetId..."
 # Try to ensure winget is available (Strategy A: Bootstrap)
 $wingetAvailable = Ensure-Winget
 
-if ($wingetAvailable) {
+if ($InstallerPath) {
+    # Prefer offline installer when explicitly provided (faster, deterministic)
+    Write-Info "Offline installer provided, skipping winget install..."
+    Write-Step "Using offline installer..."
+
+    # Resolve installer path (relative to repo root in sandbox)
+    $fullInstallerPath = if ([System.IO.Path]::IsPathRooted($InstallerPath)) {
+        $InstallerPath
+    } else {
+        Join-Path $script:RepoRoot $InstallerPath
+    }
+
+    if (-not (Test-Path $fullInstallerPath)) {
+        Write-FatalError -Stage "install" -Message "Offline installer not found: $fullInstallerPath" -Details "Ensure the installer file exists at the specified path."
+    }
+
+    Write-Info "Installer: $fullInstallerPath"
+    Write-Info "Args: $InstallerArgs"
+
+    # Log offline install attempt
+    $installLogPath = Join-Path $OutputDir "install.log"
+    "Offline install started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File -FilePath $installLogPath -Encoding UTF8
+    "Installer: $fullInstallerPath" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+    "Args: $InstallerArgs" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+
+    try {
+        # Determine installer type and execute
+        $extension = [System.IO.Path]::GetExtension($fullInstallerPath).ToLower()
+        $isAppxType = $extension -in @(".msix", ".msixbundle", ".appx", ".appxbundle")
+        $installOutput = $null
+        $installExitCode = 0
+
+        "Extension: $extension (isAppxType: $isAppxType)" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+
+        if ($extension -eq ".msi") {
+            "Executing: msiexec /i `"$fullInstallerPath`" $InstallerArgs" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            $installOutput = & msiexec /i "$fullInstallerPath" $InstallerArgs 2>&1
+            $installExitCode = $LASTEXITCODE
+        } elseif ($extension -eq ".exe") {
+            # Launch installer and poll for completion via exePath
+            # Split args string into array so each flag is passed as a separate argument
+            $argsArray = if ($InstallerArgs) { @($InstallerArgs.Trim() -split '\s+') } else { @() }
+            "Executing: `"$fullInstallerPath`" $($argsArray -join ' ')" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            $installOutput = & "$fullInstallerPath" @argsArray 2>&1
+            $installExitCode = $LASTEXITCODE
+            # InnoSetup returns immediately — poll for the target exe to appear
+            if ($InstallerExePath) {
+                $pollExe = Expand-ConfigPath -Path $InstallerExePath
+                $maxWait = 300  # 5 minutes max
+                $waited = 0
+                while (-not (Test-Path $pollExe) -and $waited -lt $maxWait) {
+                    Start-Sleep -Seconds 5
+                    $waited += 5
+                    "Waiting for $pollExe ... ${waited}s" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+                }
+                "Poll finished after ${waited}s (exists: $(Test-Path $pollExe))" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            }
+        } elseif ($isAppxType) {
+            "Executing: Add-AppxPackage -Path `"$fullInstallerPath`"" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+            # For AppX packages, success = no exception thrown; don't rely on $LASTEXITCODE
+            Add-AppxPackage -Path $fullInstallerPath -ErrorAction Stop
+            $installOutput = "AppX package installed successfully"
+            $installExitCode = 0
+        } else {
+            Write-FatalError -Stage "install" -Message "Unsupported installer type: $extension"
+        }
+
+        if ($installOutput) {
+            $installOutput | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        }
+        "Exit code: $installExitCode" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+
+        # Only check exit code for exe/msi (AppX success is determined by no exception)
+        if (-not $isAppxType -and $installExitCode -ne 0) {
+            Write-FatalError -Stage "install" -Message "Offline installer failed with exit code $installExitCode" -Details ($installOutput | Out-String)
+        }
+
+        # Verify installation if exePath provided
+        if ($InstallerExePath) {
+            Start-Sleep -Seconds 2
+            $expandedExePath = Expand-ConfigPath -Path $InstallerExePath
+            if (Test-Path $expandedExePath) {
+                Write-Pass "Installed via offline installer (verified: $expandedExePath)"
+            } else {
+                Write-Info "Warning: Could not verify install at $expandedExePath"
+                Write-Pass "Installed via offline installer (unverified)"
+            }
+        } else {
+            Write-Pass "Installed via offline installer"
+        }
+    } catch {
+        $errorDetail = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
+        "EXCEPTION: $errorDetail" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
+        Write-FatalError -Stage "install" -Message "Offline installer threw exception" -Details $errorDetail
+    }
+} elseif ($wingetAvailable) {
     # Install via winget - MUST pin source to avoid ambiguity (msstore vs winget)
     Write-Info "Installing via winget..."
     
@@ -1068,90 +1163,8 @@ Exception: $($_.Exception.Message)
         Write-FatalError -Stage "install" -Message "Winget install threw exception: $_"
     }
 } else {
-    # Strategy B: Offline Installer Fallback
-    Write-Info "Winget unavailable, checking for offline installer fallback..."
-    
-    if ($InstallerPath) {
-        Write-Step "Using offline installer fallback..."
-        
-        # Resolve installer path (relative to repo root in sandbox)
-        $fullInstallerPath = if ([System.IO.Path]::IsPathRooted($InstallerPath)) {
-            $InstallerPath
-        } else {
-            Join-Path $script:RepoRoot $InstallerPath
-        }
-        
-        if (-not (Test-Path $fullInstallerPath)) {
-            Write-FatalError -Stage "install" -Message "Offline installer not found: $fullInstallerPath" -Details "Ensure the installer file exists at the specified path."
-        }
-        
-        Write-Info "Installer: $fullInstallerPath"
-        Write-Info "Args: $InstallerArgs"
-        
-        # Log offline install attempt
-        $installLogPath = Join-Path $OutputDir "install.log"
-        "Offline install started at $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" | Out-File -FilePath $installLogPath -Encoding UTF8
-        "Installer: $fullInstallerPath" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-        "Args: $InstallerArgs" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-        
-        try {
-            # Determine installer type and execute
-            $extension = [System.IO.Path]::GetExtension($fullInstallerPath).ToLower()
-            $isAppxType = $extension -in @(".msix", ".msixbundle", ".appx", ".appxbundle")
-            $installOutput = $null
-            $installExitCode = 0
-            
-            "Extension: $extension (isAppxType: $isAppxType)" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-            
-            if ($extension -eq ".msi") {
-                "Executing: msiexec /i `"$fullInstallerPath`" $InstallerArgs" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-                $installOutput = & msiexec /i "$fullInstallerPath" $InstallerArgs 2>&1
-                $installExitCode = $LASTEXITCODE
-            } elseif ($extension -eq ".exe") {
-                "Executing: `"$fullInstallerPath`" $InstallerArgs" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-                $installOutput = & "$fullInstallerPath" $InstallerArgs 2>&1
-                $installExitCode = $LASTEXITCODE
-            } elseif ($isAppxType) {
-                "Executing: Add-AppxPackage -Path `"$fullInstallerPath`"" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-                # For AppX packages, success = no exception thrown; don't rely on $LASTEXITCODE
-                Add-AppxPackage -Path $fullInstallerPath -ErrorAction Stop
-                $installOutput = "AppX package installed successfully"
-                $installExitCode = 0
-            } else {
-                Write-FatalError -Stage "install" -Message "Unsupported installer type: $extension"
-            }
-            
-            if ($installOutput) {
-                $installOutput | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-            }
-            "Exit code: $installExitCode" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-            
-            # Only check exit code for exe/msi (AppX success is determined by no exception)
-            if (-not $isAppxType -and $installExitCode -ne 0) {
-                Write-FatalError -Stage "install" -Message "Offline installer failed with exit code $installExitCode" -Details ($installOutput | Out-String)
-            }
-            
-            # Verify installation if exePath provided
-            if ($InstallerExePath) {
-                Start-Sleep -Seconds 2
-                $expandedExePath = Expand-ConfigPath -Path $InstallerExePath
-                if (Test-Path $expandedExePath) {
-                    Write-Pass "Installed via offline installer (verified: $expandedExePath)"
-                } else {
-                    Write-Info "Warning: Could not verify install at $expandedExePath"
-                    Write-Pass "Installed via offline installer (unverified)"
-                }
-            } else {
-                Write-Pass "Installed via offline installer"
-            }
-        } catch {
-            $errorDetail = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
-            "EXCEPTION: $errorDetail" | Out-File -FilePath $installLogPath -Append -Encoding UTF8
-            Write-FatalError -Stage "install" -Message "Offline installer threw exception" -Details $errorDetail
-        }
-    } else {
-        # No fallback available - provide actionable error
-        $errorMsg = @"
+    # No installer and no winget — error
+    $errorMsg = @"
 Winget bootstrap failed and no offline installer fallback is configured.
 
 To fix this, add installer metadata to sandbox-tests/golden-queue.jsonc:
@@ -1168,12 +1181,17 @@ To fix this, add installer metadata to sandbox-tests/golden-queue.jsonc:
 
 Then place the installer file in sandbox-tests/installers/
 "@
-        Write-FatalError -Stage "install" -Message "Winget unavailable and no offline installer configured for $AppId" -Details $errorMsg
-    }
+    Write-FatalError -Stage "install" -Message "Winget unavailable and no offline installer configured for $AppId" -Details $errorMsg
 }
 
-# Refresh PATH
+# Refresh PATH from registry and explicitly add installer exe directory if provided
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+if ($InstallerExePath) {
+    $exeDir = Split-Path (Expand-ConfigPath -Path $InstallerExePath) -Parent
+    if ($exeDir -and ($env:Path -notlike "*$exeDir*")) {
+        $env:Path = "$exeDir;$env:Path"
+    }
+}
 
 # ============================================================================
 # STAGE 2.5: Post-Install Smoke Test (detect WDAC/Smart App Control blocks)

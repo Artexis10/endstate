@@ -23,7 +23,15 @@
   // }
   
   "apps": [
-    { "appId": "git", "wingetId": "Git.Git" },
+    {
+      "appId": "git",
+      "wingetId": "Git.Git",
+      "installer": {
+        "path": "sandbox-tests/installers/Git-2.47.1.2-64-bit.exe",
+        "silentArgs": "/VERYSILENT /NORESTART /NOCANCEL",
+        "exePath": "C:\\Program Files\\Git\\bin\\git.exe"
+      }
+    },
     { "appId": "vscodium", "wingetId": "VSCodium.VSCodium" },
     { "appId": "powertoys", "wingetId": "Microsoft.PowerToys" },
     { "appId": "msi-afterburner", "wingetId": "Guru3D.Afterburner" }
