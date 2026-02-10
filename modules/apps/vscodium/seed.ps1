@@ -187,6 +187,86 @@ $keybindingsJson | Set-Content -Path $keybindingsPath -Encoding UTF8
 Write-Pass "Keybindings written to: $keybindingsPath"
 
 # ============================================================================
+# SNIPPETS
+# ============================================================================
+Write-Step "Writing snippets..."
+
+$snippetsDir = Join-Path $vscodiumUserDir "snippets"
+if (-not (Test-Path $snippetsDir)) {
+    New-Item -ItemType Directory -Path $snippetsDir -Force | Out-Null
+}
+
+$powershellSnippets = @{
+    "Function" = @{
+        prefix = "func"
+        body = @(
+            "function `${1:FunctionName} {"
+            "    param("
+            "        [`${2:string}]`$`${3:Parameter}"
+            "    )"
+            "    `$0"
+            "}"
+        )
+        description = "PowerShell function with param block"
+    }
+    "Try-Catch" = @{
+        prefix = "trycatch"
+        body = @(
+            "try {"
+            "    `$0"
+            "} catch {"
+            "    Write-Error `$_.Exception.Message"
+            "}"
+        )
+        description = "Try-catch block"
+    }
+    "Pester Test" = @{
+        prefix = "describe"
+        body = @(
+            "Describe '`${1:Subject}' {"
+            "    It '`${2:should do something}' {"
+            "        `$0"
+            "    }"
+            "}"
+        )
+        description = "Pester Describe/It block"
+    }
+}
+
+$psSnippetsPath = Join-Path $snippetsDir "powershell.json"
+$powershellSnippets | ConvertTo-Json -Depth 5 | Set-Content -Path $psSnippetsPath -Encoding UTF8
+Write-Pass "PowerShell snippets written to: $psSnippetsPath"
+
+$globalSnippets = @{
+    "TODO Comment" = @{
+        prefix = "todo"
+        body = @("// TODO: `$0")
+        description = "TODO comment"
+    }
+    "Console Log" = @{
+        prefix = "clog"
+        body = @("console.log('`${1:label}:', `${2:value});`$0")
+        description = "Console log with label"
+    }
+}
+
+$globalSnippetsPath = Join-Path $snippetsDir "global.code-snippets"
+$globalSnippets | ConvertTo-Json -Depth 5 | Set-Content -Path $globalSnippetsPath -Encoding UTF8
+Write-Pass "Global snippets written to: $globalSnippetsPath"
+
+# ============================================================================
+# POST-SEED DIAGNOSTIC
+# ============================================================================
+Write-Host ""
+Write-Step "Post-seed diagnostic:"
+$seededFiles = @($settingsPath, $keybindingsPath, $psSnippetsPath, $globalSnippetsPath)
+foreach ($f in $seededFiles) {
+    $exists = Test-Path $f
+    $size = if ($exists) { (Get-Item $f).Length } else { 'N/A' }
+    Write-Host "  $f exists=$exists size=$size" -ForegroundColor Gray
+}
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
 Write-Host ""
@@ -198,6 +278,8 @@ Write-Host ""
 Write-Step "Files created:"
 Write-Host "  - $settingsPath" -ForegroundColor Gray
 Write-Host "  - $keybindingsPath" -ForegroundColor Gray
+Write-Host "  - $psSnippetsPath" -ForegroundColor Gray
+Write-Host "  - $globalSnippetsPath" -ForegroundColor Gray
 Write-Host ""
 
 Write-Pass "Seeding complete"

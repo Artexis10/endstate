@@ -1,6 +1,7 @@
 {
   // Config Module: VSCodium
   // Provides verify/restore/capture configuration for VSCodium (open-source VS Code)
+  // Curated module - captures user configuration, excludes extension state databases
   
   "id": "apps.vscodium",
   "displayName": "VSCodium",
@@ -13,26 +14,64 @@
   },
   
   "verify": [
-    { "type": "command-exists", "command": "codium" },
-    { "type": "file-exists", "path": "%APPDATA%\\VSCodium\\User\\settings.json" }
+    { "type": "command-exists", "command": "codium" }
+    // Note: settings.json is optional - user may not have configured VSCodium yet
+    // Verify only checks VSCodium is installed, not that config exists
   ],
   
   "restore": [
-    // Restore VSCodium user settings from captured payload
-    // { "type": "merge", "format": "json", "source": "./payload/apps/vscodium/settings.json", "target": "%APPDATA%\\VSCodium\\User\\settings.json", "backup": true }
+    {
+      "type": "copy",
+      "source": "./payload/apps/vscodium/settings.json",
+      "target": "%APPDATA%\\VSCodium\\User\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/vscodium/keybindings.json",
+      "target": "%APPDATA%\\VSCodium\\User\\keybindings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/vscodium/snippets",
+      "target": "%APPDATA%\\VSCodium\\User\\snippets",
+      "backup": true,
+      "optional": true
+    }
   ],
   
   "capture": {
     "files": [
+      // User settings
       { "source": "%APPDATA%\\VSCodium\\User\\settings.json", "dest": "apps/vscodium/settings.json", "optional": true },
-      { "source": "%APPDATA%\\VSCodium\\User\\keybindings.json", "dest": "apps/vscodium/keybindings.json", "optional": true }
+      { "source": "%APPDATA%\\VSCodium\\User\\keybindings.json", "dest": "apps/vscodium/keybindings.json", "optional": true },
+      
+      // Snippets directory
+      { "source": "%APPDATA%\\VSCodium\\User\\snippets", "dest": "apps/vscodium/snippets", "optional": true }
     ],
     "excludeGlobs": [
       "**\\Cache\\**",
       "**\\GPUCache\\**",
-      "**\\CachedData\\**"
+      "**\\CachedData\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\state.vscdb*"
     ]
   },
+  
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\VSCodium\\User\\globalStorage\\state.vscdb",
+      "%APPDATA%\\VSCodium\\User\\globalStorage\\state.vscdb.backup"
+    ],
+    "warning": "VSCodium state databases may contain extension tokens and session data. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+  
+  "notes": "Captures VSCodium user configuration (settings, keybindings, snippets). VSCodium has NO built-in settings sync (unlike VS Code), making config restoration especially valuable. Extension state databases are explicitly excluded - they may contain tokens. Supports %APPDATA%\\VSCodium\\User\\ location (Windows default).",
   
   "curation": {
     "seed": {
@@ -49,7 +88,8 @@
       "**/CachedData/**",
       "**/GPUCache/**",
       "**/Crashpad/**",
-      "**/logs/**"
+      "**/logs/**",
+      "**/state.vscdb*"
     ]
   }
 }
