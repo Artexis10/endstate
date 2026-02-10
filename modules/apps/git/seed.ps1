@@ -43,12 +43,12 @@ $ErrorActionPreference = 'Stop'
 
 function Write-Step {
     param([string]$Message)
-    Write-Host "[SEED] $Message" -ForegroundColor Yellow
+    Write-Output "[SEED] $Message"
 }
 
 function Write-Pass {
     param([string]$Message)
-    Write-Host "[PASS] $Message" -ForegroundColor Green
+    Write-Output "[PASS] $Message"
 }
 
 function Set-GitConfig {
@@ -60,7 +60,7 @@ function Set-GitConfig {
     
     & git config --$Scope $Key $Value 2>$null
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "Failed to set $Key (exit code $LASTEXITCODE)"
+        Write-Output "[WARN] Failed to set $Key (exit code $LASTEXITCODE)"
         return $false
     }
     return $true
@@ -73,11 +73,37 @@ if (-not $gitCmd) {
     exit 1
 }
 
-Write-Host ""
-Write-Host "=" * 60 -ForegroundColor Cyan
-Write-Host " Git Configuration Seeding (Curation Mode)" -ForegroundColor Cyan
-Write-Host "=" * 60 -ForegroundColor Cyan
-Write-Host ""
+# Ensure HOME is set so git config --global can find the config file.
+# In Windows Sandbox (WDAGUtilityAccount), HOME may not be set.
+if (-not $env:HOME) {
+    $env:HOME = $env:USERPROFILE
+}
+Write-Output "[SEED] HOME=$env:HOME  USERPROFILE=$env:USERPROFILE"
+Write-Output "[SEED] git path: $($gitCmd.Source)"
+
+# Diagnostic: verify git config --global actually works
+Write-Output "[SEED] Testing git config --global write..."
+& git config --global endstate.test "probe" 2>$null
+$probeExit = $LASTEXITCODE
+Write-Output "[SEED] Probe exit code: $probeExit"
+$probePath = Join-Path $env:USERPROFILE ".gitconfig"
+$probeExists = Test-Path $probePath
+Write-Output "[SEED] .gitconfig exists after probe: $probeExists (path: $probePath)"
+if (-not $probeExists) {
+    # Try with explicit --file flag as fallback
+    Write-Output "[SEED] Trying explicit --file flag..."
+    & git config --file $probePath endstate.test "probe" 2>$null
+    $probeExists2 = Test-Path $probePath
+    Write-Output "[SEED] .gitconfig exists after --file probe: $probeExists2"
+}
+# Clean up probe key
+& git config --global --unset endstate.test 2>$null
+
+Write-Output ""
+Write-Output ("=" * 60)
+Write-Output " Git Configuration Seeding (Curation Mode)"
+Write-Output ("=" * 60)
+Write-Output ""
 
 Write-Step "Using scope: $Scope"
 
@@ -170,25 +196,51 @@ Write-Step "Skipping credential helper (not configured for security)..."
 # This ensures no credentials are stored during curation
 
 # ============================================================================
+# POST-CONFIG DIAGNOSTIC
+# ============================================================================
+Write-Output "[SEED] Post-config diagnostic:"
+$configList = & git config --global --list 2>$null
+if ($configList) {
+    $configList | ForEach-Object { Write-Output "  $_" }
+} else {
+    Write-Output "  WARNING: git config --global --list returned nothing"
+}
+$gitconfigPath = Join-Path $env:HOME ".gitconfig"
+Write-Output "[SEED] .gitconfig exists: $(Test-Path $gitconfigPath)"
+if (Test-Path $gitconfigPath) {
+    Write-Output "[SEED] .gitconfig size: $((Get-Item $gitconfigPath).Length) bytes"
+}
+
+# ============================================================================
 # SUMMARY
 # ============================================================================
-Write-Host ""
-Write-Host "=" * 60 -ForegroundColor Cyan
-Write-Host " Git Configuration Seeding Complete" -ForegroundColor Cyan
-Write-Host "=" * 60 -ForegroundColor Cyan
-Write-Host ""
+Write-Output ""
+Write-Output ("=" * 60)
+Write-Output " Git Configuration Seeding Complete"
+Write-Output ("=" * 60)
+Write-Output ""
 
 # Show resulting config
 Write-Step "Resulting configuration:"
 $configPath = if ($Scope -eq 'global') { "$env:USERPROFILE\.gitconfig" } else { "$env:ProgramData\Git\config" }
 if (Test-Path $configPath) {
-    Write-Host ""
-    Get-Content $configPath | ForEach-Object { Write-Host "  $_" -ForegroundColor Gray }
-    Write-Host ""
+    Write-Output ""
+    Get-Content $configPath | ForEach-Object { Write-Output "  $_" }
+    Write-Output ""
     Write-Pass "Config written to: $configPath"
 } else {
-    Write-Warning "Config file not found at expected path: $configPath"
+    Write-Output "[WARN] Config file not found at expected path: $configPath"
+    Write-Output "[DIAG] git config --list --show-origin:"
+    try { & git config --list --show-origin 2>&1 | ForEach-Object { Write-Output "  $_" } } catch { Write-Output "  (failed: $_)" }
+    Write-Output "[DIAG] git config --global --list:"
+    try { & git config --global --list 2>&1 | ForEach-Object { Write-Output "  $_" } } catch { Write-Output "  (failed: $_)" }
+    Write-Output "[DIAG] Checking common config locations:"
+    @("$env:USERPROFILE\.gitconfig", "$env:HOME\.gitconfig", "$env:PROGRAMDATA\Git\config", "$env:APPDATA\.gitconfig") | ForEach-Object {
+        $exists = Test-Path $_
+        $size = if ($exists) { (Get-Item $_).Length } else { 'N/A' }
+        Write-Output "  $_ exists=$exists size=$size"
+    }
 }
 
-Write-Host ""
+Write-Output ""
 exit 0
