@@ -1,0 +1,82 @@
+{
+  // Config Module: DxO PhotoLab
+  // Provides verify/restore/capture configuration for DxO PhotoLab (RAW photo editor)
+  // Curated module - captures presets, workspaces, and preferences
+
+  "id": "apps.dxo-photolab",
+  "displayName": "DxO PhotoLab",
+  "sensitivity": "low",
+
+  "matches": {
+    // DxO PhotoLab is installed via vendor installer (no winget ID)
+    "winget": [],
+    "exe": ["DxOPhotoLab*.exe"],
+    "uninstallDisplayName": ["^DxO PhotoLab"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\DxO\\DxO PhotoLab*\\Presets" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/dxo-photolab/Presets",
+      "target": "%LOCALAPPDATA%\\DxO\\DxO PhotoLab*\\Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/dxo-photolab/Workspaces",
+      "target": "%LOCALAPPDATA%\\DxO\\DxO PhotoLab*\\Workspaces",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\DxO\\DxO PhotoLab*\\Presets", "dest": "apps/dxo-photolab/Presets", "optional": true },
+      { "source": "%LOCALAPPDATA%\\DxO\\DxO PhotoLab*\\Workspaces", "dest": "apps/dxo-photolab/Workspaces", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\DxO.PhotoLab*.db",
+      "**\\Modules\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\DxO\\DxO PhotoLab*\\License*"
+    ],
+    "warning": "DxO license files MUST NOT be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures DxO PhotoLab presets and workspaces. Config folder is version-specific (%LOCALAPPDATA%\\DxO\\DxO PhotoLab<version>\\). Database files (.db) excluded - they contain image processing state. Optics Modules excluded (large, downloadable). Installed manually (no winget ID).",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%LOCALAPPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/*.db",
+      "**/Cache/**",
+      "**/Logs/**",
+      "**/Temp/**",
+      "**/Modules/**"
+    ]
+  }
+}

@@ -1,0 +1,96 @@
+{
+  // Config Module: Adobe Lightroom Classic
+  // Provides verify/restore/capture configuration for Lightroom Classic
+  // Curated module - captures presets and preferences, excludes catalog and cache
+  
+  "id": "apps.lightroom-classic",
+  "displayName": "Adobe Lightroom Classic",
+  "sensitivity": "low",
+  
+  "matches": {
+    // Lightroom Classic is typically installed via Adobe Creative Cloud (manual install)
+    "winget": [],
+    "exe": ["lightroom.exe"],
+    "uninstallDisplayName": ["^Adobe Lightroom Classic"]
+  },
+  
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Adobe\\Lightroom\\Preferences\\Lightroom 6 Preferences.agprefs" }
+  ],
+  
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Preferences",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Preferences",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Develop Presets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Develop Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Export Presets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Export Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Filename Templates",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Filename Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Metadata Presets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Metadata Presets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+  
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Preferences", "dest": "apps/lightroom-classic/Preferences", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Develop Presets", "dest": "apps/lightroom-classic/Develop Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Export Presets", "dest": "apps/lightroom-classic/Export Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Filename Templates", "dest": "apps/lightroom-classic/Filename Templates", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Metadata Presets", "dest": "apps/lightroom-classic/Metadata Presets", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\*.lock",
+      "**\\*.log",
+      "**\\Crash Reports\\**"
+    ]
+  },
+  
+  "notes": "Captures Lightroom Classic user preferences, develop presets, export presets, filename templates, and metadata presets. Catalogs (.lrcat) are NOT captured - they are large database files that should be managed separately. Installed via Adobe Creative Cloud (no winget ID).",
+  
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/Cache/**",
+      "**/Logs/**",
+      "**/Temp/**",
+      "**/Crash Reports/**"
+    ]
+  }
+}

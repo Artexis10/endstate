@@ -1,0 +1,63 @@
+{
+  // Config Module: Affinity Photo 2
+  // Provides verify/restore/capture configuration for Affinity Photo 2 (photo editor)
+  // Curated module - captures keyboard shortcuts, palettes, and workspace preferences
+
+  "id": "apps.affinity-photo",
+  "displayName": "Affinity Photo 2",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Serif.AffinityPhoto2"],
+    "exe": ["Photo.exe", "Photo 2.exe"],
+    "uninstallDisplayName": ["^Affinity Photo 2"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Affinity\\Photo 2\\user" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/affinity-photo/user",
+      "target": "%APPDATA%\\Affinity\\Photo 2\\user",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Affinity\\Photo 2\\user", "dest": "apps/affinity-photo/user", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\CrashReports\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\recovery\\**"
+    ]
+  },
+
+  "notes": "Captures Affinity Photo 2 user directory which contains keyboard shortcuts, palettes (.afpalette), macros, and workspace layouts. Recovery files and crash reports excluded. Config at %APPDATA%\\Affinity\\Photo 2\\user\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Cache/**",
+      "**/CrashReports/**",
+      "**/Logs/**",
+      "**/recovery/**"
+    ]
+  }
+}

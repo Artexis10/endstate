@@ -1,0 +1,92 @@
+{
+  // Config Module: Cursor
+  // Provides verify/restore/capture configuration for Cursor (AI-powered VS Code fork)
+  // Curated module - captures user configuration, excludes extension state databases
+
+  "id": "apps.cursor",
+  "displayName": "Cursor",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Cursor.Cursor"],
+    "exe": ["cursor.exe"],
+    "uninstallDisplayName": ["^Cursor"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "cursor" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/cursor/settings.json",
+      "target": "%APPDATA%\\Cursor\\User\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cursor/keybindings.json",
+      "target": "%APPDATA%\\Cursor\\User\\keybindings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cursor/snippets",
+      "target": "%APPDATA%\\Cursor\\User\\snippets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Cursor\\User\\settings.json", "dest": "apps/cursor/settings.json", "optional": true },
+      { "source": "%APPDATA%\\Cursor\\User\\keybindings.json", "dest": "apps/cursor/keybindings.json", "optional": true },
+      { "source": "%APPDATA%\\Cursor\\User\\snippets", "dest": "apps/cursor/snippets", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\CachedData\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\Temp\\**",
+      "**\\state.vscdb*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Cursor\\User\\globalStorage\\state.vscdb",
+      "%APPDATA%\\Cursor\\User\\globalStorage\\state.vscdb.backup"
+    ],
+    "warning": "Cursor state databases may contain extension tokens, AI session data, and API keys. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Cursor (AI-powered IDE) user configuration (settings, keybindings, snippets). Cursor is a VS Code fork with AI features. Extension state databases are explicitly excluded - they may contain tokens and API keys. Config at %APPDATA%\\Cursor\\User\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/Cache/**",
+      "**/CachedData/**",
+      "**/GPUCache/**",
+      "**/Crashpad/**",
+      "**/logs/**",
+      "**/Temp/**",
+      "**/state.vscdb*"
+    ]
+  }
+}

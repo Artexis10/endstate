@@ -1,0 +1,98 @@
+{
+  // Config Module: REAPER
+  // Provides verify/restore/capture configuration for REAPER (digital audio workstation)
+  // Curated module - captures main config, keybindings, and user scripts/effects
+
+  "id": "apps.reaper",
+  "displayName": "REAPER",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Cockos.REAPER"],
+    "exe": ["reaper.exe"],
+    "uninstallDisplayName": ["^REAPER"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\REAPER\\reaper.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/reaper/reaper.ini",
+      "target": "%APPDATA%\\REAPER\\reaper.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/reaper/reaper-kb.ini",
+      "target": "%APPDATA%\\REAPER\\reaper-kb.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/reaper/Effects",
+      "target": "%APPDATA%\\REAPER\\Effects",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/reaper/Scripts",
+      "target": "%APPDATA%\\REAPER\\Scripts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\REAPER\\reaper.ini", "dest": "apps/reaper/reaper.ini", "optional": true },
+      { "source": "%APPDATA%\\REAPER\\reaper-kb.ini", "dest": "apps/reaper/reaper-kb.ini", "optional": true },
+      { "source": "%APPDATA%\\REAPER\\Effects", "dest": "apps/reaper/Effects", "optional": true },
+      { "source": "%APPDATA%\\REAPER\\Scripts", "dest": "apps/reaper/Scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Logs\\**",
+      "**\\Caches\\**",
+      "**\\Crashes\\**",
+      "**\\*.log",
+      "**\\*.ReaperAutoSave-*",
+      "**\\reaper-reginfo2.ini",
+      "**\\reaper-license.rk"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\REAPER\\reaper-reginfo2.ini",
+      "%APPDATA%\\REAPER\\reaper-license.rk"
+    ],
+    "warning": "REAPER license/registration files contain license keys. These MUST NOT be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures REAPER main config (reaper.ini), keybindings (reaper-kb.ini), user Effects (JSFX), and Scripts (ReaScript). License/registration files are explicitly excluded. Auto-save files excluded as volatile. Config at %APPDATA%\\REAPER\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/Logs/**",
+      "**/Caches/**",
+      "**/Crashes/**",
+      "**/*.ReaperAutoSave-*",
+      "**/reaper-reginfo2.ini",
+      "**/reaper-license.rk"
+    ]
+  }
+}

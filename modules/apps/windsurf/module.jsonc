@@ -1,0 +1,92 @@
+{
+  // Config Module: Windsurf
+  // Provides verify/restore/capture configuration for Windsurf (Codeium IDE)
+  // Curated module - captures user configuration, excludes extension state databases
+  
+  "id": "apps.windsurf",
+  "displayName": "Windsurf",
+  "sensitivity": "low",
+  
+  "matches": {
+    "winget": ["Codeium.Windsurf"],
+    "exe": ["windsurf.exe"],
+    "uninstallDisplayName": ["^Windsurf"]
+  },
+  
+  "verify": [
+    { "type": "command-exists", "command": "windsurf" }
+  ],
+  
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/windsurf/settings.json",
+      "target": "%APPDATA%\\Windsurf\\User\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/windsurf/keybindings.json",
+      "target": "%APPDATA%\\Windsurf\\User\\keybindings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/windsurf/snippets",
+      "target": "%APPDATA%\\Windsurf\\User\\snippets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+  
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Windsurf\\User\\settings.json", "dest": "apps/windsurf/settings.json", "optional": true },
+      { "source": "%APPDATA%\\Windsurf\\User\\keybindings.json", "dest": "apps/windsurf/keybindings.json", "optional": true },
+      { "source": "%APPDATA%\\Windsurf\\User\\snippets", "dest": "apps/windsurf/snippets", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\CachedData\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\Temp\\**",
+      "**\\state.vscdb*"
+    ]
+  },
+  
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Windsurf\\User\\globalStorage\\state.vscdb",
+      "%APPDATA%\\Windsurf\\User\\globalStorage\\state.vscdb.backup"
+    ],
+    "warning": "Windsurf state databases may contain extension tokens and session data. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+  
+  "notes": "Captures Windsurf (Codeium IDE) user configuration (settings, keybindings, snippets). Extension state databases are explicitly excluded - they may contain tokens. Based on VS Code fork structure at %APPDATA%\\Windsurf\\User\\.",
+  
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/Cache/**",
+      "**/CachedData/**",
+      "**/GPUCache/**",
+      "**/Crashpad/**",
+      "**/logs/**",
+      "**/Temp/**",
+      "**/state.vscdb*"
+    ]
+  }
+}

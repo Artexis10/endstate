@@ -1,0 +1,69 @@
+{
+  // Config Module: Audacity
+  // Provides verify/restore/capture configuration for Audacity (audio editor)
+  // Curated module - captures application preferences and plug-in settings
+
+  "id": "apps.audacity",
+  "displayName": "Audacity",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Audacity.Audacity"],
+    "exe": ["audacity.exe"],
+    "uninstallDisplayName": ["^Audacity"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\audacity\\audacity.cfg" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/audacity/audacity.cfg",
+      "target": "%APPDATA%\\audacity\\audacity.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/audacity/Macros",
+      "target": "%APPDATA%\\audacity\\Macros",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\audacity\\audacity.cfg", "dest": "apps/audacity/audacity.cfg", "optional": true },
+      { "source": "%APPDATA%\\audacity\\Macros", "dest": "apps/audacity/Macros", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\AutoSave\\**",
+      "**\\SessionData\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\pluginregistry.cfg",
+      "**\\pluginsettings.cfg"
+    ]
+  },
+
+  "notes": "Captures Audacity preferences (audacity.cfg) and user macros. Plugin registry excluded (rebuilt on scan). AutoSave and session data excluded (volatile). Config at %APPDATA%\\audacity\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/AutoSave/**",
+      "**/SessionData/**"
+    ]
+  }
+}

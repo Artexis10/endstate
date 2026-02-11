@@ -1,0 +1,87 @@
+{
+  // Config Module: OBS Studio
+  // Provides verify/restore/capture configuration for OBS Studio (streaming/recording)
+  // Curated module - captures global config, profiles, and scene collections
+
+  "id": "apps.obs-studio",
+  "displayName": "OBS Studio",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["OBSProject.OBSStudio"],
+    "exe": ["obs64.exe"],
+    "uninstallDisplayName": ["^OBS Studio"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\obs-studio\\global.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/obs-studio/global.ini",
+      "target": "%APPDATA%\\obs-studio\\global.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/obs-studio/basic/profiles",
+      "target": "%APPDATA%\\obs-studio\\basic\\profiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/obs-studio/basic/scenes",
+      "target": "%APPDATA%\\obs-studio\\basic\\scenes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\obs-studio\\global.ini", "dest": "apps/obs-studio/global.ini", "optional": true },
+      { "source": "%APPDATA%\\obs-studio\\basic\\profiles", "dest": "apps/obs-studio/basic/profiles", "optional": true },
+      { "source": "%APPDATA%\\obs-studio\\basic\\scenes", "dest": "apps/obs-studio/basic/scenes", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\logs\\**",
+      "**\\crashes\\**",
+      "**\\profiler_data\\**",
+      "**\\plugin_config\\**",
+      "**\\*.log",
+      "**\\*.bak"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\obs-studio\\basic\\profiles\\*\\service.json"
+    ],
+    "warning": "OBS profile service.json files may contain stream keys for Twitch, YouTube, etc. These MUST NOT be auto-restored without review.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures OBS Studio global settings, profiles (encoding/output/video settings), and scene collections. Stream keys in service.json are marked sensitive. Plugin configs are excluded (plugin-specific, may contain tokens). Logs and crash data excluded. Config at %APPDATA%\\obs-studio\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.bak",
+      "**/logs/**",
+      "**/crashes/**",
+      "**/profiler_data/**",
+      "**/plugin_config/**"
+    ]
+  }
+}

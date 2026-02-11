@@ -1,0 +1,102 @@
+{
+  // Config Module: IntelliJ IDEA Community
+  // Provides verify/restore/capture configuration for IntelliJ IDEA
+  // Curated module - captures IDE settings, keymaps, templates, code styles
+  // Note: Config folder is version-specific (IntelliJIdea<version>)
+
+  "id": "apps.intellij-idea",
+  "displayName": "IntelliJ IDEA Community",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.IntelliJIDEA.Community"],
+    "exe": ["idea64.exe"],
+    "uninstallDisplayName": ["^IntelliJ IDEA Community"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea/options",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea/keymaps",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea/templates",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea/codestyles",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\codestyles",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options", "dest": "apps/intellij-idea/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\keymaps", "dest": "apps/intellij-idea/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\templates", "dest": "apps/intellij-idea/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\codestyles", "dest": "apps/intellij-idea/codestyles", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures IntelliJ IDEA Community settings (options/*.xml), keymaps, live templates, and code styles. Config folder is version-specific (%APPDATA%\\JetBrains\\IntelliJIdea<version>\\). Workspace-specific files (workspace.xml, tasks.xml) and usage stats excluded. Caches and index excluded.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml"
+    ]
+  }
+}

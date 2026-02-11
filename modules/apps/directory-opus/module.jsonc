@@ -1,0 +1,70 @@
+{
+  // Config Module: Directory Opus
+  // Provides verify/restore/capture configuration for Directory Opus (file manager)
+  // Curated module - captures toolbars, menus, hotkeys, and preferences
+
+  "id": "apps.directory-opus",
+  "displayName": "Directory Opus",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["GPSoftware.DirectoryOpus"],
+    "exe": ["dopus.exe"],
+    "uninstallDisplayName": ["^Directory Opus"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\GPSoftware\\Directory Opus\\ConfigFiles" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/directory-opus/ConfigFiles",
+      "target": "%APPDATA%\\GPSoftware\\Directory Opus\\ConfigFiles",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\GPSoftware\\Directory Opus\\ConfigFiles", "dest": "apps/directory-opus/ConfigFiles", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\MRU\\**",
+      "**\\State Data\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\GPSoftware\\Directory Opus\\ConfigFiles\\dopus.cert",
+      "%APPDATA%\\GPSoftware\\Directory Opus\\ConfigFiles\\license*"
+    ],
+    "warning": "Directory Opus license certificate MUST NOT be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Directory Opus ConfigFiles/ directory which contains toolbars (.dop), menus, hotkeys, and preferences as .oxc XML files. License certificate excluded. MRU (most recently used) and state data excluded (volatile). Config at %APPDATA%\\GPSoftware\\Directory Opus\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Logs/**",
+      "**/MRU/**",
+      "**/State Data/**"
+    ]
+  }
+}

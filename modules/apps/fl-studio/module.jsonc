@@ -1,0 +1,93 @@
+{
+  // Config Module: FL Studio
+  // Provides verify/restore/capture configuration for FL Studio (digital audio workstation)
+  // Curated module - captures presets, templates, scores, and mixer presets
+
+  "id": "apps.fl-studio",
+  "displayName": "FL Studio",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["ImageLine.FLStudio"],
+    "exe": ["FL64.exe", "FL.exe"],
+    "uninstallDisplayName": ["^FL Studio"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Presets" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/fl-studio/Presets",
+      "target": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/fl-studio/Templates",
+      "target": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/fl-studio/Scores",
+      "target": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Scores",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/fl-studio/Mixer presets",
+      "target": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Mixer presets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Presets", "dest": "apps/fl-studio/Presets", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Templates", "dest": "apps/fl-studio/Templates", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Scores", "dest": "apps/fl-studio/Scores", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Mixer presets", "dest": "apps/fl-studio/Mixer presets", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Backup\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Rendered\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\Documents\\Image-Line\\FL Studio\\Settings\\RegInfo*"
+    ],
+    "warning": "FL Studio registration/license files MUST NOT be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures FL Studio presets, templates, scores (MIDI patterns), and mixer presets. Registration/license files excluded. Rendered audio and backups excluded. Config at %USERPROFILE%\\Documents\\Image-Line\\FL Studio\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%USERPROFILE%\\Documents"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Backup/**",
+      "**/Logs/**",
+      "**/Rendered/**"
+    ]
+  }
+}

@@ -1,0 +1,83 @@
+{
+  // Config Module: ShareX
+  // Provides verify/restore/capture configuration for ShareX (screenshot/screen recording tool)
+  // Curated module - captures application config, hotkeys, and uploader settings (excluding credentials)
+
+  "id": "apps.sharex",
+  "displayName": "ShareX",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["ShareX.ShareX"],
+    "exe": ["ShareX.exe"],
+    "uninstallDisplayName": ["^ShareX"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\ShareX\\ApplicationConfig.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/sharex/ApplicationConfig.json",
+      "target": "%USERPROFILE%\\Documents\\ShareX\\ApplicationConfig.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/sharex/HotkeysConfig.json",
+      "target": "%USERPROFILE%\\Documents\\ShareX\\HotkeysConfig.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/sharex/UploadersConfig.json",
+      "target": "%USERPROFILE%\\Documents\\ShareX\\UploadersConfig.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\Documents\\ShareX\\ApplicationConfig.json", "dest": "apps/sharex/ApplicationConfig.json", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\ShareX\\HotkeysConfig.json", "dest": "apps/sharex/HotkeysConfig.json", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\ShareX\\UploadersConfig.json", "dest": "apps/sharex/UploadersConfig.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Logs\\**",
+      "**\\Screenshots\\**",
+      "**\\Backup\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\Documents\\ShareX\\UploadersConfig.json"
+    ],
+    "warning": "UploadersConfig.json may contain API keys, OAuth tokens, and FTP credentials for upload destinations. Review before restoring - strip credentials if sharing.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures ShareX application config, hotkeys, and uploader settings. UploadersConfig.json is marked sensitive as it may contain API keys for Imgur, Dropbox, etc. Screenshots directory is excluded (user data, not config). Config at %USERPROFILE%\\Documents\\ShareX\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%USERPROFILE%\\Documents"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/Logs/**",
+      "**/Screenshots/**",
+      "**/Backup/**"
+    ]
+  }
+}

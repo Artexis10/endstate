@@ -1,0 +1,96 @@
+{
+  // Config Module: Notepad++
+  // Provides verify/restore/capture configuration for Notepad++
+  // Curated module - captures user configuration, excludes session and backup files
+  
+  "id": "apps.notepad-plus-plus",
+  "displayName": "Notepad++",
+  "sensitivity": "low",
+  
+  "matches": {
+    "winget": ["Notepad++.Notepad++"],
+    "exe": ["notepad++.exe"],
+    "uninstallDisplayName": ["^Notepad\\+\\+"]
+  },
+  
+  "verify": [
+    { "type": "command-exists", "command": "notepad++" }
+  ],
+  
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/notepad-plus-plus/config.xml",
+      "target": "%APPDATA%\\Notepad++\\config.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/notepad-plus-plus/shortcuts.xml",
+      "target": "%APPDATA%\\Notepad++\\shortcuts.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/notepad-plus-plus/langs.xml",
+      "target": "%APPDATA%\\Notepad++\\langs.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/notepad-plus-plus/stylers.xml",
+      "target": "%APPDATA%\\Notepad++\\stylers.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/notepad-plus-plus/userDefineLangs",
+      "target": "%APPDATA%\\Notepad++\\userDefineLangs",
+      "backup": true,
+      "optional": true
+    }
+  ],
+  
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Notepad++\\config.xml", "dest": "apps/notepad-plus-plus/config.xml", "optional": true },
+      { "source": "%APPDATA%\\Notepad++\\shortcuts.xml", "dest": "apps/notepad-plus-plus/shortcuts.xml", "optional": true },
+      { "source": "%APPDATA%\\Notepad++\\langs.xml", "dest": "apps/notepad-plus-plus/langs.xml", "optional": true },
+      { "source": "%APPDATA%\\Notepad++\\stylers.xml", "dest": "apps/notepad-plus-plus/stylers.xml", "optional": true },
+      { "source": "%APPDATA%\\Notepad++\\userDefineLangs", "dest": "apps/notepad-plus-plus/userDefineLangs", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\backup\\**",
+      "**\\session.xml",
+      "**\\nppLogNul498.xml",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\Cache\\**",
+      "**\\Temp\\**"
+    ]
+  },
+  
+  "notes": "Captures Notepad++ user configuration (config.xml, shortcuts, language definitions, stylers, user-defined languages). Session files and backup directories are excluded as volatile. Config lives at %APPDATA%\\Notepad++\\.",
+  
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/backup/**",
+      "**/Cache/**",
+      "**/Temp/**",
+      "**/session.xml"
+    ]
+  }
+}

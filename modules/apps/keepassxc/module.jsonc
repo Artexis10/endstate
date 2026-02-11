@@ -1,0 +1,73 @@
+{
+  // Config Module: KeePassXC
+  // Provides verify/restore/capture configuration for KeePassXC (password manager)
+  // Curated module - captures app settings ONLY, NOT database files
+
+  "id": "apps.keepassxc",
+  "displayName": "KeePassXC",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["KeePassXCTeam.KeePassXC"],
+    "exe": ["KeePassXC.exe"],
+    "uninstallDisplayName": ["^KeePassXC"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\KeePassXC\\keepassxc.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/keepassxc/keepassxc.ini",
+      "target": "%APPDATA%\\KeePassXC\\keepassxc.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\KeePassXC\\keepassxc.ini", "dest": "apps/keepassxc/keepassxc.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.kdbx",
+      "**\\*.kdbx.lock",
+      "**\\*.keyx",
+      "**\\*.key",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\KeePassXC\\*.kdbx",
+      "%APPDATA%\\KeePassXC\\*.keyx",
+      "%APPDATA%\\KeePassXC\\*.key"
+    ],
+    "warning": "KeePassXC database files (.kdbx) and key files (.keyx, .key) MUST NEVER be captured or restored by this module. They contain encrypted passwords and are managed separately.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures KeePassXC application settings (keepassxc.ini) ONLY. Database files (.kdbx), key files (.keyx, .key), and lock files are explicitly excluded. This module manages app preferences (UI, browser integration, auto-type settings) - NOT password storage. Config at %APPDATA%\\KeePassXC\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.kdbx",
+      "**/*.kdbx.lock",
+      "**/*.keyx",
+      "**/*.key",
+      "**/*.log",
+      "**/*.tmp"
+    ]
+  }
+}

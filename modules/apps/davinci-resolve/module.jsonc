@@ -1,0 +1,88 @@
+{
+  // Config Module: DaVinci Resolve
+  // Provides verify/restore/capture configuration for DaVinci Resolve (video editor/color grading)
+  // Curated module - captures presets, LUTs, PowerGrades, keyboard layouts
+
+  "id": "apps.davinci-resolve",
+  "displayName": "DaVinci Resolve",
+  "sensitivity": "low",
+
+  "matches": {
+    // DaVinci Resolve is installed via vendor installer (no winget ID)
+    "winget": [],
+    "exe": ["Resolve.exe"],
+    "uninstallDisplayName": ["^DaVinci Resolve"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\Presets" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/davinci-resolve/Presets",
+      "target": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/davinci-resolve/LUT",
+      "target": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\LUT",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/davinci-resolve/PowerGrades",
+      "target": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\PowerGrades",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/davinci-resolve/Keyboard Layouts",
+      "target": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\Keyboard Layouts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\Presets", "dest": "apps/davinci-resolve/Presets", "optional": true },
+      { "source": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\LUT", "dest": "apps/davinci-resolve/LUT", "optional": true },
+      { "source": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\PowerGrades", "dest": "apps/davinci-resolve/PowerGrades", "optional": true },
+      { "source": "%APPDATA%\\Blackmagic Design\\DaVinci Resolve\\Keyboard Layouts", "dest": "apps/davinci-resolve/Keyboard Layouts", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\logs\\**",
+      "**\\Cache\\**",
+      "**\\CacheClip\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Resolve Disk Database\\**"
+    ]
+  },
+
+  "notes": "Captures DaVinci Resolve presets, LUTs, PowerGrades (color grading presets), and keyboard layouts. Project databases are excluded (large, managed separately). Cache and log files excluded. Installed manually (no winget ID). Config at %APPDATA%\\Blackmagic Design\\DaVinci Resolve\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/logs/**",
+      "**/Cache/**",
+      "**/CacheClip/**",
+      "**/Resolve Disk Database/**"
+    ]
+  }
+}

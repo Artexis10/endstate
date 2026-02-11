@@ -1,0 +1,74 @@
+{
+  // Config Module: Obsidian
+  // Provides verify/restore/capture configuration for Obsidian note-taking app
+  // Curated module - captures app-level settings, excludes vault content and sync tokens
+  
+  "id": "apps.obsidian",
+  "displayName": "Obsidian",
+  "sensitivity": "medium",
+  
+  "matches": {
+    "winget": ["Obsidian.Obsidian"],
+    "exe": ["Obsidian.exe"],
+    "uninstallDisplayName": ["^Obsidian"]
+  },
+  
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\obsidian\\obsidian.json" }
+  ],
+  
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/obsidian/obsidian.json",
+      "target": "%APPDATA%\\obsidian\\obsidian.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+  
+  "capture": {
+    "files": [
+      // App-level config (vault list, theme, language)
+      { "source": "%APPDATA%\\obsidian\\obsidian.json", "dest": "apps/obsidian/obsidian.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Crashpad\\**",
+      "**\\Temp\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+  
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\obsidian\\obsidian-sync-*.json"
+    ],
+    "warning": "Obsidian sync configuration may contain authentication tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+  
+  "notes": "Captures Obsidian app-level configuration (vault list, theme preference, language). Vault-specific settings (.obsidian/ inside each vault) are NOT captured here - those travel with the vault. Sync tokens are explicitly excluded.",
+  
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/Cache/**",
+      "**/GPUCache/**",
+      "**/Crashpad/**",
+      "**/Temp/**",
+      "**/logs/**"
+    ]
+  }
+}

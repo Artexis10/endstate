@@ -1363,17 +1363,20 @@ if ($hasSeed -and -not $NoSeed) {
 
 # Post-seed validation: verify seed produced expected files
 if ($result.seedRan -and $module.capture -and $module.capture.files) {
-    # Explicit .gitconfig guard — fail fast if seed didn't write the primary config file
-    $gitconfigPath = Join-Path $env:USERPROFILE ".gitconfig"
-    if (-not (Test-Path $gitconfigPath) -or (Get-Item $gitconfigPath).Length -eq 0) {
-        Write-Log "FATAL: Seed completed but ~/.gitconfig missing or empty at $gitconfigPath"
-        Write-Log "Dumping git config diagnostics:"
-        $diag = & git config --global --list 2>&1
-        $diag | ForEach-Object { Write-Log "  $_" }
-        Write-FatalError -Stage "seed" -Message "Seed did not produce expected .gitconfig file" -Details "Path checked: $gitconfigPath"
+    # Git-specific validation: check .gitconfig exists (only for git module)
+    if ($AppId -eq 'git') {
+        $gitconfigPath = Join-Path $env:USERPROFILE ".gitconfig"
+        if (-not (Test-Path $gitconfigPath) -or (Get-Item $gitconfigPath).Length -eq 0) {
+            Write-Log "FATAL: Seed completed but ~/.gitconfig missing or empty at $gitconfigPath"
+            Write-Log "Dumping git config diagnostics:"
+            $diag = & git config --global --list 2>&1
+            $diag | ForEach-Object { Write-Log "  $_" }
+            Write-FatalError -Stage "seed" -Message "Seed did not produce expected .gitconfig file" -Details "Path checked: $gitconfigPath"
+        }
+        Write-Log "Post-seed check: .gitconfig exists at $gitconfigPath ($((Get-Item $gitconfigPath).Length) bytes)"
     }
-    Write-Log "Post-seed check: .gitconfig exists at $gitconfigPath ($((Get-Item $gitconfigPath).Length) bytes)"
 
+    # Generic post-seed validation: check module's capture files exist
     $seedExpectedPaths = @()
     foreach ($fileEntry in $module.capture.files) {
         $expandedPath = Expand-ConfigPath -Path $fileEntry.source
@@ -1382,11 +1385,6 @@ if ($result.seedRan -and $module.capture -and $module.capture.files) {
         } elseif (Test-Path $expandedPath) {
             $seedExpectedPaths += $expandedPath
         }
-    }
-    # For git module, always check ~/.gitconfig specifically
-    $gitconfigPath = Join-Path $env:USERPROFILE ".gitconfig"
-    if ($seedExpectedPaths.Count -eq 0) {
-        $seedExpectedPaths += $gitconfigPath
     }
     $foundAny = $false
     foreach ($sp in $seedExpectedPaths) {

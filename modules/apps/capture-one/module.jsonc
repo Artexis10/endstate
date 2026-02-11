@@ -1,0 +1,96 @@
+{
+  // Config Module: Capture One
+  // Provides verify/restore/capture configuration for Capture One (RAW photo editor)
+  // Curated module - captures styles, keyboard shortcuts, workspaces, preferences
+
+  "id": "apps.capture-one",
+  "displayName": "Capture One",
+  "sensitivity": "low",
+
+  "matches": {
+    // Capture One is typically installed manually or via vendor installer
+    "winget": [],
+    "exe": ["CaptureOne.exe"],
+    "uninstallDisplayName": ["^Capture One"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\CaptureOne\\Preferences.plist" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/capture-one/Styles",
+      "target": "%LOCALAPPDATA%\\CaptureOne\\Styles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/capture-one/KeyboardShortcuts",
+      "target": "%LOCALAPPDATA%\\CaptureOne\\KeyboardShortcuts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/capture-one/Workspaces",
+      "target": "%LOCALAPPDATA%\\CaptureOne\\Workspaces",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/capture-one/Preferences.plist",
+      "target": "%LOCALAPPDATA%\\CaptureOne\\Preferences.plist",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\CaptureOne\\Preferences.plist", "dest": "apps/capture-one/Preferences.plist", "optional": true },
+      { "source": "%LOCALAPPDATA%\\CaptureOne\\Styles", "dest": "apps/capture-one/Styles", "optional": true },
+      { "source": "%LOCALAPPDATA%\\CaptureOne\\KeyboardShortcuts", "dest": "apps/capture-one/KeyboardShortcuts", "optional": true },
+      { "source": "%LOCALAPPDATA%\\CaptureOne\\Workspaces", "dest": "apps/capture-one/Workspaces", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\CaptureCache\\**",
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\CaptureOne\\License*"
+    ],
+    "warning": "Capture One license files MUST NOT be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Capture One preferences, styles (processing presets), keyboard shortcuts, and workspaces. Catalog files and cache excluded. Installed manually (no winget ID). Config at %LOCALAPPDATA%\\CaptureOne\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%LOCALAPPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/Cache/**",
+      "**/CaptureCache/**",
+      "**/Logs/**",
+      "**/Temp/**"
+    ]
+  }
+}

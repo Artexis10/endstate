@@ -1,0 +1,65 @@
+{
+  // Config Module: Ditto
+  // Provides verify/restore/capture configuration for Ditto (clipboard manager)
+  // Curated module - captures application settings, excludes clipboard database
+
+  "id": "apps.ditto",
+  "displayName": "Ditto",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Ditto.Ditto"],
+    "exe": ["Ditto.exe"],
+    "uninstallDisplayName": ["^Ditto"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Ditto\\Ditto.settings" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/ditto/Ditto.settings",
+      "target": "%APPDATA%\\Ditto\\Ditto.settings",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Ditto\\Ditto.settings", "dest": "apps/ditto/Ditto.settings", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Ditto.db",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Ditto\\Ditto.db"
+    ],
+    "warning": "Ditto clipboard database may contain sensitive copied content (passwords, tokens, etc.). This MUST NOT be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Ditto application settings only. The clipboard database (Ditto.db) is explicitly excluded - it may contain sensitive copied content including passwords. Config at %APPDATA%\\Ditto\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Ditto.db"
+    ]
+  }
+}

@@ -1,0 +1,102 @@
+{
+  // Config Module: PyCharm Community
+  // Provides verify/restore/capture configuration for PyCharm
+  // Curated module - captures IDE settings, keymaps, templates, code styles
+  // Note: Config folder is version-specific (PyCharm<version>)
+
+  "id": "apps.pycharm",
+  "displayName": "PyCharm Community",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.PyCharm.Community"],
+    "exe": ["pycharm64.exe"],
+    "uninstallDisplayName": ["^PyCharm Community"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\PyCharm*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/pycharm/options",
+      "target": "%APPDATA%\\JetBrains\\PyCharm*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/pycharm/keymaps",
+      "target": "%APPDATA%\\JetBrains\\PyCharm*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/pycharm/templates",
+      "target": "%APPDATA%\\JetBrains\\PyCharm*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/pycharm/codestyles",
+      "target": "%APPDATA%\\JetBrains\\PyCharm*\\codestyles",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\PyCharm*\\options", "dest": "apps/pycharm/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\PyCharm*\\keymaps", "dest": "apps/pycharm/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\PyCharm*\\templates", "dest": "apps/pycharm/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\PyCharm*\\codestyles", "dest": "apps/pycharm/codestyles", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\PyCharm*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\PyCharm*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures PyCharm Community settings (options/*.xml), keymaps, live templates, and code styles. Config folder is version-specific (%APPDATA%\\JetBrains\\PyCharm<version>\\). Same JetBrains config structure as IntelliJ IDEA. Workspace-specific files and caches excluded.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml"
+    ]
+  }
+}

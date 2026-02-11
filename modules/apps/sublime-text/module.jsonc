@@ -1,0 +1,75 @@
+{
+  // Config Module: Sublime Text 4
+  // Provides verify/restore/capture configuration for Sublime Text
+  // Curated module - captures user settings, keybindings, snippets, and packages list
+
+  "id": "apps.sublime-text",
+  "displayName": "Sublime Text 4",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["SublimeHQ.SublimeText.4"],
+    "exe": ["subl.exe", "sublime_text.exe"],
+    "uninstallDisplayName": ["^Sublime Text"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Sublime Text\\Packages\\User\\Preferences.sublime-settings" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/sublime-text/User",
+      "target": "%APPDATA%\\Sublime Text\\Packages\\User",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Sublime Text\\Packages\\User", "dest": "apps/sublime-text/User", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Index\\**",
+      "**\\Local\\**",
+      "**\\Log\\**",
+      "**\\*.log",
+      "**\\*.cache",
+      "**\\*.last-run",
+      "**\\oscrypto-ca-bundle.crt",
+      "**\\Package Control.last-run"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Sublime Text\\Packages\\User\\SFTPBrowser.sublime-settings",
+      "%APPDATA%\\Sublime Text\\Packages\\User\\SFTP.sublime-settings"
+    ],
+    "warning": "SFTP plugin settings may contain server credentials. Review before restoring.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Sublime Text Packages/User/ directory which contains all user customization: settings, keybindings, snippets, macros, and Package Control preferences. The User/ directory is the canonical portable config. Index and Cache excluded.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.cache",
+      "**/Cache/**",
+      "**/Index/**",
+      "**/Local/**",
+      "**/Log/**"
+    ]
+  }
+}

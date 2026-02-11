@@ -1,0 +1,92 @@
+{
+  // Config Module: Visual Studio Code
+  // Provides verify/restore/capture configuration for VS Code
+  // Curated module - captures user configuration, excludes extension state databases
+
+  "id": "apps.vscode",
+  "displayName": "Visual Studio Code",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Microsoft.VisualStudioCode"],
+    "exe": ["code.exe"],
+    "uninstallDisplayName": ["^Microsoft Visual Studio Code"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "code" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/vscode/settings.json",
+      "target": "%APPDATA%\\Code\\User\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/vscode/keybindings.json",
+      "target": "%APPDATA%\\Code\\User\\keybindings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/vscode/snippets",
+      "target": "%APPDATA%\\Code\\User\\snippets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Code\\User\\settings.json", "dest": "apps/vscode/settings.json", "optional": true },
+      { "source": "%APPDATA%\\Code\\User\\keybindings.json", "dest": "apps/vscode/keybindings.json", "optional": true },
+      { "source": "%APPDATA%\\Code\\User\\snippets", "dest": "apps/vscode/snippets", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\CachedData\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\Temp\\**",
+      "**\\state.vscdb*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Code\\User\\globalStorage\\state.vscdb",
+      "%APPDATA%\\Code\\User\\globalStorage\\state.vscdb.backup"
+    ],
+    "warning": "VS Code state databases may contain extension tokens and session data. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures VS Code user configuration (settings, keybindings, snippets). VS Code has built-in Settings Sync, but this module provides offline/deterministic restoration. Extension state databases are explicitly excluded - they may contain tokens. Config at %APPDATA%\\Code\\User\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/Cache/**",
+      "**/CachedData/**",
+      "**/GPUCache/**",
+      "**/Crashpad/**",
+      "**/logs/**",
+      "**/Temp/**",
+      "**/state.vscdb*"
+    ]
+  }
+}

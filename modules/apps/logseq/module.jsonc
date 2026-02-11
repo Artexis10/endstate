@@ -1,0 +1,79 @@
+{
+  // Config Module: Logseq
+  // Provides verify/restore/capture configuration for Logseq (knowledge management)
+  // Curated module - captures app-level config, preferences, and custom CSS
+
+  "id": "apps.logseq",
+  "displayName": "Logseq",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Logseq.Logseq"],
+    "exe": ["Logseq.exe"],
+    "uninstallDisplayName": ["^Logseq"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.logseq\\preferences.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/logseq/config.edn",
+      "target": "%USERPROFILE%\\.logseq\\config.edn",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/logseq/preferences.json",
+      "target": "%USERPROFILE%\\.logseq\\preferences.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/logseq/custom.css",
+      "target": "%USERPROFILE%\\.logseq\\custom.css",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\.logseq\\config.edn", "dest": "apps/logseq/config.edn", "optional": true },
+      { "source": "%USERPROFILE%\\.logseq\\preferences.json", "dest": "apps/logseq/preferences.json", "optional": true },
+      { "source": "%USERPROFILE%\\.logseq\\custom.css", "dest": "apps/logseq/custom.css", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Crashpad\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\graphs\\**"
+    ]
+  },
+
+  "notes": "Captures Logseq app-level configuration (config.edn, preferences.json, custom.css). Graph-specific settings travel with the graph directory and are NOT captured here. Graph data (pages, journals) excluded - that is user content. Config at %USERPROFILE%\\.logseq\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%USERPROFILE%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Cache/**",
+      "**/GPUCache/**",
+      "**/Crashpad/**",
+      "**/graphs/**"
+    ]
+  }
+}

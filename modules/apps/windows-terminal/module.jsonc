@@ -1,0 +1,63 @@
+{
+  // Config Module: Windows Terminal
+  // Provides verify/restore/capture configuration for Windows Terminal
+  // Curated module - captures user settings, excludes volatile state
+  
+  "id": "apps.windows-terminal",
+  "displayName": "Windows Terminal",
+  "sensitivity": "low",
+  
+  "matches": {
+    "winget": ["Microsoft.WindowsTerminal"],
+    "exe": ["wt.exe"],
+    "uninstallDisplayName": ["^Windows Terminal"]
+  },
+  
+  "verify": [
+    { "type": "command-exists", "command": "wt" }
+  ],
+  
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/windows-terminal/settings.json",
+      "target": "%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+  
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json", "dest": "apps/windows-terminal/settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\state.json"
+    ]
+  },
+  
+  "notes": "Captures Windows Terminal user settings (profiles, color schemes, keybindings). The settings.json is the single config file containing all user customization. Uses MSIX package path under %LOCALAPPDATA%\\Packages\\.",
+  
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%LOCALAPPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/Cache/**",
+      "**/Temp/**",
+      "**/Logs/**",
+      "**/state.json"
+    ]
+  }
+}

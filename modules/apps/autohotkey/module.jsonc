@@ -1,0 +1,58 @@
+{
+  // Config Module: AutoHotkey
+  // Provides verify/restore/capture configuration for AutoHotkey user scripts
+  // Note: AutoHotkey has no app-level config file. This module captures the user
+  // scripts directory as a convenience - scripts are user-created content.
+
+  "id": "apps.autohotkey",
+  "displayName": "AutoHotkey",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["AutoHotkey.AutoHotkey"],
+    "exe": ["AutoHotkey64.exe", "AutoHotkey32.exe", "AutoHotkey.exe"],
+    "uninstallDisplayName": ["^AutoHotkey"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "AutoHotkey64" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/autohotkey/scripts",
+      "target": "%USERPROFILE%\\Documents\\AutoHotkey",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\Documents\\AutoHotkey", "dest": "apps/autohotkey/scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Logs\\**"
+    ]
+  },
+
+  "notes": "AutoHotkey has no app-level configuration file. This module captures user scripts from %USERPROFILE%\\Documents\\AutoHotkey\\. Scripts are user-created content, not app config - treat as convenience backup. Only .ahk files are meaningful.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%USERPROFILE%\\Documents"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Logs/**"
+    ]
+  }
+}

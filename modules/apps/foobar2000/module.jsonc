@@ -1,0 +1,69 @@
+{
+  // Config Module: foobar2000
+  // Provides verify/restore/capture configuration for foobar2000 (audio player)
+  // Curated module - captures layout, playlists, DSP settings, and component config
+
+  "id": "apps.foobar2000",
+  "displayName": "foobar2000",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["PeterPawlowski.foobar2000"],
+    "exe": ["foobar2000.exe"],
+    "uninstallDisplayName": ["^foobar2000"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\foobar2000\\configuration" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/foobar2000/configuration",
+      "target": "%APPDATA%\\foobar2000\\configuration",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/foobar2000/playlists-v1.4",
+      "target": "%APPDATA%\\foobar2000\\playlists-v1.4",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\foobar2000\\configuration", "dest": "apps/foobar2000/configuration", "optional": true },
+      { "source": "%APPDATA%\\foobar2000\\playlists-v1.4", "dest": "apps/foobar2000/playlists-v1.4", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\crash reports\\**",
+      "**\\running",
+      "**\\index-data\\**"
+    ]
+  },
+
+  "notes": "Captures foobar2000 configuration directory (layout, DSP chain, component settings) and playlists. Index data excluded (rebuilt on library scan). Crash reports excluded. Config at %APPDATA%\\foobar2000\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/crash reports/**",
+      "**/running",
+      "**/index-data/**"
+    ]
+  }
+}

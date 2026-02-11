@@ -1,0 +1,69 @@
+{
+  // Config Module: Total Commander
+  // Provides verify/restore/capture configuration for Total Commander (file manager)
+  // Curated module - captures main config (wincmd.ini), excludes FTP credentials
+
+  "id": "apps.totalcommander",
+  "displayName": "Total Commander",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Ghisler.TotalCommander"],
+    "exe": ["TOTALCMD64.EXE", "TOTALCMD.EXE"],
+    "uninstallDisplayName": ["^Total Commander"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\GHISLER\\wincmd.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/totalcommander/wincmd.ini",
+      "target": "%APPDATA%\\GHISLER\\wincmd.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\GHISLER\\wincmd.ini", "dest": "apps/totalcommander/wincmd.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\wcx_ftp.ini",
+      "**\\History\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\GHISLER\\wcx_ftp.ini"
+    ],
+    "warning": "wcx_ftp.ini contains FTP connection details including passwords (obfuscated but reversible). This file MUST NOT be captured or restored automatically.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Total Commander main configuration (wincmd.ini) which contains UI layout, keyboard shortcuts, viewer settings, and plugin associations. wcx_ftp.ini is explicitly excluded - it contains FTP passwords. Config at %APPDATA%\\GHISLER\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/wcx_ftp.ini",
+      "**/History/**",
+      "**/Logs/**"
+    ]
+  }
+}

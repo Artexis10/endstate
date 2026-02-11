@@ -1,0 +1,84 @@
+{
+  // Config Module: Ableton Live
+  // Provides verify/restore/capture configuration for Ableton Live (DAW)
+  // Curated module - captures preferences and User Library presets
+
+  "id": "apps.ableton-live",
+  "displayName": "Ableton Live",
+  "sensitivity": "low",
+
+  "matches": {
+    // Ableton Live is installed via vendor installer (no winget ID)
+    "winget": [],
+    "exe": ["Ableton Live*.exe"],
+    "uninstallDisplayName": ["^Ableton Live"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Ableton\\Live*\\Preferences.cfg" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/ableton-live/Preferences.cfg",
+      "target": "%APPDATA%\\Ableton\\Live*\\Preferences.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/ableton-live/User Library",
+      "target": "%USERPROFILE%\\Documents\\Ableton\\User Library",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Ableton\\Live*\\Preferences.cfg", "dest": "apps/ableton-live/Preferences.cfg", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Ableton\\User Library\\Presets", "dest": "apps/ableton-live/User Library/Presets", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Ableton\\User Library\\Defaults", "dest": "apps/ableton-live/User Library/Defaults", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Log\\**",
+      "**\\CrashRecovery\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Undo Data\\**",
+      "**\\Samples\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Ableton\\Live*\\Unlock*"
+    ],
+    "warning": "Ableton Live unlock/authorization files MUST NOT be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Ableton Live preferences and User Library presets/defaults. Config folder is version-specific (%APPDATA%\\Ableton\\Live<version>\\). Samples directory excluded (large audio files). Undo data and crash recovery excluded. Installed manually (no winget ID).",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%",
+      "%USERPROFILE%\\Documents"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Cache/**",
+      "**/Log/**",
+      "**/CrashRecovery/**",
+      "**/Undo Data/**",
+      "**/Samples/**"
+    ]
+  }
+}
