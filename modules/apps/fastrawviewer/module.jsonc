@@ -1,0 +1,67 @@
+{
+  // Config Module: FastRawViewer
+  // Provides verify/restore/capture configuration for FastRawViewer (RAW photo viewer)
+  // Curated module - captures settings and presets
+
+  "id": "apps.fastrawviewer",
+  "displayName": "FastRawViewer",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["FastRawViewer.FastRawViewer"],
+    "exe": ["FastRawViewer.exe"],
+    "uninstallDisplayName": ["^FastRawViewer"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\FastRawViewer\\Settings.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/fastrawviewer/Settings.xml",
+      "target": "%APPDATA%\\FastRawViewer\\Settings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/fastrawviewer/Presets",
+      "target": "%APPDATA%\\FastRawViewer\\Presets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\FastRawViewer\\Settings.xml", "dest": "apps/fastrawviewer/Settings.xml", "optional": true },
+      { "source": "%APPDATA%\\FastRawViewer\\Presets", "dest": "apps/fastrawviewer/Presets", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\cache\\**",
+      "**\\Cache\\**"
+    ]
+  },
+
+  "notes": "Captures FastRawViewer settings (Settings.xml) and user presets (Presets/). Cache and temporary files excluded. Config at %APPDATA%\\FastRawViewer\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/cache/**",
+      "**/Cache/**"
+    ]
+  }
+}

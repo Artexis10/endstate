@@ -1,0 +1,90 @@
+{
+  // Config Module: Kodi
+  // Provides verify/restore/capture configuration for Kodi (media center)
+  // Curated module - captures userdata settings, sources, keymaps
+  // Excludes Thumbnails/ and addons/ binaries
+
+  "id": "apps.kodi",
+  "displayName": "Kodi",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["XBMCFoundation.Kodi"],
+    "exe": ["kodi.exe"],
+    "uninstallDisplayName": ["^Kodi"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Kodi\\userdata\\guisettings.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/kodi/userdata/guisettings.xml",
+      "target": "%APPDATA%\\Kodi\\userdata\\guisettings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/kodi/userdata/sources.xml",
+      "target": "%APPDATA%\\Kodi\\userdata\\sources.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/kodi/userdata/keymaps",
+      "target": "%APPDATA%\\Kodi\\userdata\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/kodi/userdata/advancedsettings.xml",
+      "target": "%APPDATA%\\Kodi\\userdata\\advancedsettings.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Kodi\\userdata\\guisettings.xml", "dest": "apps/kodi/userdata/guisettings.xml", "optional": true },
+      { "source": "%APPDATA%\\Kodi\\userdata\\sources.xml", "dest": "apps/kodi/userdata/sources.xml", "optional": true },
+      { "source": "%APPDATA%\\Kodi\\userdata\\keymaps", "dest": "apps/kodi/userdata/keymaps", "optional": true },
+      { "source": "%APPDATA%\\Kodi\\userdata\\advancedsettings.xml", "dest": "apps/kodi/userdata/advancedsettings.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Thumbnails\\**",
+      "**\\addons\\**",
+      "**\\*.log",
+      "**\\*.db",
+      "**\\Temp\\**",
+      "**\\cache\\**",
+      "**\\addon_data\\**"
+    ]
+  },
+
+  "notes": "Captures Kodi userdata settings (guisettings.xml, sources.xml, advancedsettings.xml) and keymaps. Thumbnails/, addons/ binaries, databases (.db), addon_data/, cache, and temp files are explicitly excluded. Config at %APPDATA%\\Kodi\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.db",
+      "**/Thumbnails/**",
+      "**/addons/**",
+      "**/addon_data/**",
+      "**/Temp/**",
+      "**/cache/**"
+    ]
+  }
+}

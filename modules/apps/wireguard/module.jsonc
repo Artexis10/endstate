@@ -1,0 +1,58 @@
+{
+  // Config Module: WireGuard
+  // Provides verify/restore/capture configuration for WireGuard (VPN)
+  // SENSITIVE: Tunnel configs contain private keys - warn-only restorer
+  // Curated module - captures tunnel configuration files
+
+  "id": "apps.wireguard",
+  "displayName": "WireGuard",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["WireGuard.WireGuard"],
+    "exe": ["wireguard.exe"],
+    "uninstallDisplayName": ["^WireGuard"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\WireGuard\\wireguard.exe.config" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\WireGuard\\wireguard.exe.config", "dest": "apps/wireguard/wireguard.exe.config", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.conf",
+      "**\\log.bin"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\WireGuard\\*.conf"
+    ],
+    "warning": "WireGuard tunnel configuration files (*.conf) contain PRIVATE KEYS. These MUST NEVER be auto-captured or auto-restored. Tunnel configs must be manually managed and securely transferred.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures WireGuard application config only. Tunnel configuration files (*.conf) are EXCLUDED from capture and restore because they contain private keys. Tunnel configs must be manually and securely managed. Config at %APPDATA%\\WireGuard\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.conf",
+      "**/log.bin"
+    ]
+  }
+}

@@ -1,0 +1,79 @@
+{
+  // Config Module: Adobe Premiere Pro
+  // Provides verify/restore/capture configuration for Premiere Pro
+  // Curated module - captures presets, workspaces, keyboard shortcuts
+  // Note: No winget ID - manual install only. Config folder is version-specific.
+
+  "id": "apps.premiere-pro",
+  "displayName": "Adobe Premiere Pro",
+  "sensitivity": "low",
+
+  "matches": {
+    "exe": ["Adobe Premiere Pro.exe"],
+    "uninstallDisplayName": ["^Adobe Premiere Pro"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Adobe\\Premiere Pro*\\Profile-*\\Win" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/premiere-pro/Effect Presets and Custom Items.prfpset",
+      "target": "%APPDATA%\\Adobe\\Premiere Pro*\\Profile-*\\Effect Presets and Custom Items.prfpset",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/premiere-pro/Layouts",
+      "target": "%APPDATA%\\Adobe\\Premiere Pro*\\Profile-*\\Layouts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/premiere-pro/Win",
+      "target": "%APPDATA%\\Adobe\\Premiere Pro*\\Profile-*\\Win",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Adobe\\Premiere Pro*\\Profile-*\\Effect Presets and Custom Items.prfpset", "dest": "apps/premiere-pro/Effect Presets and Custom Items.prfpset", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Premiere Pro*\\Profile-*\\Layouts", "dest": "apps/premiere-pro/Layouts", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Premiere Pro*\\Profile-*\\Win", "dest": "apps/premiere-pro/Win", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Media Cache\\**",
+      "**\\Media Cache Files\\**",
+      "**\\Peak Files\\**",
+      "**\\GPUCache\\**"
+    ]
+  },
+
+  "notes": "Captures Adobe Premiere Pro effect presets, workspace layouts, and keyboard shortcuts (Win/ folder). Config folder is version-specific (%APPDATA%\\Adobe\\Premiere Pro <version>\\). Media cache and peak files excluded. No winget ID - manual install.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Media Cache/**",
+      "**/Media Cache Files/**",
+      "**/Peak Files/**",
+      "**/GPUCache/**"
+    ]
+  }
+}

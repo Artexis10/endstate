@@ -1,0 +1,57 @@
+{
+  // Config Module: HWiNFO
+  // Provides verify/restore/capture configuration for HWiNFO (hardware monitoring)
+  // Curated module - captures sensor config, layout, and alert settings
+
+  "id": "apps.hwinfo",
+  "displayName": "HWiNFO",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["REALiX.HWiNFO"],
+    "exe": ["HWiNFO64.exe"],
+    "uninstallDisplayName": ["^HWiNFO"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\HWiNFO64\\HWiNFO64.INI" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/hwinfo/HWiNFO64.INI",
+      "target": "%APPDATA%\\HWiNFO64\\HWiNFO64.INI",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\HWiNFO64\\HWiNFO64.INI", "dest": "apps/hwinfo/HWiNFO64.INI", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.csv"
+    ]
+  },
+
+  "notes": "Captures HWiNFO64 configuration (HWiNFO64.INI) including sensor config, layout, and alert settings. Log exports (.csv) excluded. Config at %APPDATA%\\HWiNFO64\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/*.csv"
+    ]
+  }
+}

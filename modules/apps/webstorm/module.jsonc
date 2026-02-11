@@ -1,0 +1,102 @@
+{
+  // Config Module: WebStorm
+  // Provides verify/restore/capture configuration for JetBrains WebStorm
+  // Curated module - captures IDE settings, keymaps, templates, code styles
+  // Note: Config folder is version-specific (WebStorm<version>)
+
+  "id": "apps.webstorm",
+  "displayName": "WebStorm",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.WebStorm"],
+    "exe": ["webstorm64.exe"],
+    "uninstallDisplayName": ["^WebStorm"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\WebStorm*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/webstorm/options",
+      "target": "%APPDATA%\\JetBrains\\WebStorm*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/webstorm/keymaps",
+      "target": "%APPDATA%\\JetBrains\\WebStorm*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/webstorm/templates",
+      "target": "%APPDATA%\\JetBrains\\WebStorm*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/webstorm/codestyles",
+      "target": "%APPDATA%\\JetBrains\\WebStorm*\\codestyles",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\WebStorm*\\options", "dest": "apps/webstorm/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\WebStorm*\\keymaps", "dest": "apps/webstorm/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\WebStorm*\\templates", "dest": "apps/webstorm/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\WebStorm*\\codestyles", "dest": "apps/webstorm/codestyles", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\WebStorm*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\WebStorm*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures WebStorm settings (options/*.xml), keymaps, live templates, and code styles. Config folder is version-specific (%APPDATA%\\JetBrains\\WebStorm<version>\\). Workspace-specific files (workspace.xml, tasks.xml) and usage stats excluded. Caches and index excluded.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml"
+    ]
+  }
+}

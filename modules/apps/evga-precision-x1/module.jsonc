@@ -1,0 +1,65 @@
+{
+  // Config Module: EVGA Precision X1
+  // Provides verify/restore/capture configuration for EVGA Precision X1 (GPU tuning)
+  // Curated module - captures profiles and settings
+  // Note: No winget ID - manual install only
+
+  "id": "apps.evga-precision-x1",
+  "displayName": "EVGA Precision X1",
+  "sensitivity": "low",
+
+  "matches": {
+    "exe": ["PrecisionX_x64.exe"],
+    "uninstallDisplayName": ["^EVGA Precision X1"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\EVGA\\Precision X1\\Profiles" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/evga-precision-x1/Profiles",
+      "target": "%LOCALAPPDATA%\\EVGA\\Precision X1\\Profiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/evga-precision-x1/Settings.xml",
+      "target": "%LOCALAPPDATA%\\EVGA\\Precision X1\\Settings.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\EVGA\\Precision X1\\Profiles", "dest": "apps/evga-precision-x1/Profiles", "optional": true },
+      { "source": "%LOCALAPPDATA%\\EVGA\\Precision X1\\Settings.xml", "dest": "apps/evga-precision-x1/Settings.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\cache\\**"
+    ]
+  },
+
+  "notes": "Captures EVGA Precision X1 GPU tuning profiles and settings. No winget ID - manual install. Config at %LOCALAPPDATA%\\EVGA\\Precision X1\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%LOCALAPPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/cache/**"
+    ]
+  }
+}

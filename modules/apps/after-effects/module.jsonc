@@ -1,0 +1,77 @@
+{
+  // Config Module: Adobe After Effects
+  // Provides verify/restore/capture configuration for After Effects
+  // Curated module - captures presets, workspaces, keyboard shortcuts
+  // Note: No winget ID - manual install only. Config folder is version-specific.
+
+  "id": "apps.after-effects",
+  "displayName": "Adobe After Effects",
+  "sensitivity": "low",
+
+  "matches": {
+    "exe": ["AfterFX.exe"],
+    "uninstallDisplayName": ["^Adobe After Effects"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Adobe\\After Effects*\\Presets" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/after-effects/Presets",
+      "target": "%APPDATA%\\Adobe\\After Effects*\\Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/after-effects/Workspaces",
+      "target": "%APPDATA%\\Adobe\\After Effects*\\Workspaces",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/after-effects/aeks",
+      "target": "%APPDATA%\\Adobe\\After Effects*\\aeks",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Adobe\\After Effects*\\Presets", "dest": "apps/after-effects/Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\After Effects*\\Workspaces", "dest": "apps/after-effects/Workspaces", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\After Effects*\\aeks", "dest": "apps/after-effects/aeks", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Media Cache\\**",
+      "**\\Disk Cache\\**",
+      "**\\GPUCache\\**"
+    ]
+  },
+
+  "notes": "Captures Adobe After Effects presets, workspaces, and keyboard shortcuts (aeks/ folder). Config folder is version-specific (%APPDATA%\\Adobe\\After Effects <version>\\). Media cache and disk cache excluded. No winget ID - manual install.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Media Cache/**",
+      "**/Disk Cache/**",
+      "**/GPUCache/**"
+    ]
+  }
+}

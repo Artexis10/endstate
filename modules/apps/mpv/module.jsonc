@@ -1,0 +1,75 @@
+{
+  // Config Module: mpv
+  // Provides verify/restore/capture configuration for mpv (media player)
+  // Curated module - captures mpv.conf, input.conf, and scripts
+
+  "id": "apps.mpv",
+  "displayName": "mpv",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["mpv.net"],
+    "exe": ["mpv.exe"],
+    "uninstallDisplayName": ["^mpv"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\mpv\\mpv.conf" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/mpv/mpv.conf",
+      "target": "%APPDATA%\\mpv\\mpv.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mpv/input.conf",
+      "target": "%APPDATA%\\mpv\\input.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mpv/scripts",
+      "target": "%APPDATA%\\mpv\\scripts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\mpv\\mpv.conf", "dest": "apps/mpv/mpv.conf", "optional": true },
+      { "source": "%APPDATA%\\mpv\\input.conf", "dest": "apps/mpv/input.conf", "optional": true },
+      { "source": "%APPDATA%\\mpv\\scripts", "dest": "apps/mpv/scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\watch_later\\**",
+      "**\\cache\\**"
+    ]
+  },
+
+  "notes": "Captures mpv player configuration (mpv.conf), input bindings (input.conf), and user scripts (scripts/). Watch-later resume data and cache excluded. Config at %APPDATA%\\mpv\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/watch_later/**",
+      "**/cache/**"
+    ]
+  }
+}

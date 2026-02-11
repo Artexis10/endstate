@@ -1,0 +1,65 @@
+{
+  // Config Module: OpenRGB
+  // Provides verify/restore/capture configuration for OpenRGB (RGB lighting control)
+  // Curated module - captures main config and lighting profiles
+
+  "id": "apps.openrgb",
+  "displayName": "OpenRGB",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["OpenRGB.OpenRGB"],
+    "exe": ["OpenRGB.exe"],
+    "uninstallDisplayName": ["^OpenRGB"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\OpenRGB\\OpenRGB.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/openrgb/OpenRGB.json",
+      "target": "%APPDATA%\\OpenRGB\\OpenRGB.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/openrgb/profiles",
+      "target": "%APPDATA%\\OpenRGB\\profiles",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\OpenRGB\\OpenRGB.json", "dest": "apps/openrgb/OpenRGB.json", "optional": true },
+      { "source": "%APPDATA%\\OpenRGB\\profiles", "dest": "apps/openrgb/profiles", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\logs\\**"
+    ]
+  },
+
+  "notes": "Captures OpenRGB main configuration (OpenRGB.json) and lighting profiles (profiles/). Logs excluded. Config at %APPDATA%\\OpenRGB\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/logs/**"
+    ]
+  }
+}

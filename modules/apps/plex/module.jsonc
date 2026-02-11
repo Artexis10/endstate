@@ -1,0 +1,87 @@
+{
+  // Config Module: Plex Media Server
+  // Provides verify/restore/capture configuration for Plex (media server)
+  // Curated module - captures server preferences ONLY, NOT media database or cache
+
+  "id": "apps.plex",
+  "displayName": "Plex Media Server",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Plex.Plex"],
+    "exe": ["Plex Media Server.exe"],
+    "uninstallDisplayName": ["^Plex Media Server"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Plex Media Server\\Preferences.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/plex/Preferences.xml",
+      "target": "%LOCALAPPDATA%\\Plex Media Server\\Preferences.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\Plex Media Server\\Preferences.xml", "dest": "apps/plex/Preferences.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Codecs\\**",
+      "**\\Crash Reports\\**",
+      "**\\Logs\\**",
+      "**\\Media\\**",
+      "**\\Metadata\\**",
+      "**\\Plug-in Support\\**",
+      "**\\Plug-ins\\**",
+      "**\\Updates\\**",
+      "**\\*.db",
+      "**\\*.db-*",
+      "**\\*.bif",
+      "**\\*.log",
+      "**\\Transcode\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Plex Media Server\\Preferences.xml"
+    ],
+    "warning": "Plex Preferences.xml may contain authentication tokens (PlexOnlineToken). Review before sharing. Media database, cache, and transcoding data are excluded from capture.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Plex Media Server preferences (Preferences.xml) ONLY. Media database (.db files), cache, codecs, metadata, plug-ins, transcoding data, and logs are explicitly excluded. Preferences.xml may contain auth tokens - marked sensitive. Config at %LOCALAPPDATA%\\Plex Media Server\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%LOCALAPPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.db",
+      "**/*.db-*",
+      "**/*.bif",
+      "**/Cache/**",
+      "**/Codecs/**",
+      "**/Crash Reports/**",
+      "**/Logs/**",
+      "**/Media/**",
+      "**/Metadata/**",
+      "**/Plug-in Support/**",
+      "**/Plug-ins/**",
+      "**/Updates/**",
+      "**/Transcode/**"
+    ]
+  }
+}
