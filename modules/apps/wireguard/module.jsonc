@@ -15,7 +15,7 @@
   },
 
   "verify": [
-    { "type": "file-exists", "path": "%APPDATA%\\WireGuard\\wireguard.exe.config" }
+    { "type": "file-exists", "path": "C:\\Program Files\\WireGuard\\wireguard.exe" }
   ],
 
   "restore": [],

@@ -10,30 +10,56 @@
   //   - installer.path: Relative path to installer under sandbox-tests/installers/
   //   - installer.silentArgs: Command-line arguments for silent install
   //   - installer.exePath: Path to verify installation (optional but recommended)
-  //
-  // Example with fallback:
-  // {
-  //   "appId": "example",
-  //   "wingetId": "Example.App",
-  //   "installer": {
-  //     "path": "sandbox-tests/installers/example-setup.exe",
-  //     "silentArgs": "/S",
-  //     "exePath": "C:\\Program Files\\Example\\example.exe"
-  //   }
-  // }
   
   "apps": [
-    {
-      "appId": "git",
-      "wingetId": "Git.Git",
-      "installer": {
-        "path": "sandbox-tests/installers/Git-2.47.1.2-64-bit.exe",
-        "silentArgs": "/VERYSILENT /NORESTART /NOCANCEL",
-        "exePath": "C:\\Program Files\\Git\\bin\\git.exe"
-      }
-    },
-    { "appId": "vscodium", "wingetId": "VSCodium.VSCodium" },
+    // --- Already validated ---
     { "appId": "powertoys", "wingetId": "Microsoft.PowerToys" },
-    { "appId": "msi-afterburner", "wingetId": "Guru3D.Afterburner" }
+
+    // --- Previously queued ---
+    { "appId": "git", "wingetId": "Git.Git" },
+    { "appId": "vscodium", "wingetId": "VSCodium.VSCodium" },
+    { "appId": "msi-afterburner", "wingetId": "Guru3D.Afterburner" },
+
+    // --- Lightweight / fast installs ---
+    { "appId": "notepad-plus-plus", "wingetId": "Notepad++.Notepad++" },
+    { "appId": "keepassxc", "wingetId": "KeePassXCTeam.KeePassXC" },
+    { "appId": "audacity", "wingetId": "Audacity.Audacity" },
+    { "appId": "autohotkey", "wingetId": "AutoHotkey.AutoHotkey" },
+    { "appId": "ditto", "wingetId": "Ditto.Ditto" },
+    { "appId": "hwinfo", "wingetId": "REALiX.HWiNFO" },
+    { "appId": "mpv", "wingetId": "mpv.net" },
+    { "appId": "openrgb", "wingetId": "OpenRGB.OpenRGB" },
+    { "appId": "foobar2000", "wingetId": "PeterPawlowski.foobar2000" },
+    { "appId": "sharex", "wingetId": "ShareX.ShareX" },
+    { "appId": "wireguard", "wingetId": "WireGuard.WireGuard" },
+
+    // --- Editors / IDEs ---
+    { "appId": "vscode", "wingetId": "Microsoft.VisualStudioCode" },
+    { "appId": "cursor", "wingetId": "Cursor.Cursor", "sandboxSupported": false },
+    { "appId": "windsurf", "wingetId": "Codeium.Windsurf" },
+    { "appId": "sublime-text", "wingetId": "SublimeHQ.SublimeText.4" },
+    { "appId": "intellij-idea", "wingetId": "JetBrains.IntelliJIDEA.Community" },
+    { "appId": "pycharm", "wingetId": "JetBrains.PyCharm.Community" },
+    { "appId": "webstorm", "wingetId": "JetBrains.WebStorm" },
+
+    // --- Electron / medium apps ---
+    { "appId": "obsidian", "wingetId": "Obsidian.Obsidian", "sandboxSupported": false },
+    { "appId": "logseq", "wingetId": "Logseq.Logseq" },
+    { "appId": "windows-terminal", "wingetId": "Microsoft.WindowsTerminal" },
+
+    // --- Media / creative ---
+    { "appId": "obs-studio", "wingetId": "OBSProject.OBSStudio" },
+    { "appId": "kodi", "wingetId": "XBMCFoundation.Kodi" },
+    { "appId": "reaper", "wingetId": "Cockos.REAPER" },
+    { "appId": "fl-studio", "wingetId": "ImageLine.FLStudio", "sandboxSupported": false },
+    { "appId": "plex", "wingetId": "Plex.Plex" },
+
+    // --- File managers ---
+    { "appId": "totalcommander", "wingetId": "Ghisler.TotalCommander" },
+    { "appId": "directory-opus", "wingetId": "GPSoftware.DirectoryOpus" },
+
+    // --- Specialty ---
+    { "appId": "affinity-photo", "wingetId": "Serif.AffinityPhoto2", "sandboxSupported": false },
+    { "appId": "fastrawviewer", "wingetId": "FastRawViewer.FastRawViewer", "sandboxSupported": false }
   ]
 }

@@ -53,6 +53,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
 
 # ============================================================================
 # PATH SANITIZATION
@@ -274,6 +275,59 @@ function Expand-ConfigPath {
     return $Path
 }
 
+function Stop-ModuleProcesses {
+    <#
+    .SYNOPSIS
+        Stops processes defined in module's stopProcesses field.
+    .DESCRIPTION
+        Reads the stopProcesses array from the module and kills matching processes.
+        Supports wildcard patterns (e.g., "PowerToys*").
+        Used before wipe/restore stages to release file locks.
+    .PARAMETER Module
+        The parsed module hashtable containing stopProcesses field.
+    .PARAMETER Stage
+        The stage name (for logging purposes).
+    #>
+    param(
+        [Parameter(Mandatory)]
+        [hashtable]$Module,
+        [string]$Stage = "unknown"
+    )
+    
+    if (-not $Module.stopProcesses -or $Module.stopProcesses.Count -eq 0) {
+        return
+    }
+    
+    Write-Info "Stopping processes before $Stage stage..."
+    Write-Log "Stop-ModuleProcesses: Stage=$Stage, Patterns=$($Module.stopProcesses -join ', ')"
+    
+    $stoppedCount = 0
+    foreach ($pattern in $Module.stopProcesses) {
+        try {
+            $procs = Get-Process -Name $pattern -ErrorAction SilentlyContinue
+            if ($procs) {
+                foreach ($proc in $procs) {
+                    Write-Log "  Stopping: $($proc.Name) (PID $($proc.Id))"
+                    try {
+                        $proc | Stop-Process -Force -ErrorAction Stop
+                        $stoppedCount++
+                    } catch {
+                        Write-Log "  WARNING: Could not stop $($proc.Name): $($_.Exception.Message)"
+                    }
+                }
+            }
+        } catch {
+            Write-Log "  WARNING: Error matching pattern '$pattern': $($_.Exception.Message)"
+        }
+    }
+    
+    if ($stoppedCount -gt 0) {
+        Write-Info "Stopped $stoppedCount process(es)"
+        # Give processes time to release file handles (PowerToys needs ~5s)
+        Start-Sleep -Seconds 5
+    }
+}
+
 # ============================================================================
 # WINGET BOOTSTRAP FUNCTION
 # ============================================================================
@@ -302,7 +356,7 @@ function Ensure-Winget {
     function Invoke-RobustDownload {
         <#
         .SYNOPSIS
-            Downloads a file with robust redirect handling, TLS config, and content validation.
+            Downloads a file with robust redirect handling, TLS config, content validation, and retry.
         .PARAMETER Url
             The URL to download from.
         .PARAMETER OutFile
@@ -314,6 +368,10 @@ function Ensure-Winget {
         .PARAMETER UseLargeDownload
             If true, uses System.Net.WebClient.DownloadFile instead of Invoke-WebRequest.
             This is more reliable for large files (>10MB) in Windows Sandbox.
+        .PARAMETER MaxRetries
+            Maximum number of retry attempts on transient failures. Default 3.
+        .PARAMETER RetryDelaySeconds
+            Base delay between retries (doubles each attempt). Default 5.
         .OUTPUTS
             Returns $true if download succeeded and passed validation, $false otherwise.
             On failure, writes detailed diagnostics to log.
@@ -326,7 +384,9 @@ function Ensure-Winget {
             [Parameter(Mandatory)]
             [string]$FileType,
             [switch]$ExpectBinary,
-            [switch]$UseLargeDownload
+            [switch]$UseLargeDownload,
+            [int]$MaxRetries = 3,
+            [int]$RetryDelaySeconds = 5
         )
         
         Write-Log "--- Invoke-RobustDownload ---"
@@ -335,6 +395,23 @@ function Ensure-Winget {
         Write-Log "  FileType: $FileType"
         Write-Log "  ExpectBinary: $ExpectBinary"
         Write-Log "  UseLargeDownload: $UseLargeDownload"
+        Write-Log "  MaxRetries: $MaxRetries"
+        
+        # Retry loop with exponential backoff
+        $attempt = 0
+        $lastError = $null
+        
+        while ($attempt -lt $MaxRetries) {
+            $attempt++
+            Write-Log "  Attempt $attempt of $MaxRetries"
+            
+            # Clean up partial file from previous attempt
+            if (Test-Path $OutFile) {
+                Remove-Item $OutFile -Force -ErrorAction SilentlyContinue
+            }
+            
+            $downloadSuccess = $false
+            $validationSuccess = $false
         
         # Ensure TLS 1.2+ is enabled (TLS 1.3 may not be available on all systems)
         try {
@@ -474,13 +551,21 @@ function Ensure-Winget {
             $downloadInfo.Error = "$($_.Exception.GetType().Name): $($_.Exception.Message)"
             Write-Log "  DOWNLOAD FAILED: $($downloadInfo.Error)"
             Write-Log "  Stack: $($_.ScriptStackTrace)"
-            return $false
+            $lastError = "Download exception: $($downloadInfo.Error)"
+            $delay = $RetryDelaySeconds * [math]::Pow(2, $attempt - 1)
+            Write-Log "  Retrying in $delay seconds..."
+            Start-Sleep -Seconds $delay
+            continue
         }
         
         # Verify file exists and get actual size
         if (-not (Test-Path $OutFile)) {
             Write-Log "  FAIL: Output file does not exist after download"
-            return $false
+            $lastError = "Output file does not exist after download"
+            $delay = $RetryDelaySeconds * [math]::Pow(2, $attempt - 1)
+            Write-Log "  Retrying in $delay seconds..."
+            Start-Sleep -Seconds $delay
+            continue
         }
         
         $fileInfo = Get-Item $OutFile
@@ -536,7 +621,11 @@ function Ensure-Winget {
             Write-Log "    Actual size: $([math]::Round($downloadInfo.ActualSize / 1MB, 2)) MB ($($downloadInfo.ActualSize) bytes)"
             Write-Log "    Final URL: $($downloadInfo.FinalUrl)"
             Write-Log "    Content-Type: $($downloadInfo.ContentType)"
-            return $false
+            $lastError = "File too small: $($downloadInfo.ActualSize) bytes (expected $minSize+)"
+            $delay = $RetryDelaySeconds * [math]::Pow(2, $attempt - 1)
+            Write-Log "  Retrying in $delay seconds..."
+            Start-Sleep -Seconds $delay
+            continue
         }
         
         # Validate binary signature if expected
@@ -546,12 +635,24 @@ function Ensure-Winget {
             Write-Log "    This is likely an HTML error page or redirect page"
             Write-Log "    Final URL: $($downloadInfo.FinalUrl)"
             Write-Log "    Content-Type: $($downloadInfo.ContentType)"
-            return $false
+            $lastError = "Invalid binary signature (not ZIP/MSIX)"
+            $delay = $RetryDelaySeconds * [math]::Pow(2, $attempt - 1)
+            Write-Log "  Retrying in $delay seconds..."
+            Start-Sleep -Seconds $delay
+            continue
         }
         
+        # All validations passed - success!
         Write-Log "  DOWNLOAD OK: Size=$($downloadInfo.ActualSize) bytes, ValidBinary=$($downloadInfo.IsValidBinary)"
         Write-Log "--- End Invoke-RobustDownload ---"
         return $true
+        
+        } # End of retry while loop
+        
+        # All retries exhausted
+        Write-Log "  DOWNLOAD FAILED after $MaxRetries attempts. Last error: $lastError"
+        Write-Log "--- End Invoke-RobustDownload ---"
+        return $false
     }
     
     function Get-DownloadDiagnostics {
@@ -670,6 +771,25 @@ function Ensure-Winget {
     }
     Write-Log "Temp directory: $tempDir"
     
+    # Check for pre-cached packages (host downloads these once, sandbox reuses via mapped folder)
+    $cacheDir = Join-Path $script:RepoRoot "sandbox-tests\.cache\winget"
+    $hasCachedDeps = $false
+    $hasCachedInstaller = $false
+    if (Test-Path $cacheDir) {
+        $cachedDepsZip = Join-Path $cacheDir "DesktopAppInstaller_Dependencies.zip"
+        $cachedMsixBundle = Join-Path $cacheDir "Microsoft.DesktopAppInstaller.msixbundle"
+        if (Test-Path $cachedDepsZip) {
+            $hasCachedDeps = $true
+            Write-Log "Found cached deps ZIP: $cachedDepsZip ($([math]::Round((Get-Item $cachedDepsZip).Length / 1MB, 1)) MB)"
+            Write-Info "Using cached winget dependencies (skipping download)"
+        }
+        if (Test-Path $cachedMsixBundle) {
+            $hasCachedInstaller = $true
+            Write-Log "Found cached App Installer: $cachedMsixBundle ($([math]::Round((Get-Item $cachedMsixBundle).Length / 1MB, 1)) MB)"
+            Write-Info "Using cached App Installer (skipping download)"
+        }
+    }
+    
     # =========================================================================
     # STEP 1: Download winget dependencies from GitHub (includes Windows App Runtime)
     # =========================================================================
@@ -681,22 +801,30 @@ function Ensure-Winget {
     $depsZipUrl = "https://github.com/microsoft/winget-cli/releases/download/$wingetVersion/DesktopAppInstaller_Dependencies.zip"
     $depsZipPath = Join-Path $tempDir "DesktopAppInstaller_Dependencies.zip"
     
-    Write-Log ""
-    Write-Log "Step 1: Download winget dependencies from GitHub"
-    Write-Log "URL: $depsZipUrl"
-    Write-Info "Downloading winget dependencies (~98MB)..."
-    
-    $downloadOk = Invoke-RobustDownload -Url $depsZipUrl -OutFile $depsZipPath -FileType 'redist-zip' -ExpectBinary -UseLargeDownload
-    if (-not $downloadOk) {
-        Write-DiagnosticPackageListing
-        $diagDetails = Get-DownloadDiagnostics -Url $depsZipUrl -FilePath $depsZipPath -FileType 'redist-zip'
-        Write-FatalError -Stage "winget-bootstrap:download-deps" `
-            -Message "Winget dependencies download failed (not a valid ZIP)" `
-            -Details $diagDetails
+    if ($hasCachedDeps) {
+        # Use pre-cached file from host (avoids ~98MB download)
+        Write-Log "Using cached deps ZIP: $cachedDepsZip"
+        Copy-Item -Path $cachedDepsZip -Destination $depsZipPath -Force
+        $fileSize = (Get-Item $depsZipPath).Length
+        Write-Info "Copied cached winget dependencies ($([math]::Round($fileSize / 1MB, 1)) MB)"
+    } else {
+        Write-Log ""
+        Write-Log "Step 1: Download winget dependencies from GitHub"
+        Write-Log "URL: $depsZipUrl"
+        Write-Info "Downloading winget dependencies (~98MB)..."
+        
+        $downloadOk = Invoke-RobustDownload -Url $depsZipUrl -OutFile $depsZipPath -FileType 'redist-zip' -ExpectBinary -UseLargeDownload
+        if (-not $downloadOk) {
+            Write-DiagnosticPackageListing
+            $diagDetails = Get-DownloadDiagnostics -Url $depsZipUrl -FilePath $depsZipPath -FileType 'redist-zip'
+            Write-FatalError -Stage "winget-bootstrap:download-deps" `
+                -Message "Winget dependencies download failed (not a valid ZIP)" `
+                -Details $diagDetails
+        }
+        
+        $fileSize = (Get-Item $depsZipPath).Length
+        Write-Info "Downloaded winget dependencies ($([math]::Round($fileSize / 1MB, 2)) MB)"
     }
-    
-    $fileSize = (Get-Item $depsZipPath).Length
-    Write-Info "Downloaded winget dependencies ($([math]::Round($fileSize / 1MB, 2)) MB)"
     
     # =========================================================================
     # STEP 2: Extract and Install dependency packages (includes Windows App Runtime)
@@ -813,22 +941,30 @@ function Ensure-Winget {
     $appInstallerUrl = "https://github.com/microsoft/winget-cli/releases/download/$wingetVersion/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
     $msixBundlePath = Join-Path $tempDir "Microsoft.DesktopAppInstaller.msixbundle"
     
-    Write-Log ""
-    Write-Log "Step 3: Download App Installer bundle from GitHub"
-    Write-Log "URL: $appInstallerUrl"
-    Write-Info "Downloading App Installer (~205MB)..."
-    
-    $downloadOk = Invoke-RobustDownload -Url $appInstallerUrl -OutFile $msixBundlePath -FileType 'appinstaller' -ExpectBinary -UseLargeDownload
-    if (-not $downloadOk) {
-        Write-DiagnosticPackageListing
-        $diagDetails = Get-DownloadDiagnostics -Url $appInstallerUrl -FilePath $msixBundlePath -FileType 'appinstaller'
-        Write-FatalError -Stage "winget-bootstrap:download-appinstaller" `
-            -Message "App Installer download failed or corrupted (not a valid MSIX)" `
-            -Details $diagDetails
+    if ($hasCachedInstaller) {
+        # Use pre-cached file from host (avoids ~205MB download)
+        Write-Log "Using cached App Installer: $cachedMsixBundle"
+        Copy-Item -Path $cachedMsixBundle -Destination $msixBundlePath -Force
+        $fileSize = (Get-Item $msixBundlePath).Length
+        Write-Info "Copied cached App Installer ($([math]::Round($fileSize / 1MB, 1)) MB)"
+    } else {
+        Write-Log ""
+        Write-Log "Step 3: Download App Installer bundle from GitHub"
+        Write-Log "URL: $appInstallerUrl"
+        Write-Info "Downloading App Installer (~205MB)..."
+        
+        $downloadOk = Invoke-RobustDownload -Url $appInstallerUrl -OutFile $msixBundlePath -FileType 'appinstaller' -ExpectBinary -UseLargeDownload
+        if (-not $downloadOk) {
+            Write-DiagnosticPackageListing
+            $diagDetails = Get-DownloadDiagnostics -Url $appInstallerUrl -FilePath $msixBundlePath -FileType 'appinstaller'
+            Write-FatalError -Stage "winget-bootstrap:download-appinstaller" `
+                -Message "App Installer download failed or corrupted (not a valid MSIX)" `
+                -Details $diagDetails
+        }
+        
+        $fileSize = (Get-Item $msixBundlePath).Length
+        Write-Info "Downloaded App Installer bundle ($([math]::Round($fileSize / 1MB, 2)) MB)"
     }
-    
-    $fileSize = (Get-Item $msixBundlePath).Length
-    Write-Info "Downloaded App Installer bundle ($([math]::Round($fileSize / 1MB, 2)) MB)"
     
     # =========================================================================
     # STEP 4: Install App Installer
@@ -943,6 +1079,25 @@ function Ensure-Winget {
 
 Set-Stage "main-init"
 Write-Log "Starting main validation flow for AppId=$AppId WingetId=$WingetId"
+
+# ============================================================================
+# STAGE 0: Disable WDAC / Smart App Control
+# ============================================================================
+# Windows Sandbox enforces WDAC/Smart App Control which blocks unsigned DLLs
+# (e.g. Git's msys-2.0.dll, libpcre2-8-0.dll) causing modal "Bad Image" dialogs
+# that hang the sandbox. Disable before any installs.
+Set-Stage "disable-wdac"
+Write-Step "Disabling WDAC/Smart App Control in sandbox..."
+try {
+    Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy" -Name "VerifiedAndReputablePolicyState" -Value 0 -ErrorAction Stop
+    Write-Log "Set VerifiedAndReputablePolicyState = 0"
+    $ciResult = & CiTool.exe -r 2>&1 | Out-String
+    Write-Log "CiTool -r output: $ciResult"
+    Write-Pass "WDAC/Smart App Control disabled"
+} catch {
+    Write-Log "WARNING: Could not disable WDAC: $($_.Exception.Message)"
+    Write-Info "Warning: Could not disable WDAC (may not affect all apps)"
+}
 
 Write-Host ""
 Write-Host "=" * 60 -ForegroundColor Cyan
@@ -1092,6 +1247,7 @@ if ($InstallerPath) {
     }
 } elseif ($wingetAvailable) {
     # Install via winget - MUST pin source to avoid ambiguity (msstore vs winget)
+    Set-Stage "install:winget"
     Write-Info "Installing via winget..."
     
     # Build canonical winget command with all required flags
@@ -1116,40 +1272,114 @@ if ($InstallerPath) {
     Write-Log "Executing: $wingetCmd"
     
     try {
-        $installOutput = & winget @wingetArgs 2>&1
-        $installExitCode = $LASTEXITCODE
+        # Stream winget output to STEP.txt for host-side progress visibility
+        # (winget uses \r for progress bars, so we poll the raw output file)
+        $stdoutFile = Join-Path $OutputDir "winget-stdout.tmp"
+        $stderrFile = Join-Path $OutputDir "winget-stderr.tmp"
+        
+        $proc = Start-Process -FilePath "winget" -ArgumentList ($wingetArgs -join ' ') `
+            -RedirectStandardOutput $stdoutFile -RedirectStandardError $stderrFile `
+            -NoNewWindow -PassThru
+        
+        # CRITICAL: Access .Handle to prevent .NET GC from releasing the process handle
+        # during the long polling loop. Without this, $proc.ExitCode returns $null for
+        # long-running installs (e.g. PowerToys 381MB download), causing false failures.
+        $procHandle = $proc.Handle
+        
+        # Poll output file every 3 seconds, relay last meaningful line to STEP.txt
+        $lastProgress = ""
+        while (-not $proc.HasExited) {
+            Start-Sleep -Seconds 3
+            if (Test-Path $stdoutFile) {
+                # Read with FileShare.ReadWrite to avoid lock conflict with Start-Process
+                try {
+                    $fs = [System.IO.FileStream]::new($stdoutFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+                    $sr = [System.IO.StreamReader]::new($fs)
+                    $raw = $sr.ReadToEnd()
+                    $sr.Close()
+                    $fs.Close()
+                } catch { $raw = "" }
+                # Split on \r or \n, take last non-empty line
+                $lines = $raw -split '[\r\n]' | Where-Object { $_.Trim().Length -gt 0 }
+                if ($lines.Count -gt 0) {
+                    $current = $lines[-1].Trim()
+                    # Truncate long progress bar lines for STEP.txt readability
+                    if ($current.Length -gt 80) { $current = $current.Substring(0, 80) + "..." }
+                    if ($current -ne $lastProgress) {
+                        $lastProgress = $current
+                        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') install: $current" | Out-File -FilePath $script:StepFile -Encoding UTF8
+                    }
+                }
+            }
+        }
+        $proc.WaitForExit()
+        
+        # Read exit code defensively (may be null/empty in sandbox environments)
+        $installExitCode = $null
+        try {
+            $installExitCode = $proc.ExitCode
+        } catch {
+            Write-Log "WARNING: Failed to read proc.ExitCode: $_"
+        }
         $script:InstallExitCode = $installExitCode
+        
+        # Collect full output for logging (read before cleanup)
+        $stdoutContent = if (Test-Path $stdoutFile) { Get-Content $stdoutFile -Raw } else { "" }
+        $stderrContent = if (Test-Path $stderrFile) { Get-Content $stderrFile -Raw } else { "" }
+        $installOutput = @($stdoutContent, $stderrContent) | Where-Object { $_ }
+        $combinedOutput = "$stdoutContent $stderrContent"
+        
+        # Log exit code with type info for diagnostics
+        Write-Log "Exit code value: '$installExitCode' (type: $($installExitCode.GetType().Name))"
         
         # Append output to install.log
         "" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
-        "[STDOUT/STDERR]" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
-        $installOutput | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        "[STDOUT]" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        $stdoutContent | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        "[STDERR]" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        $stderrContent | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
         "" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
         "[EXIT CODE] $installExitCode" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
         
-        if ($installExitCode -ne 0) {
-            # Check if already installed (exit code 0x8A150061 = -1978335135)
-            if ($installOutput -match "already installed" -or $installExitCode -eq -1978335135) {
-                Write-Info "App already installed, continuing..."
-                Write-Log "App already installed (exit code $installExitCode)"
-                "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] App already installed" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
-            } else {
-                # Write ERROR.txt with structured failure info
-                $stderrLines = ($installOutput | Out-String).Trim()
-                $errorContent = @"
+        # Clean up temp files
+        Remove-Item $stdoutFile -Force -ErrorAction SilentlyContinue
+        Remove-Item $stderrFile -Force -ErrorAction SilentlyContinue
+        
+        # === OUTPUT-BASED SUCCESS DETECTION (primary) ===
+        $outputSaysInstalled = $combinedOutput -match 'Successfully installed'
+        $outputSaysAlreadyInstalled = $combinedOutput -match 'already installed'
+        
+        # Normalize exit code: treat null/empty/non-integer as unknown
+        $exitCodeIsZero = ($null -ne $installExitCode) -and ($installExitCode -is [int]) -and ($installExitCode -eq 0)
+        $exitCodeIsAlreadyInstalled = ($null -ne $installExitCode) -and ($installExitCode -eq -1978335135)
+        
+        if ($outputSaysInstalled -or $exitCodeIsZero) {
+            # SUCCESS — output confirms or exit code is 0
+            if (-not $exitCodeIsZero) {
+                Write-Log "NOTE: Exit code was '$installExitCode' but output confirms success"
+                $installExitCode = 0
+                $script:InstallExitCode = 0
+            }
+            Write-Pass "Installed via winget: $WingetId"
+            Write-Log "Install succeeded for $WingetId"
+            "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Install succeeded" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        } elseif ($outputSaysAlreadyInstalled -or $exitCodeIsAlreadyInstalled) {
+            # ALREADY INSTALLED
+            Write-Info "App already installed, continuing..."
+            Write-Log "App already installed (exit code $installExitCode)"
+            "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] App already installed" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+        } else {
+            # FAILURE — neither output nor exit code indicate success
+            $stderrLines = $combinedOutput.Trim()
+            $errorContent = @"
 Winget install failed
 Command: $wingetCmd
 Exit code: $installExitCode
 Last output:
 $stderrLines
 "@
-                $errorContent | Out-File -FilePath $script:ErrorFile -Encoding UTF8
-                Write-FatalError -Stage "install" -Message "Winget install failed with exit code $installExitCode" -Details $stderrLines
-            }
-        } else {
-            Write-Pass "Installed via winget: $WingetId"
-            Write-Log "Install succeeded for $WingetId"
-            "[$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')] Install succeeded" | Out-File -FilePath $script:InstallLog -Append -Encoding UTF8
+            $errorContent | Out-File -FilePath $script:ErrorFile -Encoding UTF8
+            Write-FatalError -Stage "install" -Message "Winget install failed with exit code $installExitCode" -Details $stderrLines
         }
     } catch {
         $script:InstallExitCode = -1
@@ -1341,12 +1571,12 @@ if ($hasSeed -and -not $NoSeed) {
     Write-Step "Running seed script..."
     
     try {
-        $seedOutput = & $seedScript 2>&1
+        $seedOutput = & $seedScript 2>&1 | ForEach-Object { "$_" }
         $seedExitCode = $LASTEXITCODE
         
         # Log seed output
         $seedLogPath = Join-Path $OutputDir "seed.log"
-        $seedOutput | Out-File -FilePath $seedLogPath -Encoding UTF8
+        ($seedOutput -join "`n") | Out-File -FilePath $seedLogPath -Encoding UTF8
         
         if ($seedExitCode -ne 0) {
             Write-FatalError -Stage "seed" -Message "Seed script failed with exit code $seedExitCode" -Details ($seedOutput | Out-String)
@@ -1469,6 +1699,7 @@ $captureManifest | ConvertTo-Json -Depth 5 | Out-File -FilePath (Join-Path $Outp
 # ============================================================================
 # STAGE 5: Wipe (Simulate Loss)
 # ============================================================================
+Stop-ModuleProcesses -Module $module -Stage "wipe"
 Set-Stage "wipe"
 Write-Step "Wiping config files (simulating loss)..."
 
@@ -1491,7 +1722,48 @@ foreach ($captured in $capturedFiles) {
             $backupPath = Join-Path $wipeDir "$(Split-Path -Leaf $sourcePath).$counter"
         }
         
-        Move-Item -Path $sourcePath -Destination $backupPath -Force
+        # For directories: Move-Item is atomic and fails if ANY file is locked.
+        # PowerToys spawns ~15 background processes with locked log/cache files.
+        # Strategy: Copy to backup first, then aggressively delete original.
+        $isDir = (Get-Item $sourcePath).PSIsContainer
+        if ($isDir) {
+            # Copy to backup (preserves evidence)
+            Copy-Item -Path $sourcePath -Destination $backupPath -Recurse -Force
+            Write-Log "Wipe: copied directory to backup: $backupPath"
+            
+            # Aggressively delete original, retrying with process kills
+            $maxWipeRetries = 3
+            $wipeRetry = 0
+            while ((Test-Path $sourcePath) -and $wipeRetry -lt $maxWipeRetries) {
+                try {
+                    Remove-Item -Path $sourcePath -Recurse -Force -ErrorAction Stop
+                } catch {
+                    $wipeRetry++
+                    Write-Log "Wipe delete attempt $wipeRetry failed: $($_.Exception.Message)"
+                    if ($wipeRetry -lt $maxWipeRetries) {
+                        Write-Info "File locked, re-killing processes (attempt $wipeRetry/$maxWipeRetries)..."
+                        Stop-ModuleProcesses -Module $module -Stage "wipe-retry-$wipeRetry"
+                        Start-Sleep -Seconds 3
+                    }
+                }
+            }
+            # If directory still exists, force-delete remaining files individually
+            if (Test-Path $sourcePath) {
+                Write-Log "Wipe: directory still exists after retries, force-cleaning remaining files"
+                Get-ChildItem -Path $sourcePath -Recurse -Force -ErrorAction SilentlyContinue | 
+                    Sort-Object { $_.FullName.Length } -Descending | 
+                    ForEach-Object {
+                        try { Remove-Item $_.FullName -Force -ErrorAction Stop } catch {
+                            Write-Log "  Skipping locked file: $($_.FullName)"
+                        }
+                    }
+                # Try removing the now-hopefully-empty directory
+                Remove-Item -Path $sourcePath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            Move-Item -Path $sourcePath -Destination $backupPath -Force
+        }
+        
         $wipedFiles += @{
             original = $sourcePath
             backup = $backupPath
@@ -1513,8 +1785,21 @@ $wipeManifest | ConvertTo-Json -Depth 5 | Out-File -FilePath (Join-Path $OutputD
 # ============================================================================
 # STAGE 6: Restore
 # ============================================================================
+Stop-ModuleProcesses -Module $module -Stage "restore"
 Set-Stage "restore"
 Write-Step "Restoring config files..."
+
+# Build target-path → capture-dest mapping so restore can find captured files
+# even when restore.source and capture.dest use different relative paths.
+# Match key: expanded system path (capture.source == restore.target)
+$captureDestMap = @{}
+if ($module.capture -and $module.capture.files) {
+    foreach ($cf in $module.capture.files) {
+        $expandedTarget = Expand-ConfigPath -Path $cf.source
+        $captureDestMap[$expandedTarget] = $cf.dest
+        Write-Log "Capture map: $expandedTarget -> $($cf.dest)"
+    }
+}
 
 $restoredFiles = @()
 
@@ -1523,19 +1808,53 @@ if ($module.restore -and $module.restore.Count -gt 0) {
         $restoreType = if ($restoreItem.type) { $restoreItem.type } else { "copy" }
         
         if ($restoreType -eq "copy") {
-            # Resolve source path (relative to module dir or captured payload)
+            # Resolve source path from captured files.
+            # Strategy: first try the literal restore.source relative path under captureDir.
+            # If not found, look up the capture.dest that shares the same system target path.
             $sourcePath = $restoreItem.source
             if ($sourcePath.StartsWith("./")) {
-                # Relative to module directory - but we use captured files
-                # Map ./payload/apps/git/.gitconfig to capture/apps/git/.gitconfig
                 $relativePart = $sourcePath.Substring(2)
                 if ($relativePart.StartsWith("payload/")) {
-                    $relativePart = $relativePart.Substring(8)  # Remove "payload/"
+                    $relativePart = $relativePart.Substring(8)
                 }
-                $sourcePath = Join-Path $captureDir $relativePart
+                $candidatePath = Join-Path $captureDir $relativePart
+                
+                if (Test-Path $candidatePath) {
+                    $sourcePath = $candidatePath
+                } else {
+                    # Fallback: match via system target path → capture dest
+                    $expandedTarget = Expand-ConfigPath -Path $restoreItem.target
+                    $captureDest = $captureDestMap[$expandedTarget]
+                    if ($captureDest) {
+                        $mappedPath = Join-Path $captureDir $captureDest
+                        if (Test-Path $mappedPath) {
+                            Write-Log "Restore source mapped: $($restoreItem.source) -> $mappedPath (via target match)"
+                            Write-Info "Source mapped: $($restoreItem.source) -> $captureDest"
+                            $sourcePath = $mappedPath
+                        } else {
+                            $sourcePath = $candidatePath  # Will fail at existence check below
+                        }
+                    } else {
+                        $sourcePath = $candidatePath  # Will fail at existence check below
+                    }
+                }
             }
             
             $targetPath = Expand-ConfigPath -Path $restoreItem.target
+            
+            # Resolve glob wildcards in target path (e.g. JetBrains version-specific dirs)
+            if ($targetPath -match '\*|\?') {
+                $resolvedTargets = Resolve-Path -Path $targetPath -ErrorAction SilentlyContinue
+                if ($resolvedTargets) {
+                    $targetPath = ($resolvedTargets | Select-Object -First 1).Path
+                    Write-Log "Restore: resolved glob target to $targetPath"
+                } elseif ($restoreItem.optional) {
+                    Write-Info "Skipped (optional, glob target not resolved): $($restoreItem.target)"
+                    continue
+                } else {
+                    Write-FatalError -Stage "restore" -Message "Glob target path did not resolve: $($restoreItem.target)"
+                }
+            }
             
             if (Test-Path $sourcePath) {
                 # Ensure target directory exists
@@ -1544,9 +1863,16 @@ if ($module.restore -and $module.restore.Count -gt 0) {
                     New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
                 }
                 
-                # Copy
+                # Copy (directory restore uses content-merge to handle partially-wiped targets)
                 if ((Get-Item $sourcePath).PSIsContainer) {
-                    Copy-Item -Path $sourcePath -Destination $targetPath -Recurse -Force
+                    # CRITICAL: Copy-Item nests source inside target if target already exists.
+                    # When wipe can't fully delete (locked files), target dir survives.
+                    # Fix: ensure target exists, then copy CONTENTS (source\*) to merge.
+                    if (-not (Test-Path $targetPath)) {
+                        New-Item -ItemType Directory -Path $targetPath -Force | Out-Null
+                    }
+                    Copy-Item -Path (Join-Path $sourcePath '*') -Destination $targetPath -Recurse -Force
+                    Write-Log "Restore: merged directory contents into $targetPath"
                 } else {
                     Copy-Item -Path $sourcePath -Destination $targetPath -Force
                 }

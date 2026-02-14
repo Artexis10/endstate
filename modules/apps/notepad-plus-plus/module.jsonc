@@ -14,7 +14,7 @@
   },
   
   "verify": [
-    { "type": "command-exists", "command": "notepad++" }
+    { "type": "file-exists", "path": "C:\\Program Files\\Notepad++\\notepad++.exe" }
   ],
   
   "restore": [

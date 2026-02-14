@@ -147,6 +147,7 @@ Write-Host ""
 $results = @()
 $passCount = 0
 $failCount = 0
+$skipCount = 0
 $startTime = Get-Date
 
 # Run validation for each app
@@ -162,30 +163,72 @@ foreach ($app in $queue.apps) {
     $appOutDir = Join-Path $OutDir $appId
     $appStartTime = Get-Date
     
+    if ($app.sandboxSkip -eq $true) {
+        Write-Host "[SKIP] ${appId}: marked sandboxSkip in queue" -ForegroundColor DarkYellow
+        $results += @{
+            appId = $appId
+            wingetId = $wingetId
+            status = "SKIPPED"
+            reason = "sandboxSkip"
+            duration = 0
+            outputDir = $appOutDir
+        }
+        $skipCount++
+        continue
+    }
+    
+    if ($app.sandboxSupported -eq $false) {
+        Write-Host "[SKIP] ${appId}: sandbox not supported" -ForegroundColor DarkYellow
+        $results += @{
+            appId = $appId
+            wingetId = $wingetId
+            status = "SKIPPED"
+            skipReason = "sandbox_unsupported"
+            duration = 0
+            outputDir = $appOutDir
+        }
+        $skipCount++
+        continue
+    }
+    
     # Run validation
     try {
-        $validateArgs = @(
-            "-File", $script:ValidateScript,
-            "-AppId", $appId,
-            "-WingetId", $wingetId,
-            "-OutDir", $appOutDir
-        )
+        # Build argument string (not array) to preserve quoting for paths with spaces
+        $argString = "-File `"$($script:ValidateScript)`" -AppId `"$appId`" -WingetId `"$wingetId`" -OutDir `"$appOutDir`""
         
         # Add offline installer fallback parameters if present in queue entry
         if ($app.installer) {
             if ($app.installer.path) {
-                $validateArgs += @("-InstallerPath", $app.installer.path)
+                $argString += " -InstallerPath `"$($app.installer.path)`""
             }
             if ($app.installer.silentArgs) {
-                $validateArgs += @("-InstallerArgs", $app.installer.silentArgs)
+                $argString += " -InstallerArgs `"$($app.installer.silentArgs)`""
             }
             if ($app.installer.exePath) {
-                $validateArgs += @("-InstallerExePath", $app.installer.exePath)
+                $argString += " -InstallerExePath `"$($app.installer.exePath)`""
             }
         }
         
-        $process = Start-Process -FilePath "powershell.exe" -ArgumentList $validateArgs -Wait -PassThru -NoNewWindow
-        $exitCode = $process.ExitCode
+        # Launch with timeout (10 minutes per app)
+        $timeoutMs = 600000
+        $process = Start-Process -FilePath "powershell.exe" -ArgumentList $argString -PassThru -NoNewWindow
+        $completed = $process.WaitForExit($timeoutMs)
+        
+        if (-not $completed) {
+            Write-Host "[WARN] Timeout after 600s, killing process..." -ForegroundColor Yellow
+            $process.Kill()
+            $process.WaitForExit(5000)
+            $exitCode = 124  # timeout exit code
+            
+            # Clean up lingering sandbox session
+            try {
+                Stop-Process -Name "WindowsSandboxClient" -Force -ErrorAction SilentlyContinue
+                Stop-Process -Name "WindowsSandbox" -Force -ErrorAction SilentlyContinue
+                Start-Sleep -Seconds 3
+            } catch { }
+        } else {
+            $exitCode = $process.ExitCode
+        }
         
         $appEndTime = Get-Date
         $duration = ($appEndTime - $appStartTime).TotalSeconds
@@ -195,7 +238,7 @@ foreach ($app in $queue.apps) {
         $appResult = @{
             appId = $appId
             wingetId = $wingetId
-            status = if ($exitCode -eq 0) { "PASS" } else { "FAIL" }
+            status = if ($exitCode -eq 0) { "PASS" } elseif ($exitCode -eq 124) { "TIMEOUT" } else { "FAIL" }
             exitCode = $exitCode
             duration = [math]::Round($duration, 2)
             outputDir = $appOutDir
@@ -221,10 +264,13 @@ foreach ($app in $queue.apps) {
         
         if ($exitCode -eq 0) {
             $passCount++
-            Write-Pass "$appId: PASSED (${duration}s)"
+            Write-Pass "${appId}: PASSED (${duration}s)"
+        } elseif ($exitCode -eq 124) {
+            $failCount++
+            Write-Host "[TIME] ${appId}: TIMEOUT after ${duration}s" -ForegroundColor Magenta
         } else {
             $failCount++
-            Write-Fail "$appId: FAILED (${duration}s)"
+            Write-Fail "${appId}: FAILED (${duration}s)"
             
             if ($StopOnFail) {
                 Write-Host ""
@@ -247,7 +293,7 @@ foreach ($app in $queue.apps) {
         $results += $appResult
         $failCount++
         
-        Write-Fail "$appId: ERROR - $($_.Exception.Message)"
+        Write-Fail "${appId}: ERROR - $($_.Exception.Message)"
         
         if ($StopOnFail) {
             Write-Host ""
@@ -273,6 +319,7 @@ $summary = @{
     totalApps = $queue.apps.Count
     passed = $passCount
     failed = $failCount
+    skipped = $skipCount
     duration = [math]::Round($totalDuration, 2)
     results = $results
 }
@@ -297,7 +344,7 @@ $mdContent = @"
 "@
 
 foreach ($r in $results) {
-    $statusEmoji = if ($r.status -eq "PASS") { "✅" } elseif ($r.status -eq "FAIL") { "❌" } else { "⚠️" }
+    $statusEmoji = if ($r.status -eq "PASS") { "✅" } elseif ($r.status -eq "SKIPPED") { "⏭️" } elseif ($r.status -eq "TIMEOUT") { "⏱️" } elseif ($r.status -eq "FAIL") { "❌" } else { "⚠️" }
     $details = if ($r.status -eq "PASS") {
         "Verify: $($r.verifyPass)/$($r.verifyTotal)"
     } elseif ($r.failReason) {
@@ -317,6 +364,7 @@ $mdContent += @"
 - **Total Apps:** $($queue.apps.Count)
 - **Passed:** $passCount
 - **Failed:** $failCount
+- **Skipped:** $skipCount
 - **Pass Rate:** $([math]::Round(($passCount / $queue.apps.Count) * 100, 1))%
 
 ## Artifacts
@@ -331,6 +379,7 @@ $mdContent | Out-File -FilePath $summaryMdPath -Encoding UTF8
 Write-Host "  Total Apps:  $($queue.apps.Count)" -ForegroundColor White
 Write-Host "  Passed:      $passCount" -ForegroundColor Green
 Write-Host "  Failed:      $failCount" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "White" })
+Write-Host "  Skipped:     $skipCount" -ForegroundColor $(if ($skipCount -gt 0) { "DarkYellow" } else { "White" })
 Write-Host "  Duration:    $([math]::Round($totalDuration, 2))s" -ForegroundColor White
 Write-Host ""
 

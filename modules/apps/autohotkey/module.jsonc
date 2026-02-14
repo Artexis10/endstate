@@ -15,7 +15,7 @@
   },
 
   "verify": [
-    { "type": "command-exists", "command": "AutoHotkey64" }
+    { "type": "file-exists", "path": "C:\\Program Files\\AutoHotkey\\v2\\AutoHotkey64.exe" }
   ],
 
   "restore": [

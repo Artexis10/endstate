@@ -20,13 +20,15 @@
       "type": "copy",
       "source": "./configs/msi-afterburner/MSIAfterburner.cfg",
       "target": "C:\\Program Files (x86)\\MSI Afterburner\\MSIAfterburner.cfg",
-      "backup": true
+      "backup": true,
+      "optional": true
     },
     {
       "type": "copy",
       "source": "./configs/msi-afterburner/Profiles",
       "target": "C:\\Program Files (x86)\\MSI Afterburner\\Profiles",
-      "backup": true
+      "backup": true,
+      "optional": true
     }
   ],
   
