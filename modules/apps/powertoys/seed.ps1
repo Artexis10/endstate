@@ -42,6 +42,23 @@ Write-Host "=" * 60 -ForegroundColor Cyan
 Write-Host ""
 
 # ============================================================================
+# STOP POWERTOYS PROCESSES (prevent file locks on settings.json)
+# ============================================================================
+Write-Step "Stopping PowerToys processes..."
+$ptProcesses = @('PowerToys', 'PowerToys.Settings', 'PowerToys.Awake',
+                  'PowerToys.FancyZones', 'PowerToys.KeyboardManagerEngine',
+                  'PowerToys.PowerLauncher', 'PowerToys.ColorPicker',
+                  'PowerToys.MeasureTool', 'PowerToys.Peek')
+foreach ($procName in $ptProcesses) {
+    Get-Process -Name $procName -ErrorAction SilentlyContinue | ForEach-Object {
+        Write-Step "  Stopping $($_.ProcessName) (PID $($_.Id))..."
+        $_ | Stop-Process -Force -ErrorAction SilentlyContinue
+    }
+}
+Start-Sleep -Seconds 2
+Write-Pass "PowerToys processes stopped"
+
+# ============================================================================
 # PATHS
 # ============================================================================
 $powerToysDir = Join-Path $env:LOCALAPPDATA "Microsoft\PowerToys"
@@ -94,7 +111,19 @@ $mainSettings = @{
 }
 
 $mainSettingsJson = $mainSettings | ConvertTo-Json -Depth 10
-$mainSettingsJson | Set-Content -Path $settingsPath -Encoding UTF8
+
+# Retry logic for locked file (PowerToys may take time to release handle)
+$maxRetries = 3
+for ($i = 1; $i -le $maxRetries; $i++) {
+    try {
+        $mainSettingsJson | Set-Content -Path $settingsPath -Encoding UTF8 -ErrorAction Stop
+        break
+    } catch {
+        if ($i -eq $maxRetries) { throw }
+        Write-Step "settings.json locked, retrying in 2s (attempt $i/$maxRetries)..."
+        Start-Sleep -Seconds 2
+    }
+}
 
 Write-Pass "Main settings written to: $settingsPath"
 

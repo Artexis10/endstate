@@ -275,6 +275,55 @@ function Expand-ConfigPath {
     return $Path
 }
 
+function Resolve-GlobSegment {
+    <#
+    .SYNOPSIS
+        Resolves a path containing a glob wildcard in ONE segment (e.g. WebStorm* -> WebStorm2024.3).
+    .DESCRIPTION
+        Splits the path into segments, finds the first segment with a glob (* or ?),
+        resolves the prefix up to and including that segment, then appends the remaining
+        literal segments. This allows resolving paths like:
+          C:\Users\User\AppData\Roaming\JetBrains\WebStorm*\options\ide.general.xml
+        even when \options\ide.general.xml doesn't exist yet (restore/verify scenario).
+    .OUTPUTS
+        Resolved path string, or $null if the glob segment couldn't be resolved.
+    #>
+    param([string]$Path)
+    
+    if ($Path -notmatch '\*|\?') { return $Path }
+    
+    # Split into segments
+    $segments = $Path -split '[/\\]'
+    $globIndex = -1
+    for ($i = 0; $i -lt $segments.Count; $i++) {
+        if ($segments[$i] -match '\*|\?') {
+            $globIndex = $i
+            break
+        }
+    }
+    
+    if ($globIndex -lt 0) { return $Path }
+    
+    # Build prefix up to and including glob segment
+    $prefix = ($segments[0..$globIndex]) -join '\'
+    # Build suffix after glob segment
+    $suffix = if ($globIndex -lt $segments.Count - 1) {
+        ($segments[($globIndex + 1)..($segments.Count - 1)]) -join '\'
+    } else { $null }
+    
+    # Resolve the prefix (which contains the glob)
+    $resolved = @(Resolve-Path -Path $prefix -ErrorAction SilentlyContinue)
+    if ($resolved.Count -gt 0) {
+        $resolvedPrefix = $resolved[0].Path
+        if ($suffix) {
+            return Join-Path $resolvedPrefix $suffix
+        }
+        return $resolvedPrefix
+    }
+    
+    return $null
+}
+
 function Stop-ModuleProcesses {
     <#
     .SYNOPSIS
@@ -1844,10 +1893,10 @@ if ($module.restore -and $module.restore.Count -gt 0) {
             
             # Resolve glob wildcards in target path (e.g. JetBrains version-specific dirs)
             if ($targetPath -match '\*|\?') {
-                $resolvedTargets = Resolve-Path -Path $targetPath -ErrorAction SilentlyContinue
-                if ($resolvedTargets) {
-                    $targetPath = ($resolvedTargets | Select-Object -First 1).Path
-                    Write-Log "Restore: resolved glob target to $targetPath"
+                $resolvedTarget = Resolve-GlobSegment -Path $targetPath
+                if ($resolvedTarget) {
+                    Write-Log "Restore: resolved glob target '$targetPath' -> '$resolvedTarget'"
+                    $targetPath = $resolvedTarget
                 } elseif ($restoreItem.optional) {
                     Write-Info "Skipped (optional, glob target not resolved): $($restoreItem.target)"
                     continue
@@ -1933,6 +1982,18 @@ if ($module.verify -and $module.verify.Count -gt 0) {
         switch ($verifyItem.type) {
             "file-exists" {
                 $checkPath = Expand-ConfigPath -Path $verifyItem.path
+                
+                # Resolve glob wildcards in verify paths (e.g. JetBrains version-specific dirs)
+                if ($checkPath -match '\*|\?') {
+                    $resolvedCheck = Resolve-GlobSegment -Path $checkPath
+                    if ($resolvedCheck) {
+                        Write-Log "Verify: resolved glob path '$checkPath' -> '$resolvedCheck'"
+                        $checkPath = $resolvedCheck
+                    } else {
+                        Write-Log "Verify: glob path could not resolve: $checkPath"
+                    }
+                }
+                
                 $verifyResult.path = $checkPath
                 
                 if (Get-Command Test-FileExistsVerifier -ErrorAction SilentlyContinue) {
