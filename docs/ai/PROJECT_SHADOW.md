@@ -117,6 +117,7 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 5. **PATH installation:** Bootstrap installs to `%LOCALAPPDATA%\Endstate\bin\lib\` (not `bin\` directly) to ensure CMD shim takes precedence over PowerShell's `.ps1` preference
 6. **JSONC parsing:** Comments must be stripped before JSON parsing; use `Read-JsoncFile` helper
 7. **Line ending normalization:** Manifest hashes normalize CRLF→LF for cross-platform consistency
+8. **Windows Sandbox WDAC/Smart App Control blocks unsigned DLLs.** Apps with unsigned native binaries (Git's `msys-2.0.dll`, AutoHotkey, KeePassXC, etc.) hang in sandbox with modal "Bad Image" dialogs that no one can dismiss, causing 600s timeouts. The inner sandbox script (`sandbox-tests/discovery-harness/sandbox-validate.ps1`) disables this at Stage 0 via `Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy" -Name "VerifiedAndReputablePolicyState" -Value 0` followed by `CiTool.exe -r`. This must run before winget bootstrap and any installs.
 
 ---
 

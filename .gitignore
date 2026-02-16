@@ -103,6 +103,11 @@ sandbox-tests/discovery-harness/*.legacy
 sandbox-tests/discovery-harness/*.new
 
 # ---------------------------------------------------------------------------
+# Winget bootstrap cache (downloaded once, reused across sandbox runs)
+# ---------------------------------------------------------------------------
+sandbox-tests/.cache/
+
+# ---------------------------------------------------------------------------
 # Offline installers (binaries not committed, only README tracked)
 # ---------------------------------------------------------------------------
 sandbox-tests/installers/*.exe
