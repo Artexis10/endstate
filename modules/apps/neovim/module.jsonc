@@ -1,0 +1,44 @@
+{
+  // Config Module: Neovim
+  // Terminal editor - config IS the product (init.lua, plugins, keymaps)
+
+  "id": "apps.neovim",
+  "displayName": "Neovim",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Neovim.Neovim"],
+    "exe": ["nvim.exe"],
+    "uninstallDisplayName": ["^Neovim"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Neovim\\bin\\nvim.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/neovim/nvim",
+      "target": "%LOCALAPPDATA%\\nvim",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\nvim", "dest": "apps/neovim/nvim", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\plugin\\**",
+      "**\\swap\\**",
+      "**\\undo\\**",
+      "**\\shada\\**",
+      "**\\*.log",
+      "**\\lazy-lock.json"
+    ]
+  },
+
+  "notes": "Captures Neovim configuration (init.lua/init.vim, lua/, after/, ftplugin/). Plugin manager lockfiles and runtime caches excluded - plugins reinstall on first launch. Config at %LOCALAPPDATA%\\nvim\\."
+}

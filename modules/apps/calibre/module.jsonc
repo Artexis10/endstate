@@ -1,0 +1,73 @@
+{
+  // Config Module: Calibre
+  // Ebook manager - captures preferences, custom columns, plugins, shortcuts
+
+  "id": "apps.calibre",
+  "displayName": "Calibre",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["calibre.calibre"],
+    "exe": ["calibre.exe"],
+    "uninstallDisplayName": ["^calibre"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Calibre2\\calibre.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/calibre/global.py",
+      "target": "%APPDATA%\\calibre\\global.py",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/calibre/gui.json",
+      "target": "%APPDATA%\\calibre\\gui.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/calibre/dynamic.pickle",
+      "target": "%APPDATA%\\calibre\\dynamic.pickle",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/calibre/plugins",
+      "target": "%APPDATA%\\calibre\\plugins",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/calibre/shortcuts",
+      "target": "%APPDATA%\\calibre\\shortcuts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\calibre\\global.py", "dest": "apps/calibre/global.py", "optional": true },
+      { "source": "%APPDATA%\\calibre\\gui.json", "dest": "apps/calibre/gui.json", "optional": true },
+      { "source": "%APPDATA%\\calibre\\dynamic.pickle", "dest": "apps/calibre/dynamic.pickle", "optional": true },
+      { "source": "%APPDATA%\\calibre\\plugins", "dest": "apps/calibre/plugins", "optional": true },
+      { "source": "%APPDATA%\\calibre\\shortcuts", "dest": "apps/calibre/shortcuts", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\tmp\\**",
+      "**\\conversion\\**"
+    ]
+  },
+
+  "notes": "Captures Calibre global preferences, GUI settings, plugins, and keyboard shortcuts. Library database excluded (managed separately, can be very large). Config at %APPDATA%\\calibre\\."
+}

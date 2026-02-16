@@ -1,0 +1,56 @@
+{
+  // Config Module: Rainmeter
+  // Desktop customization - skins are everything
+
+  "id": "apps.rainmeter",
+  "displayName": "Rainmeter",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Rainmeter.Rainmeter"],
+    "exe": ["Rainmeter.exe"],
+    "uninstallDisplayName": ["^Rainmeter"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Rainmeter\\Rainmeter.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/rainmeter/Rainmeter.ini",
+      "target": "%APPDATA%\\Rainmeter\\Rainmeter.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rainmeter/Layouts",
+      "target": "%APPDATA%\\Rainmeter\\Layouts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rainmeter/Skins",
+      "target": "%USERPROFILE%\\Documents\\Rainmeter\\Skins",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Rainmeter\\Rainmeter.ini", "dest": "apps/rainmeter/Rainmeter.ini", "optional": true },
+      { "source": "%APPDATA%\\Rainmeter\\Layouts", "dest": "apps/rainmeter/Layouts", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Rainmeter\\Skins", "dest": "apps/rainmeter/Skins", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\Cache\\**"
+    ]
+  },
+
+  "notes": "Captures Rainmeter main config, saved layouts, and user skins. Skins live in Documents\\Rainmeter\\Skins (can be large if many community skins installed). Config at %APPDATA%\\Rainmeter\\."
+}

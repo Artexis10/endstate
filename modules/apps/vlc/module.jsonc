@@ -1,0 +1,49 @@
+{
+  // Config Module: VLC Media Player
+  // Captures preferences and custom interface settings
+
+  "id": "apps.vlc",
+  "displayName": "VLC Media Player",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["VideoLAN.VLC"],
+    "exe": ["vlc.exe"],
+    "uninstallDisplayName": ["^VLC media player"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\VideoLAN\\VLC\\vlc.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/vlc/vlcrc",
+      "target": "%APPDATA%\\vlc\\vlcrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/vlc/vlc-qt-interface.ini",
+      "target": "%APPDATA%\\vlc\\vlc-qt-interface.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\vlc\\vlcrc", "dest": "apps/vlc/vlcrc", "optional": true },
+      { "source": "%APPDATA%\\vlc\\vlc-qt-interface.ini", "dest": "apps/vlc/vlc-qt-interface.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\art_cache\\**",
+      "**\\ml.xspf",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures VLC preferences (vlcrc) and Qt interface layout (vlc-qt-interface.ini). Art cache and media library excluded. Config at %APPDATA%\\vlc\\."
+}

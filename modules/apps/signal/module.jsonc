@@ -1,0 +1,31 @@
+{
+  // Config Module: Signal
+  // Install-only - encrypted messaging, no config capture
+
+  "id": "apps.signal",
+  "displayName": "Signal",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["OpenWhisperSystems.Signal"],
+    "exe": ["Signal.exe"],
+    "uninstallDisplayName": ["^Signal"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Programs\\signal-desktop\\Signal.exe" }
+  ],
+
+  "restore": [],
+  "capture": { "files": [], "excludeGlobs": [] },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Signal\\**"
+    ],
+    "warning": "Signal data contains encrypted messages and keys. NOT supported.",
+    "restorer": "block"
+  },
+
+  "notes": "Install-only. Signal message database and encryption keys intentionally excluded per security guardrails."
+}

@@ -1,0 +1,75 @@
+{
+  // Config Module: Mozilla Thunderbird
+  // Email client - captures prefs, filters, add-ons
+  // No credentials captured per security guardrails
+
+  "id": "apps.thunderbird",
+  "displayName": "Mozilla Thunderbird",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Mozilla.Thunderbird"],
+    "exe": ["thunderbird.exe"],
+    "uninstallDisplayName": ["^Mozilla Thunderbird"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Mozilla Thunderbird\\thunderbird.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/thunderbird/user.js",
+      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\user.js",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/thunderbird/msgFilterRules.dat",
+      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\msgFilterRules.dat",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/thunderbird/extensions",
+      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\extensions",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\user.js", "dest": "apps/thunderbird/user.js", "optional": true },
+      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\msgFilterRules.dat", "dest": "apps/thunderbird/msgFilterRules.dat", "optional": true },
+      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\extensions", "dest": "apps/thunderbird/extensions", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\cache2\\**",
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.sqlite-wal",
+      "**\\*.sqlite-shm",
+      "**\\ImapMail\\**",
+      "**\\Mail\\**",
+      "**\\key4.db",
+      "**\\logins.json",
+      "**\\cert9.db"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Thunderbird\\Profiles\\*\\key4.db",
+      "%APPDATA%\\Thunderbird\\Profiles\\*\\logins.json",
+      "%APPDATA%\\Thunderbird\\Profiles\\*\\cert9.db"
+    ],
+    "warning": "Credential stores (key4.db, logins.json, cert9.db) and mail data are NOT captured.",
+    "restorer": "block"
+  },
+
+  "notes": "Captures Thunderbird user preferences, message filters, and extensions. Mail data, credential stores, and certificates excluded per security guardrails. Config at %APPDATA%\\Thunderbird\\Profiles\\<profile>\\."
+}

@@ -1,0 +1,50 @@
+{
+  // Config Module: qBittorrent
+  // BitTorrent client - captures settings and RSS feeds
+
+  "id": "apps.qbittorrent",
+  "displayName": "qBittorrent",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["qBittorrent.qBittorrent"],
+    "exe": ["qbittorrent.exe"],
+    "uninstallDisplayName": ["^qBittorrent"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\qBittorrent\\qbittorrent.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/qbittorrent/qBittorrent.ini",
+      "target": "%LOCALAPPDATA%\\qBittorrent\\qBittorrent.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/qbittorrent/rss_feeds.json",
+      "target": "%LOCALAPPDATA%\\qBittorrent\\rss\\feeds.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\qBittorrent\\qBittorrent.ini", "dest": "apps/qbittorrent/qBittorrent.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\qBittorrent\\rss\\feeds.json", "dest": "apps/qbittorrent/rss_feeds.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\logs\\**",
+      "**\\BT_backup\\**",
+      "**\\*.log",
+      "**\\*.torrent"
+    ]
+  },
+
+  "notes": "Captures qBittorrent settings and RSS feed configuration. Torrent backup data (BT_backup) and logs excluded. Config at %LOCALAPPDATA%\\qBittorrent\\."
+}

@@ -1,0 +1,48 @@
+{
+  // Config Module: ImageGlass
+  // Lightweight image viewer - captures preferences and themes
+
+  "id": "apps.imageglass",
+  "displayName": "ImageGlass",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["DuongDieuPhap.ImageGlass"],
+    "exe": ["ImageGlass.exe"],
+    "uninstallDisplayName": ["^ImageGlass"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\ImageGlass\\ImageGlass.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/imageglass/igconfig.json",
+      "target": "%LOCALAPPDATA%\\ImageGlass\\igconfig.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/imageglass/Themes",
+      "target": "%LOCALAPPDATA%\\ImageGlass\\Themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\ImageGlass\\igconfig.json", "dest": "apps/imageglass/igconfig.json", "optional": true },
+      { "source": "%LOCALAPPDATA%\\ImageGlass\\Themes", "dest": "apps/imageglass/Themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\Cache\\**"
+    ]
+  },
+
+  "notes": "Captures ImageGlass preferences and custom themes. Config at %LOCALAPPDATA%\\ImageGlass\\."
+}

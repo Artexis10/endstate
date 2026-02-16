@@ -1,0 +1,48 @@
+{
+  // Config Module: Espanso
+  // Cross-platform text expander - config IS the product (YAML match files)
+
+  "id": "apps.espanso",
+  "displayName": "Espanso",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Espanso.Espanso"],
+    "exe": ["espanso.exe"],
+    "uninstallDisplayName": ["^Espanso"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Programs\\Espanso\\espansod.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/espanso/config",
+      "target": "%APPDATA%\\espanso\\config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/espanso/match",
+      "target": "%APPDATA%\\espanso\\match",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\espanso\\config", "dest": "apps/espanso/config", "optional": true },
+      { "source": "%APPDATA%\\espanso\\match", "dest": "apps/espanso/match", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\packages\\**"
+    ]
+  },
+
+  "notes": "Captures Espanso configuration (default.yml) and match files (text expansion rules). Installed packages excluded - reinstalled via 'espanso package install'. Config at %APPDATA%\\espanso\\."
+}

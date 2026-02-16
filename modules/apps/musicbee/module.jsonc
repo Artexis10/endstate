@@ -1,0 +1,66 @@
+{
+  // Config Module: MusicBee
+  // Music player/manager - captures settings, skins, equalizer, layout
+
+  "id": "apps.musicbee",
+  "displayName": "MusicBee",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["MusicBee.MusicBee"],
+    "exe": ["MusicBee.exe"],
+    "uninstallDisplayName": ["^MusicBee"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\MusicBee\\MusicBeeSettings.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/musicbee/MusicBeeSettings.ini",
+      "target": "%APPDATA%\\MusicBee\\MusicBeeSettings.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/musicbee/MusicBeeEqualiserSettings.ini",
+      "target": "%APPDATA%\\MusicBee\\MusicBeeEqualiserSettings.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/musicbee/Skins",
+      "target": "%APPDATA%\\MusicBee\\Skins",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/musicbee/Plugins",
+      "target": "%APPDATA%\\MusicBee\\Plugins",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\MusicBee\\MusicBeeSettings.ini", "dest": "apps/musicbee/MusicBeeSettings.ini", "optional": true },
+      { "source": "%APPDATA%\\MusicBee\\MusicBeeEqualiserSettings.ini", "dest": "apps/musicbee/MusicBeeEqualiserSettings.ini", "optional": true },
+      { "source": "%APPDATA%\\MusicBee\\Skins", "dest": "apps/musicbee/Skins", "optional": true },
+      { "source": "%APPDATA%\\MusicBee\\Plugins", "dest": "apps/musicbee/Plugins", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\Library\\**",
+      "**\\Thumbnails\\**"
+    ]
+  },
+
+  "notes": "Captures MusicBee settings, equalizer presets, custom skins, and plugins. Library database and thumbnail cache excluded (rebuilt on scan). Config at %APPDATA%\\MusicBee\\."
+}

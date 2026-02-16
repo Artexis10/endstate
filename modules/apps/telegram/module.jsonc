@@ -1,0 +1,31 @@
+{
+  // Config Module: Telegram Desktop
+  // Install-only - account-based, encrypted local data
+
+  "id": "apps.telegram",
+  "displayName": "Telegram Desktop",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Telegram.TelegramDesktop"],
+    "exe": ["Telegram.exe"],
+    "uninstallDisplayName": ["^Telegram"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Telegram Desktop\\Telegram.exe" }
+  ],
+
+  "restore": [],
+  "capture": { "files": [], "excludeGlobs": [] },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Telegram Desktop\\tdata\\**"
+    ],
+    "warning": "Telegram tdata contains session keys and encrypted data. NOT supported.",
+    "restorer": "block"
+  },
+
+  "notes": "Install-only. Telegram session data and encryption keys excluded per security guardrails. Settings sync via account."
+}

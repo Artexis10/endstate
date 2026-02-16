@@ -1,0 +1,57 @@
+{
+  // Config Module: Everything
+  // Desktop search utility by voidtools
+
+  "id": "apps.everything",
+  "displayName": "Everything",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["voidtools.Everything"],
+    "exe": ["Everything.exe"],
+    "uninstallDisplayName": ["^Everything"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Everything\\Everything.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/everything/Everything.ini",
+      "target": "%APPDATA%\\Everything\\Everything.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/everything/Filters.csv",
+      "target": "%APPDATA%\\Everything\\Filters.csv",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/everything/Bookmarks.csv",
+      "target": "%APPDATA%\\Everything\\Bookmarks.csv",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Everything\\Everything.ini", "dest": "apps/everything/Everything.ini", "optional": true },
+      { "source": "%APPDATA%\\Everything\\Filters.csv", "dest": "apps/everything/Filters.csv", "optional": true },
+      { "source": "%APPDATA%\\Everything\\Bookmarks.csv", "dest": "apps/everything/Bookmarks.csv", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Everything.db",
+      "**\\*.log",
+      "**\\Run History.csv"
+    ]
+  },
+
+  "notes": "Captures Everything search settings, custom filters, and bookmarks. Database file (Everything.db) excluded - rebuilt on startup. Run history excluded. Config at %APPDATA%\\Everything\\."
+}

@@ -1,0 +1,48 @@
+{
+  // Config Module: HandBrake
+  // Video transcoder - captures encoding presets and settings
+
+  "id": "apps.handbrake",
+  "displayName": "HandBrake",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["HandBrake.HandBrake"],
+    "exe": ["HandBrake.exe"],
+    "uninstallDisplayName": ["^HandBrake"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\HandBrake\\HandBrake.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/handbrake/settings.json",
+      "target": "%APPDATA%\\HandBrake\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/handbrake/presets.json",
+      "target": "%APPDATA%\\HandBrake\\presets.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\HandBrake\\settings.json", "dest": "apps/handbrake/settings.json", "optional": true },
+      { "source": "%APPDATA%\\HandBrake\\presets.json", "dest": "apps/handbrake/presets.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\logs\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures HandBrake application settings and custom encoding presets. Log files excluded. Config at %APPDATA%\\HandBrake\\."
+}

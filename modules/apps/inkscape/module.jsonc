@@ -1,0 +1,57 @@
+{
+  // Config Module: Inkscape
+  // Vector graphics editor - captures preferences and extensions
+
+  "id": "apps.inkscape",
+  "displayName": "Inkscape",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Inkscape.Inkscape"],
+    "exe": ["inkscape.exe"],
+    "uninstallDisplayName": ["^Inkscape"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Inkscape\\bin\\inkscape.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/inkscape/preferences.xml",
+      "target": "%APPDATA%\\inkscape\\preferences.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/inkscape/keys",
+      "target": "%APPDATA%\\inkscape\\keys",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/inkscape/templates",
+      "target": "%APPDATA%\\inkscape\\templates",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\inkscape\\preferences.xml", "dest": "apps/inkscape/preferences.xml", "optional": true },
+      { "source": "%APPDATA%\\inkscape\\keys", "dest": "apps/inkscape/keys", "optional": true },
+      { "source": "%APPDATA%\\inkscape\\templates", "dest": "apps/inkscape/templates", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\cache\\**",
+      "**\\*.log",
+      "**\\extension-errors.log"
+    ]
+  },
+
+  "notes": "Captures Inkscape preferences, custom keyboard shortcuts, and document templates. Cache and extension error logs excluded. Config at %APPDATA%\\inkscape\\."
+}

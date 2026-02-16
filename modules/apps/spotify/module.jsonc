@@ -1,0 +1,23 @@
+{
+  // Config Module: Spotify
+  // Install-only - minimal local config, account-based settings
+
+  "id": "apps.spotify",
+  "displayName": "Spotify",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Spotify.Spotify"],
+    "exe": ["Spotify.exe"],
+    "uninstallDisplayName": ["^Spotify"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Spotify\\Spotify.exe" }
+  ],
+
+  "restore": [],
+  "capture": { "files": [], "excludeGlobs": [] },
+
+  "notes": "Install-only. Spotify settings are account-based and sync automatically on login. No local config to capture."
+}

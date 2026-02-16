@@ -1,0 +1,50 @@
+{
+  // Config Module: Flow Launcher
+  // Keystroke launcher for Windows - plugins, themes, hotkeys
+
+  "id": "apps.flow-launcher",
+  "displayName": "Flow Launcher",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Flow-Launcher.Flow-Launcher"],
+    "exe": ["Flow.Launcher.exe"],
+    "uninstallDisplayName": ["^Flow Launcher"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\FlowLauncher\\Flow.Launcher.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/flow-launcher/Settings",
+      "target": "%APPDATA%\\FlowLauncher\\Settings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/flow-launcher/Themes",
+      "target": "%APPDATA%\\FlowLauncher\\Themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\FlowLauncher\\Settings", "dest": "apps/flow-launcher/Settings", "optional": true },
+      { "source": "%APPDATA%\\FlowLauncher\\Themes", "dest": "apps/flow-launcher/Themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\Plugins\\**"
+    ]
+  },
+
+  "notes": "Captures Flow Launcher settings (hotkey, search sources, plugin config) and custom themes. Plugin binaries excluded - reinstalled via plugin manager. Config at %APPDATA%\\FlowLauncher\\."
+}

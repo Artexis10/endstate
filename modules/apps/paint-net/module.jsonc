@@ -1,0 +1,48 @@
+{
+  // Config Module: paint.net
+  // Image editor - captures custom effects/plugins and user settings
+
+  "id": "apps.paint-net",
+  "displayName": "paint.net",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["dotPDNLLC.paintdotnet"],
+    "exe": ["paintdotnet.exe", "PaintDotNet.exe"],
+    "uninstallDisplayName": ["^paint\\.net"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\paint.net\\UserFiles" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/paint-net/UserFiles",
+      "target": "%LOCALAPPDATA%\\paint.net\\UserFiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/paint-net/Effects",
+      "target": "%ProgramFiles%\\paint.net\\Effects",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\paint.net\\UserFiles", "dest": "apps/paint-net/UserFiles", "optional": true },
+      { "source": "%ProgramFiles%\\paint.net\\Effects", "dest": "apps/paint-net/Effects", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\Crashes\\**"
+    ]
+  },
+
+  "notes": "Captures paint.net user files and third-party effect plugins. Core settings stored in registry. Effect DLLs in Program Files require elevation to restore. Config at %LOCALAPPDATA%\\paint.net\\."
+}

@@ -1,0 +1,31 @@
+{
+  // Config Module: Brave Browser
+  // Install-only - browser profiles excluded per security guardrails
+
+  "id": "apps.brave",
+  "displayName": "Brave Browser",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Brave.Brave"],
+    "exe": ["brave.exe"],
+    "uninstallDisplayName": ["^Brave"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe" }
+  ],
+
+  "restore": [],
+  "capture": { "files": [], "excludeGlobs": [] },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\User Data\\**"
+    ],
+    "warning": "Browser profiles contain credentials, cookies, and session tokens. NOT supported.",
+    "restorer": "block"
+  },
+
+  "notes": "Install-only. Browser profile data intentionally excluded per security guardrails. No config capture or restore."
+}

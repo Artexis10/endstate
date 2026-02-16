@@ -1,0 +1,45 @@
+{
+  // Config Module: WinSCP
+  // SSH/SCP/SFTP client - captures INI-based config (portable mode)
+
+  "id": "apps.winscp",
+  "displayName": "WinSCP",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["WinSCP.WinSCP"],
+    "exe": ["WinSCP.exe"],
+    "uninstallDisplayName": ["^WinSCP"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\WinSCP\\WinSCP.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/winscp/WinSCP.ini",
+      "target": "%APPDATA%\\WinSCP.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\WinSCP.ini", "dest": "apps/winscp/WinSCP.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [],
+    "warning": "WinSCP.ini may contain saved session passwords if master password is not set. Review before sharing.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures WinSCP INI config. WinSCP can store settings in registry or INI file - this module assumes INI mode. May contain saved passwords if master password is not configured. Config at %APPDATA%\\WinSCP.ini."
+}

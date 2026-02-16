@@ -1,0 +1,86 @@
+{
+  // Config Module: Claude Code
+  // Provides verify/restore/capture configuration for Claude Code (Anthropic CLI)
+  // Primary value: settings, global instructions (CLAUDE.md), custom commands, MCP config
+  //
+  // WARNING: %USERPROFILE%\.claude.json contains MCP server config BUT ALSO OAuth session data.
+  // The capture includes it for MCP portability, but restore requires manual credential cleanup.
+  // Credentials file (.credentials.json) is always excluded.
+
+  "id": "apps.claude-code",
+  "displayName": "Claude Code",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Anthropic.ClaudeCode"],
+    "exe": ["claude.exe"],
+    "uninstallDisplayName": ["^Claude Code$"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "claude" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/claude-code/settings.json",
+      "target": "%USERPROFILE%\\.claude\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/claude-code/CLAUDE.md",
+      "target": "%USERPROFILE%\\.claude\\CLAUDE.md",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/claude-code/commands",
+      "target": "%USERPROFILE%\\.claude\\commands",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\.claude\\settings.json", "dest": "apps/claude-code/settings.json", "optional": true },
+      { "source": "%USERPROFILE%\\.claude\\CLAUDE.md", "dest": "apps/claude-code/CLAUDE.md", "optional": true },
+      { "source": "%USERPROFILE%\\.claude\\commands", "dest": "apps/claude-code/commands", "optional": true },
+      { "source": "%USERPROFILE%\\.claude.json", "dest": "apps/claude-code/claude-root.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\.credentials.json",
+      "**\\statsig\\**",
+      "**\\todos\\**",
+      "**\\projects\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.claude\\.credentials.json",
+      "%USERPROFILE%\\.claude.json"
+    ],
+    "warning": "Claude Code credentials (.credentials.json) contain API keys and MUST NOT be restored. The root .claude.json contains MCP server config mixed with OAuth session data — review before restoring. Re-authenticate on target machine instead.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Claude Code user configuration: settings.json (permissions, env vars, preferences), CLAUDE.md (global instructions), and custom slash commands. The root .claude.json is captured for MCP server reference but NOT auto-restored due to mixed OAuth data — extract mcpServers manually. Credentials are always excluded. Config at %USERPROFILE%\\.claude\\.",
+
+  "curation": {
+    "seed": null,
+    "snapshotRoots": [
+      "%USERPROFILE%"
+    ],
+    "excludePatterns": [
+      "**/.credentials.json",
+      "**/statsig/**",
+      "**/todos/**",
+      "**/projects/**"
+    ]
+  }
+}

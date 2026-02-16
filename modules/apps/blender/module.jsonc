@@ -1,0 +1,49 @@
+{
+  // Config Module: Blender
+  // 3D creation suite - captures preferences, keymaps, startup file
+
+  "id": "apps.blender",
+  "displayName": "Blender",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["BlenderFoundation.Blender"],
+    "exe": ["blender.exe"],
+    "uninstallDisplayName": ["^Blender"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Blender Foundation\\Blender*\\blender.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/blender/config",
+      "target": "%APPDATA%\\Blender Foundation\\Blender\\4.0\\config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/blender/scripts/presets",
+      "target": "%APPDATA%\\Blender Foundation\\Blender\\4.0\\scripts\\presets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Blender Foundation\\Blender\\4.0\\config", "dest": "apps/blender/config", "optional": true },
+      { "source": "%APPDATA%\\Blender Foundation\\Blender\\4.0\\scripts\\presets", "dest": "apps/blender/scripts/presets", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\cache\\**",
+      "**\\*.log",
+      "**\\tmp\\**"
+    ]
+  },
+
+  "notes": "Captures Blender user preferences (userpref.blend), startup file, keymaps, and render/interface presets. Version-specific folder (4.0). Cache and temp excluded. Config at %APPDATA%\\Blender Foundation\\Blender\\<version>\\."
+}

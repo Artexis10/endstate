@@ -1,0 +1,73 @@
+{
+  // Config Module: GIMP
+  // Image editor - captures preferences, brushes, scripts, tool options
+
+  "id": "apps.gimp",
+  "displayName": "GIMP",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["GIMP.GIMP"],
+    "exe": ["gimp-2.10.exe", "gimp-2.99.exe", "gimp.exe"],
+    "uninstallDisplayName": ["^GIMP"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\GIMP\\2.10\\gimprc" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/gimp/gimprc",
+      "target": "%APPDATA%\\GIMP\\2.10\\gimprc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/gimp/sessionrc",
+      "target": "%APPDATA%\\GIMP\\2.10\\sessionrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/gimp/toolrc",
+      "target": "%APPDATA%\\GIMP\\2.10\\toolrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/gimp/brushes",
+      "target": "%APPDATA%\\GIMP\\2.10\\brushes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/gimp/scripts",
+      "target": "%APPDATA%\\GIMP\\2.10\\scripts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\GIMP\\2.10\\gimprc", "dest": "apps/gimp/gimprc", "optional": true },
+      { "source": "%APPDATA%\\GIMP\\2.10\\sessionrc", "dest": "apps/gimp/sessionrc", "optional": true },
+      { "source": "%APPDATA%\\GIMP\\2.10\\toolrc", "dest": "apps/gimp/toolrc", "optional": true },
+      { "source": "%APPDATA%\\GIMP\\2.10\\brushes", "dest": "apps/gimp/brushes", "optional": true },
+      { "source": "%APPDATA%\\GIMP\\2.10\\scripts", "dest": "apps/gimp/scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\tmp\\**",
+      "**\\*.log",
+      "**\\swap\\**"
+    ]
+  },
+
+  "notes": "Captures GIMP preferences, session layout, tool options, custom brushes, and Script-Fu scripts. Version-specific config folder (2.10). Config at %APPDATA%\\GIMP\\2.10\\."
+}

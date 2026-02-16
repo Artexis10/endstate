@@ -1,0 +1,42 @@
+{
+  // Config Module: Docker Desktop
+  // Container runtime - captures settings
+
+  "id": "apps.docker-desktop",
+  "displayName": "Docker Desktop",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Docker.DockerDesktop"],
+    "exe": ["Docker Desktop.exe"],
+    "uninstallDisplayName": ["^Docker Desktop"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Docker\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/docker-desktop/settings.json",
+      "target": "%APPDATA%\\Docker\\settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Docker\\settings.json", "dest": "apps/docker-desktop/settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\data\\**",
+      "**\\bin\\**"
+    ]
+  },
+
+  "notes": "Captures Docker Desktop settings (resource limits, WSL integration, Kubernetes toggle). Data volumes and logs excluded. Config at %APPDATA%\\Docker\\."
+}

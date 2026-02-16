@@ -1,0 +1,76 @@
+{
+  // Config Module: Claude Desktop
+  // Provides verify/restore/capture configuration for Claude Desktop (Anthropic)
+  // Primary value: MCP server configuration portability
+
+  "id": "apps.claude-desktop",
+  "displayName": "Claude Desktop",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Anthropic.Claude"],
+    "exe": ["claude.exe"],
+    "uninstallDisplayName": ["^Claude$"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Claude\\claude_desktop_config.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/claude-desktop/claude_desktop_config.json",
+      "target": "%APPDATA%\\Claude\\claude_desktop_config.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Claude\\claude_desktop_config.json", "dest": "apps/claude-desktop/claude_desktop_config.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\logs\\**",
+      "**\\Crashpad\\**",
+      "**\\blob_storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Local Storage\\**",
+      "**\\IndexedDB\\**",
+      "**\\Code Cache\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Claude\\Cookies",
+      "%APPDATA%\\Claude\\Local Storage\\*",
+      "%APPDATA%\\Claude\\Session Storage\\*"
+    ],
+    "warning": "Claude Desktop session data contains auth tokens and cookies. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Claude Desktop MCP configuration (claude_desktop_config.json). This file defines MCP server connections, which is the primary portable config. Session data, auth tokens, and Electron state are explicitly excluded. Config at %APPDATA%\\Claude\\.",
+
+  "curation": {
+    "seed": null,
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/Cache/**",
+      "**/GPUCache/**",
+      "**/Crashpad/**",
+      "**/blob_storage/**",
+      "**/Session Storage/**",
+      "**/Local Storage/**",
+      "**/IndexedDB/**",
+      "**/Code Cache/**"
+    ]
+  }
+}

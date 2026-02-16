@@ -1,0 +1,31 @@
+{
+  // Config Module: Discord
+  // Install-only - Electron app, account-based settings
+
+  "id": "apps.discord",
+  "displayName": "Discord",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Discord.Discord"],
+    "exe": ["Discord.exe"],
+    "uninstallDisplayName": ["^Discord"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Discord\\Update.exe" }
+  ],
+
+  "restore": [],
+  "capture": { "files": [], "excludeGlobs": [] },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\discord\\Local Storage\\**"
+    ],
+    "warning": "Discord local storage contains auth tokens. NOT supported.",
+    "restorer": "block"
+  },
+
+  "notes": "Install-only. Discord settings are account-based. Local storage contains auth tokens - excluded per security guardrails."
+}

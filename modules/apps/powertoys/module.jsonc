@@ -5,6 +5,25 @@
   "displayName": "Microsoft PowerToys",
   "sensitivity": "low",
   
+  // PowerToys runs ~15 background processes that lock config files
+  "stopProcesses": [
+    "PowerToys*",
+    "PowerToys.exe",
+    "PowerToys.Settings",
+    "PowerToys.Awake",
+    "PowerToys.ColorPicker",
+    "PowerToys.FancyZones",
+    "PowerToys.FileLocksmith",
+    "PowerToys.Hosts",
+    "PowerToys.MeasureTool",
+    "PowerToys.MouseWithoutBorders*",
+    "PowerToys.Peek",
+    "PowerToys.PowerRename",
+    "PowerToys.PowerAccent",
+    "PowerToys.ShortcutGuide",
+    "PowerLauncher"
+  ],
+  
   "matches": {
     "winget": ["Microsoft.PowerToys"],
     "exe": ["PowerToys.exe"],
@@ -18,7 +37,7 @@
   "restore": [
     {
       "type": "copy",
-      "source": "./configs/powertoys",
+      "source": "./apps/powertoys",
       "target": "%LOCALAPPDATA%\\Microsoft\\PowerToys",
       "backup": true,
       "exclude": [

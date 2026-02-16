@@ -1,0 +1,31 @@
+{
+  // Config Module: PuTTY
+  // SSH client - sessions stored in registry
+  // Registry export/import via capture/restore scripts
+
+  "id": "apps.putty",
+  "displayName": "PuTTY",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["SimonTatham.PuTTY"],
+    "exe": ["putty.exe"],
+    "uninstallDisplayName": ["^PuTTY"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "putty" }
+  ],
+
+  "restore": [],
+  "capture": { "files": [], "excludeGlobs": [] },
+
+  "notes": "PuTTY stores all sessions and settings in registry (HKCU\\Software\\SimonTatham\\PuTTY). File-based capture/restore not available without registry import/export support. Install-only until registry restorer is implemented.",
+
+  "curation": {
+    "registryRoots": [
+      "HKCU\\Software\\SimonTatham\\PuTTY"
+    ],
+    "notes": "Future: export via 'reg export' and import via 'reg import' for session portability."
+  }
+}

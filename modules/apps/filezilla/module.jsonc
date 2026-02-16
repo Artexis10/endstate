@@ -1,0 +1,65 @@
+{
+  // Config Module: FileZilla
+  // FTP/SFTP client - captures site manager and settings
+
+  "id": "apps.filezilla",
+  "displayName": "FileZilla",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["TimKosse.FileZilla.Client"],
+    "exe": ["filezilla.exe"],
+    "uninstallDisplayName": ["^FileZilla"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\FileZilla\\filezilla.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/filezilla/filezilla.xml",
+      "target": "%APPDATA%\\FileZilla\\filezilla.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/filezilla/sitemanager.xml",
+      "target": "%APPDATA%\\FileZilla\\sitemanager.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/filezilla/layout.xml",
+      "target": "%APPDATA%\\FileZilla\\layout.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\FileZilla\\filezilla.xml", "dest": "apps/filezilla/filezilla.xml", "optional": true },
+      { "source": "%APPDATA%\\FileZilla\\sitemanager.xml", "dest": "apps/filezilla/sitemanager.xml", "optional": true },
+      { "source": "%APPDATA%\\FileZilla\\layout.xml", "dest": "apps/filezilla/layout.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\queue.sqlite3",
+      "**\\*.log",
+      "**\\recentservers.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\FileZilla\\recentservers.xml"
+    ],
+    "warning": "recentservers.xml may contain saved passwords. NOT captured.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures FileZilla settings, site manager, and layout. recentservers.xml excluded (may contain passwords). Queue database excluded. Config at %APPDATA%\\FileZilla\\."
+}

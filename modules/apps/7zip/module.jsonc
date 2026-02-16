@@ -1,0 +1,24 @@
+{
+  // Config Module: 7-Zip
+  // File archiver utility
+  // Install-only - settings stored in registry
+
+  "id": "apps.7zip",
+  "displayName": "7-Zip",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["7zip.7zip"],
+    "exe": ["7zFM.exe", "7z.exe"],
+    "uninstallDisplayName": ["^7-Zip"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\7-Zip\\7z.exe" }
+  ],
+
+  "restore": [],
+  "capture": { "files": [], "excludeGlobs": [] },
+
+  "notes": "7-Zip stores settings in registry (HKCU\\Software\\7-Zip). No file-based config to capture. Install-only module."
+}
