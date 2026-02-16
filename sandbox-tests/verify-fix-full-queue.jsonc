@@ -1,0 +1,21 @@
+{
+  // Verify-fix confirmation queue: all 15 modules that had config-file verify checks
+  // replaced with exe-path checks. These all previously FAILED at verify stage.
+  "apps": [
+    { "appId": "7zip", "wingetId": "7zip.7zip" },
+    { "appId": "everything", "wingetId": "voidtools.Everything" },
+    { "appId": "vlc", "wingetId": "VideoLAN.VLC" },
+    { "appId": "winscp", "wingetId": "WinSCP.WinSCP" },
+    { "appId": "handbrake", "wingetId": "HandBrake.HandBrake" },
+    { "appId": "blender", "wingetId": "BlenderFoundation.Blender" },
+    { "appId": "inkscape", "wingetId": "Inkscape.Inkscape" },
+    { "appId": "qbittorrent", "wingetId": "qBittorrent.qBittorrent" },
+    { "appId": "neovim", "wingetId": "Neovim.Neovim" },
+    { "appId": "espanso", "wingetId": "Espanso.Espanso" },
+    { "appId": "calibre", "wingetId": "calibre.calibre" },
+    { "appId": "rainmeter", "wingetId": "Rainmeter.Rainmeter" },
+    { "appId": "flow-launcher", "wingetId": "Flow-Launcher.Flow-Launcher" },
+    { "appId": "imageglass", "wingetId": "DuongDieuPhap.ImageGlass" },
+    { "appId": "brave", "wingetId": "Brave.Brave" }
+  ]
+}

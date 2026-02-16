@@ -1,0 +1,11 @@
+{
+  // Retest queue: apps that failed in 20260216-084505 batch
+  // winscp: verify path fix (%ProgramFiles% -> %ProgramFiles(x86)%)
+  // thunderbird: verify fix (profiles.ini -> thunderbird.exe)
+  // msi-afterburner: transient network failure, retry
+  "apps": [
+    { "appId": "winscp", "wingetId": "WinSCP.WinSCP" },
+    { "appId": "thunderbird", "wingetId": "Mozilla.Thunderbird" },
+    { "appId": "msi-afterburner", "wingetId": "Guru3D.Afterburner" }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  // Retest queue: espanso verify path fix (%ProgramFiles% -> %LOCALAPPDATA%\Programs\Espanso)
+  "apps": [
+    { "appId": "espanso", "wingetId": "Espanso.Espanso" }
+  ]
+}

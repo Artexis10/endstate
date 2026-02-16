@@ -18,7 +18,7 @@
     // --- Previously queued ---
     { "appId": "git", "wingetId": "Git.Git" },
     { "appId": "vscodium", "wingetId": "VSCodium.VSCodium" },
-    { "appId": "msi-afterburner", "wingetId": "Guru3D.Afterburner" },
+    { "appId": "msi-afterburner", "wingetId": "Guru3D.Afterburner", "sandboxSupported": false },
 
     // --- Lightweight / fast installs ---
     { "appId": "notepad-plus-plus", "wingetId": "Notepad++.Notepad++" },
@@ -43,7 +43,7 @@
     { "appId": "webstorm", "wingetId": "JetBrains.WebStorm" },
 
     // --- Electron / medium apps ---
-    { "appId": "obsidian", "wingetId": "Obsidian.Obsidian", "sandboxSupported": false },
+    { "appId": "obsidian", "wingetId": "Obsidian.Obsidian" },
     { "appId": "logseq", "wingetId": "Logseq.Logseq" },
     { "appId": "windows-terminal", "wingetId": "Microsoft.WindowsTerminal" },
 
@@ -60,6 +60,50 @@
 
     // --- Specialty ---
     { "appId": "affinity-photo", "wingetId": "Serif.AffinityPhoto2", "sandboxSupported": false },
-    { "appId": "fastrawviewer", "wingetId": "FastRawViewer.FastRawViewer", "sandboxSupported": false }
+    { "appId": "fastrawviewer", "wingetId": "FastRawViewer.FastRawViewer", "installer": { "path": "sandbox-tests/installers/FastRawViewer-2.0.10.2058-x64-Setup.exe", "silentArgs": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART", "exePath": "%ProgramFiles%\\FastRawViewer\\FastRawViewer.exe" } },
+
+    // --- Utilities ---
+    { "appId": "7zip", "wingetId": "7zip.7zip" },
+    { "appId": "everything", "wingetId": "voidtools.Everything" },
+
+    // --- Media players ---
+    { "appId": "vlc", "wingetId": "VideoLAN.VLC" },
+
+    // --- Network / transfer ---
+    { "appId": "filezilla", "wingetId": "TimKosse.FileZilla.Client", "sandboxSupported": false },
+    { "appId": "winscp", "wingetId": "WinSCP.WinSCP" },
+    { "appId": "qbittorrent", "wingetId": "qBittorrent.qBittorrent" },
+
+    // --- Creative ---
+    { "appId": "gimp", "wingetId": "GIMP.GIMP", "sandboxSupported": false },
+    { "appId": "handbrake", "wingetId": "HandBrake.HandBrake" },
+    { "appId": "blender", "wingetId": "BlenderFoundation.Blender" },
+    { "appId": "inkscape", "wingetId": "Inkscape.Inkscape" },
+
+    // --- Dev tools ---
+    { "appId": "docker-desktop", "wingetId": "Docker.DockerDesktop", "sandboxSupported": false },
+
+    // --- Communication (install-only) ---
+    { "appId": "discord", "wingetId": "Discord.Discord" },
+    { "appId": "signal", "wingetId": "OpenWhisperSystems.Signal" },
+    { "appId": "telegram", "wingetId": "Telegram.TelegramDesktop" },
+
+    // --- Browser (install-only) ---
+    { "appId": "brave", "wingetId": "Brave.Brave" },
+
+    // --- Media (install-only) ---
+    { "appId": "spotify", "wingetId": "Spotify.Spotify", "sandboxSupported": false },
+
+    // --- High-value config apps ---
+    { "appId": "thunderbird", "wingetId": "Mozilla.Thunderbird" },
+    { "appId": "neovim", "wingetId": "Neovim.Neovim" },
+    { "appId": "putty", "wingetId": "SimonTatham.PuTTY", "sandboxSupported": false },
+    { "appId": "espanso", "wingetId": "Espanso.Espanso" },
+    { "appId": "calibre", "wingetId": "calibre.calibre" },
+    { "appId": "paint-net", "wingetId": "dotPDNLLC.paintdotnet", "sandboxSupported": false },
+    { "appId": "musicbee", "wingetId": "MusicBee.MusicBee", "sandboxSupported": false },
+    { "appId": "rainmeter", "wingetId": "Rainmeter.Rainmeter" },
+    { "appId": "flow-launcher", "wingetId": "Flow-Launcher.Flow-Launcher" },
+    { "appId": "imageglass", "wingetId": "DuongDieuPhap.ImageGlass" }
   ]
 }

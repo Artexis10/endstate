@@ -1,0 +1,10 @@
+{
+  // Test queue: verify fix confirmation
+  // 3 fast apps that previously failed due to config-file verify checks
+  // Now using exe-path checks instead
+  "apps": [
+    { "appId": "7zip", "wingetId": "7zip.7zip" },
+    { "appId": "everything", "wingetId": "voidtools.Everything" },
+    { "appId": "vlc", "wingetId": "VideoLAN.VLC" }
+  ]
+}

@@ -382,6 +382,62 @@ try {
 }
 
 # ============================================================================
+# Pre-cache winget packages (download once on host, reuse across sandbox runs)
+# ============================================================================
+Write-Step "Ensuring winget cache..."
+
+$wingetCacheDir = Join-Path $RepoRoot "sandbox-tests\.cache\winget"
+$wingetVersion = "v1.12.460"
+$cacheFiles = @(
+    @{
+        Url  = "https://github.com/microsoft/winget-cli/releases/download/$wingetVersion/DesktopAppInstaller_Dependencies.zip"
+        File = "DesktopAppInstaller_Dependencies.zip"
+        Desc = "winget dependencies (~98MB)"
+    },
+    @{
+        Url  = "https://github.com/microsoft/winget-cli/releases/download/$wingetVersion/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
+        File = "Microsoft.DesktopAppInstaller.msixbundle"
+        Desc = "App Installer bundle (~205MB)"
+    }
+)
+
+$allCached = $true
+foreach ($cf in $cacheFiles) {
+    $cachedPath = Join-Path $wingetCacheDir $cf.File
+    if (Test-Path $cachedPath) {
+        $sizeMB = [math]::Round((Get-Item $cachedPath).Length / 1MB, 1)
+        Write-Info "Cache hit: $($cf.File) (${sizeMB}MB)"
+    } else {
+        $allCached = $false
+    }
+}
+
+if (-not $allCached) {
+    Write-Info "Downloading winget packages to cache (one-time)..."
+    if (-not (Test-Path $wingetCacheDir)) {
+        New-Item -ItemType Directory -Path $wingetCacheDir -Force | Out-Null
+    }
+    foreach ($cf in $cacheFiles) {
+        $cachedPath = Join-Path $wingetCacheDir $cf.File
+        if (-not (Test-Path $cachedPath)) {
+            Write-Info "Downloading $($cf.Desc)..."
+            try {
+                $ProgressPreference = 'SilentlyContinue'
+                Invoke-WebRequest -Uri $cf.Url -OutFile $cachedPath -UseBasicParsing
+                $sizeMB = [math]::Round((Get-Item $cachedPath).Length / 1MB, 1)
+                Write-Pass "Cached: $($cf.File) (${sizeMB}MB)"
+            } catch {
+                Write-Host "[WARN] Cache download failed: $($_.Exception.Message)" -ForegroundColor Yellow
+                Write-Info "Sandbox will download directly (slower)"
+                if (Test-Path $cachedPath) { Remove-Item $cachedPath -Force }
+            }
+        }
+    }
+} else {
+    Write-Pass "Winget cache complete"
+}
+
+# ============================================================================
 # Launch Sandbox
 # ============================================================================
 Write-Step "Launching Windows Sandbox..."
