@@ -18,6 +18,7 @@
 . "$PSScriptRoot\manifest.ps1"
 . "$PSScriptRoot\external.ps1"
 . "$PSScriptRoot\events.ps1"
+. "$PSScriptRoot\bundle.ps1"
 
 # Sensitive paths that should never be auto-exported
 $script:SensitivePaths = @(
@@ -89,6 +90,11 @@ function Invoke-Capture {
     .PARAMETER ConfigModules
         Explicitly specify which config modules to capture from (comma-separated).
         If not provided with -WithConfig, uses modules matched via discovery.
+    .PARAMETER BundleZip
+        Create a zip bundle containing manifest, config payloads, and metadata.
+        When enabled, output is a .zip file instead of a bare .jsonc manifest.
+    .PARAMETER BundleOutputPath
+        Explicit output path for the zip bundle. Overrides profile-based path.
     .PARAMETER PayloadOut
         Output directory for captured config payloads.
         Default: provisioning/payload/
@@ -134,6 +140,12 @@ function Invoke-Capture {
         
         [Parameter(Mandatory = $false)]
         [string[]]$ConfigModules = @(),
+        
+        [Parameter(Mandatory = $false)]
+        [switch]$BundleZip,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$BundleOutputPath,
         
         [Parameter(Mandatory = $false)]
         [string]$PayloadOut,
@@ -575,6 +587,55 @@ function Invoke-Capture {
     # Emit artifact event for saved manifest
     Write-ArtifactEvent -Phase "capture" -Kind "manifest" -Path $outputPath
     
+    # Zip bundle creation (when -BundleZip is enabled)
+    $bundleResult = $null
+    if ($BundleZip) {
+        Write-ProvisioningSection "Creating Zip Bundle"
+        
+        # Determine zip output path
+        $zipOutputPath = if ($BundleOutputPath) {
+            $BundleOutputPath
+        } elseif ($Profile) {
+            # Default: Documents\Endstate\Profiles\<Profile>.zip
+            $profilesDir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Endstate\Profiles"
+            Join-Path $profilesDir "$Profile.zip"
+        } else {
+            # Fallback: same directory as manifest, with .zip extension
+            $manifestDir = Split-Path -Parent $outputPath
+            $manifestBase = [System.IO.Path]::GetFileNameWithoutExtension($outputPath)
+            Join-Path $manifestDir "$manifestBase.zip"
+        }
+        
+        Write-ProvisioningLog "Bundle output: $zipOutputPath" -Level INFO
+        
+        $bundleResult = New-CaptureBundle `
+            -ManifestPath $outputPath `
+            -OutputZipPath $zipOutputPath `
+            -Apps $sortedApps `
+            -CaptureWarnings $captureWarnings
+        
+        if ($bundleResult.Success) {
+            Write-ProvisioningLog "Bundle created: $zipOutputPath" -Level SUCCESS
+            if ($bundleResult.ConfigsIncluded.Count -gt 0) {
+                Write-ProvisioningLog "Config modules bundled: $($bundleResult.ConfigsIncluded -join ', ')" -Level SUCCESS
+            }
+            if ($bundleResult.ConfigsSkipped.Count -gt 0) {
+                Write-ProvisioningLog "Config modules skipped (no files): $($bundleResult.ConfigsSkipped -join ', ')" -Level INFO
+            }
+            if ($bundleResult.ConfigsCaptureErrors.Count -gt 0) {
+                foreach ($err in $bundleResult.ConfigsCaptureErrors) {
+                    Write-ProvisioningLog "Config capture error: $err" -Level WARN
+                }
+            }
+            Write-ArtifactEvent -Phase "capture" -Kind "bundle" -Path $zipOutputPath
+        } else {
+            Write-ProvisioningLog "Bundle creation failed (manifest still saved)" -Level WARN
+            foreach ($err in $bundleResult.ConfigsCaptureErrors) {
+                Write-ProvisioningLog "  $err" -Level WARN
+            }
+        }
+    }
+    
     # Summary
     $totalFiltered = $filterStats.runtimes + $filterStats.storeApps + $filterStats.minimized
     $totalSensitive = $sensitiveFound.Count
@@ -622,6 +683,14 @@ function Invoke-Capture {
     # Add config capture results
     if ($configCaptureResult) {
         $result.ConfigCapture = $configCaptureResult
+    }
+    
+    # Add bundle results
+    if ($bundleResult) {
+        $result.BundleResult = $bundleResult
+        if ($bundleResult.Success) {
+            $result.BundlePath = $bundleResult.OutputPath
+        }
     }
     
     return $result

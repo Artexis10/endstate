@@ -1,0 +1,10 @@
+id: capture-bundle-zip
+title: "Capture Bundle: Zip-Based Profile Packaging"
+status: implementing
+spec: capture-bundle-zip
+created: "2026-02-16"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

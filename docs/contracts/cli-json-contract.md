@@ -171,6 +171,68 @@ endstate capabilities --json
 
 ---
 
+## Command: `capture`
+
+Captures current machine state into a zip bundle profile.
+
+```powershell
+endstate capture --profile "Hugo-Desktop" --json
+```
+
+### Response
+
+```json
+{
+  "schemaVersion": "1.0",
+  "cliVersion": "0.1.0",
+  "command": "capture",
+  "runId": "20260216-200000",
+  "timestampUtc": "2026-02-16T20:00:00Z",
+  "success": true,
+  "data": {
+    "outputPath": "C:\\Users\\user\\Documents\\Endstate\\Profiles\\Hugo-Desktop.zip",
+    "outputFormat": "zip",
+    "sanitized": false,
+    "isExample": false,
+    "counts": {
+      "totalFound": 85,
+      "included": 72,
+      "skipped": 13,
+      "filteredRuntimes": 8,
+      "filteredStoreApps": 5,
+      "sensitiveExcludedCount": 3
+    },
+    "appsIncluded": [
+      { "id": "Microsoft.VisualStudioCode", "source": "winget" }
+    ],
+    "configsIncluded": ["vscode", "claude-desktop"],
+    "configsSkipped": ["git"],
+    "configsCaptureErrors": [],
+    "captureWarnings": []
+  },
+  "error": null
+}
+```
+
+### Capture Data Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `outputPath` | string | Yes | Absolute path to output file |
+| `outputFormat` | string | Yes | `"zip"` for bundle, `"jsonc"` for legacy |
+| `sanitized` | boolean | Yes | Whether output was sanitized |
+| `isExample` | boolean | Yes | Whether this is an example manifest |
+| `counts` | object | Yes | Capture statistics |
+| `appsIncluded` | array | Yes | Apps included in manifest |
+| `configsIncluded` | array | No | Config module IDs bundled in zip |
+| `configsSkipped` | array | No | Config module IDs that matched but were skipped |
+| `configsCaptureErrors` | array | No | Config capture error descriptions |
+| `captureWarnings` | array | No | General capture warnings |
+
+**Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`.
+
+---
+
 ## Command: `apply`
 
 Executes provisioning plan.

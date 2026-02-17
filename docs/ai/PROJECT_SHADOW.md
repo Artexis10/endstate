@@ -61,10 +61,12 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 
 ### Naming Conventions
 
-- Engine scripts: `<verb>.ps1` (e.g., `apply.ps1`, `capture.ps1`)
+- Engine scripts: `<verb>.ps1` (e.g., `apply.ps1`, `capture.ps1`, `bundle.ps1`)
 - Test files: `<Subject>.Tests.ps1`
 - Modules: `modules/apps/<app-id>/module.jsonc`
 - Manifests: `*.jsonc` (preferred), `*.json`, `*.yaml`
+- Profiles: Three formats — `<name>.zip` (preferred), `<name>/manifest.jsonc` (folder), `<name>.jsonc` (bare)
+- Capture output: Zip bundle at `Documents\Endstate\Profiles\<name>.zip` containing `manifest.jsonc`, `metadata.json`, and optional `configs/` directory
 
 ---
 

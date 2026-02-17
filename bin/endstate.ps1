@@ -358,6 +358,9 @@ $script:ProvisioningCliPath = $null
 # Allow override of winget script for testing (path to .ps1 file)
 $script:WingetScript = $env:ENDSTATE_WINGET_SCRIPT
 
+# Cache for installed apps map (avoids N+1 winget list calls per run)
+$script:InstalledAppsMapCache = $null
+
 # Local manifests directory (gitignored)
 $script:LocalManifestsDir = Join-Path $script:EndstateRoot "manifests\local"
 
@@ -456,6 +459,11 @@ function Get-ManifestHash {
 
 function Get-InstalledAppsMap {
     # Returns a hashtable of winget ID -> version (or $true if version unknown)
+    # Cached per-run to avoid N+1 winget list calls
+    if ($script:InstalledAppsMapCache) {
+        return $script:InstalledAppsMapCache
+    }
+    
     $installedApps = Get-InstalledApps
     $map = @{}
     
@@ -482,7 +490,16 @@ function Get-InstalledAppsMap {
         }
     }
     
+    $script:InstalledAppsMapCache = $map
     return $map
+}
+
+function Reset-InstalledAppsCache {
+    <#
+    .SYNOPSIS
+        Clear the cached installed apps map. Call after installs to force re-query.
+    #>
+    $script:InstalledAppsMapCache = $null
 }
 
 function Compute-Drift {
@@ -809,27 +826,55 @@ function Install-EndstateToPath {
     
     # Copy endstate.ps1 to lib directory
     $sourceScript = $PSCommandPath
-    if (Test-Path $cliEntrypoint) {
-        Write-Host "[UPDATE] Updating CLI entrypoint: $cliEntrypoint" -ForegroundColor Yellow
+    # Detect self-copy: if bootstrapped copy is running, source and destination are the same file
+    $resolvedSource = [System.IO.Path]::GetFullPath($sourceScript)
+    $resolvedDest = [System.IO.Path]::GetFullPath($cliEntrypoint)
+    if ($resolvedSource -eq $resolvedDest) {
+        Write-Host "[OK] CLI entrypoint is current (running from installed location)" -ForegroundColor DarkGray
     } else {
-        Write-Host "[INSTALL] Installing CLI entrypoint: $cliEntrypoint" -ForegroundColor Green
+        if (Test-Path $cliEntrypoint) {
+            Write-Host "[UPDATE] Updating CLI entrypoint: $cliEntrypoint" -ForegroundColor Yellow
+        } else {
+            Write-Host "[INSTALL] Installing CLI entrypoint: $cliEntrypoint" -ForegroundColor Green
+        }
+        Copy-Item -Path $sourceScript -Destination $cliEntrypoint -Force
     }
-    Copy-Item -Path $sourceScript -Destination $cliEntrypoint -Force
     
     # Copy engine folder to bin directory (required for standalone operation)
-    $sourceEngineDir = Join-Path (Split-Path -Parent $sourceScript) "engine"
+    # Resolve engine source: try repo root (works from repo or if repo-root configured)
+    $sourceEngineDir = $null
+    # Priority 1: $script:EndstateRoot\engine (correct when running from repo bin/)
+    $candidateEngine = Join-Path $script:EndstateRoot "engine"
+    if (Test-Path $candidateEngine) {
+        $sourceEngineDir = $candidateEngine
+    } else {
+        # Priority 2: configured or auto-detected repo root
+        $detectedRepoRoot = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
+        if (-not $detectedRepoRoot) { $detectedRepoRoot = Find-RepoRoot }
+        if ($detectedRepoRoot) {
+            $candidateEngine = Join-Path $detectedRepoRoot "engine"
+            if (Test-Path $candidateEngine) {
+                $sourceEngineDir = $candidateEngine
+            }
+        }
+    }
     $destEngineDir = Join-Path $binDir "engine"
     
-    if (Test-Path $sourceEngineDir) {
-        if (Test-Path $destEngineDir) {
+    if ($sourceEngineDir) {
+        $resolvedEngSrc = [System.IO.Path]::GetFullPath($sourceEngineDir)
+        $resolvedEngDst = [System.IO.Path]::GetFullPath($destEngineDir)
+        if ($resolvedEngSrc -eq $resolvedEngDst) {
+            Write-Host "[OK] Engine scripts are current (running from installed location)" -ForegroundColor DarkGray
+        } elseif (Test-Path $destEngineDir) {
             Write-Host "[UPDATE] Updating engine scripts: $destEngineDir" -ForegroundColor Yellow
+            Copy-Item -Path $sourceEngineDir -Destination $binDir -Recurse -Force
         } else {
             Write-Host "[INSTALL] Installing engine scripts: $destEngineDir" -ForegroundColor Green
+            Copy-Item -Path $sourceEngineDir -Destination $binDir -Recurse -Force
         }
-        # Copy entire engine directory recursively
-        Copy-Item -Path $sourceEngineDir -Destination $binDir -Recurse -Force
     } else {
-        Write-Host "[WARN] Engine directory not found at: $sourceEngineDir" -ForegroundColor Yellow
+        Write-Host "[WARN] Engine directory not found." -ForegroundColor Yellow
+        Write-Host "       Checked: $script:EndstateRoot\engine" -ForegroundColor Yellow
         Write-Host "       Engine scripts will be resolved from repo root instead." -ForegroundColor Yellow
     }
     
@@ -1135,10 +1180,11 @@ function Resolve-ManifestPath {
         Resolve profile name or file path to manifest path.
     .DESCRIPTION
         Accepts either:
-        1. A full or relative file path (contains path separator, has .json/.jsonc extension, or exists as file)
+        1. A full or relative file path (contains path separator, has .json/.jsonc/.zip extension, or exists as file)
            -> Returns the path as-is (resolved to absolute if relative)
         2. A simple profile name
-           -> Resolves under repo manifests/ directory
+           -> Resolves using three-format discovery: zip → folder → bare manifest
+           -> Checks Documents\Endstate\Profiles\ first, then repo manifests/
         
         Uses repo root from:
         1. $env:ENDSTATE_ROOT (if set)
@@ -1154,8 +1200,8 @@ function Resolve-ManifestPath {
     if ($ProfileName -match '[/\\]') {
         $isFilePath = $true
     }
-    # Heuristic 2: Has .json/.jsonc/.json5 extension
-    elseif ($ProfileName -match '\.(jsonc?|json5)$') {
+    # Heuristic 2: Has .json/.jsonc/.json5/.zip extension
+    elseif ($ProfileName -match '\.(jsonc?|json5|zip)$') {
         $isFilePath = $true
     }
     # Heuristic 3: File exists at this path
@@ -1172,8 +1218,30 @@ function Resolve-ManifestPath {
         }
     }
     
-    # Otherwise, treat as profile name and resolve under repo manifests/
-    # Try to get configured repo root
+    # Otherwise, treat as profile name — use three-format discovery
+    # Check 1: Documents\Endstate\Profiles\ (preferred location for zip bundles)
+    $profilesDir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Endstate\Profiles"
+    if (Test-Path $profilesDir) {
+        # Zip bundle
+        $zipPath = Join-Path $profilesDir "$ProfileName.zip"
+        if (Test-Path $zipPath) {
+            return $zipPath
+        }
+        
+        # Loose folder
+        $folderManifest = Join-Path $profilesDir "$ProfileName\manifest.jsonc"
+        if (Test-Path $folderManifest) {
+            return $folderManifest
+        }
+        
+        # Bare manifest in profiles dir
+        $barePath = Join-Path $profilesDir "$ProfileName.jsonc"
+        if (Test-Path $barePath) {
+            return $barePath
+        }
+    }
+    
+    # Check 2: Repo manifests/ directory (legacy location)
     $repoRoot = Get-RepoRootPath
     
     if (-not $repoRoot) {
@@ -1233,8 +1301,8 @@ function Invoke-ProvisioningCli {
         }
     }
     
-    # Emit stable wrapper line via Write-Output for testability
-    Write-Output "[endstate] Delegating to provisioning subsystem..."
+    # Emit stable wrapper line (Write-Information to avoid polluting return pipeline)
+    Write-Information "[endstate] Delegating to provisioning subsystem..." -InformationAction Continue
     Write-Host ""
     
     $params = @{ Command = $ProvisioningCommand }
@@ -1498,6 +1566,7 @@ function Invoke-ApplyCore {
     $verifyResult = $null
     if (-not $IsOnlyApps -and -not $IsDryRun) {
         Write-Host ""
+        Reset-InstalledAppsCache  # Force fresh winget query after installs
         $verifyResult = Invoke-VerifyCore -ManifestPath $ManifestPath -SkipStateWrite:$SkipStateWrite
     }
     
@@ -2223,7 +2292,8 @@ function Invoke-CaptureCore {
         [bool]$IsSanitize,
         [string]$ManifestName,
         [string]$CustomExamplesDir,
-        [bool]$ForceOverwrite
+        [bool]$ForceOverwrite,
+        [string]$Profile
     )
     
     # Emit phase event for capture
@@ -2267,6 +2337,12 @@ function Invoke-CaptureCore {
         }
         $outPath = Join-Path $effectiveExamplesDir $fileName
         $isExamplesTarget = $true
+    } elseif ($Profile) {
+        # --profile: use profile name for output filename
+        if (-not (Test-Path $script:LocalManifestsDir)) {
+            New-Item -ItemType Directory -Path $script:LocalManifestsDir -Force | Out-Null
+        }
+        $outPath = Join-Path $script:LocalManifestsDir "$Profile.jsonc"
     } else {
         # Default: local/<machine>.jsonc (gitignored)
         $machineName = $env:COMPUTERNAME.ToLower()
@@ -2495,6 +2571,77 @@ function Invoke-CaptureCore {
         $includedCount = if ($result.Counts) { $result.Counts.included } else { 0 }
         $skippedCount = $totalCount - $includedCount
         Write-SummaryEvent -Phase "capture" -Total $totalCount -Success $includedCount -Skipped $skippedCount -Failed 0
+    }
+    
+    # Create zip bundle (always for non-sanitized, non-example captures)
+    if (-not $IsExample -and -not $IsSanitize) {
+        $bundleScript = $null
+        $engineRoot = Get-EngineRoot
+        if ($engineRoot) {
+            $candidate = Join-Path $engineRoot "bundle.ps1"
+            if (Test-Path $candidate) { $bundleScript = $candidate }
+        }
+        # Repo-root fallback (same resolution chain Invoke-ProvisioningCli uses)
+        if (-not $bundleScript) {
+            $repoRoot = Get-RepoRootPath
+            if ($repoRoot) {
+                $candidate = Join-Path $repoRoot "engine\bundle.ps1"
+                if (Test-Path $candidate) { $bundleScript = $candidate }
+            }
+        }
+        if ($bundleScript) {
+            . $bundleScript
+            
+            # Determine profile name for zip output
+            $profileName = if ($Profile) {
+                $Profile
+            } elseif ($ManifestName) {
+                $ManifestName
+            } else {
+                [System.IO.Path]::GetFileNameWithoutExtension($outPath)
+            }
+            
+            $profilesDir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Endstate\Profiles"
+            $zipOutputPath = Join-Path $profilesDir "$profileName.zip"
+            
+            # Parse apps from manifest for config module matching
+            $capturedApps = @()
+            try {
+                $rawContent = Get-Content -Path $outPath -Raw
+                $jsonContent = $rawContent -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
+                $parsedManifest = $jsonContent | ConvertFrom-Json
+                if ($parsedManifest.apps) {
+                    $capturedApps = @($parsedManifest.apps | ForEach-Object {
+                        $appHash = @{ id = $_.id }
+                        if ($_.refs) {
+                            $refsHash = @{}
+                            $_.refs.PSObject.Properties | ForEach-Object { $refsHash[$_.Name] = $_.Value }
+                            $appHash.refs = $refsHash
+                        }
+                        $appHash
+                    })
+                }
+            } catch {
+                # If we can't parse, proceed with empty apps (install-only bundle)
+            }
+            
+            $bundleResult = New-CaptureBundle `
+                -ManifestPath $outPath `
+                -OutputZipPath $zipOutputPath `
+                -Apps $capturedApps `
+                -CaptureWarnings @($result.CaptureWarnings)
+            
+            if ($bundleResult.Success) {
+                $result.BundlePath = $bundleResult.OutputPath
+                $result.BundleConfigsIncluded = @($bundleResult.ConfigsIncluded)
+                $result.BundleConfigsSkipped = @($bundleResult.ConfigsSkipped)
+                $result.BundleConfigsCaptureErrors = @($bundleResult.ConfigsCaptureErrors)
+                # Clean up intermediate manifest — zip is the deliverable
+                if ($outPath -and (Test-Path $outPath)) {
+                    Remove-Item -Path $outPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
     }
     
     return $result
@@ -3377,7 +3524,7 @@ switch ($Command) {
         if (-not $Json) {
             Write-Information "[endstate] Capture: starting..." -InformationAction Continue
         }
-        $captureResult = Invoke-CaptureCore -OutputPath $Out -IsExample $Example.IsPresent -IsSanitize $Sanitize.IsPresent -ManifestName $Name -CustomExamplesDir $ExamplesDir -ForceOverwrite $Force.IsPresent
+        $captureResult = Invoke-CaptureCore -OutputPath $Out -IsExample $Example.IsPresent -IsSanitize $Sanitize.IsPresent -ManifestName $Name -CustomExamplesDir $ExamplesDir -ForceOverwrite $Force.IsPresent -Profile $Profile
         
         if ($Json) {
             # Emit JSON envelope for capture result
@@ -3402,6 +3549,16 @@ switch ($Command) {
                 if ($captureResult.CaptureWarnings -and $captureResult.CaptureWarnings.Count -gt 0) {
                     $data.captureWarnings = @($captureResult.CaptureWarnings)
                 }
+                # Include bundle fields when zip bundle was created
+                if ($captureResult.BundlePath) {
+                    $data.outputPath = $captureResult.BundlePath
+                    $data.outputFormat = "zip"
+                    $data.configsIncluded = @($captureResult.BundleConfigsIncluded)
+                    $data.configsSkipped = @($captureResult.BundleConfigsSkipped)
+                    $data.configsCaptureErrors = @($captureResult.BundleConfigsCaptureErrors)
+                } else {
+                    $data.outputFormat = "jsonc"
+                }
                 Write-JsonEnvelope -CommandName "capture" -Success $true -Data $data -ExitCode 0
             } else {
                 # Use structured ErrorDetail if available (from INV-CAPTURE invariants)
@@ -3417,8 +3574,9 @@ switch ($Command) {
                 Write-JsonEnvelope -CommandName "capture" -Success $false -Data $null -Error $errorDetail -ExitCode $captureExitCode
             }
         } else {
-            if ($captureResult.OutputPath) {
-                Write-Information "[endstate] Capture: output path is $($captureResult.OutputPath)" -InformationAction Continue
+            $displayPath = if ($captureResult.BundlePath) { $captureResult.BundlePath } else { $captureResult.OutputPath }
+            if ($displayPath) {
+                Write-Information "[endstate] Capture: output path is $displayPath" -InformationAction Continue
             }
             if ($captureResult.Blocked) {
                 Write-Information "[endstate] Capture: BLOCKED - $($captureResult.Error)" -InformationAction Continue
@@ -3426,6 +3584,17 @@ switch ($Command) {
             if ($captureResult.Success) {
                 $completedMsg = if ($captureResult.Sanitized) { "completed (sanitized, $($captureResult.AppCount) apps)" } else { "completed" }
                 Write-Information "[endstate] Capture: $completedMsg" -InformationAction Continue
+                if ($captureResult.BundlePath) {
+                    $profileDisplayName = if ($Profile) { $Profile } else { [System.IO.Path]::GetFileNameWithoutExtension($captureResult.BundlePath) }
+                    Write-Host ""
+                    Write-Host "Profile bundle created:" -ForegroundColor Green
+                    Write-Host "  $($captureResult.BundlePath)"
+                    Write-Host ""
+                    Write-Host "Next steps:" -ForegroundColor Yellow
+                    Write-Host "  1. Dry-run apply:  endstate apply --profile $profileDisplayName --dry-run"
+                    Write-Host "  2. Apply:          endstate apply --profile $profileDisplayName"
+                    Write-Host ""
+                }
             }
         }
         
@@ -3436,6 +3605,7 @@ switch ($Command) {
         }
     }
     "apply" {
+        $bundleExtractDir = $null
         try {
             $resolvedPath = Resolve-ManifestPathWithValidation -ProfileName $Profile -ManifestPath $Manifest -CommandName "apply"
             if (-not $resolvedPath) {
@@ -3469,6 +3639,37 @@ switch ($Command) {
                     Write-Host "[ERROR] Manifest file not found: $resolvedPath" -ForegroundColor Red
                 }
                 exit 1
+            }
+            
+            # Handle zip bundle: extract to temp, use extracted manifest
+            $isZipBundle = $resolvedPath -match '\.zip$'
+            if ($isZipBundle) {
+                $bundleScript = Resolve-EngineScript -ScriptName "bundle"
+                if ($bundleScript) {
+                    . $bundleScript
+                }
+                $extractResult = Expand-ProfileBundle -ZipPath $resolvedPath
+                if (-not $extractResult.Success) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "BUNDLE_EXTRACT_FAILED"
+                            message = "Failed to extract zip bundle: $($extractResult.Error)"
+                            detail = @{ zipPath = $resolvedPath }
+                        }
+                        Write-JsonEnvelope -CommandName "apply" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Failed to extract zip bundle: $($extractResult.Error)" -ForegroundColor Red
+                    }
+                    exit 1
+                }
+                $bundleExtractDir = $extractResult.ExtractedDir
+                $resolvedPath = $extractResult.ManifestPath
+                if (-not $Json) {
+                    Write-Information "[endstate] Apply: extracted zip bundle to temp directory" -InformationAction Continue
+                    if ($extractResult.HasConfigs) {
+                        Write-Information "[endstate] Apply: config payloads available (use --enable-restore to apply)" -InformationAction Continue
+                    }
+                }
             }
             
             # Validate manifest against profile contract before apply
@@ -3552,9 +3753,15 @@ switch ($Command) {
                 Write-Host "[ERROR] Apply failed: $($_.Exception.Message)" -ForegroundColor Red
             }
             exit 1
+        } finally {
+            # Cleanup extracted zip bundle temp directory
+            if ($bundleExtractDir -and (Test-Path $bundleExtractDir)) {
+                Remove-Item -Path $bundleExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
     }
     "verify" {
+        $bundleExtractDir = $null
         try {
             $resolvedPath = Resolve-ManifestPathWithValidation -ProfileName $Profile -ManifestPath $Manifest -CommandName "verify"
             if (-not $resolvedPath) {
@@ -3588,6 +3795,34 @@ switch ($Command) {
                     Write-Host "[ERROR] Manifest file not found: $resolvedPath" -ForegroundColor Red
                 }
                 exit 1
+            }
+            
+            # Handle zip bundle: extract to temp, use extracted manifest
+            $isZipBundle = $resolvedPath -match '\.zip$'
+            if ($isZipBundle) {
+                $bundleScript = Resolve-EngineScript -ScriptName "bundle"
+                if ($bundleScript) {
+                    . $bundleScript
+                }
+                $extractResult = Expand-ProfileBundle -ZipPath $resolvedPath
+                if (-not $extractResult.Success) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "BUNDLE_EXTRACT_FAILED"
+                            message = "Failed to extract zip bundle: $($extractResult.Error)"
+                            detail = @{ zipPath = $resolvedPath }
+                        }
+                        Write-JsonEnvelope -CommandName "verify" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Failed to extract zip bundle: $($extractResult.Error)" -ForegroundColor Red
+                    }
+                    exit 1
+                }
+                $bundleExtractDir = $extractResult.ExtractedDir
+                $resolvedPath = $extractResult.ManifestPath
+                if (-not $Json) {
+                    Write-Information "[endstate] Verify: extracted zip bundle to temp directory" -InformationAction Continue
+                }
             }
             
             # Validate manifest against profile contract before verify
@@ -3668,6 +3903,11 @@ switch ($Command) {
                 Write-Host "[ERROR] Verify failed: $($_.Exception.Message)" -ForegroundColor Red
             }
             exit 1
+        } finally {
+            # Cleanup extracted zip bundle temp directory
+            if ($bundleExtractDir -and (Test-Path $bundleExtractDir)) {
+                Remove-Item -Path $bundleExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
         }
     }
     "plan" {

@@ -4,7 +4,65 @@ This document defines the canonical profile manifest contract for Endstate. Both
 
 ## Overview
 
-A **profile** is a JSON/JSONC/JSON5 file that describes a desired machine state. The engine is the authority on what constitutes a valid profile; the GUI relies on the same contract for discovery and validation.
+A **profile** describes a desired machine state. Profiles exist in three formats:
+
+1. **Zip bundle** (`<name>.zip`) — preferred format containing manifest, config payloads, and metadata
+2. **Loose folder** (`<name>\manifest.jsonc`) — unzipped bundle or manually assembled folder
+3. **Bare manifest** (`<name>.jsonc`) — single JSON/JSONC/JSON5 file (legacy, install-only)
+
+The engine is the authority on what constitutes a valid profile; the GUI relies on the same contract for discovery and validation.
+
+## Profile Formats
+
+### Format 1: Zip Bundle (Preferred)
+
+A `.zip` file containing:
+
+```
+<name>.zip
+├── manifest.jsonc          # App list (standard profile manifest)
+├── configs/                # Config module payloads (optional)
+│   ├── <module-id>/
+│   │   └── <files...>
+│   └── ...
+└── metadata.json           # Capture metadata
+```
+
+**`metadata.json` schema:**
+
+```json
+{
+  "schemaVersion": "1.0",
+  "capturedAt": "2026-02-16T20:00:00Z",
+  "machineName": "DESKTOP-ABC123",
+  "endstateVersion": "0.1.0",
+  "configModulesIncluded": ["vscode", "claude-desktop"],
+  "configModulesSkipped": [],
+  "captureWarnings": []
+}
+```
+
+A zip with only `manifest.jsonc` + `metadata.json` (no `configs/`) is valid (install-only profile).
+
+### Format 2: Loose Folder
+
+A directory containing at minimum `manifest.jsonc`:
+
+```
+<name>/
+├── manifest.jsonc
+├── configs/                # Optional
+│   └── ...
+└── metadata.json           # Optional
+```
+
+An unzipped zip bundle is a valid loose folder profile.
+
+### Format 3: Bare Manifest (Legacy)
+
+A single `.jsonc`/`.json`/`.json5` file. Install-only — no config payloads.
+
+---
 
 ## Schema Version
 
@@ -107,15 +165,28 @@ Test-ProfileManifest -Path <path>
 
 ## Discovery Rules (GUI)
 
-### Profile Discovery Algorithm
+### Profile Resolution (CLI)
 
-1. List all files in the profiles directory
-2. Filter to candidate extensions: `.json`, `.jsonc`, `.json5`
-3. Exclude `*.meta.json` files
+When resolving `--profile "Name"`, the engine checks in order:
+
+1. `<ProfilesDir>\Name.zip` — zip bundle
+2. `<ProfilesDir>\Name\manifest.jsonc` — loose folder
+3. `<ProfilesDir>\Name.jsonc` — bare manifest
+
+First match wins. The default profiles directory is `Documents\Endstate\Profiles\`.
+
+### Profile Discovery Algorithm (GUI)
+
+1. List all items in the profiles directory
+2. Discover profiles in three passes:
+   - **Zip bundles:** `*.zip` files (validate by checking for `manifest.jsonc` entry)
+   - **Loose folders:** directories containing `manifest.jsonc`
+   - **Bare manifests:** `.json`, `.jsonc`, `.json5` files (excluding `*.meta.json`)
+3. Deduplicate: if a name appears in multiple formats, prefer zip → folder → bare
 4. For each candidate:
-   - Parse the file content
+   - Parse the manifest content
    - Validate against profile signature
-   - Only include files that pass validation
+   - Only include profiles that pass validation
 5. Return list of valid profiles with metadata
 
 ### Metadata Files (`.meta.json`)

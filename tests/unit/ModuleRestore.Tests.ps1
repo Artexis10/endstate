@@ -502,12 +502,12 @@ Describe "Module.Loading" {
             $manifest = @{
                 version = 1
                 name = "empty-restore-test"
-                modules = @("git")
+                modules = @("7zip")
                 bundles = @()
                 restore = @()
             }
             
-            # Git module has restore array but entries are commented out
+            # 7zip module has empty restore array (install-only, settings in registry)
             $expandedRestore = @(Resolve-RestoreEntriesFromModules -Manifest $manifest -RepoRoot $repoRoot)
             $expandedRestore.Count | Should -Be 0
         }
