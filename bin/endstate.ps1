@@ -2452,7 +2452,13 @@ function Invoke-CaptureCore {
     }
     
     # Non-sanitized capture: delegate to provisioning CLI
-    $cliArgs = @{ OutManifest = $outPath }
+    # Default: WithConfig + Discover enabled so configs are always captured
+    $cliArgs = @{
+        OutManifest = $outPath
+        WithConfig = $true
+        Discover = $true
+        DiscoverWriteManualInclude = $false
+    }
     $cliResult = Invoke-ProvisioningCli -ProvisioningCommand "capture" -Arguments $cliArgs
     
     # INV-CAPTURE-1: If CLI is missing, capture must fail with structured error

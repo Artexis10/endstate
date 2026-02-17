@@ -513,10 +513,10 @@ function Convert-PsObjectToHashtable {
         Recursively convert PSCustomObject to hashtable.
     #>
     param(
-        [Parameter(Mandatory = $true)]
+        [Parameter(Mandatory = $false)]
         $InputObject
     )
-    
+
     if ($null -eq $InputObject) {
         return $null
     }

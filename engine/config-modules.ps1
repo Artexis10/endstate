@@ -162,7 +162,7 @@ function Test-ConfigModuleSchema {
     
     # Optional: sensitivity (enum)
     if ($Module.ContainsKey('sensitivity') -and $null -ne $Module.sensitivity) {
-        $validSensitivities = @('low', 'sensitive', 'machineBound')
+        $validSensitivities = @('low', 'medium', 'high', 'sensitive', 'machineBound')
         if ($Module.sensitivity -notin $validSensitivities) {
             $result.Valid = $false
             $result.Error = "'sensitivity' must be one of: $($validSensitivities -join ', ')"
@@ -178,8 +178,8 @@ function Test-ConfigModuleSchema {
             return $result
         }
         
-        # capture.files is required if capture is present
-        if (-not $Module.capture.files -or $Module.capture.files -isnot [array]) {
+        # capture.files is required if capture is present (empty array is valid for install-only modules)
+        if (-not $Module.capture.ContainsKey('files') -or $Module.capture.files -isnot [array]) {
             $result.Valid = $false
             $result.Error = "'capture.files' must be an array when capture is defined"
             return $result
