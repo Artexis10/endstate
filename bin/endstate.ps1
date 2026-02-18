@@ -2640,21 +2640,13 @@ function Invoke-CaptureCore {
             $zipOutputPath = Join-Path $profilesDir "$profileName.zip"
             
             # Parse apps from manifest for config module matching
+            # Use Read-JsoncFile (loaded via bundle.ps1 chain) for proper
+            # JSONC comment stripping and hashtable conversion
             $capturedApps = @()
             try {
-                $rawContent = Get-Content -Path $outPath -Raw
-                $jsonContent = $rawContent -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
-                $parsedManifest = $jsonContent | ConvertFrom-Json
+                $parsedManifest = Read-JsoncFile -Path $outPath
                 if ($parsedManifest.apps) {
-                    $capturedApps = @($parsedManifest.apps | ForEach-Object {
-                        $appHash = @{ id = $_.id }
-                        if ($_.refs) {
-                            $refsHash = @{}
-                            $_.refs.PSObject.Properties | ForEach-Object { $refsHash[$_.Name] = $_.Value }
-                            $appHash.refs = $refsHash
-                        }
-                        $appHash
-                    })
+                    $capturedApps = @($parsedManifest.apps)
                 }
             } catch {
                 # If we can't parse, proceed with empty apps (install-only bundle)
