@@ -260,7 +260,18 @@ function Expand-ManifestConfigModules {
     $expandedRestore = @()
     $expandedVerify = @()
     
+    # Build excludeConfigs lookup for fast skip
+    $excludeSet = @{}
+    if ($Manifest.excludeConfigs -and $Manifest.excludeConfigs.Count -gt 0) {
+        foreach ($ex in $Manifest.excludeConfigs) { $excludeSet[$ex] = $true }
+    }
+
     foreach ($moduleId in $Manifest.configModules) {
+        # Skip modules suppressed by excludeConfigs
+        if ($excludeSet.ContainsKey($moduleId)) {
+            continue
+        }
+
         if (-not $Catalog.ContainsKey($moduleId)) {
             $unknownModules += $moduleId
             continue

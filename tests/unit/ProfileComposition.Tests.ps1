@@ -296,6 +296,60 @@ Describe "ProfileComposition" {
         }
     }
 
+    Context "ExcludeConfigs suppresses config module expansion" {
+
+        It "Should not expand config modules listed in excludeConfigs" {
+            # Load config-modules engine
+            . (Join-Path $script:ProvisioningRoot "engine\config-modules.ps1")
+
+            # Build a fake catalog with two modules
+            $catalog = @{
+                "mod-keep" = @{
+                    id = "mod-keep"
+                    displayName = "Keep Module"
+                    _moduleDir = "C:\fake"
+                    restore = @(
+                        @{ type = "copy"; source = "a.txt"; dest = "b.txt" }
+                    )
+                    verify = @()
+                }
+                "mod-excluded" = @{
+                    id = "mod-excluded"
+                    displayName = "Excluded Module"
+                    _moduleDir = "C:\fake"
+                    restore = @(
+                        @{ type = "copy"; source = "x.txt"; dest = "y.txt" }
+                    )
+                    verify = @(
+                        @{ type = "file-exists"; path = "y.txt" }
+                    )
+                }
+            }
+
+            # Manifest references both modules but excludes one
+            $manifest = @{
+                version = 1
+                name = "test"
+                apps = @()
+                configModules = @("mod-keep", "mod-excluded")
+                excludeConfigs = @("mod-excluded")
+                restore = @()
+                verify = @()
+            }
+
+            $result = Expand-ManifestConfigModules -Manifest $manifest -Catalog $catalog
+
+            # mod-keep's restore item should be present
+            $fromModules = @($result.restore | ForEach-Object { $_._fromModule } | Where-Object { $_ })
+            $fromModules | Should -Contain "mod-keep"
+            $fromModules | Should -Not -Contain "mod-excluded"
+
+            # mod-excluded's verify item should NOT be present
+            $verifyFromModules = @($result.verify | ForEach-Object { $_._fromModule } | Where-Object { $_ })
+            $verifyFromModules | Should -Not -Contain "mod-excluded"
+        }
+    }
+
     Context "Profile name not found produces clear error" {
 
         It "Should throw clear error when profile name cannot be resolved" {

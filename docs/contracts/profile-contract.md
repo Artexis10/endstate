@@ -97,6 +97,8 @@ A file is considered a **valid profile manifest** if and only if:
 | `restore` | array | Configuration restore operations |
 | `verify` | array | Verification steps |
 | `configModules` | array | Config module references |
+| `exclude` | `string[]` | Winget IDs to remove from merged app list (composition) |
+| `excludeConfigs` | `string[]` | Config module IDs to suppress from restore (composition) |
 
 ### App Entry Schema
 
