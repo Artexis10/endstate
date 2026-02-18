@@ -184,10 +184,18 @@ function Invoke-CollectConfigFiles {
                 New-Item -ItemType Directory -Path $destDir -Force | Out-Null
             }
             
-            # Copy the file
+            # Copy file or directory
             try {
-                Copy-Item -Path $sourcePath -Destination $destPath -Force
-                $moduleFilesCopied++
+                if (Test-Path $sourcePath -PathType Container) {
+                    # Source is a directory — copy recursively
+                    Copy-Item -Path $sourcePath -Destination $destPath -Recurse -Force
+                    # Count actual files copied (not the directory itself)
+                    $copiedFiles = @(Get-ChildItem -Path $destPath -Recurse -File -ErrorAction SilentlyContinue)
+                    $moduleFilesCopied += $copiedFiles.Count
+                } else {
+                    Copy-Item -Path $sourcePath -Destination $destPath -Force
+                    $moduleFilesCopied++
+                }
             } catch {
                 $moduleErrors += "Failed to copy $sourcePath`: $($_.Exception.Message)"
             }
