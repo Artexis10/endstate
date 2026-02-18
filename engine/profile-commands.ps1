@@ -300,11 +300,21 @@ function Get-ProfileSummary {
     $baseAppCount = 0
     if ($rawManifest.includes -and $rawManifest.includes.Count -gt 0) {
         $base = $rawManifest.includes[0]
-        # Count apps from resolved minus local apps
-        $localAppCount = if ($rawManifest.apps) { @($rawManifest.apps).Count } else { 0 }
-        $netAppCount = if ($resolvedManifest.apps) { @($resolvedManifest.apps).Count } else { 0 }
-        $baseAppCount = $netAppCount - $localAppCount
-        if ($baseAppCount -lt 0) { $baseAppCount = 0 }
+        # Read the base profile directly to get raw app count (before excludes)
+        $baseProfileResult = Resolve-ProfilePath -ProfileName $base -ProfilesDir $ProfilesDir
+        if ($baseProfileResult.Found) {
+            if ($baseProfileResult.Format -eq "zip") {
+                $expandResult = Expand-ProfileBundle -ZipPath $baseProfileResult.Path
+                if ($expandResult.Success) {
+                    $baseManifest = Read-ManifestRaw -Path $expandResult.ManifestPath
+                    $baseAppCount = if ($baseManifest.apps) { @($baseManifest.apps).Count } else { 0 }
+                    Remove-ProfileBundleTemp -ExtractedDir $expandResult.ExtractedDir
+                }
+            } else {
+                $baseManifest = Read-ManifestRaw -Path $baseProfileResult.Path
+                $baseAppCount = if ($baseManifest.apps) { @($baseManifest.apps).Count } else { 0 }
+            }
+        }
     }
     
     $excludedCount = if ($rawManifest.exclude) { @($rawManifest.exclude).Count } else { 0 }
