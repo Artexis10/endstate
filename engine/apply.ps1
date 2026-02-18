@@ -40,6 +40,8 @@ function Invoke-Apply {
     
     $runId = Get-RunId
     
+    try {
+    
     # Enable streaming events if requested
     if ($EventsFormat -eq "jsonl") {
         Enable-StreamingEvents -RunId "apply-$runId"
@@ -346,6 +348,18 @@ function Invoke-Apply {
         Skipped = $skipCount
         Failed = $failCount
         LogFile = $logFile
+    }
+    
+    } finally {
+        # Clean up profile bundle temp directories from include resolution
+        if ($script:ProfileBundleTempDirs -and $script:ProfileBundleTempDirs.Count -gt 0) {
+            foreach ($tempDir in $script:ProfileBundleTempDirs) {
+                if ($tempDir -and (Test-Path $tempDir)) {
+                    Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            }
+            $script:ProfileBundleTempDirs = @()
+        }
     }
 }
 

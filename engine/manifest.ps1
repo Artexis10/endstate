@@ -14,6 +14,9 @@
 # Track included files to detect circular includes
 $script:IncludeStack = @()
 
+# Track extracted profile bundle temp directories for lifecycle cleanup
+$script:ProfileBundleTempDirs = @()
+
 # Flag to control config module expansion (can be disabled for raw loading)
 $script:ExpandConfigModules = $true
 
@@ -179,10 +182,25 @@ function Read-Manifest {
         [switch]$SkipConfigModuleExpansion
     )
     
-    # Reset include stack for top-level call
+    # Reset include stack and temp dirs for top-level call
     $script:IncludeStack = @()
+    $script:ProfileBundleTempDirs = @()
     
     $manifest = Read-ManifestInternal -Path $Path
+    
+    # Apply exclude filtering: remove apps where refs.windows matches an exclude entry
+    if ($manifest.exclude -and $manifest.exclude.Count -gt 0) {
+        $excludeSet = @{}
+        foreach ($ex in $manifest.exclude) { $excludeSet[$ex] = $true }
+        
+        $manifest.apps = @($manifest.apps | Where-Object {
+            -not ($_.refs -and $_.refs.windows -and $excludeSet.ContainsKey($_.refs.windows))
+        })
+        
+        # Exclude implies excludeConfigs: merge excluded app IDs into excludeConfigs
+        if (-not $manifest.excludeConfigs) { $manifest.excludeConfigs = @() }
+        $manifest.excludeConfigs = @($manifest.excludeConfigs) + @($manifest.exclude)
+    }
     
     # Expand configModules after includes are resolved (unless skipped)
     if (-not $SkipConfigModuleExpansion -and $script:ExpandConfigModules) {
@@ -556,6 +574,10 @@ function Resolve-ManifestIncludes {
     <#
     .SYNOPSIS
         Resolve and merge included manifests.
+    .DESCRIPTION
+        Include entries are discriminated by extension:
+        - Has extension → file path (existing behavior)
+        - No extension → profile name, resolved via Resolve-ProfilePath
     #>
     param(
         [Parameter(Mandatory = $true)]
@@ -568,20 +590,52 @@ function Resolve-ManifestIncludes {
     $includes = $Manifest.includes
     $Manifest.Remove('includes')
     
-    foreach ($includePath in $includes) {
-        # Resolve relative path
-        $fullPath = if ([System.IO.Path]::IsPathRooted($includePath)) {
-            $includePath
+    foreach ($includeEntry in $includes) {
+        $extension = [System.IO.Path]::GetExtension($includeEntry)
+        
+        if ($extension) {
+            # Has extension → file path resolution (existing behavior)
+            $fullPath = if ([System.IO.Path]::IsPathRooted($includeEntry)) {
+                $includeEntry
+            } else {
+                Join-Path $BaseDir $includeEntry
+            }
+            
+            if (-not (Test-Path $fullPath)) {
+                throw "Include not found: $fullPath (referenced from $BaseDir)"
+            }
+            
+            # Load included manifest
+            $included = Read-ManifestInternal -Path $fullPath
         } else {
-            Join-Path $BaseDir $includePath
+            # No extension → profile name resolution
+            $profilesDir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Endstate\Profiles"
+            
+            # Import bundle.ps1 for Resolve-ProfilePath and Expand-ProfileBundle
+            $bundleScript = Join-Path $PSScriptRoot "bundle.ps1"
+            if (Test-Path $bundleScript) {
+                . $bundleScript
+            }
+            
+            $profileResult = Resolve-ProfilePath -ProfileName $includeEntry -ProfilesDir $profilesDir
+            
+            if (-not $profileResult.Found) {
+                throw "Included profile not found: $includeEntry"
+            }
+            
+            if ($profileResult.Format -eq "zip") {
+                # Extract zip bundle and track temp dir
+                $expandResult = Expand-ProfileBundle -ZipPath $profileResult.Path
+                if (-not $expandResult.Success) {
+                    throw "Failed to expand included profile bundle '$includeEntry': $($expandResult.Error)"
+                }
+                $script:ProfileBundleTempDirs += $expandResult.ExtractedDir
+                $included = Read-ManifestInternal -Path $expandResult.ManifestPath
+            } else {
+                # folder or bare → read manifest directly
+                $included = Read-ManifestInternal -Path $profileResult.Path
+            }
         }
-        
-        if (-not (Test-Path $fullPath)) {
-            throw "Include not found: $fullPath (referenced from $BaseDir)"
-        }
-        
-        # Load included manifest
-        $included = Read-ManifestInternal -Path $fullPath
         
         # Merge arrays (apps, restore, verify)
         foreach ($arrayKey in @('apps', 'restore', 'verify')) {
@@ -623,7 +677,7 @@ function Normalize-Manifest {
     if (-not $Manifest.ContainsKey('name') -or $null -eq $Manifest.name) { $Manifest.name = "" }
     
     # Ensure array fields default to empty arrays and are always arrays (not single objects)
-    foreach ($arrayKey in @('apps', 'restore', 'verify', 'includes', 'configModules', 'bundles', 'modules')) {
+    foreach ($arrayKey in @('apps', 'restore', 'verify', 'includes', 'configModules', 'bundles', 'modules', 'exclude', 'excludeConfigs')) {
         if (-not $Manifest.ContainsKey($arrayKey) -or $null -eq $Manifest[$arrayKey]) {
             $Manifest[$arrayKey] = @()
         } else {
