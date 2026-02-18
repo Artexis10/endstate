@@ -402,7 +402,7 @@ Describe "Capture.ArtifactContract" {
         
         It "Should return ENGINE_CLI_NOT_FOUND when CLI path is null" {
             # Load the endstate.ps1 script to get Invoke-ProvisioningCli
-            . $script:EndstateScript -Command "version" 2>$null
+            . $script:EndstateScript -LoadFunctionsOnly
             
             # Mock Get-ProvisioningCliPath to return null
             Mock Get-ProvisioningCliPath { return $null }
@@ -416,7 +416,7 @@ Describe "Capture.ArtifactContract" {
         
         It "Should return ENGINE_CLI_NOT_FOUND when CLI path does not exist" {
             # Load the endstate.ps1 script
-            . $script:EndstateScript -Command "version" 2>$null
+            . $script:EndstateScript -LoadFunctionsOnly
             
             # Mock Get-ProvisioningCliPath to return non-existent path
             Mock Get-ProvisioningCliPath { return "C:\nonexistent\path\cli.ps1" }
@@ -430,7 +430,7 @@ Describe "Capture.ArtifactContract" {
         
         It "Should include hint field in ENGINE_CLI_NOT_FOUND error" {
             # Load the endstate.ps1 script
-            . $script:EndstateScript -Command "version" 2>$null
+            . $script:EndstateScript -LoadFunctionsOnly
             
             Mock Get-ProvisioningCliPath { return $null }
             
@@ -592,7 +592,7 @@ Describe "Capture.ArtifactContract" {
         
         It "Should resolve CLI path to bin\cli.ps1 not root cli.ps1" {
             # Load the endstate.ps1 script
-            . $script:EndstateScript -Command "version" 2>$null
+            . $script:EndstateScript -LoadFunctionsOnly
             
             $cliPath = Get-ProvisioningCliPath
             
@@ -602,7 +602,7 @@ Describe "Capture.ArtifactContract" {
         }
         
         It "Should resolve CLI path relative to repo root" {
-            . $script:EndstateScript -Command "version" 2>$null
+            . $script:EndstateScript -LoadFunctionsOnly
             
             $cliPath = Get-ProvisioningCliPath
             

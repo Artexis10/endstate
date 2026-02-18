@@ -16,6 +16,10 @@
 # Import dependencies
 . "$PSScriptRoot\manifest.ps1"
 
+# Capture script root at load time so functions resolve paths correctly
+# even when dot-sourced from a different directory (e.g. bin/endstate.ps1)
+$script:ConfigModulesRoot = $PSScriptRoot
+
 # Module catalog cache (populated on first load)
 $script:ConfigModuleCatalog = $null
 $script:ConfigModuleCatalogLoaded = $false
@@ -43,7 +47,7 @@ function Get-ConfigModuleCatalog {
     }
     
     $catalog = @{}
-    $modulesRoot = Join-Path $PSScriptRoot "..\modules\apps"
+    $modulesRoot = Join-Path $script:ConfigModulesRoot "..\modules\apps"
     
     # If modules directory doesn't exist, return empty catalog
     if (-not (Test-Path $modulesRoot)) {
@@ -678,15 +682,32 @@ function Invoke-ConfigModuleCapture {
                 New-Item -ItemType Directory -Path $destDir -Force | Out-Null
             }
             
-            # Copy the file
+            # Copy the file or directory
             try {
-                Copy-Item -Path $sourcePath -Destination $destPath -Force
-                $result.copied += @{
-                    module = $moduleId
-                    source = $sourcePath
-                    dest = $destPath
+                if (Test-Path -Path $sourcePath -PathType Container) {
+                    # Source is a directory — copy recursively
+                    Copy-Item -Path $sourcePath -Destination $destPath -Recurse -Force
+                    $copiedFiles = @(Get-ChildItem -Path $destPath -Recurse -File -ErrorAction SilentlyContinue)
+                    foreach ($f in $copiedFiles) {
+                        $result.copied += @{
+                            module = $moduleId
+                            source = $f.FullName -replace [regex]::Escape($destPath), $sourcePath
+                            dest = $f.FullName
+                        }
+                    }
+                    if ($copiedFiles.Count -gt 0) {
+                        $moduleCaptured = $true
+                    }
+                } else {
+                    # Source is a single file
+                    Copy-Item -Path $sourcePath -Destination $destPath -Force
+                    $result.copied += @{
+                        module = $moduleId
+                        source = $sourcePath
+                        dest = $destPath
+                    }
+                    $moduleCaptured = $true
                 }
-                $moduleCaptured = $true
             } catch {
                 $result.warnings += "Failed to copy $sourcePath to $destPath`: $($_.Exception.Message)"
                 $result.missing += @{
