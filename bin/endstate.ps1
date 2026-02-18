@@ -1008,6 +1008,7 @@ function Show-Help {
     Write-Host "    doctor        Diagnose environment issues"
     Write-Host "    state         Manage endstate state (subcommands: reset, export, import)"
     Write-Host "    module        Generate config modules from trace snapshots"
+    Write-Host "    profile       Create and manage overlay profiles"
     Write-Host "    capabilities  List available commands (use -Json for machine-readable output)"
     Write-Host ""
     Write-Host "GLOBAL OPTIONS:" -ForegroundColor Yellow
@@ -1129,6 +1130,34 @@ function Show-ModuleHelp {
     Write-Host ""
 }
 
+function Show-ProfileHelp {
+    Show-Banner
+    Write-Host "PROFILE - Create and manage overlay profiles" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "USAGE:" -ForegroundColor Yellow
+    Write-Host "    endstate profile <subcommand> [options]"
+    Write-Host ""
+    Write-Host "SUBCOMMANDS:" -ForegroundColor Yellow
+    Write-Host "    new <name> [--from <base>]         Create a new profile"
+    Write-Host "    exclude <name> <id> [<id>...]      Add winget IDs to exclude list"
+    Write-Host "    exclude-config <name> <id> [...]   Add config module IDs to excludeConfigs"
+    Write-Host "    add <name> <id> [<id>...]          Add app entries"
+    Write-Host "    show <name>                        Show profile summary"
+    Write-Host "    list                               List all profiles"
+    Write-Host ""
+    Write-Host "OPTIONS:" -ForegroundColor Yellow
+    Write-Host "    --json         Output as JSON envelope"
+    Write-Host ""
+    Write-Host "EXAMPLES:" -ForegroundColor Yellow
+    Write-Host "    endstate profile new win-laptop --from hugo-desktop"
+    Write-Host "    endstate profile exclude win-laptop Seagate.SeaTools Apple.AppleSoftwareUpdate"
+    Write-Host "    endstate profile exclude-config win-laptop powertoys windows-terminal"
+    Write-Host "    endstate profile add win-laptop Adobe.Lightroom"
+    Write-Host "    endstate profile show win-laptop"
+    Write-Host "    endstate profile list --json"
+    Write-Host ""
+}
+
 function Show-UnknownCommandHelp {
     param([string]$UnknownCommand)
     
@@ -1136,7 +1165,7 @@ function Show-UnknownCommandHelp {
     Write-Host "ERROR: Unknown command '$UnknownCommand'" -ForegroundColor Red
     Write-Host ""
     Write-Host "Available commands:" -ForegroundColor Yellow
-    Write-Host "    bootstrap, capture, apply, verify, plan, validate, report, doctor, state, module, capabilities"
+    Write-Host "    bootstrap, capture, apply, verify, plan, validate, report, doctor, state, module, profile, capabilities"
     Write-Host ""
     Write-Host "Use 'endstate --help' for more information."
     Write-Host ""
@@ -3433,6 +3462,7 @@ if ($script:HelpRequested) {
         "apply" { Show-ApplyHelp; exit 0 }
         "verify" { Show-VerifyHelp; exit 0 }
         "module" { Show-ModuleHelp; exit 0 }
+        "profile" { Show-ProfileHelp; exit 0 }
         "" { Show-Help; exit 0 }
         default {
             # For commands without specific help, show top-level help
@@ -4319,6 +4349,312 @@ switch ($Command) {
             }
         }
     }
+    "profile" {
+        # Import profile-commands engine
+        $profileCommandsScript = Resolve-EngineScript -ScriptName "profile-commands"
+        if (-not $profileCommandsScript) {
+            if ($Json) {
+                $errorDetail = @{
+                    code = "ENGINE_SCRIPT_NOT_FOUND"
+                    message = "Engine script 'profile-commands.ps1' not found."
+                }
+                Write-JsonEnvelope -CommandName "profile" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+            } else {
+                Write-Host "[ERROR] Engine script 'profile-commands.ps1' not found" -ForegroundColor Red
+            }
+            exit 1
+        }
+        . $profileCommandsScript
+        
+        # Resolve ProfilesDir
+        $profilesDir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'Endstate\Profiles'
+        if (-not (Test-Path $profilesDir)) {
+            New-Item -ItemType Directory -Path $profilesDir -Force | Out-Null
+        }
+        
+        # Parse subcommand and args from pass-through
+        # SubCommand is already bound to Position 1
+        # For profile commands, we need the profile name and additional IDs from pass-through args
+        $profileName = $null
+        $fromBase = $null
+        $idArgs = @()
+        
+        # Parse pass-through args for profile-specific params
+        $i = 0
+        while ($i -lt $script:PassThroughArgs.Count) {
+            $arg = $script:PassThroughArgs[$i]
+            if ($arg -eq '--from' -and $i + 1 -lt $script:PassThroughArgs.Count) {
+                $fromBase = $script:PassThroughArgs[$i + 1]
+                $i += 2
+            } elseif ($arg -match '^--') {
+                # Skip unknown flags
+                $i++
+            } elseif (-not $profileName) {
+                $profileName = $arg
+                $i++
+            } else {
+                $idArgs += $arg
+                $i++
+            }
+        }
+        
+        switch ($SubCommand) {
+            "new" {
+                if (-not $profileName) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MISSING_NAME"
+                            message = "Usage: endstate profile new <name> [--from <base>]"
+                        }
+                        Write-JsonEnvelope -CommandName "profile new" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Profile name is required" -ForegroundColor Red
+                        Write-Host "Usage: endstate profile new <name> [--from <base>]" -ForegroundColor Yellow
+                    }
+                    exit 1
+                }
+                
+                try {
+                    $newParams = @{
+                        Name = $profileName
+                        ProfilesDir = $profilesDir
+                    }
+                    if ($fromBase) {
+                        $newParams.From = $fromBase
+                    }
+                    $createdPath = New-ProfileOverlay @newParams
+                    
+                    if ($Json) {
+                        $data = @{
+                            name = $profileName
+                            path = $createdPath
+                            from = $fromBase
+                        }
+                        Write-JsonEnvelope -CommandName "profile new" -Success $true -Data $data -ExitCode 0
+                    } else {
+                        Write-Host "[OK] Created profile: $profileName" -ForegroundColor Green
+                        Write-Host "     Path: $createdPath" -ForegroundColor Gray
+                        if ($fromBase) {
+                            Write-Host "     Base: $fromBase" -ForegroundColor Gray
+                        }
+                    }
+                    $exitCode = 0
+                } catch {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "PROFILE_CREATE_FAILED"
+                            message = $_.Exception.Message
+                        }
+                        Write-JsonEnvelope -CommandName "profile new" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    $exitCode = 1
+                }
+            }
+            "exclude" {
+                if (-not $profileName -or $idArgs.Count -eq 0) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MISSING_ARGS"
+                            message = "Usage: endstate profile exclude <name> <id> [<id>...]"
+                        }
+                        Write-JsonEnvelope -CommandName "profile exclude" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Profile name and at least one ID are required" -ForegroundColor Red
+                        Write-Host "Usage: endstate profile exclude <name> <id> [<id>...]" -ForegroundColor Yellow
+                    }
+                    exit 1
+                }
+                
+                try {
+                    $added = Add-ProfileExclusion -Name $profileName -Ids $idArgs -ProfilesDir $profilesDir
+                    
+                    if ($Json) {
+                        $data = @{
+                            name = $profileName
+                            added = $added
+                            ids = @($idArgs)
+                        }
+                        Write-JsonEnvelope -CommandName "profile exclude" -Success $true -Data $data -ExitCode 0
+                    } else {
+                        Write-Host "[OK] Added $added exclusion(s) to $profileName" -ForegroundColor Green
+                    }
+                    $exitCode = 0
+                } catch {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "PROFILE_EXCLUDE_FAILED"
+                            message = $_.Exception.Message
+                        }
+                        Write-JsonEnvelope -CommandName "profile exclude" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    $exitCode = 1
+                }
+            }
+            "exclude-config" {
+                if (-not $profileName -or $idArgs.Count -eq 0) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MISSING_ARGS"
+                            message = "Usage: endstate profile exclude-config <name> <id> [<id>...]"
+                        }
+                        Write-JsonEnvelope -CommandName "profile exclude-config" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Profile name and at least one ID are required" -ForegroundColor Red
+                        Write-Host "Usage: endstate profile exclude-config <name> <id> [<id>...]" -ForegroundColor Yellow
+                    }
+                    exit 1
+                }
+                
+                try {
+                    $added = Add-ProfileExcludeConfig -Name $profileName -Ids $idArgs -ProfilesDir $profilesDir
+                    
+                    if ($Json) {
+                        $data = @{
+                            name = $profileName
+                            added = $added
+                            ids = @($idArgs)
+                        }
+                        Write-JsonEnvelope -CommandName "profile exclude-config" -Success $true -Data $data -ExitCode 0
+                    } else {
+                        Write-Host "[OK] Added $added config exclusion(s) to $profileName" -ForegroundColor Green
+                    }
+                    $exitCode = 0
+                } catch {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "PROFILE_EXCLUDE_CONFIG_FAILED"
+                            message = $_.Exception.Message
+                        }
+                        Write-JsonEnvelope -CommandName "profile exclude-config" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    $exitCode = 1
+                }
+            }
+            "add" {
+                if (-not $profileName -or $idArgs.Count -eq 0) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MISSING_ARGS"
+                            message = "Usage: endstate profile add <name> <id> [<id>...]"
+                        }
+                        Write-JsonEnvelope -CommandName "profile add" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Profile name and at least one ID are required" -ForegroundColor Red
+                        Write-Host "Usage: endstate profile add <name> <id> [<id>...]" -ForegroundColor Yellow
+                    }
+                    exit 1
+                }
+                
+                try {
+                    $added = Add-ProfileApp -Name $profileName -Ids $idArgs -ProfilesDir $profilesDir
+                    
+                    if ($Json) {
+                        $data = @{
+                            name = $profileName
+                            added = $added
+                            ids = @($idArgs)
+                        }
+                        Write-JsonEnvelope -CommandName "profile add" -Success $true -Data $data -ExitCode 0
+                    } else {
+                        Write-Host "[OK] Added $added app(s) to $profileName" -ForegroundColor Green
+                    }
+                    $exitCode = 0
+                } catch {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "PROFILE_ADD_FAILED"
+                            message = $_.Exception.Message
+                        }
+                        Write-JsonEnvelope -CommandName "profile add" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    $exitCode = 1
+                }
+            }
+            "show" {
+                if (-not $profileName) {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "MISSING_NAME"
+                            message = "Usage: endstate profile show <name>"
+                        }
+                        Write-JsonEnvelope -CommandName "profile show" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] Profile name is required" -ForegroundColor Red
+                        Write-Host "Usage: endstate profile show <name>" -ForegroundColor Yellow
+                    }
+                    exit 1
+                }
+                
+                try {
+                    $summary = Get-ProfileSummary -Name $profileName -ProfilesDir $profilesDir -Json:$Json
+                    
+                    if ($Json) {
+                        Write-JsonEnvelope -CommandName "profile show" -Success $true -Data $summary -ExitCode 0
+                    }
+                    $exitCode = 0
+                } catch {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "PROFILE_SHOW_FAILED"
+                            message = $_.Exception.Message
+                        }
+                        Write-JsonEnvelope -CommandName "profile show" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    $exitCode = 1
+                }
+            }
+            "list" {
+                try {
+                    $profiles = Get-ProfileList -ProfilesDir $profilesDir -Json:$Json
+                    
+                    if ($Json) {
+                        $data = @{
+                            profiles = @($profiles)
+                            profilesDir = $profilesDir
+                        }
+                        Write-JsonEnvelope -CommandName "profile list" -Success $true -Data $data -ExitCode 0
+                    }
+                    $exitCode = 0
+                } catch {
+                    if ($Json) {
+                        $errorDetail = @{
+                            code = "PROFILE_LIST_FAILED"
+                            message = $_.Exception.Message
+                        }
+                        Write-JsonEnvelope -CommandName "profile list" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                    } else {
+                        Write-Host "[ERROR] $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                    $exitCode = 1
+                }
+            }
+            default {
+                if ($SubCommand) {
+                    Write-Host "[ERROR] Unknown profile subcommand: $SubCommand" -ForegroundColor Red
+                } else {
+                    Write-Host "[ERROR] Profile command requires a subcommand" -ForegroundColor Red
+                }
+                Write-Host "Usage:" -ForegroundColor Yellow
+                Write-Host "  endstate profile new <name> [--from <base>]" -ForegroundColor Yellow
+                Write-Host "  endstate profile exclude <name> <id> [<id>...]" -ForegroundColor Yellow
+                Write-Host "  endstate profile exclude-config <name> <id> [...]" -ForegroundColor Yellow
+                Write-Host "  endstate profile add <name> <id> [<id>...]" -ForegroundColor Yellow
+                Write-Host "  endstate profile show <name>" -ForegroundColor Yellow
+                Write-Host "  endstate profile list" -ForegroundColor Yellow
+                $exitCode = 1
+            }
+        }
+    }
     "capabilities" {
         # Output JSON list of available commands for GUI integration
         if ($Json) {
@@ -4335,6 +4671,7 @@ switch ($Command) {
                     "doctor",
                     "state",
                     "module",
+                    "profile",
                     "capabilities"
                 )
                 version = $script:VersionString
@@ -4344,13 +4681,14 @@ switch ($Command) {
                     validate = @("--manifest", "--json")
                     report = @("--json", "--out", "--latest", "--runid", "--last")
                     module = @("--trace", "--out", "--include")
+                    profile = @("--json", "--from")
                     capabilities = @("--json")
                 }
             }
             Write-JsonEnvelope -CommandName "capabilities" -Success $true -Data $data -ExitCode 0
         } else {
             Write-Host "Available commands:" -ForegroundColor Cyan
-            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "report", "doctor", "state", "module", "capabilities")
+            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "report", "doctor", "state", "module", "profile", "capabilities")
             foreach ($cmd in $commands) {
                 Write-Host "  - $cmd" -ForegroundColor White
             }

@@ -763,6 +763,36 @@ function ConvertTo-Jsonc {
         [void]$sb.AppendLine("")
     }
     
+    # Exclude section (if present)
+    if ($Object.exclude -and $Object.exclude.Count -gt 0) {
+        [void]$sb.AppendLine("  // Excluded apps (winget IDs removed from merged list)")
+        [void]$sb.AppendLine("  `"exclude`": [")
+        $excludeIndex = 0
+        foreach ($ex in $Object.exclude) {
+            $excludeIndex++
+            $isLast = $excludeIndex -eq $Object.exclude.Count
+            $comma = if ($isLast) { "" } else { "," }
+            [void]$sb.AppendLine("    `"$ex`"$comma")
+        }
+        [void]$sb.AppendLine("  ],")
+        [void]$sb.AppendLine("")
+    }
+    
+    # ExcludeConfigs section (if present)
+    if ($Object.excludeConfigs -and $Object.excludeConfigs.Count -gt 0) {
+        [void]$sb.AppendLine("  // Excluded config modules (suppress restore only)")
+        [void]$sb.AppendLine("  `"excludeConfigs`": [")
+        $ecIndex = 0
+        foreach ($ec in $Object.excludeConfigs) {
+            $ecIndex++
+            $isLast = $ecIndex -eq $Object.excludeConfigs.Count
+            $comma = if ($isLast) { "" } else { "," }
+            [void]$sb.AppendLine("    `"$ec`"$comma")
+        }
+        [void]$sb.AppendLine("  ],")
+        [void]$sb.AppendLine("")
+    }
+    
     # Apps section
     [void]$sb.AppendLine("  // Applications to install")
     [void]$sb.AppendLine("  `"apps`": [")
