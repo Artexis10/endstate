@@ -877,7 +877,73 @@ function Install-EndstateToPath {
         Write-Host "       Checked: $script:EndstateRoot\engine" -ForegroundColor Yellow
         Write-Host "       Engine scripts will be resolved from repo root instead." -ForegroundColor Yellow
     }
-    
+
+    # Copy modules folder to bin directory (required for config module matching in bundles)
+    $sourceModulesDir = $null
+    $candidateModules = Join-Path $script:EndstateRoot "modules"
+    if (Test-Path $candidateModules) {
+        $sourceModulesDir = $candidateModules
+    } else {
+        $detectedRepoRoot = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
+        if (-not $detectedRepoRoot) { $detectedRepoRoot = Find-RepoRoot }
+        if ($detectedRepoRoot) {
+            $candidateModules = Join-Path $detectedRepoRoot "modules"
+            if (Test-Path $candidateModules) {
+                $sourceModulesDir = $candidateModules
+            }
+        }
+    }
+    $destModulesDir = Join-Path $binDir "modules"
+
+    if ($sourceModulesDir) {
+        $resolvedModSrc = [System.IO.Path]::GetFullPath($sourceModulesDir)
+        $resolvedModDst = [System.IO.Path]::GetFullPath($destModulesDir)
+        if ($resolvedModSrc -eq $resolvedModDst) {
+            Write-Host "[OK] Config modules are current (running from installed location)" -ForegroundColor DarkGray
+        } elseif (Test-Path $destModulesDir) {
+            Write-Host "[UPDATE] Updating config modules: $destModulesDir" -ForegroundColor Yellow
+            Copy-Item -Path $sourceModulesDir -Destination $binDir -Recurse -Force
+        } else {
+            Write-Host "[INSTALL] Installing config modules: $destModulesDir" -ForegroundColor Green
+            Copy-Item -Path $sourceModulesDir -Destination $binDir -Recurse -Force
+        }
+    } else {
+        Write-Host "[WARN] Modules directory not found — config bundling will be unavailable." -ForegroundColor Yellow
+    }
+
+    # Copy payload folder to bin directory (required for config file collection in bundles)
+    $sourcePayloadDir = $null
+    $candidatePayload = Join-Path $script:EndstateRoot "payload"
+    if (Test-Path $candidatePayload) {
+        $sourcePayloadDir = $candidatePayload
+    } else {
+        $detectedRepoRoot = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
+        if (-not $detectedRepoRoot) { $detectedRepoRoot = Find-RepoRoot }
+        if ($detectedRepoRoot) {
+            $candidatePayload = Join-Path $detectedRepoRoot "payload"
+            if (Test-Path $candidatePayload) {
+                $sourcePayloadDir = $candidatePayload
+            }
+        }
+    }
+    $destPayloadDir = Join-Path $binDir "payload"
+
+    if ($sourcePayloadDir) {
+        $resolvedPaySrc = [System.IO.Path]::GetFullPath($sourcePayloadDir)
+        $resolvedPayDst = [System.IO.Path]::GetFullPath($destPayloadDir)
+        if ($resolvedPaySrc -eq $resolvedPayDst) {
+            Write-Host "[OK] Payload directory is current (running from installed location)" -ForegroundColor DarkGray
+        } elseif (Test-Path $destPayloadDir) {
+            Write-Host "[UPDATE] Updating payload directory: $destPayloadDir" -ForegroundColor Yellow
+            Copy-Item -Path $sourcePayloadDir -Destination $binDir -Recurse -Force
+        } else {
+            Write-Host "[INSTALL] Installing payload directory: $destPayloadDir" -ForegroundColor Green
+            Copy-Item -Path $sourcePayloadDir -Destination $binDir -Recurse -Force
+        }
+    } else {
+        Write-Host "[WARN] Payload directory not found — config file collection will be unavailable." -ForegroundColor Yellow
+    }
+
     # Create CMD shim (references lib/ subdirectory to avoid PowerShell .ps1 preference)
     $shimContent = @"
 @echo off
