@@ -1353,6 +1353,7 @@ function Invoke-ApplyCore {
         [string]$ManifestPath,
         [bool]$IsDryRun,
         [bool]$IsOnlyApps,
+        [bool]$EnableRestore,
         [switch]$SkipStateWrite
     )
     
@@ -1552,6 +1553,72 @@ function Invoke-ApplyCore {
         }
     }
     
+    # Process restore entries when EnableRestore is set
+    $restored = 0
+    $restoreSkipped = 0
+    $restoreFailed = 0
+    if ($EnableRestore -and $manifest.restore -and $manifest.restore.Count -gt 0) {
+        # Source the copy restorer
+        $copyRestorerPath = Join-Path (Split-Path $PSScriptRoot) "restorers\copy.ps1"
+        if (Test-Path $copyRestorerPath) {
+            . $copyRestorerPath
+        }
+        
+        $manifestDir = Split-Path -Parent $ManifestPath
+        $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
+        
+        Write-Host ""
+        Write-Host "[endstate] Apply: restoring config payloads" -ForegroundColor Cyan
+        
+        foreach ($entry in $manifest.restore) {
+            $source = $entry.source
+            $target = $entry.target
+            $backup = if ($null -ne $entry.backup) { $entry.backup } else { $true }
+            
+            if ($IsDryRun) {
+                Write-Host "  [DRY-RUN] Would restore: $source -> $target" -ForegroundColor Cyan
+                $restored++
+                $items += @{
+                    id = $source
+                    driver = "restore"
+                    status = "ok"
+                    reason = "would_restore"
+                    message = "Would restore: $source -> $target"
+                }
+            } else {
+                Write-Host "  [RESTORE] $source -> $target" -ForegroundColor Green
+                $restoreResult = Invoke-CopyRestore -Source $source -Target $target -Backup $backup -RunId $runId -ManifestDir $manifestDir
+                if ($restoreResult.Success) {
+                    if ($restoreResult.Skipped) {
+                        Write-Host "    [SKIP] $target - $($restoreResult.Message)" -ForegroundColor DarkGray
+                        $restoreSkipped++
+                    } else {
+                        Write-Host "    [OK] Restored: $target" -ForegroundColor Green
+                        $restored++
+                    }
+                    $items += @{
+                        id = $source
+                        driver = "restore"
+                        status = if ($restoreResult.Skipped) { "skipped" } else { "ok" }
+                        reason = if ($restoreResult.Skipped) { "up_to_date" } else { "restored" }
+                        message = $restoreResult.Message
+                    }
+                } else {
+                    Write-Host "    [ERROR] Restore failed: $($restoreResult.Error)" -ForegroundColor Red
+                    $restoreFailed++
+                    $failed++
+                    $items += @{
+                        id = $source
+                        driver = "restore"
+                        status = "failed"
+                        reason = "restore_failed"
+                        message = $restoreResult.Error
+                    }
+                }
+            }
+        }
+    }
+    
     # Emit summary event for apply
     if (Test-StreamingEventsEnabled) {
         $totalItems = $installed + $skipped + $failed + $upgraded
@@ -1563,6 +1630,15 @@ function Invoke-ApplyCore {
     Write-Host "  Installed: $installed"
     Write-Host "  Upgraded:  $upgraded"
     Write-Host "  Skipped:   $skipped"
+    if ($restored -gt 0 -or $restoreSkipped -gt 0 -or $restoreFailed -gt 0) {
+        Write-Host "  Restored:  $restored"
+        if ($restoreSkipped -gt 0) {
+            Write-Host "  Restore skipped: $restoreSkipped (up to date)"
+        }
+        if ($restoreFailed -gt 0) {
+            Write-Host "  Restore failed:  $restoreFailed" -ForegroundColor Red
+        }
+    }
     if ($failed -gt 0) {
         Write-Host "  Failed:    $failed" -ForegroundColor Red
     }
@@ -3694,7 +3770,7 @@ switch ($Command) {
                 $resolvedPath = $extractResult.ManifestPath
                 if (-not $Json) {
                     Write-Information "[endstate] Apply: extracted zip bundle to temp directory" -InformationAction Continue
-                    if ($extractResult.HasConfigs) {
+                    if ($extractResult.HasConfigs -and -not $EnableRestore) {
                         Write-Information "[endstate] Apply: config payloads available (use --enable-restore to apply)" -InformationAction Continue
                     }
                 }
@@ -3740,7 +3816,7 @@ switch ($Command) {
             if (-not $Json) {
                 Write-Information "[endstate] Apply: starting with manifest $resolvedPath" -InformationAction Continue
             }
-            $result = Invoke-ApplyCore -ManifestPath $resolvedPath -IsDryRun $DryRun.IsPresent -IsOnlyApps $OnlyApps.IsPresent
+            $result = Invoke-ApplyCore -ManifestPath $resolvedPath -IsDryRun $DryRun.IsPresent -IsOnlyApps $OnlyApps.IsPresent -EnableRestore $EnableRestore.IsPresent
             
             if ($Json) {
                 # Emit JSON envelope for apply result

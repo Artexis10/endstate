@@ -187,7 +187,8 @@ function Invoke-CollectConfigFiles {
             # Copy file or directory
             try {
                 if (Test-Path $sourcePath -PathType Container) {
-                    # Source is a directory — copy recursively
+                    # Source is a directory — clean existing dest to prevent nesting
+                    if (Test-Path $destPath) { Remove-Item $destPath -Recurse -Force }
                     Copy-Item -Path $sourcePath -Destination $destPath -Recurse -Force
                     # Count actual files copied (not the directory itself)
                     $copiedFiles = @(Get-ChildItem -Path $destPath -Recurse -File -ErrorAction SilentlyContinue)
@@ -329,6 +330,33 @@ function New-CaptureBundle {
         $result.ConfigsIncluded = @($configResult.included)
         $result.ConfigsSkipped = @($configResult.skipped)
         $result.ConfigsCaptureErrors = @($configResult.errors)
+        
+        # Stage 2b: Inject restore entries from included modules into staged manifest
+        if ($configResult.included.Count -gt 0) {
+            $includedSet = @{}
+            foreach ($inc in $configResult.included) { $includedSet[$inc] = $true }
+            
+            $restoreEntries = @()
+            foreach ($module in $matchedModules) {
+                $moduleDirName = if ($module.id -match '^apps\.(.+)$') { $Matches[1] } else { $module.id }
+                if (-not $includedSet.ContainsKey($moduleDirName)) { continue }
+                if (-not $module.restore -or $module.restore.Count -eq 0) { continue }
+                
+                foreach ($entry in $module.restore) {
+                    $clone = @{}
+                    foreach ($key in $entry.Keys) { $clone[$key] = $entry[$key] }
+                    $leaf = ($clone.source -replace '\\', '/').Split('/')[-1]
+                    $clone.source = "./configs/$moduleDirName/$leaf"
+                    $restoreEntries += $clone
+                }
+            }
+            
+            if ($restoreEntries.Count -gt 0) {
+                $manifestData = Read-JsoncFile -Path $stagedManifest
+                $manifestData.restore = $restoreEntries
+                $manifestData | ConvertTo-Json -Depth 10 | Set-Content -Path $stagedManifest -Encoding UTF8 -NoNewline
+            }
+        }
         
         # Stage 3: Generate metadata
         $allWarnings = @($CaptureWarnings) + @($configResult.errors)

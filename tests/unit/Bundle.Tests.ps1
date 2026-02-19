@@ -354,6 +354,193 @@ Describe "Bundle.ZipCreation" {
             $result.ConfigsIncluded | Should -HaveCount 0
         }
         
+        It "Should inject restore entries from included modules into manifest" {
+            # Create a temp source file so config collection succeeds
+            $sourceDir = Join-Path $env:TEMP "endstate-test-restore-inject-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+            $sourceFile = Join-Path $sourceDir "test.cfg"
+            'test-content' | Set-Content -Path $sourceFile -Encoding UTF8
+            
+            try {
+                # Mock the catalog to return a module with both capture and restore
+                Mock Get-ConfigModuleCatalog {
+                    return @{
+                        "apps.fake-app" = @{
+                            id = "apps.fake-app"
+                            displayName = "Fake App"
+                            matches = @{ winget = @("Fake.App") }
+                            capture = @{
+                                files = @(
+                                    @{ source = $sourceFile; dest = "apps/fake-app/test.cfg" }
+                                )
+                            }
+                            restore = @(
+                                @{ type = "copy"; source = "./configs/fake-app/test.cfg"; target = "C:\FakeApp\test.cfg"; backup = $true; optional = $true }
+                            )
+                        }
+                    }
+                }
+                
+                $apps = @(@{ id = "fake-app"; refs = @{ windows = "Fake.App" } })
+                $result = New-CaptureBundle `
+                    -ManifestPath $script:TestManifest `
+                    -OutputZipPath $script:TestZipPath `
+                    -Apps $apps
+                
+                $result.Success | Should -Be $true
+                $result.ConfigsIncluded | Should -Contain "fake-app"
+                
+                # Extract zip and verify manifest has restore entries
+                Add-Type -AssemblyName System.IO.Compression.FileSystem
+                $extractDir = Join-Path $script:TestDir "extracted-restore"
+                [System.IO.Compression.ZipFile]::ExtractToDirectory($script:TestZipPath, $extractDir)
+                
+                $manifestContent = Get-Content (Join-Path $extractDir "manifest.jsonc") -Raw
+                $manifest = $manifestContent | ConvertFrom-Json
+                $manifest.restore | Should -Not -BeNullOrEmpty
+                $manifest.restore.Count | Should -Be 1
+                $manifest.restore[0].type | Should -Be "copy"
+                $manifest.restore[0].source | Should -Be "./configs/fake-app/test.cfg"
+                $manifest.restore[0].target | Should -Be "C:\FakeApp\test.cfg"
+                $manifest.restore[0].backup | Should -Be $true
+                $manifest.restore[0].optional | Should -Be $true
+            } finally {
+                Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should not inject restore entries for skipped modules" {
+            # No source file exists, so module will be skipped
+            Mock Get-ConfigModuleCatalog {
+                return @{
+                    "apps.missing-app" = @{
+                        id = "apps.missing-app"
+                        displayName = "Missing App"
+                        matches = @{ winget = @("Missing.App") }
+                        capture = @{
+                            files = @(
+                                @{ source = "C:\nonexistent\missing.cfg"; dest = "apps/missing-app/missing.cfg"; optional = $true }
+                            )
+                        }
+                        restore = @(
+                            @{ type = "copy"; source = "./configs/missing-app/missing.cfg"; target = "C:\MissingApp\missing.cfg"; backup = $true }
+                        )
+                    }
+                }
+            }
+            
+            $apps = @(@{ id = "missing-app"; refs = @{ windows = "Missing.App" } })
+            $result = New-CaptureBundle `
+                -ManifestPath $script:TestManifest `
+                -OutputZipPath $script:TestZipPath `
+                -Apps $apps
+            
+            $result.Success | Should -Be $true
+            $result.ConfigsSkipped | Should -Contain "missing-app"
+            
+            # Extract zip and verify manifest has empty restore
+            Add-Type -AssemblyName System.IO.Compression.FileSystem
+            $extractDir = Join-Path $script:TestDir "extracted-no-restore"
+            [System.IO.Compression.ZipFile]::ExtractToDirectory($script:TestZipPath, $extractDir)
+            
+            $manifestContent = Get-Content (Join-Path $extractDir "manifest.jsonc") -Raw
+            $manifest = $manifestContent | ConvertFrom-Json
+            $manifest.restore | Should -HaveCount 0
+        }
+        
+        It "Should preserve all restore entry fields" {
+            $sourceDir = Join-Path $env:TEMP "endstate-test-fields-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+            $sourceFile = Join-Path $sourceDir "app.ini"
+            'content' | Set-Content -Path $sourceFile -Encoding UTF8
+            
+            try {
+                Mock Get-ConfigModuleCatalog {
+                    return @{
+                        "apps.field-test" = @{
+                            id = "apps.field-test"
+                            displayName = "Field Test"
+                            matches = @{ winget = @("Field.Test") }
+                            capture = @{
+                                files = @(
+                                    @{ source = $sourceFile; dest = "apps/field-test/app.ini" }
+                                )
+                            }
+                            restore = @(
+                                @{ type = "merge-ini"; source = "./configs/field-test/app.ini"; target = "C:\FieldTest\app.ini"; backup = $true; optional = $false; exclude = @("Section.Key") }
+                            )
+                        }
+                    }
+                }
+                
+                $apps = @(@{ id = "field-test"; refs = @{ windows = "Field.Test" } })
+                $result = New-CaptureBundle `
+                    -ManifestPath $script:TestManifest `
+                    -OutputZipPath $script:TestZipPath `
+                    -Apps $apps
+                
+                $result.Success | Should -Be $true
+                
+                Add-Type -AssemblyName System.IO.Compression.FileSystem
+                $extractDir = Join-Path $script:TestDir "extracted-fields"
+                [System.IO.Compression.ZipFile]::ExtractToDirectory($script:TestZipPath, $extractDir)
+                
+                $manifest = Get-Content (Join-Path $extractDir "manifest.jsonc") -Raw | ConvertFrom-Json
+                $manifest.restore[0].type | Should -Be "merge-ini"
+                $manifest.restore[0].source | Should -Be "./configs/field-test/app.ini"
+                $manifest.restore[0].target | Should -Be "C:\FieldTest\app.ini"
+                $manifest.restore[0].backup | Should -Be $true
+                $manifest.restore[0].optional | Should -Be $false
+                $manifest.restore[0].exclude | Should -Contain "Section.Key"
+            } finally {
+                Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
+        It "Should rewrite restore source paths to match zip configs/ layout" {
+            $sourceDir = Join-Path $env:TEMP "endstate-test-rewrite-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+            $sourceFile = Join-Path $sourceDir "settings.json"
+            '{}' | Set-Content -Path $sourceFile -Encoding UTF8
+            
+            try {
+                Mock Get-ConfigModuleCatalog {
+                    return @{
+                        "apps.rewrite-app" = @{
+                            id = "apps.rewrite-app"
+                            displayName = "Rewrite App"
+                            matches = @{ winget = @("Rewrite.App") }
+                            capture = @{
+                                files = @(
+                                    @{ source = $sourceFile; dest = "apps/rewrite-app/settings.json" }
+                                )
+                            }
+                            restore = @(
+                                @{ type = "copy"; source = "./payload/apps/rewrite-app/settings.json"; target = "C:\RewriteApp\settings.json"; backup = $true; optional = $true }
+                            )
+                        }
+                    }
+                }
+                
+                $apps = @(@{ id = "rewrite-app"; refs = @{ windows = "Rewrite.App" } })
+                $result = New-CaptureBundle `
+                    -ManifestPath $script:TestManifest `
+                    -OutputZipPath $script:TestZipPath `
+                    -Apps $apps
+                
+                $result.Success | Should -Be $true
+                
+                Add-Type -AssemblyName System.IO.Compression.FileSystem
+                $extractDir = Join-Path $script:TestDir "extracted-rewrite"
+                [System.IO.Compression.ZipFile]::ExtractToDirectory($script:TestZipPath, $extractDir)
+                
+                $manifest = Get-Content (Join-Path $extractDir "manifest.jsonc") -Raw | ConvertFrom-Json
+                $manifest.restore[0].source | Should -Be "./configs/rewrite-app/settings.json"
+            } finally {
+                Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        
         It "Should clean up staging directory on success" {
             $result = New-CaptureBundle `
                 -ManifestPath $script:TestManifest `
