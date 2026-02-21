@@ -28,8 +28,15 @@
     },
     {
       "type": "copy",
-      "source": "./payload/apps/ableton-live/User Library",
-      "target": "%USERPROFILE%\\Documents\\Ableton\\User Library",
+      "source": "./payload/apps/ableton-live/User Library/Presets",
+      "target": "%USERPROFILE%\\Documents\\Ableton\\User Library\\Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/ableton-live/User Library/Defaults",
+      "target": "%USERPROFILE%\\Documents\\Ableton\\User Library\\Defaults",
       "backup": true,
       "optional": true
     }

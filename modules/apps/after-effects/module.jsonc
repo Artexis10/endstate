@@ -9,6 +9,7 @@
   "sensitivity": "low",
 
   "matches": {
+    "winget": [],
     "exe": ["AfterFX.exe"],
     "uninstallDisplayName": ["^Adobe After Effects"]
   },

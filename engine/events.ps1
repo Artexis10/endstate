@@ -305,7 +305,7 @@ function Write-ArtifactEvent {
         [string]$Phase,
         
         [Parameter(Mandatory = $true)]
-        [ValidateSet("manifest")]
+        [ValidateSet("manifest", "bundle")]
         [string]$Kind,
         
         [Parameter(Mandatory = $true)]

@@ -46,6 +46,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
+. (Join-Path $script:RepoRoot "engine\manifest.ps1")
 
 # All scaffolded modules (excluding already-validated git, vscodium)
 $allModules = @(
@@ -155,9 +156,7 @@ foreach ($mod in $modules) {
     
     # Check if module has winget ID
     $modulePath = Join-Path $script:RepoRoot "modules\apps\$mod\module.jsonc"
-    $moduleContent = Get-Content $modulePath -Raw
-    $moduleContent = $moduleContent -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
-    $module = $moduleContent | ConvertFrom-Json
+    $module = Read-JsoncFile -Path $modulePath
     
     if (-not $module.matches.winget -or $module.matches.winget.Count -eq 0) {
         Write-Host "[SKIP] $mod has no winget ID (manual install required)" -ForegroundColor Yellow

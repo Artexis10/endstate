@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-$Path = "C:\Users\win-laptop\Desktop\projects\endstate\.windsurf\rules\project-ruleset.md"
+$Path = Join-Path $PSScriptRoot "..\\.windsurf\\rules\\project-ruleset.md"
 
 if (!(Test-Path -LiteralPath $Path -PathType Leaf)) {
     throw "Expected leaf file not found: $Path"

@@ -37,7 +37,7 @@
   "restore": [
     {
       "type": "copy",
-      "source": "./apps/powertoys",
+      "source": "./payload/apps/powertoys",
       "target": "%LOCALAPPDATA%\\Microsoft\\PowerToys",
       "backup": true,
       "exclude": [

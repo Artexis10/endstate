@@ -9,6 +9,7 @@
   "sensitivity": "low",
 
   "matches": {
+    "winget": [],
     "exe": ["PrecisionX_x64.exe"],
     "uninstallDisplayName": ["^EVGA Precision X1"]
   },

@@ -31,8 +31,13 @@ function Get-ManifestHash {
         return $null
     }
     
-    $hash = Get-FileHash -Path $ManifestPath -Algorithm SHA256
-    return $hash.Hash.Substring(0, 16)
+    $content = Get-Content -Path $ManifestPath -Raw
+    $normalized = $content -replace "`r`n", "`n"
+    $bytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    $hashBytes = $sha256.ComputeHash($bytes)
+    $hashString = [BitConverter]::ToString($hashBytes) -replace '-', ''
+    return $hashString.ToLower().Substring(0, 16)
 }
 
 function Get-ExpandedManifestHash {
@@ -165,8 +170,10 @@ function Save-RunState {
         actions = $Actions
     }
     
-    $state | ConvertTo-Json -Depth 10 | Out-File -FilePath $stateFile -Encoding UTF8
-    
+    $tempFile = "$stateFile.tmp"
+    $state | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempFile -Encoding UTF8
+    Move-Item -Path $tempFile -Destination $stateFile -Force
+
     return $stateFile
 }
 

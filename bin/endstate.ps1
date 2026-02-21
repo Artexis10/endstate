@@ -867,6 +867,7 @@ function Install-EndstateToPath {
             Write-Host "[OK] Engine scripts are current (running from installed location)" -ForegroundColor DarkGray
         } elseif (Test-Path $destEngineDir) {
             Write-Host "[UPDATE] Updating engine scripts: $destEngineDir" -ForegroundColor Yellow
+            Remove-Item -Path $destEngineDir -Recurse -Force
             Copy-Item -Path $sourceEngineDir -Destination $binDir -Recurse -Force
         } else {
             Write-Host "[INSTALL] Installing engine scripts: $destEngineDir" -ForegroundColor Green
@@ -902,6 +903,7 @@ function Install-EndstateToPath {
             Write-Host "[OK] Config modules are current (running from installed location)" -ForegroundColor DarkGray
         } elseif (Test-Path $destModulesDir) {
             Write-Host "[UPDATE] Updating config modules: $destModulesDir" -ForegroundColor Yellow
+            Remove-Item -Path $destModulesDir -Recurse -Force
             Copy-Item -Path $sourceModulesDir -Destination $binDir -Recurse -Force
         } else {
             Write-Host "[INSTALL] Installing config modules: $destModulesDir" -ForegroundColor Green
@@ -935,6 +937,7 @@ function Install-EndstateToPath {
             Write-Host "[OK] Payload directory is current (running from installed location)" -ForegroundColor DarkGray
         } elseif (Test-Path $destPayloadDir) {
             Write-Host "[UPDATE] Updating payload directory: $destPayloadDir" -ForegroundColor Yellow
+            Remove-Item -Path $destPayloadDir -Recurse -Force
             Copy-Item -Path $sourcePayloadDir -Destination $binDir -Recurse -Force
         } else {
             Write-Host "[INSTALL] Installing payload directory: $destPayloadDir" -ForegroundColor Green
@@ -968,6 +971,7 @@ function Install-EndstateToPath {
             Write-Host "[OK] Restorers directory is current (running from installed location)" -ForegroundColor DarkGray
         } elseif (Test-Path $destRestorersDir) {
             Write-Host "[UPDATE] Updating restorers directory: $destRestorersDir" -ForegroundColor Yellow
+            Remove-Item -Path $destRestorersDir -Recurse -Force
             Copy-Item -Path $sourceRestorersDir -Destination $binDir -Recurse -Force
         } else {
             Write-Host "[INSTALL] Installing restorers directory: $destRestorersDir" -ForegroundColor Green

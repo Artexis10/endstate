@@ -94,7 +94,7 @@ function Test-Command {
                 $results.Passed = $false
                 $results.Failures += "Missing field: $field"
                 Write-Host "✗ Missing field: $field" -ForegroundColor Red
-            } elseif ($expectedValue -ne $null -and $actualValue -ne $expectedValue) {
+            } elseif ($null -ne $expectedValue -and $actualValue -ne $expectedValue) {
                 $results.Passed = $false
                 $results.Failures += "Field $field = $actualValue (expected: $expectedValue)"
                 Write-Host "✗ Field $field = $actualValue (expected: $expectedValue)" -ForegroundColor Red
@@ -117,11 +117,11 @@ function Test-Command {
     
     # Assert: error field
     if ($Assertions.ContainsKey('ErrorNull') -and $json) {
-        if ($Assertions.ErrorNull -and $json.error -ne $null) {
+        if ($Assertions.ErrorNull -and $null -ne $json.error) {
             $results.Passed = $false
             $results.Failures += "error should be null but is: $($json.error)"
             Write-Host "✗ error should be null" -ForegroundColor Red
-        } elseif (-not $Assertions.ErrorNull -and $json.error -eq $null) {
+        } elseif (-not $Assertions.ErrorNull -and $null -eq $json.error) {
             $results.Passed = $false
             $results.Failures += "error should be non-null"
             Write-Host "✗ error should be non-null" -ForegroundColor Red

@@ -9,6 +9,7 @@
   "sensitivity": "low",
 
   "matches": {
+    "winget": [],
     "exe": ["Adobe Premiere Pro.exe"],
     "uninstallDisplayName": ["^Adobe Premiere Pro"]
   },
