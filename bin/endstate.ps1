@@ -944,6 +944,39 @@ function Install-EndstateToPath {
         Write-Host "[WARN] Payload directory not found — config file collection will be unavailable." -ForegroundColor Yellow
     }
 
+    # Copy restorers folder to bin directory (required for restore operations via -EnableRestore)
+    $sourceRestorersDir = $null
+    $candidateRestorers = Join-Path $script:EndstateRoot "restorers"
+    if (Test-Path $candidateRestorers) {
+        $sourceRestorersDir = $candidateRestorers
+    } else {
+        $detectedRepoRoot = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
+        if (-not $detectedRepoRoot) { $detectedRepoRoot = Find-RepoRoot }
+        if ($detectedRepoRoot) {
+            $candidateRestorers = Join-Path $detectedRepoRoot "restorers"
+            if (Test-Path $candidateRestorers) {
+                $sourceRestorersDir = $candidateRestorers
+            }
+        }
+    }
+    $destRestorersDir = Join-Path $binDir "restorers"
+
+    if ($sourceRestorersDir) {
+        $resolvedRestSrc = [System.IO.Path]::GetFullPath($sourceRestorersDir)
+        $resolvedRestDst = [System.IO.Path]::GetFullPath($destRestorersDir)
+        if ($resolvedRestSrc -eq $resolvedRestDst) {
+            Write-Host "[OK] Restorers directory is current (running from installed location)" -ForegroundColor DarkGray
+        } elseif (Test-Path $destRestorersDir) {
+            Write-Host "[UPDATE] Updating restorers directory: $destRestorersDir" -ForegroundColor Yellow
+            Copy-Item -Path $sourceRestorersDir -Destination $binDir -Recurse -Force
+        } else {
+            Write-Host "[INSTALL] Installing restorers directory: $destRestorersDir" -ForegroundColor Green
+            Copy-Item -Path $sourceRestorersDir -Destination $binDir -Recurse -Force
+        }
+    } else {
+        Write-Host "[WARN] Restorers directory not found — restore operations will be unavailable." -ForegroundColor Yellow
+    }
+
     # Create CMD shim (references lib/ subdirectory to avoid PowerShell .ps1 preference)
     $shimContent = @"
 @echo off
