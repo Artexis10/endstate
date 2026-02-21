@@ -15,7 +15,7 @@
   },
   
   "verify": [
-    { "type": "file-exists", "path": "%APPDATA%\\Adobe\\Lightroom\\Preferences\\Lightroom 6 Preferences.agprefs" }
+    { "type": "file-exists", "path": "%APPDATA%\\Adobe\\Lightroom\\Preferences\\Lightroom Classic CC 7 Preferences.agprefs" }
   ],
   
   "restore": [
@@ -53,6 +53,153 @@
       "target": "%APPDATA%\\Adobe\\Lightroom\\Metadata Presets",
       "backup": true,
       "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Filter Presets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Filter Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Local Adjustment Presets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Local Adjustment Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Keyword Sets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Keyword Sets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Label Sets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Label Sets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Smart Collection Templates",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Smart Collection Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/External Editor Presets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\External Editor Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Watermarks",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Watermarks",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/CameraRaw Defaults",
+      "target": "%APPDATA%\\Adobe\\CameraRaw\\Defaults",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Color Profiles",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Color Profiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/FTP Presets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\FTP Presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Print Templates",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Print Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Web Templates",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Web Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Slideshow Templates",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Slideshow Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Book Templates",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Book Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Export Actions",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Export Actions",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Text Templates",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Text Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/CameraRaw CameraProfiles",
+      "target": "%APPDATA%\\Adobe\\CameraRaw\\CameraProfiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/CameraRaw Curves",
+      "target": "%APPDATA%\\Adobe\\CameraRaw\\Curves",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/CameraRaw LensProfiles",
+      "target": "%APPDATA%\\Adobe\\CameraRaw\\LensProfiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/CameraRaw ImportedSettings",
+      "target": "%APPDATA%\\Adobe\\CameraRaw\\ImportedSettings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Import Presets",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Import Presets",
+      "backup": true,
+      "optional": true
     }
   ],
   
@@ -62,7 +209,28 @@
       { "source": "%APPDATA%\\Adobe\\Lightroom\\Develop Presets", "dest": "apps/lightroom-classic/Develop Presets", "optional": true },
       { "source": "%APPDATA%\\Adobe\\Lightroom\\Export Presets", "dest": "apps/lightroom-classic/Export Presets", "optional": true },
       { "source": "%APPDATA%\\Adobe\\Lightroom\\Filename Templates", "dest": "apps/lightroom-classic/Filename Templates", "optional": true },
-      { "source": "%APPDATA%\\Adobe\\Lightroom\\Metadata Presets", "dest": "apps/lightroom-classic/Metadata Presets", "optional": true }
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Metadata Presets", "dest": "apps/lightroom-classic/Metadata Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Filter Presets", "dest": "apps/lightroom-classic/Filter Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Local Adjustment Presets", "dest": "apps/lightroom-classic/Local Adjustment Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Keyword Sets", "dest": "apps/lightroom-classic/Keyword Sets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Label Sets", "dest": "apps/lightroom-classic/Label Sets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Smart Collection Templates", "dest": "apps/lightroom-classic/Smart Collection Templates", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\External Editor Presets", "dest": "apps/lightroom-classic/External Editor Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Watermarks", "dest": "apps/lightroom-classic/Watermarks", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\CameraRaw\\Defaults", "dest": "apps/lightroom-classic/CameraRaw Defaults", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Color Profiles", "dest": "apps/lightroom-classic/Color Profiles", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\FTP Presets", "dest": "apps/lightroom-classic/FTP Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Print Templates", "dest": "apps/lightroom-classic/Print Templates", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Web Templates", "dest": "apps/lightroom-classic/Web Templates", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Slideshow Templates", "dest": "apps/lightroom-classic/Slideshow Templates", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Book Templates", "dest": "apps/lightroom-classic/Book Templates", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Export Actions", "dest": "apps/lightroom-classic/Export Actions", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Text Templates", "dest": "apps/lightroom-classic/Text Templates", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\CameraRaw\\CameraProfiles", "dest": "apps/lightroom-classic/CameraRaw CameraProfiles", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\CameraRaw\\Curves", "dest": "apps/lightroom-classic/CameraRaw Curves", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\CameraRaw\\LensProfiles", "dest": "apps/lightroom-classic/CameraRaw LensProfiles", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\CameraRaw\\ImportedSettings", "dest": "apps/lightroom-classic/CameraRaw ImportedSettings", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Import Presets", "dest": "apps/lightroom-classic/Import Presets", "optional": true }
     ],
     "excludeGlobs": [
       "**\\Cache\\**",
@@ -70,11 +238,14 @@
       "**\\Temp\\**",
       "**\\*.lock",
       "**\\*.log",
-      "**\\Crash Reports\\**"
+      "**\\Crash Reports\\**",
+      "**\\ModelZoo\\**",
+      "**\\GPU\\**",
+      "**\\Settings\\*.dat"
     ]
   },
   
-  "notes": "Captures Lightroom Classic user preferences, develop presets, export presets, filename templates, and metadata presets. Catalogs (.lrcat) are NOT captured - they are large database files that should be managed separately. Installed via Adobe Creative Cloud (no winget ID).",
+  "notes": "Captures Lightroom Classic user preferences, develop/export/filter/local-adjustment presets, keyword/label sets, smart collection templates, external editor presets, filename templates, metadata presets, watermarks, and CameraRaw defaults. Excludes catalogs (.lrcat), CameraRaw Settings (binary index), ModelZoo (~750MB AI models), and GPU cache. Installed via Adobe Creative Cloud (no winget ID).",
   
   "curation": {
     "seed": {
