@@ -1,12 +1,8 @@
 ---
-name: openspec-bulk-archive-change
-description: Archive multiple completed changes at once. Use when archiving several parallel changes.
-license: MIT
-compatibility: Requires openspec CLI.
-metadata:
-  author: openspec
-  version: "1.0"
-  generatedBy: "1.1.1"
+name: "OPSX: Bulk Archive"
+description: Archive multiple completed changes at once
+category: Workflow
+tags: [workflow, archive, experimental, bulk]
 ---
 
 Archive multiple completed changes in a single operation.
