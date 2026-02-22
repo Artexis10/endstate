@@ -75,7 +75,7 @@ Describe "Module CLI Routing" {
             
             # Parse JSON and check for module
             $json = $outputStr | ConvertFrom-Json
-            ($json.data.commands -contains "module") | Should -Be $true
+            ($json.data.commands.PSObject.Properties.Name -contains "module") | Should -Be $true
         }
     }
 }

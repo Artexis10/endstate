@@ -5,12 +5,12 @@
 
 BeforeAll {
     $script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $script:RestoreScript = Join-Path $script:ProvisioningRoot "engine" "restore.ps1"
-    
+    $script:RestoreScript = Join-Path (Join-Path $script:ProvisioningRoot "engine") "restore.ps1"
+
     # Load dependencies
-    . (Join-Path $script:ProvisioningRoot "engine" "logging.ps1")
-    . (Join-Path $script:ProvisioningRoot "engine" "manifest.ps1")
-    . (Join-Path $script:ProvisioningRoot "engine" "state.ps1")
+    . (Join-Path (Join-Path $script:ProvisioningRoot "engine") "logging.ps1")
+    . (Join-Path (Join-Path $script:ProvisioningRoot "engine") "manifest.ps1")
+    . (Join-Path (Join-Path $script:ProvisioningRoot "engine") "state.ps1")
     . $script:RestoreScript
 }
 

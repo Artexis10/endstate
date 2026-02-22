@@ -53,17 +53,12 @@ Describe "GitModule.FileStructure" {
 Describe "GitModule.Schema" {
     
     BeforeAll {
-        # Parse the module JSONC
+        # Parse the module JSONC using PS 5.1-compatible helper
         if (Test-Path $script:GitModulePath) {
-            $content = Get-Content -Path $script:GitModulePath -Raw
-            # Remove JSONC comments for parsing
-            $lines = $content -split "`n"
-            $cleanLines = $lines | ForEach-Object { $_ -replace '//.*$', '' }
-            $jsonContent = $cleanLines -join "`n"
-            $script:GitModule = $jsonContent | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
+            $script:GitModule = Read-JsoncFile -Path $script:GitModulePath
         }
     }
-    
+
     Context "Module identity" {
         
         It "Should have id 'apps.git'" {
@@ -129,14 +124,10 @@ Describe "GitModule.SensitiveFiles" {
     
     BeforeAll {
         if (Test-Path $script:GitModulePath) {
-            $content = Get-Content -Path $script:GitModulePath -Raw
-            $lines = $content -split "`n"
-            $cleanLines = $lines | ForEach-Object { $_ -replace '//.*$', '' }
-            $jsonContent = $cleanLines -join "`n"
-            $script:GitModule = $jsonContent | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
+            $script:GitModule = Read-JsoncFile -Path $script:GitModulePath
         }
     }
-    
+
     Context "Credential files are marked sensitive" {
         
         It "Should have sensitive section" {
@@ -313,14 +304,10 @@ Describe "GitModule.RestoreOptional" {
     
     BeforeAll {
         if (Test-Path $script:GitModulePath) {
-            $content = Get-Content -Path $script:GitModulePath -Raw
-            $lines = $content -split "`n"
-            $cleanLines = $lines | ForEach-Object { $_ -replace '//.*$', '' }
-            $jsonContent = $cleanLines -join "`n"
-            $script:GitModule = $jsonContent | ConvertFrom-Json -AsHashtable -ErrorAction SilentlyContinue
+            $script:GitModule = Read-JsoncFile -Path $script:GitModulePath
         }
     }
-    
+
     Context "Restore entries are optional" {
         
         It "Should have restore entries marked as optional" {

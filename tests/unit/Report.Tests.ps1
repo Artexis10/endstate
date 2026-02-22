@@ -38,7 +38,7 @@ Describe "Report.Schema" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
-            $report = $reportJson | ConvertFrom-Json -AsHashtable
+            $report = $reportJson | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             $report.ContainsKey('timestamp') | Should -Be $true
             $report.timestamp | Should -Not -BeNullOrEmpty
         }
@@ -49,7 +49,7 @@ Describe "Report.Schema" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
-            $report = $reportJson | ConvertFrom-Json -AsHashtable
+            $report = $reportJson | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             $report.ContainsKey('runId') | Should -Be $true
             $report.runId | Should -Not -BeNullOrEmpty
         }
@@ -60,7 +60,7 @@ Describe "Report.Schema" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
-            $report = $reportJson | ConvertFrom-Json -AsHashtable
+            $report = $reportJson | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             $report.manifest.ContainsKey('hash') | Should -Be $true
             $report.manifest.hash | Should -Not -BeNullOrEmpty
         }
@@ -71,7 +71,7 @@ Describe "Report.Schema" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
-            $report = $reportJson | ConvertFrom-Json -AsHashtable
+            $report = $reportJson | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             $report.manifest.ContainsKey('path') | Should -Be $true
             $report.manifest.path | Should -Not -BeNullOrEmpty
         }
@@ -82,7 +82,7 @@ Describe "Report.Schema" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
-            $report = $reportJson | ConvertFrom-Json -AsHashtable
+            $report = $reportJson | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             $report.summary.ContainsKey('install') | Should -Be $true
             $report.summary.ContainsKey('skip') | Should -Be $true
             $report.summary.ContainsKey('restore') | Should -Be $true
@@ -95,7 +95,7 @@ Describe "Report.Schema" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
-            $report = $reportJson | ConvertFrom-Json -AsHashtable
+            $report = $reportJson | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             $report.ContainsKey('actions') | Should -Be $true
         }
     }
@@ -108,7 +108,7 @@ Describe "Report.Schema" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
-            $report = $reportJson | ConvertFrom-Json -AsHashtable
+            $report = $reportJson | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             foreach ($action in $report.actions) {
                 $action.ContainsKey('type') | Should -Be $true
                 $action.ContainsKey('status') | Should -Be $true
@@ -121,7 +121,7 @@ Describe "Report.Schema" {
             $hash = Get-ManifestHash -ManifestPath $yamlPath
             $plan = New-PlanFromManifest -Manifest $manifest -ManifestPath $yamlPath -ManifestHash $hash -RunId "20250101-000000" -Timestamp "2025-01-01T00:00:00Z" -InstalledApps @("Test.App2")
             $reportJson = ConvertTo-ReportJson -Plan $plan
-            $report = $reportJson | ConvertFrom-Json -AsHashtable
+            $report = $reportJson | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             $appActions = $report.actions | Where-Object { $_.type -eq "app" }
             foreach ($action in $appActions) {
                 $action.ContainsKey('driver') | Should -Be $true
@@ -232,7 +232,7 @@ Describe "Report.Schema" {
         
         It "Should match expected schema from sample-plan-output.json" {
             $samplePath = Join-Path $script:FixturesDir "sample-plan-output.json"
-            $sample = Get-Content -Path $samplePath -Raw | ConvertFrom-Json -AsHashtable
+            $sample = Get-Content -Path $samplePath -Raw | ConvertFrom-Json | ForEach-Object { Convert-PsObjectToHashtable -InputObject $_ }
             
             # Validate sample has all required fields
             $sample.ContainsKey('runId') | Should -Be $true
@@ -308,15 +308,15 @@ Describe "Report.Command.FileSelection" {
     Context "-Latest selects newest file" {
         
         It "Should select the most recent state file by runId" {
-            $result = Get-ProvisioningReport -StateDir $script:TestStateDir -Latest
-            
+            $result = @(Get-ProvisioningReport -StateDir $script:TestStateDir -Latest)
+
             $result.Count | Should -Be 1
             $result[0].runId | Should -Be "20251219-080000"
         }
-        
+
         It "Should return newest when no flags specified (default behavior)" {
-            $result = Get-ProvisioningReport -StateDir $script:TestStateDir
-            
+            $result = @(Get-ProvisioningReport -StateDir $script:TestStateDir)
+
             $result.Count | Should -Be 1
             $result[0].runId | Should -Be "20251219-080000"
         }
@@ -325,8 +325,8 @@ Describe "Report.Command.FileSelection" {
     Context "-RunId selects correct file" {
         
         It "Should select specific run by ID" {
-            $result = Get-ProvisioningReport -StateDir $script:TestStateDir -RunId "20251215-120000"
-            
+            $result = @(Get-ProvisioningReport -StateDir $script:TestStateDir -RunId "20251215-120000")
+
             $result.Count | Should -Be 1
             $result[0].runId | Should -Be "20251215-120000"
             $result[0].dryRun | Should -Be $true
@@ -339,8 +339,8 @@ Describe "Report.Command.FileSelection" {
         }
         
         It "Should select oldest run when requested" {
-            $result = Get-ProvisioningReport -StateDir $script:TestStateDir -RunId "20251201-100000"
-            
+            $result = @(Get-ProvisioningReport -StateDir $script:TestStateDir -RunId "20251201-100000")
+
             $result.Count | Should -Be 1
             $result[0].runId | Should -Be "20251201-100000"
         }
@@ -363,8 +363,8 @@ Describe "Report.Command.FileSelection" {
         }
         
         It "Should return 1 run when -Last 1" {
-            $result = Get-ProvisioningReport -StateDir $script:TestStateDir -Last 1
-            
+            $result = @(Get-ProvisioningReport -StateDir $script:TestStateDir -Last 1)
+
             $result.Count | Should -Be 1
             $result[0].runId | Should -Be "20251219-080000"
         }

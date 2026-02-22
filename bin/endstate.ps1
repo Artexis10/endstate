@@ -910,7 +910,7 @@ function Install-EndstateToPath {
             Copy-Item -Path $sourceModulesDir -Destination $binDir -Recurse -Force
         }
     } else {
-        Write-Host "[WARN] Modules directory not found — config bundling will be unavailable." -ForegroundColor Yellow
+        Write-Host "[WARN] Modules directory not found -- config bundling will be unavailable." -ForegroundColor Yellow
     }
 
     # Copy payload folder to bin directory (required for config file collection in bundles)
@@ -944,7 +944,7 @@ function Install-EndstateToPath {
             Copy-Item -Path $sourcePayloadDir -Destination $binDir -Recurse -Force
         }
     } else {
-        Write-Host "[WARN] Payload directory not found — config file collection will be unavailable." -ForegroundColor Yellow
+        Write-Host "[WARN] Payload directory not found -- config file collection will be unavailable." -ForegroundColor Yellow
     }
 
     # Copy restorers folder to bin directory (required for restore operations via -EnableRestore)
@@ -978,18 +978,18 @@ function Install-EndstateToPath {
             Copy-Item -Path $sourceRestorersDir -Destination $binDir -Recurse -Force
         }
     } else {
-        Write-Host "[WARN] Restorers directory not found — restore operations will be unavailable." -ForegroundColor Yellow
+        Write-Host "[WARN] Restorers directory not found -- restore operations will be unavailable." -ForegroundColor Yellow
     }
 
     # Create CMD shim (references lib/ subdirectory to avoid PowerShell .ps1 preference)
-    $shimContent = @"
-@echo off
-REM Endstate CLI shim - forwards all arguments to PowerShell
-REM The .ps1 is in lib/ so PowerShell resolves endstate to this .cmd, not the .ps1
-REM Set ENDSTATE_ENTRYPOINT so the ps1 can verify it was invoked via the approved shim
-set ENDSTATE_ENTRYPOINT=cmd
-pwsh -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Endstate\bin\lib\endstate.ps1" %*
-"@
+    $shimContent = (@(
+        "@echo off"
+        "REM Endstate CLI shim - forwards all arguments to PowerShell"
+        "REM The .ps1 is in lib/ so PowerShell resolves endstate to this .cmd, not the .ps1"
+        "REM Set ENDSTATE_ENTRYPOINT so the ps1 can verify it was invoked via the approved shim"
+        "set ENDSTATE_ENTRYPOINT=cmd"
+        'pwsh -NoProfile -ExecutionPolicy Bypass -File "%LOCALAPPDATA%\Endstate\bin\lib\endstate.ps1" %*'
+    ) -join "`r`n")
     
     if (Test-Path $cmdShim) {
         Write-Host "[UPDATE] Updating CMD shim: $cmdShim" -ForegroundColor Yellow
@@ -1350,7 +1350,7 @@ function Resolve-ManifestPath {
         }
     }
     
-    # Otherwise, treat as profile name — use three-format discovery
+    # Otherwise, treat as profile name -- use three-format discovery
     # Check 1: Documents\Endstate\Profiles\ (preferred location for zip bundles)
     $profilesDir = Join-Path ([Environment]::GetFolderPath('MyDocuments')) "Endstate\Profiles"
     if (Test-Path $profilesDir) {
@@ -2842,7 +2842,7 @@ function Invoke-CaptureCore {
                 $result.BundleConfigsIncluded = @($bundleResult.ConfigsIncluded)
                 $result.BundleConfigsSkipped = @($bundleResult.ConfigsSkipped)
                 $result.BundleConfigsCaptureErrors = @($bundleResult.ConfigsCaptureErrors)
-                # Clean up intermediate manifest — zip is the deliverable
+                # Clean up intermediate manifest -- zip is the deliverable
                 if ($outPath -and (Test-Path $outPath)) {
                     Remove-Item -Path $outPath -Force -ErrorAction SilentlyContinue
                 }

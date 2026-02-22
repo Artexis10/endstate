@@ -182,10 +182,10 @@ Describe "JSON Mode - Pure stdout" {
         $result = script:Invoke-EndstateJson -Arguments @('capabilities', '--json')
         $json = $result.Json
         
-        $json.data.commands | Should -Contain "apply"
-        $json.data.commands | Should -Contain "verify"
-        $json.data.commands | Should -Contain "report"
-        $json.data.commands | Should -Contain "capabilities"
+        $json.data.commands.PSObject.Properties.Name | Should -Contain "apply"
+        $json.data.commands.PSObject.Properties.Name | Should -Contain "verify"
+        $json.data.commands.PSObject.Properties.Name | Should -Contain "report"
+        $json.data.commands.PSObject.Properties.Name | Should -Contain "capabilities"
     }
     
     It "Does not emit banner to stdout in JSON mode" {

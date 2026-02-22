@@ -115,8 +115,18 @@ function Read-TraceSnapshot {
     }
     
     $content = Get-Content -Path $Path -Raw -Encoding UTF8
-    $snapshot = $content | ConvertFrom-Json -AsHashtable
-    
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        $snapshot = $content | ConvertFrom-Json -AsHashtable
+    } else {
+        $obj = $content | ConvertFrom-Json
+        # Inline PSObject-to-hashtable conversion for PS 5.1 compat
+        # (Convert-PsObjectToHashtable from manifest.ps1 may not be loaded)
+        $snapshot = @{}
+        foreach ($prop in $obj.PSObject.Properties) {
+            $snapshot[$prop.Name] = $prop.Value
+        }
+    }
+
     return $snapshot
 }
 

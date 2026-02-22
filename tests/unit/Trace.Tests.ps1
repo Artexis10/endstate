@@ -5,7 +5,7 @@
 
 BeforeAll {
     $script:ProvisioningRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-    $script:TraceScript = Join-Path $script:ProvisioningRoot "engine" "trace.ps1"
+    $script:TraceScript = Join-Path (Join-Path $script:ProvisioningRoot "engine") "trace.ps1"
     
     # Load the trace engine
     . $script:TraceScript

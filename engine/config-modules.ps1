@@ -685,7 +685,7 @@ function Invoke-ConfigModuleCapture {
             # Copy the file or directory
             try {
                 if (Test-Path -Path $sourcePath -PathType Container) {
-                    # Source is a directory — clean existing dest to prevent nesting
+                    # Source is a directory -- clean existing dest to prevent nesting
                     if (Test-Path $destPath) { Remove-Item $destPath -Recurse -Force }
                     Copy-Item -Path $sourcePath -Destination $destPath -Recurse -Force
                     $copiedFiles = @(Get-ChildItem -Path $destPath -Recurse -File -ErrorAction SilentlyContinue)

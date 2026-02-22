@@ -185,6 +185,37 @@ function ConvertTo-SortedObject {
     return $Object
 }
 
+function ConvertTo-HashtableRecursive {
+    <#
+    .SYNOPSIS
+        Recursively convert PSCustomObject to hashtable (PS 5.1 compat).
+    #>
+    param($InputObject)
+    if ($null -eq $InputObject) { return $null }
+    if ($InputObject -is [hashtable]) {
+        $hash = @{}
+        foreach ($key in $InputObject.Keys) {
+            $hash[$key] = ConvertTo-HashtableRecursive -InputObject $InputObject[$key]
+        }
+        return $hash
+    }
+    if ($InputObject -is [System.Collections.IEnumerable] -and $InputObject -isnot [string]) {
+        $arr = @()
+        foreach ($item in $InputObject) {
+            $arr += ConvertTo-HashtableRecursive -InputObject $item
+        }
+        return $arr
+    }
+    if ($InputObject -is [PSCustomObject]) {
+        $hash = @{}
+        foreach ($prop in $InputObject.PSObject.Properties) {
+            $hash[$prop.Name] = ConvertTo-HashtableRecursive -InputObject $prop.Value
+        }
+        return $hash
+    }
+    return $InputObject
+}
+
 function ConvertFrom-JsoncContent {
     <#
     .SYNOPSIS
@@ -258,7 +289,12 @@ function ConvertFrom-JsoncContent {
     $cleanJson = $result.ToString()
     
     try {
-        return $cleanJson | ConvertFrom-Json -AsHashtable
+        if ($PSVersionTable.PSVersion.Major -ge 6) {
+            return $cleanJson | ConvertFrom-Json -AsHashtable
+        } else {
+            $obj = $cleanJson | ConvertFrom-Json
+            return (ConvertTo-HashtableRecursive -InputObject $obj)
+        }
     } catch {
         throw "Failed to parse JSONC: $($_.Exception.Message)"
     }

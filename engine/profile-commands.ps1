@@ -8,7 +8,7 @@
 .DESCRIPTION
     Functions for creating, modifying, and inspecting overlay profiles.
     All mutations use Read-ManifestRaw + modify + Write-Manifest (never Read-Manifest for writes).
-    Only bare .jsonc profiles are mutable — zip and folder profiles are read-only.
+    Only bare .jsonc profiles are mutable -- zip and folder profiles are read-only.
 #>
 
 # Import dependencies

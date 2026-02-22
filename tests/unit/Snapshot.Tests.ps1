@@ -242,26 +242,26 @@ Describe "Snapshot.ApplyExcludeHeuristics" {
                 [PSCustomObject]@{ path = "C:\App\GPUCache\shader.bin" }
             )
             
-            $result = Apply-ExcludeHeuristics -Entries $entries
-            
+            $result = @(Apply-ExcludeHeuristics -Entries $entries)
+
             $result.Count | Should -Be 1
             $result[0].path | Should -Be "C:\App\data.json"
         }
-        
+
         It "Should handle empty input" {
             $result = Apply-ExcludeHeuristics -Entries @()
-            
+
             $result | Should -BeNullOrEmpty
         }
-        
+
         It "Should support additional patterns" {
             $entries = @(
                 [PSCustomObject]@{ path = "C:\App\settings.json" }
                 [PSCustomObject]@{ path = "C:\App\custom\data.bin" }
             )
-            
-            $result = Apply-ExcludeHeuristics -Entries $entries -AdditionalPatterns @('\\custom\\')
-            
+
+            $result = @(Apply-ExcludeHeuristics -Entries $entries -AdditionalPatterns @('\\custom\\'))
+
             $result.Count | Should -Be 1
             $result[0].path | Should -Be "C:\App\settings.json"
         }

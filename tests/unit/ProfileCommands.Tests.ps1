@@ -91,7 +91,7 @@ Describe "ProfileCommands.Exclude" {
             @($manifest.exclude) | Should -Contain "App.Two"
         }
         
-        It "Should be idempotent — duplicate IDs are skipped" {
+        It "Should be idempotent - duplicate IDs are skipped" {
             Add-ProfileExclusion -Name "test-profile" -Ids @("App.One") -ProfilesDir $script:TestProfilesDir
             $added = Add-ProfileExclusion -Name "test-profile" -Ids @("App.One", "App.Two") -ProfilesDir $script:TestProfilesDir
             
@@ -150,7 +150,7 @@ Describe "ProfileCommands.Add" {
             $apps[0].refs.windows | Should -Be "Adobe.Lightroom"
         }
         
-        It "Should be idempotent — duplicate refs.windows are skipped" {
+        It "Should be idempotent - duplicate refs.windows are skipped" {
             Add-ProfileApp -Name "test-profile" -Ids @("Adobe.Lightroom") -ProfilesDir $script:TestProfilesDir
             $added = Add-ProfileApp -Name "test-profile" -Ids @("Adobe.Lightroom", "Google.Chrome") -ProfilesDir $script:TestProfilesDir
             
