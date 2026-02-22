@@ -163,7 +163,9 @@ function Invoke-Verify {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
     $stateFile = [System.IO.Path]::GetFullPath((Join-Path $stateDir "verify-$runId.json"))
-    $verifyState | ConvertTo-Json -Depth 10 | Out-File -FilePath $stateFile -Encoding UTF8
+    $tempFile = "$stateFile.tmp"
+    $verifyState | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempFile -Encoding UTF8
+    Move-Item -Path $tempFile -Destination $stateFile -Force
     
     if ($OutputJson) {
         # Output JSON envelope

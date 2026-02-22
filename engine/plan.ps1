@@ -135,7 +135,9 @@ function Invoke-Plan {
     }
     
     $planFile = Join-Path $plansDir "$runId.json"
-    $plan | ConvertTo-Json -Depth 10 | Out-File -FilePath $planFile -Encoding UTF8
+    $tempFile = "$planFile.tmp"
+    $plan | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempFile -Encoding UTF8
+    Move-Item -Path $tempFile -Destination $planFile -Force
     Write-ProvisioningLog "Plan saved: $planFile" -Level INFO
     
     # Print summary

@@ -964,7 +964,9 @@ function Invoke-Restore {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
     $stateFile = Join-Path $stateDir "restore-$RunId.json"
-    $runState | ConvertTo-Json -Depth 10 | Out-File -FilePath $stateFile -Encoding UTF8
+    $tempFile = "$stateFile.tmp"
+    $runState | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempFile -Encoding UTF8
+    Move-Item -Path $tempFile -Destination $stateFile -Force
     
     # Write restore journal for non-dry-run operations (Phase 3: journaling)
     if (-not $DryRun) {
@@ -1030,7 +1032,9 @@ function Invoke-Restore {
         }
         
         $journalFile = Join-Path $logsDir "restore-journal-$RunId.json"
-        $journal | ConvertTo-Json -Depth 10 | Out-File -FilePath $journalFile -Encoding UTF8
+        $tempFile = "$journalFile.tmp"
+        $journal | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempFile -Encoding UTF8
+        Move-Item -Path $tempFile -Destination $journalFile -Force
         Write-ProvisioningLog "Restore journal written: $journalFile" -Level INFO
     }
     

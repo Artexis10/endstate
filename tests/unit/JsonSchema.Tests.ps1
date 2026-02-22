@@ -106,8 +106,8 @@ Describe "JSON Schema Contract v1.0" {
         It "Should generate runId in correct format when not provided" {
             $envelope = New-JsonEnvelope -Command "test" -Success $true
             
-            # Format: yyyyMMdd-HHmmss-MACHINE (machine name suffix)
-            $envelope.runId | Should -Match "^\d{8}-\d{6}-.+$"
+            # Format: yyyyMMdd-HHmmss (per contract)
+            $envelope.runId | Should -Match "^\d{8}-\d{6}$"
         }
         
         It "Should include timestampUtc in ISO 8601 format" {

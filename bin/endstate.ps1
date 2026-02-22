@@ -3106,22 +3106,33 @@ function Invoke-ReportCore {
     $hasState = $null -ne $state
     
     if ($OutputJson) {
-        # JSON output mode - build data for envelope
-        $data = [ordered]@{
-            hasState = $hasState
-        }
-        
+        # JSON output mode - build contract-compliant reports[] structure
+        $reports = @()
+
         if ($state) {
-            $data.state = [ordered]@{
-                schemaVersion = if ($state.schemaVersion) { $state.schemaVersion } else { 1 }
-                lastApplied = $state.lastApplied
-                lastVerify = $state.lastVerify
-                appsObserved = $state.appsObserved
+            $report = [ordered]@{
+                runId = if ($state.runId) { $state.runId } else { $null }
+                timestamp = if ($state.lastApplied) { $state.lastApplied } else { $null }
+                command = if ($state.command) { $state.command } else { "apply" }
+                dryRun = if ($null -ne $state.dryRun) { $state.dryRun } else { $false }
+                manifest = [ordered]@{
+                    name = if ($ManifestPath) { Split-Path -Leaf $ManifestPath } else { $null }
+                    path = $ManifestPath
+                    hash = if ($state.manifestHash) { $state.manifestHash } else { $null }
+                }
+                summary = [ordered]@{
+                    success = if ($state.appsObserved) { $state.appsObserved } else { 0 }
+                    skipped = 0
+                    failed = 0
+                }
             }
-        } else {
-            $data.state = $null
+            $reports += $report
         }
-        
+
+        $data = [ordered]@{
+            reports = $reports
+        }
+
         if ($ManifestPath) {
             if (Test-Path $ManifestPath) {
                 $manifestHash = Get-ManifestHash -Path $ManifestPath
@@ -3151,12 +3162,13 @@ function Invoke-ReportCore {
                 schemaVersion = "1.0"
                 cliVersion = $script:VersionString
                 command = "report"
-                timestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+                runId = Get-Date -Format "yyyyMMdd-HHmmss"
+                timestampUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
                 success = $true
                 data = $data
                 error = $null
             }
-            $jsonOutput = $envelope | ConvertTo-Json -Depth 10
+            $jsonOutput = $envelope | ConvertTo-Json -Depth 20
             
             $outDir = Split-Path -Parent $OutPath
             if ($outDir -and -not (Test-Path $outDir)) {
@@ -3576,34 +3588,42 @@ function Write-JsonEnvelope {
     param(
         [Parameter(Mandatory = $true)]
         [string]$CommandName,
-        
+
         [Parameter(Mandatory = $true)]
         [bool]$Success,
-        
+
         [Parameter(Mandatory = $false)]
         [object]$Data = $null,
-        
+
         [Parameter(Mandatory = $false)]
         [hashtable]$Error = $null,
-        
+
         [Parameter(Mandatory = $false)]
-        [int]$ExitCode = 0
+        [int]$ExitCode = 0,
+
+        [Parameter(Mandatory = $false)]
+        [string]$RunId
     )
-    
+
+    if (-not $RunId) {
+        $RunId = Get-Date -Format "yyyyMMdd-HHmmss"
+    }
+
     $envelope = [ordered]@{
         schemaVersion = "1.0"
         cliVersion = $script:VersionString
         command = $CommandName
-        timestampUtc = (Get-Date).ToUniversalTime().ToString("o")
+        runId = $RunId
+        timestampUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
         success = $Success
         data = $Data
         error = $Error
     }
-    
+
     # Emit ONLY to stdout (stream 1) as SINGLE LINE - no Write-Host, no Write-Information
-    $jsonOutput = $envelope | ConvertTo-Json -Depth 10 -Compress
+    $jsonOutput = $envelope | ConvertTo-Json -Depth 20 -Compress
     Write-Output $jsonOutput
-    
+
     # Set exit code
     $script:LASTEXITCODE = $ExitCode
 }
@@ -3922,22 +3942,35 @@ switch ($Command) {
             $result = Invoke-ApplyCore -ManifestPath $resolvedPath -IsDryRun $DryRun.IsPresent -IsOnlyApps $OnlyApps.IsPresent -EnableRestore $EnableRestore.IsPresent
             
             if ($Json) {
-                # Emit JSON envelope for apply result
-                $data = @{
-                    manifestPath = $resolvedPath
-                    installed = $result.Installed
-                    upgraded = $result.Upgraded
-                    skipped = $result.Skipped
-                    failed = $result.Failed
-                    dryRun = $DryRun.IsPresent
-                }
-                # Include structured counts
+                # Emit contract-compliant JSON envelope for apply result
+                $totalCount = 0
+                $successCount = 0
+                $skipCount = 0
+                $failCount = 0
                 if ($result.Counts) {
-                    $data.counts = $result.Counts
+                    $totalCount = if ($result.Counts.total) { $result.Counts.total } else { 0 }
+                    $successCount = if ($result.Counts.success) { $result.Counts.success } elseif ($result.Installed) { $result.Installed } else { 0 }
+                    $skipCount = if ($result.Counts.skipped) { $result.Counts.skipped } elseif ($result.Skipped) { $result.Skipped } else { 0 }
+                    $failCount = if ($result.Counts.failed) { $result.Counts.failed } elseif ($result.Failed) { $result.Failed } else { 0 }
+                } else {
+                    $successCount = if ($result.Installed) { $result.Installed } else { 0 }
+                    $skipCount = if ($result.Skipped) { $result.Skipped } else { 0 }
+                    $failCount = if ($result.Failed) { $result.Failed } else { 0 }
+                    $totalCount = $successCount + $skipCount + $failCount
                 }
-                # Include per-app items
-                if ($result.Items) {
-                    $data.items = $result.Items
+                $data = [ordered]@{
+                    dryRun = $DryRun.IsPresent
+                    manifest = [ordered]@{
+                        path = $resolvedPath
+                        name = Split-Path -Leaf $resolvedPath
+                    }
+                    summary = [ordered]@{
+                        total = $totalCount
+                        success = $successCount
+                        skipped = $skipCount
+                        failed = $failCount
+                    }
+                    actions = if ($result.Items) { $result.Items } else { @() }
                 }
                 Write-JsonEnvelope -CommandName "apply" -Success $result.Success -Data $data -ExitCode $result.ExitCode
             } else {
@@ -4075,16 +4108,19 @@ switch ($Command) {
             $result = Invoke-VerifyCore -ManifestPath $resolvedPath
             
             if ($Json) {
-                # Emit JSON envelope for verify result
-                $data = @{
-                    manifestPath = $resolvedPath
-                    okCount = $result.OkCount
-                    missingCount = $result.MissingCount
-                    versionMismatches = $result.VersionMismatches
-                    extraCount = $result.ExtraCount
-                    missingApps = $result.MissingApps
-                    versionMismatchApps = $result.VersionMismatchApps
-                    items = $result.Items
+                # Emit contract-compliant JSON envelope for verify result
+                $totalCount = $result.OkCount + $result.MissingCount
+                $data = [ordered]@{
+                    manifest = [ordered]@{
+                        path = $resolvedPath
+                        name = Split-Path -Leaf $resolvedPath
+                    }
+                    summary = [ordered]@{
+                        total = $totalCount
+                        pass = $result.OkCount
+                        fail = $result.MissingCount
+                    }
+                    results = if ($result.Items) { $result.Items } else { @() }
                 }
                 Write-JsonEnvelope -CommandName "verify" -Success $result.Success -Data $data -ExitCode $result.ExitCode
             } else {
@@ -4145,10 +4181,22 @@ switch ($Command) {
         $exitCode = $result.ExitCode
     }
     "doctor" {
-        Write-Information "[endstate] Doctor: checking environment..." -InformationAction Continue
+        if (-not $Json) {
+            Write-Information "[endstate] Doctor: checking environment..." -InformationAction Continue
+        }
         $result = Invoke-DoctorCore -ManifestPath $Manifest
-        Write-Information "[endstate] Doctor: state=$($result.StateStatus) driftMissing=$($result.DriftMissing) driftExtra=$($result.DriftExtra)" -InformationAction Continue
-        Write-Information "[endstate] Doctor: completed" -InformationAction Continue
+        if ($Json) {
+            $data = [ordered]@{
+                stateStatus = $result.StateStatus
+                driftMissing = $result.DriftMissing
+                driftExtra = $result.DriftExtra
+            }
+            if ($result.Details) { $data.details = $result.Details }
+            Write-JsonEnvelope -CommandName "doctor" -Success ($result.ExitCode -eq 0) -Data $data -ExitCode $result.ExitCode
+        } else {
+            Write-Information "[endstate] Doctor: state=$($result.StateStatus) driftMissing=$($result.DriftMissing) driftExtra=$($result.DriftExtra)" -InformationAction Continue
+            Write-Information "[endstate] Doctor: completed" -InformationAction Continue
+        }
         $exitCode = $result.ExitCode
     }
     "state" {
@@ -4829,31 +4877,35 @@ switch ($Command) {
     "capabilities" {
         # Output JSON list of available commands for GUI integration
         if ($Json) {
-            # Use standard JSON envelope for consistency
-            $data = @{
-                commands = @(
-                    "bootstrap",
-                    "capture",
-                    "apply",
-                    "plan",
-                    "verify",
-                    "validate",
-                    "report",
-                    "doctor",
-                    "state",
-                    "module",
-                    "profile",
-                    "capabilities"
-                )
-                version = $script:VersionString
-                supportedFlags = @{
-                    apply = @("--profile", "--manifest", "--json", "--dry-run", "--enable-restore")
-                    verify = @("--profile", "--manifest", "--json")
-                    validate = @("--manifest", "--json")
-                    report = @("--json", "--out", "--latest", "--runid", "--last")
-                    module = @("--trace", "--out", "--include")
-                    profile = @("--json", "--from")
-                    capabilities = @("--json")
+            # Contract-compliant capabilities structure
+            $data = [ordered]@{
+                supportedSchemaVersions = [ordered]@{
+                    min = "1.0"
+                    max = "1.0"
+                }
+                commands = [ordered]@{
+                    bootstrap = [ordered]@{ supported = $true; flags = @("--repo-root") }
+                    capture = [ordered]@{ supported = $true; flags = @("--profile", "--out-manifest", "--include-runtimes", "--json", "--dry-run", "--events") }
+                    apply = [ordered]@{ supported = $true; flags = @("--profile", "--manifest", "--json", "--dry-run", "--enable-restore", "--events") }
+                    plan = [ordered]@{ supported = $true; flags = @("--manifest", "--json") }
+                    verify = [ordered]@{ supported = $true; flags = @("--profile", "--manifest", "--json") }
+                    validate = [ordered]@{ supported = $true; flags = @("--manifest", "--json") }
+                    report = [ordered]@{ supported = $true; flags = @("--json", "--out", "--latest", "--runid", "--last") }
+                    doctor = [ordered]@{ supported = $true; flags = @("--json") }
+                    state = [ordered]@{ supported = $true; flags = @("--json") }
+                    module = [ordered]@{ supported = $true; flags = @("--trace", "--out", "--include") }
+                    profile = [ordered]@{ supported = $true; flags = @("--json", "--from") }
+                    capabilities = [ordered]@{ supported = $true; flags = @("--json") }
+                }
+                features = [ordered]@{
+                    streaming = $true
+                    streamingFormat = "jsonl"
+                    parallelInstall = $true
+                    configModules = $true
+                    jsonOutput = $true
+                }
+                platform = [ordered]@{
+                    os = "windows"
                 }
             }
             Write-JsonEnvelope -CommandName "capabilities" -Success $true -Data $data -ExitCode 0

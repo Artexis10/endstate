@@ -49,16 +49,11 @@ function Get-SchemaVersion {
 function Get-RunId {
     <#
     .SYNOPSIS
-        Generates a unique run ID in format yyyyMMdd-HHmmss-MACHINE.
+        Generate a unique run identifier.
+    .OUTPUTS
+        String in format yyyyMMdd-HHmmss.
     #>
-    $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-    $machine = $env:COMPUTERNAME
-    if ($machine) {
-        $machine = $machine.ToUpper() -replace '[^A-Z0-9_-]', '-' -replace ' ', '-'
-    } else {
-        $machine = "UNKNOWN"
-    }
-    return "$timestamp-$machine"
+    return Get-Date -Format "yyyyMMdd-HHmmss"
 }
 
 function New-JsonEnvelope {
@@ -287,6 +282,16 @@ $script:ErrorCodes = @{
     ENGINE_CLI_NOT_FOUND = "ENGINE_CLI_NOT_FOUND"
     CAPTURE_FAILED = "CAPTURE_FAILED"
     CAPTURE_BLOCKED = "CAPTURE_BLOCKED"
+    BUNDLE_EXTRACT_FAILED = "BUNDLE_EXTRACT_FAILED"
+    ENGINE_SCRIPT_NOT_FOUND = "ENGINE_SCRIPT_NOT_FOUND"
+    MODULE_DRAFT_FAILED = "MODULE_DRAFT_FAILED"
+    PROFILE_CREATE_FAILED = "PROFILE_CREATE_FAILED"
+    PROFILE_EXCLUDE_FAILED = "PROFILE_EXCLUDE_FAILED"
+    PROFILE_EXCLUDE_CONFIG_FAILED = "PROFILE_EXCLUDE_CONFIG_FAILED"
+    PROFILE_ADD_FAILED = "PROFILE_ADD_FAILED"
+    PROFILE_SHOW_FAILED = "PROFILE_SHOW_FAILED"
+    PROFILE_LIST_FAILED = "PROFILE_LIST_FAILED"
+    SNAPSHOT_FAILED = "SNAPSHOT_FAILED"
 }
 
 function Get-ErrorCode {
