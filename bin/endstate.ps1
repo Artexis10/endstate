@@ -2842,6 +2842,7 @@ function Invoke-CaptureCore {
                 $result.BundleConfigsIncluded = @($bundleResult.ConfigsIncluded)
                 $result.BundleConfigsSkipped = @($bundleResult.ConfigsSkipped)
                 $result.BundleConfigsCaptureErrors = @($bundleResult.ConfigsCaptureErrors)
+                $result.BundleConfigModulesDetail = $bundleResult.ConfigModulesDetail
                 # Clean up intermediate manifest -- zip is the deliverable
                 if ($outPath -and (Test-Path $outPath)) {
                     Remove-Item -Path $outPath -Force -ErrorAction SilentlyContinue
@@ -3783,6 +3784,9 @@ switch ($Command) {
                     $data.configsIncluded = @($captureResult.BundleConfigsIncluded)
                     $data.configsSkipped = @($captureResult.BundleConfigsSkipped)
                     $data.configsCaptureErrors = @($captureResult.BundleConfigsCaptureErrors)
+                    if ($captureResult.BundleConfigModulesDetail) {
+                        $data.configModules = @($captureResult.BundleConfigModulesDetail)
+                    }
                 } else {
                     $data.outputFormat = "jsonc"
                 }

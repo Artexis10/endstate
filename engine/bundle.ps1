@@ -116,6 +116,7 @@ function Invoke-CollectConfigFiles {
         skipped = @()
         errors = @()
         filesCopied = 0
+        moduleFileCounts = @{}
     }
     
     if ($Modules.Count -eq 0) {
@@ -202,6 +203,8 @@ function Invoke-CollectConfigFiles {
             }
         }
         
+        $result.moduleFileCounts[$moduleDirName] = $moduleFilesCopied
+
         if ($moduleFilesCopied -gt 0) {
             $result.included += $moduleDirName
             $result.filesCopied += $moduleFilesCopied
@@ -306,6 +309,7 @@ function New-CaptureBundle {
         ConfigsIncluded = @()
         ConfigsSkipped = @()
         ConfigsCaptureErrors = @()
+        ConfigModulesDetail = @()
         Metadata = $null
     }
     
@@ -330,7 +334,53 @@ function New-CaptureBundle {
         $result.ConfigsIncluded = @($configResult.included)
         $result.ConfigsSkipped = @($configResult.skipped)
         $result.ConfigsCaptureErrors = @($configResult.errors)
-        
+
+        # Build ConfigModulesDetail from matched modules + config result
+        $configModulesDetail = @()
+        $includedSet = @{}
+        foreach ($inc in $configResult.included) { $includedSet[$inc] = $true }
+        $skippedSet = @{}
+        foreach ($sk in $configResult.skipped) { $skippedSet[$sk] = $true }
+
+        foreach ($module in $matchedModules) {
+            $moduleDirName = if ($module.id -match '^apps\.(.+)$') { $Matches[1] } else { $module.id }
+
+            # Determine status
+            $status = "skipped"
+            if ($includedSet.ContainsKey($moduleDirName)) {
+                $status = "captured"
+            } elseif ($skippedSet.ContainsKey($moduleDirName)) {
+                $status = "skipped"
+            }
+            # Check if any error contains this module's dirName
+            foreach ($err in $configResult.errors) {
+                if ($err -like "*$moduleDirName*") {
+                    $status = "error"
+                    break
+                }
+            }
+
+            $fileCount = 0
+            if ($configResult.moduleFileCounts -and $configResult.moduleFileCounts.ContainsKey($moduleDirName)) {
+                $fileCount = $configResult.moduleFileCounts[$moduleDirName]
+            }
+
+            $wingetRefs = @()
+            if ($module.matches -and $module.matches.winget) {
+                $wingetRefs = @($module.matches.winget)
+            }
+
+            $configModulesDetail += @{
+                id = $module.id
+                appId = $moduleDirName
+                displayName = $module.displayName
+                status = $status
+                filesCaptured = $fileCount
+                wingetRefs = $wingetRefs
+            }
+        }
+        $result.ConfigModulesDetail = $configModulesDetail
+
         # Stage 2b: Inject restore entries from included modules into staged manifest
         if ($configResult.included.Count -gt 0) {
             $includedSet = @{}
