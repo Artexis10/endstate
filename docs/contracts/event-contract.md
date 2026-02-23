@@ -65,7 +65,7 @@ Signals transition between engine phases.
 ```
 
 **Fields:**
-- `phase`: `"plan"` | `"apply"` | `"verify"` | `"capture"`
+- `phase`: `"plan"` | `"apply"` | `"verify"` | `"capture"` | `"restore"`
 
 **Guarantees:**
 - First event in stream is always a phase event
@@ -197,6 +197,57 @@ Reports generated artifacts (e.g., captured manifests).
 - `phase` (string, required): Always `"capture"`
 - `kind` (string, required): Always `"manifest"`
 - `path` (string, required): Absolute filesystem path (opaque text, consumer should not parse)
+
+---
+
+#### 6. Restore-Item Event
+
+Tracks progress of individual restore actions during apply with `--EnableRestore`. This is a non-breaking addition (new event type, no version bump required per extensibility rules).
+
+```json
+{
+  "version": 1,
+  "runId": "apply-20250101-120000-MACHINE",
+  "timestamp": "2025-01-01T12:06:00.000Z",
+  "event": "restore-item",
+  "id": "vscode/settings.json",
+  "module": "vscode",
+  "restorer": "copy",
+  "source": "./payload/apps/vscode/settings.json",
+  "target": "~/AppData/Roaming/Code/User/settings.json",
+  "status": "restored",
+  "reason": null,
+  "backupPath": "C:\\endstate\\state\\backups\\20250101-120000\\...",
+  "targetExisted": true,
+  "message": "restored successfully"
+}
+```
+
+**Fields:**
+- `id` (string, required): Restore entry identifier (e.g., `"vscode/settings.json"`)
+- `module` (string, required): Config module ID (e.g., `"vscode"`)
+- `restorer` (string, required): Restorer type: `"copy"` | `"merge-json"` | `"merge-ini"` | `"append"`
+- `source` (string, required): Portable source path
+- `target` (string, required): System target path
+- `status` (string, required): One of:
+  - `"restoring"` - In progress
+  - `"restored"` - Successfully restored
+  - `"skipped_up_to_date"` - Target already matches source
+  - `"skipped_missing_source"` - Source file not found
+  - `"failed"` - Restore failed
+- `reason` (string | null, required): Reason for skip/failure, or null
+- `backupPath` (string | null, required): Path to backup if created, or null
+- `targetExisted` (boolean, required): Whether the target file existed before restore
+- `message` (string, required): Human-readable message
+
+**Guarantees:**
+- Same `id` appears twice per restore action: first with `"restoring"`, then with terminal status
+- Only emitted when `--EnableRestore` is active and restore entries exist
+- Emitted during the `"restore"` phase (between `"apply"` and `"verify"`)
+
+**Summary event extension:**
+When `phase` is `"restore"`, the summary event may include an additional optional field:
+- `backupLocation` (string | null): Root backup directory path
 
 ---
 

@@ -17,23 +17,26 @@
 . "$PSScriptRoot\plan.ps1"
 . "$PSScriptRoot\events.ps1"
 . "$PSScriptRoot\..\drivers\driver.ps1"
-. "$PSScriptRoot\..\restorers\copy.ps1"
+. "$PSScriptRoot\restore.ps1"
 . "$PSScriptRoot\..\verifiers\file-exists.ps1"
 
 function Invoke-Apply {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ManifestPath,
-        
+
         [Parameter(Mandatory = $false)]
         [switch]$DryRun,
-        
+
         [Parameter(Mandatory = $false)]
         [switch]$EnableRestore,
-        
+
+        [Parameter(Mandatory = $false)]
+        [string]$RestoreFilter = $null,
+
         [Parameter(Mandatory = $false)]
         [switch]$OutputJson,
-        
+
         [Parameter(Mandatory = $false)]
         [string]$EventsFormat = ""
     )
@@ -80,14 +83,15 @@ function Invoke-Apply {
     $skipCount = 0
     $failCount = 0
     $actionResults = @()
-    
+    $pendingRestoreActions = @()
+
     foreach ($action in $plan.actions) {
         $result = @{
             action = $action
             status = "pending"
             message = ""
         }
-        
+
         switch ($action.type) {
             "app" {
                 if ($action.status -eq "skip") {
@@ -131,7 +135,7 @@ function Invoke-Apply {
                     }
                 }
             }
-            
+
             "restore" {
                 if (-not $EnableRestore) {
                     # Restore is opt-in - skip unless explicitly enabled
@@ -139,42 +143,17 @@ function Invoke-Apply {
                     $result.status = "skipped"
                     $result.message = "Restore not enabled (use -EnableRestore)"
                     $skipCount++
-                }
-                elseif ($DryRun) {
-                    Write-ProvisioningLog "[DRY-RUN] Would restore: $($action.source) -> $($action.target)" -Level ACTION
-                    $result.status = "dry-run"
-                    $result.message = "Would restore"
-                    $successCount++
                 } else {
-                    Write-ProvisioningLog "Restoring: $($action.source) -> $($action.target)" -Level ACTION
-                    $restoreResult = Invoke-CopyRestore -Source $action.source -Target $action.target -Backup $action.backup -RunId $runId
-                    if ($restoreResult.Success) {
-                        if ($restoreResult.Skipped) {
-                            Write-ProvisioningLog "SKIP: $($action.target) - $($restoreResult.Message)" -Level SKIP
-                            $result.status = "skipped"
-                            $result.message = $restoreResult.Message
-                            $skipCount++
-                        } else {
-                            Write-ProvisioningLog "Restored: $($action.target)" -Level SUCCESS
-                            $result.status = "success"
-                            $result.message = "Restored"
-                            if ($restoreResult.BackupPath) {
-                                $result.backupPath = $restoreResult.BackupPath
-                            }
-                            $successCount++
-                        }
-                    } else {
-                        Write-ProvisioningLog "Restore failed: $($restoreResult.Error)" -Level ERROR
-                        $result.status = "failed"
-                        $result.message = $restoreResult.Error
-                        $failCount++
-                    }
+                    # Collect for dedicated restore phase
+                    $pendingRestoreActions += $action
+                    $result.status = "deferred"
+                    $result.message = "Deferred to restore phase"
                 }
             }
-            
+
             "verify" {
                 $verifyResult = $null
-                
+
                 switch ($action.verifyType) {
                     "file-exists" {
                         $verifyResult = Test-FileExistsVerifier -Path $action.path
@@ -187,7 +166,7 @@ function Invoke-Apply {
                         $verifyResult = @{ Success = $false; Message = "Unknown verify type: $($action.verifyType)" }
                     }
                 }
-                
+
                 if ($verifyResult.Success) {
                     Write-ProvisioningLog "Verify PASSED: $($action.verifyType)" -Level SUCCESS
                     $result.status = "success"
@@ -201,10 +180,216 @@ function Invoke-Apply {
                 }
             }
         }
-        
+
         $actionResults += $result
     }
-    
+
+    # === Restore Phase ===
+    $restoreResults = @()
+    $restoreSuccessCount = 0
+    $restoreSkipCount = 0
+    $restoreFailCount = 0
+    $restoreBackupLocation = $null
+
+    # Parse RestoreFilter into array if provided
+    $restoreFilterArray = $null
+    if ($RestoreFilter) {
+        $restoreFilterArray = @($RestoreFilter -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+
+    # Compute available modules before filtering (for envelope)
+    $restoreModulesAvailable = @($pendingRestoreActions | ForEach-Object {
+        if ($_.module) { $_.module } elseif ($_._fromModule) { $_._fromModule } else { $null }
+    } | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
+
+    # Apply RestoreFilter if provided
+    if ($restoreFilterArray -and $restoreFilterArray.Count -gt 0 -and $pendingRestoreActions.Count -gt 0) {
+        $pendingRestoreActions = @($pendingRestoreActions | Where-Object {
+            $moduleId = if ($_.module) { $_.module } elseif ($_._fromModule) { $_._fromModule } else { $null }
+            # Inline entries (no module) always pass the filter
+            if (-not $moduleId) { return $true }
+            return $moduleId -in $restoreFilterArray
+        })
+    }
+
+    if ($EnableRestore -and $pendingRestoreActions.Count -gt 0) {
+        Write-ProvisioningSection "Executing Restore Phase"
+        Write-PhaseEvent -Phase "restore"
+
+        $manifestDir = Split-Path -Parent (Resolve-Path $ManifestPath)
+
+        foreach ($restoreAction in $pendingRestoreActions) {
+            # Build action hashtable for Invoke-RestoreAction
+            $actionId = Get-RestoreActionId -Item $restoreAction
+            $restoreType = if ($restoreAction.restoreType) { $restoreAction.restoreType } else { "copy" }
+            $restorerName = switch ($restoreType) {
+                "merge" {
+                    $fmt = if ($restoreAction.format) { $restoreAction.format } else { "json" }
+                    "merge-$fmt"
+                }
+                "append" { "append" }
+                default { "copy" }
+            }
+            $moduleId = if ($restoreAction.module) { $restoreAction.module } else { ($actionId -split '[/\\]')[0] }
+
+            # Emit "restoring" event
+            Write-RestoreItemEvent -Id $actionId -Module $moduleId -Restorer $restorerName `
+                -Source $restoreAction.source -Target $restoreAction.target `
+                -Status "restoring" -Message "Restoring $actionId"
+
+            $actionHash = @{
+                id = $actionId
+                restoreType = $restoreAction.restoreType
+                source = $restoreAction.source
+                target = $restoreAction.target
+                backup = if ($null -eq $restoreAction.backup) { $true } else { $restoreAction.backup }
+                requiresAdmin = if ($restoreAction.requiresAdmin) { $true } else { $false }
+                requiresClosed = $restoreAction.requiresClosed
+                format = $restoreAction.format
+                arrayStrategy = $restoreAction.arrayStrategy
+                dedupe = $restoreAction.dedupe
+                newline = $restoreAction.newline
+                exclude = $restoreAction.exclude
+            }
+
+            if ($DryRun) {
+                Write-ProvisioningLog "[DRY-RUN] Would restore: $($restoreAction.source) -> $($restoreAction.target)" -Level ACTION
+                $restoreResult = @{
+                    id = $actionId
+                    module = $moduleId
+                    restorer = $restorerName
+                    source = $restoreAction.source
+                    target = $restoreAction.target
+                    status = "skipped_up_to_date"
+                    reason = "dry-run"
+                    backupPath = $null
+                    targetExisted = $false
+                    message = "Would restore"
+                }
+                Write-RestoreItemEvent -Id $actionId -Module $moduleId -Restorer $restorerName `
+                    -Source $restoreAction.source -Target $restoreAction.target `
+                    -Status "skipped_up_to_date" -Reason "dry-run" -Message "Would restore"
+                $restoreSuccessCount++
+            } else {
+                Write-ProvisioningLog "Restoring: $($restoreAction.source) -> $($restoreAction.target)" -Level ACTION
+                $raResult = Invoke-RestoreAction -Action $actionHash -RunId $runId -ManifestDir $manifestDir
+
+                # Map Invoke-RestoreAction status to event status
+                $eventStatus = switch ($raResult.status) {
+                    "restore" { "restored" }
+                    "skip" {
+                        if ($raResult.reason -like "*up to date*") { "skipped_up_to_date" }
+                        elseif ($raResult.reason -like "*not found*") { "skipped_missing_source" }
+                        else { "skipped_up_to_date" }
+                    }
+                    "fail" { "failed" }
+                    default { "failed" }
+                }
+                $targetExisted = if ($raResult.ContainsKey('targetExistedBefore')) { $raResult.targetExistedBefore } else { $false }
+
+                Write-RestoreItemEvent -Id $actionId -Module $moduleId -Restorer $restorerName `
+                    -Source $restoreAction.source -Target $restoreAction.target `
+                    -Status $eventStatus -Reason $raResult.reason `
+                    -BackupPath $raResult.backupPath -TargetExisted $targetExisted `
+                    -Message $raResult.reason
+
+                $restoreResult = @{
+                    id = $actionId
+                    module = $moduleId
+                    restorer = $restorerName
+                    source = $restoreAction.source
+                    target = $restoreAction.target
+                    expandedSource = $raResult.expandedSource
+                    expandedTarget = $raResult.expandedTarget
+                    status = $eventStatus
+                    reason = $raResult.reason
+                    backupPath = $raResult.backupPath
+                    targetExisted = $targetExisted
+                    backupCreated = if ($raResult.ContainsKey('backupCreated')) { $raResult.backupCreated } else { $false }
+                    message = $raResult.reason
+                }
+
+                # Track backup location
+                if ($raResult.backupPath -and -not $restoreBackupLocation) {
+                    $restoreBackupLocation = Split-Path -Parent $raResult.backupPath
+                }
+
+                switch ($raResult.status) {
+                    "restore" {
+                        Write-ProvisioningLog "RESTORED: $actionId" -Level SUCCESS
+                        $restoreSuccessCount++
+                    }
+                    "skip" {
+                        Write-ProvisioningLog "SKIP: $actionId - $($raResult.reason)" -Level SKIP
+                        $restoreSkipCount++
+                    }
+                    "fail" {
+                        Write-ProvisioningLog "FAIL: $actionId - $($raResult.reason)" -Level ERROR
+                        $restoreFailCount++
+                    }
+                    "dry-run" {
+                        Write-ProvisioningLog "[DRY-RUN] $actionId - $($raResult.reason)" -Level ACTION
+                        $restoreSuccessCount++
+                    }
+                }
+            }
+
+            $restoreResults += $restoreResult
+        }
+
+        # Restore summary event
+        $restoreTotal = $restoreSuccessCount + $restoreSkipCount + $restoreFailCount
+        Write-SummaryEvent -Phase "restore" -Total $restoreTotal -Success $restoreSuccessCount -Skipped $restoreSkipCount -Failed $restoreFailCount -BackupLocation $restoreBackupLocation
+
+        # Write restore journal (non-dry-run only)
+        if (-not $DryRun) {
+            $logsDir = Join-Path $PSScriptRoot "..\logs"
+            if (-not (Test-Path $logsDir)) {
+                New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+            }
+
+            $manifestDir = Split-Path -Parent (Resolve-Path $ManifestPath)
+            $journalEntries = @()
+            foreach ($rr in $restoreResults) {
+                $actionStatus = switch ($rr.status) {
+                    "restored" { "restored" }
+                    "skipped_up_to_date" { "skipped_up_to_date" }
+                    "skipped_missing_source" { "skipped_missing_source" }
+                    "failed" { "failed" }
+                    default { $rr.status }
+                }
+                $journalEntries += @{
+                    kind = if ($rr.restorer -eq "copy") { "copy" } elseif ($rr.restorer -like "merge-*") { "merge" } else { $rr.restorer }
+                    source = $rr.source
+                    target = $rr.target
+                    resolvedSourcePath = $rr.expandedSource
+                    targetPath = $rr.expandedTarget
+                    backupRequested = $true
+                    targetExistedBefore = $rr.targetExisted
+                    backupCreated = $rr.backupCreated
+                    backupPath = $rr.backupPath
+                    action = $actionStatus
+                    error = if ($rr.status -eq "failed") { $rr.reason } else { $null }
+                }
+            }
+
+            $journal = @{
+                runId = $runId
+                manifestPath = $ManifestPath
+                manifestDir = $manifestDir
+                exportRoot = $null
+                timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+                entries = $journalEntries
+            }
+
+            $journalFile = Join-Path $logsDir "restore-journal-$runId.json"
+            $tempFile = "$journalFile.tmp"
+            $journal | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempFile -Encoding UTF8
+            Move-Item -Path $tempFile -Destination $journalFile -Force
+            Write-ProvisioningLog "Restore journal written: $journalFile" -Level INFO
+        }
+    }
+
     # Save state
     $manifestHash = Get-ManifestHash -ManifestPath $ManifestPath
     Save-RunState -RunId $runId `
@@ -220,23 +405,20 @@ function Invoke-Apply {
     # Summary
     Write-ProvisioningSection "Results"
     Write-SummaryEvent -Phase "apply" -Total $actionResults.Count -Success $successCount -Skipped $skipCount -Failed $failCount
-    Close-ProvisioningLog -SuccessCount $successCount -SkipCount $skipCount -FailCount $failCount
-    
+    Close-ProvisioningLog -SuccessCount ($successCount + $restoreSuccessCount) -SkipCount ($skipCount + $restoreSkipCount) -FailCount ($failCount + $restoreFailCount)
+
     # Get state file path (absolute)
     $stateDir = Join-Path $PSScriptRoot "..\state"
     $stateFile = (Join-Path $stateDir "$runId.json") | Resolve-Path -ErrorAction SilentlyContinue
     if (-not $stateFile) {
         $stateFile = [System.IO.Path]::GetFullPath((Join-Path $stateDir "$runId.json"))
     }
-    
+
     if ($OutputJson) {
         # Output JSON envelope
         . "$PSScriptRoot\json-output.ps1"
-        
-        # Build items[] array for GUI consumption
-        # Maps engine status to GUI-expected format:
-        # - status: ok | skipped | failed
-        # - reason: installed | would_install | already_installed | install_failed
+
+        # Build items[] array for GUI consumption (app entries only — unchanged)
         $items = @($actionResults | Where-Object { $_.action.type -eq "app" } | ForEach-Object {
             $guiStatus = switch ($_.status) {
                 "success" { "ok" }
@@ -260,18 +442,18 @@ function Invoke-Apply {
                 message = $_.message
             }
         })
-        
+
         # Count items by category for GUI
         $installedCount = @($items | Where-Object { $_.reason -eq "installed" }).Count
         $alreadyInstalledCount = @($items | Where-Object { $_.reason -eq "already_installed" }).Count
         $failedCount = @($items | Where-Object { $_.status -eq "failed" }).Count
-        
+
         # Convert logFile to absolute path
         $logFileAbsolute = $logFile
         if ($logFile -and -not [System.IO.Path]::IsPathRooted($logFile)) {
             $logFileAbsolute = [System.IO.Path]::GetFullPath($logFile)
         }
-        
+
         $data = [ordered]@{
             dryRun = $DryRun.IsPresent
             manifest = [ordered]@{
@@ -309,15 +491,53 @@ function Invoke-Apply {
             stateFile = $stateFile
             logFile = $logFileAbsolute
         }
-        
+
+        # Add restore metadata to envelope (additive, backward compatible)
+        if ($restoreFilterArray) {
+            $data['restoreFilter'] = $restoreFilterArray
+        }
+        if ($restoreModulesAvailable.Count -gt 0) {
+            $data['restoreModulesAvailable'] = $restoreModulesAvailable
+        }
+
+        # Add restore data to envelope (additive, backward compatible)
+        if ($restoreResults.Count -gt 0) {
+            $data['restoreItems'] = @($restoreResults | ForEach-Object {
+                [ordered]@{
+                    id = $_.id
+                    module = $_.module
+                    restorer = $_.restorer
+                    source = $_.source
+                    target = $_.target
+                    status = $_.status
+                    reason = $_.reason
+                    backupPath = $_.backupPath
+                    targetExisted = $_.targetExisted
+                    message = $_.message
+                }
+            })
+            $data['restoreSummary'] = [ordered]@{
+                total = $restoreResults.Count
+                restored = $restoreSuccessCount
+                skipped = $restoreSkipCount
+                failed = $restoreFailCount
+                backupLocation = $restoreBackupLocation
+            }
+            # Add journal file path if written
+            if (-not $DryRun) {
+                $restoreLogsDir = Join-Path $PSScriptRoot "..\logs"
+                $data['restoreJournalFile'] = [System.IO.Path]::GetFullPath((Join-Path $restoreLogsDir "restore-journal-$runId.json"))
+            }
+        }
+
         # Add eventsFile if events are enabled
         if ($EventsFormat -eq "jsonl") {
             $logsDir = Join-Path $PSScriptRoot "..\logs"
             $eventsFile = [System.IO.Path]::GetFullPath((Join-Path $logsDir "apply-$runId.events.jsonl"))
             $data['eventsFile'] = $eventsFile
         }
-        
-        $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success ($failCount -eq 0) -Data $data
+
+        $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success (($failCount + $restoreFailCount) -eq 0) -Data $data
         Write-JsonOutput -Envelope $envelope
     } else {
         if ($DryRun) {
@@ -378,22 +598,27 @@ function Invoke-ApplyFromPlan {
         Enable restore actions (opt-in for safety).
     .PARAMETER OutputJson
         Output results as JSON with standard envelope.
+    .PARAMETER RestoreFilter
+        Comma-separated list of module IDs to filter restore actions.
     .PARAMETER EventsFormat
         Streaming events format (jsonl for NDJSON to stderr).
     #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$PlanPath,
-        
+
         [Parameter(Mandatory = $false)]
         [switch]$DryRun,
-        
+
         [Parameter(Mandatory = $false)]
         [switch]$EnableRestore,
-        
+
+        [Parameter(Mandatory = $false)]
+        [string]$RestoreFilter = $null,
+
         [Parameter(Mandatory = $false)]
         [switch]$OutputJson,
-        
+
         [Parameter(Mandatory = $false)]
         [string]$EventsFormat = ""
     )
@@ -471,14 +696,15 @@ function Invoke-ApplyFromPlan {
     $skippedCount = 0
     $failCount = 0
     $actionResults = @()
-    
+    $pendingRestoreActions = @()
+
     foreach ($action in $plan.actions) {
         $result = @{
             action = $action
             status = "pending"
             message = ""
         }
-        
+
         switch ($action.type) {
             "app" {
                 $driverName = Get-ActiveDriverName
@@ -523,50 +749,25 @@ function Invoke-ApplyFromPlan {
                     }
                 }
             }
-            
+
             "restore" {
                 if (-not $EnableRestore) {
                     Write-ProvisioningLog "[SKIP] $($action.source) -> $($action.target) (restore not enabled)" -Level SKIP
                     $result.status = "skipped"
                     $result.message = "Restore not enabled (use -EnableRestore)"
                     $skippedCount++
-                }
-                elseif ($DryRun) {
-                    Write-ProvisioningLog "[DRY-RUN] Would restore: $($action.source) -> $($action.target)" -Level ACTION
-                    $result.status = "dry-run"
-                    $result.message = "Would restore"
-                    $successCount++
                 } else {
-                    Write-ProvisioningLog "Restoring: $($action.source) -> $($action.target)" -Level ACTION
-                    $restoreResult = Invoke-CopyRestore -Source $action.source -Target $action.target -Backup $action.backup -RunId $runId
-                    if ($restoreResult.Success) {
-                        if ($restoreResult.Skipped) {
-                            Write-ProvisioningLog "[SKIP] $($action.target) - $($restoreResult.Message)" -Level SKIP
-                            $result.status = "skipped"
-                            $result.message = $restoreResult.Message
-                            $skippedCount++
-                        } else {
-                            Write-ProvisioningLog "Restored: $($action.target)" -Level SUCCESS
-                            $result.status = "success"
-                            $result.message = "Restored"
-                            if ($restoreResult.BackupPath) {
-                                $result.backupPath = $restoreResult.BackupPath
-                            }
-                            $successCount++
-                        }
-                    } else {
-                        Write-ProvisioningLog "Restore failed: $($restoreResult.Error)" -Level ERROR
-                        $result.status = "failed"
-                        $result.message = $restoreResult.Error
-                        $failCount++
-                    }
+                    # Collect for dedicated restore phase
+                    $pendingRestoreActions += $action
+                    $result.status = "deferred"
+                    $result.message = "Deferred to restore phase"
                 }
             }
-            
+
             "verify" {
                 $verifyResult = $null
                 $verifyType = if ($action.verifyType) { $action.verifyType } else { $action.type }
-                
+
                 switch ($verifyType) {
                     "file-exists" {
                         $verifyResult = Test-FileExistsVerifier -Path $action.path
@@ -578,7 +779,7 @@ function Invoke-ApplyFromPlan {
                         $verifyResult = @{ Success = $false; Message = "Unknown verify type: $verifyType" }
                     }
                 }
-                
+
                 if ($verifyResult.Success) {
                     Write-ProvisioningLog "Verify PASSED: $verifyType" -Level SUCCESS
                     $result.status = "success"
@@ -592,10 +793,212 @@ function Invoke-ApplyFromPlan {
                 }
             }
         }
-        
+
         $actionResults += $result
     }
-    
+
+    # === Restore Phase ===
+    $restoreResults = @()
+    $restoreSuccessCount = 0
+    $restoreSkipCount = 0
+    $restoreFailCount = 0
+    $restoreBackupLocation = $null
+
+    # Parse RestoreFilter into array if provided
+    $restoreFilterArray = $null
+    if ($RestoreFilter) {
+        $restoreFilterArray = @($RestoreFilter -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+
+    # Compute available modules before filtering (for envelope)
+    $restoreModulesAvailable = @($pendingRestoreActions | ForEach-Object {
+        if ($_.module) { $_.module } elseif ($_._fromModule) { $_._fromModule } else { $null }
+    } | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
+
+    # Apply RestoreFilter if provided
+    if ($restoreFilterArray -and $restoreFilterArray.Count -gt 0 -and $pendingRestoreActions.Count -gt 0) {
+        $pendingRestoreActions = @($pendingRestoreActions | Where-Object {
+            $moduleId = if ($_.module) { $_.module } elseif ($_._fromModule) { $_._fromModule } else { $null }
+            # Inline entries (no module) always pass the filter
+            if (-not $moduleId) { return $true }
+            return $moduleId -in $restoreFilterArray
+        })
+    }
+
+    if ($EnableRestore -and $pendingRestoreActions.Count -gt 0) {
+        Write-ProvisioningSection "Executing Restore Phase"
+        Write-PhaseEvent -Phase "restore"
+
+        $planManifestDir = $null
+        if ($plan.manifest.path -and (Test-Path $plan.manifest.path)) {
+            $planManifestDir = Split-Path -Parent (Resolve-Path $plan.manifest.path)
+        }
+
+        foreach ($restoreAction in $pendingRestoreActions) {
+            $actionId = Get-RestoreActionId -Item $restoreAction
+            $restoreType = if ($restoreAction.restoreType) { $restoreAction.restoreType } else { "copy" }
+            $restorerName = switch ($restoreType) {
+                "merge" {
+                    $fmt = if ($restoreAction.format) { $restoreAction.format } else { "json" }
+                    "merge-$fmt"
+                }
+                "append" { "append" }
+                default { "copy" }
+            }
+            $moduleId = if ($restoreAction.module) { $restoreAction.module } else { ($actionId -split '[/\\]')[0] }
+
+            Write-RestoreItemEvent -Id $actionId -Module $moduleId -Restorer $restorerName `
+                -Source $restoreAction.source -Target $restoreAction.target `
+                -Status "restoring" -Message "Restoring $actionId"
+
+            $actionHash = @{
+                id = $actionId
+                restoreType = $restoreAction.restoreType
+                source = $restoreAction.source
+                target = $restoreAction.target
+                backup = if ($null -eq $restoreAction.backup) { $true } else { $restoreAction.backup }
+                requiresAdmin = if ($restoreAction.requiresAdmin) { $true } else { $false }
+                requiresClosed = $restoreAction.requiresClosed
+                format = $restoreAction.format
+                arrayStrategy = $restoreAction.arrayStrategy
+                dedupe = $restoreAction.dedupe
+                newline = $restoreAction.newline
+                exclude = $restoreAction.exclude
+            }
+
+            if ($DryRun) {
+                Write-ProvisioningLog "[DRY-RUN] Would restore: $($restoreAction.source) -> $($restoreAction.target)" -Level ACTION
+                $restoreResult = @{
+                    id = $actionId
+                    module = $moduleId
+                    restorer = $restorerName
+                    source = $restoreAction.source
+                    target = $restoreAction.target
+                    status = "skipped_up_to_date"
+                    reason = "dry-run"
+                    backupPath = $null
+                    targetExisted = $false
+                    message = "Would restore"
+                }
+                Write-RestoreItemEvent -Id $actionId -Module $moduleId -Restorer $restorerName `
+                    -Source $restoreAction.source -Target $restoreAction.target `
+                    -Status "skipped_up_to_date" -Reason "dry-run" -Message "Would restore"
+                $restoreSuccessCount++
+            } else {
+                Write-ProvisioningLog "Restoring: $($restoreAction.source) -> $($restoreAction.target)" -Level ACTION
+                $raResult = Invoke-RestoreAction -Action $actionHash -RunId $runId -ManifestDir $planManifestDir
+
+                $eventStatus = switch ($raResult.status) {
+                    "restore" { "restored" }
+                    "skip" {
+                        if ($raResult.reason -like "*up to date*") { "skipped_up_to_date" }
+                        elseif ($raResult.reason -like "*not found*") { "skipped_missing_source" }
+                        else { "skipped_up_to_date" }
+                    }
+                    "fail" { "failed" }
+                    default { "failed" }
+                }
+                $targetExisted = if ($raResult.ContainsKey('targetExistedBefore')) { $raResult.targetExistedBefore } else { $false }
+
+                Write-RestoreItemEvent -Id $actionId -Module $moduleId -Restorer $restorerName `
+                    -Source $restoreAction.source -Target $restoreAction.target `
+                    -Status $eventStatus -Reason $raResult.reason `
+                    -BackupPath $raResult.backupPath -TargetExisted $targetExisted `
+                    -Message $raResult.reason
+
+                $restoreResult = @{
+                    id = $actionId
+                    module = $moduleId
+                    restorer = $restorerName
+                    source = $restoreAction.source
+                    target = $restoreAction.target
+                    expandedSource = $raResult.expandedSource
+                    expandedTarget = $raResult.expandedTarget
+                    status = $eventStatus
+                    reason = $raResult.reason
+                    backupPath = $raResult.backupPath
+                    targetExisted = $targetExisted
+                    backupCreated = if ($raResult.ContainsKey('backupCreated')) { $raResult.backupCreated } else { $false }
+                    message = $raResult.reason
+                }
+
+                if ($raResult.backupPath -and -not $restoreBackupLocation) {
+                    $restoreBackupLocation = Split-Path -Parent $raResult.backupPath
+                }
+
+                switch ($raResult.status) {
+                    "restore" {
+                        Write-ProvisioningLog "RESTORED: $actionId" -Level SUCCESS
+                        $restoreSuccessCount++
+                    }
+                    "skip" {
+                        Write-ProvisioningLog "SKIP: $actionId - $($raResult.reason)" -Level SKIP
+                        $restoreSkipCount++
+                    }
+                    "fail" {
+                        Write-ProvisioningLog "FAIL: $actionId - $($raResult.reason)" -Level ERROR
+                        $restoreFailCount++
+                    }
+                    "dry-run" {
+                        Write-ProvisioningLog "[DRY-RUN] $actionId - $($raResult.reason)" -Level ACTION
+                        $restoreSuccessCount++
+                    }
+                }
+            }
+
+            $restoreResults += $restoreResult
+        }
+
+        $restoreTotal = $restoreSuccessCount + $restoreSkipCount + $restoreFailCount
+        Write-SummaryEvent -Phase "restore" -Total $restoreTotal -Success $restoreSuccessCount -Skipped $restoreSkipCount -Failed $restoreFailCount -BackupLocation $restoreBackupLocation
+
+        if (-not $DryRun) {
+            $logsDir = Join-Path $PSScriptRoot "..\logs"
+            if (-not (Test-Path $logsDir)) {
+                New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+            }
+
+            $journalEntries = @()
+            foreach ($rr in $restoreResults) {
+                $actionStatus = switch ($rr.status) {
+                    "restored" { "restored" }
+                    "skipped_up_to_date" { "skipped_up_to_date" }
+                    "skipped_missing_source" { "skipped_missing_source" }
+                    "failed" { "failed" }
+                    default { $rr.status }
+                }
+                $journalEntries += @{
+                    kind = if ($rr.restorer -eq "copy") { "copy" } elseif ($rr.restorer -like "merge-*") { "merge" } else { $rr.restorer }
+                    source = $rr.source
+                    target = $rr.target
+                    resolvedSourcePath = $rr.expandedSource
+                    targetPath = $rr.expandedTarget
+                    backupRequested = $true
+                    targetExistedBefore = $rr.targetExisted
+                    backupCreated = $rr.backupCreated
+                    backupPath = $rr.backupPath
+                    action = $actionStatus
+                    error = if ($rr.status -eq "failed") { $rr.reason } else { $null }
+                }
+            }
+
+            $journal = @{
+                runId = $runId
+                manifestPath = if ($plan.manifest.path) { $plan.manifest.path } else { $PlanPath }
+                manifestDir = $planManifestDir
+                exportRoot = $null
+                timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+                entries = $journalEntries
+            }
+
+            $journalFile = Join-Path $logsDir "restore-journal-$runId.json"
+            $tempFile = "$journalFile.tmp"
+            $journal | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempFile -Encoding UTF8
+            Move-Item -Path $tempFile -Destination $journalFile -Force
+            Write-ProvisioningLog "Restore journal written: $journalFile" -Level INFO
+        }
+    }
+
     # Save state
     $manifestPath = if ($plan.manifest.path) { $plan.manifest.path } else { $PlanPath }
     $manifestHash = if ($plan.manifest.hash) { $plan.manifest.hash } else { "from-plan" }
@@ -613,20 +1016,20 @@ function Invoke-ApplyFromPlan {
     # Summary
     Write-ProvisioningSection "Results"
     Write-SummaryEvent -Phase "apply" -Total $actionResults.Count -Success $successCount -Skipped $skippedCount -Failed $failCount
-    Close-ProvisioningLog -SuccessCount $successCount -SkipCount $skippedCount -FailCount $failCount
-    
+    Close-ProvisioningLog -SuccessCount ($successCount + $restoreSuccessCount) -SkipCount ($skippedCount + $restoreSkipCount) -FailCount ($failCount + $restoreFailCount)
+
     # Get state file path (absolute)
     $stateDir = Join-Path $PSScriptRoot "..\state"
     $stateFile = (Join-Path $stateDir "$runId.json") | Resolve-Path -ErrorAction SilentlyContinue
     if (-not $stateFile) {
         $stateFile = [System.IO.Path]::GetFullPath((Join-Path $stateDir "$runId.json"))
     }
-    
+
     if ($OutputJson) {
         # Output JSON envelope
         . "$PSScriptRoot\json-output.ps1"
-        
-        # Build items[] array for GUI consumption
+
+        # Build items[] array for GUI consumption (app entries only — unchanged)
         $items = @($actionResults | Where-Object { $_.action.type -eq "app" } | ForEach-Object {
             $guiStatus = switch ($_.status) {
                 "success" { "ok" }
@@ -650,18 +1053,18 @@ function Invoke-ApplyFromPlan {
                 message = $_.message
             }
         })
-        
+
         # Count items by category for GUI
         $installedCount = @($items | Where-Object { $_.reason -eq "installed" }).Count
         $alreadyInstalledCount = @($items | Where-Object { $_.reason -eq "already_installed" }).Count
         $failedItemCount = @($items | Where-Object { $_.status -eq "failed" }).Count
-        
+
         # Convert logFile to absolute path
         $logFileAbsolute = $logFile
         if ($logFile -and -not [System.IO.Path]::IsPathRooted($logFile)) {
             $logFileAbsolute = [System.IO.Path]::GetFullPath($logFile)
         }
-        
+
         $data = [ordered]@{
             dryRun = $DryRun.IsPresent
             originalPlanRunId = $plan.runId
@@ -701,15 +1104,52 @@ function Invoke-ApplyFromPlan {
             stateFile = $stateFile
             logFile = $logFileAbsolute
         }
-        
+
+        # Add restore metadata to envelope (additive, backward compatible)
+        if ($restoreFilterArray) {
+            $data['restoreFilter'] = $restoreFilterArray
+        }
+        if ($restoreModulesAvailable.Count -gt 0) {
+            $data['restoreModulesAvailable'] = $restoreModulesAvailable
+        }
+
+        # Add restore data to envelope (additive, backward compatible)
+        if ($restoreResults.Count -gt 0) {
+            $data['restoreItems'] = @($restoreResults | ForEach-Object {
+                [ordered]@{
+                    id = $_.id
+                    module = $_.module
+                    restorer = $_.restorer
+                    source = $_.source
+                    target = $_.target
+                    status = $_.status
+                    reason = $_.reason
+                    backupPath = $_.backupPath
+                    targetExisted = $_.targetExisted
+                    message = $_.message
+                }
+            })
+            $data['restoreSummary'] = [ordered]@{
+                total = $restoreResults.Count
+                restored = $restoreSuccessCount
+                skipped = $restoreSkipCount
+                failed = $restoreFailCount
+                backupLocation = $restoreBackupLocation
+            }
+            if (-not $DryRun) {
+                $restoreLogsDir = Join-Path $PSScriptRoot "..\logs"
+                $data['restoreJournalFile'] = [System.IO.Path]::GetFullPath((Join-Path $restoreLogsDir "restore-journal-$runId.json"))
+            }
+        }
+
         # Add eventsFile if events are enabled
         if ($EventsFormat -eq "jsonl") {
             $logsDir = Join-Path $PSScriptRoot "..\logs"
             $eventsFile = [System.IO.Path]::GetFullPath((Join-Path $logsDir "apply-$runId.events.jsonl"))
             $data['eventsFile'] = $eventsFile
         }
-        
-        $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success ($failCount -eq 0) -Data $data
+
+        $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success (($failCount + $restoreFailCount) -eq 0) -Data $data
         Write-JsonOutput -Envelope $envelope
     } else {
         if ($DryRun) {

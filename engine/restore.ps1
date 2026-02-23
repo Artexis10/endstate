@@ -23,6 +23,7 @@
 . "$PSScriptRoot\..\restorers\merge-json.ps1"
 . "$PSScriptRoot\..\restorers\merge-ini.ps1"
 . "$PSScriptRoot\..\restorers\append.ps1"
+. "$PSScriptRoot\config-modules.ps1"
 
 # Known sensitive path segments that trigger warnings
 $script:SensitivePathSegments = @(
@@ -789,18 +790,21 @@ function Invoke-Restore {
     param(
         [Parameter(Mandatory = $true)]
         [string]$ManifestPath,
-        
+
         [Parameter(Mandatory = $false)]
         [switch]$EnableRestore,
-        
+
         [Parameter(Mandatory = $false)]
         [switch]$DryRun,
-        
+
         [Parameter(Mandatory = $false)]
         [string]$RunId = $null,
-        
+
         [Parameter(Mandatory = $false)]
-        [string]$ExportPath = $null
+        [string]$ExportPath = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$RestoreFilter = $null
     )
     
     if (-not $RunId) {
@@ -816,6 +820,9 @@ function Invoke-Restore {
     # Load manifest
     $manifest = Read-Manifest -Path $ManifestPath
     $manifestDir = Split-Path -Parent (Resolve-Path $ManifestPath)
+
+    # Expand configModules so entries get tagged with _fromModule for filtering
+    $manifest = Expand-ManifestConfigModules -Manifest $manifest
     
     # Resolve export path (Model B support)
     . "$PSScriptRoot\export-capture.ps1"
@@ -830,7 +837,29 @@ function Invoke-Restore {
     
     # Check if restore steps exist
     $restoreItems = @($manifest.restore)
-    
+
+    # Parse RestoreFilter into array if provided
+    $restoreFilterArray = $null
+    if ($RestoreFilter) {
+        $restoreFilterArray = @($RestoreFilter -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+    }
+
+    # Compute available modules before filtering (for return value)
+    $restoreModulesAvailable = @($restoreItems | ForEach-Object {
+        if ($_.module) { $_.module } elseif ($_._fromModule) { $_._fromModule } else { $null }
+    } | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
+
+    # Apply RestoreFilter if provided
+    if ($restoreFilterArray -and $restoreFilterArray.Count -gt 0 -and $restoreItems.Count -gt 0) {
+        $restoreItems = @($restoreItems | Where-Object {
+            $moduleId = if ($_.module) { $_.module } elseif ($_._fromModule) { $_._fromModule } else { $null }
+            # Inline entries (no module) always pass the filter
+            if (-not $moduleId) { return $true }
+            return $moduleId -in $restoreFilterArray
+        })
+        Write-ProvisioningLog "RestoreFilter active: $($restoreFilterArray -join ', '). $($restoreItems.Count) entries after filtering." -Level INFO
+    }
+
     if ($restoreItems.Count -eq 0) {
         Write-ProvisioningLog "No restore steps in manifest" -Level INFO
         Write-Host ""

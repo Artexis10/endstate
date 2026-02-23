@@ -219,7 +219,7 @@ function Get-CapabilitiesData {
             }
             apply = [ordered]@{
                 supported = $true
-                flags = @("--manifest", "--plan", "--dry-run", "--enable-restore", "--json", "--events")
+                flags = @("--manifest", "--plan", "--dry-run", "--enable-restore", "--restore-filter", "--json", "--events")
             }
             verify = [ordered]@{
                 supported = $true
@@ -227,7 +227,7 @@ function Get-CapabilitiesData {
             }
             restore = [ordered]@{
                 supported = $true
-                flags = @("--manifest", "--enable-restore", "--dry-run")
+                flags = @("--manifest", "--enable-restore", "--restore-filter", "--dry-run")
             }
             report = [ordered]@{
                 supported = $true

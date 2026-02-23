@@ -448,6 +448,29 @@ function Invoke-Capture {
                         Write-ProvisioningLog $line -Level $level
                     }
                 }
+
+                # Enrich config capture with per-module metadata for GUI display
+                if ($configCaptureResult.modulesCaptured.Count -gt 0) {
+                    $configCatalog = Get-ConfigModuleCatalog
+                    $modulesDetail = @()
+                    foreach ($capturedModuleId in $configCaptureResult.modulesCaptured) {
+                        if ($configCatalog.ContainsKey($capturedModuleId)) {
+                            $mod = $configCatalog[$capturedModuleId]
+                            $restoreEntryCount = if ($mod.restore) { $mod.restore.Count } else { 0 }
+                            $captureFiles = @()
+                            if ($mod.capture -and $mod.capture.files) {
+                                $captureFiles = @($mod.capture.files | ForEach-Object { $_.dest })
+                            }
+                            $modulesDetail += @{
+                                id = $capturedModuleId
+                                displayName = $mod.displayName
+                                entries = $restoreEntryCount
+                                files = $captureFiles
+                            }
+                        }
+                    }
+                    $configCaptureResult.modules = $modulesDetail
+                }
             }
         } else {
             Write-ProvisioningLog "Config modules not available (config-modules.ps1 not found)" -Level WARN

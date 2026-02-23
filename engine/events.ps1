@@ -146,10 +146,10 @@ function Write-PhaseEvent {
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("plan", "apply", "verify", "capture")]
+        [ValidateSet("plan", "apply", "verify", "capture", "restore")]
         [string]$Phase
     )
-    
+
     Write-StreamingEvent @{
         event = "phase"
         phase = $Phase
@@ -226,23 +226,26 @@ function Write-SummaryEvent {
     #>
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet("plan", "apply", "verify", "capture")]
+        [ValidateSet("plan", "apply", "verify", "capture", "restore")]
         [string]$Phase,
-        
+
         [Parameter(Mandatory = $true)]
         [int]$Total,
-        
+
         [Parameter(Mandatory = $true)]
         [int]$Success,
-        
+
         [Parameter(Mandatory = $true)]
         [int]$Skipped,
-        
+
         [Parameter(Mandatory = $true)]
-        [int]$Failed
+        [int]$Failed,
+
+        [Parameter(Mandatory = $false)]
+        [string]$BackupLocation = $null
     )
-    
-    Write-StreamingEvent @{
+
+    $event = @{
         event = "summary"
         phase = $Phase
         total = $Total
@@ -250,6 +253,12 @@ function Write-SummaryEvent {
         skipped = $Skipped
         failed = $Failed
     }
+
+    if ($BackupLocation) {
+        $event['backupLocation'] = $BackupLocation
+    }
+
+    Write-StreamingEvent $event
 }
 
 function Write-ErrorEvent {
@@ -320,5 +329,81 @@ function Write-ArtifactEvent {
     }
 }
 
+function Write-RestoreItemEvent {
+    <#
+    .SYNOPSIS
+        Emit a restore-item progress event.
+    .PARAMETER Id
+        Restore entry identifier (e.g., "vscode/settings.json")
+    .PARAMETER Module
+        Config module ID (e.g., "vscode")
+    .PARAMETER Restorer
+        Restorer type: "copy", "merge-json", "merge-ini", "append"
+    .PARAMETER Source
+        Portable source path
+    .PARAMETER Target
+        System target path
+    .PARAMETER Status
+        Status: "restoring", "restored", "skipped_up_to_date", "skipped_missing_source", "failed"
+    .PARAMETER Reason
+        Optional reason string
+    .PARAMETER BackupPath
+        Optional backup path
+    .PARAMETER TargetExisted
+        Whether target file existed before restore
+    .PARAMETER Message
+        Human-readable message
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Id,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Module,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("copy", "merge-json", "merge-ini", "append")]
+        [string]$Restorer,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Target,
+
+        [Parameter(Mandatory = $true)]
+        [ValidateSet("restoring", "restored", "skipped_up_to_date", "skipped_missing_source", "failed")]
+        [string]$Status,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Reason = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$BackupPath = $null,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$TargetExisted = $false,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Message = $null
+    )
+
+    $event = @{
+        event = "restore-item"
+        id = $Id
+        module = $Module
+        restorer = $Restorer
+        source = $Source
+        target = $Target
+        status = $Status
+        reason = $Reason
+        backupPath = $BackupPath
+        targetExisted = $TargetExisted
+        message = $Message
+    }
+
+    Write-StreamingEvent $event
+}
+
 # Functions exported: Enable-StreamingEvents, Disable-StreamingEvents, Test-StreamingEventsEnabled,
-#                     Write-PhaseEvent, Write-ItemEvent, Write-SummaryEvent, Write-ArtifactEvent, Write-ErrorEvent
+#                     Write-PhaseEvent, Write-ItemEvent, Write-SummaryEvent, Write-ArtifactEvent, Write-ErrorEvent, Write-RestoreItemEvent
