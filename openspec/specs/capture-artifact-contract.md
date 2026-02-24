@@ -50,6 +50,8 @@ This specification defines the contract for capture operations, including fallba
 - Fallback: derive from manifest if `appsIncluded` unavailable
 - Count displayed MUST equal list length shown
 - If list unavailable but count > 0: show "N apps captured" with note
+- Each `appsIncluded` entry MAY include an optional `name` field containing the winget display name
+- GUI MAY use the `name` field for human-readable display when available, falling back to `id` when absent
 
 ## Failure Modes Table
 
@@ -96,7 +98,7 @@ This specification defines the contract for capture operations, including fallba
       "sensitiveExcludedCount": 0
     },
     "appsIncluded": [
-      { "id": "Git.Git", "source": "winget" }
+      { "id": "Git.Git", "source": "winget", "name": "Git" }
     ],
     "captureWarnings": ["WINGET_EXPORT_FAILED_FALLBACK_USED"]
   },

@@ -170,42 +170,51 @@ function Write-ItemEvent {
         Optional reason: "already_installed", "filtered", "install_failed", etc.
     .PARAMETER Message
         Optional human-readable message.
+    .PARAMETER Name
+        Optional display name (e.g., winget Name column).
     #>
     param(
         [Parameter(Mandatory = $true)]
         [string]$Id,
-        
+
         [Parameter(Mandatory = $true)]
         [string]$Driver,
-        
+
         [Parameter(Mandatory = $true)]
         [ValidateSet("to_install", "installing", "installed", "present", "skipped", "failed")]
         [string]$Status,
-        
+
         [Parameter(Mandatory = $false)]
         [string]$Reason = $null,
-        
+
         [Parameter(Mandatory = $false)]
-        [string]$Message = $null
+        [string]$Message = $null,
+
+        [Parameter(Mandatory = $false)]
+        [string]$Name = $null
     )
-    
+
     $event = @{
         event = "item"
         id = $Id
         driver = $Driver
         status = $Status
     }
-    
+
     if ($Reason) {
         $event['reason'] = $Reason
     } else {
         $event['reason'] = $null
     }
-    
+
     if ($Message) {
         $event['message'] = $Message
     }
-    
+
+    if ($Name) {
+        $event['name'] = $Name
+    }
+
     Write-StreamingEvent $event
 }
 

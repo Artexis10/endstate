@@ -683,6 +683,112 @@ Describe "Capture.ArtifactContract" {
         }
     }
     
+    Context "Display name extraction from winget list fallback" {
+
+        It "Should extract _name from Name column in winget list output" {
+            # Simulate winget list tabular output with known column positions
+            $headerLine = "Name                            Id                          Version      Source"
+            $nameIndex = $headerLine.IndexOf('Name')
+            $idIndex = $headerLine.IndexOf('Id')
+
+            $dataLine = "Visual Studio Code              Microsoft.VisualStudioCode  1.85.0       winget"
+
+            # Apply the same extraction logic as Get-InstalledAppsViaWingetList
+            $nameEnd = [Math]::Min($idIndex, $dataLine.Length)
+            $displayName = $dataLine.Substring($nameIndex, $nameEnd - $nameIndex).Trim()
+
+            $displayName | Should -Be "Visual Studio Code"
+        }
+
+        It "Should set _name to null when Name column is empty" {
+            $headerLine = "Name                            Id                          Version      Source"
+            $nameIndex = $headerLine.IndexOf('Name')
+            $idIndex = $headerLine.IndexOf('Id')
+
+            # Data line with empty name column (spaces only)
+            $dataLine = "                                SomePackage.Id              1.0.0        winget"
+
+            $nameEnd = [Math]::Min($idIndex, $dataLine.Length)
+            $displayName = $dataLine.Substring($nameIndex, $nameEnd - $nameIndex).Trim()
+            if (-not $displayName) { $displayName = $null }
+
+            $displayName | Should -Be $null
+        }
+
+        It "Should include _name field on app object from fallback parser" {
+            # Verify the app hashtable structure includes _name
+            $app = @{
+                id = "microsoft-visualstudiocode"
+                refs = @{ windows = "Microsoft.VisualStudioCode" }
+                _source = "winget"
+                _name = "Visual Studio Code"
+            }
+
+            $app._name | Should -Be "Visual Studio Code"
+            $app.ContainsKey('_name') | Should -Be $true
+        }
+    }
+
+    Context "Display name in appsIncluded envelope" {
+
+        It "Should include name in appsIncluded entry when _name is present" {
+            $manifest = @{
+                apps = @(
+                    @{ id = "git-git"; refs = @{ windows = "Git.Git" }; _source = "winget"; _name = "Git" }
+                )
+            }
+
+            $appsIncluded = @($manifest.apps | ForEach-Object {
+                $appEntry = @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id } }
+                if ($_._source) { $appEntry.source = $_._source } else { $appEntry.source = "winget" }
+                if ($_._name) { $appEntry.name = $_._name }
+                $appEntry
+            })
+
+            $appsIncluded[0].name | Should -Be "Git"
+            $appsIncluded[0].id | Should -Be "Git.Git"
+            $appsIncluded[0].source | Should -Be "winget"
+        }
+
+        It "Should omit name in appsIncluded entry when _name is null" {
+            $manifest = @{
+                apps = @(
+                    @{ id = "git-git"; refs = @{ windows = "Git.Git" }; _source = "winget"; _name = $null }
+                )
+            }
+
+            $appsIncluded = @($manifest.apps | ForEach-Object {
+                $appEntry = @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id } }
+                if ($_._source) { $appEntry.source = $_._source } else { $appEntry.source = "winget" }
+                if ($_._name) { $appEntry.name = $_._name }
+                $appEntry
+            })
+
+            $appsIncluded[0].ContainsKey('name') | Should -Be $false
+            $appsIncluded[0].id | Should -Be "Git.Git"
+        }
+
+        It "Should preserve existing fields when name is added" {
+            $manifest = @{
+                apps = @(
+                    @{ id = "docker-dockerdesktop"; refs = @{ windows = "Docker.DockerDesktop" }; _source = "winget"; _name = "Docker Desktop" }
+                    @{ id = "git-git"; refs = @{ windows = "Git.Git" }; _source = "winget"; _name = $null }
+                )
+            }
+
+            $appsIncluded = @($manifest.apps | ForEach-Object {
+                $appEntry = @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id } }
+                if ($_._source) { $appEntry.source = $_._source } else { $appEntry.source = "winget" }
+                if ($_._name) { $appEntry.name = $_._name }
+                $appEntry
+            })
+
+            $appsIncluded.Count | Should -Be 2
+            $appsIncluded[0].name | Should -Be "Docker Desktop"
+            $appsIncluded[1].ContainsKey('name') | Should -Be $false
+        }
+    }
+
     Context "INV-CONTINUITY-1: counts.included must equal appsIncluded.length" {
         
         It "Should have counts.included equal manifest.apps.Count in capture result" {

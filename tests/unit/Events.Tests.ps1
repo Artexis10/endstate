@@ -297,11 +297,11 @@ Describe "Streaming Events Module" {
 
         It "Should set reason to null when not provided" {
             Enable-StreamingEvents
-            
+
             $originalError = [Console]::Error
             $stringWriter = [System.IO.StringWriter]::new()
             [Console]::SetError($stringWriter)
-            
+
             try {
                 Write-ItemEvent -Id "App.Id" -Driver "winget" -Status "installed"
                 $stderr = $stringWriter.ToString().Trim()
@@ -309,9 +309,48 @@ Describe "Streaming Events Module" {
                 [Console]::SetError($originalError)
                 $stringWriter.Dispose()
             }
-            
+
             $parsed = $stderr | ConvertFrom-Json
             $parsed.reason | Should -Be $null
+        }
+
+        It "Should include name when Name parameter provided" {
+            Enable-StreamingEvents
+
+            $originalError = [Console]::Error
+            $stringWriter = [System.IO.StringWriter]::new()
+            [Console]::SetError($stringWriter)
+
+            try {
+                Write-ItemEvent -Id "Microsoft.VisualStudioCode" -Driver "winget" -Status "present" -Name "Visual Studio Code"
+                $stderr = $stringWriter.ToString().Trim()
+            } finally {
+                [Console]::SetError($originalError)
+                $stringWriter.Dispose()
+            }
+
+            $parsed = $stderr | ConvertFrom-Json
+            $parsed.name | Should -Be "Visual Studio Code"
+            $parsed.id | Should -Be "Microsoft.VisualStudioCode"
+        }
+
+        It "Should omit name when Name parameter not provided" {
+            Enable-StreamingEvents
+
+            $originalError = [Console]::Error
+            $stringWriter = [System.IO.StringWriter]::new()
+            [Console]::SetError($stringWriter)
+
+            try {
+                Write-ItemEvent -Id "App.Id" -Driver "winget" -Status "present"
+                $stderr = $stringWriter.ToString().Trim()
+            } finally {
+                [Console]::SetError($originalError)
+                $stringWriter.Dispose()
+            }
+
+            $parsed = $stderr | ConvertFrom-Json
+            $parsed.PSObject.Properties.Name | Should -Not -Contain "name"
         }
 
         It "Should accept all valid status values" {

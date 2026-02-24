@@ -2639,6 +2639,9 @@ function Invoke-CaptureCore {
                 } else {
                     $appEntry.source = "winget"
                 }
+                if ($_._name) {
+                    $appEntry.name = $_._name
+                }
                 $appEntry
             })
         }
@@ -2760,6 +2763,9 @@ function Invoke-CaptureCore {
                     } else {
                         $appEntry.source = "winget"
                     }
+                    if ($_._name) {
+                        $appEntry.name = $_._name
+                    }
                     $appEntry
                 })
                 
@@ -2768,7 +2774,17 @@ function Invoke-CaptureCore {
                     foreach ($app in $manifest.apps) {
                         $appId = if ($app.refs -and $app.refs.windows) { $app.refs.windows } else { $app.id }
                         $driver = if ($app._source) { $app._source } else { "winget" }
-                        Write-ItemEvent -Id $appId -Driver $driver -Status "present" -Reason "detected" -Message "Captured"
+                        $itemArgs = @{
+                            Id = $appId
+                            Driver = $driver
+                            Status = "present"
+                            Reason = "detected"
+                            Message = "Captured"
+                        }
+                        if ($app._name) {
+                            $itemArgs.Name = $app._name
+                        }
+                        Write-ItemEvent @itemArgs
                     }
                 }
             }

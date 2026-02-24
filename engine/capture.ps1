@@ -261,7 +261,9 @@ function Invoke-Capture {
             # Emit item events for filtered runtime packages
             foreach ($app in $runtimeApps) {
                 $driver = if ($app._source) { $app._source } else { "winget" }
-                Write-ItemEvent -Id $app.refs.windows -Driver $driver -Status "skipped" -Reason "filtered_runtime" -Message "Excluded (runtime)"
+                $itemArgs = @{ Id = $app.refs.windows; Driver = $driver; Status = "skipped"; Reason = "filtered_runtime"; Message = "Excluded (runtime)" }
+                if ($app._name) { $itemArgs.Name = $app._name }
+                Write-ItemEvent @itemArgs
             }
         }
     }
@@ -276,7 +278,9 @@ function Invoke-Capture {
             # Emit item events for filtered store apps
             foreach ($app in $storeApps) {
                 $driver = if ($app._source) { $app._source } else { "msstore" }
-                Write-ItemEvent -Id $app.refs.windows -Driver $driver -Status "skipped" -Reason "filtered_store" -Message "Excluded (store app)"
+                $itemArgs = @{ Id = $app.refs.windows; Driver = $driver; Status = "skipped"; Reason = "filtered_store"; Message = "Excluded (store app)" }
+                if ($app._name) { $itemArgs.Name = $app._name }
+                Write-ItemEvent @itemArgs
             }
         }
     }
@@ -315,7 +319,9 @@ function Invoke-Capture {
     # Emit item events for included apps
     foreach ($app in $sortedApps) {
         $driver = if ($app._source) { $app._source } else { "winget" }
-        Write-ItemEvent -Id $app.refs.windows -Driver $driver -Status "present" -Reason "detected" -Message "Detected"
+        $itemArgs = @{ Id = $app.refs.windows; Driver = $driver; Status = "present"; Reason = "detected"; Message = "Detected" }
+        if ($app._name) { $itemArgs.Name = $app._name }
+        Write-ItemEvent @itemArgs
     }
     
     # Check for sensitive paths
@@ -800,6 +806,7 @@ function Get-InstalledAppsViaWingetList {
         }
         
         if ($headerLine) {
+            $nameIndex = $headerLine.IndexOf('Name')
             $idIndex = $headerLine.IndexOf('Id')
             $versionIndex = $headerLine.IndexOf('Version')
             $sourceIndex = $headerLine.IndexOf('Source')
@@ -811,6 +818,14 @@ function Get-InstalledAppsViaWingetList {
                 if ($line.Length -lt $versionIndex) { continue }
                 if ($line -match '^-+$') { continue }  # Skip separator lines
                 
+                # Extract display name (Name column runs from nameIndex to idIndex)
+                $displayName = $null
+                if ($nameIndex -ge 0 -and $idIndex -gt $nameIndex -and $line.Length -gt $nameIndex) {
+                    $nameEnd = [Math]::Min($idIndex, $line.Length)
+                    $displayName = $line.Substring($nameIndex, $nameEnd - $nameIndex).Trim()
+                    if (-not $displayName) { $displayName = $null }
+                }
+
                 # Extract Id field
                 $idEnd = if ($versionIndex -gt 0) { $versionIndex } else { $line.Length }
                 $packageId = $line.Substring($idIndex, $idEnd - $idIndex).Trim()
@@ -848,6 +863,7 @@ function Get-InstalledAppsViaWingetList {
                         windows = $packageId
                     }
                     _source = $source
+                    _name = $displayName
                 }
                 
                 $apps += $app
@@ -909,6 +925,7 @@ function Get-InstalledAppsViaWinget {
                             windows = $packageId
                         }
                         _source = $sourceName
+                        _name = $null
                     }
                     
                     $apps += $app
