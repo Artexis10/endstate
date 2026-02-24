@@ -771,6 +771,85 @@ function Invoke-WingetExport {
     }
 }
 
+function Get-WingetDisplayNames {
+    <#
+    .SYNOPSIS
+        Run winget list to build a hashtable mapping PackageIdentifier to display name.
+        Returns empty hashtable on any failure (non-fatal lookup).
+    #>
+    param()
+
+    $nameMap = @{}
+
+    try {
+        $listOutput = & winget list --source winget 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-ProvisioningLog "winget list for name lookup failed (exit code $LASTEXITCODE), skipping" -Level WARN
+            return $nameMap
+        }
+
+        $lines = $listOutput -split "`n" | Where-Object { $_.Trim() }
+
+        # Find header line to determine column positions
+        $headerLine = $lines | Where-Object { $_ -match '^Name\s+Id\s+' } | Select-Object -First 1
+        if (-not $headerLine) {
+            $headerLine = $lines | Where-Object { $_ -match 'Id\s+' -and $_ -match 'Version' } | Select-Object -First 1
+        }
+
+        if (-not $headerLine) {
+            Write-ProvisioningLog "Could not parse winget list header for name lookup" -Level WARN
+            return $nameMap
+        }
+
+        $nameIndex = $headerLine.IndexOf('Name')
+        $idIndex = $headerLine.IndexOf('Id')
+        $versionIndex = $headerLine.IndexOf('Version')
+
+        # Find the separator line (dashes) to identify where data starts
+        $headerIdx = [Array]::IndexOf($lines, $headerLine)
+        $startIdx = $headerIdx + 1
+        # Skip separator line if present
+        if ($startIdx -lt $lines.Count -and $lines[$startIdx] -match '^-+') {
+            $startIdx++
+        }
+
+        for ($i = $startIdx; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            if ($line.Length -lt $versionIndex) { continue }
+            if ($line -match '^-+$') { continue }
+
+            # Extract Id field
+            $idEnd = if ($versionIndex -gt 0) { $versionIndex } else { $line.Length }
+            if ($idIndex -ge $line.Length) { continue }
+            $rawId = $line.Substring($idIndex, [Math]::Min($idEnd - $idIndex, $line.Length - $idIndex)).Trim()
+
+            # Sanitize: strip leading non-ASCII characters
+            $rawId = $rawId -replace '^[^\x20-\x7E]+', ''
+            $rawId = $rawId.Trim()
+            if (-not $rawId -or $rawId -match '^\s*$') { continue }
+
+            # Extract display name
+            $displayName = $null
+            if ($nameIndex -ge 0 -and $idIndex -gt $nameIndex -and $line.Length -gt $nameIndex) {
+                $nameEnd = [Math]::Min($idIndex, $line.Length)
+                $displayName = $line.Substring($nameIndex, $nameEnd - $nameIndex).Trim()
+                if (-not $displayName) { $displayName = $null }
+            }
+
+            if ($displayName -and -not $nameMap.ContainsKey($rawId)) {
+                $nameMap[$rawId] = $displayName
+            }
+        }
+
+        Write-ProvisioningLog "Name lookup: resolved $($nameMap.Count) display names from winget list" -Level INFO
+
+    } catch {
+        Write-ProvisioningLog "Name lookup failed (non-fatal): $_" -Level WARN
+    }
+
+    return $nameMap
+}
+
 function Get-InstalledAppsViaWingetList {
     <#
     .SYNOPSIS
@@ -907,27 +986,30 @@ function Get-InstalledAppsViaWinget {
             
             $apps = @()
             $sources = $exportData.Sources
-            
+
+            # Harvest display names from winget list (non-fatal)
+            $nameMap = Get-WingetDisplayNames
+
             foreach ($source in $sources) {
                 $sourceName = $source.SourceDetails.Name
                 Write-ProvisioningLog "Processing source: $sourceName" -Level INFO
-                
+
                 foreach ($package in $source.Packages) {
                     $packageId = $package.PackageIdentifier
-                    
+
                     # Create app entry with platform-agnostic ID
                     $appId = $packageId -replace '\.', '-' -replace '_', '-'
                     $appId = $appId.ToLower()
-                    
+
                     $app = @{
                         id = $appId
                         refs = @{
                             windows = $packageId
                         }
                         _source = $sourceName
-                        _name = $null
+                        _name = if ($nameMap.ContainsKey($packageId)) { $nameMap[$packageId] } else { $null }
                     }
-                    
+
                     $apps += $app
                     Write-ProvisioningLog "  + $packageId (source: $sourceName)" -Level ACTION
                 }
