@@ -33,6 +33,25 @@ $script:TracedRoots = @(
 
 #region Snapshot Functions
 
+function Get-TraceFileEntries {
+    <#
+    .SYNOPSIS
+        Scan a directory recursively and return file objects.
+    .DESCRIPTION
+        Thin wrapper around Get-ChildItem for testability. Tests mock this
+        function to avoid scanning real user directories.
+    .PARAMETER RootPath
+        Directory to scan.
+    .OUTPUTS
+        Array of FileInfo objects.
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath
+    )
+    return Get-ChildItem -Path $RootPath -Recurse -File -Force -ErrorAction SilentlyContinue
+}
+
 function New-TraceSnapshot {
     <#
     .SYNOPSIS
@@ -68,7 +87,7 @@ function New-TraceSnapshot {
         $snapshot.roots[$rootVar] = $rootPath
         
         # Scan all files under this root
-        $files = Get-ChildItem -Path $rootPath -Recurse -File -Force -ErrorAction SilentlyContinue
+        $files = Get-TraceFileEntries -RootPath $rootPath
         
         foreach ($file in $files) {
             # Convert absolute path to env-var-prefixed path
@@ -661,6 +680,7 @@ function ConvertTo-ModuleJsonc {
 #endregion
 
 # Exported functions:
+# - Get-TraceFileEntries
 # - New-TraceSnapshot
 # - Read-TraceSnapshot
 # - Compare-TraceSnapshots

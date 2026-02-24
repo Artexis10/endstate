@@ -14,11 +14,22 @@ BeforeAll {
 Describe "Trace.Snapshot" {
     
     Context "New-TraceSnapshot creates valid snapshot structure" {
-        
+
+        BeforeAll {
+            # Mock the filesystem scanner so we never hit real APPDATA/LOCALAPPDATA
+            Mock Get-TraceFileEntries {
+                # Return a small set of fake FileInfo-like objects
+                @(
+                    [PSCustomObject]@{ FullName = "$RootPath\Vendor\App\settings.json"; Length = 256; LastWriteTime = [datetime]"2025-06-01T12:00:00" }
+                    [PSCustomObject]@{ FullName = "$RootPath\Vendor\App\config\prefs.ini"; Length = 128; LastWriteTime = [datetime]"2025-06-01T12:30:00" }
+                    [PSCustomObject]@{ FullName = "$RootPath\AnotherVendor\Tool\data.json"; Length = 512; LastWriteTime = [datetime]"2025-06-01T13:00:00" }
+                )
+            }
+        }
+
         It "Should return snapshot with required fields" {
-            # Create a minimal snapshot (will scan real APPDATA/LOCALAPPDATA)
             $snapshot = New-TraceSnapshot
-            
+
             $snapshot | Should -Not -BeNullOrEmpty
             $snapshot.version | Should -Be 1
             $snapshot.timestamp | Should -Not -BeNullOrEmpty
