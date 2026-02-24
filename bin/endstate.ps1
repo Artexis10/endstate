@@ -502,6 +502,52 @@ function Reset-InstalledAppsCache {
     $script:InstalledAppsMapCache = $null
 }
 
+function Get-WingetDisplayNameMap {
+    <#
+    .SYNOPSIS
+        Build a hashtable mapping winget PackageIdentifier to display name.
+        Parses 'winget list --source winget' output. Returns empty hashtable on failure.
+    #>
+    $nameMap = @{}
+    try {
+        $listOutput = if ($script:WingetScript) {
+            & pwsh -NoProfile -File $script:WingetScript list 2>$null
+        } else {
+            & winget list --source winget 2>$null
+        }
+        if ($LASTEXITCODE -ne 0) { return $nameMap }
+
+        $lines = ($listOutput | Out-String) -split "`n" | Where-Object { $_.Trim() }
+
+        # Find header line to determine column positions
+        $headerLine = $lines | Where-Object { $_ -match '^Name\s+Id\s+' } | Select-Object -First 1
+        if (-not $headerLine) { return $nameMap }
+
+        $nameIndex = $headerLine.IndexOf('Name')
+        $idIndex = $headerLine.IndexOf('Id')
+        $versionIndex = $headerLine.IndexOf('Version')
+
+        $headerIdx = [Array]::IndexOf($lines, $headerLine)
+        $startIdx = $headerIdx + 1
+        if ($startIdx -lt $lines.Count -and $lines[$startIdx] -match '^-+') { $startIdx++ }
+
+        for ($i = $startIdx; $i -lt $lines.Count; $i++) {
+            $line = $lines[$i]
+            if ($line.Length -lt $versionIndex) { continue }
+            if ($line -match '^-+') { continue }
+
+            $appName = $line.Substring($nameIndex, $idIndex - $nameIndex).Trim()
+            $appId   = $line.Substring($idIndex,   $versionIndex - $idIndex).Trim()
+            if ($appId -and $appName) {
+                $nameMap[$appId] = $appName
+            }
+        }
+    } catch {
+        # Non-fatal: return empty map if parsing fails
+    }
+    return $nameMap
+}
+
 function Compute-Drift {
     param(
         [Parameter(Mandatory = $true)]
@@ -2631,16 +2677,21 @@ function Invoke-CaptureCore {
         
         $appsIncluded = @()
         if ($sanitizedManifest.apps) {
+            # Resolve display names from winget (since _name metadata
+            # is stripped by Invoke-SanitizeManifest)
+            $wingetNameMap = Get-WingetDisplayNameMap
+
             $appsIncluded = @($sanitizedManifest.apps | ForEach-Object {
-                $appEntry = @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id } }
+                $wingetId = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id }
+                $appEntry = @{ id = $wingetId }
                 # Determine source from _source metadata or infer from ID pattern
                 if ($_._source) {
                     $appEntry.source = $_._source
                 } else {
                     $appEntry.source = "winget"
                 }
-                if ($_._name) {
-                    $appEntry.name = $_._name
+                if ($wingetNameMap.ContainsKey($wingetId)) {
+                    $appEntry.name = $wingetNameMap[$wingetId]
                 }
                 $appEntry
             })
@@ -2754,17 +2805,16 @@ function Invoke-CaptureCore {
                 $result.Counts.included = $manifest.apps.Count
                 $result.Counts.totalFound = $manifest.apps.Count
                 
+                # Resolve display names from winget (since _name metadata
+                # is stripped during manifest serialization to disk)
+                $wingetNameMap = Get-WingetDisplayNameMap
+                
                 # Extract app IDs and sources for the GUI
                 $result.AppsIncluded = @($manifest.apps | ForEach-Object {
-                    $appEntry = @{ id = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id } }
-                    # Determine source from _source metadata or infer from ID pattern
-                    if ($_._source) {
-                        $appEntry.source = $_._source
-                    } else {
-                        $appEntry.source = "winget"
-                    }
-                    if ($_._name) {
-                        $appEntry.name = $_._name
+                    $wingetId = if ($_.refs -and $_.refs.windows) { $_.refs.windows } else { $_.id }
+                    $appEntry = @{ id = $wingetId; source = "winget" }
+                    if ($wingetNameMap.ContainsKey($wingetId)) {
+                        $appEntry.name = $wingetNameMap[$wingetId]
                     }
                     $appEntry
                 })
@@ -2773,16 +2823,15 @@ function Invoke-CaptureCore {
                 if (Test-StreamingEventsEnabled) {
                     foreach ($app in $manifest.apps) {
                         $appId = if ($app.refs -and $app.refs.windows) { $app.refs.windows } else { $app.id }
-                        $driver = if ($app._source) { $app._source } else { "winget" }
                         $itemArgs = @{
                             Id = $appId
-                            Driver = $driver
+                            Driver = "winget"
                             Status = "present"
                             Reason = "detected"
                             Message = "Captured"
                         }
-                        if ($app._name) {
-                            $itemArgs.Name = $app._name
+                        if ($wingetNameMap.ContainsKey($appId)) {
+                            $itemArgs.Name = $wingetNameMap[$appId]
                         }
                         Write-ItemEvent @itemArgs
                     }
