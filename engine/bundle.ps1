@@ -117,6 +117,7 @@ function Invoke-CollectConfigFiles {
         errors = @()
         filesCopied = 0
         moduleFileCounts = @{}
+        moduleFilePaths = @{}
     }
     
     if ($Modules.Count -eq 0) {
@@ -141,6 +142,7 @@ function Invoke-CollectConfigFiles {
         }
         
         $moduleFilesCopied = 0
+        $moduleFilePaths = @()
         $moduleErrors = @()
         
         foreach ($fileEntry in $module.capture.files) {
@@ -187,6 +189,7 @@ function Invoke-CollectConfigFiles {
             
             # Copy file or directory
             try {
+                $relativePath = "configs/$moduleDirName/$destFileName"
                 if (Test-Path $sourcePath -PathType Container) {
                     # Source is a directory -- clean existing dest to prevent nesting
                     if (Test-Path $destPath) { Remove-Item $destPath -Recurse -Force }
@@ -194,16 +197,19 @@ function Invoke-CollectConfigFiles {
                     # Count actual files copied (not the directory itself)
                     $copiedFiles = @(Get-ChildItem -Path $destPath -Recurse -File -ErrorAction SilentlyContinue)
                     $moduleFilesCopied += $copiedFiles.Count
+                    $moduleFilePaths += $relativePath
                 } else {
                     Copy-Item -Path $sourcePath -Destination $destPath -Force
                     $moduleFilesCopied++
+                    $moduleFilePaths += $relativePath
                 }
             } catch {
                 $moduleErrors += "Failed to copy $sourcePath`: $($_.Exception.Message)"
             }
         }
-        
+
         $result.moduleFileCounts[$moduleDirName] = $moduleFilesCopied
+        $result.moduleFilePaths[$moduleDirName] = @($moduleFilePaths)
 
         if ($moduleFilesCopied -gt 0) {
             $result.included += $moduleDirName
@@ -309,7 +315,7 @@ function New-CaptureBundle {
         ConfigsIncluded = @()
         ConfigsSkipped = @()
         ConfigsCaptureErrors = @()
-        ConfigModulesDetail = @()
+        ConfigModules = @()
         Metadata = $null
     }
     
@@ -335,7 +341,7 @@ function New-CaptureBundle {
         $result.ConfigsSkipped = @($configResult.skipped)
         $result.ConfigsCaptureErrors = @($configResult.errors)
 
-        # Build ConfigModulesDetail from matched modules + config result
+        # Build ConfigModules from matched modules + config result
         $configModulesDetail = @()
         $includedSet = @{}
         foreach ($inc in $configResult.included) { $includedSet[$inc] = $true }
@@ -370,6 +376,11 @@ function New-CaptureBundle {
                 $wingetRefs = @($module.matches.winget)
             }
 
+            $filePaths = @()
+            if ($configResult.moduleFilePaths -and $configResult.moduleFilePaths.ContainsKey($moduleDirName)) {
+                $filePaths = @($configResult.moduleFilePaths[$moduleDirName])
+            }
+
             $configModulesDetail += @{
                 id = $module.id
                 appId = $moduleDirName
@@ -377,9 +388,10 @@ function New-CaptureBundle {
                 status = $status
                 filesCaptured = $fileCount
                 wingetRefs = $wingetRefs
+                paths = $filePaths
             }
         }
-        $result.ConfigModulesDetail = $configModulesDetail
+        $result.ConfigModules = $configModulesDetail
 
         # Stage 2b: Inject restore entries from included modules into staged manifest
         if ($configResult.included.Count -gt 0) {

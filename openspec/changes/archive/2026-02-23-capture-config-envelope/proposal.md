@@ -4,7 +4,7 @@ The capture `--json` envelope currently surfaces config module information as fl
 
 ## What Changes
 
-- Enrich `New-CaptureBundle` return value with a `ConfigModulesDetail` array containing structured per-module metadata (id, appId, displayName, status, filesCaptured, wingetRefs)
+- Enrich `New-CaptureBundle` return value with a `ConfigModules` array containing structured per-module metadata (id, appId, displayName, status, filesCaptured, wingetRefs)
 - Track per-module file counts in `Invoke-CollectConfigFiles`
 - Surface `configModules` array in the capture JSON envelope when bundle capture is used
 - Keep existing flat `configsIncluded`/`configsSkipped`/`configsCaptureErrors` fields for backward compatibility

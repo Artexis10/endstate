@@ -27,7 +27,7 @@ Files to read:
 
 Task 1: Enrich New-CaptureBundle return value (engine/bundle.ps1)
 
-Add a `ConfigModulesDetail` array to the result hashtable returned by `New-CaptureBundle`. Build it from the `$matchedModules` array that is already available in the function, combined with the `$configResult` from `Invoke-CollectConfigFiles`.
+Add a `ConfigModules` array to the result hashtable returned by `New-CaptureBundle`. Build it from the `$matchedModules` array that is already available in the function, combined with the `$configResult` from `Invoke-CollectConfigFiles`.
 
 For each matched module, emit:
 ```
@@ -54,8 +54,8 @@ Task 2: Surface configModules in capture JSON envelope (bin/endstate.ps1)
 In the capture command's `--json` handler where the envelope `$data` hashtable is built, add a `configModules` field when bundle capture was used:
 
 ```powershell
-if ($captureResult.BundleResult -and $captureResult.BundleResult.ConfigModulesDetail) {
-    $data.configModules = @($captureResult.BundleResult.ConfigModulesDetail)
+if ($captureResult.BundleResult -and $captureResult.BundleResult.ConfigModules) {
+    $data.configModules = @($captureResult.BundleResult.ConfigModules)
 }
 ```
 
@@ -128,12 +128,12 @@ Extend the existing spec to cover the JSON envelope surface. Add these scenarios
 Task 4: Add unit tests
 
 Add Pester tests for the enriched `New-CaptureBundle` result in the appropriate test file. Test:
-- `ConfigModulesDetail` is present in result when modules are matched
+- `ConfigModules` is present in result when modules are matched
 - Each entry has required fields: id, appId, displayName, status, filesCaptured
 - appId correctly strips "apps." prefix
 - Status correctly maps from included/skipped lists
 - filesCaptured counts are accurate per module
-- `ConfigModulesDetail` is empty array (not null) when no modules matched
+- `ConfigModules` is empty array (not null) when no modules matched
 
 /opsx:verify
 

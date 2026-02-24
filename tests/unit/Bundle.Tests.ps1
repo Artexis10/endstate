@@ -554,7 +554,7 @@ Describe "Bundle.ZipCreation" {
     }
 }
 
-Describe "Bundle.ConfigModulesDetail" {
+Describe "Bundle.ConfigModules" {
 
     Context "Invoke-CollectConfigFiles moduleFileCounts" {
 
@@ -611,9 +611,57 @@ Describe "Bundle.ConfigModulesDetail" {
             $result = Invoke-CollectConfigFiles -Modules @($module) -StagingDir $script:TestStagingDir
             $result.moduleFileCounts["missing-app"] | Should -Be 0
         }
+
+        It "Should include moduleFilePaths in result" {
+            $result = Invoke-CollectConfigFiles -Modules @() -StagingDir $script:TestStagingDir
+            $result.Keys | Should -Contain "moduleFilePaths"
+            $result.moduleFilePaths | Should -BeOfType [hashtable]
+        }
+
+        It "Should track per-module file paths" {
+            $sourceDir = Join-Path $env:TEMP "endstate-test-mfp-src-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+            $sourceFile1 = Join-Path $sourceDir "settings.json"
+            $sourceFile2 = Join-Path $sourceDir "keybindings.json"
+            '{}' | Set-Content -Path $sourceFile1 -Encoding UTF8
+            '{}' | Set-Content -Path $sourceFile2 -Encoding UTF8
+
+            try {
+                $module = @{
+                    id = "apps.path-app"
+                    capture = @{
+                        files = @(
+                            @{ source = $sourceFile1; dest = "apps/path-app/settings.json" }
+                            @{ source = $sourceFile2; dest = "apps/path-app/keybindings.json" }
+                        )
+                    }
+                }
+
+                $result = Invoke-CollectConfigFiles -Modules @($module) -StagingDir $script:TestStagingDir
+                $result.moduleFilePaths["path-app"] | Should -HaveCount 2
+                $result.moduleFilePaths["path-app"] | Should -Contain "configs/path-app/settings.json"
+                $result.moduleFilePaths["path-app"] | Should -Contain "configs/path-app/keybindings.json"
+            } finally {
+                Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "Should return empty paths array for skipped modules" {
+            $module = @{
+                id = "apps.skip-paths"
+                capture = @{
+                    files = @(
+                        @{ source = "C:\nonexistent\missing.json"; dest = "apps/skip-paths/missing.json"; optional = $true }
+                    )
+                }
+            }
+
+            $result = Invoke-CollectConfigFiles -Modules @($module) -StagingDir $script:TestStagingDir
+            $result.moduleFilePaths["skip-paths"] | Should -HaveCount 0
+        }
     }
 
-    Context "New-CaptureBundle ConfigModulesDetail" {
+    Context "New-CaptureBundle ConfigModules" {
 
         BeforeEach {
             $script:TestDir = Join-Path $env:TEMP "endstate-test-cmd-$([guid]::NewGuid().ToString('N').Substring(0,8))"
@@ -639,7 +687,7 @@ Describe "Bundle.ConfigModulesDetail" {
             }
         }
 
-        It "Should include ConfigModulesDetail in result when modules are matched" {
+        It "Should include ConfigModules in result when modules are matched" {
             $sourceDir = Join-Path $env:TEMP "endstate-test-cmd-src-$([guid]::NewGuid().ToString('N').Substring(0,8))"
             New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
             $sourceFile = Join-Path $sourceDir "test.cfg"
@@ -667,8 +715,8 @@ Describe "Bundle.ConfigModulesDetail" {
                     -OutputZipPath $script:TestZipPath `
                     -Apps $apps
 
-                $result.ConfigModulesDetail | Should -Not -BeNullOrEmpty
-                $result.ConfigModulesDetail.Count | Should -Be 1
+                $result.ConfigModules | Should -Not -BeNullOrEmpty
+                $result.ConfigModules.Count | Should -Be 1
             } finally {
                 Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
             }
@@ -702,13 +750,14 @@ Describe "Bundle.ConfigModulesDetail" {
                     -OutputZipPath $script:TestZipPath `
                     -Apps $apps
 
-                $entry = $result.ConfigModulesDetail[0]
+                $entry = $result.ConfigModules[0]
                 $entry.id | Should -Be "apps.fields-app"
                 $entry.appId | Should -Be "fields-app"
                 $entry.displayName | Should -Be "Fields App"
                 $entry.status | Should -BeIn @("captured", "skipped", "error")
                 $entry.Keys | Should -Contain "filesCaptured"
                 $entry.Keys | Should -Contain "wingetRefs"
+                $entry.Keys | Should -Contain "paths"
             } finally {
                 Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
             }
@@ -736,7 +785,7 @@ Describe "Bundle.ConfigModulesDetail" {
                 -OutputZipPath $script:TestZipPath `
                 -Apps $apps
 
-            $result.ConfigModulesDetail[0].appId | Should -Be "my-editor"
+            $result.ConfigModules[0].appId | Should -Be "my-editor"
         }
 
         It "Should set status to 'captured' for included modules" {
@@ -767,7 +816,7 @@ Describe "Bundle.ConfigModulesDetail" {
                     -OutputZipPath $script:TestZipPath `
                     -Apps $apps
 
-                $result.ConfigModulesDetail[0].status | Should -Be "captured"
+                $result.ConfigModules[0].status | Should -Be "captured"
             } finally {
                 Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
             }
@@ -795,7 +844,7 @@ Describe "Bundle.ConfigModulesDetail" {
                 -OutputZipPath $script:TestZipPath `
                 -Apps $apps
 
-            $result.ConfigModulesDetail[0].status | Should -Be "skipped"
+            $result.ConfigModules[0].status | Should -Be "skipped"
         }
 
         It "Should track accurate filesCaptured per module" {
@@ -829,7 +878,7 @@ Describe "Bundle.ConfigModulesDetail" {
                     -OutputZipPath $script:TestZipPath `
                     -Apps $apps
 
-                $result.ConfigModulesDetail[0].filesCaptured | Should -Be 2
+                $result.ConfigModules[0].filesCaptured | Should -Be 2
             } finally {
                 Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
             }
@@ -857,9 +906,9 @@ Describe "Bundle.ConfigModulesDetail" {
                 -OutputZipPath $script:TestZipPath `
                 -Apps $apps
 
-            $result.ConfigModulesDetail[0].wingetRefs | Should -HaveCount 2
-            $result.ConfigModulesDetail[0].wingetRefs | Should -Contain "Winget.App"
-            $result.ConfigModulesDetail[0].wingetRefs | Should -Contain "Winget.AppAlt"
+            $result.ConfigModules[0].wingetRefs | Should -HaveCount 2
+            $result.ConfigModules[0].wingetRefs | Should -Contain "Winget.App"
+            $result.ConfigModules[0].wingetRefs | Should -Contain "Winget.AppAlt"
         }
 
         It "Should return empty wingetRefs when module has no matches.winget" {
@@ -882,24 +931,90 @@ Describe "Bundle.ConfigModulesDetail" {
             # But Get-MatchedConfigModulesForApps only matches via winget, so this module won't be matched
             # Let's test the empty winget case with a winget-matched module that has no winget refs
             # Actually - the function checks winget IDs. A module with no matches.winget won't match.
-            # So let's test that ConfigModulesDetail is empty when no modules match.
+            # So let's test that ConfigModules is empty when no modules match.
             $apps = @(@{ id = "no-winget"; refs = @{ windows = "NoWinget.App" } })
             $result = New-CaptureBundle `
                 -ManifestPath $script:TestManifest `
                 -OutputZipPath $script:TestZipPath `
                 -Apps $apps
 
-            $result.ConfigModulesDetail | Should -HaveCount 0
+            $result.ConfigModules | Should -HaveCount 0
         }
 
-        It "Should return empty ConfigModulesDetail when no modules matched" {
+        It "Should return empty ConfigModules when no modules matched" {
             $result = New-CaptureBundle `
                 -ManifestPath $script:TestManifest `
                 -OutputZipPath $script:TestZipPath `
                 -Apps @()
 
-            $result.Keys | Should -Contain "ConfigModulesDetail"
-            @($result.ConfigModulesDetail).Count | Should -Be 0
+            $result.Keys | Should -Contain "ConfigModules"
+            @($result.ConfigModules).Count | Should -Be 0
+        }
+
+        It "Should include paths field with captured file paths" {
+            $sourceDir = Join-Path $env:TEMP "endstate-test-cmd-paths-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $sourceDir -Force | Out-Null
+            $file1 = Join-Path $sourceDir "settings.json"
+            $file2 = Join-Path $sourceDir "keybindings.json"
+            '{}' | Set-Content -Path $file1 -Encoding UTF8
+            '{}' | Set-Content -Path $file2 -Encoding UTF8
+
+            try {
+                Mock Get-ConfigModuleCatalog {
+                    return @{
+                        "apps.paths-app" = @{
+                            id = "apps.paths-app"
+                            displayName = "Paths App"
+                            matches = @{ winget = @("Paths.App") }
+                            capture = @{
+                                files = @(
+                                    @{ source = $file1; dest = "apps/paths-app/settings.json" }
+                                    @{ source = $file2; dest = "apps/paths-app/keybindings.json" }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                $apps = @(@{ id = "paths-app"; refs = @{ windows = "Paths.App" } })
+                $result = New-CaptureBundle `
+                    -ManifestPath $script:TestManifest `
+                    -OutputZipPath $script:TestZipPath `
+                    -Apps $apps
+
+                $entry = $result.ConfigModules[0]
+                $entry.Keys | Should -Contain "paths"
+                $entry.paths | Should -HaveCount 2
+                $entry.paths | Should -Contain "configs/paths-app/settings.json"
+                $entry.paths | Should -Contain "configs/paths-app/keybindings.json"
+            } finally {
+                Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "Should return empty paths array for skipped modules" {
+            Mock Get-ConfigModuleCatalog {
+                return @{
+                    "apps.no-paths" = @{
+                        id = "apps.no-paths"
+                        displayName = "No Paths"
+                        matches = @{ winget = @("NoPaths.App") }
+                        capture = @{
+                            files = @(
+                                @{ source = "C:\nonexistent\x.cfg"; dest = "apps/no-paths/x.cfg"; optional = $true }
+                            )
+                        }
+                    }
+                }
+            }
+
+            $apps = @(@{ id = "no-paths"; refs = @{ windows = "NoPaths.App" } })
+            $result = New-CaptureBundle `
+                -ManifestPath $script:TestManifest `
+                -OutputZipPath $script:TestZipPath `
+                -Apps $apps
+
+            $result.ConfigModules[0].paths | Should -HaveCount 0
         }
     }
 }
