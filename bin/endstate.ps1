@@ -182,6 +182,12 @@ $script:PassThroughArgs = @()
 $script:HelpRequested = $Help.IsPresent
 $script:DebugCliRequested = $DebugCli.IsPresent
 
+# If SubCommand captured a GNU-style flag (e.g., --profile), push it back to RemainingArgs
+if ($SubCommand -and $SubCommand.StartsWith('--')) {
+    $RemainingArgs = @($SubCommand) + @($RemainingArgs)
+    $SubCommand = $null
+}
+
 # Process remaining arguments captured by ValueFromRemainingArguments
 if ($RemainingArgs) {
     $i = 0
@@ -1534,7 +1540,10 @@ function Invoke-ApplyCore {
     
     # Track per-app items for structured output
     $items = @()
-    
+
+    # Resolve display names from winget for GUI consistency
+    $wingetNameMap = Get-WingetDisplayNameMap
+
     foreach ($app in $manifest.apps) {
         $driver = Get-AppDriver -App $app
         $appDisplayId = if ($driver -eq 'winget') { Get-AppWingetId -App $app } else { $app.id }
@@ -1543,16 +1552,20 @@ function Invoke-ApplyCore {
             Write-Host "  [SKIP] $($app.id) - no installable ref for driver '$driver'" -ForegroundColor Yellow
             $skipped++
             $skippedFiltered++
-            $items += @{
+            $itemEntry = @{
                 id = $app.id
                 driver = $driver
                 status = "skipped"
                 reason = "no_installable_ref"
                 message = "No installable ref for driver '$driver'"
             }
+            if ($wingetNameMap[$app.id]) { $itemEntry.name = $wingetNameMap[$app.id] }
+            $items += $itemEntry
             # Emit item event for skipped (no ref)
             if (Test-StreamingEventsEnabled) {
-                Write-ItemEvent -Id $app.id -Driver $driver -Status "skipped" -Reason "no_installable_ref" -Message "No installable ref for driver '$driver'"
+                $evtArgs = @{ Id = $app.id; Driver = $driver; Status = "skipped"; Reason = "no_installable_ref"; Message = "No installable ref for driver '$driver'" }
+                if ($wingetNameMap[$app.id]) { $evtArgs.Name = $wingetNameMap[$app.id] }
+                Write-ItemEvent @evtArgs
             }
             continue
         }
@@ -1573,62 +1586,78 @@ function Invoke-ApplyCore {
                         if ($IsDryRun) {
                             Write-Host "  [PLAN] $appDisplayId - would upgrade ($($versionCheck.Reason))" -ForegroundColor Cyan
                             $upgraded++
-                            $items += @{
+                            $itemEntry = @{
                                 id = $appDisplayId
                                 driver = $driver
                                 status = "ok"
                                 reason = "would_upgrade"
                                 message = "Would upgrade: $($versionCheck.Reason)"
                             }
+                            if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+                            $items += $itemEntry
                             # Emit item event for dry-run upgrade
                             if (Test-StreamingEventsEnabled) {
-                                Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "to_install" -Reason "would_upgrade" -Message "Would upgrade: $($versionCheck.Reason)"
+                                $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "to_install"; Reason = "would_upgrade"; Message = "Would upgrade: $($versionCheck.Reason)" }
+                                if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                                Write-ItemEvent @evtArgs
                             }
                         } else {
                             Write-Host "  [UPGRADE] $appDisplayId ($($versionCheck.Reason))" -ForegroundColor Yellow
                             $result = Install-AppWithDriver -App $app -DryRun $false -IsUpgrade $true
                             if ($result.Success) {
                                 $upgraded++
-                                $items += @{
+                                $itemEntry = @{
                                     id = $appDisplayId
                                     driver = $driver
                                     status = "ok"
                                     reason = "upgraded"
                                     message = "Upgraded: $($versionCheck.Reason)"
                                 }
+                                if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+                                $items += $itemEntry
                                 # Emit item event for successful upgrade
                                 if (Test-StreamingEventsEnabled) {
-                                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "installed" -Reason "upgraded" -Message "Upgraded: $($versionCheck.Reason)"
+                                    $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "installed"; Reason = "upgraded"; Message = "Upgraded: $($versionCheck.Reason)" }
+                                    if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                                    Write-ItemEvent @evtArgs
                                 }
                             } else {
                                 Write-Host "    [WARN] Upgrade may have issues: $($result.Error)" -ForegroundColor Yellow
                                 $upgraded++
-                                $items += @{
+                                $itemEntry = @{
                                     id = $appDisplayId
                                     driver = $driver
                                     status = "ok"
                                     reason = "upgraded"
                                     message = "Upgraded with warnings: $($result.Error)"
                                 }
+                                if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+                                $items += $itemEntry
                                 # Emit item event for upgrade with warnings
                                 if (Test-StreamingEventsEnabled) {
-                                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "installed" -Reason "upgraded" -Message "Upgraded with warnings: $($result.Error)"
+                                    $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "installed"; Reason = "upgraded"; Message = "Upgraded with warnings: $($result.Error)" }
+                                    if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                                    Write-ItemEvent @evtArgs
                                 }
                             }
                         }
                     } else {
                         Write-Host "  [MANUAL] $appDisplayId - version mismatch, manual intervention needed ($($versionCheck.Reason))" -ForegroundColor Yellow
                         $failed++
-                        $items += @{
+                        $itemEntry = @{
                             id = $appDisplayId
                             driver = $driver
                             status = "failed"
                             reason = "version_mismatch"
                             message = "Version mismatch, manual intervention needed: $($versionCheck.Reason)"
                         }
+                        if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+                        $items += $itemEntry
                         # Emit item event for version mismatch failure
                         if (Test-StreamingEventsEnabled) {
-                            Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "failed" -Reason "version_mismatch" -Message "Version mismatch, manual intervention needed: $($versionCheck.Reason)"
+                            $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "failed"; Reason = "version_mismatch"; Message = "Version mismatch, manual intervention needed: $($versionCheck.Reason)" }
+                            if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                            Write-ItemEvent @evtArgs
                         }
                     }
                     continue
@@ -1638,16 +1667,20 @@ function Invoke-ApplyCore {
             Write-Host "  [SKIP] $appDisplayId - already installed" -ForegroundColor DarkGray
             $skipped++
             $alreadyInstalled++
-            $items += @{
+            $itemEntry = @{
                 id = $appDisplayId
                 driver = $driver
                 status = "skipped"
                 reason = "already_installed"
                 message = "Already installed"
             }
+            if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+            $items += $itemEntry
             # Emit item event for already installed (skipped)
             if (Test-StreamingEventsEnabled) {
-                Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "present" -Reason "already_installed" -Message "Already installed"
+                $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "present"; Reason = "already_installed"; Message = "Already installed" }
+                if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                Write-ItemEvent @evtArgs
             }
             continue
         }
@@ -1656,16 +1689,20 @@ function Invoke-ApplyCore {
         if ($IsDryRun) {
             Write-Host "  [PLAN] $appDisplayId - would install (driver: $driver)" -ForegroundColor Cyan
             $installed++
-            $items += @{
+            $itemEntry = @{
                 id = $appDisplayId
                 driver = $driver
                 status = "ok"
                 reason = "would_install"
                 message = "Would install"
             }
+            if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+            $items += $itemEntry
             # Emit item event for dry-run install
             if (Test-StreamingEventsEnabled) {
-                Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "to_install" -Message "Would install via $driver"
+                $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "to_install"; Message = "Would install via $driver" }
+                if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                Write-ItemEvent @evtArgs
             }
         } else {
             Write-Host "  [INSTALL] $appDisplayId (driver: $driver)" -ForegroundColor Green
@@ -1673,30 +1710,38 @@ function Invoke-ApplyCore {
             
             if ($result.Success) {
                 $installed++
-                $items += @{
+                $itemEntry = @{
                     id = $appDisplayId
                     driver = $driver
                     status = "ok"
                     reason = "installed"
                     message = "Installed successfully"
                 }
+                if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+                $items += $itemEntry
                 # Emit item event for successful install
                 if (Test-StreamingEventsEnabled) {
-                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "installed" -Message "Installed successfully"
+                    $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "installed"; Message = "Installed successfully" }
+                    if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                    Write-ItemEvent @evtArgs
                 }
             } else {
                 Write-Host "    [ERROR] Failed to install: $($result.Error)" -ForegroundColor Red
                 $failed++
-                $items += @{
+                $itemEntry = @{
                     id = $appDisplayId
                     driver = $driver
                     status = "failed"
                     reason = "install_failed"
                     message = $result.Error
                 }
+                if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+                $items += $itemEntry
                 # Emit item event for failed install
                 if (Test-StreamingEventsEnabled) {
-                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "failed" -Reason "install_failed" -Message $result.Error
+                    $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "failed"; Reason = "install_failed"; Message = $result.Error }
+                    if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                    Write-ItemEvent @evtArgs
                 }
             }
         }
@@ -2306,7 +2351,7 @@ function Read-Manifest {
     
     $content = Get-Content -Path $Path -Raw
     # Strip JSONC comments for parsing
-    $jsonContent = $content -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
+    $jsonContent = $content -replace '(?m)//.*$', '' -replace '/\*[\s\S]*?\*/', ''
     
     try {
         return $jsonContent | ConvertFrom-Json
@@ -2639,7 +2684,7 @@ function Invoke-CaptureCore {
         
         # Read and sanitize the manifest
         $rawContent = Get-Content -Path $tempPath -Raw
-        $jsonContent = $rawContent -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
+        $jsonContent = $rawContent -replace '(?m)//.*$', '' -replace '/\*[\s\S]*?\*/', ''
         $rawManifest = $jsonContent | ConvertFrom-Json
         
         # Convert PSCustomObject to hashtable for sanitization
@@ -2798,7 +2843,7 @@ function Invoke-CaptureCore {
         try {
             $rawContent = Get-Content -Path $outPath -Raw
             # Strip JSONC comments for parsing
-            $jsonContent = $rawContent -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
+            $jsonContent = $rawContent -replace '(?m)//.*$', '' -replace '/\*[\s\S]*?\*/', ''
             $manifest = $jsonContent | ConvertFrom-Json
             
             if ($manifest.apps) {
@@ -2952,10 +2997,13 @@ function Invoke-VerifyCore {
     $items = @()  # Structured per-app results for GUI
     $appsObserved = @{}
     $timestampUtc = (Get-Date).ToUniversalTime().ToString("o")
-    
+
     # Get installed apps map for drift detection (winget only)
     $installedAppsMap = Get-InstalledAppsMap
-    
+
+    # Resolve display names from winget for GUI consistency
+    $wingetNameMap = Get-WingetDisplayNameMap
+
     foreach ($app in $manifest.apps) {
         $driver = Get-AppDriver -App $app
         $appDisplayId = if ($driver -eq 'winget') { Get-AppWingetId -App $app } else { $app.id }
@@ -2981,15 +3029,19 @@ function Invoke-VerifyCore {
             if ($versionSatisfied) {
                 Write-Host "  [OK] $appDisplayId (driver: $driver)" -ForegroundColor Green
                 $okCount++
-                $items += @{
+                $itemEntry = @{
                     id = $appDisplayId
                     driver = $driver
                     status = 'ok'
                     version = $installStatus.Version
                 }
+                if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+                $items += $itemEntry
                 # Emit item event for verified app
                 if (Test-StreamingEventsEnabled) {
-                    Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "present" -Message "Verified installed"
+                    $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "present"; Message = "Verified installed" }
+                    if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                    Write-ItemEvent @evtArgs
                 }
             } else {
                 Write-Host "  [VERSION] $appDisplayId - $($versionCheckResult.Reason)" -ForegroundColor Yellow
@@ -3000,7 +3052,7 @@ function Invoke-VerifyCore {
                     installedVersion = $installStatus.Version
                     constraint = $app.version
                 }
-                $items += @{
+                $itemEntry = @{
                     id = $appDisplayId
                     driver = $driver
                     status = 'version_mismatch'
@@ -3008,6 +3060,8 @@ function Invoke-VerifyCore {
                     reason = $versionCheckResult.Reason
                     constraint = $app.version
                 }
+                if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+                $items += $itemEntry
             }
             
             # Record observed app
@@ -3023,14 +3077,18 @@ function Invoke-VerifyCore {
             Write-Host "  [MISSING] $appDisplayId (driver: $driver)" -ForegroundColor Red
             $missingCount++
             $missingApps += $appDisplayId
-            $items += @{
+            $itemEntry = @{
                 id = $appDisplayId
                 driver = $driver
                 status = 'missing'
             }
+            if ($wingetNameMap[$appDisplayId]) { $itemEntry.name = $wingetNameMap[$appDisplayId] }
+            $items += $itemEntry
             # Emit item event for missing app
             if (Test-StreamingEventsEnabled) {
-                Write-ItemEvent -Id $appDisplayId -Driver $driver -Status "failed" -Reason "missing" -Message "Not installed"
+                $evtArgs = @{ Id = $appDisplayId; Driver = $driver; Status = "failed"; Reason = "missing"; Message = "Not installed" }
+                if ($wingetNameMap[$appDisplayId]) { $evtArgs.Name = $wingetNameMap[$appDisplayId] }
+                Write-ItemEvent @evtArgs
             }
             $appsObserved[$appDisplayId] = @{
                 installed = $false
