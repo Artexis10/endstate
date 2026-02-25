@@ -208,6 +208,10 @@ endstate capture --profile "Hugo-Desktop" --json
     "configsIncluded": ["vscode", "claude-desktop"],
     "configsSkipped": ["git"],
     "configsCaptureErrors": [],
+    "configModuleMap": {
+      "Git.Git": "apps.git",
+      "Microsoft.VisualStudioCode": "apps.vscode"
+    },
     "captureWarnings": []
   },
   "error": null
@@ -227,9 +231,10 @@ endstate capture --profile "Hugo-Desktop" --json
 | `configsIncluded` | array | No | Config module IDs bundled in zip |
 | `configsSkipped` | array | No | Config module IDs that matched but were skipped |
 | `configsCaptureErrors` | array | No | Config capture error descriptions |
+| `configModuleMap` | object | Yes | Maps winget package refs to config module IDs (empty `{}` when no mappings) |
 | `captureWarnings` | array | No | General capture warnings |
 
-**Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`.
+**Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`. `configModuleMap` is always present (empty object when no config modules resolve to winget refs).
 
 ---
 

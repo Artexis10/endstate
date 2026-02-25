@@ -3913,6 +3913,19 @@ switch ($Command) {
                 } else {
                     $data.outputFormat = "jsonc"
                 }
+                # Add configModuleMap for GUI (additive, backward compatible)
+                $configModulesScript = Resolve-EngineScript -ScriptName "config-modules" -Silent
+                if ($configModulesScript) {
+                    . $configModulesScript
+                    if ($captureResult.BundleConfigModules -and $captureResult.BundleConfigModules.Count -gt 0) {
+                        $cmMap = Build-ConfigModuleMap -ModuleIds $captureResult.BundleConfigModules
+                        $data.configModuleMap = if ($cmMap) { $cmMap } else { [ordered]@{} }
+                    } else {
+                        $data.configModuleMap = [ordered]@{}
+                    }
+                } else {
+                    $data.configModuleMap = [ordered]@{}
+                }
                 Write-JsonEnvelope -CommandName "capture" -Success $true -Data $data -ExitCode 0
             } else {
                 # Use structured ErrorDetail if available (from INV-CAPTURE invariants)
