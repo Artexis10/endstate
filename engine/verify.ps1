@@ -208,13 +208,18 @@ function Invoke-Verify {
             $data['eventsFile'] = $eventsFile
         }
 
-        # Add config module map for GUI per-app settings indicators
-        if ($manifest._configModulesExpanded -and $manifest._configModulesExpanded.Count -gt 0) {
-            . "$PSScriptRoot\config-modules.ps1"
-            $configModuleMap = Build-ConfigModuleMap -ModuleIds $manifest._configModulesExpanded
-            if ($null -ne $configModuleMap) {
-                $data['configModuleMap'] = $configModuleMap
+        # Add configModuleMap for GUI (additive, backward compatible)
+        try {
+            $manifestContent = Read-JsoncFile -Path $ManifestPath
+            if ($manifestContent.configModules -and $manifestContent.configModules.Count -gt 0) {
+                . "$PSScriptRoot\config-modules.ps1"
+                $cmMap = Build-ConfigModuleMap -ModuleIds $manifestContent.configModules
+                if ($null -ne $cmMap) {
+                    $data['configModuleMap'] = $cmMap
+                }
             }
+        } catch {
+            # Non-fatal: configModuleMap is optional
         }
 
         # Create error object if there are failures

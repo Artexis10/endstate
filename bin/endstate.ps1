@@ -4099,6 +4099,18 @@ switch ($Command) {
                     }
                     actions = if ($result.Items) { $result.Items } else { @() }
                 }
+                # Add configModuleMap if manifest has configModules
+                $configModulesScript = Resolve-EngineScript -ScriptName "config-modules" -Silent
+                if ($configModulesScript) {
+                    . $configModulesScript
+                    $parsedManifest = Read-JsoncFile -Path $resolvedPath
+                    if ($parsedManifest.configModules -and $parsedManifest.configModules.Count -gt 0) {
+                        $cmMap = Build-ConfigModuleMap -ModuleIds $parsedManifest.configModules
+                        if ($cmMap) {
+                            $data.configModuleMap = $cmMap
+                        }
+                    }
+                }
                 Write-JsonEnvelope -CommandName "apply" -Success $result.Success -Data $data -ExitCode $result.ExitCode
             } else {
                 Write-Information "[endstate] Apply: completed ExitCode=$($result.ExitCode)" -InformationAction Continue
@@ -4248,6 +4260,18 @@ switch ($Command) {
                         fail = $result.MissingCount
                     }
                     results = if ($result.Items) { $result.Items } else { @() }
+                }
+                # Add configModuleMap if manifest has configModules
+                $configModulesScript = Resolve-EngineScript -ScriptName "config-modules" -Silent
+                if ($configModulesScript) {
+                    . $configModulesScript
+                    $parsedManifest = Read-JsoncFile -Path $resolvedPath
+                    if ($parsedManifest.configModules -and $parsedManifest.configModules.Count -gt 0) {
+                        $cmMap = Build-ConfigModuleMap -ModuleIds $parsedManifest.configModules
+                        if ($cmMap) {
+                            $data.configModuleMap = $cmMap
+                        }
+                    }
                 }
                 Write-JsonEnvelope -CommandName "verify" -Success $result.Success -Data $data -ExitCode $result.ExitCode
             } else {

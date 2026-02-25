@@ -19,6 +19,7 @@
 . "$PSScriptRoot\..\drivers\driver.ps1"
 . "$PSScriptRoot\restore.ps1"
 . "$PSScriptRoot\..\verifiers\file-exists.ps1"
+. "$PSScriptRoot\config-modules.ps1"
 
 function Invoke-Apply {
     param(
@@ -490,6 +491,19 @@ function Invoke-Apply {
             runId = $runId
             stateFile = $stateFile
             logFile = $logFileAbsolute
+        }
+
+        # Add configModuleMap for GUI (additive, backward compatible)
+        try {
+            $manifestContent = Read-JsoncFile -Path $ManifestPath
+            if ($manifestContent.configModules -and $manifestContent.configModules.Count -gt 0) {
+                $cmMap = Build-ConfigModuleMap -ModuleIds $manifestContent.configModules
+                if ($null -ne $cmMap) {
+                    $data['configModuleMap'] = $cmMap
+                }
+            }
+        } catch {
+            # Non-fatal: configModuleMap is optional
         }
 
         # Add restore metadata to envelope (additive, backward compatible)
@@ -1112,6 +1126,21 @@ function Invoke-ApplyFromPlan {
             runId = $runId
             stateFile = $stateFile
             logFile = $logFileAbsolute
+        }
+
+        # Add configModuleMap for GUI (additive, backward compatible)
+        if ($manifestPath -and (Test-Path -LiteralPath $manifestPath -ErrorAction SilentlyContinue)) {
+            try {
+                $manifestContent = Read-JsoncFile -Path $manifestPath
+                if ($manifestContent.configModules -and $manifestContent.configModules.Count -gt 0) {
+                    $cmMap = Build-ConfigModuleMap -ModuleIds $manifestContent.configModules
+                    if ($null -ne $cmMap) {
+                        $data['configModuleMap'] = $cmMap
+                    }
+                }
+            } catch {
+                # Non-fatal: configModuleMap is optional
+            }
         }
 
         # Add restore metadata to envelope (additive, backward compatible)
