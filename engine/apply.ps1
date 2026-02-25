@@ -537,6 +537,15 @@ function Invoke-Apply {
             $data['eventsFile'] = $eventsFile
         }
 
+        # Add config module map for GUI per-app settings indicators
+        if ($manifest._configModulesExpanded -and $manifest._configModulesExpanded.Count -gt 0) {
+            . "$PSScriptRoot\config-modules.ps1"
+            $configModuleMap = Build-ConfigModuleMap -ModuleIds $manifest._configModulesExpanded
+            if ($null -ne $configModuleMap) {
+                $data['configModuleMap'] = $configModuleMap
+            }
+        }
+
         $envelope = New-JsonEnvelope -Command "apply" -RunId $runId -Success (($failCount + $restoreFailCount) -eq 0) -Data $data
         Write-JsonOutput -Envelope $envelope
     } else {

@@ -470,6 +470,60 @@ function Format-ConfigModuleDiscoveryOutput {
     return $sb.ToString().TrimEnd()
 }
 
+function Build-ConfigModuleMap {
+    <#
+    .SYNOPSIS
+        Build a winget-ref-to-module-id mapping from expanded config modules.
+    .DESCRIPTION
+        Given a list of config module IDs (from manifest.configModules),
+        looks up each module in the catalog and builds a reverse map from
+        winget package refs to module IDs. Used by apply/verify JSON output
+        to let the GUI show per-app settings indicators.
+    .PARAMETER ModuleIds
+        Array of config module IDs to include in the map.
+    .PARAMETER Catalog
+        Optional pre-loaded catalog. If not provided, loads via Get-ConfigModuleCatalog.
+    .OUTPUTS
+        Ordered hashtable: winget ref (string) -> module ID (string).
+        Returns $null if no modules or no winget matches.
+    #>
+    param(
+        [Parameter(Mandatory = $false)]
+        [array]$ModuleIds = @(),
+
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Catalog = $null
+    )
+
+    if (-not $ModuleIds -or $ModuleIds.Count -eq 0) {
+        return $null
+    }
+
+    if (-not $Catalog) {
+        $Catalog = Get-ConfigModuleCatalog
+    }
+
+    $map = [ordered]@{}
+
+    foreach ($moduleId in $ModuleIds) {
+        if (-not $Catalog.ContainsKey($moduleId)) {
+            continue
+        }
+        $module = $Catalog[$moduleId]
+        if ($module.matches -and $module.matches.winget) {
+            foreach ($wingetRef in $module.matches.winget) {
+                $map[$wingetRef] = $moduleId
+            }
+        }
+    }
+
+    if ($map.Count -eq 0) {
+        return $null
+    }
+
+    return $map
+}
+
 function Clear-ConfigModuleCatalogCache {
     <#
     .SYNOPSIS
@@ -784,4 +838,4 @@ function Format-ConfigCaptureOutput {
     return $sb.ToString()
 }
 
-# Functions exported: Get-ConfigModuleCatalog, Test-ConfigModuleSchema, Expand-ManifestConfigModules, Get-ConfigModulesForInstalledApps, Format-ConfigModuleDiscoveryOutput, Clear-ConfigModuleCatalogCache, Expand-ConfigPath, Test-PathMatchesExcludeGlobs, Invoke-ConfigModuleCapture, Format-ConfigCaptureOutput
+# Functions exported: Get-ConfigModuleCatalog, Test-ConfigModuleSchema, Expand-ManifestConfigModules, Build-ConfigModuleMap, Get-ConfigModulesForInstalledApps, Format-ConfigModuleDiscoveryOutput, Clear-ConfigModuleCatalogCache, Expand-ConfigPath, Test-PathMatchesExcludeGlobs, Invoke-ConfigModuleCapture, Format-ConfigCaptureOutput

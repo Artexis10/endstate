@@ -207,7 +207,16 @@ function Invoke-Verify {
             $eventsFile = [System.IO.Path]::GetFullPath((Join-Path $logsDir "verify-$runId.events.jsonl"))
             $data['eventsFile'] = $eventsFile
         }
-        
+
+        # Add config module map for GUI per-app settings indicators
+        if ($manifest._configModulesExpanded -and $manifest._configModulesExpanded.Count -gt 0) {
+            . "$PSScriptRoot\config-modules.ps1"
+            $configModuleMap = Build-ConfigModuleMap -ModuleIds $manifest._configModulesExpanded
+            if ($null -ne $configModuleMap) {
+                $data['configModuleMap'] = $configModuleMap
+            }
+        }
+
         # Create error object if there are failures
         $verifyError = $null
         if ($failCount -gt 0) {
