@@ -393,17 +393,22 @@ function New-CaptureBundle {
         }
         $result.ConfigModules = $configModulesDetail
 
-        # Stage 2b: Inject restore entries from included modules into staged manifest
+        # Stage 2b: Inject configModules + restore entries from included modules into staged manifest
         if ($configResult.included.Count -gt 0) {
             $includedSet = @{}
             foreach ($inc in $configResult.included) { $includedSet[$inc] = $true }
-            
+
+            # Build configModules array (module IDs) and restore entries
+            $configModuleIds = @()
             $restoreEntries = @()
             foreach ($module in $matchedModules) {
                 $moduleDirName = if ($module.id -match '^apps\.(.+)$') { $Matches[1] } else { $module.id }
                 if (-not $includedSet.ContainsKey($moduleDirName)) { continue }
+
+                $configModuleIds += $module.id
+
                 if (-not $module.restore -or $module.restore.Count -eq 0) { continue }
-                
+
                 foreach ($entry in $module.restore) {
                     $clone = @{}
                     foreach ($key in $entry.Keys) { $clone[$key] = $entry[$key] }
@@ -412,12 +417,16 @@ function New-CaptureBundle {
                     $restoreEntries += $clone
                 }
             }
-            
-            if ($restoreEntries.Count -gt 0) {
-                $manifestData = Read-JsoncFile -Path $stagedManifest
-                $manifestData.restore = $restoreEntries
-                $manifestData | ConvertTo-Json -Depth 10 | Set-Content -Path $stagedManifest -Encoding UTF8 -NoNewline
+
+            # Update staged manifest with configModules and restore entries
+            $manifestData = Read-JsoncFile -Path $stagedManifest
+            if ($configModuleIds.Count -gt 0) {
+                $manifestData.configModules = $configModuleIds
             }
+            if ($restoreEntries.Count -gt 0) {
+                $manifestData.restore = $restoreEntries
+            }
+            $manifestData | ConvertTo-Json -Depth 10 | Set-Content -Path $stagedManifest -Encoding UTF8 -NoNewline
         }
         
         # Stage 3: Generate metadata
