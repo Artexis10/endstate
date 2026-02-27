@@ -163,11 +163,26 @@ endstate capabilities --json
     "platform": {
       "os": "windows",
       "drivers": ["winget"]
-    }
+    },
+    "gitCommit": "a1b2c3d",
+    "gitDirty": false,
+    "bootstrapTimestamp": "2026-02-27T10:00:00Z"
   },
   "error": null
 }
 ```
+
+### Capabilities Data Fields
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `supportedSchemaVersions` | object | Yes | Min/max supported schema versions |
+| `commands` | object | Yes | Supported commands with flags |
+| `features` | object | Yes | Feature flags |
+| `platform` | object | Yes | OS and driver information |
+| `gitCommit` | string\|null | Yes | Short git SHA of HEAD, or `null` if git unavailable |
+| `gitDirty` | boolean | Yes | `true` if working tree has uncommitted changes, `false` otherwise (defaults to `false` if git unavailable) |
+| `bootstrapTimestamp` | string\|null | Yes | ISO 8601 UTC timestamp of last bootstrap, or `null` if not bootstrapped |
 
 ---
 

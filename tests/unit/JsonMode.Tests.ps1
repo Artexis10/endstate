@@ -154,6 +154,24 @@ exit 0
 }
 '@
     Set-Content -Path $script:TestManifestPath -Value $testManifest
+
+    # Create a second test manifest that includes configModules so that
+    # configModuleMap is populated in the apply JSON envelope.
+    # apps.git is a real catalog module with matches.winget = ["Git.Git"].
+    $script:TestManifestWithModulesPath = Join-Path $script:TestDir "test-manifest-with-modules.jsonc"
+    $testManifestWithModules = @'
+{
+  "version": 1,
+  "name": "test-manifest-with-modules",
+  "apps": [
+    { "id": "git-git", "refs": { "windows": "Git.Git" } }
+  ],
+  "configModules": ["apps.git"],
+  "restore": [],
+  "verify": []
+}
+'@
+    Set-Content -Path $script:TestManifestWithModulesPath -Value $testManifestWithModules
 }
 
 Describe "JSON Mode - Pure stdout" {
@@ -231,19 +249,55 @@ Describe "JSON Mode - Pure stdout" {
         BeforeEach {
             $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
         }
-        
+
         AfterEach {
             $env:ENDSTATE_WINGET_SCRIPT = $null
         }
-        
+
         It "Returns JSON envelope with apply results" {
             $result = script:Invoke-EndstateJson -Arguments @('apply', '--manifest', $script:TestManifestPath, '--json', '-DryRun', '-OnlyApps')
             $json = $result.Json
-            
+
             # Verify JSON envelope structure
             $json.command | Should -Be "apply"
             $json.schemaVersion | Should -Be "1.0"
             $json.PSObject.Properties.Name | Should -Contain "data"
+        }
+    }
+
+    Context "apply --json dry-run with configModules manifest" {
+        BeforeEach {
+            $env:ENDSTATE_WINGET_SCRIPT = $script:MockWingetPath
+        }
+
+        AfterEach {
+            $env:ENDSTATE_WINGET_SCRIPT = $null
+        }
+
+        It "Should include configModuleMap in data when manifest has configModules" {
+            $result = script:Invoke-EndstateJson -Arguments @('apply', '--manifest', $script:TestManifestWithModulesPath, '--json', '-DryRun')
+            $json = $result.Json
+
+            $json.command | Should -Be "apply"
+            $json.success | Should -Be $true
+            $json.data.PSObject.Properties.Name | Should -Contain "configModuleMap"
+        }
+
+        It "Should have a non-null configModuleMap when manifest references valid modules" {
+            $result = script:Invoke-EndstateJson -Arguments @('apply', '--manifest', $script:TestManifestWithModulesPath, '--json', '-DryRun')
+            $json = $result.Json
+
+            $json.data.configModuleMap | Should -Not -BeNull
+        }
+
+        It "Should map Git.Git winget ref to apps.git module in configModuleMap" {
+            $result = script:Invoke-EndstateJson -Arguments @('apply', '--manifest', $script:TestManifestWithModulesPath, '--json', '-DryRun')
+            $json = $result.Json
+
+            # configModuleMap keys are winget refs, values are module IDs.
+            # apps.git declares matches.winget = ["Git.Git"], so Git.Git must map to apps.git.
+            $json.data.configModuleMap.PSObject.Properties.Name | Should -Contain "Git.Git"
+            $json.data.configModuleMap."Git.Git" | Should -Be "apps.git"
         }
     }
 }

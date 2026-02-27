@@ -257,8 +257,37 @@ function Get-CapabilitiesData {
             os = (Get-CurrentPlatform)
             drivers = @(Get-RegisteredDrivers)
         }
+        gitCommit = $null
+        gitDirty = $false
+        bootstrapTimestamp = $null
     }
-    
+
+    # Resolve git info from repo root
+    try {
+        $sha = git -C $script:JsonOutputRoot rev-parse --short HEAD 2>$null
+        if ($LASTEXITCODE -eq 0 -and $sha) {
+            $capabilities.gitCommit = $sha.Trim()
+        }
+    } catch { }
+
+    try {
+        $porcelain = git -C $script:JsonOutputRoot status --porcelain 2>$null
+        if ($LASTEXITCODE -eq 0 -and $porcelain) {
+            $capabilities.gitDirty = $true
+        }
+    } catch { }
+
+    # Read bootstrap timestamp from version-info.json if it exists
+    $versionInfoPath = Join-Path $script:JsonOutputRoot "engine\version-info.json"
+    if (Test-Path $versionInfoPath) {
+        try {
+            $versionInfo = Get-Content -Path $versionInfoPath -Raw | ConvertFrom-Json
+            if ($versionInfo.bootstrapTimestamp) {
+                $capabilities.bootstrapTimestamp = $versionInfo.bootstrapTimestamp
+            }
+        } catch { }
+    }
+
     return $capabilities
 }
 

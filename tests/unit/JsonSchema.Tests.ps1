@@ -226,8 +226,37 @@ Describe "JSON Schema Contract v1.0" {
         
         It "Should report feature flags" {
             $caps = Get-CapabilitiesData
-            
+
             $caps.features.jsonOutput | Should -Be $true
+        }
+
+        It "Should include gitCommit field" {
+            $caps = Get-CapabilitiesData
+
+            # gitCommit should be present (string or null depending on git availability)
+            $caps.Keys | Should -Contain "gitCommit"
+        }
+
+        It "Should include gitDirty field as boolean" {
+            $caps = Get-CapabilitiesData
+
+            $caps.Keys | Should -Contain "gitDirty"
+            $caps.gitDirty | Should -BeOfType [bool]
+        }
+
+        It "Should include bootstrapTimestamp field" {
+            $caps = Get-CapabilitiesData
+
+            # bootstrapTimestamp should be present (string or null)
+            $caps.Keys | Should -Contain "bootstrapTimestamp"
+        }
+
+        It "Should return non-null gitCommit when run from a git repo" {
+            # This test runs inside the endstate repo, so git should be available
+            $caps = Get-CapabilitiesData
+
+            $caps.gitCommit | Should -Not -BeNullOrEmpty
+            $caps.gitCommit | Should -Match "^[0-9a-f]{7,}$"
         }
     }
     
