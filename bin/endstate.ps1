@@ -3918,8 +3918,19 @@ switch ($Command) {
                 if ($configModulesScript) {
                     . $configModulesScript
                     if ($captureResult.BundleConfigModules -and $captureResult.BundleConfigModules.Count -gt 0) {
-                        $cmMap = Build-ConfigModuleMap -ModuleIds $captureResult.BundleConfigModules
+                        # BundleConfigModules contains objects with .id; extract string IDs for Build-ConfigModuleMap
+                        $moduleIds = @($captureResult.BundleConfigModules | ForEach-Object { $_.id })
+                        $cmMap = Build-ConfigModuleMap -ModuleIds $moduleIds
                         $data.configModuleMap = if ($cmMap) { $cmMap } else { [ordered]@{} }
+                    } elseif ($captureResult.OutputPath -and (Test-Path $captureResult.OutputPath)) {
+                        # Fallback: read configModules from the output manifest (matches apply/verify pattern)
+                        $parsedOutput = Read-JsoncFile -Path $captureResult.OutputPath
+                        if ($parsedOutput.configModules -and $parsedOutput.configModules.Count -gt 0) {
+                            $cmMap = Build-ConfigModuleMap -ModuleIds $parsedOutput.configModules
+                            $data.configModuleMap = if ($cmMap) { $cmMap } else { [ordered]@{} }
+                        } else {
+                            $data.configModuleMap = [ordered]@{}
+                        }
                     } else {
                         $data.configModuleMap = [ordered]@{}
                     }
