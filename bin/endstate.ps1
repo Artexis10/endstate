@@ -3918,8 +3918,9 @@ switch ($Command) {
                 if ($configModulesScript) {
                     . $configModulesScript
                     if ($captureResult.BundleConfigModules -and $captureResult.BundleConfigModules.Count -gt 0) {
-                        # BundleConfigModules contains objects with .id; extract string IDs for Build-ConfigModuleMap
-                        $moduleIds = @($captureResult.BundleConfigModules | ForEach-Object { $_.id })
+                        # BundleConfigModules contains objects with .id and .status; only map captured modules
+                        # (skipped modules have no configs/ folder in the zip, so mapping them is misleading)
+                        $moduleIds = @($captureResult.BundleConfigModules | Where-Object { $_.status -eq "captured" } | ForEach-Object { $_.id })
                         $cmMap = Build-ConfigModuleMap -ModuleIds $moduleIds
                         $data.configModuleMap = if ($cmMap) { $cmMap } else { [ordered]@{} }
                     } elseif ($captureResult.OutputPath -and (Test-Path $captureResult.OutputPath)) {
