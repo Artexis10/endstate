@@ -48,14 +48,14 @@ function Get-ConfigModuleCatalog {
     
     $catalog = @{}
     $modulesRoot = Join-Path $script:ConfigModulesRoot "..\modules\apps"
-    
+
     # If modules directory doesn't exist, return empty catalog
     if (-not (Test-Path $modulesRoot)) {
         $script:ConfigModuleCatalog = $catalog
         $script:ConfigModuleCatalogLoaded = $true
         return $catalog
     }
-    
+
     # Find all module.jsonc files recursively
     $moduleFiles = Get-ChildItem -Path $modulesRoot -Filter "module.jsonc" -Recurse -File -ErrorAction SilentlyContinue
     

@@ -64,6 +64,8 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 5. **`Copy-Item -Recurse` nesting**: When destination exists, copies source *inside* dest. Must `Remove-Item` first for idempotent directory copies
 6. **State atomicity**: State writes use temp file + move pattern
 7. **Line endings**: Manifest hashes normalize CRLF→LF for cross-platform consistency
+8. **`Get-EndstateVersion` is CWD-dependent**: Uses `git rev-parse --short HEAD` without `-C $repoRoot`, so it returns the git hash of whatever repo the CWD is inside — not the engine's own hash. When the GUI spawns the CLI from `src-tauri/`, the version string reflects the GUI repo hash.
+9. **Stale bootstrapped copies**: The GUI (and PATH-based invocations) run the bootstrapped copy at `%LOCALAPPDATA%\Endstate\bin\`, not the repo. New engine features won't appear in the GUI until re-bootstrapped. Always run `endstate bootstrap` after engine changes. The GUI's `predev` npm hook handles this for `npm run dev` / `tauri dev`.
 
 ## Core Invariants
 
