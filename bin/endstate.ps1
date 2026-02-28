@@ -1111,6 +1111,7 @@ function Show-Help {
     Write-Host "    validate      Validate a profile manifest against the contract"
     Write-Host "    report        Show state summary and drift"
     Write-Host "    doctor        Diagnose environment issues"
+    Write-Host "    revert        Revert the last restore operation"
     Write-Host "    state         Manage endstate state (subcommands: reset, export, import)"
     Write-Host "    module        Generate config modules from trace snapshots"
     Write-Host "    profile       Create and manage overlay profiles"
@@ -5000,6 +5001,73 @@ switch ($Command) {
             }
         }
     }
+    "revert" {
+        # Dot-source the export-revert engine script
+        $exportRevertScript = Resolve-EngineScript -ScriptName "export-revert"
+        if (-not $exportRevertScript) {
+            if ($Json) {
+                $errorDetail = @{
+                    code = "ENGINE_SCRIPT_NOT_FOUND"
+                    message = "Engine script 'export-revert.ps1' not found. Run 'endstate bootstrap' to configure."
+                }
+                Write-JsonEnvelope -CommandName "revert" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+            }
+            exit 1
+        }
+        . $exportRevertScript
+
+        try {
+            if (-not $Json) {
+                Write-Information "[endstate] Revert: starting..." -InformationAction Continue
+            }
+            $result = Invoke-ExportRevert -DryRun:$DryRun -EventsFormat $Events
+
+            if ($Json) {
+                if ($result.Success) {
+                    $data = [ordered]@{
+                        revertedRestoreRunId = $result.RevertedRestoreRunId
+                        revertCount = $result.RevertCount
+                        skipCount = $result.SkipCount
+                        failCount = $result.FailCount
+                        dryRun = $DryRun.IsPresent
+                        backupLocation = $result.LogFile
+                        results = if ($result.Results) { @($result.Results) } else { @() }
+                    }
+                    Write-JsonEnvelope -CommandName "revert" -Success $true -Data $data -ExitCode 0
+                } else {
+                    $errorDetail = @{
+                        code = "REVERT_FAILED"
+                        message = "Revert completed with failures"
+                        detail = @{
+                            revertCount = $result.RevertCount
+                            skipCount = $result.SkipCount
+                            failCount = $result.FailCount
+                        }
+                    }
+                    Write-JsonEnvelope -CommandName "revert" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                }
+            } else {
+                if ($result.Success) {
+                    Write-Information "[endstate] Revert: completed (reverted=$($result.RevertCount) skipped=$($result.SkipCount))" -InformationAction Continue
+                } else {
+                    Write-Information "[endstate] Revert: completed with failures (reverted=$($result.RevertCount) skipped=$($result.SkipCount) failed=$($result.FailCount))" -InformationAction Continue
+                }
+            }
+            $exitCode = if ($result.Success) { 0 } else { 1 }
+        } catch {
+            if ($Json) {
+                $errorDetail = @{
+                    code = "REVERT_FAILED"
+                    message = $_.Exception.Message
+                    detail = @{ exception = $_.ToString() }
+                }
+                Write-JsonEnvelope -CommandName "revert" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+            } else {
+                Write-Host "[ERROR] Revert failed: $($_.Exception.Message)" -ForegroundColor Red
+            }
+            exit 1
+        }
+    }
     "capabilities" {
         # Output JSON list of available commands for GUI integration
         if ($Json) {
@@ -5017,6 +5085,7 @@ switch ($Command) {
                     verify = [ordered]@{ supported = $true; flags = @("--profile", "--manifest", "--json") }
                     validate = [ordered]@{ supported = $true; flags = @("--manifest", "--json") }
                     report = [ordered]@{ supported = $true; flags = @("--json", "--out", "--latest", "--runid", "--last") }
+                    revert = [ordered]@{ supported = $true; flags = @("--json", "--dry-run", "--events") }
                     doctor = [ordered]@{ supported = $true; flags = @("--json") }
                     state = [ordered]@{ supported = $true; flags = @("--json") }
                     module = [ordered]@{ supported = $true; flags = @("--trace", "--out", "--include") }
@@ -5037,7 +5106,7 @@ switch ($Command) {
             Write-JsonEnvelope -CommandName "capabilities" -Success $true -Data $data -ExitCode 0
         } else {
             Write-Host "Available commands:" -ForegroundColor Cyan
-            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "report", "doctor", "state", "module", "profile", "capabilities")
+            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "report", "revert", "doctor", "state", "module", "profile", "capabilities")
             foreach ($cmd in $commands) {
                 Write-Host "  - $cmd" -ForegroundColor White
             }
