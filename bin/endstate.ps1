@@ -892,145 +892,95 @@ function Install-EndstateToPath {
         Copy-Item -Path $sourceScript -Destination $cliEntrypoint -Force
     }
     
-    # Copy engine folder to bin directory (required for standalone operation)
-    # Resolve engine source: try repo root (works from repo or if repo-root configured)
-    $sourceEngineDir = $null
-    # Priority 1: $script:EndstateRoot\engine (correct when running from repo bin/)
-    $candidateEngine = Join-Path $script:EndstateRoot "engine"
-    if (Test-Path $candidateEngine) {
-        $sourceEngineDir = $candidateEngine
-    } else {
-        # Priority 2: configured or auto-detected repo root
-        $detectedRepoRoot = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
-        if (-not $detectedRepoRoot) { $detectedRepoRoot = Find-RepoRoot }
-        if ($detectedRepoRoot) {
-            $candidateEngine = Join-Path $detectedRepoRoot "engine"
-            if (Test-Path $candidateEngine) {
-                $sourceEngineDir = $candidateEngine
+    # Helper: resolve source directory and force-copy to bootstrap destination
+    $totalFilesCopied = 0
+    $totalDirsCopied = 0
+    $copyErrors = @()
+
+    function Copy-BootstrapDirectory {
+        param(
+            [string]$DirName,
+            [string]$Label,
+            [string]$WarnSuffix,
+            [string]$BinDir,
+            [string]$RepoRootPath
+        )
+        $result = @{ FileCount = 0; Errors = @() }
+
+        # Resolve source: Priority 1: $script:EndstateRoot\<dir>
+        $sourceDir = $null
+        $candidate = Join-Path $script:EndstateRoot $DirName
+        if (Test-Path $candidate) {
+            $sourceDir = $candidate
+        } else {
+            # Priority 2: explicit -RepoRoot or auto-detected repo root
+            $detected = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
+            if (-not $detected) { $detected = Find-RepoRoot }
+            if ($detected) {
+                $candidate = Join-Path $detected $DirName
+                if (Test-Path $candidate) {
+                    $sourceDir = $candidate
+                }
             }
         }
-    }
-    $destEngineDir = Join-Path $binDir "engine"
-    
-    if ($sourceEngineDir) {
-        $resolvedEngSrc = [System.IO.Path]::GetFullPath($sourceEngineDir)
-        $resolvedEngDst = [System.IO.Path]::GetFullPath($destEngineDir)
-        if ($resolvedEngSrc -eq $resolvedEngDst) {
-            Write-Host "[OK] Engine scripts are current (running from installed location)" -ForegroundColor DarkGray
-        } elseif (Test-Path $destEngineDir) {
-            Write-Host "[UPDATE] Updating engine scripts: $destEngineDir" -ForegroundColor Yellow
-            Remove-Item -Path $destEngineDir -Recurse -Force
-            Copy-Item -Path $sourceEngineDir -Destination $binDir -Recurse -Force
-        } else {
-            Write-Host "[INSTALL] Installing engine scripts: $destEngineDir" -ForegroundColor Green
-            Copy-Item -Path $sourceEngineDir -Destination $binDir -Recurse -Force
-        }
-    } else {
-        Write-Host "[WARN] Engine directory not found." -ForegroundColor Yellow
-        Write-Host "       Checked: $script:EndstateRoot\engine" -ForegroundColor Yellow
-        Write-Host "       Engine scripts will be resolved from repo root instead." -ForegroundColor Yellow
-    }
 
-    # Copy modules folder to bin directory (required for config module matching in bundles)
-    $sourceModulesDir = $null
-    $candidateModules = Join-Path $script:EndstateRoot "modules"
-    if (Test-Path $candidateModules) {
-        $sourceModulesDir = $candidateModules
-    } else {
-        $detectedRepoRoot = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
-        if (-not $detectedRepoRoot) { $detectedRepoRoot = Find-RepoRoot }
-        if ($detectedRepoRoot) {
-            $candidateModules = Join-Path $detectedRepoRoot "modules"
-            if (Test-Path $candidateModules) {
-                $sourceModulesDir = $candidateModules
+        $destDir = Join-Path $BinDir $DirName
+
+        if (-not $sourceDir) {
+            Write-Host "[WARN] $Label directory not found$WarnSuffix" -ForegroundColor Yellow
+            return $result
+        }
+
+        $resolvedSrc = [System.IO.Path]::GetFullPath($sourceDir)
+        $resolvedDst = [System.IO.Path]::GetFullPath($destDir)
+        if ($resolvedSrc -eq $resolvedDst) {
+            Write-Host "[OK] $Label is current (running from installed location)" -ForegroundColor DarkGray
+            $result.FileCount = @(Get-ChildItem -Path $destDir -Recurse -File -ErrorAction SilentlyContinue).Count
+            return $result
+        }
+
+        # Always force-overwrite: remove then copy
+        try {
+            if (Test-Path $destDir) {
+                Write-Host "[UPDATE] Updating $($Label): $destDir" -ForegroundColor Yellow
+                Remove-Item -Path $destDir -Recurse -Force
+            } else {
+                Write-Host "[INSTALL] Installing $($Label): $destDir" -ForegroundColor Green
             }
+            Copy-Item -Path $sourceDir -Destination $BinDir -Recurse -Force
+            $result.FileCount = @(Get-ChildItem -Path $destDir -Recurse -File -ErrorAction SilentlyContinue).Count
+        } catch {
+            $result.Errors += @{ Path = $destDir; Error = $_.Exception.Message }
+            Write-Host "[ERROR] Failed to copy $($Label): $($_.Exception.Message)" -ForegroundColor Red
         }
-    }
-    $destModulesDir = Join-Path $binDir "modules"
 
-    if ($sourceModulesDir) {
-        $resolvedModSrc = [System.IO.Path]::GetFullPath($sourceModulesDir)
-        $resolvedModDst = [System.IO.Path]::GetFullPath($destModulesDir)
-        if ($resolvedModSrc -eq $resolvedModDst) {
-            Write-Host "[OK] Config modules are current (running from installed location)" -ForegroundColor DarkGray
-        } elseif (Test-Path $destModulesDir) {
-            Write-Host "[UPDATE] Updating config modules: $destModulesDir" -ForegroundColor Yellow
-            Remove-Item -Path $destModulesDir -Recurse -Force
-            Copy-Item -Path $sourceModulesDir -Destination $binDir -Recurse -Force
-        } else {
-            Write-Host "[INSTALL] Installing config modules: $destModulesDir" -ForegroundColor Green
-            Copy-Item -Path $sourceModulesDir -Destination $binDir -Recurse -Force
-        }
-    } else {
-        Write-Host "[WARN] Modules directory not found -- config bundling will be unavailable." -ForegroundColor Yellow
+        return $result
     }
 
-    # Copy payload folder to bin directory (required for config file collection in bundles)
-    $sourcePayloadDir = $null
-    $candidatePayload = Join-Path $script:EndstateRoot "payload"
-    if (Test-Path $candidatePayload) {
-        $sourcePayloadDir = $candidatePayload
-    } else {
-        $detectedRepoRoot = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
-        if (-not $detectedRepoRoot) { $detectedRepoRoot = Find-RepoRoot }
-        if ($detectedRepoRoot) {
-            $candidatePayload = Join-Path $detectedRepoRoot "payload"
-            if (Test-Path $candidatePayload) {
-                $sourcePayloadDir = $candidatePayload
-            }
-        }
-    }
-    $destPayloadDir = Join-Path $binDir "payload"
+    # Sync all runtime directories
+    $dirsToSync = @(
+        @{ DirName = "engine";    Label = "Engine scripts";    WarnSuffix = " -- engine scripts will be resolved from repo root instead." }
+        @{ DirName = "drivers";   Label = "Driver scripts";    WarnSuffix = " -- driver resolution may fail." }
+        @{ DirName = "verifiers"; Label = "Verifier scripts";  WarnSuffix = " -- verification may fail." }
+        @{ DirName = "modules";   Label = "Config modules";    WarnSuffix = " -- config bundling will be unavailable." }
+        @{ DirName = "payload";   Label = "Payload files";     WarnSuffix = " -- config file collection will be unavailable." }
+        @{ DirName = "restorers"; Label = "Restorer scripts";  WarnSuffix = " -- restore operations will be unavailable." }
+    )
 
-    if ($sourcePayloadDir) {
-        $resolvedPaySrc = [System.IO.Path]::GetFullPath($sourcePayloadDir)
-        $resolvedPayDst = [System.IO.Path]::GetFullPath($destPayloadDir)
-        if ($resolvedPaySrc -eq $resolvedPayDst) {
-            Write-Host "[OK] Payload directory is current (running from installed location)" -ForegroundColor DarkGray
-        } elseif (Test-Path $destPayloadDir) {
-            Write-Host "[UPDATE] Updating payload directory: $destPayloadDir" -ForegroundColor Yellow
-            Remove-Item -Path $destPayloadDir -Recurse -Force
-            Copy-Item -Path $sourcePayloadDir -Destination $binDir -Recurse -Force
-        } else {
-            Write-Host "[INSTALL] Installing payload directory: $destPayloadDir" -ForegroundColor Green
-            Copy-Item -Path $sourcePayloadDir -Destination $binDir -Recurse -Force
-        }
-    } else {
-        Write-Host "[WARN] Payload directory not found -- config file collection will be unavailable." -ForegroundColor Yellow
+    foreach ($dir in $dirsToSync) {
+        $r = Copy-BootstrapDirectory -DirName $dir.DirName -Label $dir.Label -WarnSuffix $dir.WarnSuffix -BinDir $binDir -RepoRootPath $RepoRootPath
+        $totalFilesCopied += $r.FileCount
+        if ($r.FileCount -gt 0) { $totalDirsCopied++ }
+        $copyErrors += $r.Errors
     }
 
-    # Copy restorers folder to bin directory (required for restore operations via -EnableRestore)
-    $sourceRestorersDir = $null
-    $candidateRestorers = Join-Path $script:EndstateRoot "restorers"
-    if (Test-Path $candidateRestorers) {
-        $sourceRestorersDir = $candidateRestorers
-    } else {
-        $detectedRepoRoot = if ($RepoRootPath -and (Test-Path $RepoRootPath)) { $RepoRootPath } else { Get-RepoRootPath }
-        if (-not $detectedRepoRoot) { $detectedRepoRoot = Find-RepoRoot }
-        if ($detectedRepoRoot) {
-            $candidateRestorers = Join-Path $detectedRepoRoot "restorers"
-            if (Test-Path $candidateRestorers) {
-                $sourceRestorersDir = $candidateRestorers
-            }
+    # Report copy statistics
+    Write-Host ""
+    Write-Host "[SYNC] Copied $totalFilesCopied files across $totalDirsCopied directories" -ForegroundColor Cyan
+    if ($copyErrors.Count -gt 0) {
+        foreach ($err in $copyErrors) {
+            Write-Host "[COPY-ERROR] $($err.Path): $($err.Error)" -ForegroundColor Red
         }
-    }
-    $destRestorersDir = Join-Path $binDir "restorers"
-
-    if ($sourceRestorersDir) {
-        $resolvedRestSrc = [System.IO.Path]::GetFullPath($sourceRestorersDir)
-        $resolvedRestDst = [System.IO.Path]::GetFullPath($destRestorersDir)
-        if ($resolvedRestSrc -eq $resolvedRestDst) {
-            Write-Host "[OK] Restorers directory is current (running from installed location)" -ForegroundColor DarkGray
-        } elseif (Test-Path $destRestorersDir) {
-            Write-Host "[UPDATE] Updating restorers directory: $destRestorersDir" -ForegroundColor Yellow
-            Remove-Item -Path $destRestorersDir -Recurse -Force
-            Copy-Item -Path $sourceRestorersDir -Destination $binDir -Recurse -Force
-        } else {
-            Write-Host "[INSTALL] Installing restorers directory: $destRestorersDir" -ForegroundColor Green
-            Copy-Item -Path $sourceRestorersDir -Destination $binDir -Recurse -Force
-        }
-    } else {
-        Write-Host "[WARN] Restorers directory not found -- restore operations will be unavailable." -ForegroundColor Yellow
     }
 
     # Create CMD shim (references lib/ subdirectory to avoid PowerShell .ps1 preference)
