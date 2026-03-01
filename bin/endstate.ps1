@@ -1702,6 +1702,7 @@ function Invoke-ApplyCore {
     $restored = 0
     $restoreSkipped = 0
     $restoreFailed = 0
+    $journalEntries = @()
     if ($EnableRestore -and $manifest.restore -and $manifest.restore.Count -gt 0) {
         # Source the copy restorer
         $copyRestorerPath = Join-Path (Split-Path $PSScriptRoot) "restorers\copy.ps1"
@@ -1731,15 +1732,26 @@ function Invoke-ApplyCore {
                     message = "Would restore: $source -> $target"
                 }
             } else {
+                # Expand paths and track pre-restore state for journal
+                $expandedSource = Expand-EndstatePath -Path $source -BasePath $manifestDir
+                $expandedTarget = Expand-EndstatePath -Path $target
+                $targetExistedBefore = Test-Path $expandedTarget
+
                 Write-Host "  [RESTORE] $source -> $target" -ForegroundColor Green
                 $restoreResult = Invoke-CopyRestore -Source $source -Target $target -Backup $backup -RunId $runId -ManifestDir $manifestDir
+
+                $journalAction = "failed"
+                $journalError = $null
+
                 if ($restoreResult.Success) {
                     if ($restoreResult.Skipped) {
                         Write-Host "    [SKIP] $target - $($restoreResult.Message)" -ForegroundColor DarkGray
                         $restoreSkipped++
+                        $journalAction = "skipped_up_to_date"
                     } else {
                         Write-Host "    [OK] Restored: $target" -ForegroundColor Green
                         $restored++
+                        $journalAction = "restored"
                     }
                     $items += @{
                         id = $source
@@ -1752,6 +1764,7 @@ function Invoke-ApplyCore {
                     Write-Host "    [ERROR] Restore failed: $($restoreResult.Error)" -ForegroundColor Red
                     $restoreFailed++
                     $failed++
+                    $journalError = $restoreResult.Error
                     $items += @{
                         id = $source
                         driver = "restore"
@@ -1760,10 +1773,47 @@ function Invoke-ApplyCore {
                         message = $restoreResult.Error
                     }
                 }
+
+                $journalEntries += @{
+                    kind = "copy"
+                    source = $source
+                    target = $target
+                    resolvedSourcePath = $expandedSource
+                    targetPath = $expandedTarget
+                    backupRequested = $backup
+                    targetExistedBefore = $targetExistedBefore
+                    backupCreated = ($null -ne $restoreResult.BackupPath)
+                    backupPath = $restoreResult.BackupPath
+                    action = $journalAction
+                    error = $journalError
+                }
             }
         }
     }
     
+    # Write restore journal (non-dry-run only)
+    if (-not $IsDryRun -and $journalEntries.Count -gt 0) {
+        $engineRoot = Get-EngineRoot
+        if ($engineRoot) {
+            $logsDir = Join-Path $engineRoot "..\logs"
+            if (-not (Test-Path $logsDir)) {
+                New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+            }
+            $journal = @{
+                runId = $runId
+                manifestPath = $ManifestPath
+                manifestDir = $manifestDir
+                exportRoot = $null
+                timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ"
+                entries = $journalEntries
+            }
+            $journalFile = Join-Path $logsDir "restore-journal-$runId.json"
+            $tempFile = "$journalFile.tmp"
+            $journal | ConvertTo-Json -Depth 10 | Out-File -FilePath $tempFile -Encoding UTF8
+            Move-Item -Path $tempFile -Destination $journalFile -Force
+        }
+    }
+
     # Emit summary event for apply
     if (Test-StreamingEventsEnabled) {
         $totalItems = $installed + $skipped + $failed + $upgraded
