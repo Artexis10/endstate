@@ -1,6 +1,3 @@
-# Release workflow - triggered on version tags (vX.Y.Z)
-# Creates GitHub Release with versioned artifact
-
 name: Release
 
 on:
@@ -9,31 +6,8 @@ on:
       - 'v*'
 
 jobs:
-  test:
-    name: Unit Tests
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Run unit tests
-        shell: pwsh
-        run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test_pester.ps1 -Path tests/unit
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results
-          path: test-results.xml
-          retention-days: 7
-
   release:
-    name: Build and Release
-    runs-on: windows-latest
-    needs: test
+    runs-on: ubuntu-latest
     permissions:
       contents: write
 
@@ -41,95 +15,40 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract version from tag
-        id: version
-        shell: pwsh
+      - name: Extract changelog section
+        id: changelog
+        shell: bash
         run: |
-          $tag = "${{ github.ref_name }}"
-          # Remove 'v' prefix if present for clean version
-          $version = $tag -replace '^v', ''
-          Write-Host "Tag: $tag"
-          Write-Host "Version: $version"
-          echo "TAG=$tag" >> $env:GITHUB_OUTPUT
-          echo "VERSION=$version" >> $env:GITHUB_OUTPUT
+          # Strip 'v' prefix to get version number
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Stamp version
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.TAG }}"
-          Set-Content -Path "VERSION.txt" -Value $version -NoNewline
-          Write-Host "Stamped VERSION.txt with: $version"
+          # Extract section between ## [x.y.z] and next ## [ (or EOF)
+          BODY=$(awk -v ver="$VERSION" '
+            BEGIN { found=0 }
+            /^## \[/ {
+              if (found) exit
+              if (index($0, "## [" ver "]")) { found=1; next }
+            }
+            found { print }
+          ' CHANGELOG.md)
 
-      - name: Verify version stamping
-        shell: pwsh
-        run: |
-          $stamped = Get-Content -Path "VERSION.txt" -Raw
-          Write-Host "VERSION.txt content: $stamped"
-          # Verify CLI reads version correctly
-          $cliVersion = & pwsh -NoProfile -File cli.ps1 -Version
-          Write-Host "CLI --version output: $cliVersion"
+          # Fallback if no section found
+          if [ -z "$BODY" ]; then
+            BODY="See CHANGELOG.md"
+          fi
 
-      - name: Create release package
-        id: package
-        shell: pwsh
-        run: |
-          $version = "${{ steps.version.outputs.TAG }}"
-          $artifactName = "endstate-$version"
-          $zipPath = "$artifactName.zip"
-          
-          # Create staging directory
-          $stagingDir = "release-staging/$artifactName"
-          New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
-          
-          # Copy endstate core (engine, drivers, restorers, verifiers, cli)
-          Copy-Item -Path "cli.ps1" -Destination $stagingDir
-          Copy-Item -Path "VERSION.txt" -Destination $stagingDir
-          Copy-Item -Path "README.md" -Destination $stagingDir
-          Copy-Item -Path "engine" -Destination "$stagingDir/engine" -Recurse
-          Copy-Item -Path "drivers" -Destination "$stagingDir/drivers" -Recurse
-          Copy-Item -Path "restorers" -Destination "$stagingDir/restorers" -Recurse
-          Copy-Item -Path "verifiers" -Destination "$stagingDir/verifiers" -Recurse
-          Copy-Item -Path "modules" -Destination "$stagingDir/modules" -Recurse
-          
-          # Copy manifests structure (examples and includes only, not local)
-          New-Item -ItemType Directory -Path "$stagingDir/manifests" -Force | Out-Null
-          if (Test-Path "manifests/examples") {
-            Copy-Item -Path "manifests/examples" -Destination "$stagingDir/manifests/examples" -Recurse
-          }
-          if (Test-Path "manifests/includes") {
-            Copy-Item -Path "manifests/includes" -Destination "$stagingDir/manifests/includes" -Recurse
-          }
-          
-          # Create empty directories for runtime outputs (with .gitkeep)
-          @("logs", "plans") | ForEach-Object {
-            $dir = "$stagingDir/$_"
-            New-Item -ItemType Directory -Path $dir -Force | Out-Null
-            Set-Content -Path "$dir/.gitkeep" -Value ""
-          }
-          
-          # List contents for verification
-          Write-Host "Release package contents:"
-          Get-ChildItem -Path $stagingDir -Recurse | ForEach-Object {
-            $relativePath = $_.FullName.Replace((Resolve-Path $stagingDir).Path, "")
-            Write-Host "  $relativePath"
-          }
-          
-          # Create zip
-          Compress-Archive -Path "$stagingDir/*" -DestinationPath $zipPath -Force
-          
-          Write-Host "Created: $zipPath"
-          echo "ZIP_PATH=$zipPath" >> $env:GITHUB_OUTPUT
-          echo "ARTIFACT_NAME=$artifactName" >> $env:GITHUB_OUTPUT
+          # Write body to file for multi-line safety
+          echo "$BODY" > release-body.md
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          name: ${{ steps.version.outputs.TAG }}
+          name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
+          body_path: release-body.md
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
-          files: |
-            ${{ steps.package.outputs.ZIP_PATH }}
+          prerelease: false
+          make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
