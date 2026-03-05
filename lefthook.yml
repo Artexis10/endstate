@@ -7,3 +7,13 @@ pre-push:
     openspec-validate:
       run: pwsh -NoProfile -File scripts/openspec_validate.ps1
       fail_text: "OpenSpec validation failed. Fix errors or set OPENSPEC_BYPASS=1 for emergency bypass."
+    version-format:
+      run: >
+        pwsh -NoProfile -Command "
+          $v = (Get-Content VERSION -Raw).Trim();
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { Write-Error \"VERSION format invalid: $v\"; exit 1 }
+          $s = (Get-Content SCHEMA_VERSION -Raw).Trim();
+          if ($s -notmatch '^\d+\.\d+$') { Write-Error \"SCHEMA_VERSION format invalid: $s\"; exit 1 }
+          Write-Host \"VERSION=$v SCHEMA_VERSION=$s OK\"
+        "
+      fail_text: "Version format validation failed. VERSION must be x.y.z and SCHEMA_VERSION must be x.y."

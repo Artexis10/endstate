@@ -11,7 +11,11 @@
 #>
 
 $script:JsonOutputRoot = $PSScriptRoot | Split-Path -Parent
-$script:SchemaVersion = "1.0"
+$script:SchemaVersion = if (Test-Path (Join-Path $script:JsonOutputRoot "SCHEMA_VERSION")) {
+    (Get-Content -Path (Join-Path $script:JsonOutputRoot "SCHEMA_VERSION") -Raw).Trim()
+} else {
+    "1.0"
+}
 
 # Import driver registry and paths for platform detection
 . "$PSScriptRoot\..\drivers\driver.ps1"
@@ -22,10 +26,16 @@ function Get-EndstateVersion {
     .SYNOPSIS
         Returns the current Endstate CLI version.
     #>
-    $versionFile = Join-Path $script:JsonOutputRoot "VERSION.txt"
-    
+    $versionFile = Join-Path $script:JsonOutputRoot "VERSION"
+
     if (Test-Path $versionFile) {
         return (Get-Content -Path $versionFile -Raw).Trim()
+    }
+
+    # Fallback: try legacy VERSION.txt
+    $legacyVersionFile = Join-Path $script:JsonOutputRoot "VERSION.txt"
+    if (Test-Path $legacyVersionFile) {
+        return (Get-Content -Path $legacyVersionFile -Raw).Trim()
     }
     
     try {
@@ -205,8 +215,8 @@ function Get-CapabilitiesData {
     
     $capabilities = [ordered]@{
         supportedSchemaVersions = [ordered]@{
-            min = "1.0"
-            max = "1.0"
+            min = $script:SchemaVersion
+            max = $script:SchemaVersion
         }
         commands = [ordered]@{
             capture = [ordered]@{

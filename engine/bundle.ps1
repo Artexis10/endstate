@@ -17,6 +17,7 @@
 
 # Import dependencies
 . "$PSScriptRoot\config-modules.ps1"
+. "$PSScriptRoot\json-output.ps1"
 
 function Get-MatchedConfigModulesForApps {
     <#
@@ -250,17 +251,12 @@ function New-CaptureMetadata {
         [string[]]$CaptureWarnings = @()
     )
     
-    # Read version from VERSION.txt if available
-    $endstateVersion = "0.1.0"
-    if ($PSScriptRoot) {
-        $versionFile = Join-Path $PSScriptRoot "..\VERSION.txt"
-        if (Test-Path $versionFile) {
-            $endstateVersion = (Get-Content $versionFile -Raw).Trim()
-        }
-    }
-    
+    $endstateVersion = Get-EndstateVersion
+
+    $schemaVer = Get-SchemaVersion
+
     return [ordered]@{
-        schemaVersion = "1.0"
+        schemaVersion = $schemaVer
         capturedAt = (Get-Date).ToUniversalTime().ToString("o")
         machineName = $env:COMPUTERNAME
         endstateVersion = $endstateVersion
