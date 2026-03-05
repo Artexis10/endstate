@@ -93,7 +93,7 @@ endstate/
 
 ```powershell
 # Clone the repo
-git clone https://github.com/ArtexisX/endstate.git
+git clone https://github.com/Artexis10/endstate.git
 cd endstate
 
 # (Optional) Unblock downloaded scripts
@@ -275,7 +275,7 @@ Endstate uses Pester 5.7.1 (vendored in `tools/pester/`) for deterministic, offl
 
 **Maturity:** This is a personal/small-team tool. It is not enterprise software. It prioritizes correctness and safety over features.
 
-> A desktop GUI is planned as a separate commercial product built on top of Endstate's open-source core.
+> A desktop GUI is available as a separate commercial product built on top of Endstate's open-source core — [substratesystems.io/endstate](https://substratesystems.io/endstate)
 
 ---
 
