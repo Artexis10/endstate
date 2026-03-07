@@ -14,7 +14,10 @@
   "matches": {
     "winget": ["Anthropic.ClaudeCode"],
     "exe": ["claude.exe"],
-    "uninstallDisplayName": ["^Claude Code$"]
+    "uninstallDisplayName": ["^Claude Code$"],
+    "pathExists": [
+      "%USERPROFILE%\\.claude\\settings.json"
+    ]
   },
 
   "verify": [

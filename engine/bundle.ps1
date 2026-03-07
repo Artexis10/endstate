@@ -22,11 +22,11 @@
 function Get-MatchedConfigModulesForApps {
     <#
     .SYNOPSIS
-        Match captured apps against config module catalog by winget ID.
+        Match captured apps against config module catalog by winget ID or pathExists.
     .DESCRIPTION
         For each app in the captured manifest, checks if any config module
-        matches via its matches.winget array. Returns modules that have
-        capture sections defined.
+        matches via its matches.winget array or matches.pathExists filesystem
+        paths. Returns modules that have capture sections defined.
     .PARAMETER Apps
         Array of app objects from capture (each has .refs.windows).
     .OUTPUTS
@@ -60,8 +60,8 @@ function Get-MatchedConfigModulesForApps {
         }
         
         # Check winget ID matches
+        $isMatch = $false
         if ($module.matches -and $module.matches.winget) {
-            $isMatch = $false
             foreach ($wingetPattern in $module.matches.winget) {
                 foreach ($installedId in $wingetIds) {
                     if ($installedId -eq $wingetPattern -or $installedId -like $wingetPattern) {
@@ -71,10 +71,21 @@ function Get-MatchedConfigModulesForApps {
                 }
                 if ($isMatch) { break }
             }
-            
-            if ($isMatch) {
-                $matched += $module
+        }
+
+        # Check pathExists matches for non-winget modules
+        if (-not $isMatch -and $module.matches -and $module.matches.pathExists) {
+            foreach ($pathPattern in $module.matches.pathExists) {
+                $expandedPath = Expand-ConfigPath -Path $pathPattern
+                if (Test-Path $expandedPath) {
+                    $isMatch = $true
+                    break
+                }
             }
+        }
+
+        if ($isMatch) {
+            $matched += $module
         }
     }
     

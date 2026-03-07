@@ -99,10 +99,54 @@ Describe "Build-ConfigModuleMap" {
 
     Context "Modules with no winget matches" {
 
-        It "Should return null when module exists but has no winget matches" {
+        It "Should map module ID as key when module has no winget matches" {
             $result = Build-ConfigModuleMap -ModuleIds @("apps.nowinget") -Catalog $script:MockCatalog
 
-            $result | Should -BeNull
+            $result | Should -Not -BeNull
+            $result.Count | Should -Be 1
+            $result["apps.nowinget"] | Should -Be "apps.nowinget"
+        }
+
+        It "Should map module ID as key when module has empty winget array" {
+            $emptyWingetCatalog = @{
+                "apps.lightroom" = @{
+                    id          = "apps.lightroom"
+                    displayName = "Lightroom Classic"
+                    matches     = @{ winget = @(); pathExists = @("%ProgramFiles%\Adobe\lightroom.exe") }
+                }
+            }
+
+            $result = Build-ConfigModuleMap -ModuleIds @("apps.lightroom") -Catalog $emptyWingetCatalog
+
+            $result | Should -Not -BeNull
+            $result.Count | Should -Be 1
+            $result["apps.lightroom"] | Should -Be "apps.lightroom"
+        }
+
+        It "Should map module ID as key when matches property is missing" {
+            $noMatchesCatalog = @{
+                "apps.bare" = @{
+                    id          = "apps.bare"
+                    displayName = "Bare Module"
+                }
+            }
+
+            $result = Build-ConfigModuleMap -ModuleIds @("apps.bare") -Catalog $noMatchesCatalog
+
+            $result | Should -Not -BeNull
+            $result["apps.bare"] | Should -Be "apps.bare"
+        }
+    }
+
+    Context "Mixed winget and non-winget modules" {
+
+        It "Should map winget refs for winget modules and module ID for non-winget modules" {
+            $result = Build-ConfigModuleMap -ModuleIds @("apps.git", "apps.nowinget") -Catalog $script:MockCatalog
+
+            $result | Should -Not -BeNull
+            $result["Git.Git"] | Should -Be "apps.git"
+            $result["apps.nowinget"] | Should -Be "apps.nowinget"
+            $result.Count | Should -Be 2
         }
     }
 

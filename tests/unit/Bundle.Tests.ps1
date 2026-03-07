@@ -28,7 +28,22 @@ Describe "Bundle.ConfigModuleMatching" {
             $result | Should -HaveCount 0
         }
         
-        It "Should return empty array when apps have no winget refs" {
+        It "Should return empty array when apps have no winget refs and no pathExists matches" {
+            Mock Get-ConfigModuleCatalog {
+                return @{
+                    "apps.winget-only" = @{
+                        id = "apps.winget-only"
+                        displayName = "Winget Only"
+                        matches = @{ winget = @("Some.WingetId") }
+                        capture = @{
+                            files = @(
+                                @{ source = "C:\fake\config.json"; dest = "apps/winget-only/config.json" }
+                            )
+                        }
+                    }
+                }
+            }
+
             $apps = @(
                 @{ id = "some-app"; refs = @{} }
             )
@@ -48,6 +63,21 @@ Describe "Bundle.ConfigModuleMatching" {
         }
         
         It "Should not match apps that have no corresponding module" {
+            Mock Get-ConfigModuleCatalog {
+                return @{
+                    "apps.other-app" = @{
+                        id = "apps.other-app"
+                        displayName = "Other App"
+                        matches = @{ winget = @("Other.App") }
+                        capture = @{
+                            files = @(
+                                @{ source = "C:\fake\config.json"; dest = "apps/other-app/config.json" }
+                            )
+                        }
+                    }
+                }
+            }
+
             $apps = @(
                 @{ id = "nonexistent-app"; refs = @{ windows = "Nonexistent.App.12345" } }
             )
@@ -66,6 +96,105 @@ Describe "Bundle.ConfigModuleMatching" {
             }
         }
         
+        It "Should match module via pathExists when winget does not match" {
+            # Create a temp file that pathExists can find
+            $tempDir = Join-Path $env:TEMP "endstate-test-pathexists-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            $markerFile = Join-Path $tempDir "marker.cfg"
+            'exists' | Set-Content -Path $markerFile -Encoding UTF8
+
+            try {
+                Mock Get-ConfigModuleCatalog {
+                    return @{
+                        "apps.pathexists-app" = @{
+                            id = "apps.pathexists-app"
+                            displayName = "PathExists App"
+                            matches = @{
+                                winget = @("NonExistent.WingetId")
+                                pathExists = @($markerFile)
+                            }
+                            capture = @{
+                                files = @(
+                                    @{ source = $markerFile; dest = "apps/pathexists-app/marker.cfg" }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                # No winget match, but pathExists should match
+                $apps = @(@{ id = "some-app"; refs = @{ windows = "Other.App" } })
+                $result = @(Get-MatchedConfigModulesForApps -Apps $apps)
+                $result | Should -HaveCount 1
+                $result[0].id | Should -Be "apps.pathexists-app"
+            } finally {
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "Should not duplicate module matched by both winget and pathExists" {
+            $tempDir = Join-Path $env:TEMP "endstate-test-nodup-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            $markerFile = Join-Path $tempDir "config.json"
+            '{}' | Set-Content -Path $markerFile -Encoding UTF8
+
+            try {
+                Mock Get-ConfigModuleCatalog {
+                    return @{
+                        "apps.dual-match" = @{
+                            id = "apps.dual-match"
+                            displayName = "Dual Match"
+                            matches = @{
+                                winget = @("Dual.Match")
+                                pathExists = @($markerFile)
+                            }
+                            capture = @{
+                                files = @(
+                                    @{ source = $markerFile; dest = "apps/dual-match/config.json" }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                $apps = @(@{ id = "dual-match"; refs = @{ windows = "Dual.Match" } })
+                $result = Get-MatchedConfigModulesForApps -Apps $apps
+                $result | Should -HaveCount 1
+            } finally {
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "Should skip module matched via pathExists that has no capture section" {
+            $tempDir = Join-Path $env:TEMP "endstate-test-nocap-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
+            $markerFile = Join-Path $tempDir "app.exe"
+            'binary' | Set-Content -Path $markerFile -Encoding UTF8
+
+            try {
+                Mock Get-ConfigModuleCatalog {
+                    return @{
+                        "apps.no-capture" = @{
+                            id = "apps.no-capture"
+                            displayName = "No Capture"
+                            matches = @{
+                                pathExists = @($markerFile)
+                            }
+                            verify = @(
+                                @{ type = "file-exists"; path = $markerFile }
+                            )
+                        }
+                    }
+                }
+
+                $apps = @(@{ id = "no-capture"; refs = @{ windows = "NoCap.App" } })
+                $result = Get-MatchedConfigModulesForApps -Apps $apps
+                $result | Should -HaveCount 0
+            } finally {
+                Remove-Item -Path $tempDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
         It "Should return results sorted by module ID" {
             # Use multiple apps that match different modules
             $apps = @(

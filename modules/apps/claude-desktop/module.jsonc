@@ -10,7 +10,10 @@
   "matches": {
     "winget": ["Anthropic.Claude"],
     "exe": ["claude.exe"],
-    "uninstallDisplayName": ["^Claude$"]
+    "uninstallDisplayName": ["^Claude$"],
+    "pathExists": [
+      "%APPDATA%\\Claude\\claude_desktop_config.json"
+    ]
   },
 
   "verify": [

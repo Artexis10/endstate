@@ -538,10 +538,13 @@ function Build-ConfigModuleMap {
             continue
         }
         $module = $Catalog[$moduleId]
-        if ($module.matches -and $module.matches.winget) {
+        if ($module.matches -and $module.matches.winget -and $module.matches.winget.Count -gt 0) {
             foreach ($wingetRef in $module.matches.winget) {
                 $map[$wingetRef] = $moduleId
             }
+        } else {
+            # For modules without winget refs, use module ID as key
+            $map[$moduleId] = $moduleId
         }
     }
 

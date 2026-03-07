@@ -10,7 +10,10 @@
   "matches": {
     "winget": ["mpv.net"],
     "exe": ["mpv.exe"],
-    "uninstallDisplayName": ["^mpv"]
+    "uninstallDisplayName": ["^mpv"],
+    "pathExists": [
+      "%APPDATA%\\mpv\\mpv.conf"
+    ]
   },
 
   "verify": [
