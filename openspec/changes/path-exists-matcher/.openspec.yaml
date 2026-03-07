@@ -1,0 +1,9 @@
+id: path-exists-matcher
+title: "Config Module: pathExists Matcher for Non-Winget Apps"
+status: complete
+spec: path-exists-matcher
+created: "2026-03-07"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - tasks.md

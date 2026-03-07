@@ -11,7 +11,10 @@
   "matches": {
     "winget": [],
     "exe": ["Adobe Premiere Pro.exe"],
-    "uninstallDisplayName": ["^Adobe Premiere Pro"]
+    "uninstallDisplayName": ["^Adobe Premiere Pro"],
+    "pathExists": [
+      "%ProgramFiles%\\Adobe\\Adobe Premiere Pro*\\Adobe Premiere Pro.exe"
+    ]
   },
 
   "verify": [

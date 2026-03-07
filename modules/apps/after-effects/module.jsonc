@@ -11,7 +11,10 @@
   "matches": {
     "winget": [],
     "exe": ["AfterFX.exe"],
-    "uninstallDisplayName": ["^Adobe After Effects"]
+    "uninstallDisplayName": ["^Adobe After Effects"],
+    "pathExists": [
+      "%ProgramFiles%\\Adobe\\Adobe After Effects*\\Support Files\\AfterFX.exe"
+    ]
   },
 
   "verify": [

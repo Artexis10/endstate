@@ -135,15 +135,32 @@ function Test-ConfigModuleSchema {
         return $result
     }
     
-    # matches must have at least one of: winget, exe, uninstallDisplayName
+    # matches must have at least one of: winget, exe, uninstallDisplayName, pathExists
     $hasWinget = $Module.matches.winget -and $Module.matches.winget.Count -gt 0
     $hasExe = $Module.matches.exe -and $Module.matches.exe.Count -gt 0
     $hasUninstall = $Module.matches.uninstallDisplayName -and $Module.matches.uninstallDisplayName.Count -gt 0
-    
-    if (-not ($hasWinget -or $hasExe -or $hasUninstall)) {
+    $hasPathExists = $Module.matches.pathExists -and $Module.matches.pathExists.Count -gt 0
+
+    if (-not ($hasWinget -or $hasExe -or $hasUninstall -or $hasPathExists)) {
         $result.Valid = $false
-        $result.Error = "matches must have at least one of: winget, exe, uninstallDisplayName"
+        $result.Error = "matches must have at least one of: winget, exe, uninstallDisplayName, pathExists"
         return $result
+    }
+
+    # Optional: pathExists (array of strings)
+    if ($Module.matches.ContainsKey('pathExists') -and $null -ne $Module.matches.pathExists) {
+        if ($Module.matches.pathExists -isnot [array]) {
+            $result.Valid = $false
+            $result.Error = "'matches.pathExists' must be an array"
+            return $result
+        }
+        foreach ($p in $Module.matches.pathExists) {
+            if ($p -isnot [string] -or $p.Trim() -eq "") {
+                $result.Valid = $false
+                $result.Error = "Each entry in 'matches.pathExists' must be a non-empty string"
+                return $result
+            }
+        }
     }
     
     # Optional: restore (array)
@@ -408,7 +425,18 @@ function Get-ConfigModulesForInstalledApps {
                 }
             }
         }
-        
+
+        # Check pathExists matches (filesystem path existence for non-winget apps)
+        if ($module.matches.pathExists) {
+            foreach ($pathPattern in $module.matches.pathExists) {
+                $expandedPath = Expand-ConfigPath -Path $pathPattern
+                if (Test-Path $expandedPath) {
+                    $matchReasons += "pathExists:$pathPattern"
+                    break  # One match is enough
+                }
+            }
+        }
+
         # If any matches found, add to results
         if ($matchReasons.Count -gt 0) {
             $moduleMatches += @{

@@ -11,7 +11,10 @@
   "matches": {
     "winget": [],
     "exe": ["PrecisionX_x64.exe"],
-    "uninstallDisplayName": ["^EVGA Precision X1"]
+    "uninstallDisplayName": ["^EVGA Precision X1"],
+    "pathExists": [
+      "%ProgramFiles(x86)%\\EVGA\\Precision X1\\PrecisionX_x64.exe"
+    ]
   },
 
   "verify": [

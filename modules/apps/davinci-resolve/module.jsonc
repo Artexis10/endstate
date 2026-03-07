@@ -11,7 +11,10 @@
     // DaVinci Resolve is installed via vendor installer (no winget ID)
     "winget": [],
     "exe": ["Resolve.exe"],
-    "uninstallDisplayName": ["^DaVinci Resolve"]
+    "uninstallDisplayName": ["^DaVinci Resolve"],
+    "pathExists": [
+      "%ProgramFiles%\\Blackmagic Design\\DaVinci Resolve\\Resolve.exe"
+    ]
   },
 
   "verify": [

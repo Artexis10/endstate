@@ -11,7 +11,11 @@
     // Lightroom Classic is typically installed via Adobe Creative Cloud (manual install)
     "winget": [],
     "exe": ["lightroom.exe"],
-    "uninstallDisplayName": ["^Adobe Lightroom Classic"]
+    "uninstallDisplayName": ["^Adobe Lightroom Classic"],
+    "pathExists": [
+      "%ProgramFiles%\\Adobe\\Adobe Lightroom Classic\\lightroom.exe",
+      "%APPDATA%\\Adobe\\Lightroom\\Preferences\\Lightroom Classic CC 7 Preferences.agprefs"
+    ]
   },
   
   "verify": [

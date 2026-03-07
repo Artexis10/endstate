@@ -11,7 +11,10 @@
     // Ableton Live is installed via vendor installer (no winget ID)
     "winget": [],
     "exe": ["Ableton Live*.exe"],
-    "uninstallDisplayName": ["^Ableton Live"]
+    "uninstallDisplayName": ["^Ableton Live"],
+    "pathExists": [
+      "%ProgramData%\\Ableton\\Live*\\Program\\Ableton Live*.exe"
+    ]
   },
 
   "verify": [

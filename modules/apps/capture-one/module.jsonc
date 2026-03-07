@@ -11,7 +11,11 @@
     // Capture One is typically installed manually or via vendor installer
     "winget": [],
     "exe": ["CaptureOne.exe"],
-    "uninstallDisplayName": ["^Capture One"]
+    "uninstallDisplayName": ["^Capture One"],
+    "pathExists": [
+      "%ProgramFiles%\\Capture One*\\CaptureOne.exe",
+      "%LOCALAPPDATA%\\CaptureOne\\Preferences.plist"
+    ]
   },
 
   "verify": [

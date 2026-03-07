@@ -11,7 +11,10 @@
     // DxO PhotoLab is installed via vendor installer (no winget ID)
     "winget": [],
     "exe": ["DxOPhotoLab*.exe"],
-    "uninstallDisplayName": ["^DxO PhotoLab"]
+    "uninstallDisplayName": ["^DxO PhotoLab"],
+    "pathExists": [
+      "%ProgramFiles%\\DxO\\DxO PhotoLab*\\DxOPhotoLab*.exe"
+    ]
   },
 
   "verify": [

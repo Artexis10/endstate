@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.2.0] - 2026-03-07
+
+### Added
+- `pathExists` matcher for config modules — enables matching apps installed outside winget (Adobe CC apps, built-in tools)
+- OpenSpec spec: path-exists-matcher
+- Lightroom Classic now matched during capture via pathExists
+- Unit tests for pathExists matcher (10 tests)
+
+### Changed
+- Updated non-winget modules with pathExists fallback paths (lightroom-classic, after-effects, premiere-pro, ableton-live, capture-one, davinci-resolve, dxo-photolab, evga-precision-x1)
+- `Test-ConfigModuleSchema` now validates pathExists arrays
+- `Get-ConfigModulesForInstalledApps` checks pathExists paths via `Expand-ConfigPath` + `Test-Path`
+
+### Fixed
+- Lightroom Classic config module not matching during capture (no winget ID, exe not on PATH)
+
 ## [1.1.0] - 2026-03-07
 
 ### Added
