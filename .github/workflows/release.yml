@@ -15,38 +15,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract changelog section
-        id: changelog
-        shell: bash
-        run: |
-          # Strip 'v' prefix to get version number
-          VERSION="${GITHUB_REF_NAME#v}"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-
-          # Extract section between ## [x.y.z] and next ## [ (or EOF)
-          BODY=$(awk -v ver="$VERSION" '
-            BEGIN { found=0 }
-            /^## \[/ {
-              if (found) exit
-              if (index($0, "## [" ver "]")) { found=1; next }
-            }
-            found { print }
-          ' CHANGELOG.md)
-
-          # Fallback if no section found
-          if [ -z "$BODY" ]; then
-            BODY="See CHANGELOG.md"
-          fi
-
-          # Write body to file for multi-line safety
-          echo "$BODY" > release-body.md
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
-          body_path: release-body.md
+          generate_release_notes: true
           draft: false
           prerelease: false
           make_latest: true
