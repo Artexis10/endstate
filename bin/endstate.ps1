@@ -1295,9 +1295,10 @@ function Get-ProvisioningCliPath {
     $repoRoot = Get-RepoRootPath
     
     if (-not $repoRoot) {
-        # Fallback: if running from repo, use parent of $PSScriptRoot (bin/ -> repo root)
-        $repoRoot = Split-Path -Parent $script:EndstateRoot
-        
+        # Fallback: if running from repo, $script:EndstateRoot is already repo root
+        # (set at line 154 as Split-Path -Parent $PSScriptRoot, i.e. bin/ -> repo root)
+        $repoRoot = $script:EndstateRoot
+
         # Verify this is actually a repo root by checking for bin\cli.ps1
         $cliPath = Join-Path $repoRoot "bin\cli.ps1"
         if (-not (Test-Path $cliPath)) {
