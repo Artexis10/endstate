@@ -1,0 +1,7 @@
+
+FullName                          Length PSIsContainer
+--------                          ------ -------------
+C:\Users\hugoa\.cursor\extensions                 True
+C:\Users\hugoa\.cursor\argv.json  509            False
+
+

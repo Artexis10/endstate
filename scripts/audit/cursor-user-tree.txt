@@ -1,0 +1,8 @@
+
+FullName                                                    Length PSIsContainer
+--------                                                    ------ -------------
+C:\Users\hugoa\AppData\Roaming\Cursor\User\globalStorage                    True
+C:\Users\hugoa\AppData\Roaming\Cursor\User\History                          True
+C:\Users\hugoa\AppData\Roaming\Cursor\User\workspaceStorage                 True
+
+

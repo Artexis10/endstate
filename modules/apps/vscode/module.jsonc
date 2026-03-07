@@ -38,6 +38,13 @@
       "target": "%APPDATA%\\Code\\User\\snippets",
       "backup": true,
       "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/vscode/tasks.json",
+      "target": "%APPDATA%\\Code\\User\\tasks.json",
+      "backup": true,
+      "optional": true
     }
   ],
 
@@ -45,7 +52,10 @@
     "files": [
       { "source": "%APPDATA%\\Code\\User\\settings.json", "dest": "apps/vscode/settings.json", "optional": true },
       { "source": "%APPDATA%\\Code\\User\\keybindings.json", "dest": "apps/vscode/keybindings.json", "optional": true },
-      { "source": "%APPDATA%\\Code\\User\\snippets", "dest": "apps/vscode/snippets", "optional": true }
+      { "source": "%APPDATA%\\Code\\User\\snippets", "dest": "apps/vscode/snippets", "optional": true },
+      { "source": "%APPDATA%\\Code\\User\\tasks.json", "dest": "apps/vscode/tasks.json", "optional": true },
+      // Extension manifest (readable list of installed extensions)
+      { "source": "%USERPROFILE%\\.vscode\\extensions\\extensions.json", "dest": "apps/vscode/extensions.json", "optional": true }
     ],
     "excludeGlobs": [
       "**\\Cache\\**",
@@ -67,7 +77,7 @@
     "restorer": "warn-only"
   },
 
-  "notes": "Captures VS Code user configuration (settings, keybindings, snippets). VS Code has built-in Settings Sync, but this module provides offline/deterministic restoration. Extension state databases are explicitly excluded - they may contain tokens. Config at %APPDATA%\\Code\\User\\.",
+  "notes": "Captures VS Code user configuration (settings, keybindings, snippets, tasks). Extension list is captured via extensions.json manifest; to reinstall on a fresh machine: code --install-extension <id> for each line from `code --list-extensions`. VS Code has built-in Settings Sync, but this module provides offline/deterministic restoration. Extension state databases are explicitly excluded - they may contain tokens. Config at %APPDATA%\\Code\\User\\.",
 
   "curation": {
     "seed": {

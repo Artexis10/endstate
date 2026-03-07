@@ -2,6 +2,10 @@
   // Config Module: HWiNFO
   // Provides verify/restore/capture configuration for HWiNFO (hardware monitoring)
   // Curated module - captures sensor config, layout, and alert settings
+  //
+  // NOTE: HWiNFO64 stores HWiNFO64.INI in the install directory, NOT in %APPDATA%.
+  // The config lives at %ProgramFiles%\HWiNFO64\HWiNFO64.INI.
+  // Writing to Program Files requires admin elevation on restore.
 
   "id": "apps.hwinfo",
   "displayName": "HWiNFO",
@@ -14,14 +18,14 @@
   },
 
   "verify": [
-    { "type": "file-exists", "path": "%APPDATA%\\HWiNFO64\\HWiNFO64.INI" }
+    { "type": "file-exists", "path": "%ProgramFiles%\\HWiNFO64\\HWiNFO64.INI" }
   ],
 
   "restore": [
     {
       "type": "copy",
       "source": "./payload/apps/hwinfo/HWiNFO64.INI",
-      "target": "%APPDATA%\\HWiNFO64\\HWiNFO64.INI",
+      "target": "%ProgramFiles%\\HWiNFO64\\HWiNFO64.INI",
       "backup": true,
       "optional": true
     }
@@ -29,7 +33,7 @@
 
   "capture": {
     "files": [
-      { "source": "%APPDATA%\\HWiNFO64\\HWiNFO64.INI", "dest": "apps/hwinfo/HWiNFO64.INI", "optional": true }
+      { "source": "%ProgramFiles%\\HWiNFO64\\HWiNFO64.INI", "dest": "apps/hwinfo/HWiNFO64.INI", "optional": true }
     ],
     "excludeGlobs": [
       "**\\*.log",
@@ -38,7 +42,7 @@
     ]
   },
 
-  "notes": "Captures HWiNFO64 configuration (HWiNFO64.INI) including sensor config, layout, and alert settings. Log exports (.csv) excluded. Config at %APPDATA%\\HWiNFO64\\.",
+  "notes": "Captures HWiNFO64 configuration (HWiNFO64.INI) including sensor config, layout, and alert settings. Config is stored in the install directory at %ProgramFiles%\\HWiNFO64\\HWiNFO64.INI (NOT in %APPDATA%). Restoring requires admin elevation to write to Program Files. Log exports (.csv) excluded.",
 
   "curation": {
     "seed": {
@@ -46,7 +50,7 @@
       "script": "seed.ps1"
     },
     "snapshotRoots": [
-      "%APPDATA%"
+      "%ProgramFiles%"
     ],
     "excludePatterns": [
       "**/*.log",

@@ -1,7 +1,7 @@
 {
   // Config Module: mpv
   // Provides verify/restore/capture configuration for mpv (media player)
-  // Curated module - captures mpv.conf, input.conf, and scripts
+  // Curated module - captures mpv.conf, input.conf, script-opts, and shaders
 
   "id": "apps.mpv",
   "displayName": "mpv",
@@ -34,8 +34,22 @@
     },
     {
       "type": "copy",
+      "source": "./payload/apps/mpv/script-opts",
+      "target": "%APPDATA%\\mpv\\script-opts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
       "source": "./payload/apps/mpv/scripts",
       "target": "%APPDATA%\\mpv\\scripts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mpv/shaders",
+      "target": "%APPDATA%\\mpv\\shaders",
       "backup": true,
       "optional": true
     }
@@ -45,7 +59,9 @@
     "files": [
       { "source": "%APPDATA%\\mpv\\mpv.conf", "dest": "apps/mpv/mpv.conf", "optional": true },
       { "source": "%APPDATA%\\mpv\\input.conf", "dest": "apps/mpv/input.conf", "optional": true },
-      { "source": "%APPDATA%\\mpv\\scripts", "dest": "apps/mpv/scripts", "optional": true }
+      { "source": "%APPDATA%\\mpv\\script-opts", "dest": "apps/mpv/script-opts", "optional": true },
+      { "source": "%APPDATA%\\mpv\\scripts", "dest": "apps/mpv/scripts", "optional": true },
+      { "source": "%APPDATA%\\mpv\\shaders", "dest": "apps/mpv/shaders", "optional": true }
     ],
     "excludeGlobs": [
       "**\\*.log",
@@ -55,7 +71,7 @@
     ]
   },
 
-  "notes": "Captures mpv player configuration (mpv.conf), input bindings (input.conf), and user scripts (scripts/). Watch-later resume data and cache excluded. Config at %APPDATA%\\mpv\\.",
+  "notes": "Captures mpv player configuration (mpv.conf), input bindings (input.conf), per-script options (script-opts/), user Lua scripts (scripts/), and custom video shaders (shaders/). Watch-later resume data and cache excluded. On this machine only mpv.conf and input.conf exist — script-opts/, scripts/, and shaders/ are all optional and will be skipped if absent. Config at %APPDATA%\\mpv\\.",
 
   "curation": {
     "seed": {

@@ -14,10 +14,12 @@
   },
 
   "verify": [
-    { "type": "file-exists", "path": "%APPDATA%\\foobar2000\\configuration" }
+    // foobar2000 v1 uses %APPDATA%\foobar2000\, v2 uses %APPDATA%\foobar2000-v2\
+    { "type": "command-exists", "command": "foobar2000" }
   ],
 
   "restore": [
+    // foobar2000 v1 paths
     {
       "type": "copy",
       "source": "./payload/apps/foobar2000/configuration",
@@ -31,13 +33,24 @@
       "target": "%APPDATA%\\foobar2000\\playlists-v1.4",
       "backup": true,
       "optional": true
+    },
+    // foobar2000 v2 paths
+    {
+      "type": "copy",
+      "source": "./payload/apps/foobar2000/playlists-v2.0",
+      "target": "%APPDATA%\\foobar2000-v2\\playlists-v2.0",
+      "backup": true,
+      "optional": true
     }
   ],
 
   "capture": {
     "files": [
+      // foobar2000 v1 paths
       { "source": "%APPDATA%\\foobar2000\\configuration", "dest": "apps/foobar2000/configuration", "optional": true },
-      { "source": "%APPDATA%\\foobar2000\\playlists-v1.4", "dest": "apps/foobar2000/playlists-v1.4", "optional": true }
+      { "source": "%APPDATA%\\foobar2000\\playlists-v1.4", "dest": "apps/foobar2000/playlists-v1.4", "optional": true },
+      // foobar2000 v2 paths
+      { "source": "%APPDATA%\\foobar2000-v2\\playlists-v2.0", "dest": "apps/foobar2000/playlists-v2.0", "optional": true }
     ],
     "excludeGlobs": [
       "**\\*.log",
@@ -48,7 +61,7 @@
     ]
   },
 
-  "notes": "Captures foobar2000 configuration directory (layout, DSP chain, component settings) and playlists. Index data excluded (rebuilt on library scan). Crash reports excluded. Config at %APPDATA%\\foobar2000\\.",
+  "notes": "Captures foobar2000 configuration and playlists. Supports both v1 (%APPDATA%\\foobar2000\\) and v2 (%APPDATA%\\foobar2000-v2\\) paths. Note: foobar2000 v2 stores config in config.sqlite (database) which cannot be file-copied while foobar2000 is running — close the application before capture. Index data excluded (rebuilt on library scan).",
 
   "curation": {
     "seed": {

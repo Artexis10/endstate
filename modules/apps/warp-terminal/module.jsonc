@@ -1,0 +1,62 @@
+{
+  // Config Module: Warp Terminal
+  // Provides verify/restore/capture configuration for Warp (AI-powered terminal)
+  // Curated module - config is almost entirely stored in a SQLite database (not portable)
+  // Only the credential/token keychain files are explicitly documented as sensitive
+
+  "id": "apps.warp-terminal",
+  "displayName": "Warp Terminal",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Warp.Warp"],
+    "exe": ["warp.exe"],
+    "uninstallDisplayName": ["^Warp$", "^Warp "]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "warp" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\logs\\**",
+      "**\\*.sqlite",
+      "**\\*.sqlite-shm",
+      "**\\*.sqlite-wal",
+      "**\\*.lock",
+      "**\\codebase_index_snapshots\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Warp\\Warp\\data\\dev.warp.Warp-AiApiKeys",
+      "%LOCALAPPDATA%\\Warp\\Warp\\data\\dev.warp.Warp-TemplatableMcpCredentials",
+      "%LOCALAPPDATA%\\Warp\\Warp\\data\\dev.warp.Warp-User"
+    ],
+    "warning": "Warp stores all settings (themes, keybindings, AI config, launch configs) in a SQLite database (warp.sqlite) that is binary and not portable. Credential files contain AI API keys, MCP credentials, and user auth tokens. None of these are safe to auto-restore.",
+    "restorer": "block"
+  },
+
+  "notes": "Warp Terminal stores virtually all user configuration — themes, keybindings, AI preferences, launch configurations, and session data — in a single SQLite database (%LOCALAPPDATA%\\Warp\\Warp\\data\\warp.sqlite, ~230 MB on this machine). This database is binary and tied to device/account state; it is not portable between machines. There are no human-readable config files to capture. Credential keychain files (AI API keys, MCP credentials, user auth) are marked sensitive and blocked from restore. Warp's cloud sync (if enabled under Settings > Sync) is the recommended mechanism for cross-machine config portability.",
+
+  "curation": {
+    "snapshotRoots": [
+      "%LOCALAPPDATA%\\Warp"
+    ],
+    "excludePatterns": [
+      "**/logs/**",
+      "**/*.sqlite",
+      "**/*.sqlite-shm",
+      "**/*.sqlite-wal",
+      "**/*.lock",
+      "**/codebase_index_snapshots/**",
+      "**/cache/**"
+    ]
+  }
+}

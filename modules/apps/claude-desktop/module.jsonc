@@ -24,12 +24,21 @@
       "target": "%APPDATA%\\Claude\\claude_desktop_config.json",
       "backup": true,
       "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/claude-desktop/config.json",
+      "target": "%APPDATA%\\Claude\\config.json",
+      "backup": true,
+      "optional": true
     }
   ],
 
   "capture": {
     "files": [
-      { "source": "%APPDATA%\\Claude\\claude_desktop_config.json", "dest": "apps/claude-desktop/claude_desktop_config.json", "optional": true }
+      { "source": "%APPDATA%\\Claude\\claude_desktop_config.json", "dest": "apps/claude-desktop/claude_desktop_config.json", "optional": true },
+      { "source": "%APPDATA%\\Claude\\config.json", "dest": "apps/claude-desktop/config.json", "optional": true },
+      { "source": "%APPDATA%\\Claude\\extensions-installations.json", "dest": "apps/claude-desktop/extensions-installations.json", "optional": true }
     ],
     "excludeGlobs": [
       "**\\Cache\\**",
@@ -54,7 +63,7 @@
     "restorer": "warn-only"
   },
 
-  "notes": "Captures Claude Desktop MCP configuration (claude_desktop_config.json). This file defines MCP server connections, which is the primary portable config. Session data, auth tokens, and Electron state are explicitly excluded. Config at %APPDATA%\\Claude\\.",
+  "notes": "Captures Claude Desktop MCP configuration (claude_desktop_config.json), app config (config.json), and extension installation records. Session data, auth tokens, and Electron state are explicitly excluded. The vm_bundles/ directory (~13 GB) contains extension runtimes and is NOT captured. Config at %APPDATA%\\Claude\\.",
 
   "curation": {
     "seed": null,

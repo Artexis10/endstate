@@ -1,5 +1,6 @@
 {
   // Config Module: MSI Afterburner
+  // GPU overclocking utility - config lives in the install directory (requires admin to restore)
 
   "id": "apps.msi-afterburner",
   "displayName": "MSI Afterburner",
@@ -37,10 +38,25 @@
       { "source": "%ProgramFiles(x86)%\\MSI Afterburner\\MSIAfterburner.cfg", "dest": "apps/msi-afterburner/MSIAfterburner.cfg", "optional": true },
       { "source": "%ProgramFiles(x86)%\\MSI Afterburner\\Profiles", "dest": "apps/msi-afterburner/Profiles", "optional": true }
     ],
-    "excludeGlobs": []
+    "excludeGlobs": [
+      "**\\VEN_*",
+      "**\\*.dat"
+    ]
   },
 
-  "curation": {},
+  "notes": "Captures MSI Afterburner GPU overclocking configuration (MSIAfterburner.cfg) and OC profiles (Profiles\\Profile*.cfg). Config is stored in the install directory at %ProgramFiles(x86)%\\MSI Afterburner\\ — restoring requires admin elevation. Hardware-specific profile files (VEN_*/DEV_*.cfg) are excluded as they are GPU-specific and not portable across machines. RTCore.cfg is a driver config and is not captured.",
 
-  "notes": "Configuration files for MSI Afterburner GPU overclocking utility"
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%ProgramFiles(x86)%"
+    ],
+    "excludePatterns": [
+      "**/VEN_*",
+      "**/*.dat"
+    ]
+  }
 }

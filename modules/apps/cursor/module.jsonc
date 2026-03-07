@@ -38,6 +38,21 @@
       "target": "%APPDATA%\\Cursor\\User\\snippets",
       "backup": true,
       "optional": true
+    },
+    // Cursor AI configuration
+    {
+      "type": "copy",
+      "source": "./payload/apps/cursor/rules",
+      "target": "%USERPROFILE%\\.cursor\\rules",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cursor/mcp.json",
+      "target": "%USERPROFILE%\\.cursor\\mcp.json",
+      "backup": true,
+      "optional": true
     }
   ],
 
@@ -45,7 +60,12 @@
     "files": [
       { "source": "%APPDATA%\\Cursor\\User\\settings.json", "dest": "apps/cursor/settings.json", "optional": true },
       { "source": "%APPDATA%\\Cursor\\User\\keybindings.json", "dest": "apps/cursor/keybindings.json", "optional": true },
-      { "source": "%APPDATA%\\Cursor\\User\\snippets", "dest": "apps/cursor/snippets", "optional": true }
+      { "source": "%APPDATA%\\Cursor\\User\\snippets", "dest": "apps/cursor/snippets", "optional": true },
+      // Cursor AI configuration
+      { "source": "%USERPROFILE%\\.cursor\\rules", "dest": "apps/cursor/rules", "optional": true },
+      { "source": "%USERPROFILE%\\.cursor\\mcp.json", "dest": "apps/cursor/mcp.json", "optional": true },
+      // Extension manifest
+      { "source": "%USERPROFILE%\\.cursor\\extensions\\extensions.json", "dest": "apps/cursor/extensions.json", "optional": true }
     ],
     "excludeGlobs": [
       "**\\Cache\\**",
@@ -67,7 +87,7 @@
     "restorer": "warn-only"
   },
 
-  "notes": "Captures Cursor (AI-powered IDE) user configuration (settings, keybindings, snippets). Cursor is a VS Code fork with AI features. Extension state databases are explicitly excluded - they may contain tokens and API keys. Config at %APPDATA%\\Cursor\\User\\.",
+  "notes": "Captures Cursor (AI-powered IDE) user configuration (settings, keybindings, snippets) plus AI-specific config: global rules (%USERPROFILE%\\.cursor\\rules\\) and MCP server config (mcp.json). Cursor stores AI conversation history in databases (not portable). Extension list is captured via extensions.json manifest. To reinstall extensions: cursor --install-extension <id> for each. Config at %APPDATA%\\Cursor\\User\\ and %USERPROFILE%\\.cursor\\.",
 
   "curation": {
     "seed": {

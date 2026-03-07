@@ -1,0 +1,62 @@
+{
+  // Config Module: GitHub CLI
+  // Provides verify/restore/capture configuration for gh (GitHub CLI)
+  // Captures config.yml (aliases, preferences) — NEVER hosts.yml (OAuth tokens)
+
+  "id": "apps.github-cli",
+  "displayName": "GitHub CLI",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["GitHub.cli"],
+    "exe": ["gh.exe"],
+    "uninstallDisplayName": ["^GitHub CLI"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "gh" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/github-cli/config.yml",
+      "target": "%APPDATA%\\GitHub CLI\\config.yml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\GitHub CLI\\config.yml", "dest": "apps/github-cli/config.yml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Never capture hosts.yml — contains OAuth tokens
+      "**\\hosts.yml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\GitHub CLI\\hosts.yml"
+    ],
+    "warning": "hosts.yml contains OAuth tokens for authenticated GitHub accounts. This file MUST NOT be captured or auto-restored. After restore, run 'gh auth login' to re-authenticate.",
+    "restorer": "block"
+  },
+
+  "notes": "Captures GitHub CLI config.yml which contains git_protocol preference (ssh/https), default editor, aliases (e.g., co: pr checkout), pager settings, and prompt preferences. The hosts.yml file is blocked from capture as it contains OAuth tokens — users must re-authenticate with 'gh auth login' after restore. Config at %APPDATA%\\GitHub CLI\\.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%\\GitHub CLI"
+    ],
+    "excludePatterns": [
+      "**/hosts.yml"
+    ]
+  }
+}

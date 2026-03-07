@@ -1,0 +1,86 @@
+{
+  // Config Module: digiKam
+  // Provides verify/restore/capture configuration for digiKam photo management
+  // Captures application preferences and UI config — NOT photo databases or thumbnails
+  // Config uses KDE framework (rc files / INI format)
+
+  "id": "apps.digikam",
+  "displayName": "digiKam",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["KDE.digiKam"],
+    "exe": ["digikam.exe"],
+    "uninstallDisplayName": ["^digiKam"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "digikam" }
+  ],
+
+  "restore": [
+    // Main application config (album settings, icon display, thumbnails prefs, color management)
+    {
+      "type": "copy",
+      "source": "./payload/apps/digikam/digikamrc",
+      "target": "%LOCALAPPDATA%\\digikamrc",
+      "backup": true,
+      "optional": true
+    },
+    // System/platform config (window layout, toolbar state)
+    {
+      "type": "copy",
+      "source": "./payload/apps/digikam/digikam_systemrc",
+      "target": "%LOCALAPPDATA%\\digikam_systemrc",
+      "backup": true,
+      "optional": true
+    },
+    // Window state (maximized, position per screen resolution)
+    {
+      "type": "copy",
+      "source": "./payload/apps/digikam/digikamstaterc",
+      "target": "%APPDATA%\\digikam\\digikamstaterc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Main config — album settings, display prefs, color management, tool settings
+      { "source": "%LOCALAPPDATA%\\digikamrc", "dest": "apps/digikam/digikamrc", "optional": true },
+      // System config — window geometry, toolbar layout
+      { "source": "%LOCALAPPDATA%\\digikam_systemrc", "dest": "apps/digikam/digikam_systemrc", "optional": true },
+      // State config — window maximized state, per-resolution positions
+      { "source": "%APPDATA%\\digikam\\digikamstaterc", "dest": "apps/digikam/digikamstaterc", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Never capture photo databases, thumbnails, or face recognition data
+      "**\\*.db",
+      "**\\*.sqlite",
+      "**\\cache\\**",
+      "**\\facesengine\\**",
+      "**\\marble_data\\**",
+      "**\\icons-breeze\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "notes": "Captures digiKam configuration using KDE's rc file format (INI-style). Files: digikamrc (main prefs — album settings, icon display, tooltip config, slideshow, color management, metadata read/write settings), digikam_systemrc (system/window config), and digikamstaterc (window state per screen resolution). Photo databases (digikam4.db, thumbnails-digikam.db, recognition.db) are NOT captured — they contain library catalog data tied to the source photo paths on this machine. Tag hierarchies are stored in the database and are not portable via config files alone. Database paths referenced in digikamrc will likely need updating after restore on a machine with different photo library paths. Config at %LOCALAPPDATA%\\digikamrc and %APPDATA%\\digikam\\.",
+
+  "curation": {
+    "snapshotRoots": [
+      "%LOCALAPPDATA%",
+      "%APPDATA%\\digikam"
+    ],
+    "excludePatterns": [
+      "**/*.db",
+      "**/*.sqlite",
+      "**/cache/**",
+      "**/facesengine/**",
+      "**/marble_data/**",
+      "**/icons-breeze/**",
+      "**/Temp/**"
+    ]
+  }
+}

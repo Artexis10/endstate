@@ -1,0 +1,105 @@
+{
+  // Config Module: DBeaver Community Edition
+  // Provides verify/restore/capture configuration for DBeaver database tool
+  // Captures connection profiles (data-sources.json) and global settings
+  // SENSITIVE: credentials-config.json is encrypted but contains password data — blocked
+
+  "id": "apps.dbeaver",
+  "displayName": "DBeaver Community",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["DBeaver.DBeaver.Community"],
+    "exe": ["dbeaver.exe"],
+    "uninstallDisplayName": ["^DBeaver Community"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "dbeaver" }
+  ],
+
+  "restore": [
+    // Global settings (locale, UI preferences)
+    {
+      "type": "copy",
+      "source": "./payload/apps/dbeaver/global-settings.ini",
+      "target": "%APPDATA%\\DBeaverData\\settings\\global-settings.ini",
+      "backup": true,
+      "optional": true
+    },
+    // Connection profiles (host, port, database, driver — no passwords)
+    {
+      "type": "copy",
+      "source": "./payload/apps/dbeaver/data-sources.json",
+      "target": "%APPDATA%\\DBeaverData\\workspace6\\General\\.dbeaver\\data-sources.json",
+      "backup": true,
+      "optional": true
+    },
+    // Saved SQL scripts
+    {
+      "type": "copy",
+      "source": "./payload/apps/dbeaver/Scripts",
+      "target": "%APPDATA%\\DBeaverData\\workspace6\\General\\Scripts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Global settings
+      { "source": "%APPDATA%\\DBeaverData\\settings\\global-settings.ini", "dest": "apps/dbeaver/global-settings.ini", "optional": true },
+      // Connection profiles
+      { "source": "%APPDATA%\\DBeaverData\\workspace6\\General\\.dbeaver\\data-sources.json", "dest": "apps/dbeaver/data-sources.json", "optional": true },
+      // Saved SQL scripts
+      { "source": "%APPDATA%\\DBeaverData\\workspace6\\General\\Scripts", "dest": "apps/dbeaver/Scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Never capture credentials (encrypted password store)
+      "**\\credentials-config.json",
+      "**\\credentials-config.json.bak",
+      "**\\.data-sources.json.bak",
+      "**\\secure\\**",
+      "**\\drivers\\**",
+      // Exclude workspace metadata and Eclipse internals
+      "**\\.metadata\\**",
+      "**\\.settings\\**",
+      "**\\configuration\\**",
+      "**\\p2\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\DBeaverData\\workspace6\\General\\.dbeaver\\credentials-config.json",
+      "%APPDATA%\\DBeaverData\\secure"
+    ],
+    "warning": "credentials-config.json contains encrypted database passwords (AES encryption with a master password or OS keychain). Even encrypted, this file MUST NOT be auto-restored as the encryption keys are machine-specific. Users must re-enter database passwords after restore.",
+    "restorer": "block"
+  },
+
+  "notes": "Captures DBeaver connection profiles (data-sources.json — host, port, database name, driver, connection type; no passwords), global settings (global-settings.ini), and saved SQL scripts. The credentials-config.json file is machine-encrypted and blocked from capture. After restore, users must re-enter database passwords in DBeaver's connection manager. DBeaver config lives at %APPDATA%\\DBeaverData\\. The install directory is at %LOCALAPPDATA%\\DBeaver\\ and contains the application binary, not user data.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%\\DBeaverData"
+    ],
+    "excludePatterns": [
+      "**/credentials-config.json",
+      "**/credentials-config.json.bak",
+      "**/.data-sources.json.bak",
+      "**/secure/**",
+      "**/drivers/**",
+      "**/.metadata/**",
+      "**/.settings/**",
+      "**/configuration/**",
+      "**/p2/**",
+      "**/logs/**",
+      "**/*.log"
+    ]
+  }
+}

@@ -1,0 +1,87 @@
+{
+  // Config Module: PowerShell Profile
+  // Provides verify/restore/capture configuration for PowerShell user profiles
+  // Captures both PS7 (pwsh) and PS5 (powershell.exe) profile variants
+  // Not a traditional app install — profiles are shell entry points, not an application
+
+  "id": "apps.powershell-profile",
+  "displayName": "PowerShell Profile",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["pwsh.exe", "powershell.exe"],
+    "uninstallDisplayName": []
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "pwsh" }
+  ],
+
+  "restore": [
+    // PowerShell 7 (pwsh) profiles
+    {
+      "type": "copy",
+      "source": "./payload/apps/powershell-profile/PS7_Microsoft.PowerShell_profile.ps1",
+      "target": "%USERPROFILE%\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/powershell-profile/PS7_profile.ps1",
+      "target": "%USERPROFILE%\\Documents\\PowerShell\\profile.ps1",
+      "backup": true,
+      "optional": true
+    },
+    // PowerShell 5 (powershell.exe) profiles
+    {
+      "type": "copy",
+      "source": "./payload/apps/powershell-profile/PS5_Microsoft.PowerShell_profile.ps1",
+      "target": "%USERPROFILE%\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/powershell-profile/PS5_profile.ps1",
+      "target": "%USERPROFILE%\\Documents\\WindowsPowerShell\\profile.ps1",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // PowerShell 7 (pwsh) — current-user, current-host
+      { "source": "%USERPROFILE%\\Documents\\PowerShell\\Microsoft.PowerShell_profile.ps1", "dest": "apps/powershell-profile/PS7_Microsoft.PowerShell_profile.ps1", "optional": true },
+      // PowerShell 7 (pwsh) — current-user, all-hosts
+      { "source": "%USERPROFILE%\\Documents\\PowerShell\\profile.ps1", "dest": "apps/powershell-profile/PS7_profile.ps1", "optional": true },
+      // PowerShell 5 (powershell.exe) — current-user, current-host
+      { "source": "%USERPROFILE%\\Documents\\WindowsPowerShell\\Microsoft.PowerShell_profile.ps1", "dest": "apps/powershell-profile/PS5_Microsoft.PowerShell_profile.ps1", "optional": true },
+      // PowerShell 5 (powershell.exe) — current-user, all-hosts
+      { "source": "%USERPROFILE%\\Documents\\WindowsPowerShell\\profile.ps1", "dest": "apps/powershell-profile/PS5_profile.ps1", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.backup-*",
+      "**\\*.bak",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures PowerShell user profiles for both PS7 (pwsh, %USERPROFILE%\\Documents\\PowerShell\\) and PS5 (powershell.exe, %USERPROFILE%\\Documents\\WindowsPowerShell\\). Captures both the current-host profile (Microsoft.PowerShell_profile.ps1) and the all-hosts profile (profile.ps1) for each version. All entries are optional — only the files that exist are captured. The Modules/ and Scripts/ subdirectories under the profile folders are not captured (install modules via manifest). Note: profiles may contain hardcoded absolute paths (e.g., dot-sourcing scripts by full path) that will need updating after restore on a new machine.",
+
+  "curation": {
+    "snapshotRoots": [
+      "%USERPROFILE%\\Documents\\PowerShell",
+      "%USERPROFILE%\\Documents\\WindowsPowerShell"
+    ],
+    "excludePatterns": [
+      "**/*.backup-*",
+      "**/*.bak",
+      "**/*.log",
+      "**/Modules/**",
+      "**/Scripts/**"
+    ]
+  }
+}

@@ -13,7 +13,8 @@
   },
 
   "verify": [
-    { "type": "file-exists", "path": "%LOCALAPPDATA%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe" }
+    // Brave installs to %ProgramFiles%\BraveSoftware\Brave-Browser\Application\ (system-wide install)
+    { "type": "file-exists", "path": "%ProgramFiles%\\BraveSoftware\\Brave-Browser\\Application\\brave.exe" }
   ],
 
   "restore": [],
@@ -27,5 +28,5 @@
     "restorer": "block"
   },
 
-  "notes": "Install-only. Browser profile data intentionally excluded per security guardrails. No config capture or restore."
+  "notes": "Install-only. Browser profile data intentionally excluded per security guardrails. No config capture or restore. Brave installs to %ProgramFiles%\\BraveSoftware\\Brave-Browser\\Application\\ (not %LOCALAPPDATA%) when installed system-wide via winget."
 }

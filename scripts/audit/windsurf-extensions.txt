@@ -1,0 +1,11 @@
+codeium.windsurfpyright
+esbenp.prettier-vscode
+github.vscode-github-actions
+ms-azuretools.vscode-containers
+ms-azuretools.vscode-docker
+ms-playwright.playwright
+ms-python.debugpy
+ms-python.python
+ms-python.vscode-python-envs
+ms-vscode.powershell
+openai.chatgpt

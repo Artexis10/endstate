@@ -51,7 +51,7 @@ $developPresetsDir = Join-Path $lrDir "Develop Presets\User Presets"
 $exportPresetsDir = Join-Path $lrDir "Export Presets"
 $filenameTemplatesDir = Join-Path $lrDir "Filename Templates"
 
-$prefsPath = Join-Path $prefsDir "Lightroom 6 Preferences.agprefs"
+$prefsPath = Join-Path $prefsDir "Lightroom Classic CC 7 Preferences.agprefs"
 
 # Ensure directories exist
 foreach ($dir in @($prefsDir, $developPresetsDir, $exportPresetsDir, $filenameTemplatesDir)) {

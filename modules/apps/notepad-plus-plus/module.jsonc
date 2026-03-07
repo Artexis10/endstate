@@ -2,7 +2,13 @@
   // Config Module: Notepad++
   // Provides verify/restore/capture configuration for Notepad++
   // Curated module - captures user configuration, excludes session and backup files
-  
+  //
+  // CONFIG LOCATION NOTE: When installed without portable mode (no doLocalConf.xml in install dir),
+  // Notepad++ writes user config to %APPDATA%\Notepad++\ only after the user first changes settings.
+  // On a fresh install the APPDATA config files may not exist yet — all capture entries are optional.
+  // The install dir contains model defaults (langs.model.xml, stylers.model.xml) that are NOT user
+  // config and should not be captured.
+
   "id": "apps.notepad-plus-plus",
   "displayName": "Notepad++",
   "sensitivity": "low",
@@ -14,7 +20,7 @@
   },
   
   "verify": [
-    { "type": "file-exists", "path": "C:\\Program Files\\Notepad++\\notepad++.exe" }
+    { "type": "command-exists", "command": "notepad++" }
   ],
   
   "restore": [
@@ -52,6 +58,13 @@
       "target": "%APPDATA%\\Notepad++\\userDefineLangs",
       "backup": true,
       "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/notepad-plus-plus/contextMenu.xml",
+      "target": "%APPDATA%\\Notepad++\\contextMenu.xml",
+      "backup": true,
+      "optional": true
     }
   ],
   
@@ -61,11 +74,13 @@
       { "source": "%APPDATA%\\Notepad++\\shortcuts.xml", "dest": "apps/notepad-plus-plus/shortcuts.xml", "optional": true },
       { "source": "%APPDATA%\\Notepad++\\langs.xml", "dest": "apps/notepad-plus-plus/langs.xml", "optional": true },
       { "source": "%APPDATA%\\Notepad++\\stylers.xml", "dest": "apps/notepad-plus-plus/stylers.xml", "optional": true },
-      { "source": "%APPDATA%\\Notepad++\\userDefineLangs", "dest": "apps/notepad-plus-plus/userDefineLangs", "optional": true }
+      { "source": "%APPDATA%\\Notepad++\\userDefineLangs", "dest": "apps/notepad-plus-plus/userDefineLangs", "optional": true },
+      { "source": "%APPDATA%\\Notepad++\\contextMenu.xml", "dest": "apps/notepad-plus-plus/contextMenu.xml", "optional": true }
     ],
     "excludeGlobs": [
       "**\\backup\\**",
       "**\\session.xml",
+      "**\\nppLogNulContentCorruptionIssue.xml",
       "**\\nppLogNul498.xml",
       "**\\*.log",
       "**\\*.lock",
@@ -74,7 +89,7 @@
     ]
   },
   
-  "notes": "Captures Notepad++ user configuration (config.xml, shortcuts, language definitions, stylers, user-defined languages). Session files and backup directories are excluded as volatile. Config lives at %APPDATA%\\Notepad++\\.",
+  "notes": "Captures Notepad++ user configuration (config.xml, shortcuts, language definitions, stylers, user-defined languages, context menu). User config lives at %APPDATA%\\Notepad++\\ only after settings are customized — all entries are optional. The install directory contains model defaults (not captured). Session files and backup directories are excluded as volatile. Verify uses command-exists for portability across install locations.",
   
   "curation": {
     "seed": {

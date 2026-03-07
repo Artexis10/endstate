@@ -38,6 +38,28 @@
       "target": "%APPDATA%\\Windsurf\\User\\snippets",
       "backup": true,
       "optional": true
+    },
+    // Codeium AI configuration
+    {
+      "type": "copy",
+      "source": "./payload/apps/windsurf/memories",
+      "target": "%USERPROFILE%\\.codeium\\windsurf\\memories",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/windsurf/mcp_config.json",
+      "target": "%USERPROFILE%\\.codeium\\windsurf\\mcp_config.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/windsurf/workflows",
+      "target": "%USERPROFILE%\\.codeium\\windsurf\\windsurf\\workflows",
+      "backup": true,
+      "optional": true
     }
   ],
   
@@ -45,7 +67,13 @@
     "files": [
       { "source": "%APPDATA%\\Windsurf\\User\\settings.json", "dest": "apps/windsurf/settings.json", "optional": true },
       { "source": "%APPDATA%\\Windsurf\\User\\keybindings.json", "dest": "apps/windsurf/keybindings.json", "optional": true },
-      { "source": "%APPDATA%\\Windsurf\\User\\snippets", "dest": "apps/windsurf/snippets", "optional": true }
+      { "source": "%APPDATA%\\Windsurf\\User\\snippets", "dest": "apps/windsurf/snippets", "optional": true },
+      // Codeium AI configuration
+      { "source": "%USERPROFILE%\\.codeium\\windsurf\\memories", "dest": "apps/windsurf/memories", "optional": true },
+      { "source": "%USERPROFILE%\\.codeium\\windsurf\\mcp_config.json", "dest": "apps/windsurf/mcp_config.json", "optional": true },
+      { "source": "%USERPROFILE%\\.codeium\\windsurf\\windsurf\\workflows", "dest": "apps/windsurf/workflows", "optional": true },
+      // Extension manifest (readable list of installed extensions)
+      { "source": "%USERPROFILE%\\.windsurf\\extensions\\extensions.json", "dest": "apps/windsurf/extensions.json", "optional": true }
     ],
     "excludeGlobs": [
       "**\\Cache\\**",
@@ -54,20 +82,23 @@
       "**\\Crashpad\\**",
       "**\\logs\\**",
       "**\\Temp\\**",
-      "**\\state.vscdb*"
+      "**\\state.vscdb*",
+      "**\\*.pb"
     ]
   },
   
   "sensitive": {
     "files": [
       "%APPDATA%\\Windsurf\\User\\globalStorage\\state.vscdb",
-      "%APPDATA%\\Windsurf\\User\\globalStorage\\state.vscdb.backup"
+      "%APPDATA%\\Windsurf\\User\\globalStorage\\state.vscdb.backup",
+      "%USERPROFILE%\\.codeium\\windsurf\\installation_id",
+      "%USERPROFILE%\\.codeium\\windsurf\\user_settings.pb"
     ],
-    "warning": "Windsurf state databases may contain extension tokens and session data. These MUST NOT be auto-restored.",
+    "warning": "Windsurf state databases may contain extension tokens and session data. Codeium installation_id and user_settings.pb contain auth-linked identity. These MUST NOT be auto-restored.",
     "restorer": "warn-only"
   },
   
-  "notes": "Captures Windsurf (Codeium IDE) user configuration (settings, keybindings, snippets). Extension state databases are explicitly excluded - they may contain tokens. Based on VS Code fork structure at %APPDATA%\\Windsurf\\User\\.",
+  "notes": "Captures Windsurf (Codeium IDE) user configuration (settings, keybindings, snippets) plus Codeium AI config: the entire memories/ directory (user-authored rules files), MCP server config (mcp_config.json), and custom workflows. Users can name rules files freely inside the memories/ directory — the whole directory is captured. Protobuf .pb files (Cascade conversation history, AI memories, implicit context) are excluded via excludeGlobs as they are binary, device-specific, and not portable. Extension list is captured via extensions.json manifest. To reinstall extensions on a fresh machine, run: windsurf --list-extensions from the captured list. Config at %APPDATA%\\Windsurf\\User\\ and %USERPROFILE%\\.codeium\\windsurf\\.",
   
   "curation": {
     "seed": {

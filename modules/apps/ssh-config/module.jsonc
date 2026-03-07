@@ -1,0 +1,74 @@
+{
+  // Config Module: SSH Config
+  // Provides verify/restore/capture configuration for OpenSSH client config
+  // CRITICAL: Captures ONLY the config file — never private keys, authorized_keys, or known_hosts
+  // Private keys must be regenerated or transferred via secure out-of-band channel
+
+  "id": "apps.ssh-config",
+  "displayName": "SSH Config",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": [],
+    "exe": ["ssh.exe"],
+    "uninstallDisplayName": []
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.ssh\\config" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssh-config/config",
+      "target": "%USERPROFILE%\\.ssh\\config",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\.ssh\\config", "dest": "apps/ssh-config/config", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Never capture private keys or sensitive SSH files
+      "**\\id_*",
+      "**\\*.pem",
+      "**\\*.key",
+      "**\\authorized_keys*",
+      "**\\known_hosts*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.ssh\\id_rsa",
+      "%USERPROFILE%\\.ssh\\id_ed25519",
+      "%USERPROFILE%\\.ssh\\id_ecdsa",
+      "%USERPROFILE%\\.ssh\\id_dsa",
+      "%USERPROFILE%\\.ssh\\*.pem",
+      "%USERPROFILE%\\.ssh\\*.key",
+      "%USERPROFILE%\\.ssh\\authorized_keys",
+      "%USERPROFILE%\\.ssh\\known_hosts"
+    ],
+    "warning": "SSH private keys and authorized_keys MUST NOT be auto-restored. Private keys must be regenerated or transferred via a secure out-of-band channel. known_hosts should be rebuilt naturally as you connect to hosts on the new machine.",
+    "restorer": "block"
+  },
+
+  "notes": "Captures ONLY the SSH client config file (%USERPROFILE%\\.ssh\\config), which contains Host aliases, HostName mappings, User settings, IdentityFile references, and other client preferences. Private keys (id_rsa, id_ed25519, *.pem, *.key), authorized_keys, and known_hosts are explicitly blocked from capture and restore. After restore, users must separately provision their private keys via secure transfer or generate new key pairs. SSH is typically installed as a Windows Optional Feature or bundled with Git for Windows — there is no winget ID for the SSH client itself.",
+
+  "curation": {
+    "snapshotRoots": [
+      "%USERPROFILE%\\.ssh"
+    ],
+    "excludePatterns": [
+      "**/id_*",
+      "**/*.pem",
+      "**/*.key",
+      "**/authorized_keys*",
+      "**/known_hosts*"
+    ]
+  }
+}

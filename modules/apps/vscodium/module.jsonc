@@ -40,6 +40,13 @@
       "target": "%APPDATA%\\VSCodium\\User\\snippets",
       "backup": true,
       "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/vscodium/tasks.json",
+      "target": "%APPDATA%\\VSCodium\\User\\tasks.json",
+      "backup": true,
+      "optional": true
     }
   ],
   
@@ -48,9 +55,13 @@
       // User settings
       { "source": "%APPDATA%\\VSCodium\\User\\settings.json", "dest": "apps/vscodium/settings.json", "optional": true },
       { "source": "%APPDATA%\\VSCodium\\User\\keybindings.json", "dest": "apps/vscodium/keybindings.json", "optional": true },
-      
+      { "source": "%APPDATA%\\VSCodium\\User\\tasks.json", "dest": "apps/vscodium/tasks.json", "optional": true },
+
       // Snippets directory
-      { "source": "%APPDATA%\\VSCodium\\User\\snippets", "dest": "apps/vscodium/snippets", "optional": true }
+      { "source": "%APPDATA%\\VSCodium\\User\\snippets", "dest": "apps/vscodium/snippets", "optional": true },
+
+      // Extension manifest (readable list of installed extensions)
+      { "source": "%USERPROFILE%\\.vscode-oss\\extensions\\extensions.json", "dest": "apps/vscodium/extensions.json", "optional": true }
     ],
     "excludeGlobs": [
       "**\\Cache\\**",
@@ -71,7 +82,7 @@
     "restorer": "warn-only"
   },
   
-  "notes": "Captures VSCodium user configuration (settings, keybindings, snippets). VSCodium has NO built-in settings sync (unlike VS Code), making config restoration especially valuable. Extension state databases are explicitly excluded - they may contain tokens. Supports %APPDATA%\\VSCodium\\User\\ location (Windows default).",
+  "notes": "Captures VSCodium user configuration (settings, keybindings, snippets, tasks). VSCodium has NO built-in settings sync (unlike VS Code), making config restoration especially valuable. Extension list is captured via extensions.json manifest; to reinstall extensions on a fresh machine: codium --install-extension <id> for each line from `codium --list-extensions`. Extension state databases are explicitly excluded - they may contain tokens. Config at %APPDATA%\\VSCodium\\User\\, extensions at %USERPROFILE%\\.vscode-oss\\extensions\\.",
   
   "curation": {
     "seed": {

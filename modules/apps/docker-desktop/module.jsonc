@@ -13,14 +13,22 @@
   },
 
   "verify": [
-    { "type": "file-exists", "path": "%APPDATA%\\Docker\\settings.json" }
+    { "type": "command-exists", "command": "docker" }
   ],
 
   "restore": [
+    // Docker Desktop has used different filenames across versions
     {
       "type": "copy",
       "source": "./payload/apps/docker-desktop/settings.json",
       "target": "%APPDATA%\\Docker\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/docker-desktop/settings-store.json",
+      "target": "%APPDATA%\\Docker\\settings-store.json",
       "backup": true,
       "optional": true
     }
@@ -28,7 +36,8 @@
 
   "capture": {
     "files": [
-      { "source": "%APPDATA%\\Docker\\settings.json", "dest": "apps/docker-desktop/settings.json", "optional": true }
+      { "source": "%APPDATA%\\Docker\\settings.json", "dest": "apps/docker-desktop/settings.json", "optional": true },
+      { "source": "%APPDATA%\\Docker\\settings-store.json", "dest": "apps/docker-desktop/settings-store.json", "optional": true }
     ],
     "excludeGlobs": [
       "**\\log\\**",
@@ -38,5 +47,5 @@
     ]
   },
 
-  "notes": "Captures Docker Desktop settings (resource limits, WSL integration, Kubernetes toggle). Data volumes and logs excluded. Config at %APPDATA%\\Docker\\."
+  "notes": "Captures Docker Desktop settings (resource limits, WSL integration, Kubernetes toggle). Docker has used both settings.json and settings-store.json across versions — both are captured. Data volumes and logs excluded. Config at %APPDATA%\\Docker\\."
 }

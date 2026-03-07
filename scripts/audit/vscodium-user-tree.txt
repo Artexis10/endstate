@@ -1,0 +1,251 @@
+
+FullName                                                                                                          Lengt
+                                                                                                                  h    
+--------                                                                                                          -----
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\globalStorage                                                             
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History                                                                   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\snippets                                                                  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\settings.json                                                        43   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\globalStorage\state.vscdb                                            25804
+                                                                                                                  8    
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\globalStorage\state.vscdb.backup                                     25804
+                                                                                                                  8    
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\globalStorage\storage.json                                           8519 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-108dc62e                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-20f66c2c                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-2b70fbd4                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-3cc12a35                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-463b75f4                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4f51a769                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-52ce753c                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-571a5a40                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-651de21                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-7cb7bcb3                                                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-8509e5e                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\1ce6624b                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\2cdb618f                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\36fb3628                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\47793acf                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\4c72eba7                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\604b8859                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\6454be64                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\75b42c43                                                          
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-108dc62e\2KvD.ps1                                           9102 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-108dc62e\7k8H.ps1                                           5456 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-108dc62e\entries.json                                       375  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-108dc62e\G4SO.ps1                                           17913
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-108dc62e\iV3U.ps1                                           16261
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-108dc62e\olkd.ps1                                           9704 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-108dc62e\Xdv3.ps1                                           16261
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-20f66c2c\3kCe.example                                       26290
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-20f66c2c\4Yup.example                                       26967
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-20f66c2c\5IIk.example                                       26204
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-20f66c2c\entries.json                                       341  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-20f66c2c\FEbY.example                                       27472
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-20f66c2c\SXhz.example                                       27522
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-2b70fbd4\3Ld8.json                                          2042 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-2b70fbd4\entries.json                                       274  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-2b70fbd4\MU43.json                                          2045 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-3cc12a35\entries.json                                       160  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-3cc12a35\wfIr.sh                                            295  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-463b75f4\3YbJ.yml                                           3765 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-463b75f4\6Qvn.yml                                           4330 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-463b75f4\DrZo.yml                                           4653 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-463b75f4\entries.json                                       374  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-463b75f4\jpPS.yml                                           4637 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-463b75f4\rlf5.yml                                           4653 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-463b75f4\vuPE.yml                                           4584 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\10tr                                               25854
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\5Oyf                                               25804
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\8sq0                                               25099
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\entries.json                                       613  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\fBJE                                               25087
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\qttT                                               25909
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\rePt                                               25783
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\sAkO                                               25910
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\t3O1                                               25099
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\TlRN                                               24917
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\uwHG                                               25910
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\v6wi                                               25910
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\wCQs                                               25735
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4a2db5a8\WQ7C                                               25910
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4f51a769\entries.json                                       152  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-4f51a769\H550.json                                          210  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-52ce753c\entries.json                                       362  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-52ce753c\iBgA.conf                                          720  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-52ce753c\QTD2.conf                                          807  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-52ce753c\UR1n.conf                                          191  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-52ce753c\valZ.conf                                          426  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-52ce753c\WIpD.conf                                          650  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-52ce753c\xw1V.conf                                          430  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\0alQ.json                                          1016 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\4R29.json                                          538  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\7RHn.json                                          832  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\8rQB.json                                          568  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\entries.json                                       1283 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\F7hE.json                                          1391 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\FAGe.json                                          1391 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\G93q.json                                          965  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\gAF8.json                                          235  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\HCKX.json                                          918  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\iVxF.json                                          842  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\Jb5G.json                                          955  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\KiH5.json                                          465  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\Mhxh.json                                          1737 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\Obvv.json                                          1016 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\OxmY.json                                          581  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\qEBi.json                                          1016 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\qptq.json                                          589  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\QVDg.json                                          835  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\tKlY.json                                          589  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\u26f.json                                          511  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\VvYg.json                                          855  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\xP1L.json                                          1871 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\ZnvB.json                                          719  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\zQzm.json                                          835  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\ZrsB.json                                          955  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-57027f88\ZT7E.json                                          967  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-571a5a40\entries.json                                       194  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-571a5a40\OcQF.yml                                           9693 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-571a5a40\XKo8.yml                                           9728 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-651de21\entries.json                                        270  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-651de21\MEq1.md                                             3177 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-651de21\sU4t.md                                             3177 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-7cb7bcb3\9Eyz.conf                                          166  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-7cb7bcb3\entries.json                                       184  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-7cb7bcb3\mCFL.conf                                          65   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-8509e5e\6IRy.md                                             9844 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-8509e5e\e4X1.md                                             4463 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-8509e5e\entries.json                                        301  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\-8509e5e\QU6R.md                                             9842 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\1ce6624b\entries.json                                        309  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\1ce6624b\qGW2.tfvars                                         2156 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\1ce6624b\qOYe.tfvars                                         2144 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\1ce6624b\s5Xr.tfvars                                         2168 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\1ce6624b\xWmF.tfvars                                         2168 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\2cdb618f\entries.json                                        210  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\2cdb618f\FYEa.yaml                                           1255 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\2cdb618f\fZTx.yaml                                           1293 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\36fb3628\entries.json                                        115  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\36fb3628\JsHW                                                130  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\47793acf\9pwZ.conf                                           166  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\47793acf\entries.json                                        211  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\47793acf\idPj.conf                                           119  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\4c72eba7\entries.json                                        165  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\4c72eba7\kUnL.py                                             5924 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\604b8859\entries.json                                        161  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\604b8859\eOgB.json                                           43   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\6454be64\entries.json                                        238  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\6454be64\XFOE.ps1                                            6630 
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\75b42c43\entries.json                                        242  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\75b42c43\f6Ar                                                152  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\History\75b42c43\TMAg.cmd                                            152  
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\0120def955f786546ff5fcb9dbb072be                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\079b415eedfb29ba3b31a4d2c1f43e13                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\1306034ec29f1797901093e6ef7f2da6                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\216a21c57e10f4f838e23e860589ed43                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\22527ae7272fcbae9e21665090be4e50                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\31eab450a2428454ecffb0ae7c1f1257                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\3355a853ec4dfe3091252fe6a64d0699                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\3377aa28d7c7f7f495acfb300ce8c833                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\383dd5eb764e41e0528352d8e6f932c5                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\427430b51b627f654d90d630ea696df2                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\4e2efaec495fb24f432fe586ba3f891d                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\515e99628f8096377a570615a7516b76                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\6963771796ec23b75d138f560bdab05a                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\6b7ba0c4c30ccf1245bd4c814c52c6fa                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\800ac596067ddf4a7ed34c7606981237                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\8847b829f7230f69c6ff4f14241bda01                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a3628f0f370612853919e5d0f772756a                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a3bb33f13680c64a260344a20f2d9897                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a4206d71983a9d53dc96625710ddaa8a                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a5154028abad1ba377a2d3a0fb9bc698                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\aa07d8983abd911cbb45a1de4daea736                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\b04ea921e941e26ee04f59005f6d87b2                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\b2c0dbea2c23853f8862ca8cd9f7f0dd                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\c0a851a3762db2077c33b365223a39c8                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\c90c62ddc109585c3bbd8e308f06aebf                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\cf0559416c42925ab6ed57bfdce1b80d                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\d0ecb0aaf77ddf4fb30e92a3427bb568                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\d56f018f08d84623b7ce5717231ae7a3                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\dc9bb083f8eac1ba3258c7843ab70c41                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\ec8effce5f2037bb0a7c6403883b7dbe                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\fd286f933f11dec01e2704b6f1392306                         
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\0120def955f786546ff5fcb9dbb072be\state.vscdb        45056
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\0120def955f786546ff5fcb9dbb072be\state.vscdb.backup 45056
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\0120def955f786546ff5fcb9dbb072be\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\079b415eedfb29ba3b31a4d2c1f43e13\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\079b415eedfb29ba3b31a4d2c1f43e13\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\1306034ec29f1797901093e6ef7f2da6\state.vscdb        32768
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\1306034ec29f1797901093e6ef7f2da6\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\216a21c57e10f4f838e23e860589ed43\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\216a21c57e10f4f838e23e860589ed43\workspace.json     68   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\22527ae7272fcbae9e21665090be4e50\state.vscdb        32768
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\22527ae7272fcbae9e21665090be4e50\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\31eab450a2428454ecffb0ae7c1f1257\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\31eab450a2428454ecffb0ae7c1f1257\state.vscdb.backup 24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\31eab450a2428454ecffb0ae7c1f1257\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\3355a853ec4dfe3091252fe6a64d0699\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\3355a853ec4dfe3091252fe6a64d0699\workspace.json     92   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\3377aa28d7c7f7f495acfb300ce8c833\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\3377aa28d7c7f7f495acfb300ce8c833\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\383dd5eb764e41e0528352d8e6f932c5\state.vscdb        32768
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\383dd5eb764e41e0528352d8e6f932c5\workspace.json     74   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\427430b51b627f654d90d630ea696df2\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\427430b51b627f654d90d630ea696df2\state.vscdb.backup 24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\427430b51b627f654d90d630ea696df2\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\4e2efaec495fb24f432fe586ba3f891d\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\4e2efaec495fb24f432fe586ba3f891d\state.vscdb.backup 28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\4e2efaec495fb24f432fe586ba3f891d\workspace.json     31   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\515e99628f8096377a570615a7516b76\state.vscdb        32768
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\515e99628f8096377a570615a7516b76\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\6963771796ec23b75d138f560bdab05a\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\6963771796ec23b75d138f560bdab05a\state.vscdb.backup 24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\6963771796ec23b75d138f560bdab05a\workspace.json     62   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\6b7ba0c4c30ccf1245bd4c814c52c6fa\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\6b7ba0c4c30ccf1245bd4c814c52c6fa\state.vscdb.backup 24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\6b7ba0c4c30ccf1245bd4c814c52c6fa\workspace.json     36   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\800ac596067ddf4a7ed34c7606981237\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\800ac596067ddf4a7ed34c7606981237\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\8847b829f7230f69c6ff4f14241bda01\state.vscdb        32768
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\8847b829f7230f69c6ff4f14241bda01\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a3628f0f370612853919e5d0f772756a\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a3628f0f370612853919e5d0f772756a\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a3bb33f13680c64a260344a20f2d9897\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a3bb33f13680c64a260344a20f2d9897\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a4206d71983a9d53dc96625710ddaa8a\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a4206d71983a9d53dc96625710ddaa8a\workspace.json     68   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a5154028abad1ba377a2d3a0fb9bc698\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\a5154028abad1ba377a2d3a0fb9bc698\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\aa07d8983abd911cbb45a1de4daea736\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\aa07d8983abd911cbb45a1de4daea736\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\b04ea921e941e26ee04f59005f6d87b2\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\b04ea921e941e26ee04f59005f6d87b2\state.vscdb.backup 24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\b04ea921e941e26ee04f59005f6d87b2\workspace.json     88   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\b2c0dbea2c23853f8862ca8cd9f7f0dd\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\b2c0dbea2c23853f8862ca8cd9f7f0dd\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\c0a851a3762db2077c33b365223a39c8\state.vscdb        20480
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\c0a851a3762db2077c33b365223a39c8\state.vscdb.backup 20480
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\c0a851a3762db2077c33b365223a39c8\workspace.json     50   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\c90c62ddc109585c3bbd8e308f06aebf\state.vscdb        20480
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\c90c62ddc109585c3bbd8e308f06aebf\state.vscdb.backup 20480
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\c90c62ddc109585c3bbd8e308f06aebf\workspace.json     73   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\cf0559416c42925ab6ed57bfdce1b80d\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\cf0559416c42925ab6ed57bfdce1b80d\workspace.json     42   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\d0ecb0aaf77ddf4fb30e92a3427bb568\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\d0ecb0aaf77ddf4fb30e92a3427bb568\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\d56f018f08d84623b7ce5717231ae7a3\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\d56f018f08d84623b7ce5717231ae7a3\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\dc9bb083f8eac1ba3258c7843ab70c41\state.vscdb        24576
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\dc9bb083f8eac1ba3258c7843ab70c41\workspace.json     76   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\ec8effce5f2037bb0a7c6403883b7dbe\state.vscdb        28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\ec8effce5f2037bb0a7c6403883b7dbe\state.vscdb.backup 28672
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\ec8effce5f2037bb0a7c6403883b7dbe\workspace.json     67   
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\fd286f933f11dec01e2704b6f1392306\state.vscdb        20480
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\fd286f933f11dec01e2704b6f1392306\state.vscdb.backup 20480
+C:\Users\hugoa\AppData\Roaming\VSCodium\User\workspaceStorage\fd286f933f11dec01e2704b6f1392306\workspace.json     67   
+
+
