@@ -206,7 +206,18 @@ function Invoke-CollectConfigFiles {
                     # Source is a directory -- clean existing dest to prevent nesting
                     if (Test-Path $destPath) { Remove-Item $destPath -Recurse -Force }
                     Copy-Item -Path $sourcePath -Destination $destPath -Recurse -Force
-                    # Count actual files copied (not the directory itself)
+
+                    # Prune files matching excludeGlobs from the copied tree
+                    if ($excludeGlobs.Count -gt 0) {
+                        $allItems = @(Get-ChildItem -Path $destPath -Recurse -Force -ErrorAction SilentlyContinue)
+                        foreach ($item in $allItems) {
+                            if ((Test-Path $item.FullName) -and (Test-PathMatchesExcludeGlobs -Path $item.FullName -ExcludeGlobs $excludeGlobs)) {
+                                Remove-Item $item.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                            }
+                        }
+                    }
+
+                    # Count actual files remaining (after pruning)
                     $copiedFiles = @(Get-ChildItem -Path $destPath -Recurse -File -ErrorAction SilentlyContinue)
                     $moduleFilesCopied += $copiedFiles.Count
                     $moduleFilePaths += $relativePath

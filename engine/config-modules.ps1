@@ -626,19 +626,30 @@ function Test-PathMatchesExcludeGlobs {
     if ($ExcludeGlobs.Count -eq 0) {
         return $false
     }
-    
+
     # Normalize path separators for matching
     $normalizedPath = $Path -replace '\\', '/'
-    
+
     foreach ($glob in $ExcludeGlobs) {
-        # Convert glob to regex-like pattern for -like operator
         $pattern = $glob -replace '\\', '/'
-        
-        if ($normalizedPath -like $pattern) {
-            return $true
+
+        # Strip leading **/ — means "anywhere in tree"
+        $stripped = $pattern -replace '^\*\*/', ''
+
+        if ($stripped -match '/\*\*$') {
+            # Pattern like "**/Cache/**" — exclude if directory segment appears in path
+            $dirName = $stripped -replace '/\*\*$', ''
+            if ($normalizedPath -like "*/$dirName/*") {
+                return $true
+            }
+        } else {
+            # Pattern like "*.log" or "VEN_*" — match against any path segment
+            if ($normalizedPath -like "*/$stripped" -or $normalizedPath -like "*/$stripped/*") {
+                return $true
+            }
         }
     }
-    
+
     return $false
 }
 
@@ -773,6 +784,17 @@ function Invoke-ConfigModuleCapture {
                     # Source is a directory -- clean existing dest to prevent nesting
                     if (Test-Path $destPath) { Remove-Item $destPath -Recurse -Force }
                     Copy-Item -Path $sourcePath -Destination $destPath -Recurse -Force
+
+                    # Prune files matching excludeGlobs from the copied tree
+                    if ($excludeGlobs.Count -gt 0) {
+                        $allItems = @(Get-ChildItem -Path $destPath -Recurse -Force -ErrorAction SilentlyContinue)
+                        foreach ($item in $allItems) {
+                            if ((Test-Path $item.FullName) -and (Test-PathMatchesExcludeGlobs -Path $item.FullName -ExcludeGlobs $excludeGlobs)) {
+                                Remove-Item $item.FullName -Recurse -Force -ErrorAction SilentlyContinue
+                            }
+                        }
+                    }
+
                     $copiedFiles = @(Get-ChildItem -Path $destPath -Recurse -File -ErrorAction SilentlyContinue)
                     foreach ($f in $copiedFiles) {
                         $result.copied += @{

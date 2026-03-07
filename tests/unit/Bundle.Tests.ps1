@@ -352,6 +352,93 @@ Describe "Bundle.ConfigCollection" {
     }
 }
 
+Describe "Bundle.ExcludeGlobs" {
+
+    Context "Test-PathMatchesExcludeGlobs" {
+
+        It "Should match **\*.log against a .log file anywhere in tree" {
+            $result = Test-PathMatchesExcludeGlobs -Path "C:/app/data/debug.log" -ExcludeGlobs @("**\*.log")
+            $result | Should -Be $true
+        }
+
+        It "Should match **\Cache\** against a path containing Cache directory" {
+            $result = Test-PathMatchesExcludeGlobs -Path "C:/app/Cache/item.bin" -ExcludeGlobs @("**\Cache\**")
+            $result | Should -Be $true
+        }
+
+        It "Should match **\VEN_* against VEN_ prefixed directory" {
+            $result = Test-PathMatchesExcludeGlobs -Path "C:/profiles/VEN_10DE/DEV.cfg" -ExcludeGlobs @("**\VEN_*")
+            $result | Should -Be $true
+        }
+
+        It "Should not match non-matching path" {
+            $result = Test-PathMatchesExcludeGlobs -Path "C:/app/settings.json" -ExcludeGlobs @("**\*.log", "**\Cache\**", "**\VEN_*")
+            $result | Should -Be $false
+        }
+
+        It "Should return false for empty excludeGlobs" {
+            $result = Test-PathMatchesExcludeGlobs -Path "C:/app/anything.log" -ExcludeGlobs @()
+            $result | Should -Be $false
+        }
+    }
+
+    Context "Invoke-CollectConfigFiles excludeGlobs pruning" {
+
+        BeforeEach {
+            $script:TestStagingDir = Join-Path $env:TEMP "endstate-test-excl-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            New-Item -ItemType Directory -Path $script:TestStagingDir -Force | Out-Null
+        }
+
+        AfterEach {
+            if (Test-Path $script:TestStagingDir) {
+                Remove-Item -Path $script:TestStagingDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        It "Should prune excluded files from directory capture" {
+            # Create a source directory with files that should and should not be excluded
+            $sourceDir = Join-Path $env:TEMP "endstate-test-excl-src-$([guid]::NewGuid().ToString('N').Substring(0,8))"
+            $profilesDir = Join-Path $sourceDir "Profiles"
+            New-Item -ItemType Directory -Path $profilesDir -Force | Out-Null
+
+            # Create a VEN_ subdirectory (should be excluded)
+            $venDir = Join-Path $profilesDir "VEN_10DE"
+            New-Item -ItemType Directory -Path $venDir -Force | Out-Null
+            'gpu-specific' | Set-Content -Path (Join-Path $venDir "DEV_2684.cfg") -Encoding UTF8
+
+            # Create a normal config file (should be kept)
+            'global-settings' | Set-Content -Path (Join-Path $profilesDir "Global.cfg") -Encoding UTF8
+
+            try {
+                $module = @{
+                    id = "apps.test-excl"
+                    capture = @{
+                        excludeGlobs = @("**\VEN_*")
+                        files = @(
+                            @{ source = $profilesDir; dest = "apps/test-excl/Profiles" }
+                        )
+                    }
+                }
+
+                $result = Invoke-CollectConfigFiles -Modules @($module) -StagingDir $script:TestStagingDir
+
+                # Global.cfg should be captured
+                $globalFile = Join-Path $script:TestStagingDir "configs\test-excl\Profiles\Global.cfg"
+                Test-Path $globalFile | Should -Be $true
+
+                # VEN_10DE directory should have been pruned
+                $venDestDir = Join-Path $script:TestStagingDir "configs\test-excl\Profiles\VEN_10DE"
+                Test-Path $venDestDir | Should -Be $false
+
+                # Only 1 file should remain
+                $result.filesCopied | Should -Be 1
+            } finally {
+                Remove-Item -Path $sourceDir -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+}
+
 Describe "Bundle.Metadata" {
     
     Context "New-CaptureMetadata" {
