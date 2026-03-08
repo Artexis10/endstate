@@ -4,11 +4,9 @@
 
 **Author:** Hugo Ander Kivi  
 **Primary Language:** PowerShell  
-**Status:** Functional MVP — actively evolving
+**Status:** v1.0.0 — Stable
 
 [![CI](https://github.com/Artexis10/endstate/actions/workflows/ci.yml/badge.svg)](https://github.com/Artexis10/endstate/actions/workflows/ci.yml)
-
-> **Note:** This repository is the canonical home of the Endstate CLI. The CLI was previously part of the [automation-suite](https://github.com/Artexis10/automation-suite) repository but has been extracted into this standalone project for independent development and versioning.
 
 ---
 
@@ -245,11 +243,6 @@ Endstate prioritizes safety over speed:
 | PowerShell | 5.1+ | Script execution |
 | winget | Latest | App installation (Windows) |
 
-### Optional Dependencies
-
-- **ffmpeg / ffprobe** — Media conversion utilities
-- **apt / brew** — Package managers for Linux/macOS (future support)
-
 ---
 
 ## Testing
@@ -271,24 +264,9 @@ Endstate uses Pester 5.7.1 (vendored in `tools/pester/`) for deterministic, offl
 
 ## Status
 
-**Current:** MVP functional — capture, apply, verify, and drift detection work. Restore operations are opt-in. Custom drivers are supported but winget is the primary driver.
-
-**Maturity:** This is a personal/small-team tool. It is not enterprise software. It prioritizes correctness and safety over features.
+Endstate v1.0.0 is the first stable release. The CLI contract (JSON schema 1.0) is locked. Capture, apply, verify, restore, and drift detection are production-ready. Winget is the primary driver with planned expansion to macOS/Linux.
 
 > A desktop GUI is available as a separate commercial product built on top of Endstate's open-source core — [substratesystems.io/endstate](https://substratesystems.io/endstate)
-
----
-
-## History
-
-Endstate was originally developed as the `provisioning/` subsystem within the [automation-suite](https://github.com/Artexis10/automation-suite) repository. It has been split into a standalone project to:
-
-- Focus development on machine provisioning as a first-class product
-- Enable independent versioning and releases
-- Simplify contribution and adoption
-- Maintain a clean separation of concerns
-
-The full git history has been preserved in this repository.
 
 ---
 
@@ -298,7 +276,7 @@ Endstate is licensed under the Apache License, Version 2.0.
 
 See the [LICENSE](LICENSE) file for details.
 
-Copyright © 2025 Substrate Systems OÜ
+Copyright © 2025–2026 Substrate Systems OÜ
 
 Created by Hugo Ander Kivi at Substrate Systems OÜ.
 
