@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+
+## [1.3.0] - 2026-03-11
+
+### Added
+- `--restore-filter` CLI flag for per-module config restore selection during apply and restore commands
+- `restore` standalone command in CLI entrypoint with `--restore-filter` support
+- `restoreModulesAvailable` and `restoreFilter` fields in apply JSON envelope
+- `--restore-filter` in capabilities output for apply and restore commands
+
+### Changed
+
+### Fixed
+- RestoreFilter had no effect: CLI entrypoint's Invoke-ApplyCore was missing config module expansion, so `_fromModule` was never set on restore entries
+- Inline restore entries (from zip bundles) had no module ID: added source path inference (`configs/<module-id>/` pattern) as fallback for module ID derivation
+
 ## [1.2.0] - 2026-03-07
 
 ### Added
