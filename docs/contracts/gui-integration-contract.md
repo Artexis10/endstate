@@ -221,6 +221,7 @@ endstate capabilities --json
 |---------|-----------|-------------|
 | `capabilities` | `--json` | Report CLI capabilities |
 | `apply` | `--json` | Execute provisioning |
+| `restore` | `--json` | Restore configuration |
 | `verify` | `--json` | Verify machine state |
 | `report` | `--json` | Retrieve run history |
 

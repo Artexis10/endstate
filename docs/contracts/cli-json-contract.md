@@ -132,7 +132,7 @@ endstate capabilities --json
       },
       "apply": {
         "supported": true,
-        "flags": ["--manifest", "--plan", "--dry-run", "--enable-restore", "--json"]
+        "flags": ["--manifest", "--plan", "--dry-run", "--enable-restore", "--restore-filter", "--json"]
       },
       "verify": {
         "supported": true,
@@ -140,7 +140,7 @@ endstate capabilities --json
       },
       "restore": {
         "supported": true,
-        "flags": ["--manifest", "--enable-restore", "--dry-run", "--json"]
+        "flags": ["--manifest", "--enable-restore", "--restore-filter", "--dry-run", "--json"]
       },
       "report": {
         "supported": true,

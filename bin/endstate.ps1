@@ -99,6 +99,9 @@ param(
     [switch]$EnableRestore,
 
     [Parameter(Mandatory = $false)]
+    [string]$RestoreFilter,
+
+    [Parameter(Mandatory = $false)]
     [switch]$Latest,
 
     [Parameter(Mandatory = $false)]
@@ -265,6 +268,14 @@ if ($RemainingArgs) {
             '--enable-restore' {
                 $EnableRestore = $true
                 $i++
+            }
+            '--restore-filter' {
+                if ($i + 1 -lt $RemainingArgs.Count) {
+                    $RestoreFilter = $RemainingArgs[$i + 1]
+                    $i += 2
+                } else {
+                    $i++
+                }
             }
             '--help' {
                 $script:HelpRequested = $true
@@ -1171,6 +1182,7 @@ function Show-ApplyHelp {
     Write-Host "    -DryRun            Preview changes without applying"
     Write-Host "    -OnlyApps          Install apps only (skip restore/verify)"
     Write-Host "    -EnableRestore     Enable config restoration during apply"
+    Write-Host "    -RestoreFilter <ids>   Comma-separated module IDs to restore (e.g., vscode,git)"
     Write-Host "    -Json              Output as JSON envelope"
     Write-Host "    --events jsonl     Stream events as NDJSON to stderr"
     Write-Host "    --debug-cli        Print the resolved engine command line"
@@ -1271,7 +1283,7 @@ function Show-UnknownCommandHelp {
     Write-Host "ERROR: Unknown command '$UnknownCommand'" -ForegroundColor Red
     Write-Host ""
     Write-Host "Available commands:" -ForegroundColor Yellow
-    Write-Host "    bootstrap, capture, apply, verify, plan, validate, report, doctor, state, module, profile, capabilities"
+    Write-Host "    bootstrap, capture, apply, verify, plan, validate, restore, report, doctor, state, module, profile, capabilities"
     Write-Host ""
     Write-Host "Use 'endstate --help' for more information."
     Write-Host ""
@@ -1461,6 +1473,7 @@ function Invoke-ApplyCore {
         [bool]$IsDryRun,
         [bool]$IsOnlyApps,
         [bool]$EnableRestore,
+        [string]$RestoreFilter,
         [switch]$SkipStateWrite
     )
     
@@ -1699,6 +1712,19 @@ function Invoke-ApplyCore {
         }
     }
     
+    # Expand configModules so restore entries get _fromModule tagging for RestoreFilter
+    $configModulesScript = Resolve-EngineScript -ScriptName "config-modules" -Silent
+    if ($configModulesScript) {
+        . $configModulesScript
+        # Expand-ManifestConfigModules requires a hashtable; Read-Manifest returns PSCustomObject
+        if ($manifest -is [PSCustomObject]) {
+            $manifestHash = @{}
+            $manifest.PSObject.Properties | ForEach-Object { $manifestHash[$_.Name] = $_.Value }
+            $manifest = $manifestHash
+        }
+        $manifest = Expand-ManifestConfigModules -Manifest $manifest
+    }
+
     # Process restore entries when EnableRestore is set
     $restored = 0
     $restoreSkipped = 0
@@ -1710,14 +1736,28 @@ function Invoke-ApplyCore {
         if (Test-Path $copyRestorerPath) {
             . $copyRestorerPath
         }
-        
+
         $manifestDir = Split-Path -Parent $ManifestPath
         $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
-        
+
+        # Parse RestoreFilter into array and apply filtering
+        $restoreEntries = @($manifest.restore)
+        if ($RestoreFilter) {
+            $restoreFilterArray = @($RestoreFilter -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            if ($restoreFilterArray.Count -gt 0) {
+                $restoreEntries = @($restoreEntries | Where-Object {
+                    $moduleId = if ($_.module) { $_.module } elseif ($_._fromModule) { $_._fromModule } elseif ($_.source -match 'configs[/\\]([^/\\]+)') { $Matches[1] } else { $null }
+                    # Inline entries with no derivable module always pass the filter
+                    if (-not $moduleId) { return $true }
+                    return $moduleId -in $restoreFilterArray
+                })
+            }
+        }
+
         Write-Host ""
         Write-Host "[endstate] Apply: restoring config payloads" -ForegroundColor Cyan
-        
-        foreach ($entry in $manifest.restore) {
+
+        foreach ($entry in $restoreEntries) {
             $source = $entry.source
             $target = $entry.target
             $backup = if ($null -ne $entry.backup) { $entry.backup } else { $true }
@@ -1882,13 +1922,21 @@ function Invoke-ApplyCore {
         failed = $failed
     }
     
+    # Compute restoreModulesAvailable from expanded manifest
+    $restoreModulesAvailable = @()
+    if ($manifest.restore) {
+        $restoreModulesAvailable = @($manifest.restore | ForEach-Object {
+            if ($_.module) { $_.module } elseif ($_._fromModule) { $_._fromModule } elseif ($_.source -match 'configs[/\\]([^/\\]+)') { $Matches[1] } else { $null }
+        } | Where-Object { $_ } | Select-Object -Unique | Sort-Object)
+    }
+
     # DryRun always succeeds; otherwise propagate verify result if run
     if ($IsDryRun) {
-        return @{ Success = $true; ExitCode = 0; Installed = $installed; Upgraded = $upgraded; Skipped = $skipped; Failed = $failed; Counts = $counts; Items = $items }
+        return @{ Success = $true; ExitCode = 0; Installed = $installed; Upgraded = $upgraded; Skipped = $skipped; Failed = $failed; Counts = $counts; Items = $items; RestoreModulesAvailable = $restoreModulesAvailable; RestoreFilter = $RestoreFilter }
     }
-    
+
     if ($verifyResult) {
-        return @{ 
+        return @{
             Success = $verifyResult.Success
             ExitCode = $verifyResult.ExitCode
             Installed = $installed
@@ -1898,10 +1946,12 @@ function Invoke-ApplyCore {
             Counts = $counts
             Items = $items
             VerifyResult = $verifyResult
+            RestoreModulesAvailable = $restoreModulesAvailable
+            RestoreFilter = $RestoreFilter
         }
     }
-    
-    return @{ Success = ($failed -eq 0); ExitCode = (if ($failed -gt 0) { 1 } else { 0 }); Installed = $installed; Upgraded = $upgraded; Skipped = $skipped; Failed = $failed; Counts = $counts; Items = $items }
+
+    return @{ Success = ($failed -eq 0); ExitCode = (if ($failed -gt 0) { 1 } else { 0 }); Installed = $installed; Upgraded = $upgraded; Skipped = $skipped; Failed = $failed; Counts = $counts; Items = $items; RestoreModulesAvailable = $restoreModulesAvailable; RestoreFilter = $RestoreFilter }
 }
 
 function Get-InstalledApps {
@@ -3777,6 +3827,7 @@ if ($script:HelpRequested) {
     switch ($Command) {
         "capture" { Show-CaptureHelp; exit 0 }
         "apply" { Show-ApplyHelp; exit 0 }
+        "restore" { Show-ApplyHelp; exit 0 }
         "verify" { Show-VerifyHelp; exit 0 }
         "module" { Show-ModuleHelp; exit 0 }
         "profile" { Show-ProfileHelp; exit 0 }
@@ -4093,7 +4144,7 @@ switch ($Command) {
             if (-not $Json) {
                 Write-Information "[endstate] Apply: starting with manifest $resolvedPath" -InformationAction Continue
             }
-            $result = Invoke-ApplyCore -ManifestPath $resolvedPath -IsDryRun $DryRun.IsPresent -IsOnlyApps $OnlyApps.IsPresent -EnableRestore $EnableRestore.IsPresent
+            $result = Invoke-ApplyCore -ManifestPath $resolvedPath -IsDryRun $DryRun.IsPresent -IsOnlyApps $OnlyApps.IsPresent -EnableRestore $EnableRestore.IsPresent -RestoreFilter $RestoreFilter
             
             if ($Json) {
                 # Emit contract-compliant JSON envelope for apply result
@@ -4137,6 +4188,13 @@ switch ($Command) {
                             $data.configModuleMap = $cmMap
                         }
                     }
+                }
+                # Add restoreModulesAvailable and restoreFilter from Invoke-ApplyCore result
+                if ($result.RestoreModulesAvailable -and $result.RestoreModulesAvailable.Count -gt 0) {
+                    $data['restoreModulesAvailable'] = $result.RestoreModulesAvailable
+                }
+                if ($result.RestoreFilter) {
+                    $data['restoreFilter'] = @($result.RestoreFilter -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
                 }
                 Write-JsonEnvelope -CommandName "apply" -Success $result.Success -Data $data -ExitCode $result.ExitCode
             } else {
@@ -5119,6 +5177,111 @@ switch ($Command) {
             exit 1
         }
     }
+    "restore" {
+        # Standalone restore command — delegates to engine Invoke-Restore
+        $restoreScript = Resolve-EngineScript -ScriptName "restore"
+        if (-not $restoreScript) {
+            if ($Json) {
+                $errorDetail = @{
+                    code = "ENGINE_SCRIPT_NOT_FOUND"
+                    message = "Engine script 'restore.ps1' not found. Run 'endstate bootstrap' to configure."
+                }
+                Write-JsonEnvelope -CommandName "restore" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+            }
+            exit 1
+        }
+        . $restoreScript
+
+        # Also source manifest reading
+        $manifestScript = Resolve-EngineScript -ScriptName "manifest"
+        if ($manifestScript) { . $manifestScript }
+
+        try {
+            $resolvedPath = Resolve-ManifestPathWithValidation -ProfileName $Profile -ManifestPath $Manifest -CommandName "restore"
+            if (-not $resolvedPath) {
+                if ($Json) {
+                    $errorDetail = @{
+                        code = "MANIFEST_NOT_FOUND"
+                        message = "Either -Profile or -Manifest is required for 'restore' command."
+                        detail = @{ profile = $Profile; manifestPath = $Manifest }
+                    }
+                    Write-JsonEnvelope -CommandName "restore" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                }
+                exit 1
+            }
+
+            if (-not (Test-Path $resolvedPath)) {
+                if ($Json) {
+                    $errorDetail = @{
+                        code = "MANIFEST_NOT_FOUND"
+                        message = "Manifest file not found at path: $resolvedPath"
+                        detail = @{ manifestPath = $resolvedPath; profile = $Profile }
+                    }
+                    Write-JsonEnvelope -CommandName "restore" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+                } else {
+                    Write-Host "[ERROR] Manifest file not found: $resolvedPath" -ForegroundColor Red
+                }
+                exit 1
+            }
+
+            if (-not $Json) {
+                Write-Information "[endstate] Restore: starting with manifest $resolvedPath" -InformationAction Continue
+            }
+
+            $restoreParams = @{
+                ManifestPath = $resolvedPath
+                EnableRestore = $EnableRestore
+                DryRun = $DryRun
+            }
+            if ($RestoreFilter) {
+                $restoreParams.RestoreFilter = $RestoreFilter
+            }
+
+            $result = Invoke-Restore @restoreParams
+
+            if ($Json) {
+                $data = [ordered]@{
+                    dryRun = $DryRun.IsPresent
+                    manifest = [ordered]@{
+                        path = $resolvedPath
+                        name = Split-Path -Leaf $resolvedPath
+                    }
+                    summary = [ordered]@{
+                        total = $result.RestoreCount + $result.SkipCount + $result.FailCount
+                        success = $result.RestoreCount
+                        skipped = $result.SkipCount
+                        failed = $result.FailCount
+                    }
+                }
+                if ($result.RestoreModulesAvailable) {
+                    $data.restoreModulesAvailable = $result.RestoreModulesAvailable
+                }
+                if ($RestoreFilter) {
+                    $data.restoreFilter = @($RestoreFilter -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+                }
+                Write-JsonEnvelope -CommandName "restore" -Success $result.Success -Data $data -ExitCode $(if ($result.Success) { 0 } else { 1 })
+            } else {
+                if ($result.Success) {
+                    Write-Information "[endstate] Restore: completed (restored=$($result.RestoreCount) skipped=$($result.SkipCount))" -InformationAction Continue
+                } else {
+                    Write-Information "[endstate] Restore: completed with failures (restored=$($result.RestoreCount) skipped=$($result.SkipCount) failed=$($result.FailCount))" -InformationAction Continue
+                }
+            }
+            $exitCode = if ($result.Success) { 0 } else { 1 }
+        } catch {
+            if ($Json) {
+                $errorDetail = @{
+                    code = "RESTORE_FAILED"
+                    message = $_.Exception.Message
+                    detail = @{ exception = $_.ToString() }
+                }
+                Write-JsonEnvelope -CommandName "restore" -Success $false -Data $null -Error $errorDetail -ExitCode 1
+            } else {
+                Write-Host "[ERROR] Restore failed: $($_.Exception.Message)" -ForegroundColor Red
+            }
+            exit 1
+        }
+    }
     "capabilities" {
         # Output JSON list of available commands for GUI integration
         if ($Json) {
@@ -5131,11 +5294,12 @@ switch ($Command) {
                 commands = [ordered]@{
                     bootstrap = [ordered]@{ supported = $true; flags = @("--repo-root") }
                     capture = [ordered]@{ supported = $true; flags = @("--profile", "--out-manifest", "--include-runtimes", "--json", "--dry-run", "--events") }
-                    apply = [ordered]@{ supported = $true; flags = @("--profile", "--manifest", "--json", "--dry-run", "--enable-restore", "--events") }
+                    apply = [ordered]@{ supported = $true; flags = @("--profile", "--manifest", "--json", "--dry-run", "--enable-restore", "--restore-filter", "--events") }
                     plan = [ordered]@{ supported = $true; flags = @("--manifest", "--json") }
                     verify = [ordered]@{ supported = $true; flags = @("--profile", "--manifest", "--json") }
                     validate = [ordered]@{ supported = $true; flags = @("--manifest", "--json") }
                     report = [ordered]@{ supported = $true; flags = @("--json", "--out", "--latest", "--runid", "--last") }
+                    restore = [ordered]@{ supported = $true; flags = @("--manifest", "--enable-restore", "--restore-filter", "--dry-run", "--json", "--events") }
                     revert = [ordered]@{ supported = $true; flags = @("--json", "--dry-run", "--events") }
                     doctor = [ordered]@{ supported = $true; flags = @("--json") }
                     state = [ordered]@{ supported = $true; flags = @("--json") }
@@ -5157,7 +5321,7 @@ switch ($Command) {
             Write-JsonEnvelope -CommandName "capabilities" -Success $true -Data $data -ExitCode 0
         } else {
             Write-Host "Available commands:" -ForegroundColor Cyan
-            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "report", "revert", "doctor", "state", "module", "profile", "capabilities")
+            $commands = @("bootstrap", "capture", "apply", "plan", "verify", "validate", "restore", "report", "revert", "doctor", "state", "module", "profile", "capabilities")
             foreach ($cmd in $commands) {
                 Write-Host "  - $cmd" -ForegroundColor White
             }
