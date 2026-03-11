@@ -126,4 +126,8 @@ package-lock.json
 # Local capture / test artifacts
 capture-test.json
 test-installed-capture.json
+captured-*.jsonc
+
+# Go engine build artifacts
+go-engine/endstate.exe
 
