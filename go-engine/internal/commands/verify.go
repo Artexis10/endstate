@@ -13,6 +13,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/verifier"
 )
 
 // newDriverFn is the factory used to create the package manager driver. It
@@ -133,9 +134,28 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		results = append(results, item)
 	}
 
+	// --- 4. Run manifest verify entries through verifier dispatcher ---
+	if len(mf.Verify) > 0 {
+		verifyResults := verifier.RunVerify(mf.Verify)
+		for _, vr := range verifyResults {
+			item := VerifyItem{
+				Type:    vr.Type,
+				Status:  "fail",
+				Message: vr.Message,
+			}
+			if vr.Pass {
+				item.Status = "pass"
+				passCount++
+			} else {
+				failCount++
+			}
+			results = append(results, item)
+		}
+	}
+
 	total := passCount + failCount
 
-	// --- 4. Summary event (last event in stream per event-contract.md) ---
+	// --- 5. Summary event (last event in stream per event-contract.md) ---
 	emitter.EmitSummary("verify", total, passCount, 0, failCount)
 
 	return &VerifyResult{

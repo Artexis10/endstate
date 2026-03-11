@@ -67,7 +67,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"apply": {
 				Supported: true,
-				Flags:     []string{"--manifest", "--dry-run", "--enable-restore", "--json", "--events"},
+				Flags:     []string{"--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--json", "--events"},
 			},
 			"verify": {
 				Supported: true,
@@ -83,7 +83,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"restore": {
 				Supported: true,
-				Flags:     []string{"--manifest", "--json", "--events", "--filter"},
+				Flags:     []string{"--manifest", "--restore-filter", "--json", "--events", "--filter"},
 			},
 			"report": {
 				Supported: true,
@@ -96,6 +96,22 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			"profile": {
 				Supported: true,
 				Flags:     []string{"--json"},
+			},
+			"bootstrap": {
+				Supported: true,
+				Flags:     []string{"--json"},
+			},
+			"export-config": {
+				Supported: true,
+				Flags:     []string{"--manifest", "--export", "--dry-run", "--json", "--events"},
+			},
+			"validate-export": {
+				Supported: true,
+				Flags:     []string{"--manifest", "--export", "--json", "--events"},
+			},
+			"revert": {
+				Supported: true,
+				Flags:     []string{"--json", "--events"},
 			},
 		},
 		Features: FeaturesInfo{

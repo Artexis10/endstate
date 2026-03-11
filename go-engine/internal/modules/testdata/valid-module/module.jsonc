@@ -1,0 +1,44 @@
+{
+  // Test module: valid
+  "id": "apps.test-app",
+  "displayName": "Test Application",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["TestVendor.TestApp"],
+    "exe": ["testapp.exe"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "testapp" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/test-app/config.json",
+      "target": "%APPDATA%\\TestApp\\config.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/test-app/settings.ini",
+      "target": "%APPDATA%\\TestApp\\settings.ini",
+      "backup": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\TestApp\\config.json", "dest": "apps/test-app/config.json", "optional": true },
+      { "source": "%APPDATA%\\TestApp\\settings.ini", "dest": "apps/test-app/settings.ini" }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Test module for unit tests."
+}

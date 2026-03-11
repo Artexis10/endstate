@@ -30,6 +30,9 @@ Commands:
   capture         Capture current machine state
   plan            Generate execution plan
   restore         Restore configuration files
+  revert          Revert last restore operation
+  export-config   Export configuration files from system
+  validate-export Validate export completeness
   report          Retrieve run history
   doctor          Run diagnostics
   bootstrap       Bootstrap Endstate installation
@@ -53,6 +56,8 @@ Per-command flags:
   --include-runtimes   Include runtime packages (capture)
   --include-store-apps Include Microsoft Store apps (capture)
   --minimize           Minimize manifest format (capture)
+  --export <path>      Export directory path (restore, export-config, validate-export)
+  --restore-filter <e> Filter restore entries by module ID (restore, apply)
   --latest             Most recent run (report)
   --last <n>           Last N runs (report)
   --run-id <id>        Specific run ID (report)
@@ -77,6 +82,8 @@ type parsedArgs struct {
 	manifest      string
 	dryRun        bool
 	enableRestore bool
+	export        string // --export <path>
+	restoreFilter string // --restore-filter <expr>
 
 	// Capture flags
 	out              string
@@ -178,6 +185,16 @@ func parseArgs(args []string) parsedArgs {
 				p.runID = args[i+1]
 				i++
 			}
+		case "--export":
+			if i+1 < len(args) {
+				p.export = args[i+1]
+				i++
+			}
+		case "--restore-filter":
+			if i+1 < len(args) {
+				p.restoreFilter = args[i+1]
+				i++
+			}
 		default:
 			// Collect positional args (e.g., profile subcommands: "list", "path", "validate").
 			if !strings.HasPrefix(arg, "-") {
@@ -205,7 +222,13 @@ func commandUsage(cmd string) string {
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
-		return "Usage: endstate restore [--manifest <path>] [--filter <expr>] [--json] [--events jsonl]\n\nRestore configuration files.\n"
+		return "Usage: endstate restore [--manifest <path>] [--enable-restore] [--dry-run] [--export <path>] [--restore-filter <expr>] [--json] [--events jsonl]\n\nRestore configuration files.\n"
+	case "revert":
+		return "Usage: endstate revert [--json] [--events jsonl]\n\nRevert last restore operation using journal.\n"
+	case "export-config":
+		return "Usage: endstate export-config [--manifest <path>] [--export <path>] [--dry-run] [--json] [--events jsonl]\n\nExport configuration files from system to portable directory.\n"
+	case "validate-export":
+		return "Usage: endstate validate-export [--manifest <path>] [--export <path>] [--json] [--events jsonl]\n\nValidate export directory completeness.\n"
 	case "report":
 		return "Usage: endstate report [--latest] [--last <n>] [--run-id <id>] [--json]\n\nRetrieve run history.\n"
 	case "doctor":
@@ -300,6 +323,8 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			DryRun:        p.dryRun,
 			EnableRestore: p.enableRestore,
 			Events:        p.events,
+			Export:        p.export,
+			RestoreFilter: p.restoreFilter,
 		})
 
 	case "verify":
@@ -355,11 +380,40 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Events:     p.events,
 		})
 
-	case "restore", "bootstrap":
-		return nil, envelope.NewError(
-			envelope.ErrInternalError,
-			"command not yet implemented",
-		)
+	case "restore":
+		return commands.RunRestore(commands.RestoreFlags{
+			Manifest:      p.manifest,
+			EnableRestore: p.enableRestore,
+			DryRun:        p.dryRun,
+			Export:        p.export,
+			Events:        p.events,
+			RestoreFilter: p.restoreFilter,
+		})
+
+	case "revert":
+		return commands.RunRevert(commands.RevertFlags{
+			Events: p.events,
+		})
+
+	case "export-config":
+		return commands.RunExport(commands.ExportFlags{
+			Manifest: p.manifest,
+			Export:   p.export,
+			DryRun:   p.dryRun,
+			Events:   p.events,
+		})
+
+	case "validate-export":
+		return commands.RunValidateExport(commands.ValidateExportFlags{
+			Manifest: p.manifest,
+			Export:   p.export,
+			Events:   p.events,
+		})
+
+	case "bootstrap":
+		return commands.RunBootstrap(commands.BootstrapFlags{
+			Events: p.events,
+		})
 
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %q\n\n", p.command)

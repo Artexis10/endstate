@@ -1,0 +1,22 @@
+{
+  "id": "apps.no-capture",
+  "displayName": "No Capture Module",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Vendor.NoCaptureApp"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "nocapture" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/no-capture/config.json",
+      "target": "%APPDATA%\\NoCaptureApp\\config.json",
+      "backup": true
+    }
+  ]
+}

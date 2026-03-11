@@ -5,11 +5,14 @@ package commands
 
 import (
 	"fmt"
+	"path/filepath"
 
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
 
 // ApplyFlags holds the parsed CLI flags for the apply command.
@@ -19,10 +22,14 @@ type ApplyFlags struct {
 	// DryRun previews the plan without making any changes.
 	DryRun bool
 	// EnableRestore enables configuration restore operations during apply.
-	// In Phase 1 this flag is accepted but restore is not yet implemented.
 	EnableRestore bool
 	// Events controls streaming event output. "jsonl" enables it; "" disables.
 	Events string
+	// Export is the path to the export directory for Model B source resolution.
+	Export string
+	// RestoreFilter limits restore to entries matching specific module IDs
+	// (comma-separated).
+	RestoreFilter string
 }
 
 // ApplyResult is the data payload for the apply command JSON envelope.
@@ -82,9 +89,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("apply")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
 
-	// EnableRestore: accepted, not yet implemented (Phase 2).
-	// We note it but do not error — per instructions "do not error".
-	_ = flags.EnableRestore
+	// EnableRestore is handled after the install phase (before verify).
 
 	// ----------------------------------------------------------------
 	// Phase 1: Plan
@@ -195,6 +200,67 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 
 		applyTotal := successCount + skippedCount + failedCount
 		emitter.EmitSummary("apply", applyTotal, successCount, skippedCount, failedCount)
+
+		// ----------------------------------------------------------------
+		// Phase 2b: Restore  (when --enable-restore and manifest has entries)
+		// ----------------------------------------------------------------
+
+		if flags.EnableRestore && len(mf.Restore) > 0 {
+			emitter.EmitPhase("restore")
+
+			manifestDir := filepath.Dir(flags.Manifest)
+			absManifestDir, _ := filepath.Abs(manifestDir)
+			actions := convertToActions(mf.Restore, flags.RestoreFilter)
+
+			exportRoot := ""
+			if flags.Export != "" {
+				exportRoot, _ = filepath.Abs(flags.Export)
+			}
+
+			repoRoot := config.ResolveRepoRoot()
+			backupDir := ""
+			if repoRoot != "" {
+				backupDir = filepath.Join(repoRoot, "state", "backups", runID)
+			}
+
+			restoreOpts := restore.RestoreOptions{
+				DryRun:      false, // apply is non-dry-run at this point
+				BackupDir:   backupDir,
+				ManifestDir: absManifestDir,
+				ExportRoot:  exportRoot,
+				RunID:       runID,
+			}
+
+			restoreResults, restoreErr := restore.RunRestore(actions, restoreOpts)
+			if restoreErr != nil {
+				emitter.EmitError("engine", "Restore failed: "+restoreErr.Error(), "")
+			} else {
+				restoredCnt := 0
+				skippedCnt := 0
+				failedCnt := 0
+				for _, r := range restoreResults {
+					switch r.Status {
+					case "restored":
+						emitter.EmitItem(r.ID, "restore", "restored", "", "Restored "+r.Target)
+						restoredCnt++
+					case "skipped_up_to_date", "skipped_missing_source":
+						emitter.EmitItem(r.ID, "restore", "skipped", "", r.Status)
+						skippedCnt++
+					case "failed":
+						emitter.EmitItem(r.ID, "restore", "failed", "", r.Error)
+						failedCnt++
+					}
+				}
+				emitter.EmitSummary("restore", len(restoreResults), restoredCnt, skippedCnt, failedCnt)
+
+				// Write journal for restore phase.
+				if repoRoot != "" {
+					logsDir := filepath.Join(repoRoot, "logs")
+					absManifest, _ := filepath.Abs(flags.Manifest)
+					_ = restore.WriteJournal(logsDir, runID, absManifest, absManifestDir, exportRoot, restoreResults)
+				}
+			}
+		}
 
 		// ----------------------------------------------------------------
 		// Phase 3: Verify  (fresh re-detection)
