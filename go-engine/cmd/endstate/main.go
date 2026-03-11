@@ -45,6 +45,7 @@ Global flags:
 
 Per-command flags:
   --manifest <path>    Path to manifest file (apply, verify, plan, capture, restore)
+                       Alias: --profile <path> (apply, verify, plan)
   --dry-run            Preview changes without applying them (apply, restore)
   --enable-restore     Enable restore operations during apply (opt-in)
   --out <path>         Output file path (capture)
@@ -147,6 +148,10 @@ func parseArgs(args []string) parsedArgs {
 			p.minimize = true
 		case "--latest":
 			p.latest = true
+		case "--WithConfig":
+			// GUI sends --WithConfig for capture; the Go engine includes
+			// config modules by default, so this is a no-op. Accept it
+			// silently to avoid "unknown flag" confusion in debug logs.
 		case "--events":
 			if i+1 < len(args) {
 				p.events = args[i+1]
@@ -203,6 +208,17 @@ func parseArgs(args []string) parsedArgs {
 			// Unknown flags are silently ignored (graceful degradation).
 		}
 		i++
+	}
+
+	// GUI compatibility: the GUI sends --profile <path> for apply/verify/plan,
+	// but the Go engine expects --manifest <path>. When --profile is set and
+	// --manifest is not, treat --profile as --manifest for these commands.
+	if p.manifest == "" && p.profile != "" {
+		switch p.command {
+		case "apply", "verify", "plan":
+			p.manifest = p.profile
+			p.profile = "" // clear so it doesn't confuse capture logic
+		}
 	}
 
 	return p
