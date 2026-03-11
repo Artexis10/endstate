@@ -3,13 +3,19 @@
 
 // Package snapshot captures the current system state by running winget list
 // and parsing the tabular output into structured SnapshotApp entries.
+// WingetExport uses winget export for authoritative package enumeration;
+// TakeSnapshot (winget list) is used only to build display-name lookup maps.
 package snapshot
 
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -124,6 +130,107 @@ func GetDisplayNameMap() (map[string]string, error) {
 		nameMap[app.ID] = app.Name
 	}
 	return nameMap, nil
+}
+
+// wingetExportJSON mirrors the top-level structure of the file produced by
+// `winget export`.  Only the fields that Endstate needs are represented.
+type wingetExportJSON struct {
+	Sources []wingetExportSource `json:"Sources"`
+}
+
+type wingetExportSource struct {
+	SourceDetails wingetExportSourceDetails `json:"SourceDetails"`
+	Packages      []wingetExportPackage     `json:"Packages"`
+}
+
+type wingetExportSourceDetails struct {
+	Name string `json:"Name"`
+}
+
+type wingetExportPackage struct {
+	PackageIdentifier string `json:"PackageIdentifier"`
+}
+
+// ExecCommandWithFile is injectable for tests that need to intercept the
+// winget export command and supply a fake output file.  It receives the
+// desired output file path so tests can write fixture data there.
+//
+// Signature: func(outFile string, name string, args ...string) error
+var ExecCommandWithFile = defaultExecCommandWithFile
+
+func defaultExecCommandWithFile(outFile string, name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	// winget writes progress spinners to stderr; discard them.
+	cmd.Stderr = nil
+	return cmd.Run()
+}
+
+// WingetExport runs `winget export --source winget --accept-source-agreements
+// -o <tempfile>`, reads the JSON output, and returns one SnapshotApp per
+// package listed in the export.  Only the ID field is populated; use
+// GetDisplayNameMap to resolve display names.
+//
+// The --source winget flag is critical: it restricts the export to
+// winget-sourced packages and excludes Microsoft Store apps, matching the
+// behaviour of the PowerShell reference implementation.
+func WingetExport() ([]SnapshotApp, error) {
+	// Create a temp file for winget to write into.
+	tmpDir := os.TempDir()
+	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("endstate-winget-export-%d.json", os.Getpid()))
+	defer os.Remove(tmpFile) //nolint:errcheck
+
+	err := ExecCommandWithFile(tmpFile, "winget", "export",
+		"--source", "winget",
+		"--accept-source-agreements",
+		"-o", tmpFile)
+	if err != nil {
+		var execErr *exec.Error
+		if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
+			return nil, err
+		}
+		// winget may exit non-zero but still write a valid file; check below.
+	}
+
+	data, readErr := os.ReadFile(tmpFile)
+	if readErr != nil {
+		// File missing and the command itself failed — surface the run error.
+		if err != nil {
+			return nil, err
+		}
+		return nil, readErr
+	}
+
+	return parseWingetExport(data)
+}
+
+// parseWingetExport parses the JSON produced by `winget export` and returns
+// one SnapshotApp per package entry.  Source is set from SourceDetails.Name.
+func parseWingetExport(data []byte) ([]SnapshotApp, error) {
+	if len(bytes.TrimSpace(data)) == 0 {
+		return nil, nil
+	}
+
+	var export wingetExportJSON
+	if err := json.Unmarshal(data, &export); err != nil {
+		return nil, fmt.Errorf("parsing winget export JSON: %w", err)
+	}
+
+	var apps []SnapshotApp
+	for _, source := range export.Sources {
+		sourceName := source.SourceDetails.Name
+		for _, pkg := range source.Packages {
+			id := strings.TrimSpace(pkg.PackageIdentifier)
+			if id == "" {
+				continue
+			}
+			apps = append(apps, SnapshotApp{
+				ID:     id,
+				Source: sourceName,
+			})
+		}
+	}
+
+	return apps, nil
 }
 
 // parseWingetList parses the tabular output of `winget list`.
