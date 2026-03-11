@@ -1,0 +1,113 @@
+// Copyright 2025 Substrate Systems OÜ
+// SPDX-License-Identifier: Apache-2.0
+
+// Package commands contains the handler implementations for each Endstate CLI
+// command. Each handler returns (data interface{}, err *envelope.Error) so that
+// main.go can wrap the result in a standard envelope.
+package commands
+
+import (
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+)
+
+// CapabilitiesData is the data payload returned by the capabilities command.
+// It matches the shape defined in docs/contracts/cli-json-contract.md and
+// docs/contracts/gui-integration-contract.md.
+type CapabilitiesData struct {
+	SupportedSchemaVersions SchemaVersionRange        `json:"supportedSchemaVersions"`
+	Commands                map[string]CommandInfo    `json:"commands"`
+	Features                FeaturesInfo              `json:"features"`
+	Platform                PlatformInfo              `json:"platform"`
+	GitCommit               *string                   `json:"gitCommit"`
+	GitDirty                bool                      `json:"gitDirty"`
+	BootstrapTimestamp      *string                   `json:"bootstrapTimestamp"`
+}
+
+// SchemaVersionRange expresses the inclusive range of JSON schema versions this
+// CLI supports.
+type SchemaVersionRange struct {
+	Min string `json:"min"`
+	Max string `json:"max"`
+}
+
+// CommandInfo describes a single supported command and the flags it accepts.
+type CommandInfo struct {
+	Supported bool     `json:"supported"`
+	Flags     []string `json:"flags"`
+}
+
+// FeaturesInfo is the features capability map returned in the capabilities response.
+type FeaturesInfo struct {
+	Streaming       bool `json:"streaming"`
+	ParallelInstall bool `json:"parallelInstall"`
+	ConfigModules   bool `json:"configModules"`
+	JSONOutput      bool `json:"jsonOutput"`
+}
+
+// PlatformInfo describes the host operating system and available package manager
+// drivers.
+type PlatformInfo struct {
+	OS      string   `json:"os"`
+	Drivers []string `json:"drivers"`
+}
+
+// RunCapabilities executes the capabilities command and returns the data payload.
+// It never fails; any future dynamic enrichment (git SHA, bootstrap timestamp)
+// that errors is silently omitted so the handshake always succeeds.
+func RunCapabilities() (interface{}, *envelope.Error) {
+	data := CapabilitiesData{
+		SupportedSchemaVersions: SchemaVersionRange{
+			Min: "1.0",
+			Max: "1.0",
+		},
+		Commands: map[string]CommandInfo{
+			"capabilities": {
+				Supported: true,
+				Flags:     []string{"--json"},
+			},
+			"apply": {
+				Supported: true,
+				Flags:     []string{"--manifest", "--dry-run", "--enable-restore", "--json", "--events"},
+			},
+			"verify": {
+				Supported: true,
+				Flags:     []string{"--manifest", "--json", "--events"},
+			},
+			"capture": {
+				Supported: true,
+				Flags:     []string{"--manifest", "--output", "--json", "--events"},
+			},
+			"plan": {
+				Supported: true,
+				Flags:     []string{"--manifest", "--json"},
+			},
+			"restore": {
+				Supported: true,
+				Flags:     []string{"--manifest", "--json", "--events", "--filter"},
+			},
+			"report": {
+				Supported: true,
+				Flags:     []string{"--json"},
+			},
+			"doctor": {
+				Supported: true,
+				Flags:     []string{"--json"},
+			},
+		},
+		Features: FeaturesInfo{
+			Streaming:       false,
+			ParallelInstall: true,
+			ConfigModules:   true,
+			JSONOutput:      true,
+		},
+		Platform: PlatformInfo{
+			OS:      "windows",
+			Drivers: []string{"winget"},
+		},
+		GitCommit:          nil,
+		GitDirty:           false,
+		BootstrapTimestamp: nil,
+	}
+
+	return data, nil
+}

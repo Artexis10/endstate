@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "name": "include-parent",
+  "apps": [
+    {
+      "id": "parent-app",
+      "refs": { "windows": "Parent.App" }
+    }
+  ],
+  "includes": [
+    "./include-child.jsonc"
+  ]
+}

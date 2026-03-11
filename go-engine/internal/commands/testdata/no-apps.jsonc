@@ -1,0 +1,6 @@
+{
+  // Fixture with no apps — used to test empty-manifest edge cases.
+  "version": 1,
+  "name": "empty-manifest",
+  "apps": []
+}
