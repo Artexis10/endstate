@@ -75,11 +75,11 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"capture": {
 				Supported: true,
-				Flags:     []string{"--manifest", "--output", "--json", "--events"},
+				Flags:     []string{"--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events"},
 			},
 			"plan": {
 				Supported: true,
-				Flags:     []string{"--manifest", "--json"},
+				Flags:     []string{"--manifest", "--json", "--events"},
 			},
 			"restore": {
 				Supported: true,
@@ -87,9 +87,13 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"report": {
 				Supported: true,
-				Flags:     []string{"--json"},
+				Flags:     []string{"--run-id", "--latest", "--last", "--json"},
 			},
 			"doctor": {
+				Supported: true,
+				Flags:     []string{"--json"},
+			},
+			"profile": {
 				Supported: true,
 				Flags:     []string{"--json"},
 			},

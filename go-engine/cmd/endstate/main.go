@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -40,9 +41,26 @@ Global flags:
   --help, -h           Show this help message
 
 Per-command flags:
-  --manifest <path>    Path to manifest file (apply, verify, plan, restore)
+  --manifest <path>    Path to manifest file (apply, verify, plan, capture, restore)
   --dry-run            Preview changes without applying them (apply, restore)
   --enable-restore     Enable restore operations during apply (opt-in)
+  --out <path>         Output file path (capture)
+  --name <name>        Manifest name (capture)
+  --profile <name>     Profile name for output (capture)
+  --sanitize           Strip machine-specific fields (capture)
+  --discover           Discover installed apps (capture)
+  --update             Update existing manifest (capture)
+  --include-runtimes   Include runtime packages (capture)
+  --include-store-apps Include Microsoft Store apps (capture)
+  --minimize           Minimize manifest format (capture)
+  --latest             Most recent run (report)
+  --last <n>           Last N runs (report)
+  --run-id <id>        Specific run ID (report)
+
+Subcommands:
+  profile list         List discovered profiles
+  profile path <name>  Resolve profile path
+  profile validate <p> Validate a profile manifest
 
 Run 'endstate <command> --help' for command-specific help.
 `
@@ -59,6 +77,25 @@ type parsedArgs struct {
 	manifest      string
 	dryRun        bool
 	enableRestore bool
+
+	// Capture flags
+	out              string
+	name             string
+	profile          string
+	sanitize         bool
+	discover         bool
+	update           bool
+	includeRuntimes  bool
+	includeStoreApps bool
+	minimize         bool
+
+	// Report flags
+	latest bool
+	last   int
+	runID  string
+
+	// Positional args after command (used by profile subcommands)
+	positionalArgs []string
 }
 
 func parseArgs(args []string) parsedArgs {
@@ -89,6 +126,20 @@ func parseArgs(args []string) parsedArgs {
 			p.dryRun = true
 		case "--enable-restore":
 			p.enableRestore = true
+		case "--sanitize", "-Sanitize":
+			p.sanitize = true
+		case "--discover":
+			p.discover = true
+		case "--update":
+			p.update = true
+		case "--include-runtimes":
+			p.includeRuntimes = true
+		case "--include-store-apps":
+			p.includeStoreApps = true
+		case "--minimize":
+			p.minimize = true
+		case "--latest":
+			p.latest = true
 		case "--events":
 			if i+1 < len(args) {
 				p.events = args[i+1]
@@ -99,8 +150,40 @@ func parseArgs(args []string) parsedArgs {
 				p.manifest = args[i+1]
 				i++
 			}
+		case "--out", "-Out":
+			if i+1 < len(args) {
+				p.out = args[i+1]
+				i++
+			}
+		case "--name", "-Name":
+			if i+1 < len(args) {
+				p.name = args[i+1]
+				i++
+			}
+		case "--profile", "-Profile":
+			if i+1 < len(args) {
+				p.profile = args[i+1]
+				i++
+			}
+		case "--last":
+			if i+1 < len(args) {
+				n, err := strconv.Atoi(args[i+1])
+				if err == nil {
+					p.last = n
+				}
+				i++
+			}
+		case "--run-id":
+			if i+1 < len(args) {
+				p.runID = args[i+1]
+				i++
+			}
 		default:
-			// Unknown flag: silently ignore (graceful degradation for future flags).
+			// Collect positional args (e.g., profile subcommands: "list", "path", "validate").
+			if !strings.HasPrefix(arg, "-") {
+				p.positionalArgs = append(p.positionalArgs, arg)
+			}
+			// Unknown flags are silently ignored (graceful degradation).
 		}
 		i++
 	}
@@ -118,15 +201,17 @@ func commandUsage(cmd string) string {
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
-		return "Usage: endstate capture [--manifest <path>] [--output <path>] [--json] [--events jsonl]\n\nCapture current machine state.\n"
+		return "Usage: endstate capture [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--json] [--events jsonl]\n\nCapture current machine state.\n"
 	case "plan":
-		return "Usage: endstate plan [--manifest <path>] [--json]\n\nGenerate execution plan.\n"
+		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
 		return "Usage: endstate restore [--manifest <path>] [--filter <expr>] [--json] [--events jsonl]\n\nRestore configuration files.\n"
 	case "report":
-		return "Usage: endstate report [--json]\n\nRetrieve run history.\n"
+		return "Usage: endstate report [--latest] [--last <n>] [--run-id <id>] [--json]\n\nRetrieve run history.\n"
 	case "doctor":
-		return "Usage: endstate doctor [--json]\n\nRun diagnostics.\n"
+		return "Usage: endstate doctor [--json]\n\nRun system diagnostics.\n"
+	case "profile":
+		return "Usage: endstate profile <subcommand> [args] [--json]\n\nSubcommands:\n  list              List discovered profiles\n  path <name>       Resolve profile path from name\n  validate <path>   Validate a profile manifest\n"
 	case "bootstrap":
 		return "Usage: endstate bootstrap\n\nBootstrap Endstate installation.\n"
 	default:
@@ -223,8 +308,54 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Events:   p.events,
 		})
 
-	case "capture", "plan", "restore", "report", "doctor", "bootstrap":
-		// Stubs: Teammate 2 / Teammate 3 will fill these in.
+	case "capture":
+		return commands.RunCapture(commands.CaptureFlags{
+			Manifest:         p.manifest,
+			Out:              p.out,
+			Profile:          p.profile,
+			Name:             p.name,
+			Sanitize:         p.sanitize,
+			Discover:         p.discover,
+			Update:           p.update,
+			IncludeRuntimes:  p.includeRuntimes,
+			IncludeStoreApps: p.includeStoreApps,
+			Minimize:         p.minimize,
+			Events:           p.events,
+		})
+
+	case "plan":
+		return commands.RunPlan(commands.PlanFlags{
+			Manifest: p.manifest,
+			Events:   p.events,
+		})
+
+	case "report":
+		return commands.RunReport(commands.ReportFlags{
+			Latest: p.latest,
+			Last:   p.last,
+			RunID:  p.runID,
+			Events: p.events,
+		})
+
+	case "doctor":
+		return commands.RunDoctor(commands.DoctorFlags{
+			Events: p.events,
+		})
+
+	case "profile":
+		subcommand := ""
+		var subArgs []string
+		if len(p.positionalArgs) > 0 {
+			subcommand = p.positionalArgs[0]
+			subArgs = p.positionalArgs[1:]
+		}
+		return commands.RunProfile(commands.ProfileFlags{
+			Subcommand: subcommand,
+			Args:       subArgs,
+			Events:     p.events,
+		})
+
+	case "restore", "bootstrap":
 		return nil, envelope.NewError(
 			envelope.ErrInternalError,
 			"command not yet implemented",
