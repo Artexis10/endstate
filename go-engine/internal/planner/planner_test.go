@@ -195,3 +195,272 @@ func TestComputePlan_NoWindowsRef(t *testing.T) {
 		t.Errorf("expected 0 actions, got %d", len(plan.Actions))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Gap tests ported from Pester: Plan.Tests.ps1 and Planner.Tests.ps1
+// ---------------------------------------------------------------------------
+
+// TestComputePlan_Deterministic verifies that the same inputs produce the same
+// plan output. (Pester: Plan.Deterministic.HashAndRunId - "Should produce
+// identical plan for same inputs")
+func TestComputePlan_Deterministic(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{"Test.App2": true}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{ID: "test-app-1", Refs: map[string]string{"windows": "Test.App1"}},
+			{ID: "test-app-2", Refs: map[string]string{"windows": "Test.App2"}},
+			{ID: "test-app-3", Refs: map[string]string{"windows": "Test.App3"}},
+		},
+	}
+
+	plan1, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("first ComputePlan failed: %v", err)
+	}
+	plan2, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("second ComputePlan failed: %v", err)
+	}
+
+	if plan1.Summary.Total != plan2.Summary.Total {
+		t.Errorf("total mismatch: %d vs %d", plan1.Summary.Total, plan2.Summary.Total)
+	}
+	if plan1.Summary.ToInstall != plan2.Summary.ToInstall {
+		t.Errorf("toInstall mismatch: %d vs %d", plan1.Summary.ToInstall, plan2.Summary.ToInstall)
+	}
+	if plan1.Summary.AlreadyPresent != plan2.Summary.AlreadyPresent {
+		t.Errorf("alreadyPresent mismatch: %d vs %d", plan1.Summary.AlreadyPresent, plan2.Summary.AlreadyPresent)
+	}
+	if len(plan1.Actions) != len(plan2.Actions) {
+		t.Fatalf("action count mismatch: %d vs %d", len(plan1.Actions), len(plan2.Actions))
+	}
+	for i := range plan1.Actions {
+		if plan1.Actions[i].ID != plan2.Actions[i].ID {
+			t.Errorf("action[%d].ID mismatch: %q vs %q", i, plan1.Actions[i].ID, plan2.Actions[i].ID)
+		}
+		if plan1.Actions[i].PlannedAction != plan2.Actions[i].PlannedAction {
+			t.Errorf("action[%d].PlannedAction mismatch: %q vs %q", i, plan1.Actions[i].PlannedAction, plan2.Actions[i].PlannedAction)
+		}
+	}
+}
+
+// TestComputePlan_ActionOrderMatchesManifest verifies that plan actions
+// preserve the order of apps as declared in the manifest.
+// (Pester: Plan.Deterministic.HashAndRunId - "Should produce stable action
+// list order")
+func TestComputePlan_ActionOrderMatchesManifest(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{ID: "test-app-1", Refs: map[string]string{"windows": "Test.App1"}},
+			{ID: "test-app-2", Refs: map[string]string{"windows": "Test.App2"}},
+			{ID: "test-app-3", Refs: map[string]string{"windows": "Test.App3"}},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	if len(plan.Actions) != 3 {
+		t.Fatalf("expected 3 actions, got %d", len(plan.Actions))
+	}
+
+	expectedIDs := []string{"test-app-1", "test-app-2", "test-app-3"}
+	for i, wantID := range expectedIDs {
+		if plan.Actions[i].ID != wantID {
+			t.Errorf("action[%d].ID = %q, want %q", i, plan.Actions[i].ID, wantID)
+		}
+	}
+}
+
+// TestComputePlan_ActionFields verifies that each action has the required
+// fields populated: Type, ID, Ref, Driver, CurrentStatus, PlannedAction.
+// (Pester: Plan.Structure - "Should have type/driver/id/ref/status field on
+// app actions")
+func TestComputePlan_ActionFields(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{ID: "my-app", Refs: map[string]string{"windows": "My.App"}},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	if len(plan.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(plan.Actions))
+	}
+
+	action := plan.Actions[0]
+	if action.Type != "app" {
+		t.Errorf("Type = %q, want %q", action.Type, "app")
+	}
+	if action.ID != "my-app" {
+		t.Errorf("ID = %q, want %q", action.ID, "my-app")
+	}
+	if action.Ref != "My.App" {
+		t.Errorf("Ref = %q, want %q", action.Ref, "My.App")
+	}
+	if action.Driver != "test" {
+		t.Errorf("Driver = %q, want %q", action.Driver, "test")
+	}
+	if action.CurrentStatus == "" {
+		t.Error("CurrentStatus should not be empty")
+	}
+	if action.PlannedAction == "" {
+		t.Error("PlannedAction should not be empty")
+	}
+}
+
+// TestComputePlan_ThreeAppsMixed verifies mixed install/skip classification
+// with three apps where only some are installed.
+// (Pester: Planner.SkipLogic - "Should correctly classify mixed install/skip
+// scenario")
+func TestComputePlan_ThreeAppsMixed(t *testing.T) {
+	t.Run("two installed one missing", func(t *testing.T) {
+		drv := &testDriver{installed: map[string]bool{
+			"Test.App1": true,
+			"Test.App3": true,
+		}}
+
+		mf := &manifest.Manifest{
+			Apps: []manifest.App{
+				{ID: "app-1", Refs: map[string]string{"windows": "Test.App1"}},
+				{ID: "app-2", Refs: map[string]string{"windows": "Test.App2"}},
+				{ID: "app-3", Refs: map[string]string{"windows": "Test.App3"}},
+			},
+		}
+
+		plan, err := ComputePlan(mf, drv)
+		if err != nil {
+			t.Fatalf("ComputePlan failed: %v", err)
+		}
+
+		if plan.Summary.ToInstall != 1 {
+			t.Errorf("expected toInstall=1, got %d", plan.Summary.ToInstall)
+		}
+		if plan.Summary.AlreadyPresent != 2 {
+			t.Errorf("expected alreadyPresent=2, got %d", plan.Summary.AlreadyPresent)
+		}
+	})
+
+	t.Run("one installed two missing", func(t *testing.T) {
+		drv := &testDriver{installed: map[string]bool{
+			"Test.App2": true,
+		}}
+
+		mf := &manifest.Manifest{
+			Apps: []manifest.App{
+				{ID: "app-1", Refs: map[string]string{"windows": "Test.App1"}},
+				{ID: "app-2", Refs: map[string]string{"windows": "Test.App2"}},
+				{ID: "app-3", Refs: map[string]string{"windows": "Test.App3"}},
+			},
+		}
+
+		plan, err := ComputePlan(mf, drv)
+		if err != nil {
+			t.Fatalf("ComputePlan failed: %v", err)
+		}
+
+		if plan.Summary.ToInstall != 2 {
+			t.Errorf("expected toInstall=2, got %d", plan.Summary.ToInstall)
+		}
+		if plan.Summary.AlreadyPresent != 1 {
+			t.Errorf("expected alreadyPresent=1, got %d", plan.Summary.AlreadyPresent)
+		}
+	})
+}
+
+// TestComputePlan_SummaryTotalEqualsSumOfParts verifies that the total count
+// equals the sum of all classification counts.
+// (Pester: Planner.SummaryCountsAccuracy - "Should have total actions equal
+// to sum of all types")
+func TestComputePlan_SummaryTotalEqualsSumOfParts(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{"Test.App2": true}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{ID: "app-1", Refs: map[string]string{"windows": "Test.App1"}},
+			{ID: "app-2", Refs: map[string]string{"windows": "Test.App2"}},
+			{ID: "app-3", Refs: map[string]string{"windows": "Test.App3"}},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	sum := plan.Summary.ToInstall + plan.Summary.AlreadyPresent + plan.Summary.Skipped
+	if plan.Summary.Total != sum {
+		t.Errorf("Total=%d does not equal ToInstall(%d)+AlreadyPresent(%d)+Skipped(%d)=%d",
+			plan.Summary.Total, plan.Summary.ToInstall, plan.Summary.AlreadyPresent, plan.Summary.Skipped, sum)
+	}
+	if plan.Summary.Total != len(plan.Actions) {
+		t.Errorf("Total=%d does not equal len(Actions)=%d", plan.Summary.Total, len(plan.Actions))
+	}
+}
+
+// TestComputePlan_FallbackRef verifies that when no "windows" ref exists, the
+// planner falls back to another platform ref.
+// (Pester implicitly tests this via multi-platform ref handling)
+func TestComputePlan_FallbackRef(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{"cross-plat-brew": true}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{ID: "cross", Refs: map[string]string{"macos": "cross-plat-brew"}},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	// Should fall back to the macos ref since no windows ref exists
+	if len(plan.Actions) != 1 {
+		t.Fatalf("expected 1 action (fallback ref), got %d", len(plan.Actions))
+	}
+	if plan.Actions[0].Ref != "cross-plat-brew" {
+		t.Errorf("expected ref=%q from fallback, got %q", "cross-plat-brew", plan.Actions[0].Ref)
+	}
+	if plan.Summary.AlreadyPresent != 1 {
+		t.Errorf("expected alreadyPresent=1, got %d", plan.Summary.AlreadyPresent)
+	}
+}
+
+// TestComputePlan_WindowsRefPreferred verifies that when both "windows" and
+// another platform ref exist, "windows" is preferred.
+func TestComputePlan_WindowsRefPreferred(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{"Win.App": true}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{ID: "multi", Refs: map[string]string{
+				"windows": "Win.App",
+				"linux":   "linux-app",
+			}},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	if len(plan.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(plan.Actions))
+	}
+	if plan.Actions[0].Ref != "Win.App" {
+		t.Errorf("expected ref=%q (windows preferred), got %q", "Win.App", plan.Actions[0].Ref)
+	}
+}

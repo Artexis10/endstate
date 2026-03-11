@@ -448,3 +448,137 @@ func TestWingetExport_NonZeroExitButFileWritten_StillParses(t *testing.T) {
 		t.Errorf("expected 3 apps, got %d", len(apps))
 	}
 }
+
+// ---------------------------------------------------------------------------
+// IsRuntimePackage edge cases (mirrors Pester Capture.Filters.RuntimePackages)
+// ---------------------------------------------------------------------------
+
+func TestIsRuntimePackage_EmptyString(t *testing.T) {
+	if IsRuntimePackage("") {
+		t.Error("expected false for empty string")
+	}
+}
+
+func TestIsRuntimePackage_RegularMicrosoftApps(t *testing.T) {
+	// These are Microsoft apps but NOT runtimes.
+	nonRuntime := []string{
+		"Microsoft.VisualStudioCode",
+		"Microsoft.PowerShell",
+		"Microsoft.WindowsTerminal",
+	}
+	for _, id := range nonRuntime {
+		if IsRuntimePackage(id) {
+			t.Errorf("IsRuntimePackage(%q) = true, want false", id)
+		}
+	}
+}
+
+func TestIsRuntimePackage_AllRuntimeFamilies(t *testing.T) {
+	runtimes := []struct {
+		id   string
+		desc string
+	}{
+		{"Microsoft.VCRedist.2015+.x64", "VCRedist"},
+		{"Microsoft.VCRedist.2019.x86", "VCRedist variant"},
+		{"Microsoft.VCLibs.140.00", "VCLibs"},
+		{"Microsoft.VCLibs.Desktop", "VCLibs Desktop"},
+		{"Microsoft.UI.Xaml.2.7", "UI Xaml 2.7"},
+		{"Microsoft.UI.Xaml.2.8", "UI Xaml 2.8"},
+		{"Microsoft.DotNet.DesktopRuntime.6", "DotNet DesktopRuntime"},
+		{"Microsoft.DotNet.SDK.8", "DotNet SDK"},
+		{"Microsoft.WindowsAppRuntime.1.4", "WindowsAppRuntime"},
+		{"Microsoft.DirectX.Runtime", "DirectX Runtime"},
+	}
+	for _, tt := range runtimes {
+		if !IsRuntimePackage(tt.id) {
+			t.Errorf("IsRuntimePackage(%q) [%s] = false, want true", tt.id, tt.desc)
+		}
+	}
+}
+
+func TestIsRuntimePackage_NonMicrosoftApps(t *testing.T) {
+	nonRuntime := []string{"Git.Git", "Mozilla.Firefox"}
+	for _, id := range nonRuntime {
+		if IsRuntimePackage(id) {
+			t.Errorf("IsRuntimePackage(%q) = true, want false", id)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// IsStoreID edge cases (mirrors Pester Capture.Filters.StoreApps)
+// ---------------------------------------------------------------------------
+
+func TestIsStoreID_9NPattern(t *testing.T) {
+	if !IsStoreID("9NBLGGH4NNS1") {
+		t.Error("expected true for 9N* store ID pattern")
+	}
+}
+
+func TestIsStoreID_XPPattern(t *testing.T) {
+	if !IsStoreID("XPDC2RH70K22MN") {
+		t.Error("expected true for XP* store ID pattern")
+	}
+}
+
+func TestIsStoreID_RegularWingetID(t *testing.T) {
+	regular := []string{"Git.Git", "Microsoft.VisualStudioCode", "Mozilla.Firefox"}
+	for _, id := range regular {
+		if IsStoreID(id) {
+			t.Errorf("IsStoreID(%q) = true, want false", id)
+		}
+	}
+}
+
+func TestIsStoreID_EmptyString(t *testing.T) {
+	if IsStoreID("") {
+		t.Error("expected false for empty string")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Carriage return spinner cleanup (mirrors winget output edge cases)
+// ---------------------------------------------------------------------------
+
+func TestParseWingetList_CRSpinnerCleanup(t *testing.T) {
+	// Winget writes progress spinners using \r. The parser must take text
+	// after the last \r on each line.
+	outputWithCR := "Some spinner\rName                             Id                                Version        Source\n" +
+		"---------------------------------------------------------------------------------------------------------\n" +
+		"Spinner\rGit                              Git.Git                           2.43.0         winget\n"
+
+	cleanup := withFakeExec([]byte(outputWithCR), nil)
+	defer cleanup()
+
+	apps, err := TakeSnapshot()
+	if err != nil {
+		t.Fatalf("TakeSnapshot returned unexpected error: %v", err)
+	}
+
+	if len(apps) != 1 {
+		t.Fatalf("expected 1 app after CR cleanup, got %d", len(apps))
+	}
+	if apps[0].ID != "Git.Git" {
+		t.Errorf("expected ID=%q, got %q", "Git.Git", apps[0].ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Display name map edge case: empty output
+// ---------------------------------------------------------------------------
+
+func TestGetDisplayNameMap_EmptyOutput_ReturnsEmptyMap(t *testing.T) {
+	cleanup := withFakeExec([]byte(""), nil)
+	defer cleanup()
+
+	nameMap, err := GetDisplayNameMap()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if nameMap == nil {
+		t.Error("expected non-nil map for empty output")
+	}
+	if len(nameMap) != 0 {
+		t.Errorf("expected empty map, got %d entries", len(nameMap))
+	}
+}

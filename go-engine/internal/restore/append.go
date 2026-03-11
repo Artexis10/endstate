@@ -50,15 +50,33 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 		targetContent = string(targetData)
 	}
 
-	// Compute the appended content.
+	// Compute the appended content using line-level deduplication.
+	// Only lines from source that are not already present in target are appended.
+	// This matches PowerShell Invoke-AppendRestore behavior (idempotent).
+	sourceLines := splitNonEmpty(sourceContent)
+
 	var mergedContent string
 	if targetExists {
-		// Ensure the existing content ends with a newline before appending.
-		base := targetContent
-		if len(base) > 0 && !strings.HasSuffix(base, "\n") {
-			base += "\n"
+		targetLines := splitNonEmpty(targetContent)
+		present := make(map[string]bool, len(targetLines))
+		for _, l := range targetLines {
+			present[l] = true
 		}
-		mergedContent = base + sourceContent
+		var missing []string
+		for _, l := range sourceLines {
+			if !present[l] {
+				missing = append(missing, l)
+			}
+		}
+		if len(missing) == 0 {
+			mergedContent = targetContent
+		} else {
+			base := targetContent
+			if len(base) > 0 && !strings.HasSuffix(base, "\n") {
+				base += "\n"
+			}
+			mergedContent = base + strings.Join(missing, "\n") + "\n"
+		}
 	} else {
 		mergedContent = sourceContent
 	}
@@ -120,4 +138,16 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 
 	result.Status = "restored"
 	return result, nil
+}
+
+// splitNonEmpty splits s on newlines and returns non-empty lines.
+func splitNonEmpty(s string) []string {
+	raw := strings.Split(s, "\n")
+	out := make([]string, 0, len(raw))
+	for _, l := range raw {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }

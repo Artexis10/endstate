@@ -404,3 +404,456 @@ func TestExpandConfigModules_EmptyConfigModules(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// pathExists matcher edge cases
+// (mirrors Pester PathExistsMatcher.Tests.ps1)
+// ---------------------------------------------------------------------------
+
+func TestMatchModulesForApps_PathExists_NonExistentPath_NoMatch(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.testapp": {
+			ID:          "apps.testapp",
+			DisplayName: "Test App",
+			Matches: MatchCriteria{
+				PathExists: []string{`C:\nonexistent\path\fake.exe`},
+			},
+			Capture: &CaptureDef{
+				Files: []CaptureFile{{Source: "s", Dest: "d"}},
+			},
+		},
+	}
+
+	apps := []manifest.App{{ID: "dummy", Refs: map[string]string{"windows": "Unrelated.App"}}}
+	matched := MatchModulesForApps(catalog, apps)
+	if len(matched) != 0 {
+		t.Errorf("expected 0 matches for non-existent pathExists, got %d", len(matched))
+	}
+}
+
+func TestMatchModulesForApps_PathExists_EmptyArray_NoMatch(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.testapp": {
+			ID:          "apps.testapp",
+			DisplayName: "Test App",
+			Matches: MatchCriteria{
+				Winget:     []string{},
+				PathExists: []string{},
+			},
+			Capture: &CaptureDef{
+				Files: []CaptureFile{{Source: "s", Dest: "d"}},
+			},
+		},
+	}
+
+	apps := []manifest.App{{ID: "dummy", Refs: map[string]string{"windows": "Unrelated.App"}}}
+	matched := MatchModulesForApps(catalog, apps)
+	if len(matched) != 0 {
+		t.Errorf("expected 0 matches for empty pathExists array, got %d", len(matched))
+	}
+}
+
+func TestMatchModulesForApps_PathExists_SecondPathMatches(t *testing.T) {
+	// Mirrors Pester: "Should match on second path when first does not exist"
+	dir := t.TempDir()
+	existingFile := filepath.Join(dir, "config.xml")
+	if err := os.WriteFile(existingFile, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := map[string]*Module{
+		"apps.testapp": {
+			ID:          "apps.testapp",
+			DisplayName: "Test App",
+			Matches: MatchCriteria{
+				PathExists: []string{`C:\nonexistent\fake.exe`, existingFile},
+			},
+			Capture: &CaptureDef{
+				Files: []CaptureFile{{Source: "s", Dest: "d"}},
+			},
+		},
+	}
+
+	apps := []manifest.App{{ID: "dummy", Refs: map[string]string{"windows": "Unrelated.App"}}}
+	matched := MatchModulesForApps(catalog, apps)
+	if len(matched) != 1 {
+		t.Fatalf("expected 1 match via second pathExists entry, got %d", len(matched))
+	}
+	if matched[0].ID != "apps.testapp" {
+		t.Errorf("matched[0].ID = %q, want %q", matched[0].ID, "apps.testapp")
+	}
+}
+
+func TestMatchModulesForApps_PathExists_WithEnvVar(t *testing.T) {
+	// Mirrors Pester: "Should expand environment variables in pathExists paths"
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "envtest.cfg")
+	if err := os.WriteFile(testFile, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("ENDSTATE_PATH_MATCHER_TEST", dir)
+
+	// Use %ENDSTATE_PATH_MATCHER_TEST% which should be expanded.
+	envVarPath := `%ENDSTATE_PATH_MATCHER_TEST%\envtest.cfg`
+
+	catalog := map[string]*Module{
+		"apps.envtest": {
+			ID:          "apps.envtest",
+			DisplayName: "Env Test",
+			Matches: MatchCriteria{
+				PathExists: []string{envVarPath},
+			},
+			Capture: &CaptureDef{
+				Files: []CaptureFile{{Source: "s", Dest: "d"}},
+			},
+		},
+	}
+
+	apps := []manifest.App{{ID: "dummy", Refs: map[string]string{"windows": "Unrelated.App"}}}
+	matched := MatchModulesForApps(catalog, apps)
+	if len(matched) != 1 {
+		t.Fatalf("expected 1 match via pathExists with env var, got %d", len(matched))
+	}
+	if matched[0].ID != "apps.envtest" {
+		t.Errorf("matched[0].ID = %q, want %q", matched[0].ID, "apps.envtest")
+	}
+}
+
+func TestMatchModulesForApps_BothWingetAndPathExistsMatch(t *testing.T) {
+	// When both winget and pathExists match, the module should still only appear once.
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "app.exe")
+	if err := os.WriteFile(testFile, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := map[string]*Module{
+		"apps.testapp": {
+			ID:          "apps.testapp",
+			DisplayName: "Test App",
+			Matches: MatchCriteria{
+				Winget:     []string{"Test.App"},
+				PathExists: []string{testFile},
+			},
+			Capture: &CaptureDef{
+				Files: []CaptureFile{{Source: "s", Dest: "d"}},
+			},
+		},
+	}
+
+	apps := []manifest.App{{ID: "test-app", Refs: map[string]string{"windows": "Test.App"}}}
+	matched := MatchModulesForApps(catalog, apps)
+	if len(matched) != 1 {
+		t.Fatalf("expected 1 match (not duplicated), got %d", len(matched))
+	}
+}
+
+func TestMatchModulesForApps_DeterministicSorting(t *testing.T) {
+	// Mirrors Pester Discovery.DeterministicSorting: results sorted by module ID.
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "exists.txt")
+	if err := os.WriteFile(testFile, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := map[string]*Module{
+		"apps.zebra": {
+			ID:          "apps.zebra",
+			DisplayName: "Zebra",
+			Matches:     MatchCriteria{Winget: []string{"Zebra.App"}},
+			Capture:     &CaptureDef{Files: []CaptureFile{{Source: "s", Dest: "d"}}},
+		},
+		"apps.alpha": {
+			ID:          "apps.alpha",
+			DisplayName: "Alpha",
+			Matches:     MatchCriteria{Winget: []string{"Alpha.App"}},
+			Capture:     &CaptureDef{Files: []CaptureFile{{Source: "s", Dest: "d"}}},
+		},
+		"apps.mango": {
+			ID:          "apps.mango",
+			DisplayName: "Mango",
+			Matches:     MatchCriteria{Winget: []string{"Mango.App"}},
+			Capture:     &CaptureDef{Files: []CaptureFile{{Source: "s", Dest: "d"}}},
+		},
+	}
+
+	apps := []manifest.App{
+		{ID: "a", Refs: map[string]string{"windows": "Zebra.App"}},
+		{ID: "b", Refs: map[string]string{"windows": "Alpha.App"}},
+		{ID: "c", Refs: map[string]string{"windows": "Mango.App"}},
+	}
+
+	matched := MatchModulesForApps(catalog, apps)
+	if len(matched) != 3 {
+		t.Fatalf("expected 3 matches, got %d", len(matched))
+	}
+
+	// Must be sorted alphabetically by ID.
+	if matched[0].ID != "apps.alpha" {
+		t.Errorf("expected first match to be apps.alpha, got %q", matched[0].ID)
+	}
+	if matched[1].ID != "apps.mango" {
+		t.Errorf("expected second match to be apps.mango, got %q", matched[1].ID)
+	}
+	if matched[2].ID != "apps.zebra" {
+		t.Errorf("expected third match to be apps.zebra, got %q", matched[2].ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// validateModule tests
+// (mirrors Pester Test-ConfigModuleSchema pathExists validation)
+// ---------------------------------------------------------------------------
+
+func TestValidateModule_PathExistsOnly_IsValid(t *testing.T) {
+	mod := &Module{
+		ID:          "apps.test",
+		DisplayName: "Test",
+		Matches: MatchCriteria{
+			PathExists: []string{`C:\some\path.exe`},
+		},
+	}
+	err := validateModule(mod, "test.jsonc")
+	if err != nil {
+		t.Errorf("expected valid module with pathExists only, got error: %v", err)
+	}
+}
+
+func TestValidateModule_NoMatchers_IsInvalid(t *testing.T) {
+	mod := &Module{
+		ID:          "apps.test",
+		DisplayName: "Test",
+		Matches:     MatchCriteria{},
+	}
+	err := validateModule(mod, "test.jsonc")
+	if err == nil {
+		t.Error("expected error for module with no matchers, got nil")
+	}
+}
+
+func TestValidateModule_MissingID_IsInvalid(t *testing.T) {
+	mod := &Module{
+		DisplayName: "Test",
+		Matches:     MatchCriteria{Winget: []string{"X.Y"}},
+	}
+	err := validateModule(mod, "test.jsonc")
+	if err == nil {
+		t.Error("expected error for module with missing ID, got nil")
+	}
+}
+
+func TestValidateModule_MissingDisplayName_IsInvalid(t *testing.T) {
+	mod := &Module{
+		ID:      "apps.test",
+		Matches: MatchCriteria{Winget: []string{"X.Y"}},
+	}
+	err := validateModule(mod, "test.jsonc")
+	if err == nil {
+		t.Error("expected error for module with missing displayName, got nil")
+	}
+}
+
+func TestValidateModule_MultipleMatcherTypes_IsValid(t *testing.T) {
+	mod := &Module{
+		ID:          "apps.test",
+		DisplayName: "Test",
+		Matches: MatchCriteria{
+			Winget:     []string{"Test.App"},
+			PathExists: []string{`C:\some\path.exe`},
+		},
+	}
+	err := validateModule(mod, "test.jsonc")
+	if err != nil {
+		t.Errorf("expected valid module with multiple matcher types, got error: %v", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ExpandConfigModules — module with empty restore entries
+// (mirrors Pester Module.Loading: "Should return empty array for module with no restore entries")
+// ---------------------------------------------------------------------------
+
+func TestExpandConfigModules_ModuleWithNoRestoreEntries(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.no-restore": {
+			ID:          "apps.no-restore",
+			DisplayName: "No Restore",
+			Restore:     []RestoreDef{},
+			Verify:      []VerifyDef{},
+		},
+	}
+
+	m := &manifest.Manifest{
+		ConfigModules: []string{"apps.no-restore"},
+	}
+
+	err := ExpandConfigModules(m, catalog)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(m.Restore) != 0 {
+		t.Errorf("expected 0 restore entries for module with no restore, got %d", len(m.Restore))
+	}
+	if len(m.Verify) != 0 {
+		t.Errorf("expected 0 verify entries for module with no verify, got %d", len(m.Verify))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ExpandConfigModules — multiple modules expanded in order
+// (mirrors Pester Module.RestoreExecution: expand powertoys + msi-afterburner)
+// ---------------------------------------------------------------------------
+
+func TestExpandConfigModules_MultipleModules_InjectsAll(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.mod-a": {
+			ID:          "apps.mod-a",
+			DisplayName: "Module A",
+			Restore: []RestoreDef{
+				{Type: "copy", Source: "a/s1", Target: "a/t1"},
+			},
+			Verify: []VerifyDef{
+				{Type: "file-exists", Path: "/a"},
+			},
+		},
+		"apps.mod-b": {
+			ID:          "apps.mod-b",
+			DisplayName: "Module B",
+			Restore: []RestoreDef{
+				{Type: "copy", Source: "b/s1", Target: "b/t1"},
+				{Type: "copy", Source: "b/s2", Target: "b/t2"},
+			},
+			Verify: []VerifyDef{},
+		},
+	}
+
+	m := &manifest.Manifest{
+		ConfigModules: []string{"apps.mod-a", "apps.mod-b"},
+	}
+
+	err := ExpandConfigModules(m, catalog)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// 1 from mod-a + 2 from mod-b = 3 restore entries.
+	if len(m.Restore) != 3 {
+		t.Errorf("expected 3 restore entries, got %d", len(m.Restore))
+	}
+	// 1 from mod-a + 0 from mod-b = 1 verify entry.
+	if len(m.Verify) != 1 {
+		t.Errorf("expected 1 verify entry, got %d", len(m.Verify))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ExpandConfigModules — exclude patterns propagated
+// (mirrors Pester Restore.ExcludePatterns)
+// ---------------------------------------------------------------------------
+
+func TestExpandConfigModules_PropagatesExcludePatterns(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.test-exclude": {
+			ID:          "apps.test-exclude",
+			DisplayName: "Exclude Test",
+			Restore: []RestoreDef{
+				{
+					Type:    "copy",
+					Source:  "./payload/apps/test",
+					Target:  "%LOCALAPPDATA%\\Test",
+					Exclude: []string{`**\Logs\**`, `**\Cache\**`},
+				},
+			},
+		},
+	}
+
+	m := &manifest.Manifest{
+		ConfigModules: []string{"apps.test-exclude"},
+	}
+
+	err := ExpandConfigModules(m, catalog)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(m.Restore) != 1 {
+		t.Fatalf("expected 1 restore entry, got %d", len(m.Restore))
+	}
+
+	if len(m.Restore[0].Exclude) != 2 {
+		t.Errorf("expected 2 exclude patterns, got %d", len(m.Restore[0].Exclude))
+	}
+	if m.Restore[0].Exclude[0] != `**\Logs\**` {
+		t.Errorf("expected first exclude pattern to be **\\Logs\\**, got %q", m.Restore[0].Exclude[0])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LoadCatalog — JSONC comments stripped
+// ---------------------------------------------------------------------------
+
+func TestLoadCatalog_JSONCCommentsStripped(t *testing.T) {
+	dir := t.TempDir()
+	modDir := filepath.Join(dir, "commented-module")
+	if err := os.MkdirAll(modDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// JSONC with single-line comments.
+	content := `{
+  // This is a comment
+  "id": "apps.commented",
+  "displayName": "Commented Module",
+  "matches": {
+    "winget": ["Test.Commented"]
+  }
+}`
+	if err := os.WriteFile(filepath.Join(modDir, "module.jsonc"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := LoadCatalog(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if _, ok := catalog["apps.commented"]; !ok {
+		t.Error("expected catalog to contain 'apps.commented' after stripping comments")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LoadCatalog — module sets FilePath and ModuleDir
+// ---------------------------------------------------------------------------
+
+func TestLoadCatalog_SetsFilePathAndModuleDir(t *testing.T) {
+	dir := t.TempDir()
+	modDir := filepath.Join(dir, "meta-test")
+	if err := os.MkdirAll(modDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	content := `{"id":"apps.meta","displayName":"Meta","matches":{"winget":["X.Y"]}}`
+	moduleFile := filepath.Join(modDir, "module.jsonc")
+	if err := os.WriteFile(moduleFile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := LoadCatalog(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	mod := catalog["apps.meta"]
+	if mod == nil {
+		t.Fatal("expected module apps.meta in catalog")
+	}
+	if mod.FilePath != moduleFile {
+		t.Errorf("FilePath = %q, want %q", mod.FilePath, moduleFile)
+	}
+	if mod.ModuleDir != modDir {
+		t.Errorf("ModuleDir = %q, want %q", mod.ModuleDir, modDir)
+	}
+}

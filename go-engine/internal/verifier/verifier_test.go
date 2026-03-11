@@ -201,3 +201,185 @@ func TestCheckRegistryKeyExists_PlatformBehavior(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Registry verifier — HKLM keys (Windows-only)
+// ---------------------------------------------------------------------------
+
+func TestCheckRegistryKeyExists_HKLM_KnownKey(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("registry tests only run on Windows")
+	}
+
+	// HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion always exists.
+	entry := manifest.VerifyEntry{
+		Type: "registry-key-exists",
+		Path: "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion",
+	}
+	result := CheckRegistryKeyExists(entry)
+
+	if !result.Pass {
+		t.Errorf("expected pass=true for HKLM known key, got false: %s", result.Message)
+	}
+}
+
+func TestCheckRegistryKeyExists_NonExistentKey(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("registry tests only run on Windows")
+	}
+
+	entry := manifest.VerifyEntry{
+		Type: "registry-key-exists",
+		Path: "HKLM\\SOFTWARE\\NonExistentKey12345",
+	}
+	result := CheckRegistryKeyExists(entry)
+
+	if result.Pass {
+		t.Error("expected pass=false for non-existent registry key, got true")
+	}
+}
+
+func TestCheckRegistryKeyExists_SpecificValue(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("registry tests only run on Windows")
+	}
+
+	// ProgramFilesDir always exists under HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion.
+	entry := manifest.VerifyEntry{
+		Type:      "registry-key-exists",
+		Path:      "HKLM\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion",
+		ValueName: "ProgramFilesDir",
+	}
+	result := CheckRegistryKeyExists(entry)
+
+	if !result.Pass {
+		t.Errorf("expected pass=true for ProgramFilesDir value, got false: %s", result.Message)
+	}
+	if result.ValueName != "ProgramFilesDir" {
+		t.Errorf("expected valueName=ProgramFilesDir, got %q", result.ValueName)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Result structure contract tests (mirrors Pester Verifier.ResultStructure)
+// ---------------------------------------------------------------------------
+
+func TestVerifyResult_ContainsRequiredFields_FileExists(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), "result-structure.txt")
+	if err := os.WriteFile(tmpFile, []byte("data"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := manifest.VerifyEntry{Type: "file-exists", Path: tmpFile}
+	result := CheckFileExists(entry)
+
+	// Must have Type, Pass (bool), and Message (non-empty string).
+	if result.Type != "file-exists" {
+		t.Errorf("expected type=file-exists, got %q", result.Type)
+	}
+	if result.Message == "" {
+		t.Error("expected non-empty message")
+	}
+	// Path must be populated for file-exists.
+	if result.Path == "" {
+		t.Error("expected Path to be set for file-exists result")
+	}
+}
+
+func TestVerifyResult_ContainsRequiredFields_CommandExists(t *testing.T) {
+	entry := manifest.VerifyEntry{Type: "command-exists", Command: "go"}
+	result := CheckCommandExists(entry)
+
+	if result.Type != "command-exists" {
+		t.Errorf("expected type=command-exists, got %q", result.Type)
+	}
+	if result.Message == "" {
+		t.Error("expected non-empty message")
+	}
+	// Command must be populated for command-exists.
+	if result.Command == "" {
+		t.Error("expected Command to be set for command-exists result")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Determinism tests (mirrors Pester Verifier.Determinism)
+// ---------------------------------------------------------------------------
+
+func TestVerifyDeterminism_FileExists(t *testing.T) {
+	tmpFile := filepath.Join(t.TempDir(), "determ.txt")
+	if err := os.WriteFile(tmpFile, []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := manifest.VerifyEntry{Type: "file-exists", Path: tmpFile}
+	r1 := CheckFileExists(entry)
+	r2 := CheckFileExists(entry)
+
+	if r1.Pass != r2.Pass {
+		t.Errorf("repeated file-exists calls produced different results: %v vs %v", r1.Pass, r2.Pass)
+	}
+}
+
+func TestVerifyDeterminism_CommandExists(t *testing.T) {
+	entry := manifest.VerifyEntry{Type: "command-exists", Command: "go"}
+	r1 := CheckCommandExists(entry)
+	r2 := CheckCommandExists(entry)
+
+	if r1.Pass != r2.Pass {
+		t.Errorf("repeated command-exists calls produced different results: %v vs %v", r1.Pass, r2.Pass)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// File-exists verifier — missing file message contains "not found"
+// ---------------------------------------------------------------------------
+
+func TestCheckFileExists_MissingFile_MessageContainsNotFound(t *testing.T) {
+	entry := manifest.VerifyEntry{
+		Type: "file-exists",
+		Path: filepath.Join(t.TempDir(), "nonexistent-file-xyz.txt"),
+	}
+	result := CheckFileExists(entry)
+
+	if result.Pass {
+		t.Error("expected pass=false for missing file")
+	}
+	if result.Message == "" {
+		t.Error("expected non-empty message for missing file")
+	}
+	// Pester asserts message matches "does not exist" — Go uses "not found".
+	if !contains(result.Message, "not found") && !contains(result.Message, "does not exist") {
+		t.Errorf("expected message to mention not found, got %q", result.Message)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Command-exists verifier — message for not-found command
+// ---------------------------------------------------------------------------
+
+func TestCheckCommandExists_NotFound_MessageContainsNotFound(t *testing.T) {
+	entry := manifest.VerifyEntry{Type: "command-exists", Command: "nonexistent-command-xyz-12345"}
+	result := CheckCommandExists(entry)
+
+	if result.Pass {
+		t.Error("expected pass=false for nonexistent command")
+	}
+	if !contains(result.Message, "not found") {
+		t.Errorf("expected message to contain 'not found', got %q", result.Message)
+	}
+}
+
+// contains is a small helper to check substring presence.
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsSubstring(s, substr))
+}
+
+func containsSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

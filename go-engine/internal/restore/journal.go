@@ -4,6 +4,7 @@
 package restore
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -94,6 +95,9 @@ func ReadJournal(path string) (*Journal, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read journal: %w", err)
 	}
+
+	// Strip UTF-8 BOM if present (PowerShell 5.1 adds this)
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 
 	var journal Journal
 	if err := json.Unmarshal(data, &journal); err != nil {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -992,5 +993,571 @@ func TestRunCapture_ModuleDirName(t *testing.T) {
 		if got != tt.expected {
 			t.Errorf("moduleDirName(%q) = %q, want %q", tt.input, got, tt.expected)
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// INV-CONTINUITY-1: counts.included must equal len(appsIncluded)
+// (mirrors Pester INV-CONTINUITY-1)
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_ContinuityInvariant_CountsEqualsAppsIncluded(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-continuity.jsonc")
+
+	var result *CaptureResult
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				r, err := RunCapture(CaptureFlags{Out: outPath})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+				result = r.(*CaptureResult)
+			})
+		})
+	})
+
+	if result.Counts.Included != len(result.AppsIncluded) {
+		t.Errorf("INV-CONTINUITY-1 violated: counts.included=%d but len(appsIncluded)=%d",
+			result.Counts.Included, len(result.AppsIncluded))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Update merge: existing + new deduped by windows ref
+// (mirrors Pester Merge-ManifestsForUpdate)
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_Update_DeduplicatesByWindowsRef(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-dedup.jsonc")
+
+	// Existing manifest has Git and VSCode.
+	existingManifest := `{
+  "version": 1,
+  "name": "existing",
+  "apps": [
+    {"id": "git-git", "refs": {"windows": "Git.Git"}},
+    {"id": "microsoft-visualstudiocode", "refs": {"windows": "Microsoft.VisualStudioCode"}}
+  ]
+}`
+	existingPath := filepath.Join(tmpDir, "existing.jsonc")
+	if err := os.WriteFile(existingPath, []byte(existingManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Snapshot returns Git, VSCode, and Chrome. Git and VSCode are dupes.
+	var result *CaptureResult
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				r, err := RunCapture(CaptureFlags{
+					Out:      outPath,
+					Manifest: existingPath,
+					Update:   true,
+				})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+				result = r.(*CaptureResult)
+			})
+		})
+	})
+
+	// 2 existing + 1 new (Chrome) = 3 total. No duplicates.
+	if result.Counts.Included != 3 {
+		t.Errorf("expected 3 included after dedup, got %d", result.Counts.Included)
+	}
+}
+
+func TestRunCapture_Update_PreservesExistingApps(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-update-preserve.jsonc")
+
+	// Existing manifest has an app NOT in the current snapshot.
+	existingManifest := `{
+  "version": 1,
+  "name": "existing",
+  "apps": [
+    {"id": "removed-app", "refs": {"windows": "Removed.App"}}
+  ]
+}`
+	existingPath := filepath.Join(tmpDir, "existing.jsonc")
+	if err := os.WriteFile(existingPath, []byte(existingManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var result *CaptureResult
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				r, err := RunCapture(CaptureFlags{
+					Out:      outPath,
+					Manifest: existingPath,
+					Update:   true,
+				})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+				result = r.(*CaptureResult)
+			})
+		})
+	})
+
+	// 1 existing (Removed.App) + 3 new = 4 total (merge without prune keeps existing).
+	if result.Counts.Included != 4 {
+		t.Errorf("expected 4 included (existing preserved without prune), got %d", result.Counts.Included)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// App sorting: output sorted by id (mirrors Pester Capture.DeterministicOutput)
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_AppsSortedByID(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-sorted.jsonc")
+
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				_, err := RunCapture(CaptureFlags{Out: outPath})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+			})
+		})
+	})
+
+	data, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatalf("failed to read output: %v", readErr)
+	}
+
+	var mf struct {
+		Apps []struct {
+			ID string `json:"id"`
+		} `json:"apps"`
+	}
+	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v", jsonErr)
+	}
+
+	for i := 1; i < len(mf.Apps); i++ {
+		if mf.Apps[i-1].ID > mf.Apps[i].ID {
+			t.Errorf("apps not sorted by id: %q > %q", mf.Apps[i-1].ID, mf.Apps[i].ID)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// buildAppsIncluded: display name from map and fallback
+// (mirrors Pester Capture.ArtifactContract display name tests)
+// ---------------------------------------------------------------------------
+
+func TestBuildAppsIncluded_IncludesDisplayNameFromMap(t *testing.T) {
+	apps := []capturedApp{
+		{ID: "git-git", Refs: map[string]string{"windows": "Git.Git"}, Name: ""},
+	}
+	nameMap := map[string]string{"Git.Git": "Git"}
+
+	result := buildAppsIncluded(apps, nameMap)
+	if len(result) != 1 {
+		t.Fatalf("expected 1 app, got %d", len(result))
+	}
+	if result[0].Name != "Git" {
+		t.Errorf("expected name=%q from display map, got %q", "Git", result[0].Name)
+	}
+	if result[0].ID != "Git.Git" {
+		t.Errorf("expected id=%q, got %q", "Git.Git", result[0].ID)
+	}
+	if result[0].Source != "winget" {
+		t.Errorf("expected source=winget, got %q", result[0].Source)
+	}
+}
+
+func TestBuildAppsIncluded_FallbackToSnapshotName(t *testing.T) {
+	apps := []capturedApp{
+		{ID: "git-git", Refs: map[string]string{"windows": "Git.Git"}, Name: "Git from snapshot"},
+	}
+	// Display name map does NOT contain Git.Git.
+	nameMap := map[string]string{}
+
+	result := buildAppsIncluded(apps, nameMap)
+	if result[0].Name != "Git from snapshot" {
+		t.Errorf("expected fallback to snapshot name %q, got %q", "Git from snapshot", result[0].Name)
+	}
+}
+
+func TestBuildAppsIncluded_OmitsNameWhenBothEmpty(t *testing.T) {
+	apps := []capturedApp{
+		{ID: "git-git", Refs: map[string]string{"windows": "Git.Git"}, Name: ""},
+	}
+	nameMap := map[string]string{}
+
+	result := buildAppsIncluded(apps, nameMap)
+	if result[0].Name != "" {
+		t.Errorf("expected empty name when both sources empty, got %q", result[0].Name)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// buildConfigModuleMap tests
+// (mirrors Pester Build-ConfigModuleMap)
+// ---------------------------------------------------------------------------
+
+func TestBuildConfigModuleMap_SingleWingetRef(t *testing.T) {
+	mods := []*modules.Module{
+		{
+			ID:          "apps.git",
+			DisplayName: "Git",
+			Matches:     modules.MatchCriteria{Winget: []string{"Git.Git"}},
+		},
+	}
+	m := buildConfigModuleMap(mods)
+	if m["Git.Git"] != "apps.git" {
+		t.Errorf("expected map[Git.Git]=apps.git, got %q", m["Git.Git"])
+	}
+	if len(m) != 1 {
+		t.Errorf("expected 1 entry, got %d", len(m))
+	}
+}
+
+func TestBuildConfigModuleMap_MultipleWingetRefs(t *testing.T) {
+	mods := []*modules.Module{
+		{
+			ID:          "apps.vscode",
+			DisplayName: "VS Code",
+			Matches: modules.MatchCriteria{
+				Winget: []string{"Microsoft.VisualStudioCode", "Microsoft.VisualStudioCode.Insiders"},
+			},
+		},
+	}
+	m := buildConfigModuleMap(mods)
+	if m["Microsoft.VisualStudioCode"] != "apps.vscode" {
+		t.Errorf("expected map entry for VSCode, got %q", m["Microsoft.VisualStudioCode"])
+	}
+	if m["Microsoft.VisualStudioCode.Insiders"] != "apps.vscode" {
+		t.Errorf("expected map entry for VSCode.Insiders, got %q", m["Microsoft.VisualStudioCode.Insiders"])
+	}
+	if len(m) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(m))
+	}
+}
+
+func TestBuildConfigModuleMap_NoWingetRefs_UsesModuleID(t *testing.T) {
+	mods := []*modules.Module{
+		{
+			ID:          "apps.nowinget",
+			DisplayName: "No Winget",
+			Matches:     modules.MatchCriteria{Exe: []string{"nowinget.exe"}},
+		},
+	}
+	m := buildConfigModuleMap(mods)
+	if m["apps.nowinget"] != "apps.nowinget" {
+		t.Errorf("expected map[apps.nowinget]=apps.nowinget, got %q", m["apps.nowinget"])
+	}
+	if len(m) != 1 {
+		t.Errorf("expected 1 entry, got %d", len(m))
+	}
+}
+
+func TestBuildConfigModuleMap_MixedWingetAndNonWinget(t *testing.T) {
+	mods := []*modules.Module{
+		{
+			ID:      "apps.git",
+			Matches: modules.MatchCriteria{Winget: []string{"Git.Git"}},
+		},
+		{
+			ID:      "apps.nowinget",
+			Matches: modules.MatchCriteria{Exe: []string{"nowinget.exe"}},
+		},
+	}
+	m := buildConfigModuleMap(mods)
+	if m["Git.Git"] != "apps.git" {
+		t.Errorf("expected Git.Git mapping")
+	}
+	if m["apps.nowinget"] != "apps.nowinget" {
+		t.Errorf("expected apps.nowinget mapping")
+	}
+	if len(m) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(m))
+	}
+}
+
+func TestBuildConfigModuleMap_DuplicateWingetRef_LastWins(t *testing.T) {
+	// When two modules share the same winget ref, last module in slice wins.
+	mods := []*modules.Module{
+		{
+			ID:      "apps.first",
+			Matches: modules.MatchCriteria{Winget: []string{"Shared.PackageId"}},
+		},
+		{
+			ID:      "apps.second",
+			Matches: modules.MatchCriteria{Winget: []string{"Shared.PackageId"}},
+		},
+	}
+	m := buildConfigModuleMap(mods)
+	if m["Shared.PackageId"] != "apps.second" {
+		t.Errorf("expected last module to win, got %q", m["Shared.PackageId"])
+	}
+	if len(m) != 1 {
+		t.Errorf("expected 1 entry (deduped), got %d", len(m))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Update merge: apps sorted alphabetically by id in output
+// (mirrors Pester Merge-ManifestsForUpdate — "Should sort apps by id")
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_Update_MergedAppsSortedByID(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-update-sorted.jsonc")
+
+	existingManifest := `{
+  "version": 1,
+  "name": "test",
+  "apps": [
+    {"id": "zebra-app", "refs": {"windows": "Zebra.App"}}
+  ]
+}`
+	existingPath := filepath.Join(tmpDir, "existing.jsonc")
+	if err := os.WriteFile(existingPath, []byte(existingManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	appsWithAlpha := []snapshot.SnapshotApp{
+		{Name: "Alpha App", ID: "Alpha.App", Version: "1.0", Source: "winget"},
+		{Name: "Beta App", ID: "Beta.App", Version: "1.0", Source: "winget"},
+	}
+
+	withMockSnapshot(appsWithAlpha, nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				_, err := RunCapture(CaptureFlags{
+					Out:      outPath,
+					Manifest: existingPath,
+					Update:   true,
+				})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+			})
+		})
+	})
+
+	data, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatalf("failed to read output: %v", readErr)
+	}
+
+	var mf struct {
+		Apps []struct {
+			ID string `json:"id"`
+		} `json:"apps"`
+	}
+	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v", jsonErr)
+	}
+
+	if len(mf.Apps) != 3 {
+		t.Fatalf("expected 3 apps, got %d", len(mf.Apps))
+	}
+
+	// Verify sorted order.
+	for i := 1; i < len(mf.Apps); i++ {
+		if mf.Apps[i-1].ID > mf.Apps[i].ID {
+			t.Errorf("apps not sorted by id: %q > %q", mf.Apps[i-1].ID, mf.Apps[i].ID)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Update mode: non-existent manifest behaves like normal capture
+// (mirrors Pester "Should behave like normal capture when manifest doesn't exist")
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_Update_NonExistentManifest_CreatesNew(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-new-update.jsonc")
+	nonExistentPath := filepath.Join(tmpDir, "nonexistent.jsonc")
+
+	// When --update is set but manifest doesn't exist, should return error.
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				_, err := RunCapture(CaptureFlags{
+					Out:      outPath,
+					Manifest: nonExistentPath,
+					Update:   true,
+				})
+				// The Go implementation returns MANIFEST_NOT_FOUND for non-existent manifest.
+				if err == nil {
+					t.Fatal("expected error for non-existent manifest in update mode, got nil")
+				}
+			})
+		})
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Deterministic output: same input produces same app order
+// (mirrors Pester Deterministic output)
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_DeterministicOutput_SameInputSameOrder(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Run capture twice with the same apps.
+	var ids1, ids2 []string
+	for run, outSlice := range map[int]*[]string{0: &ids1, 1: &ids2} {
+		outPath := filepath.Join(tmpDir, "run"+string(rune('0'+run))+".jsonc")
+		withMockSnapshot(sampleApps(), nil, func() {
+			noopDisplayNames(func() {
+				emptyCatalog(func() {
+					_, err := RunCapture(CaptureFlags{Out: outPath})
+					if err != nil {
+						t.Fatalf("RunCapture run %d returned unexpected error: %+v", run, err)
+					}
+				})
+			})
+		})
+
+		data, readErr := os.ReadFile(outPath)
+		if readErr != nil {
+			t.Fatalf("failed to read output: %v", readErr)
+		}
+
+		var mf struct {
+			Apps []struct {
+				ID string `json:"id"`
+			} `json:"apps"`
+		}
+		if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
+			t.Fatalf("output is not valid JSON: %v", jsonErr)
+		}
+
+		for _, app := range mf.Apps {
+			*outSlice = append(*outSlice, app.ID)
+		}
+	}
+
+	if len(ids1) != len(ids2) {
+		t.Fatalf("expected same number of apps: %d vs %d", len(ids1), len(ids2))
+	}
+	for i := range ids1 {
+		if ids1[i] != ids2[i] {
+			t.Errorf("app order differs at index %d: %q vs %q", i, ids1[i], ids2[i])
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Manifest structure: captured timestamp is RFC3339
+// (mirrors Pester "Should update captured timestamp")
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_CapturedTimestamp_IsRFC3339(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-timestamp.jsonc")
+
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				_, err := RunCapture(CaptureFlags{Out: outPath, Name: "ts-test"})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+			})
+		})
+	})
+
+	data, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatalf("failed to read output: %v", readErr)
+	}
+
+	var mf map[string]interface{}
+	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v", jsonErr)
+	}
+
+	captured, ok := mf["captured"].(string)
+	if !ok || captured == "" {
+		t.Fatal("expected captured timestamp string")
+	}
+
+	// Must contain "T" separator (RFC3339 format).
+	if !strings.Contains(captured, "T") {
+		t.Errorf("expected RFC3339 timestamp, got %q", captured)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveOutputPath tests
+// ---------------------------------------------------------------------------
+
+func TestResolveOutputPath_DefaultTimestampBased(t *testing.T) {
+	path := resolveOutputPath(CaptureFlags{})
+	if !strings.HasPrefix(path, "captured-") {
+		t.Errorf("expected default path to start with 'captured-', got %q", path)
+	}
+	if !strings.HasSuffix(path, ".jsonc") {
+		t.Errorf("expected default path to end with '.jsonc', got %q", path)
+	}
+}
+
+func TestResolveOutputPath_OutFlagTakesPrecedence(t *testing.T) {
+	path := resolveOutputPath(CaptureFlags{Out: "/custom/output.jsonc"})
+	if path != "/custom/output.jsonc" {
+		t.Errorf("expected /custom/output.jsonc, got %q", path)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// INV-MANIFEST-NEVER-EMPTY: output always has version, name, apps
+// (mirrors Pester INV-MANIFEST-NEVER-EMPTY)
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_ManifestNeverEmptyObject(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-never-empty.jsonc")
+
+	withMockSnapshot([]snapshot.SnapshotApp{}, nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				_, err := RunCapture(CaptureFlags{Out: outPath})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+			})
+		})
+	})
+
+	data, readErr := os.ReadFile(outPath)
+	if readErr != nil {
+		t.Fatalf("failed to read output: %v", readErr)
+	}
+
+	var mf map[string]interface{}
+	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
+		t.Fatalf("output is not valid JSON: %v", jsonErr)
+	}
+
+	// Must not be empty object {}.
+	if len(mf) == 0 {
+		t.Fatal("INV-MANIFEST-NEVER-EMPTY violated: output is empty object {}")
+	}
+
+	// Must contain version field.
+	if _, ok := mf["version"]; !ok {
+		t.Error("expected manifest to contain 'version' field")
+	}
+
+	// Must contain apps array.
+	if _, ok := mf["apps"]; !ok {
+		t.Error("expected manifest to contain 'apps' field")
 	}
 }

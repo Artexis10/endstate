@@ -1,0 +1,39 @@
+{
+  // Fixture manifest with three apps — used for action ordering and mixed
+  // install/skip classification tests.
+  "version": 1,
+  "name": "three-app-manifest",
+  "apps": [
+    {
+      "id": "test-app-1",
+      "refs": {
+        "windows": "Test.App1"
+      }
+    },
+    {
+      "id": "test-app-2",
+      "refs": {
+        "windows": "Test.App2"
+      }
+    },
+    {
+      "id": "test-app-3",
+      "refs": {
+        "windows": "Test.App3"
+      }
+    }
+  ],
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./config.conf",
+      "target": "~/.config.conf"
+    }
+  ],
+  "verify": [
+    {
+      "type": "file-exists",
+      "path": "~/.config.conf"
+    }
+  ]
+}

@@ -545,6 +545,27 @@ func TestJournal_WriteReadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestReadJournal_BOMPrefixed(t *testing.T) {
+	tmp := t.TempDir()
+
+	// UTF-8 BOM (0xEF 0xBB 0xBF) followed by valid JSON — this is what
+	// PowerShell 5.1 produces when writing JSON with Out-File / Set-Content.
+	bom := []byte{0xEF, 0xBB, 0xBF}
+	jsonBody := []byte(`{"runId":"bom-test","timestamp":"2026-01-01T00:00:00Z","manifestPath":"/m.jsonc","manifestDir":"/m","entries":[]}`)
+	data := append(bom, jsonBody...)
+
+	journalPath := filepath.Join(tmp, "restore-journal-bom-test.json")
+	os.WriteFile(journalPath, data, 0644)
+
+	journal, err := ReadJournal(journalPath)
+	if err != nil {
+		t.Fatalf("ReadJournal should handle BOM-prefixed JSON, got error: %v", err)
+	}
+	if journal.RunID != "bom-test" {
+		t.Errorf("expected runId=bom-test, got %q", journal.RunID)
+	}
+}
+
 func TestFindLatestJournal_MultipleFiles(t *testing.T) {
 	tmp := t.TempDir()
 	logsDir := filepath.Join(tmp, "logs")
@@ -987,5 +1008,1536 @@ func TestResolveSource_FallbackToManifestDir(t *testing.T) {
 	// Should fallback to manifest dir.
 	if !strings.Contains(resolved, "manifest") {
 		t.Errorf("expected path in manifest dir, got %q", resolved)
+	}
+}
+
+// ===========================================================================
+// Additional tests ported from Pester reference suite
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// Copy: source not found (non-optional) should fail with error
+// Pester: Restore.SourceNotFound
+// ---------------------------------------------------------------------------
+
+func TestRestoreCopy_SourceNotFound(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "nonexistent-source.txt")
+	tgtFile := filepath.Join(tmp, "target.txt")
+
+	entry := RestoreAction{
+		Type:   "copy",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreCopy(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "failed" {
+		t.Errorf("expected status=failed, got %q", result.Status)
+	}
+	if !strings.Contains(strings.ToLower(result.Error), "source not found") {
+		t.Errorf("expected error about source not found, got %q", result.Error)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Copy: creates target directory if it doesn't exist
+// Pester: Restore.CopyFile "Should create target directory"
+// ---------------------------------------------------------------------------
+
+func TestRestoreCopy_CreatesTargetDirectory(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.txt")
+	tgtFile := filepath.Join(tmp, "subdir", "nested", "target.txt")
+
+	os.WriteFile(srcFile, []byte("nested content"), 0644)
+
+	entry := RestoreAction{
+		Type:   "copy",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreCopy(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored, got %q", result.Status)
+	}
+	if _, err := os.Stat(tgtFile); err != nil {
+		t.Error("target file should exist in nested directory")
+	}
+	data, _ := os.ReadFile(tgtFile)
+	if string(data) != "nested content" {
+		t.Errorf("target content mismatch: %q", string(data))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Copy: multiple exclude patterns
+// Pester: Restore.Exclude.DirectoryCopy "multiple excluded patterns"
+// ---------------------------------------------------------------------------
+
+func TestRestoreCopy_MultipleExcludePatterns(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcDir := filepath.Join(tmp, "source")
+	os.MkdirAll(filepath.Join(srcDir, "Logs"), 0755)
+	os.MkdirAll(filepath.Join(srcDir, "Temp"), 0755)
+	os.MkdirAll(filepath.Join(srcDir, "Cache"), 0755)
+	os.MkdirAll(filepath.Join(srcDir, "configs"), 0755)
+
+	os.WriteFile(filepath.Join(srcDir, "Logs", "app.log"), []byte("log"), 0644)
+	os.WriteFile(filepath.Join(srcDir, "Temp", "temp.dat"), []byte("temp"), 0644)
+	os.WriteFile(filepath.Join(srcDir, "Cache", "data.cache"), []byte("cache"), 0644)
+	os.WriteFile(filepath.Join(srcDir, "configs", "app.json"), []byte("config"), 0644)
+
+	tgtDir := filepath.Join(tmp, "target")
+
+	entry := RestoreAction{
+		Type:    "copy",
+		Source:  srcDir,
+		Target:  tgtDir,
+		Exclude: []string{"**/Logs/**", "**/Temp/**", "**/Cache/**"},
+	}
+
+	result, err := RestoreCopy(entry, srcDir, tgtDir, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored, got %q", result.Status)
+	}
+
+	// Only configs should exist.
+	if _, err := os.Stat(filepath.Join(tgtDir, "configs", "app.json")); err != nil {
+		t.Error("configs/app.json should have been copied")
+	}
+	if _, err := os.Stat(filepath.Join(tgtDir, "Logs")); !os.IsNotExist(err) {
+		t.Error("Logs directory should have been excluded")
+	}
+	if _, err := os.Stat(filepath.Join(tgtDir, "Temp")); !os.IsNotExist(err) {
+		t.Error("Temp directory should have been excluded")
+	}
+	if _, err := os.Stat(filepath.Join(tgtDir, "Cache")); !os.IsNotExist(err) {
+		t.Error("Cache directory should have been excluded")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Exclude: forward-slash patterns, nested matching
+// Pester: Restore.Exclude.PatternMatching
+// ---------------------------------------------------------------------------
+
+func TestIsPathExcluded_ForwardSlashPatterns(t *testing.T) {
+	tests := []struct {
+		name     string
+		relPath  string
+		patterns []string
+		want     bool
+	}{
+		{"forward-slash pattern matches", "Logs/app.log", []string{"**/Logs/**"}, true},
+		{"nested Logs folder", "subfolder/Logs/debug.log", []string{"**/Logs/**"}, true},
+		{"multiple patterns - Logs match", "Logs/file.log", []string{"**/Logs/**", "**/Temp/**"}, true},
+		{"multiple patterns - Temp match", "Temp/cache.tmp", []string{"**/Logs/**", "**/Temp/**"}, true},
+		{"multiple patterns - no match", "config.json", []string{"**/Logs/**", "**/Temp/**"}, false},
+		{"backslash path with forward-slash pattern", "Logs\\app.log", []string{"**/Logs/**"}, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isPathExcluded(tt.relPath, tt.patterns)
+			if got != tt.want {
+				t.Errorf("isPathExcluded(%q, %v) = %v, want %v", tt.relPath, tt.patterns, got, tt.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// GenerateID tests
+// Pester: Restore.ActionId
+// ---------------------------------------------------------------------------
+
+func TestGenerateID_UsesProvidedID(t *testing.T) {
+	action := RestoreAction{
+		ID:     "my-custom-id",
+		Type:   "copy",
+		Source: "./source",
+		Target: "~/target",
+	}
+	id := generateID(action)
+	if id != "my-custom-id" {
+		t.Errorf("expected my-custom-id, got %q", id)
+	}
+}
+
+func TestGenerateID_DeterministicFromSourceAndTarget(t *testing.T) {
+	action := RestoreAction{
+		Type:   "copy",
+		Source: "./configs/test.conf",
+		Target: "~/.test.conf",
+	}
+	id := generateID(action)
+	expected := "copy:./configs/test.conf->~/.test.conf"
+	if id != expected {
+		t.Errorf("expected %q, got %q", expected, id)
+	}
+}
+
+func TestGenerateID_DefaultTypeToCopy(t *testing.T) {
+	action := RestoreAction{
+		Source: "./source",
+		Target: "~/target",
+	}
+	id := generateID(action)
+	if !strings.HasPrefix(id, "copy:") {
+		t.Errorf("expected id to start with 'copy:', got %q", id)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// IsUpToDate: target doesn't exist returns false
+// Pester: Restore.UpToDateDetection "Should return false when target doesn't exist"
+// ---------------------------------------------------------------------------
+
+func TestIsUpToDate_TargetDoesNotExist(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "exists.txt")
+	tgtFile := filepath.Join(tmp, "nonexistent.txt")
+	os.WriteFile(srcFile, []byte("content"), 0644)
+
+	result, err := IsUpToDate(srcFile, tgtFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result {
+		t.Error("expected false when target doesn't exist")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-JSON: creates target when missing
+// Pester: JSON Merge "Creates target if missing"
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeJson_CreatesTargetWhenMissing(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.json")
+	tgtFile := filepath.Join(tmp, "target.json")
+
+	os.WriteFile(srcFile, []byte(`{"key":"value"}`), 0644)
+
+	entry := RestoreAction{
+		Type:   "merge-json",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreMergeJson(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored, got %q", result.Status)
+	}
+
+	if _, err := os.Stat(tgtFile); err != nil {
+		t.Error("target file should have been created")
+	}
+
+	data, _ := os.ReadFile(tgtFile)
+	var parsed map[string]interface{}
+	json.Unmarshal(data, &parsed)
+	if parsed["key"] != "value" {
+		t.Errorf("expected key=value, got %v", parsed["key"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-JSON: adds new keys from source
+// Pester: JSON Merge "Should add new keys from source"
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeJson_AddNewKeys(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.json")
+	tgtFile := filepath.Join(tmp, "target.json")
+
+	os.WriteFile(srcFile, []byte(`{"newKey":"newValue"}`), 0644)
+	os.WriteFile(tgtFile, []byte(`{"existingKey":"existingValue"}`), 0644)
+
+	entry := RestoreAction{
+		Type:   "merge-json",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreMergeJson(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored, got %q", result.Status)
+	}
+
+	data, _ := os.ReadFile(tgtFile)
+	var parsed map[string]interface{}
+	json.Unmarshal(data, &parsed)
+	if parsed["existingKey"] != "existingValue" {
+		t.Errorf("expected existingKey=existingValue, got %v", parsed["existingKey"])
+	}
+	if parsed["newKey"] != "newValue" {
+		t.Errorf("expected newKey=newValue, got %v", parsed["newKey"])
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-JSON: sorted keys for deterministic output
+// Pester: JSON Merge "Sorted keys for deterministic output"
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeJson_SortedKeysOutput(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.json")
+	tgtFile := filepath.Join(tmp, "target.json")
+
+	os.WriteFile(srcFile, []byte(`{"zebra":1,"apple":2}`), 0644)
+
+	entry := RestoreAction{
+		Type:   "merge-json",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreMergeJson(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored, got %q", result.Status)
+	}
+
+	data, _ := os.ReadFile(tgtFile)
+	content := string(data)
+
+	appleIndex := strings.Index(content, `"apple"`)
+	zebraIndex := strings.Index(content, `"zebra"`)
+
+	if appleIndex < 0 || zebraIndex < 0 {
+		t.Fatalf("expected both keys in output, got %q", content)
+	}
+	if appleIndex >= zebraIndex {
+		t.Errorf("expected apple before zebra in sorted output, got apple@%d zebra@%d", appleIndex, zebraIndex)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-JSON: DryRun does not modify files
+// Pester: JSON Merge "DryRun mode"
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeJson_DryRunDoesNotModify(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.json")
+	tgtFile := filepath.Join(tmp, "target.json")
+
+	os.WriteFile(srcFile, []byte(`{"new":"value"}`), 0644)
+	os.WriteFile(tgtFile, []byte(`{"old":"value"}`), 0644)
+
+	originalContent, _ := os.ReadFile(tgtFile)
+
+	entry := RestoreAction{
+		Type:   "merge-json",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreMergeJson(entry, srcFile, tgtFile, RestoreOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored for dry-run, got %q", result.Status)
+	}
+
+	afterContent, _ := os.ReadFile(tgtFile)
+	if string(afterContent) != string(originalContent) {
+		t.Error("target file should not be modified in dry-run mode")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-JSON: up-to-date detection after merge
+// Pester: JSON Merge "Array union...should produce same result on re-run"
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeJson_UpToDateOnRerun(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.json")
+	tgtFile := filepath.Join(tmp, "target.json")
+
+	os.WriteFile(srcFile, []byte(`{"key":"value"}`), 0644)
+
+	entry := RestoreAction{
+		Type:   "merge-json",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	// First run: should restore.
+	result1, err := RestoreMergeJson(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result1.Status != "restored" {
+		t.Errorf("expected status=restored on first run, got %q", result1.Status)
+	}
+
+	// Second run: should skip as up-to-date.
+	result2, err := RestoreMergeJson(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result2.Status != "skipped_up_to_date" {
+		t.Errorf("expected status=skipped_up_to_date on second run, got %q", result2.Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-INI: creates target when missing
+// Pester: INI Merge "Creates target if missing"
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeIni_CreatesTargetWhenMissing(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.ini")
+	tgtFile := filepath.Join(tmp, "target.ini")
+
+	os.WriteFile(srcFile, []byte("[Config]\nsetting=value\n"), 0644)
+
+	entry := RestoreAction{
+		Type:   "merge-ini",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreMergeIni(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored, got %q", result.Status)
+	}
+
+	if _, err := os.Stat(tgtFile); err != nil {
+		t.Error("target file should have been created")
+	}
+
+	data, _ := os.ReadFile(tgtFile)
+	content := string(data)
+	if !strings.Contains(content, "[Config]") {
+		t.Error("expected [Config] section in output")
+	}
+	if !strings.Contains(content, "setting=value") {
+		t.Error("expected setting=value in output")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-INI: preserve sections not in source
+// Pester: INI Merge "preserve keys not in source" with [OtherSection]
+// ---------------------------------------------------------------------------
+
+func TestMergeIni_PreserveSectionsNotInSource(t *testing.T) {
+	target := ParseIni("[Settings]\nexistingSetting=value\n[OtherSection]\notherKey=otherValue\n")
+	source := ParseIni("[Settings]\nnewSetting=true\n")
+
+	merged := MergeIni(target, source)
+	result := FormatIni(merged)
+
+	if !strings.Contains(result, "existingSetting=value") {
+		t.Error("expected existingSetting=value preserved")
+	}
+	if !strings.Contains(result, "newSetting=true") {
+		t.Error("expected newSetting=true added")
+	}
+	if !strings.Contains(result, "[OtherSection]") {
+		t.Error("expected [OtherSection] preserved")
+	}
+	if !strings.Contains(result, "otherKey=otherValue") {
+		t.Error("expected otherKey=otherValue preserved")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-INI: DryRun does not modify files
+// Pester: INI Merge "DryRun mode"
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeIni_DryRunDoesNotModify(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.ini")
+	tgtFile := filepath.Join(tmp, "target.ini")
+
+	os.WriteFile(srcFile, []byte("[New]\nnew=value\n"), 0644)
+	os.WriteFile(tgtFile, []byte("[Old]\nold=value\n"), 0644)
+
+	originalContent, _ := os.ReadFile(tgtFile)
+
+	entry := RestoreAction{
+		Type:   "merge-ini",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreMergeIni(entry, srcFile, tgtFile, RestoreOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored for dry-run, got %q", result.Status)
+	}
+
+	afterContent, _ := os.ReadFile(tgtFile)
+	if string(afterContent) != string(originalContent) {
+		t.Error("target file should not be modified in dry-run mode")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Append: idempotent rerun skips
+// Pester: Append Lines "Rerun is idempotent"
+// ---------------------------------------------------------------------------
+
+func TestRestoreAppend_IdempotentWhenAlreadyAppended(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.txt")
+	tgtFile := filepath.Join(tmp, "target.txt")
+
+	os.WriteFile(srcFile, []byte("new-line\n"), 0644)
+	// Pre-populate target with existing + already-appended content.
+	// The target already looks like what append would produce.
+	os.WriteFile(tgtFile, []byte("existing-line\nnew-line\n"), 0644)
+
+	entry := RestoreAction{
+		Type:   "append",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	// Since target already contains base + source, merged == target.
+	result, err := RestoreAppend(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "skipped_up_to_date" {
+		t.Errorf("expected status=skipped_up_to_date when already appended, got %q", result.Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Append: DryRun does not modify files
+// Pester: Append Lines "DryRun mode"
+// ---------------------------------------------------------------------------
+
+func TestRestoreAppend_DryRunDoesNotModify(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.txt")
+	tgtFile := filepath.Join(tmp, "target.txt")
+
+	os.WriteFile(srcFile, []byte("new line\n"), 0644)
+	os.WriteFile(tgtFile, []byte("existing line\n"), 0644)
+
+	originalContent, _ := os.ReadFile(tgtFile)
+
+	entry := RestoreAction{
+		Type:   "append",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	result, err := RestoreAppend(entry, srcFile, tgtFile, RestoreOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored for dry-run, got %q", result.Status)
+	}
+
+	afterContent, _ := os.ReadFile(tgtFile)
+	if string(afterContent) != string(originalContent) {
+		t.Error("target file should not be modified in dry-run mode")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Journal: FindLatestJournal with no files returns error
+// ---------------------------------------------------------------------------
+
+func TestFindLatestJournal_NoFiles(t *testing.T) {
+	tmp := t.TempDir()
+	logsDir := filepath.Join(tmp, "empty-logs")
+	os.MkdirAll(logsDir, 0755)
+
+	_, err := FindLatestJournal(logsDir)
+	if err == nil {
+		t.Error("expected error when no journal files exist")
+	}
+	if !strings.Contains(err.Error(), "no restore journals found") {
+		t.Errorf("expected 'no restore journals found' error, got %q", err.Error())
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Journal: round-trip preserves all fields
+// Pester: Restore.Journaling "journal content"
+// ---------------------------------------------------------------------------
+
+func TestJournal_WriteReadPreservesFields(t *testing.T) {
+	tmp := t.TempDir()
+	logsDir := filepath.Join(tmp, "logs")
+
+	results := []RestoreResult{
+		{
+			ID:                  "entry-1",
+			Source:              "/src/config.json",
+			Target:              "/tgt/config.json",
+			Status:              "restored",
+			BackupPath:          "/backup/config.json",
+			BackupCreated:       true,
+			TargetExistedBefore: true,
+		},
+	}
+
+	err := WriteJournal(logsDir, "run-fields", "/m.jsonc", "/mdir", "/export", results)
+	if err != nil {
+		t.Fatalf("WriteJournal failed: %v", err)
+	}
+
+	journalPath, _ := FindLatestJournal(logsDir)
+	journal, err := ReadJournal(journalPath)
+	if err != nil {
+		t.Fatalf("ReadJournal failed: %v", err)
+	}
+
+	if journal.RunID != "run-fields" {
+		t.Errorf("expected runId=run-fields, got %q", journal.RunID)
+	}
+	if journal.ManifestPath != "/m.jsonc" {
+		t.Errorf("expected manifestPath=/m.jsonc, got %q", journal.ManifestPath)
+	}
+	if journal.ManifestDir != "/mdir" {
+		t.Errorf("expected manifestDir=/mdir, got %q", journal.ManifestDir)
+	}
+	if journal.ExportRoot != "/export" {
+		t.Errorf("expected exportRoot=/export, got %q", journal.ExportRoot)
+	}
+	if len(journal.Entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(journal.Entries))
+	}
+
+	entry := journal.Entries[0]
+	if entry.ResolvedSourcePath != "/src/config.json" {
+		t.Errorf("expected source=/src/config.json, got %q", entry.ResolvedSourcePath)
+	}
+	if entry.TargetPath != "/tgt/config.json" {
+		t.Errorf("expected target=/tgt/config.json, got %q", entry.TargetPath)
+	}
+	if !entry.TargetExistedBefore {
+		t.Error("expected targetExistedBefore=true")
+	}
+	if !entry.BackupCreated {
+		t.Error("expected backupCreated=true")
+	}
+	if entry.BackupPath != "/backup/config.json" {
+		t.Errorf("expected backupPath=/backup/config.json, got %q", entry.BackupPath)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sensitive path: .aws detection
+// Pester: Restore.SensitivePath ".aws"
+// ---------------------------------------------------------------------------
+
+func TestCheckSensitivePath_DetectsAWS(t *testing.T) {
+	warnings := CheckSensitivePath("~/.aws/credentials")
+	if len(warnings) == 0 {
+		t.Error("expected warnings for .aws path")
+	}
+
+	foundAWS := false
+	for _, w := range warnings {
+		if strings.Contains(w, ".aws") {
+			foundAWS = true
+		}
+	}
+	if !foundAWS {
+		t.Error("expected warning about .aws segment")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Sensitive path: normal path not flagged (e.g., .gitconfig)
+// Pester: Restore.SensitivePath "Should NOT flag normal paths"
+// ---------------------------------------------------------------------------
+
+func TestCheckSensitivePath_NormalPathNotFlagged(t *testing.T) {
+	warnings := CheckSensitivePath("~/.gitconfig")
+	if len(warnings) != 0 {
+		t.Errorf("expected no warnings for ~/.gitconfig, got %v", warnings)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunRestore: warnings for sensitive target path
+// Pester: Restore.SensitivePath "Should add warnings for sensitive paths"
+// ---------------------------------------------------------------------------
+
+func TestRunRestore_WarningsForSensitiveTarget(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.txt")
+	// Target path contains .ssh segment.
+	tgtFile := filepath.Join(tmp, ".ssh", "config")
+
+	os.WriteFile(srcFile, []byte("config content"), 0644)
+
+	entries := []RestoreAction{
+		{
+			Type:   "copy",
+			Source: srcFile,
+			Target: tgtFile,
+			ID:     "sensitive-test",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if len(results[0].Warnings) == 0 {
+		t.Error("expected warnings for sensitive target path")
+	}
+
+	foundSensitive := false
+	for _, w := range results[0].Warnings {
+		if strings.Contains(strings.ToLower(w), "sensitive") || strings.Contains(w, ".ssh") {
+			foundSensitive = true
+		}
+	}
+	if !foundSensitive {
+		t.Errorf("expected warning about sensitive path, got %v", results[0].Warnings)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunRestore: strategy dispatch covers all types
+// Pester: Restore dispatches copy, merge-json, merge-ini, append
+// ---------------------------------------------------------------------------
+
+func TestRunRestore_DispatchAllStrategies(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create sources for each strategy.
+	srcCopy := filepath.Join(tmp, "src-copy.txt")
+	tgtCopy := filepath.Join(tmp, "tgt-copy.txt")
+	os.WriteFile(srcCopy, []byte("copy-content"), 0644)
+
+	srcJSON := filepath.Join(tmp, "src-merge.json")
+	tgtJSON := filepath.Join(tmp, "tgt-merge.json")
+	os.WriteFile(srcJSON, []byte(`{"merged":"true"}`), 0644)
+	os.WriteFile(tgtJSON, []byte(`{"existing":"true"}`), 0644)
+
+	srcINI := filepath.Join(tmp, "src-merge.ini")
+	tgtINI := filepath.Join(tmp, "tgt-merge.ini")
+	os.WriteFile(srcINI, []byte("[s]\nk=v\n"), 0644)
+	os.WriteFile(tgtINI, []byte("[s]\nold=val\n"), 0644)
+
+	srcAppend := filepath.Join(tmp, "src-append.txt")
+	tgtAppend := filepath.Join(tmp, "tgt-append.txt")
+	os.WriteFile(srcAppend, []byte("appended\n"), 0644)
+
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcCopy, Target: tgtCopy, ID: "copy-1"},
+		{Type: "merge-json", Source: srcJSON, Target: tgtJSON, ID: "json-1"},
+		{Type: "merge-ini", Source: srcINI, Target: tgtINI, ID: "ini-1"},
+		{Type: "append", Source: srcAppend, Target: tgtAppend, ID: "append-1"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 4 {
+		t.Fatalf("expected 4 results, got %d", len(results))
+	}
+
+	for i, r := range results {
+		if r.Status != "restored" {
+			t.Errorf("entry[%d] (%s): expected status=restored, got %q", i, entries[i].Type, r.Status)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunRestore: non-optional missing source should fail (not skip)
+// Pester: Restore.SourceNotFound via RunRestore
+// ---------------------------------------------------------------------------
+
+func TestRunRestore_NonOptionalMissingSourceFails(t *testing.T) {
+	tmp := t.TempDir()
+
+	entries := []RestoreAction{
+		{
+			Type:   "copy",
+			Source: filepath.Join(tmp, "nonexistent.txt"),
+			Target: filepath.Join(tmp, "target.txt"),
+			ID:     "fail-test",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Status != "failed" {
+		t.Errorf("expected status=failed for non-optional missing source, got %q", results[0].Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-JSON: backup when target exists
+// Pester: JSON Merge "Backup when target exists"
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeJson_BackupWhenTargetExists(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.json")
+	tgtFile := filepath.Join(tmp, "target.json")
+	backupDir := filepath.Join(tmp, "backups")
+
+	os.WriteFile(srcFile, []byte(`{"new":"data"}`), 0644)
+	os.WriteFile(tgtFile, []byte(`{"old":"data"}`), 0644)
+
+	entry := RestoreAction{
+		Type:   "merge-json",
+		Source: srcFile,
+		Target: tgtFile,
+		Backup: true,
+	}
+
+	result, err := RestoreMergeJson(entry, srcFile, tgtFile, RestoreOptions{
+		BackupDir: backupDir,
+		RunID:     "backup-test",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored, got %q", result.Status)
+	}
+	if !result.BackupCreated {
+		t.Error("expected BackupCreated=true")
+	}
+	if result.BackupPath == "" {
+		t.Error("expected BackupPath to be set")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Append: backup when target exists
+// Pester: Append Lines "Backup when target exists"
+// ---------------------------------------------------------------------------
+
+func TestRestoreAppend_BackupWhenTargetExists(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.txt")
+	tgtFile := filepath.Join(tmp, "target.txt")
+	backupDir := filepath.Join(tmp, "backups")
+
+	os.WriteFile(srcFile, []byte("new line\n"), 0644)
+	os.WriteFile(tgtFile, []byte("existing line\n"), 0644)
+
+	entry := RestoreAction{
+		Type:   "append",
+		Source: srcFile,
+		Target: tgtFile,
+		Backup: true,
+	}
+
+	result, err := RestoreAppend(entry, srcFile, tgtFile, RestoreOptions{
+		BackupDir: backupDir,
+		RunID:     "append-backup-test",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Status != "restored" {
+		t.Errorf("expected status=restored, got %q", result.Status)
+	}
+	if !result.BackupCreated {
+		t.Error("expected BackupCreated=true")
+	}
+	if result.BackupPath == "" {
+		t.Error("expected BackupPath to be set")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Merge-INI: up-to-date detection on rerun
+// ---------------------------------------------------------------------------
+
+func TestRestoreMergeIni_UpToDateOnRerun(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.ini")
+	tgtFile := filepath.Join(tmp, "target.ini")
+
+	os.WriteFile(srcFile, []byte("[Config]\nk=v\n"), 0644)
+
+	entry := RestoreAction{
+		Type:   "merge-ini",
+		Source: srcFile,
+		Target: tgtFile,
+	}
+
+	// First run: restore.
+	result1, err := RestoreMergeIni(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result1.Status != "restored" {
+		t.Errorf("expected status=restored on first run, got %q", result1.Status)
+	}
+
+	// Second run: up-to-date.
+	result2, err := RestoreMergeIni(entry, srcFile, tgtFile, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result2.Status != "skipped_up_to_date" {
+		t.Errorf("expected status=skipped_up_to_date on second run, got %q", result2.Status)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Revert: end-to-end restore then revert (delete created target)
+// Pester: Revert.JournalBased "delete newly created target"
+// ---------------------------------------------------------------------------
+
+func TestRevertEndToEnd_DeleteCreatedTarget(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source.txt")
+	tgtFile := filepath.Join(tmp, "new-target.txt")
+	os.WriteFile(srcFile, []byte("test-content"), 0644)
+
+	// Run restore to create the target.
+	entries := []RestoreAction{
+		{
+			Type:   "copy",
+			Source: srcFile,
+			Target: tgtFile,
+			ID:     "revert-e2e",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("RunRestore failed: %v", err)
+	}
+
+	// Verify target was created.
+	if _, err := os.Stat(tgtFile); err != nil {
+		t.Fatal("target should have been created by restore")
+	}
+
+	// Build journal from results.
+	journal := &Journal{
+		RunID: "revert-e2e-run",
+		Entries: []JournalEntry{
+			{
+				TargetPath:          results[0].Target,
+				TargetExistedBefore: results[0].TargetExistedBefore,
+				Action:              results[0].Status,
+			},
+		},
+	}
+
+	// Run revert.
+	revertResults, err := RunRevert(journal, "")
+	if err != nil {
+		t.Fatalf("RunRevert failed: %v", err)
+	}
+
+	if len(revertResults) != 1 {
+		t.Fatalf("expected 1 revert result, got %d", len(revertResults))
+	}
+	if revertResults[0].Action != "deleted" {
+		t.Errorf("expected action=deleted, got %q", revertResults[0].Action)
+	}
+
+	// Verify target was removed.
+	if _, err := os.Stat(tgtFile); !os.IsNotExist(err) {
+		t.Error("target should have been deleted by revert")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// DryRun: merge-json, merge-ini, append via RunRestore
+// Pester: DryRun scenarios for each strategy
+// ---------------------------------------------------------------------------
+
+func TestRunRestore_DryRunMergeJson(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "src.json")
+	tgtFile := filepath.Join(tmp, "tgt.json")
+	os.WriteFile(srcFile, []byte(`{"new":"val"}`), 0644)
+	os.WriteFile(tgtFile, []byte(`{"old":"val"}`), 0644)
+
+	original, _ := os.ReadFile(tgtFile)
+
+	entries := []RestoreAction{
+		{Type: "merge-json", Source: srcFile, Target: tgtFile, ID: "dry-json"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if results[0].Status != "restored" {
+		t.Errorf("expected status=restored for dry-run merge-json, got %q", results[0].Status)
+	}
+
+	after, _ := os.ReadFile(tgtFile)
+	if string(after) != string(original) {
+		t.Error("target should not be modified in dry-run mode")
+	}
+}
+
+func TestRunRestore_DryRunMergeIni(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "src.ini")
+	tgtFile := filepath.Join(tmp, "tgt.ini")
+	os.WriteFile(srcFile, []byte("[New]\nnew=val\n"), 0644)
+	os.WriteFile(tgtFile, []byte("[Old]\nold=val\n"), 0644)
+
+	original, _ := os.ReadFile(tgtFile)
+
+	entries := []RestoreAction{
+		{Type: "merge-ini", Source: srcFile, Target: tgtFile, ID: "dry-ini"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if results[0].Status != "restored" {
+		t.Errorf("expected status=restored for dry-run merge-ini, got %q", results[0].Status)
+	}
+
+	after, _ := os.ReadFile(tgtFile)
+	if string(after) != string(original) {
+		t.Error("target should not be modified in dry-run mode")
+	}
+}
+
+func TestRunRestore_DryRunAppend(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "src.txt")
+	tgtFile := filepath.Join(tmp, "tgt.txt")
+	os.WriteFile(srcFile, []byte("new-line\n"), 0644)
+	os.WriteFile(tgtFile, []byte("existing-line\n"), 0644)
+
+	original, _ := os.ReadFile(tgtFile)
+
+	entries := []RestoreAction{
+		{Type: "append", Source: srcFile, Target: tgtFile, ID: "dry-append"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if results[0].Status != "restored" {
+		t.Errorf("expected status=restored for dry-run append, got %q", results[0].Status)
+	}
+
+	after, _ := os.ReadFile(tgtFile)
+	if string(after) != string(original) {
+		t.Error("target should not be modified in dry-run mode")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// expandPath tests
+// (mirrors Pester PathResolver.Tests.ps1 — env var expansion, tilde, relative paths)
+// ---------------------------------------------------------------------------
+
+func TestExpandPath_WindowsPercentVar(t *testing.T) {
+	// Set a test env var and verify %VAR% expansion works.
+	t.Setenv("ENDSTATE_EXPAND_TEST", "/expanded/dir")
+
+	result := expandPath("%ENDSTATE_EXPAND_TEST%/file.txt")
+	if strings.Contains(result, "%ENDSTATE_EXPAND_TEST%") {
+		t.Errorf("expected %%VAR%% to be expanded, got %q", result)
+	}
+	if !strings.Contains(result, "/expanded/dir") {
+		t.Errorf("expected expanded path to contain /expanded/dir, got %q", result)
+	}
+}
+
+func TestExpandPath_TildeExpansion(t *testing.T) {
+	// ~ should expand to the home directory.
+	result := expandPath("~/.config/app")
+	if strings.HasPrefix(result, "~") {
+		t.Errorf("expected ~ to be expanded, got %q", result)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home directory")
+	}
+	if !strings.Contains(result, homeDir) {
+		t.Errorf("expected expanded path to contain home dir %q, got %q", homeDir, result)
+	}
+}
+
+func TestExpandPath_GoStyleEnvVar(t *testing.T) {
+	// Go-style $VAR expansion via os.ExpandEnv.
+	t.Setenv("ENDSTATE_GO_VAR_TEST", "/go/expanded")
+
+	result := expandPath("$ENDSTATE_GO_VAR_TEST/config")
+	if strings.Contains(result, "$ENDSTATE_GO_VAR_TEST") {
+		t.Errorf("expected $VAR to be expanded, got %q", result)
+	}
+	if !strings.Contains(result, "/go/expanded") {
+		t.Errorf("expected expanded value, got %q", result)
+	}
+}
+
+func TestExpandPath_NoVars_PassThrough(t *testing.T) {
+	input := "/plain/absolute/path"
+	result := expandPath(input)
+	if result != input {
+		t.Errorf("expected passthrough %q, got %q", input, result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveTarget tests
+// (mirrors Pester PathResolver.Tests.ps1 — target resolution)
+// ---------------------------------------------------------------------------
+
+func TestResolveTarget_ExpandsEnvVars(t *testing.T) {
+	t.Setenv("ENDSTATE_TARGET_TEST", "/resolved/target")
+
+	result := resolveTarget("%ENDSTATE_TARGET_TEST%/config.json")
+	if strings.Contains(result, "%ENDSTATE_TARGET_TEST%") {
+		t.Errorf("expected env var to be expanded in target, got %q", result)
+	}
+}
+
+func TestResolveTarget_AbsolutePathUnchanged(t *testing.T) {
+	result := resolveTarget("/absolute/path/config.json")
+	if !filepath.IsAbs(result) {
+		t.Errorf("expected absolute path, got %q", result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveSource tests — env var expansion in source paths
+// (mirrors Pester PathResolver.Tests.ps1 — relative path resolution)
+// ---------------------------------------------------------------------------
+
+func TestResolveSource_RelativeToManifestDir(t *testing.T) {
+	tmp := t.TempDir()
+	srcFile := filepath.Join(tmp, "configs", "app.conf")
+	os.MkdirAll(filepath.Dir(srcFile), 0755)
+	os.WriteFile(srcFile, []byte("test"), 0644)
+
+	result := resolveSource("./configs/app.conf", RestoreOptions{ManifestDir: tmp})
+	expected := filepath.Clean(filepath.Join(tmp, "configs", "app.conf"))
+	if result != expected {
+		t.Errorf("expected %q, got %q", expected, result)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunRestore — env var expansion in target path (integration)
+// (mirrors Pester Restore.Execution: "Should expand environment variables in target path")
+// ---------------------------------------------------------------------------
+
+func TestRunRestore_ExpandsEnvVarInTarget(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create source file.
+	srcFile := filepath.Join(tmp, "source", "env.conf")
+	os.MkdirAll(filepath.Dir(srcFile), 0755)
+	os.WriteFile(srcFile, []byte("env test"), 0644)
+
+	// Set env var pointing to a target directory within tmp.
+	targetDir := filepath.Join(tmp, "target-env")
+	os.MkdirAll(targetDir, 0755)
+	t.Setenv("ENDSTATE_TARGET_ENV_TEST", targetDir)
+
+	entries := []RestoreAction{
+		{
+			Type:   "copy",
+			Source: srcFile,
+			Target: "%ENDSTATE_TARGET_ENV_TEST%/env.conf",
+			ID:     "env-target-test",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if results[0].Status != "restored" {
+		t.Errorf("expected status=restored, got %q (error: %s)", results[0].Status, results[0].Error)
+	}
+
+	// Verify the file was written to the expanded path.
+	expectedTarget := filepath.Join(targetDir, "env.conf")
+	if _, statErr := os.Stat(expectedTarget); os.IsNotExist(statErr) {
+		t.Errorf("expected file at expanded path %q to exist", expectedTarget)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunRestore — idempotency (second restore skips)
+// (mirrors Pester Restore.Execution Idempotency)
+// ---------------------------------------------------------------------------
+
+func TestRunRestore_IdempotentSecondRunSkips(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "source", "idem.conf")
+	tgtFile := filepath.Join(tmp, "target", "idem.conf")
+	os.MkdirAll(filepath.Dir(srcFile), 0755)
+	os.MkdirAll(filepath.Dir(tgtFile), 0755)
+	os.WriteFile(srcFile, []byte("idempotent content"), 0644)
+
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "idem-test"},
+	}
+
+	// First restore.
+	results1, err1 := RunRestore(entries, RestoreOptions{})
+	if err1 != nil {
+		t.Fatalf("first restore error: %v", err1)
+	}
+	if results1[0].Status != "restored" {
+		t.Errorf("first restore: expected status=restored, got %q", results1[0].Status)
+	}
+
+	// Second restore should skip (up to date).
+	results2, err2 := RunRestore(entries, RestoreOptions{})
+	if err2 != nil {
+		t.Fatalf("second restore error: %v", err2)
+	}
+	if results2[0].Status != "skipped_up_to_date" {
+		t.Errorf("second restore: expected status=skipped_up_to_date, got %q", results2[0].Status)
+	}
+}
+
+// ===========================================================================
+// Model B: ExportRoot source resolution via RunRestore (end-to-end)
+// Ported from Pester RestoreModelB.Tests.ps1
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// RunRestore with ExportRoot prefers export root over manifest dir
+// Pester: Restore.ModelB.ExportRoot - Should resolve source from export root
+// ---------------------------------------------------------------------------
+
+func TestRunRestore_ExportRootPrefersOverManifestDir(t *testing.T) {
+	tmp := t.TempDir()
+
+	exportDir := filepath.Join(tmp, "export", "configs")
+	manifestDir := filepath.Join(tmp, "manifest", "configs")
+	targetDir := filepath.Join(tmp, "target")
+	os.MkdirAll(exportDir, 0755)
+	os.MkdirAll(manifestDir, 0755)
+	os.MkdirAll(targetDir, 0755)
+
+	// Create file in both export root and manifest dir with different content.
+	os.WriteFile(filepath.Join(exportDir, "app.conf"), []byte("export-content"), 0644)
+	os.WriteFile(filepath.Join(manifestDir, "app.conf"), []byte("manifest-content"), 0644)
+
+	tgtFile := filepath.Join(targetDir, "app.conf")
+
+	entries := []RestoreAction{
+		{
+			Type:   "copy",
+			Source: "configs/app.conf",
+			Target: tgtFile,
+			ID:     "export-root-test",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{
+		ExportRoot:  filepath.Join(tmp, "export"),
+		ManifestDir: filepath.Join(tmp, "manifest"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if results[0].Status != "restored" {
+		t.Errorf("expected status=restored, got %q", results[0].Status)
+	}
+
+	// Verify target has export content, not manifest content.
+	data, _ := os.ReadFile(tgtFile)
+	if string(data) != "export-content" {
+		t.Errorf("target content = %q, want %q (from export root)", string(data), "export-content")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunRestore with ExportRoot falls back to manifest dir when source not in export
+// Pester: Restore.ModelB.ExportRoot - Should fallback to manifest dir
+// ---------------------------------------------------------------------------
+
+func TestRunRestore_ExportRootFallbackToManifestDir(t *testing.T) {
+	tmp := t.TempDir()
+
+	exportDir := filepath.Join(tmp, "export")
+	manifestDir := filepath.Join(tmp, "manifest", "configs")
+	targetDir := filepath.Join(tmp, "target")
+	os.MkdirAll(exportDir, 0755)
+	os.MkdirAll(manifestDir, 0755)
+	os.MkdirAll(targetDir, 0755)
+
+	// Create file ONLY in manifest dir.
+	os.WriteFile(filepath.Join(manifestDir, "app.conf"), []byte("manifest-content"), 0644)
+
+	tgtFile := filepath.Join(targetDir, "app.conf")
+
+	entries := []RestoreAction{
+		{
+			Type:   "copy",
+			Source: "configs/app.conf",
+			Target: tgtFile,
+			ID:     "fallback-test",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{
+		ExportRoot:  exportDir,
+		ManifestDir: filepath.Join(tmp, "manifest"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if results[0].Status != "restored" {
+		t.Errorf("expected status=restored, got %q", results[0].Status)
+	}
+
+	// Verify target has manifest content (fallback).
+	data, _ := os.ReadFile(tgtFile)
+	if string(data) != "manifest-content" {
+		t.Errorf("target content = %q, want %q (from manifest dir fallback)", string(data), "manifest-content")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Journal: dry-run should NOT produce journal
+// Pester: Restore.Journaling - Should NOT write journal for dry-run restore
+// ---------------------------------------------------------------------------
+
+func TestWriteJournal_NotCalledInDryRun(t *testing.T) {
+	// This tests the contract: dry-run results should not be journaled.
+	// RunRestore itself doesn't write journals (the caller does), but we
+	// verify that the dry-run results are correctly flagged so the caller
+	// knows not to write a journal.
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "src.txt")
+	tgtFile := filepath.Join(tmp, "tgt.txt")
+	os.WriteFile(srcFile, []byte("content"), 0644)
+
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "dry-journal"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// In dry-run, target should not exist.
+	if _, err := os.Stat(tgtFile); !os.IsNotExist(err) {
+		t.Error("target should not be created in dry-run mode")
+	}
+
+	// Results should still be returned (for UI display).
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Journal: real restore writes journal that can be read back
+// Pester: Restore.Journaling - Should write journal file after restore completes
+// ---------------------------------------------------------------------------
+
+func TestJournal_WriteReadAfterRestore(t *testing.T) {
+	tmp := t.TempDir()
+	logsDir := filepath.Join(tmp, "logs")
+
+	srcFile := filepath.Join(tmp, "source.txt")
+	tgtFile := filepath.Join(tmp, "target.txt")
+	os.WriteFile(srcFile, []byte("test-content"), 0644)
+
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "journal-e2e"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{
+		RunID:       "journal-test-run",
+		ManifestDir: tmp,
+	})
+	if err != nil {
+		t.Fatalf("RunRestore failed: %v", err)
+	}
+
+	// Write journal from results.
+	err = WriteJournal(logsDir, "journal-test-run", filepath.Join(tmp, "manifest.jsonc"), tmp, "", results)
+	if err != nil {
+		t.Fatalf("WriteJournal failed: %v", err)
+	}
+
+	// Read it back.
+	journalPath := filepath.Join(logsDir, "restore-journal-journal-test-run.json")
+	journal, err := ReadJournal(journalPath)
+	if err != nil {
+		t.Fatalf("ReadJournal failed: %v", err)
+	}
+
+	if journal.RunID != "journal-test-run" {
+		t.Errorf("journal.RunID = %q, want %q", journal.RunID, "journal-test-run")
+	}
+	if len(journal.Entries) != 1 {
+		t.Fatalf("expected 1 journal entry, got %d", len(journal.Entries))
+	}
+	if journal.Entries[0].Action != "restored" {
+		t.Errorf("journal entry action = %q, want %q", journal.Entries[0].Action, "restored")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Revert: delete newly created target (targetExistedBefore=false)
+// Pester: Revert.JournalBased - Should delete target that was created by restore
+// ---------------------------------------------------------------------------
+
+func TestRevertEndToEnd_FullPipeline(t *testing.T) {
+	// This is a more complete end-to-end test than the existing one,
+	// matching the Pester test that runs restore -> write journal -> revert.
+	tmp := t.TempDir()
+	logsDir := filepath.Join(tmp, "logs")
+
+	srcFile := filepath.Join(tmp, "source.txt")
+	tgtFile := filepath.Join(tmp, "new-target.txt")
+	os.WriteFile(srcFile, []byte("test-content"), 0644)
+
+	// Target doesn't exist yet.
+	if _, err := os.Stat(tgtFile); !os.IsNotExist(err) {
+		t.Fatal("precondition: target should not exist")
+	}
+
+	// Run restore to create the target.
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "revert-pipeline"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{RunID: "revert-pipeline-run"})
+	if err != nil {
+		t.Fatalf("RunRestore failed: %v", err)
+	}
+
+	// Verify target was created.
+	if _, err := os.Stat(tgtFile); err != nil {
+		t.Fatal("target should have been created by restore")
+	}
+
+	// Write journal.
+	err = WriteJournal(logsDir, "revert-pipeline-run", "", tmp, "", results)
+	if err != nil {
+		t.Fatalf("WriteJournal failed: %v", err)
+	}
+
+	// Read journal.
+	journalPath := filepath.Join(logsDir, "restore-journal-revert-pipeline-run.json")
+	journal, err := ReadJournal(journalPath)
+	if err != nil {
+		t.Fatalf("ReadJournal failed: %v", err)
+	}
+
+	// Run revert.
+	revertResults, err := RunRevert(journal, "")
+	if err != nil {
+		t.Fatalf("RunRevert failed: %v", err)
+	}
+
+	if len(revertResults) != 1 {
+		t.Fatalf("expected 1 revert result, got %d", len(revertResults))
+	}
+	if revertResults[0].Action != "deleted" {
+		t.Errorf("expected revert action=deleted, got %q", revertResults[0].Action)
+	}
+
+	// Verify target was removed.
+	if _, err := os.Stat(tgtFile); !os.IsNotExist(err) {
+		t.Error("target should have been deleted by revert")
 	}
 }

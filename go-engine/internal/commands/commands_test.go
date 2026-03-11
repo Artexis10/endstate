@@ -410,3 +410,361 @@ func TestRunApply_EmptyManifest_ZeroActions(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Plan command tests (ported from Pester: Plan.Tests.ps1, Planner.Tests.ps1)
+// ---------------------------------------------------------------------------
+
+// TestRunPlan_ReturnsCorrectShape verifies the PlanResult has the expected
+// structure: manifest ref, plan summary, and actions array.
+// (Pester: Plan.Structure - "Should have runId/timestamp/manifest/actions/summary")
+func TestRunPlan_ReturnsCorrectShape(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{
+		"Test.App1": true,
+	}}
+
+	var result interface{}
+	var cmdErr *envelope.Error
+
+	withMockDriver(md, func() {
+		r, e := RunPlan(PlanFlags{Manifest: fixtureManifest("three-apps.jsonc")})
+		result = r
+		cmdErr = e
+	})
+
+	if cmdErr != nil {
+		t.Fatalf("RunPlan returned unexpected error: %v", cmdErr)
+	}
+
+	pr, ok := result.(*PlanResult)
+	if !ok {
+		t.Fatalf("expected *PlanResult, got %T", result)
+	}
+
+	// Manifest ref should be populated
+	if pr.Manifest.Path == "" {
+		t.Error("expected manifest.path to be non-empty")
+	}
+	if pr.Manifest.Name != "three-app-manifest" {
+		t.Errorf("expected manifest.name=%q, got %q", "three-app-manifest", pr.Manifest.Name)
+	}
+
+	// Actions array should exist
+	if pr.Actions == nil {
+		t.Error("expected actions to be non-nil")
+	}
+
+	// Summary should have total matching actions length
+	if pr.Plan.Total != len(pr.Actions) {
+		t.Errorf("plan.total=%d does not match len(actions)=%d", pr.Plan.Total, len(pr.Actions))
+	}
+}
+
+// TestRunPlan_ActionOrderMatchesManifest verifies that plan actions preserve
+// the order of apps as declared in the manifest.
+// (Pester: Plan.Deterministic - "Should produce stable action list order")
+func TestRunPlan_ActionOrderMatchesManifest(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{}}
+
+	withMockDriver(md, func() {
+		r, err := RunPlan(PlanFlags{Manifest: fixtureManifest("three-apps.jsonc")})
+		if err != nil {
+			t.Fatalf("RunPlan returned error: %v", err)
+		}
+		pr := r.(*PlanResult)
+
+		if len(pr.Actions) != 3 {
+			t.Fatalf("expected 3 actions, got %d", len(pr.Actions))
+		}
+
+		expectedIDs := []string{"test-app-1", "test-app-2", "test-app-3"}
+		for i, wantID := range expectedIDs {
+			if pr.Actions[i].ID != wantID {
+				t.Errorf("action[%d].ID = %q, want %q", i, pr.Actions[i].ID, wantID)
+			}
+		}
+	})
+}
+
+// TestRunPlan_SkipLogic verifies that installed apps are classified as
+// "present"/"skip" and missing apps as "missing"/"install".
+// (Pester: Planner.SkipLogic - "Should mark app as skip when in installed
+// list" / "Should mark app as install when not in installed list")
+func TestRunPlan_SkipLogic(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{
+		"Test.App2": true,
+	}}
+
+	withMockDriver(md, func() {
+		r, err := RunPlan(PlanFlags{Manifest: fixtureManifest("three-apps.jsonc")})
+		if err != nil {
+			t.Fatalf("RunPlan returned error: %v", err)
+		}
+		pr := r.(*PlanResult)
+
+		for _, action := range pr.Actions {
+			switch action.Ref {
+			case "Test.App2":
+				if action.CurrentStatus != "present" {
+					t.Errorf("Test.App2 currentStatus=%q, want %q", action.CurrentStatus, "present")
+				}
+				if action.PlannedAction != "skip" {
+					t.Errorf("Test.App2 plannedAction=%q, want %q", action.PlannedAction, "skip")
+				}
+			case "Test.App1", "Test.App3":
+				if action.CurrentStatus != "missing" {
+					t.Errorf("%s currentStatus=%q, want %q", action.Ref, action.CurrentStatus, "missing")
+				}
+				if action.PlannedAction != "install" {
+					t.Errorf("%s plannedAction=%q, want %q", action.Ref, action.PlannedAction, "install")
+				}
+			}
+		}
+	})
+}
+
+// TestRunPlan_SummaryCounts verifies that plan summary counts are correct for
+// mixed install/skip scenarios.
+// (Pester: Planner.SummaryCountsAccuracy - "Should have total actions equal
+// to sum of all types")
+func TestRunPlan_SummaryCounts(t *testing.T) {
+	t.Run("all installed", func(t *testing.T) {
+		md := &mockDriver{installed: map[string]bool{
+			"Test.App1": true,
+			"Test.App2": true,
+			"Test.App3": true,
+		}}
+		withMockDriver(md, func() {
+			r, err := RunPlan(PlanFlags{Manifest: fixtureManifest("three-apps.jsonc")})
+			if err != nil {
+				t.Fatalf("RunPlan returned error: %v", err)
+			}
+			pr := r.(*PlanResult)
+			if pr.Plan.ToInstall != 0 {
+				t.Errorf("expected toInstall=0, got %d", pr.Plan.ToInstall)
+			}
+			if pr.Plan.AlreadyPresent != 3 {
+				t.Errorf("expected alreadyPresent=3, got %d", pr.Plan.AlreadyPresent)
+			}
+		})
+	})
+
+	t.Run("none installed", func(t *testing.T) {
+		md := &mockDriver{installed: map[string]bool{}}
+		withMockDriver(md, func() {
+			r, err := RunPlan(PlanFlags{Manifest: fixtureManifest("three-apps.jsonc")})
+			if err != nil {
+				t.Fatalf("RunPlan returned error: %v", err)
+			}
+			pr := r.(*PlanResult)
+			if pr.Plan.ToInstall != 3 {
+				t.Errorf("expected toInstall=3, got %d", pr.Plan.ToInstall)
+			}
+			if pr.Plan.AlreadyPresent != 0 {
+				t.Errorf("expected alreadyPresent=0, got %d", pr.Plan.AlreadyPresent)
+			}
+		})
+	})
+
+	t.Run("mixed", func(t *testing.T) {
+		md := &mockDriver{installed: map[string]bool{
+			"Test.App1": true,
+			"Test.App3": true,
+		}}
+		withMockDriver(md, func() {
+			r, err := RunPlan(PlanFlags{Manifest: fixtureManifest("three-apps.jsonc")})
+			if err != nil {
+				t.Fatalf("RunPlan returned error: %v", err)
+			}
+			pr := r.(*PlanResult)
+			if pr.Plan.ToInstall != 1 {
+				t.Errorf("expected toInstall=1, got %d", pr.Plan.ToInstall)
+			}
+			if pr.Plan.AlreadyPresent != 2 {
+				t.Errorf("expected alreadyPresent=2, got %d", pr.Plan.AlreadyPresent)
+			}
+			if pr.Plan.Total != 3 {
+				t.Errorf("expected total=3, got %d", pr.Plan.Total)
+			}
+		})
+	})
+}
+
+// TestRunPlan_ManifestNotFound verifies that a missing manifest returns
+// MANIFEST_NOT_FOUND error code.
+// (Pester: JsonMode - "verify without profile/manifest returns JSON error")
+func TestRunPlan_ManifestNotFound(t *testing.T) {
+	md := &mockDriver{}
+	withMockDriver(md, func() {
+		_, err := RunPlan(PlanFlags{Manifest: "/nonexistent/path/manifest.jsonc"})
+		if err == nil {
+			t.Fatal("expected envelope error for missing manifest, got nil")
+		}
+		if string(err.Code) != "MANIFEST_NOT_FOUND" {
+			t.Errorf("expected code MANIFEST_NOT_FOUND, got %q", err.Code)
+		}
+	})
+}
+
+// TestRunPlan_EmptyManifest verifies that a manifest with no apps produces
+// an empty plan.
+func TestRunPlan_EmptyManifest(t *testing.T) {
+	md := &mockDriver{}
+	withMockDriver(md, func() {
+		r, err := RunPlan(PlanFlags{Manifest: fixtureManifest("no-apps.jsonc")})
+		if err != nil {
+			t.Fatalf("RunPlan returned error: %v", err)
+		}
+		pr := r.(*PlanResult)
+		if len(pr.Actions) != 0 {
+			t.Errorf("expected 0 actions for empty manifest, got %d", len(pr.Actions))
+		}
+		if pr.Plan.Total != 0 {
+			t.Errorf("expected total=0, got %d", pr.Plan.Total)
+		}
+	})
+}
+
+// TestRunPlan_ActionFields verifies each plan action has the expected fields.
+// (Pester: Plan.Structure - "Should have type/driver/id/ref/status field on
+// app actions")
+func TestRunPlan_ActionFields(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{}}
+
+	withMockDriver(md, func() {
+		r, err := RunPlan(PlanFlags{Manifest: fixtureManifest("two-apps.jsonc")})
+		if err != nil {
+			t.Fatalf("RunPlan returned error: %v", err)
+		}
+		pr := r.(*PlanResult)
+
+		for _, action := range pr.Actions {
+			if action.Type != "app" {
+				t.Errorf("action %q: Type=%q, want %q", action.ID, action.Type, "app")
+			}
+			if action.Driver == "" {
+				t.Errorf("action %q: Driver should not be empty", action.ID)
+			}
+			if action.ID == "" {
+				t.Error("action ID should not be empty")
+			}
+			if action.Ref == "" {
+				t.Errorf("action %q: Ref should not be empty", action.ID)
+			}
+			if action.CurrentStatus == "" {
+				t.Errorf("action %q: CurrentStatus should not be empty", action.ID)
+			}
+			if action.PlannedAction == "" {
+				t.Errorf("action %q: PlannedAction should not be empty", action.ID)
+			}
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Capabilities command tests (ported from Pester: JsonMode.Tests.ps1)
+// ---------------------------------------------------------------------------
+
+// TestRunCapabilities_ReturnsExpectedCommands verifies that the capabilities
+// response includes the expected set of commands.
+// (Pester: JsonMode - "JSON data contains commands list")
+func TestRunCapabilities_ReturnsExpectedCommands(t *testing.T) {
+	result, err := RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities returned error: %v", err)
+	}
+
+	data, ok := result.(CapabilitiesData)
+	if !ok {
+		t.Fatalf("expected CapabilitiesData, got %T", result)
+	}
+
+	requiredCommands := []string{"apply", "verify", "capabilities", "plan", "doctor", "profile", "capture", "report"}
+	for _, cmd := range requiredCommands {
+		info, exists := data.Commands[cmd]
+		if !exists {
+			t.Errorf("expected command %q in capabilities, not found", cmd)
+			continue
+		}
+		if !info.Supported {
+			t.Errorf("command %q should be supported", cmd)
+		}
+	}
+}
+
+// TestRunCapabilities_SchemaVersion verifies the capabilities response has
+// the correct schema version range.
+func TestRunCapabilities_SchemaVersion(t *testing.T) {
+	result, _ := RunCapabilities()
+	data := result.(CapabilitiesData)
+
+	if data.SupportedSchemaVersions.Min != "1.0" {
+		t.Errorf("expected min schema version %q, got %q", "1.0", data.SupportedSchemaVersions.Min)
+	}
+	if data.SupportedSchemaVersions.Max != "1.0" {
+		t.Errorf("expected max schema version %q, got %q", "1.0", data.SupportedSchemaVersions.Max)
+	}
+}
+
+// TestRunCapabilities_FeaturesIncludeJSONOutput verifies that the features
+// map includes JSON output support.
+// (Pester: JsonMode - capabilities response structure)
+func TestRunCapabilities_FeaturesIncludeJSONOutput(t *testing.T) {
+	result, _ := RunCapabilities()
+	data := result.(CapabilitiesData)
+
+	if !data.Features.JSONOutput {
+		t.Error("expected features.jsonOutput=true")
+	}
+}
+
+// TestRunCapabilities_PlatformInfo verifies the platform info is correct.
+func TestRunCapabilities_PlatformInfo(t *testing.T) {
+	result, _ := RunCapabilities()
+	data := result.(CapabilitiesData)
+
+	if data.Platform.OS != "windows" {
+		t.Errorf("expected platform.os=%q, got %q", "windows", data.Platform.OS)
+	}
+	if len(data.Platform.Drivers) == 0 {
+		t.Error("expected at least one driver in platform.drivers")
+	}
+}
+
+// TestRunCapabilities_NeverFails verifies that capabilities never returns an
+// error. (Pester: "capabilities --json exits 0")
+func TestRunCapabilities_NeverFails(t *testing.T) {
+	_, err := RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities should never return error, got: %v", err)
+	}
+}
+
+// TestRunCapabilities_CommandFlagsPresent verifies that commands include their
+// expected flags.
+func TestRunCapabilities_CommandFlagsPresent(t *testing.T) {
+	result, _ := RunCapabilities()
+	data := result.(CapabilitiesData)
+
+	// Verify key flags
+	verifyCmd, ok := data.Commands["verify"]
+	if !ok {
+		t.Fatal("expected 'verify' command in capabilities")
+	}
+	hasManifest := false
+	hasJSON := false
+	for _, flag := range verifyCmd.Flags {
+		if flag == "--manifest" {
+			hasManifest = true
+		}
+		if flag == "--json" {
+			hasJSON = true
+		}
+	}
+	if !hasManifest {
+		t.Error("verify command should have --manifest flag")
+	}
+	if !hasJSON {
+		t.Error("verify command should have --json flag")
+	}
+}

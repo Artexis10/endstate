@@ -567,3 +567,341 @@ func TestRunProfile_ValidateMissingArg(t *testing.T) {
 		t.Fatal("expected error for missing validate argument")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Gap tests ported from Pester: ProfileContract.Tests.ps1
+// ---------------------------------------------------------------------------
+
+// TestProfileValidate_MinimalValid verifies that a manifest with just version
+// and empty apps is valid.
+// (Pester: "Should validate a minimal valid manifest (version + empty apps)")
+func TestProfileValidate_MinimalValid(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "minimal.json")
+	if err := os.WriteFile(profile, []byte(`{"version": 1, "apps": []}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if !vr.Valid {
+		t.Errorf("expected valid, got errors: %v", vr.Errors)
+	}
+	if vr.Summary.AppCount != 0 {
+		t.Errorf("expected appCount=0, got %d", vr.Summary.AppCount)
+	}
+}
+
+// TestProfileValidate_UnsupportedVersionFloat verifies that version=2.5
+// returns UNSUPPORTED_VERSION (not INVALID_VERSION_TYPE).
+// (Pester: "Should fail when version is not 1")
+func TestProfileValidate_UnsupportedVersionFloat(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "v25.json")
+	if err := os.WriteFile(profile, []byte(`{"version": 2.5, "apps": []}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if vr.Valid {
+		t.Fatal("expected invalid for version=2.5, got valid")
+	}
+	found := false
+	for _, ve := range vr.Errors {
+		if ve.Code == "UNSUPPORTED_VERSION" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected UNSUPPORTED_VERSION for version=2.5, got %v", vr.Errors)
+	}
+}
+
+// TestProfileValidate_InvalidJSON verifies that invalid JSON returns
+// valid=false with a PARSE_ERROR.
+// (Pester: "Should fail when file contains invalid JSON")
+func TestProfileValidate_InvalidJSON(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "bad.json")
+	if err := os.WriteFile(profile, []byte(`{ "version": 1, "apps": [ { invalid } ] }`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if vr.Valid {
+		t.Fatal("expected invalid for parse error, got valid")
+	}
+	found := false
+	for _, ve := range vr.Errors {
+		if ve.Code == "PARSE_ERROR" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected PARSE_ERROR, got %v", vr.Errors)
+	}
+}
+
+// TestProfileValidate_JSoncWithComments verifies that JSONC files with
+// comments validate correctly.
+// (Pester: "Should validate JSONC files with comments")
+func TestProfileValidate_JSoncWithComments(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "commented.jsonc")
+	content := `{
+  // This is a comment
+  "version": 1,
+  "name": "commented-profile",
+  /* Multi-line
+     comment */
+  "apps": []
+}`
+	if err := os.WriteFile(profile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if !vr.Valid {
+		t.Errorf("expected valid for JSONC with comments, got errors: %v", vr.Errors)
+	}
+}
+
+// TestProfileValidate_MissingApps verifies that a manifest without apps
+// returns MISSING_APPS error.
+// (Pester: "Should fail when apps field is missing")
+func TestProfileValidate_MissingApps(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "no-apps.json")
+	if err := os.WriteFile(profile, []byte(`{"version": 1, "name": "test"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if vr.Valid {
+		t.Fatal("expected invalid for missing apps, got valid")
+	}
+	found := false
+	for _, ve := range vr.Errors {
+		if ve.Code == "MISSING_APPS" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected MISSING_APPS, got %v", vr.Errors)
+	}
+}
+
+// TestProfileValidate_AppsAsObject verifies that apps as an object returns
+// INVALID_APPS_TYPE.
+// (Pester: "Should fail when apps is an object instead of array")
+func TestProfileValidate_AppsAsObject(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "obj-apps.json")
+	if err := os.WriteFile(profile, []byte(`{"version": 1, "apps": {}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if vr.Valid {
+		t.Fatal("expected invalid for apps as object, got valid")
+	}
+	found := false
+	for _, ve := range vr.Errors {
+		if ve.Code == "INVALID_APPS_TYPE" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected INVALID_APPS_TYPE, got %v", vr.Errors)
+	}
+}
+
+// TestProfileValidate_AppsAsString verifies that apps as a string returns
+// INVALID_APPS_TYPE.
+// (Pester: "Should fail when apps is a string")
+func TestProfileValidate_AppsAsString(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "str-apps.json")
+	if err := os.WriteFile(profile, []byte(`{"version": 1, "apps": "not-an-array"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if vr.Valid {
+		t.Fatal("expected invalid for apps as string, got valid")
+	}
+	found := false
+	for _, ve := range vr.Errors {
+		if ve.Code == "INVALID_APPS_TYPE" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected INVALID_APPS_TYPE, got %v", vr.Errors)
+	}
+}
+
+// TestProfileValidate_StringVersion verifies that version as a string
+// returns INVALID_VERSION_TYPE.
+// (Pester: "Should fail when version is a string instead of number")
+func TestProfileValidate_StringVersion(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "str-version.json")
+	if err := os.WriteFile(profile, []byte(`{"version": "1", "apps": []}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if vr.Valid {
+		t.Fatal("expected invalid for string version, got valid")
+	}
+	found := false
+	for _, ve := range vr.Errors {
+		if ve.Code == "INVALID_VERSION_TYPE" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected INVALID_VERSION_TYPE, got %v", vr.Errors)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Gap tests ported from Pester: ProfileComposition.Tests.ps1
+// ---------------------------------------------------------------------------
+
+// TestProfileValidate_SummaryAppCount verifies that the summary app count
+// reflects the actual number of apps in the manifest.
+// (Pester: ProfileContract - "Should validate a complete valid manifest" -
+// checks Summary.AppCount)
+func TestProfileValidate_SummaryAppCount(t *testing.T) {
+	dir := t.TempDir()
+	profile := filepath.Join(dir, "multi.jsonc")
+	content := `{
+  "version": 1,
+  "name": "multi-app",
+  "apps": [
+    { "id": "a1", "refs": { "windows": "A.One" } },
+    { "id": "a2", "refs": { "windows": "A.Two" } },
+    { "id": "a3", "refs": { "windows": "A.Three" } }
+  ]
+}`
+	if err := os.WriteFile(profile, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileValidate(profile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	vr := result.(*ProfileValidateResult)
+	if !vr.Valid {
+		t.Fatalf("expected valid, got errors: %v", vr.Errors)
+	}
+	if vr.Summary.AppCount != 3 {
+		t.Errorf("expected appCount=3, got %d", vr.Summary.AppCount)
+	}
+}
+
+// TestProfileList_DisplayNameFallbackToFileStem verifies the three-level
+// display name priority: meta.json > manifest name > file stem.
+// (Pester: ProfileComposition - display label priority is implicitly tested)
+func TestProfileList_DisplayNameFallbackChain(t *testing.T) {
+	dir := t.TempDir()
+
+	// Profile 1: has meta.json (highest priority)
+	p1Content := `{"version": 1, "name": "manifest-name-1", "apps": []}`
+	if err := os.WriteFile(filepath.Join(dir, "p1.jsonc"), []byte(p1Content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m1 := `{"displayName": "Meta Name"}`
+	if err := os.WriteFile(filepath.Join(dir, "p1.meta.json"), []byte(m1), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Profile 2: has manifest name but no meta.json
+	p2Content := `{"version": 1, "name": "manifest-name-2", "apps": []}`
+	if err := os.WriteFile(filepath.Join(dir, "p2.jsonc"), []byte(p2Content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Profile 3: no name, no meta.json (falls back to file stem)
+	p3Content := `{"version": 1, "apps": []}`
+	if err := os.WriteFile(filepath.Join(dir, "p3.jsonc"), []byte(p3Content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := runProfileListFromDir(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	lr := result.(*ProfileListResult)
+	if len(lr.Profiles) != 3 {
+		t.Fatalf("expected 3 profiles, got %d", len(lr.Profiles))
+	}
+
+	// Profiles are sorted by name: p1, p2, p3
+	for _, p := range lr.Profiles {
+		switch p.Name {
+		case "p1":
+			if p.DisplayName != "Meta Name" {
+				t.Errorf("p1 displayName=%q, want %q (meta.json priority)", p.DisplayName, "Meta Name")
+			}
+		case "p2":
+			if p.DisplayName != "manifest-name-2" {
+				t.Errorf("p2 displayName=%q, want %q (manifest name fallback)", p.DisplayName, "manifest-name-2")
+			}
+		case "p3":
+			if p.DisplayName != "p3" {
+				t.Errorf("p3 displayName=%q, want %q (file stem fallback)", p.DisplayName, "p3")
+			}
+		}
+	}
+}
