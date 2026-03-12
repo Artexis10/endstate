@@ -12,6 +12,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
 
@@ -35,10 +36,12 @@ type ApplyFlags struct {
 // ApplyResult is the data payload for the apply command JSON envelope.
 // Shape matches docs/contracts/cli-json-contract.md section "Command: apply".
 type ApplyResult struct {
-	DryRun   bool              `json:"dryRun"`
-	Manifest ApplyManifestRef  `json:"manifest"`
-	Summary  ApplySummary      `json:"summary"`
-	Actions  []ApplyAction     `json:"actions"`
+	DryRun                  bool              `json:"dryRun"`
+	Manifest                ApplyManifestRef  `json:"manifest"`
+	Summary                 ApplySummary      `json:"summary"`
+	Actions                 []ApplyAction     `json:"actions"`
+	ConfigModuleMap         map[string]string `json:"configModuleMap,omitempty"`
+	RestoreModulesAvailable []string          `json:"restoreModulesAvailable,omitempty"`
 }
 
 // ApplyManifestRef identifies the manifest used for the apply run.
@@ -99,6 +102,27 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	mf, envelopeErr := loadManifest(flags.Manifest)
 	if envelopeErr != nil {
 		return nil, envelopeErr
+	}
+
+	// Resolve module catalog for configModuleMap (non-fatal if unavailable).
+	var configModuleMap map[string]string
+	var restoreModulesAvailable []string
+
+	repoRoot := config.ResolveRepoRoot()
+	if repoRoot != "" {
+		catalog, catalogErr := loadModuleCatalogFn(repoRoot)
+		if catalogErr == nil && len(catalog) > 0 {
+			matchedModules := modules.MatchModulesForApps(catalog, mf.Apps)
+			if len(matchedModules) > 0 {
+				configModuleMap = make(map[string]string, len(matchedModules))
+				for _, mod := range matchedModules {
+					for _, wingetRef := range mod.Matches.Winget {
+						configModuleMap[wingetRef] = mod.ID
+					}
+					restoreModulesAvailable = append(restoreModulesAvailable, mod.ID)
+				}
+			}
+		}
 	}
 
 	d := newDriverFn()
@@ -315,8 +339,10 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 			Name: mf.Name,
 			Hash: "", // hash computation is Phase 2 work
 		},
-		Summary: outSummary,
-		Actions: finalActions,
+		Summary:                 outSummary,
+		Actions:                 finalActions,
+		ConfigModuleMap:         configModuleMap,
+		RestoreModulesAvailable: restoreModulesAvailable,
 	}, nil
 }
 

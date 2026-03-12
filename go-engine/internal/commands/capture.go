@@ -161,11 +161,35 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	// --- 1. Emit phase event (first event per event-contract.md) ---
 	emitter.EmitPhase("capture")
 
-	// --- 2. Enumerate winget-managed packages via winget export ---
-	snapshotApps, snapErr := takeSnapshotFn()
-	if snapErr != nil {
+	// --- 2. Enumerate winget-managed packages and resolve display names ---
+	// Both calls spawn winget and are slow; run them concurrently.
+	type snapshotResult struct {
+		apps []snapshot.SnapshotApp
+		err  error
+	}
+	type nameMapResult struct {
+		nameMap map[string]string
+		err     error
+	}
+
+	snapCh := make(chan snapshotResult, 1)
+	nameCh := make(chan nameMapResult, 1)
+
+	go func() {
+		apps, err := takeSnapshotFn()
+		snapCh <- snapshotResult{apps, err}
+	}()
+	go func() {
+		nameMap, err := getDisplayNameMapFn()
+		nameCh <- nameMapResult{nameMap, err}
+	}()
+
+	snapRes := <-snapCh
+	nameRes := <-nameCh
+
+	if snapRes.err != nil {
 		var execErr *exec.Error
-		if errors.As(snapErr, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
+		if errors.As(snapRes.err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
 			return nil, envelope.NewError(
 				envelope.ErrWingetNotAvailable,
 				"winget is not installed or not available on PATH.",
@@ -173,8 +197,16 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		}
 		return nil, envelope.NewError(
 			envelope.ErrCaptureFailed,
-			fmt.Sprintf("Failed to take system snapshot: %v", snapErr),
+			fmt.Sprintf("Failed to take system snapshot: %v", snapRes.err),
 		)
+	}
+
+	snapshotApps := snapRes.apps
+
+	// Display name map — failure is non-fatal.
+	displayNameMap := make(map[string]string)
+	if nameRes.err == nil {
+		displayNameMap = nameRes.nameMap
 	}
 
 	totalFound := len(snapshotApps)
@@ -215,7 +247,12 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 
 	// --- 4. Emit item events for each included app ---
 	for _, app := range captured {
-		emitter.EmitItem(app.Refs["windows"], "winget", "captured", "", fmt.Sprintf("Captured %s", app.Name), app.Name)
+		wingetID := app.Refs["windows"]
+		name := displayNameMap[wingetID]
+		if name == "" {
+			name = app.Name
+		}
+		emitter.EmitItem(wingetID, "winget", "captured", "", fmt.Sprintf("Captured %s", name), name)
 	}
 
 	// --- 5. If --update and --manifest: merge with existing manifest ---
@@ -338,13 +375,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		absPath = outputPath
 	}
 
-	// --- 9. Build appsIncluded ---
-	// Fetch display names from snapshot for the GUI; failure is non-fatal.
-	displayNameMap := make(map[string]string)
-	if nameMap, nameErr := getDisplayNameMapFn(); nameErr == nil {
-		displayNameMap = nameMap
-	}
-
+	// --- 9. Build appsIncluded (reuses displayNameMap from step 2) ---
 	appsIncluded := buildAppsIncluded(captured, displayNameMap)
 
 	// --- 10. Module matching and optional bundle creation ---

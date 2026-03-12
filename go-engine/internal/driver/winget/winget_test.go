@@ -259,7 +259,6 @@ func TestResolveCarriageReturns(t *testing.T) {
 	}
 	for _, tc := range tests {
 		got := resolveCarriageReturns(tc.input)
-		got = got // trim for comparison
 		if got != tc.want {
 			t.Errorf("resolveCarriageReturns(%q) = %q, want %q", tc.input, got, tc.want)
 		}
