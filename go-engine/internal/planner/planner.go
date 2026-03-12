@@ -24,6 +24,7 @@ type PlanAction struct {
 	Driver        string `json:"driver"`
 	CurrentStatus string `json:"currentStatus"`
 	PlannedAction string `json:"plannedAction"`
+	DisplayName   string `json:"displayName,omitempty"`
 }
 
 // PlanSummary aggregates the plan outcome counts.
@@ -45,13 +46,14 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 			continue
 		}
 
-		installed, _ := drv.Detect(ref)
+		installed, displayName, _ := drv.Detect(ref)
 
 		action := PlanAction{
-			Type:   "app",
-			ID:     app.ID,
-			Ref:    ref,
-			Driver: drv.Name(),
+			Type:        "app",
+			ID:          app.ID,
+			Ref:         ref,
+			Driver:      drv.Name(),
+			DisplayName: displayName,
 		}
 
 		if installed {

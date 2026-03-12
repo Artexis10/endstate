@@ -65,17 +65,17 @@ func RunValidateExport(flags ValidateExportFlags) (interface{}, *envelope.Error)
 		candidate := filepath.Join(exportDir, entry.Source)
 		if _, err := os.Stat(candidate); err == nil {
 			validCount++
-			emitter.EmitItem(entry.Source, "validate", "valid", "", "Found in export")
+			emitter.EmitItem(entry.Source, "validate", "valid", "", "Found in export", "")
 			continue
 		}
 
 		// Not found in export dir.
 		if entry.Optional {
 			warnings = append(warnings, "Optional source not found in export: "+entry.Source)
-			emitter.EmitItem(entry.Source, "validate", "warn", "optional_missing", "Optional source not in export")
+			emitter.EmitItem(entry.Source, "validate", "warn", "optional_missing", "Optional source not in export", "")
 		} else {
 			errors = append(errors, "Required source not found in export: "+entry.Source)
-			emitter.EmitItem(entry.Source, "validate", "fail", "missing", "Required source not in export")
+			emitter.EmitItem(entry.Source, "validate", "fail", "missing", "Required source not in export", "")
 		}
 	}
 

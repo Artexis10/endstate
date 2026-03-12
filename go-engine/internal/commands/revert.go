@@ -73,13 +73,13 @@ func RunRevert(flags RevertFlags) (interface{}, *envelope.Error) {
 	for _, r := range results {
 		switch r.Action {
 		case "reverted":
-			emitter.EmitItem(r.Target, "restore", "reverted", "", "Restored from backup")
+			emitter.EmitItem(r.Target, "restore", "reverted", "", "Restored from backup", "")
 			revertedCount++
 		case "deleted":
-			emitter.EmitItem(r.Target, "restore", "deleted", "", "Deleted created target")
+			emitter.EmitItem(r.Target, "restore", "deleted", "", "Deleted created target", "")
 			revertedCount++
 		default:
-			emitter.EmitItem(r.Target, "restore", "skipped", "", "Nothing to revert")
+			emitter.EmitItem(r.Target, "restore", "skipped", "", "Nothing to revert", "")
 			skippedCount++
 		}
 	}

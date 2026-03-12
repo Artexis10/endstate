@@ -74,7 +74,7 @@ func RunExport(flags ExportFlags) (interface{}, *envelope.Error) {
 		// Check if system target exists.
 		if _, err := os.Stat(target); os.IsNotExist(err) {
 			skipCount++
-			emitter.EmitItem(entry.Source, "export", "skipped", "missing_target", "System path not found: "+target)
+			emitter.EmitItem(entry.Source, "export", "skipped", "missing_target", "System path not found: "+target, "")
 			continue
 		}
 
@@ -82,7 +82,7 @@ func RunExport(flags ExportFlags) (interface{}, *envelope.Error) {
 		exportDest := filepath.Join(exportDir, entry.Source)
 
 		if flags.DryRun {
-			emitter.EmitItem(entry.Source, "export", "would_export", "", fmt.Sprintf("Would copy %s -> %s", target, exportDest))
+			emitter.EmitItem(entry.Source, "export", "would_export", "", fmt.Sprintf("Would copy %s -> %s", target, exportDest), "")
 			exportCount++
 			continue
 		}
@@ -116,7 +116,7 @@ func RunExport(flags ExportFlags) (interface{}, *envelope.Error) {
 			}
 		}
 
-		emitter.EmitItem(entry.Source, "export", "exported", "", "Exported "+target)
+		emitter.EmitItem(entry.Source, "export", "exported", "", "Exported "+target, "")
 		exportCount++
 	}
 

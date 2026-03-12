@@ -30,6 +30,7 @@ type ItemEvent struct {
 	BaseEvent
 	ID      string `json:"id"`
 	Driver  string `json:"driver"`
+	Name    string `json:"name,omitempty"`
 	Status  string `json:"status"`
 	Reason  string `json:"reason"`
 	Message string `json:"message,omitempty"`

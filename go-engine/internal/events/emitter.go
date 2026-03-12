@@ -73,8 +73,9 @@ func (e *Emitter) EmitPhase(phase string) {
 // EmitItem emits an item progress event. reason and message may be empty
 // strings; reason is always serialised (including as "") to satisfy the
 // contract requirement that the field is present (set to null in PS engine
-// when no reason is available — here we use empty string).
-func (e *Emitter) EmitItem(id, driver, status, reason, message string) {
+// when no reason is available — here we use empty string). name is the
+// optional human-readable display name; when empty it is omitted from JSON.
+func (e *Emitter) EmitItem(id, driver, status, reason, message, name string) {
 	if !e.enabled {
 		return
 	}
@@ -82,6 +83,7 @@ func (e *Emitter) EmitItem(id, driver, status, reason, message string) {
 		BaseEvent: e.base("item"),
 		ID:        id,
 		Driver:    driver,
+		Name:      name,
 		Status:    status,
 		Reason:    reason,
 		Message:   message,

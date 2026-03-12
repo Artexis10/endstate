@@ -57,7 +57,7 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 
 	// --- 3. Emit item events ---
 	for _, action := range p.Actions {
-		emitter.EmitItem(action.Ref, action.Driver, action.CurrentStatus, "", action.PlannedAction)
+		emitter.EmitItem(action.Ref, action.Driver, action.CurrentStatus, "", action.PlannedAction, action.DisplayName)
 	}
 
 	// --- 4. Summary event ---

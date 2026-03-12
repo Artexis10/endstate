@@ -215,7 +215,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 
 	// --- 4. Emit item events for each included app ---
 	for _, app := range captured {
-		emitter.EmitItem(app.Refs["windows"], "winget", "captured", "", fmt.Sprintf("Captured %s", app.Name))
+		emitter.EmitItem(app.Refs["windows"], "winget", "captured", "", fmt.Sprintf("Captured %s", app.Name), app.Name)
 	}
 
 	// --- 5. If --update and --manifest: merge with existing manifest ---

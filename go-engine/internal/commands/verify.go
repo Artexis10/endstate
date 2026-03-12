@@ -55,6 +55,7 @@ type VerifyItem struct {
 	Type    string `json:"type"`
 	ID      string `json:"id,omitempty"`
 	Ref     string `json:"ref,omitempty"`
+	Name    string `json:"name,omitempty"`
 	Status  string `json:"status"`
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
@@ -103,7 +104,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			continue
 		}
 
-		installed, detectErr := d.Detect(ref)
+		installed, displayName, detectErr := d.Detect(ref)
 
 		item := VerifyItem{
 			Type: "app",
@@ -117,17 +118,18 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Status = "fail"
 			item.Reason = driver.ReasonMissing
 			item.Message = detectErr.Error()
-			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message)
+			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, "")
 			failCount++
 		} else if installed {
 			item.Status = "pass"
-			emitter.EmitItem(ref, d.Name(), "present", "", "Verified installed")
+			item.Name = displayName
+			emitter.EmitItem(ref, d.Name(), "present", "", "Verified installed", displayName)
 			passCount++
 		} else {
 			item.Status = "fail"
 			item.Reason = driver.ReasonMissing
 			item.Message = "Missing - not installed"
-			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message)
+			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, "")
 			failCount++
 		}
 

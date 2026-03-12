@@ -61,6 +61,7 @@ type ApplyAction struct {
 	ID     string `json:"id"`
 	Ref    string `json:"ref"`
 	Driver string `json:"driver"`
+	Name   string `json:"name,omitempty"`
 	Status string `json:"status"`
 	Reason string `json:"reason,omitempty"`
 }
@@ -106,9 +107,10 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	emitter.EmitPhase("plan")
 
 	type appPlan struct {
-		app    manifest.App
-		ref    string
-		action ApplyAction
+		app         manifest.App
+		ref         string
+		action      ApplyAction
+		displayName string
 	}
 
 	var planEntries []appPlan
@@ -121,26 +123,27 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 			continue
 		}
 
-		installed, _ := d.Detect(ref)
+		installed, displayName, _ := d.Detect(ref)
 
 		var action ApplyAction
 		action.ID = app.ID
 		action.Ref = ref
 		action.Driver = d.Name()
+		action.Name = displayName
 
 		if installed {
 			action.Status = "present"
 			action.Reason = driver.ReasonAlreadyInstalled
-			emitter.EmitItem(ref, d.Name(), "present", driver.ReasonAlreadyInstalled, "Already installed")
+			emitter.EmitItem(ref, d.Name(), "present", driver.ReasonAlreadyInstalled, "Already installed", displayName)
 			presentCount++
 		} else {
 			action.Status = "to_install"
 			action.Reason = driver.ReasonMissing
-			emitter.EmitItem(ref, d.Name(), "to_install", driver.ReasonMissing, "Will be installed")
+			emitter.EmitItem(ref, d.Name(), "to_install", driver.ReasonMissing, "Will be installed", "")
 			toInstallCount++
 		}
 
-		planEntries = append(planEntries, appPlan{app: app, ref: ref, action: action})
+		planEntries = append(planEntries, appPlan{app: app, ref: ref, action: action, displayName: displayName})
 	}
 
 	totalApps := len(planEntries)
@@ -170,14 +173,14 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				continue
 			}
 
-			emitter.EmitItem(entry.ref, d.Name(), "installing", "", fmt.Sprintf("Installing %s", entry.ref))
+			emitter.EmitItem(entry.ref, d.Name(), "installing", "", fmt.Sprintf("Installing %s", entry.ref), entry.displayName)
 
 			result, installErr := d.Install(entry.ref)
 			if installErr != nil {
 				// Infrastructure failure (e.g. winget not available).
 				finalActions[i].Status = driver.StatusFailed
 				finalActions[i].Reason = driver.ReasonInstallFailed
-				emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonInstallFailed, installErr.Error())
+				emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonInstallFailed, installErr.Error(), entry.displayName)
 				failedCount++
 				continue
 			}
@@ -187,13 +190,13 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 
 			switch result.Status {
 			case driver.StatusInstalled:
-				emitter.EmitItem(entry.ref, d.Name(), "installed", "", result.Message)
+				emitter.EmitItem(entry.ref, d.Name(), "installed", "", result.Message, entry.displayName)
 				successCount++
 			case driver.StatusPresent:
-				emitter.EmitItem(entry.ref, d.Name(), "present", result.Reason, result.Message)
+				emitter.EmitItem(entry.ref, d.Name(), "present", result.Reason, result.Message, entry.displayName)
 				skippedCount++
 			default:
-				emitter.EmitItem(entry.ref, d.Name(), result.Status, result.Reason, result.Message)
+				emitter.EmitItem(entry.ref, d.Name(), result.Status, result.Reason, result.Message, entry.displayName)
 				failedCount++
 			}
 		}
@@ -241,13 +244,13 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				for _, r := range restoreResults {
 					switch r.Status {
 					case "restored":
-						emitter.EmitItem(r.ID, "restore", "restored", "", "Restored "+r.Target)
+						emitter.EmitItem(r.ID, "restore", "restored", "", "Restored "+r.Target, "")
 						restoredCnt++
 					case "skipped_up_to_date", "skipped_missing_source":
-						emitter.EmitItem(r.ID, "restore", "skipped", "", r.Status)
+						emitter.EmitItem(r.ID, "restore", "skipped", "", r.Status, "")
 						skippedCnt++
 					case "failed":
-						emitter.EmitItem(r.ID, "restore", "failed", "", r.Error)
+						emitter.EmitItem(r.ID, "restore", "failed", "", r.Error, "")
 						failedCnt++
 					}
 				}
@@ -271,13 +274,16 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		verifyPass := 0
 		verifyFail := 0
 
-		for _, entry := range planEntries {
-			detected, _ := d.Detect(entry.ref)
+		for i, entry := range planEntries {
+			detected, verifyName, _ := d.Detect(entry.ref)
 			if detected {
-				emitter.EmitItem(entry.ref, d.Name(), "present", "", "Verified installed")
+				emitter.EmitItem(entry.ref, d.Name(), "present", "", "Verified installed", verifyName)
+				if verifyName != "" {
+					finalActions[i].Name = verifyName
+				}
 				verifyPass++
 			} else {
-				emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonMissing, "Missing after apply")
+				emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonMissing, "Missing after apply", "")
 				verifyFail++
 			}
 		}

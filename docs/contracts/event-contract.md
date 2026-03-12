@@ -94,6 +94,7 @@ Tracks progress of individual items (apps, configs, etc.).
 **Fields:**
 - `id` (string, required): Item identifier
 - `driver` (string, required): Driver name (e.g., `"winget"`)
+- `name` (string, optional): Human-readable display name (e.g., `"Visual Studio Code"`). When absent, consumers should format the `id` field for display.
 - `status` (string, required): One of:
   - `"to_install"` - Preview: will be installed
   - `"installing"` - In progress

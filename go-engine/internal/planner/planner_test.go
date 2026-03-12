@@ -20,8 +20,11 @@ type testDriver struct {
 
 func (d *testDriver) Name() string { return "test" }
 
-func (d *testDriver) Detect(ref string) (bool, error) {
-	return d.installed[ref], nil
+func (d *testDriver) Detect(ref string) (bool, string, error) {
+	if d.installed[ref] {
+		return true, ref + " Name", nil
+	}
+	return false, "", nil
 }
 
 func (d *testDriver) Install(ref string) (*driver.InstallResult, error) {

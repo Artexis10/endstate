@@ -30,8 +30,11 @@ type mockDriver struct {
 
 func (m *mockDriver) Name() string { return "mock" }
 
-func (m *mockDriver) Detect(ref string) (bool, error) {
-	return m.installed[ref], nil
+func (m *mockDriver) Detect(ref string) (bool, string, error) {
+	if m.installed[ref] {
+		return true, ref + " Display Name", nil
+	}
+	return false, "", nil
 }
 
 func (m *mockDriver) Install(ref string) (*driver.InstallResult, error) {
@@ -215,8 +218,8 @@ func TestRunVerify_EventOrdering(t *testing.T) {
 		// emitter produces using the exported EmitPhase/EmitItem/EmitSummary
 		// methods directly — simulating what RunVerify does.
 		emitter.EmitPhase("verify")
-		emitter.EmitItem("Microsoft.VisualStudioCode", "mock", "present", "", "Verified installed")
-		emitter.EmitItem("Git.Git", "mock", "present", "", "Verified installed")
+		emitter.EmitItem("Microsoft.VisualStudioCode", "mock", "present", "", "Verified installed", "")
+		emitter.EmitItem("Git.Git", "mock", "present", "", "Verified installed", "")
 		emitter.EmitSummary("verify", 2, 2, 0, 0)
 	})
 
@@ -345,18 +348,18 @@ func TestRunApply_EventOrdering_PhaseFirst_SummaryLast(t *testing.T) {
 
 	// Phase 1 — plan
 	emitter.EmitPhase("plan")
-	emitter.EmitItem("Git.Git", "mock", "to_install", driver.ReasonMissing, "Will be installed")
+	emitter.EmitItem("Git.Git", "mock", "to_install", driver.ReasonMissing, "Will be installed", "")
 	emitter.EmitSummary("plan", 1, 0, 0, 1)
 
 	// Phase 2 — apply
 	emitter.EmitPhase("apply")
-	emitter.EmitItem("Git.Git", "mock", "installing", "", "Installing")
-	emitter.EmitItem("Git.Git", "mock", "installed", "", "Done")
+	emitter.EmitItem("Git.Git", "mock", "installing", "", "Installing", "")
+	emitter.EmitItem("Git.Git", "mock", "installed", "", "Done", "")
 	emitter.EmitSummary("apply", 1, 1, 0, 0)
 
 	// Phase 3 — verify
 	emitter.EmitPhase("verify")
-	emitter.EmitItem("Git.Git", "mock", "present", "", "Verified")
+	emitter.EmitItem("Git.Git", "mock", "present", "", "Verified", "")
 	emitter.EmitSummary("verify", 1, 1, 0, 0)
 
 	evts := parseEvents(buf)

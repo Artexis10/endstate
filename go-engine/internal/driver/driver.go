@@ -53,10 +53,12 @@ type Driver interface {
 	// Name returns the stable driver identifier (e.g. "winget").
 	Name() string
 	// Detect reports whether the package identified by ref is currently
-	// installed on the system.  It returns (false, non-nil error) only for
-	// infrastructure failures (e.g. the tool binary is missing); a package
-	// that is simply not installed returns (false, nil).
-	Detect(ref string) (bool, error)
+	// installed on the system.  The second return value is the human-readable
+	// display name extracted from the package manager output (empty string
+	// when unavailable or package is not installed).  It returns a non-nil
+	// error only for infrastructure failures (e.g. the tool binary is
+	// missing); a package that is simply not installed returns (false, "", nil).
+	Detect(ref string) (bool, string, error)
 	// Install attempts to install the package identified by ref.  It never
 	// returns a non-nil error for an expected failure (e.g. package not found);
 	// those cases are encoded in InstallResult.  A non-nil error signals an

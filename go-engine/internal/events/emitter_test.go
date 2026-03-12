@@ -124,7 +124,7 @@ func TestEmitPhaseIsNDJSON(t *testing.T) {
 func TestEmitItem(t *testing.T) {
 	runID := "apply-test"
 	em, buf := captureEmitter(runID)
-	em.EmitItem("Microsoft.VSCode", "winget", "installed", "", "Installed successfully")
+	em.EmitItem("Microsoft.VSCode", "winget", "installed", "", "Installed successfully", "Visual Studio Code")
 
 	line := lastLine(buf)
 	ev := parseEvent(t, line)
@@ -150,9 +150,27 @@ func TestEmitItem(t *testing.T) {
 	}
 }
 
+func TestEmitItem_NameIncludedWhenProvided(t *testing.T) {
+	em, buf := captureEmitter("name-test")
+	em.EmitItem("Microsoft.VSCode", "winget", "present", "", "", "Visual Studio Code")
+	ev := parseEvent(t, lastLine(buf))
+	if ev["name"] != "Visual Studio Code" {
+		t.Errorf("name = %v, want %q", ev["name"], "Visual Studio Code")
+	}
+}
+
+func TestEmitItem_NameOmittedWhenEmpty(t *testing.T) {
+	em, buf := captureEmitter("no-name-test")
+	em.EmitItem("Some.App", "winget", "installed", "", "", "")
+	ev := parseEvent(t, lastLine(buf))
+	if _, ok := ev["name"]; ok {
+		t.Errorf("expected 'name' field to be omitted when empty, but found %v", ev["name"])
+	}
+}
+
 func TestEmitItemWithReason(t *testing.T) {
 	em, buf := captureEmitter("test")
-	em.EmitItem("Pkg.ID", "winget", "skipped", "already_installed", "")
+	em.EmitItem("Pkg.ID", "winget", "skipped", "already_installed", "", "")
 	ev := parseEvent(t, lastLine(buf))
 	if ev["reason"] != "already_installed" {
 		t.Errorf("reason = %v, want %q", ev["reason"], "already_installed")
@@ -281,7 +299,7 @@ func TestDisabledEmitterProducesNoOutput(t *testing.T) {
 	em := NewEmitterWithWriter("test-run", false, buf)
 
 	em.EmitPhase("apply")
-	em.EmitItem("Pkg", "winget", "installed", "", "")
+	em.EmitItem("Pkg", "winget", "installed", "", "", "")
 	em.EmitSummary("apply", 1, 1, 0, 0)
 	em.EmitError("engine", "oops", "")
 	em.EmitArtifact("capture", "manifest", "/path")
@@ -347,7 +365,7 @@ func TestEmitItem_AllValidStatuses(t *testing.T) {
 	for _, status := range statuses {
 		t.Run(status, func(t *testing.T) {
 			em, buf := captureEmitter("status-test")
-			em.EmitItem("App.Id", "winget", status, "", "")
+			em.EmitItem("App.Id", "winget", status, "", "", "")
 			ev := parseEvent(t, lastLine(buf))
 			if ev["status"] != status {
 				t.Errorf("status = %v, want %q", ev["status"], status)
@@ -360,7 +378,7 @@ func TestEmitItem_AllValidStatuses(t *testing.T) {
 // Pester: "Should set reason to null when not provided" (PS uses null, Go uses empty string)
 func TestEmitItem_ReasonAlwaysPresent(t *testing.T) {
 	em, buf := captureEmitter("reason-test")
-	em.EmitItem("App.Id", "winget", "installed", "", "")
+	em.EmitItem("App.Id", "winget", "installed", "", "", "")
 	ev := parseEvent(t, lastLine(buf))
 	if _, ok := ev["reason"]; !ok {
 		t.Error("required field 'reason' missing from item event (should be present even when empty)")
@@ -409,10 +427,10 @@ func TestNDJSONStream_FullApplyPipeline(t *testing.T) {
 	em, buf := captureEmitter("pipeline-test")
 
 	em.EmitPhase("plan")
-	em.EmitItem("App.Id", "winget", "to_install", "", "")
+	em.EmitItem("App.Id", "winget", "to_install", "", "", "")
 	em.EmitPhase("apply")
-	em.EmitItem("App.Id", "winget", "installing", "", "")
-	em.EmitItem("App.Id", "winget", "installed", "", "Installed successfully")
+	em.EmitItem("App.Id", "winget", "installing", "", "", "")
+	em.EmitItem("App.Id", "winget", "installed", "", "Installed successfully", "")
 	em.EmitSummary("apply", 1, 1, 0, 0)
 
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
@@ -454,8 +472,8 @@ func TestNDJSONStream_CapturePipeline(t *testing.T) {
 	em, buf := captureEmitter("capture-pipeline")
 
 	em.EmitPhase("capture")
-	em.EmitItem("Git.Git", "winget", "present", "detected", "Detected")
-	em.EmitItem("MS.VCRedist", "winget", "skipped", "filtered_runtime", "Excluded (runtime)")
+	em.EmitItem("Git.Git", "winget", "present", "detected", "Detected", "Git")
+	em.EmitItem("MS.VCRedist", "winget", "skipped", "filtered_runtime", "Excluded (runtime)", "")
 	em.EmitArtifact("capture", "manifest", `C:\profiles\test.jsonc`)
 	em.EmitSummary("capture", 2, 1, 1, 0)
 
@@ -502,7 +520,7 @@ func TestNDJSONStream_CapturePipeline(t *testing.T) {
 // Pester: "Should include message when provided"
 func TestEmitItem_MessageIncludedWhenProvided(t *testing.T) {
 	em, buf := captureEmitter("msg-test")
-	em.EmitItem("App.Id", "winget", "failed", "", "Connection timeout")
+	em.EmitItem("App.Id", "winget", "failed", "", "Connection timeout", "")
 	ev := parseEvent(t, lastLine(buf))
 	if ev["message"] != "Connection timeout" {
 		t.Errorf("message = %v, want %q", ev["message"], "Connection timeout")
@@ -542,7 +560,7 @@ func TestEmitError_ItemScopeWithID(t *testing.T) {
 // Pester: "Should output single-line JSON (NDJSON format)"
 func TestEmitPhase_SingleLineJSON(t *testing.T) {
 	em, buf := captureEmitter("ndjson-test")
-	em.EmitItem("App.Id", "winget", "installed", "", "")
+	em.EmitItem("App.Id", "winget", "installed", "", "", "")
 	output := buf.String()
 	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
 	nonEmpty := 0
@@ -561,8 +579,8 @@ func TestEmitPhase_SingleLineJSON(t *testing.T) {
 func TestEmitMultipleEvents_SeparateLines(t *testing.T) {
 	em, buf := captureEmitter("multi-test")
 	em.EmitPhase("apply")
-	em.EmitItem("App1", "winget", "installing", "", "")
-	em.EmitItem("App2", "winget", "installed", "", "")
+	em.EmitItem("App1", "winget", "installing", "", "", "")
+	em.EmitItem("App2", "winget", "installed", "", "", "")
 	em.EmitSummary("apply", 2, 2, 0, 0)
 
 	lines := strings.Split(strings.TrimRight(buf.String(), "\n"), "\n")
