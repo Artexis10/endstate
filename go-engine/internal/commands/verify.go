@@ -128,13 +128,13 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			if exists {
 				item.Status = "pass"
 				item.Message = fmt.Sprintf("Verified at %s", expanded)
-				emitter.EmitItem(app.ID, "manual", "present", "", item.Message, "")
+				emitter.EmitItem(app.ID, "manual", "present", "", item.Message, app.DisplayName)
 				passCount++
 			} else {
 				item.Status = "fail"
 				item.Reason = driver.ReasonMissing
 				item.Message = fmt.Sprintf("Missing at %s", expanded)
-				emitter.EmitItem(app.ID, "manual", "failed", driver.ReasonMissing, item.Message, "")
+				emitter.EmitItem(app.ID, "manual", "failed", driver.ReasonMissing, item.Message, app.DisplayName)
 				failCount++
 			}
 			results = append(results, item)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
@@ -142,8 +143,14 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 			if len(matchedModules) > 0 {
 				configModuleMap = make(map[string]string, len(matchedModules))
 				for _, mod := range matchedModules {
-					for _, wingetRef := range mod.Matches.Winget {
-						configModuleMap[wingetRef] = mod.ID
+					if len(mod.Matches.Winget) > 0 {
+						for _, wingetRef := range mod.Matches.Winget {
+							configModuleMap[wingetRef] = mod.ID
+						}
+					} else {
+						// pathExists-only modules: key by short app ID so the GUI can match.
+						shortID := strings.TrimPrefix(mod.ID, "apps.")
+						configModuleMap[shortID] = mod.ID
 					}
 					restoreModulesAvailable = append(restoreModulesAvailable, mod.ID)
 				}
@@ -190,14 +197,14 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				action.Status = "present"
 				action.Reason = driver.ReasonAlreadyInstalled
 				action.Message = fmt.Sprintf("Verified at %s", expanded)
-				emitter.EmitItem(app.ID, "manual", "present", driver.ReasonAlreadyInstalled, action.Message, "")
+				emitter.EmitItem(app.ID, "manual", "present", driver.ReasonAlreadyInstalled, action.Message, app.DisplayName)
 				presentCount++
 			} else {
 				action.Status = "to_install"
 				action.Reason = "manual_required"
 				action.Message = fmt.Sprintf("Not found at %s", expanded)
 				action.Manual = app.Manual
-				emitter.EmitItem(app.ID, "manual", "to_install", "manual_required", action.Message, "")
+				emitter.EmitItem(app.ID, "manual", "to_install", "manual_required", action.Message, app.DisplayName)
 				toInstallCount++
 			}
 
@@ -258,7 +265,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 					// Not present: status "skipped", reason "manual_required".
 					finalActions[i].Status = driver.StatusSkipped
 					finalActions[i].Reason = "manual_required"
-					emitter.EmitItem(entry.app.ID, "manual", "skipped", "manual_required", finalActions[i].Message, "")
+					emitter.EmitItem(entry.app.ID, "manual", "skipped", "manual_required", finalActions[i].Message, entry.app.DisplayName)
 					skippedCount++
 				}
 				continue
@@ -376,10 +383,10 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				// Manual app verify: re-check verifyPath.
 				expanded, exists := checkVerifyPath(entry.app.Manual.VerifyPath)
 				if exists {
-					emitter.EmitItem(entry.app.ID, "manual", "present", "", fmt.Sprintf("Verified at %s", expanded), "")
+					emitter.EmitItem(entry.app.ID, "manual", "present", "", fmt.Sprintf("Verified at %s", expanded), entry.app.DisplayName)
 					verifyPass++
 				} else {
-					emitter.EmitItem(entry.app.ID, "manual", "failed", driver.ReasonMissing, fmt.Sprintf("Missing at %s", expanded), "")
+					emitter.EmitItem(entry.app.ID, "manual", "failed", driver.ReasonMissing, fmt.Sprintf("Missing at %s", expanded), entry.app.DisplayName)
 					verifyFail++
 				}
 				continue
