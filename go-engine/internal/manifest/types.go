@@ -22,11 +22,12 @@ type Manifest struct {
 // App represents a single application entry in the manifest. The Refs map
 // holds platform-specific package identifiers (e.g. "windows": "Vendor.App").
 type App struct {
-	ID      string            `json:"id"`
-	Refs    map[string]string `json:"refs"`
-	Driver  string            `json:"driver,omitempty"`
-	Version string            `json:"version,omitempty"`
-	Manual  *ManualApp        `json:"manual,omitempty"`
+	ID          string            `json:"id"`
+	Refs        map[string]string `json:"refs"`
+	Driver      string            `json:"driver,omitempty"`
+	Version     string            `json:"version,omitempty"`
+	Manual      *ManualApp        `json:"manual,omitempty"`
+	DisplayName string            `json:"displayName,omitempty"`
 }
 
 // ManualApp describes an app that cannot be installed automatically but can be

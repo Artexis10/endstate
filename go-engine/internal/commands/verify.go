@@ -9,11 +9,13 @@ import (
 	"os"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/driver/winget"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/verifier"
 )
 
@@ -88,6 +90,15 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		return nil, envelopeErr
 	}
 
+	// --- 1b. Synthesize manual apps from configModules (non-fatal) ---
+	repoRoot := config.ResolveRepoRoot()
+	if repoRoot != "" {
+		catalog, catalogErr := loadModuleCatalogFn(repoRoot)
+		if catalogErr == nil && len(catalog) > 0 {
+			modules.SynthesizeAppsFromModules(mf, catalog)
+		}
+	}
+
 	// --- 2. Create driver ---
 	d := newDriverFn()
 
@@ -112,6 +123,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item := VerifyItem{
 				Type: "app",
 				ID:   app.ID,
+				Name: app.DisplayName,
 			}
 			if exists {
 				item.Status = "pass"

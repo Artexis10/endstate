@@ -134,6 +134,10 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	if repoRoot != "" {
 		catalog, catalogErr := loadModuleCatalogFn(repoRoot)
 		if catalogErr == nil && len(catalog) > 0 {
+			// Synthesize manual app entries from configModules with pathExists
+			// matchers before the plan loop, so they enter the plan.
+			modules.SynthesizeAppsFromModules(mf, catalog)
+
 			matchedModules := modules.MatchModulesForApps(catalog, mf.Apps)
 			if len(matchedModules) > 0 {
 				configModuleMap = make(map[string]string, len(matchedModules))
@@ -180,6 +184,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 			action.ID = app.ID
 			action.Ref = nil
 			action.Driver = "manual"
+			action.Name = app.DisplayName
 
 			if exists {
 				action.Status = "present"
