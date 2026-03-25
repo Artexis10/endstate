@@ -46,6 +46,11 @@ func loadManifestInternal(absPath string, visited map[string]bool) (*Manifest, e
 		return nil, fmt.Errorf("manifest: JSON parse error in %q: %w", absPath, err)
 	}
 
+	// Validate app-level constraints (e.g. manual.verifyPath required).
+	if errs := ValidateManifestApps(&m); len(errs) > 0 {
+		return nil, fmt.Errorf("manifest: validation error in %q: %s", absPath, errs[0].Message)
+	}
+
 	if len(m.Includes) > 0 {
 		baseDir := filepath.Dir(absPath)
 		if err := resolveIncludes(&m, baseDir, visited); err != nil {

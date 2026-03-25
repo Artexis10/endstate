@@ -5,6 +5,7 @@ package commands
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"time"
 
@@ -99,8 +100,32 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 
 	for _, app := range mf.Apps {
 		ref := resolveWindowsRef(app)
-		if ref == "" {
-			// No Windows ref — nothing to verify; skip silently.
+		isManual := ref == "" && app.Manual != nil && app.Manual.VerifyPath != ""
+
+		if ref == "" && !isManual {
+			// No Windows ref and no manual verifyPath — skip silently.
+			continue
+		}
+
+		if isManual {
+			expanded, exists := checkVerifyPath(app.Manual.VerifyPath)
+			item := VerifyItem{
+				Type: "app",
+				ID:   app.ID,
+			}
+			if exists {
+				item.Status = "pass"
+				item.Message = fmt.Sprintf("Verified at %s", expanded)
+				emitter.EmitItem(app.ID, "manual", "present", "", item.Message, "")
+				passCount++
+			} else {
+				item.Status = "fail"
+				item.Reason = driver.ReasonMissing
+				item.Message = fmt.Sprintf("Missing at %s", expanded)
+				emitter.EmitItem(app.ID, "manual", "failed", driver.ReasonMissing, item.Message, "")
+				failCount++
+			}
+			results = append(results, item)
 			continue
 		}
 

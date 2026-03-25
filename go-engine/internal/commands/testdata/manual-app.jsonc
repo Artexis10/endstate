@@ -1,0 +1,15 @@
+{
+  // Fixture manifest with a manual app (no winget ref).
+  "version": 1,
+  "name": "manual-app-manifest",
+  "apps": [
+    {
+      "id": "adobe-lightroom",
+      "manual": {
+        "verifyPath": "%MANUAL_TEST_DIR%\\lightroom.exe",
+        "launch": "https://example.com/lightroom",
+        "instructions": "Install via Adobe Creative Cloud."
+      }
+    }
+  ]
+}

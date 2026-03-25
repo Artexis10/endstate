@@ -6,9 +6,16 @@
 package planner
 
 import (
+	"os"
+
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
+
+// statFn is the filesystem stat function used for manual app verification.
+// It defaults to os.Stat and can be replaced in tests.
+var statFn = os.Stat
 
 // Plan is the result of computing a manifest against the current system state.
 type Plan struct {
@@ -36,13 +43,39 @@ type PlanSummary struct {
 }
 
 // ComputePlan builds a plan by detecting each app in the manifest using the
-// provided driver. Apps without a resolvable ref are silently skipped.
+// provided driver. Apps without a resolvable ref or manual.verifyPath are
+// silently skipped.
 func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 	var plan Plan
 
 	for _, app := range mf.Apps {
 		ref := resolveRef(app)
-		if ref == "" {
+		isManual := ref == "" && app.Manual != nil && app.Manual.VerifyPath != ""
+
+		if ref == "" && !isManual {
+			continue
+		}
+
+		if isManual {
+			expanded := expandVerifyPath(app.Manual.VerifyPath)
+			_, err := statFn(expanded)
+			exists := err == nil
+
+			action := PlanAction{
+				Type:   "app",
+				ID:     app.ID,
+				Driver: "manual",
+			}
+			if exists {
+				action.CurrentStatus = "present"
+				action.PlannedAction = "skip"
+				plan.Summary.AlreadyPresent++
+			} else {
+				action.CurrentStatus = "missing"
+				action.PlannedAction = "install"
+				plan.Summary.ToInstall++
+			}
+			plan.Actions = append(plan.Actions, action)
 			continue
 		}
 
@@ -71,6 +104,14 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 
 	plan.Summary.Total = len(plan.Actions)
 	return &plan, nil
+}
+
+// expandVerifyPath expands Windows-style %VAR% and Go-style $VAR environment
+// variables in a verify path.
+func expandVerifyPath(p string) string {
+	expanded := config.ExpandWindowsEnvVars(p)
+	expanded = os.ExpandEnv(expanded)
+	return expanded
 }
 
 // resolveRef returns the platform-specific package ref for an app. It prefers

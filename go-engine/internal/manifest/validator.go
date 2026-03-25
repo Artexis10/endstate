@@ -5,6 +5,7 @@ package manifest
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -107,6 +108,36 @@ func ValidateProfile(path string) *ValidationResult {
 		}
 	}
 
+	// 8. Validate app-level constraints (manual.verifyPath required when manual present).
+	if hasApps {
+		var apps []App
+		if err := json.Unmarshal(appsRaw, &apps); err == nil {
+			for _, app := range apps {
+				if app.Manual != nil && app.Manual.VerifyPath == "" {
+					res.Errors = append(res.Errors, ValidationError{
+						Code:    "MANUAL_MISSING_VERIFY_PATH",
+						Message: fmt.Sprintf(`app %q: "manual.verifyPath" is required when "manual" is present`, app.ID),
+					})
+				}
+			}
+		}
+	}
+
 	res.Valid = len(res.Errors) == 0
 	return res
+}
+
+// ValidateManifestApps checks app-level constraints on a parsed manifest.
+// Returns validation errors for apps with manual blocks missing verifyPath.
+func ValidateManifestApps(m *Manifest) []ValidationError {
+	var errs []ValidationError
+	for _, app := range m.Apps {
+		if app.Manual != nil && app.Manual.VerifyPath == "" {
+			errs = append(errs, ValidationError{
+				Code:    "MANUAL_MISSING_VERIFY_PATH",
+				Message: fmt.Sprintf(`app %q: "manual.verifyPath" is required when "manual" is present`, app.ID),
+			})
+		}
+	}
+	return errs
 }

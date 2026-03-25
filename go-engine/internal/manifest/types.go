@@ -26,6 +26,16 @@ type App struct {
 	Refs    map[string]string `json:"refs"`
 	Driver  string            `json:"driver,omitempty"`
 	Version string            `json:"version,omitempty"`
+	Manual  *ManualApp        `json:"manual,omitempty"`
+}
+
+// ManualApp describes an app that cannot be installed automatically but can be
+// verified as present via a filesystem path check.
+type ManualApp struct {
+	VerifyPath   string `json:"verifyPath"`
+	Launch       string `json:"launch,omitempty"`
+	Instructions string `json:"instructions,omitempty"`
+	Fallback     string `json:"fallback,omitempty"`
 }
 
 // RestoreEntry describes a single configuration restore operation.

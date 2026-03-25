@@ -1,0 +1,21 @@
+{
+  // Fixture manifest with both winget and manual apps.
+  "version": 1,
+  "name": "mixed-manifest",
+  "apps": [
+    {
+      "id": "vscode",
+      "refs": {
+        "windows": "Microsoft.VisualStudioCode"
+      }
+    },
+    {
+      "id": "adobe-lightroom",
+      "manual": {
+        "verifyPath": "%MANUAL_TEST_DIR%\\lightroom.exe",
+        "launch": "https://example.com/lightroom",
+        "instructions": "Install via Adobe Creative Cloud."
+      }
+    }
+  ]
+}

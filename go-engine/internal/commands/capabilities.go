@@ -42,6 +42,7 @@ type FeaturesInfo struct {
 	ParallelInstall bool `json:"parallelInstall"`
 	ConfigModules   bool `json:"configModules"`
 	JSONOutput      bool `json:"jsonOutput"`
+	ManualApps      bool `json:"manualApps"`
 }
 
 // PlatformInfo describes the host operating system and available package manager
@@ -119,6 +120,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			ParallelInstall: true,
 			ConfigModules:   true,
 			JSONOutput:      true,
+			ManualApps:      true,
 		},
 		Platform: PlatformInfo{
 			OS:      "windows",

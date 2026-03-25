@@ -6,6 +6,7 @@ package commands
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -270,7 +271,7 @@ func TestRunApply_DryRun_ReturnsDryRunTrue(t *testing.T) {
 	}
 	for _, action := range result.Actions {
 		if action.Status != "to_install" {
-			t.Errorf("expected status=to_install for %q in dry-run, got %q", action.Ref, action.Status)
+			t.Errorf("expected status=to_install for %v in dry-run, got %q", action.Ref, action.Status)
 		}
 	}
 }
@@ -298,7 +299,7 @@ func TestRunApply_AllPresent_SkipsInstall(t *testing.T) {
 	// Both apps are already present; no installs should have been executed.
 	for _, action := range result.Actions {
 		if action.Status != "present" {
-			t.Errorf("expected status=present for already-installed app %q, got %q", action.Ref, action.Status)
+			t.Errorf("expected status=present for already-installed app %v, got %q", action.Ref, action.Status)
 		}
 	}
 	// Summary: nothing to install → success=0, skipped=2 (the two present apps), failed=0.
@@ -769,5 +770,284 @@ func TestRunCapabilities_CommandFlagsPresent(t *testing.T) {
 	}
 	if !hasJSON {
 		t.Error("verify command should have --json flag")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Manual app tests
+// ---------------------------------------------------------------------------
+
+// TestRunApply_ManualApp_Present verifies that a manual app with existing
+// verifyPath reports present/already_installed.
+func TestRunApply_ManualApp_Present(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "lightroom.exe"), []byte("fake"), 0644)
+	t.Setenv("MANUAL_TEST_DIR", tmpDir)
+
+	md := &mockDriver{}
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		r, err := RunApply(ApplyFlags{
+			Manifest: fixtureManifest("manual-app.jsonc"),
+		})
+		if err != nil {
+			t.Fatalf("RunApply returned unexpected error: %v", err)
+		}
+		result = r.(*ApplyResult)
+	})
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(result.Actions))
+	}
+	action := result.Actions[0]
+	if action.Driver != "manual" {
+		t.Errorf("expected driver=manual, got %q", action.Driver)
+	}
+	if action.Ref != nil {
+		t.Errorf("expected ref=nil for manual app, got %v", action.Ref)
+	}
+	if action.Manual != nil {
+		t.Errorf("expected manual=nil for present manual app, got non-nil")
+	}
+	if result.Summary.Success != 1 {
+		t.Errorf("expected success=1 for present manual app, got %d", result.Summary.Success)
+	}
+}
+
+// TestRunApply_ManualApp_Missing verifies that a manual app with non-existing
+// verifyPath reports skipped/manual_required and includes the manual object.
+func TestRunApply_ManualApp_Missing(t *testing.T) {
+	t.Setenv("MANUAL_TEST_DIR", "/nonexistent/dir")
+
+	md := &mockDriver{}
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		r, err := RunApply(ApplyFlags{
+			Manifest: fixtureManifest("manual-app.jsonc"),
+		})
+		if err != nil {
+			t.Fatalf("RunApply returned unexpected error: %v", err)
+		}
+		result = r.(*ApplyResult)
+	})
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(result.Actions))
+	}
+	action := result.Actions[0]
+	if action.Status != "skipped" {
+		t.Errorf("expected status=skipped, got %q", action.Status)
+	}
+	if action.Reason != "manual_required" {
+		t.Errorf("expected reason=manual_required, got %q", action.Reason)
+	}
+	if action.Manual == nil {
+		t.Fatal("expected manual object in response for missing manual app")
+	}
+	if action.Manual.Launch != "https://example.com/lightroom" {
+		t.Errorf("expected manual.launch to be preserved, got %q", action.Manual.Launch)
+	}
+	if result.Summary.Skipped != 1 {
+		t.Errorf("expected skipped=1, got %d", result.Summary.Skipped)
+	}
+}
+
+// TestRunApply_DryRun_ManualApp verifies that manual apps appear in dry-run
+// with driver: "manual".
+func TestRunApply_DryRun_ManualApp(t *testing.T) {
+	t.Setenv("MANUAL_TEST_DIR", "/nonexistent/dir")
+
+	md := &mockDriver{}
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		r, err := RunApply(ApplyFlags{
+			Manifest: fixtureManifest("manual-app.jsonc"),
+			DryRun:   true,
+		})
+		if err != nil {
+			t.Fatalf("RunApply returned unexpected error: %v", err)
+		}
+		result = r.(*ApplyResult)
+	})
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(result.Actions))
+	}
+	if result.Actions[0].Driver != "manual" {
+		t.Errorf("expected driver=manual in dry-run, got %q", result.Actions[0].Driver)
+	}
+	if result.Actions[0].Status != "to_install" {
+		t.Errorf("expected status=to_install in dry-run, got %q", result.Actions[0].Status)
+	}
+}
+
+// TestRunApply_DualDriver_WingetPrecedence verifies that an app with both
+// refs.windows and manual uses the winget driver.
+func TestRunApply_DualDriver_WingetPrecedence(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{"Vendor.DualApp": true}}
+
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		r, err := RunApply(ApplyFlags{
+			Manifest: fixtureManifest("dual-driver.jsonc"),
+		})
+		if err != nil {
+			t.Fatalf("RunApply returned unexpected error: %v", err)
+		}
+		result = r.(*ApplyResult)
+	})
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(result.Actions))
+	}
+	if result.Actions[0].Driver != "mock" {
+		t.Errorf("expected driver=mock (winget), got %q", result.Actions[0].Driver)
+	}
+	if result.Actions[0].Ref == nil || *result.Actions[0].Ref != "Vendor.DualApp" {
+		t.Errorf("expected ref=Vendor.DualApp, got %v", result.Actions[0].Ref)
+	}
+}
+
+// TestRunVerify_ManualApp_Present verifies that verify reports pass for a
+// manual app whose verifyPath exists.
+func TestRunVerify_ManualApp_Present(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "lightroom.exe"), []byte("fake"), 0644)
+	t.Setenv("MANUAL_TEST_DIR", tmpDir)
+
+	md := &mockDriver{}
+	withMockDriver(md, func() {
+		r, err := RunVerify(VerifyFlags{Manifest: fixtureManifest("manual-app.jsonc")})
+		if err != nil {
+			t.Fatalf("RunVerify returned unexpected error: %v", err)
+		}
+		vr := r.(*VerifyResult)
+		if vr.Summary.Pass != 1 {
+			t.Errorf("expected pass=1, got %d", vr.Summary.Pass)
+		}
+		if vr.Summary.Fail != 0 {
+			t.Errorf("expected fail=0, got %d", vr.Summary.Fail)
+		}
+		if len(vr.Results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(vr.Results))
+		}
+		if vr.Results[0].Status != "pass" {
+			t.Errorf("expected status=pass, got %q", vr.Results[0].Status)
+		}
+	})
+}
+
+// TestRunVerify_ManualApp_Missing verifies that verify reports fail/missing
+// for a manual app whose verifyPath does not exist.
+func TestRunVerify_ManualApp_Missing(t *testing.T) {
+	t.Setenv("MANUAL_TEST_DIR", "/nonexistent/dir")
+
+	md := &mockDriver{}
+	withMockDriver(md, func() {
+		r, err := RunVerify(VerifyFlags{Manifest: fixtureManifest("manual-app.jsonc")})
+		if err != nil {
+			t.Fatalf("RunVerify returned unexpected error: %v", err)
+		}
+		vr := r.(*VerifyResult)
+		if vr.Summary.Pass != 0 {
+			t.Errorf("expected pass=0, got %d", vr.Summary.Pass)
+		}
+		if vr.Summary.Fail != 1 {
+			t.Errorf("expected fail=1, got %d", vr.Summary.Fail)
+		}
+		if len(vr.Results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(vr.Results))
+		}
+		if vr.Results[0].Status != "fail" {
+			t.Errorf("expected status=fail, got %q", vr.Results[0].Status)
+		}
+		if vr.Results[0].Reason != "missing" {
+			t.Errorf("expected reason=missing, got %q", vr.Results[0].Reason)
+		}
+	})
+}
+
+// TestRunApply_ManualValidation_MissingVerifyPath verifies that a manifest
+// with manual but no verifyPath returns a parse error.
+func TestRunApply_ManualValidation_MissingVerifyPath(t *testing.T) {
+	md := &mockDriver{}
+	withMockDriver(md, func() {
+		_, err := RunApply(ApplyFlags{Manifest: fixtureManifest("manual-no-verifypath.jsonc")})
+		if err == nil {
+			t.Fatal("expected envelope error for manual without verifyPath, got nil")
+		}
+		if string(err.Code) != "MANIFEST_PARSE_ERROR" {
+			t.Errorf("expected MANIFEST_PARSE_ERROR, got %q", err.Code)
+		}
+	})
+}
+
+// TestRunCapabilities_ManualAppsFeature verifies that the capabilities
+// response includes manualApps: true.
+func TestRunCapabilities_ManualAppsFeature(t *testing.T) {
+	result, _ := RunCapabilities()
+	data := result.(CapabilitiesData)
+	if !data.Features.ManualApps {
+		t.Error("expected features.manualApps=true")
+	}
+}
+
+// TestRunApply_ManualApp_EnvExpansion verifies that %VAR% env vars in
+// verifyPath are expanded correctly.
+func TestRunApply_ManualApp_EnvExpansion(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "lightroom.exe"), []byte("fake"), 0644)
+	t.Setenv("MANUAL_TEST_DIR", tmpDir)
+
+	md := &mockDriver{}
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		r, err := RunApply(ApplyFlags{
+			Manifest: fixtureManifest("manual-app.jsonc"),
+			DryRun:   true,
+		})
+		if err != nil {
+			t.Fatalf("RunApply returned unexpected error: %v", err)
+		}
+		result = r.(*ApplyResult)
+	})
+
+	if len(result.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(result.Actions))
+	}
+	// With the env var set to a valid dir containing lightroom.exe, the app should be present.
+	if result.Actions[0].Status != "present" {
+		t.Errorf("expected status=present after env expansion, got %q", result.Actions[0].Status)
+	}
+}
+
+// TestRunApply_ManualApp_SummaryCount verifies summary counting for manual apps:
+// present → success, missing → skipped.
+func TestRunApply_ManualApp_SummaryCount(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(filepath.Join(tmpDir, "lightroom.exe"), []byte("fake"), 0644)
+	t.Setenv("MANUAL_TEST_DIR", tmpDir)
+
+	md := &mockDriver{installed: map[string]bool{"Microsoft.VisualStudioCode": true}}
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		r, err := RunApply(ApplyFlags{
+			Manifest: fixtureManifest("manual-and-winget.jsonc"),
+		})
+		if err != nil {
+			t.Fatalf("RunApply returned unexpected error: %v", err)
+		}
+		result = r.(*ApplyResult)
+	})
+
+	// vscode (present winget) → skipped, lightroom (present manual) → success
+	if result.Summary.Total != 2 {
+		t.Errorf("expected total=2, got %d", result.Summary.Total)
+	}
+	if result.Summary.Success != 1 {
+		t.Errorf("expected success=1 (manual present), got %d", result.Summary.Success)
+	}
+	if result.Summary.Skipped != 1 {
+		t.Errorf("expected skipped=1 (winget already present), got %d", result.Summary.Skipped)
 	}
 }

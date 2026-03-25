@@ -5,6 +5,7 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
@@ -15,6 +16,25 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
+
+// stringPtr returns a pointer to s.
+func stringPtr(s string) *string { return &s }
+
+// expandVerifyPath expands Windows-style %VAR% and Go-style $VAR environment
+// variables in a verify path. Uses the same expansion as the restore module.
+func expandVerifyPath(p string) string {
+	expanded := config.ExpandWindowsEnvVars(p)
+	expanded = os.ExpandEnv(expanded)
+	return expanded
+}
+
+// checkVerifyPath expands environment variables in verifyPath and checks if
+// the resulting filesystem path exists.
+func checkVerifyPath(verifyPath string) (expanded string, exists bool) {
+	expanded = expandVerifyPath(verifyPath)
+	_, err := os.Stat(expanded)
+	return expanded, err == nil
+}
 
 // ApplyFlags holds the parsed CLI flags for the apply command.
 type ApplyFlags struct {
@@ -61,12 +81,14 @@ type ApplySummary struct {
 
 // ApplyAction records the planned or executed action for a single app entry.
 type ApplyAction struct {
-	ID     string `json:"id"`
-	Ref    string `json:"ref"`
-	Driver string `json:"driver"`
-	Name   string `json:"name,omitempty"`
-	Status string `json:"status"`
-	Reason string `json:"reason,omitempty"`
+	ID      string           `json:"id"`
+	Ref     *string          `json:"ref"`
+	Driver  string           `json:"driver"`
+	Name    string           `json:"name,omitempty"`
+	Status  string           `json:"status"`
+	Reason  string           `json:"reason,omitempty"`
+	Message string           `json:"message,omitempty"`
+	Manual  *manifest.ManualApp `json:"manual"`
 }
 
 // RunApply executes the apply command with the provided flags.
@@ -133,6 +155,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	type appPlan struct {
 		app         manifest.App
 		ref         string
+		isManual    bool
 		action      ApplyAction
 		displayName string
 	}
@@ -143,15 +166,46 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 
 	for _, app := range mf.Apps {
 		ref := resolveWindowsRef(app)
-		if ref == "" {
+		isManual := ref == "" && app.Manual != nil && app.Manual.VerifyPath != ""
+
+		if ref == "" && !isManual {
 			continue
 		}
 
+		if isManual {
+			// Manual app: check verifyPath existence.
+			expanded, exists := checkVerifyPath(app.Manual.VerifyPath)
+
+			var action ApplyAction
+			action.ID = app.ID
+			action.Ref = nil
+			action.Driver = "manual"
+
+			if exists {
+				action.Status = "present"
+				action.Reason = driver.ReasonAlreadyInstalled
+				action.Message = fmt.Sprintf("Verified at %s", expanded)
+				emitter.EmitItem(app.ID, "manual", "present", driver.ReasonAlreadyInstalled, action.Message, "")
+				presentCount++
+			} else {
+				action.Status = "to_install"
+				action.Reason = "manual_required"
+				action.Message = fmt.Sprintf("Not found at %s", expanded)
+				action.Manual = app.Manual
+				emitter.EmitItem(app.ID, "manual", "to_install", "manual_required", action.Message, "")
+				toInstallCount++
+			}
+
+			planEntries = append(planEntries, appPlan{app: app, ref: "", isManual: true, action: action})
+			continue
+		}
+
+		// Winget app: detect via driver.
 		installed, displayName, _ := d.Detect(ref)
 
 		var action ApplyAction
 		action.ID = app.ID
-		action.Ref = ref
+		action.Ref = stringPtr(ref)
 		action.Driver = d.Name()
 		action.Name = displayName
 
@@ -191,6 +245,20 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		emitter.EmitPhase("apply")
 
 		for i, entry := range planEntries {
+			if entry.isManual {
+				// Manual apps: re-check verifyPath during apply.
+				if entry.action.Status == "present" {
+					successCount++
+				} else {
+					// Not present: status "skipped", reason "manual_required".
+					finalActions[i].Status = driver.StatusSkipped
+					finalActions[i].Reason = "manual_required"
+					emitter.EmitItem(entry.app.ID, "manual", "skipped", "manual_required", finalActions[i].Message, "")
+					skippedCount++
+				}
+				continue
+			}
+
 			if entry.action.Status != "to_install" {
 				// Already present: counts as skipped in the apply phase.
 				skippedCount++
@@ -299,6 +367,19 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		verifyFail := 0
 
 		for i, entry := range planEntries {
+			if entry.isManual {
+				// Manual app verify: re-check verifyPath.
+				expanded, exists := checkVerifyPath(entry.app.Manual.VerifyPath)
+				if exists {
+					emitter.EmitItem(entry.app.ID, "manual", "present", "", fmt.Sprintf("Verified at %s", expanded), "")
+					verifyPass++
+				} else {
+					emitter.EmitItem(entry.app.ID, "manual", "failed", driver.ReasonMissing, fmt.Sprintf("Missing at %s", expanded), "")
+					verifyFail++
+				}
+				continue
+			}
+
 			detected, verifyName, _ := d.Detect(entry.ref)
 			if detected {
 				emitter.EmitItem(entry.ref, d.Name(), "present", "", "Verified installed", verifyName)

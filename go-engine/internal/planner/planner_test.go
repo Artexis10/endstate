@@ -4,6 +4,7 @@
 package planner
 
 import (
+	"os"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
@@ -465,5 +466,172 @@ func TestComputePlan_WindowsRefPreferred(t *testing.T) {
 	}
 	if plan.Actions[0].Ref != "Win.App" {
 		t.Errorf("expected ref=%q (windows preferred), got %q", "Win.App", plan.Actions[0].Ref)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Manual app tests
+// ---------------------------------------------------------------------------
+
+// TestComputePlan_ManualAppIncluded verifies that an app with manual.verifyPath
+// but no refs.windows enters the plan.
+func TestComputePlan_ManualAppIncluded(t *testing.T) {
+	// Create a temp file to simulate the verifyPath existing.
+	tmpDir := t.TempDir()
+	tmpFile := tmpDir + "/app.exe"
+	os.WriteFile(tmpFile, []byte("fake"), 0644)
+
+	drv := &testDriver{installed: map[string]bool{}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{
+				ID: "manual-app",
+				Manual: &manifest.ManualApp{
+					VerifyPath: tmpFile,
+				},
+			},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	if len(plan.Actions) != 1 {
+		t.Fatalf("expected 1 action for manual app, got %d", len(plan.Actions))
+	}
+	if plan.Actions[0].Driver != "manual" {
+		t.Errorf("expected driver=manual, got %q", plan.Actions[0].Driver)
+	}
+	if plan.Actions[0].CurrentStatus != "present" {
+		t.Errorf("expected currentStatus=present (file exists), got %q", plan.Actions[0].CurrentStatus)
+	}
+	if plan.Summary.AlreadyPresent != 1 {
+		t.Errorf("expected alreadyPresent=1, got %d", plan.Summary.AlreadyPresent)
+	}
+}
+
+// TestComputePlan_ManualAppMissing verifies that a manual app with a non-existent
+// verifyPath shows as missing/install in the plan.
+func TestComputePlan_ManualAppMissing(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{
+				ID: "manual-missing",
+				Manual: &manifest.ManualApp{
+					VerifyPath: "/nonexistent/path/app.exe",
+				},
+			},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	if len(plan.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(plan.Actions))
+	}
+	if plan.Actions[0].CurrentStatus != "missing" {
+		t.Errorf("expected currentStatus=missing, got %q", plan.Actions[0].CurrentStatus)
+	}
+	if plan.Actions[0].PlannedAction != "install" {
+		t.Errorf("expected plannedAction=install, got %q", plan.Actions[0].PlannedAction)
+	}
+	if plan.Summary.ToInstall != 1 {
+		t.Errorf("expected toInstall=1, got %d", plan.Summary.ToInstall)
+	}
+}
+
+// TestComputePlan_NoRefNoManual verifies that an app with neither refs nor
+// manual is excluded from the plan.
+func TestComputePlan_NoRefNoManual(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{ID: "excluded-app", Refs: map[string]string{}},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	if len(plan.Actions) != 0 {
+		t.Errorf("expected 0 actions for app with no ref and no manual, got %d", len(plan.Actions))
+	}
+}
+
+// TestComputePlan_DualDriver verifies that an app with both refs.windows and
+// manual uses the winget driver (refs.windows takes precedence).
+func TestComputePlan_DualDriver(t *testing.T) {
+	drv := &testDriver{installed: map[string]bool{"Vendor.DualApp": true}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{
+				ID:   "dual-app",
+				Refs: map[string]string{"windows": "Vendor.DualApp"},
+				Manual: &manifest.ManualApp{
+					VerifyPath: "/some/path/app.exe",
+				},
+			},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	if len(plan.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(plan.Actions))
+	}
+	if plan.Actions[0].Driver != "test" {
+		t.Errorf("expected driver=test (winget), got %q", plan.Actions[0].Driver)
+	}
+	if plan.Actions[0].Ref != "Vendor.DualApp" {
+		t.Errorf("expected ref=Vendor.DualApp, got %q", plan.Actions[0].Ref)
+	}
+}
+
+// TestComputePlan_ManualEnvExpansion verifies that environment variables in
+// verifyPath are expanded correctly.
+func TestComputePlan_ManualEnvExpansion(t *testing.T) {
+	tmpDir := t.TempDir()
+	os.WriteFile(tmpDir+"/expanded.exe", []byte("fake"), 0644)
+
+	t.Setenv("ENDSTATE_MANUAL_TEST_DIR", tmpDir)
+
+	drv := &testDriver{installed: map[string]bool{}}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{
+				ID: "env-manual",
+				Manual: &manifest.ManualApp{
+					VerifyPath: "%ENDSTATE_MANUAL_TEST_DIR%\\expanded.exe",
+				},
+			},
+		},
+	}
+
+	plan, err := ComputePlan(mf, drv)
+	if err != nil {
+		t.Fatalf("ComputePlan failed: %v", err)
+	}
+
+	if len(plan.Actions) != 1 {
+		t.Fatalf("expected 1 action, got %d", len(plan.Actions))
+	}
+	if plan.Actions[0].CurrentStatus != "present" {
+		t.Errorf("expected currentStatus=present after env expansion, got %q", plan.Actions[0].CurrentStatus)
 	}
 }

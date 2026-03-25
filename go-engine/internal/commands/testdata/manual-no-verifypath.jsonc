@@ -1,0 +1,13 @@
+{
+  // Fixture: invalid — manual without verifyPath.
+  "version": 1,
+  "name": "invalid-manual-manifest",
+  "apps": [
+    {
+      "id": "bad-manual-app",
+      "manual": {
+        "launch": "https://example.com/something"
+      }
+    }
+  ]
+}
