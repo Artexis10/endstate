@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -174,14 +173,22 @@ func defaultExecCommandWithFile(outFile string, name string, args ...string) err
 // winget-sourced packages and excludes Microsoft Store apps, matching the
 // behaviour of the PowerShell reference implementation.
 func WingetExport() ([]SnapshotApp, error) {
-	// Create a temp file for winget to write into.
-	tmpDir := os.TempDir()
-	tmpFile := filepath.Join(tmpDir, fmt.Sprintf("endstate-winget-export-%d.json", os.Getpid()))
+	// Create a temp file atomically so the path definitely exists before
+	// winget writes to it. Using os.CreateTemp avoids issues where
+	// os.TempDir() resolves to a different or unwritable path (e.g. when
+	// spawned as a Tauri sidecar).
+	f, createErr := os.CreateTemp("", "endstate-winget-export-*.json")
+	if createErr != nil {
+		return nil, fmt.Errorf("creating temp file for winget export: %w", createErr)
+	}
+	tmpFile := f.Name()
+	f.Close()
 	defer os.Remove(tmpFile) //nolint:errcheck
 
 	err := ExecCommandWithFile(tmpFile, "winget", "export",
 		"--source", "winget",
 		"--accept-source-agreements",
+		"--disable-interactivity",
 		"-o", tmpFile)
 	if err != nil {
 		var execErr *exec.Error
