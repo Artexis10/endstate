@@ -93,6 +93,11 @@ type CaptureManifest struct {
 	Path string `json:"path"`
 }
 
+// snapshotRetryDelay is the pause before retrying a snapshot when the first
+// attempt returns zero packages (winget lock contention). Tests override this
+// to avoid slow sleeps.
+var snapshotRetryDelay = 2 * time.Second
+
 // takeSnapshotFn is the function used to enumerate winget-managed packages. It
 // defaults to snapshot.WingetExport (authoritative list via `winget export`)
 // and can be replaced in tests to inject fake data.
@@ -202,6 +207,27 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	}
 
 	snapshotApps := snapRes.apps
+
+	// Guard: winget sometimes returns empty results due to database lock
+	// contention. Retry once after a brief pause before failing.
+	if len(snapshotApps) == 0 {
+		fmt.Fprintf(os.Stderr, "Warning: winget returned 0 packages, retrying after %v...\n", snapshotRetryDelay)
+		time.Sleep(snapshotRetryDelay)
+		retryApps, retryErr := takeSnapshotFn()
+		if retryErr == nil && len(retryApps) > 0 {
+			snapshotApps = retryApps
+		}
+	}
+
+	// If still empty after retry, fail explicitly. A machine with winget
+	// should always have at least a few packages. Discover mode is exempt
+	// because it may legitimately find nothing on a fresh machine.
+	if len(snapshotApps) == 0 && !flags.Discover {
+		return nil, envelope.NewError(
+			envelope.ErrCaptureFailed,
+			"Winget returned no packages after retry. This usually means another winget operation is still running.",
+		).WithRemediation("Wait a few seconds and try again. Run 'winget list' in a terminal to verify winget is working.")
+	}
 
 	// Display name map — failure is non-fatal.
 	displayNameMap := make(map[string]string)

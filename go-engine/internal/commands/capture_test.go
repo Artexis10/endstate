@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
@@ -90,6 +91,38 @@ func noopDisplayNames(f func()) {
 // Tests that don't care about module matching use this.
 func emptyCatalog(f func()) {
 	withMockCatalog(map[string]*modules.Module{}, nil, f)
+}
+
+// snapshotCall describes one return value for withMockSnapshotSequence.
+type snapshotCall struct {
+	apps []snapshot.SnapshotApp
+	err  error
+}
+
+// withMockSnapshotSequence replaces takeSnapshotFn with one that returns
+// successive results from calls. If more calls are made than entries, the last
+// entry is repeated.
+func withMockSnapshotSequence(calls []snapshotCall, f func()) {
+	orig := takeSnapshotFn
+	callIdx := 0
+	takeSnapshotFn = func() ([]snapshot.SnapshotApp, error) {
+		idx := callIdx
+		if idx >= len(calls) {
+			idx = len(calls) - 1
+		}
+		callIdx++
+		return calls[idx].apps, calls[idx].err
+	}
+	defer func() { takeSnapshotFn = orig }()
+	f()
+}
+
+// withRetryDelay overrides snapshotRetryDelay for the duration of f.
+func withRetryDelay(d time.Duration, f func()) {
+	orig := snapshotRetryDelay
+	snapshotRetryDelay = d
+	defer func() { snapshotRetryDelay = orig }()
+	f()
 }
 
 // ---------------------------------------------------------------------------
@@ -451,36 +484,20 @@ func TestRunCapture_SnapshotError_ReturnsCaptureFailedError(t *testing.T) {
 	})
 }
 
-func TestRunCapture_EmptySnapshot_WritesEmptyAppsArray(t *testing.T) {
-	tmpDir := t.TempDir()
-	outPath := filepath.Join(tmpDir, "test-empty.jsonc")
-
-	var result *CaptureResult
-	withMockSnapshot([]snapshot.SnapshotApp{}, nil, func() {
-		noopDisplayNames(func() {
-			emptyCatalog(func() {
-				r, err := RunCapture(CaptureFlags{Out: outPath})
-				if err != nil {
-					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+func TestRunCapture_EmptySnapshot_FailsAfterRetry(t *testing.T) {
+	withRetryDelay(0, func() {
+		withMockSnapshot([]snapshot.SnapshotApp{}, nil, func() {
+			noopDisplayNames(func() {
+				_, err := RunCapture(CaptureFlags{Out: "test-empty.jsonc"})
+				if err == nil {
+					t.Fatal("expected CAPTURE_FAILED when snapshot returns 0 apps after retry")
 				}
-				result = r.(*CaptureResult)
+				if string(err.Code) != "CAPTURE_FAILED" {
+					t.Errorf("expected code CAPTURE_FAILED, got %q", err.Code)
+				}
 			})
 		})
 	})
-
-	if result.Counts.Included != 0 {
-		t.Errorf("expected Counts.Included=0, got %d", result.Counts.Included)
-	}
-
-	// Verify file exists and contains valid JSON.
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
-	var mf map[string]interface{}
-	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
-		t.Fatalf("output is not valid JSON: %v", jsonErr)
-	}
 }
 
 func TestRunCapture_NameFlag_SetsManifestName(t *testing.T) {
@@ -1525,13 +1542,17 @@ func TestRunCapture_ManifestNeverEmptyObject(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "test-never-empty.jsonc")
 
-	withMockSnapshot([]snapshot.SnapshotApp{}, nil, func() {
-		noopDisplayNames(func() {
-			emptyCatalog(func() {
-				_, err := RunCapture(CaptureFlags{Out: outPath})
-				if err != nil {
-					t.Fatalf("RunCapture returned unexpected error: %+v", err)
-				}
+	// Discover mode allows an empty snapshot (fresh machine) — use it here
+	// since this test verifies manifest structure, not the empty-guard.
+	withRetryDelay(0, func() {
+		withMockSnapshot([]snapshot.SnapshotApp{}, nil, func() {
+			noopDisplayNames(func() {
+				emptyCatalog(func() {
+					_, err := RunCapture(CaptureFlags{Out: outPath, Discover: true})
+					if err != nil {
+						t.Fatalf("RunCapture returned unexpected error: %+v", err)
+					}
+				})
 			})
 		})
 	})
@@ -1560,4 +1581,117 @@ func TestRunCapture_ManifestNeverEmptyObject(t *testing.T) {
 	if _, ok := mf["apps"]; !ok {
 		t.Error("expected manifest to contain 'apps' field")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Empty snapshot retry (winget lock contention guard)
+// ---------------------------------------------------------------------------
+
+func TestRunCapture_EmptySnapshot_RetriesAndSucceeds(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-retry-success.jsonc")
+
+	calls := []snapshotCall{
+		{apps: []snapshot.SnapshotApp{}, err: nil}, // first call: empty (lock contention)
+		{apps: sampleApps(), err: nil},              // retry: success
+	}
+
+	var result *CaptureResult
+	withRetryDelay(0, func() {
+		withMockSnapshotSequence(calls, func() {
+			noopDisplayNames(func() {
+				emptyCatalog(func() {
+					r, err := RunCapture(CaptureFlags{Out: outPath})
+					if err != nil {
+						t.Fatalf("RunCapture should succeed after retry: %+v", err)
+					}
+					result = r.(*CaptureResult)
+				})
+			})
+		})
+	})
+
+	if result.Counts.Included != 3 {
+		t.Errorf("expected 3 included after retry, got %d", result.Counts.Included)
+	}
+	if result.Counts.TotalFound != 3 {
+		t.Errorf("expected totalFound=3 after retry, got %d", result.Counts.TotalFound)
+	}
+}
+
+func TestRunCapture_EmptySnapshot_RetryAlsoEmpty_FailsWithCaptureFailed(t *testing.T) {
+	calls := []snapshotCall{
+		{apps: []snapshot.SnapshotApp{}, err: nil},
+		{apps: []snapshot.SnapshotApp{}, err: nil},
+	}
+
+	withRetryDelay(0, func() {
+		withMockSnapshotSequence(calls, func() {
+			noopDisplayNames(func() {
+				_, err := RunCapture(CaptureFlags{Out: "test.jsonc"})
+				if err == nil {
+					t.Fatal("expected CAPTURE_FAILED when retry also returns 0 apps")
+				}
+				if string(err.Code) != "CAPTURE_FAILED" {
+					t.Errorf("expected code CAPTURE_FAILED, got %q", err.Code)
+				}
+				if !strings.Contains(err.Message, "no packages after retry") {
+					t.Errorf("expected message about retry, got %q", err.Message)
+				}
+			})
+		})
+	})
+}
+
+func TestRunCapture_NormalCapture_NoRetry(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-no-retry.jsonc")
+
+	callCount := 0
+	orig := takeSnapshotFn
+	takeSnapshotFn = func() ([]snapshot.SnapshotApp, error) {
+		callCount++
+		return sampleApps(), nil
+	}
+	defer func() { takeSnapshotFn = orig }()
+
+	withRetryDelay(0, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				_, err := RunCapture(CaptureFlags{Out: outPath})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+			})
+		})
+	})
+
+	if callCount != 1 {
+		t.Errorf("expected takeSnapshotFn called once (no retry), got %d", callCount)
+	}
+}
+
+func TestRunCapture_Discover_EmptySnapshot_Succeeds(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-discover-empty.jsonc")
+
+	withRetryDelay(0, func() {
+		withMockSnapshot([]snapshot.SnapshotApp{}, nil, func() {
+			noopDisplayNames(func() {
+				emptyCatalog(func() {
+					r, err := RunCapture(CaptureFlags{
+						Out:      outPath,
+						Discover: true,
+					})
+					if err != nil {
+						t.Fatalf("Discover mode should allow empty snapshot: %+v", err)
+					}
+					result := r.(*CaptureResult)
+					if result.Counts.Included != 0 {
+						t.Errorf("expected 0 included in discover mode with empty snapshot, got %d", result.Counts.Included)
+					}
+				})
+			})
+		})
+	})
 }
