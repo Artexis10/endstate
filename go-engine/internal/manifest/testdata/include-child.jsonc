@@ -1,0 +1,8 @@
+{
+  "apps": [
+    {
+      "id": "child-app",
+      "refs": { "windows": "Child.App" }
+    }
+  ]
+}

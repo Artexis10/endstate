@@ -1,0 +1,19 @@
+{
+  // Fixture manifest for commands tests — two apps with Windows refs.
+  "version": 1,
+  "name": "test-manifest",
+  "apps": [
+    {
+      "id": "vscode",
+      "refs": {
+        "windows": "Microsoft.VisualStudioCode"
+      }
+    },
+    {
+      "id": "git",
+      "refs": {
+        "windows": "Git.Git"
+      }
+    }
+  ]
+}

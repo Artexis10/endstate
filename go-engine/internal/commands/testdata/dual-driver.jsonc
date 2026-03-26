@@ -1,0 +1,17 @@
+{
+  // Fixture: app with BOTH refs.windows and manual — winget driver takes precedence.
+  "version": 1,
+  "name": "dual-driver-manifest",
+  "apps": [
+    {
+      "id": "dual-app",
+      "refs": {
+        "windows": "Vendor.DualApp"
+      },
+      "manual": {
+        "verifyPath": "C:\\Program Files\\DualApp\\app.exe",
+        "launch": "https://example.com/dualapp"
+      }
+    }
+  ]
+}

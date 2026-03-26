@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "url-strings",
+  "apps": [
+    {
+      "id": "url-app",
+      "refs": {
+        "windows": "https://example.com/app"
+      }
+    }
+  ]
+}
