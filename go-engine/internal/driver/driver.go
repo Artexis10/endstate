@@ -65,3 +65,20 @@ type Driver interface {
 	// infrastructure problem (e.g. the driver binary is unavailable).
 	Install(ref string) (*InstallResult, error)
 }
+
+// DetectResult holds the outcome of a batch detection check for a single ref.
+type DetectResult struct {
+	// Installed is true if the package is currently installed.
+	Installed bool
+	// DisplayName is the human-readable name from the package manager output.
+	DisplayName string
+}
+
+// BatchDetector is an optional interface that drivers can implement to detect
+// multiple packages in a single operation. Callers should type-assert their
+// Driver to BatchDetector; if unsupported, fall back to per-ref Detect calls.
+type BatchDetector interface {
+	// DetectBatch checks multiple refs at once. Returns a map of ref →
+	// DetectResult. A ref absent from the map means not installed.
+	DetectBatch(refs []string) (map[string]DetectResult, error)
+}

@@ -38,6 +38,18 @@ func (m *mockDriver) Detect(ref string) (bool, string, error) {
 	return false, "", nil
 }
 
+func (m *mockDriver) DetectBatch(refs []string) (map[string]driver.DetectResult, error) {
+	results := make(map[string]driver.DetectResult, len(refs))
+	for _, ref := range refs {
+		if m.installed[ref] {
+			results[ref] = driver.DetectResult{Installed: true, DisplayName: ref + " Display Name"}
+		} else {
+			results[ref] = driver.DetectResult{Installed: false}
+		}
+	}
+	return results, nil
+}
+
 func (m *mockDriver) Install(ref string) (*driver.InstallResult, error) {
 	if m.installErr != nil {
 		return nil, m.installErr

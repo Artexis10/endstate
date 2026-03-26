@@ -171,6 +171,21 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		displayName string
 	}
 
+	// Batch-detect all winget apps in one call for performance.
+	var wingetRefs []string
+	for _, app := range mf.Apps {
+		ref := resolveWindowsRef(app)
+		if ref != "" {
+			wingetRefs = append(wingetRefs, ref)
+		}
+	}
+
+	var batchResults map[string]driver.DetectResult
+	if bd, ok := d.(driver.BatchDetector); ok && len(wingetRefs) > 0 {
+		batchResults, _ = bd.DetectBatch(wingetRefs)
+		// Ignore error — fall back to per-ref Detect if batch fails.
+	}
+
 	var planEntries []appPlan
 	presentCount := 0
 	toInstallCount := 0
@@ -212,8 +227,15 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 			continue
 		}
 
-		// Winget app: detect via driver.
-		installed, displayName, _ := d.Detect(ref)
+		// Winget app: detect via driver (use batch results if available).
+		var installed bool
+		var displayName string
+		if br, ok := batchResults[ref]; ok {
+			installed = br.Installed
+			displayName = br.DisplayName
+		} else {
+			installed, displayName, _ = d.Detect(ref)
+		}
 
 		var action ApplyAction
 		action.ID = app.ID
@@ -375,6 +397,20 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 
 		emitter.EmitPhase("verify")
 
+		// Batch-detect for verify phase (fresh snapshot after installs).
+		var verifyBatchResults map[string]driver.DetectResult
+		if bd, ok := d.(driver.BatchDetector); ok {
+			var verifyRefs []string
+			for _, entry := range planEntries {
+				if !entry.isManual && entry.ref != "" {
+					verifyRefs = append(verifyRefs, entry.ref)
+				}
+			}
+			if len(verifyRefs) > 0 {
+				verifyBatchResults, _ = bd.DetectBatch(verifyRefs)
+			}
+		}
+
 		verifyPass := 0
 		verifyFail := 0
 
@@ -392,7 +428,14 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				continue
 			}
 
-			detected, verifyName, _ := d.Detect(entry.ref)
+			var detected bool
+			var verifyName string
+			if br, ok := verifyBatchResults[entry.ref]; ok {
+				detected = br.Installed
+				verifyName = br.DisplayName
+			} else {
+				detected, verifyName, _ = d.Detect(entry.ref)
+			}
 			if detected {
 				emitter.EmitItem(entry.ref, d.Name(), "present", "", "Verified installed", verifyName)
 				if verifyName != "" {

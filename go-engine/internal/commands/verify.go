@@ -105,6 +105,20 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	// --- 3. Emit phase event (first event in stream per event-contract.md) ---
 	emitter.EmitPhase("verify")
 
+	// Batch-detect all winget apps in one call for performance.
+	var wingetRefs []string
+	for _, app := range mf.Apps {
+		ref := resolveWindowsRef(app)
+		if ref != "" {
+			wingetRefs = append(wingetRefs, ref)
+		}
+	}
+
+	var batchResults map[string]driver.DetectResult
+	if bd, ok := d.(driver.BatchDetector); ok && len(wingetRefs) > 0 {
+		batchResults, _ = bd.DetectBatch(wingetRefs)
+	}
+
 	var results []VerifyItem
 	passCount := 0
 	failCount := 0
@@ -141,7 +155,16 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			continue
 		}
 
-		installed, displayName, detectErr := d.Detect(ref)
+		// Use batch results if available; fall back to per-ref Detect.
+		var installed bool
+		var displayName string
+		var detectErr error
+		if br, ok := batchResults[ref]; ok {
+			installed = br.Installed
+			displayName = br.DisplayName
+		} else {
+			installed, displayName, detectErr = d.Detect(ref)
+		}
 
 		item := VerifyItem{
 			Type: "app",

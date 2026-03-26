@@ -28,6 +28,18 @@ func (d *testDriver) Detect(ref string) (bool, string, error) {
 	return false, "", nil
 }
 
+func (d *testDriver) DetectBatch(refs []string) (map[string]driver.DetectResult, error) {
+	results := make(map[string]driver.DetectResult, len(refs))
+	for _, ref := range refs {
+		if d.installed[ref] {
+			results[ref] = driver.DetectResult{Installed: true, DisplayName: ref + " Name"}
+		} else {
+			results[ref] = driver.DetectResult{Installed: false}
+		}
+	}
+	return results, nil
+}
+
 func (d *testDriver) Install(ref string) (*driver.InstallResult, error) {
 	return nil, nil
 }
@@ -633,5 +645,82 @@ func TestComputePlan_ManualEnvExpansion(t *testing.T) {
 	}
 	if plan.Actions[0].CurrentStatus != "present" {
 		t.Errorf("expected currentStatus=present after env expansion, got %q", plan.Actions[0].CurrentStatus)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Batch detection tests
+// ---------------------------------------------------------------------------
+
+// testDriverNoBatch implements only Driver (no BatchDetector), forcing
+// per-ref Detect fallback.
+type testDriverNoBatch struct {
+	installed map[string]bool
+}
+
+func (d *testDriverNoBatch) Name() string { return "test-nobatch" }
+
+func (d *testDriverNoBatch) Detect(ref string) (bool, string, error) {
+	if d.installed[ref] {
+		return true, ref + " Name", nil
+	}
+	return false, "", nil
+}
+
+func (d *testDriverNoBatch) Install(ref string) (*driver.InstallResult, error) {
+	return nil, nil
+}
+
+// TestComputePlan_BatchDetectMatchesFallback verifies that batch detection
+// produces the same plan as per-ref Detect.
+func TestComputePlan_BatchDetectMatchesFallback(t *testing.T) {
+	installedSet := map[string]bool{
+		"Microsoft.VisualStudioCode": true,
+		// Git.Git is missing
+	}
+
+	mf := &manifest.Manifest{
+		Apps: []manifest.App{
+			{ID: "vscode", Refs: map[string]string{"windows": "Microsoft.VisualStudioCode"}},
+			{ID: "git", Refs: map[string]string{"windows": "Git.Git"}},
+		},
+	}
+
+	// Plan with batch-capable driver.
+	batchDrv := &testDriver{installed: installedSet}
+	planBatch, err := ComputePlan(mf, batchDrv)
+	if err != nil {
+		t.Fatalf("ComputePlan (batch) failed: %v", err)
+	}
+
+	// Plan with non-batch driver (fallback).
+	noBatchDrv := &testDriverNoBatch{installed: installedSet}
+	planFallback, err := ComputePlan(mf, noBatchDrv)
+	if err != nil {
+		t.Fatalf("ComputePlan (fallback) failed: %v", err)
+	}
+
+	// Verify identical results.
+	if planBatch.Summary.Total != planFallback.Summary.Total {
+		t.Errorf("total mismatch: batch=%d fallback=%d", planBatch.Summary.Total, planFallback.Summary.Total)
+	}
+	if planBatch.Summary.ToInstall != planFallback.Summary.ToInstall {
+		t.Errorf("toInstall mismatch: batch=%d fallback=%d", planBatch.Summary.ToInstall, planFallback.Summary.ToInstall)
+	}
+	if planBatch.Summary.AlreadyPresent != planFallback.Summary.AlreadyPresent {
+		t.Errorf("alreadyPresent mismatch: batch=%d fallback=%d", planBatch.Summary.AlreadyPresent, planFallback.Summary.AlreadyPresent)
+	}
+	if len(planBatch.Actions) != len(planFallback.Actions) {
+		t.Fatalf("action count mismatch: batch=%d fallback=%d", len(planBatch.Actions), len(planFallback.Actions))
+	}
+	for i := range planBatch.Actions {
+		if planBatch.Actions[i].CurrentStatus != planFallback.Actions[i].CurrentStatus {
+			t.Errorf("action[%d] status mismatch: batch=%q fallback=%q",
+				i, planBatch.Actions[i].CurrentStatus, planFallback.Actions[i].CurrentStatus)
+		}
+		if planBatch.Actions[i].PlannedAction != planFallback.Actions[i].PlannedAction {
+			t.Errorf("action[%d] planned mismatch: batch=%q fallback=%q",
+				i, planBatch.Actions[i].PlannedAction, planFallback.Actions[i].PlannedAction)
+		}
 	}
 }

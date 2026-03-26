@@ -7,6 +7,9 @@ import (
 	"errors"
 	"os/exec"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
 
 // ErrWingetNotAvailable is returned when the winget binary cannot be found on
@@ -143,4 +146,31 @@ func allDashes(s string) bool {
 		}
 	}
 	return len(s) > 0
+}
+
+// DetectBatch checks multiple package refs in a single winget list call.
+// It runs `winget list --source winget` once via snapshot.TakeSnapshot(),
+// then matches each ref against the results. This is dramatically faster
+// than calling Detect() per ref (1 process spawn vs N).
+func (w *WingetDriver) DetectBatch(refs []string) (map[string]driver.DetectResult, error) {
+	apps, err := snapshot.TakeSnapshot()
+	if err != nil {
+		return nil, err
+	}
+
+	// Build case-insensitive lookup: winget ID → display name.
+	installed := make(map[string]string, len(apps))
+	for _, app := range apps {
+		installed[strings.ToLower(app.ID)] = app.Name
+	}
+
+	results := make(map[string]driver.DetectResult, len(refs))
+	for _, ref := range refs {
+		name, found := installed[strings.ToLower(ref)]
+		results[ref] = driver.DetectResult{
+			Installed:   found,
+			DisplayName: name,
+		}
+	}
+	return results, nil
 }

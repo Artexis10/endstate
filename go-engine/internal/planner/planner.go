@@ -48,6 +48,20 @@ type PlanSummary struct {
 func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 	var plan Plan
 
+	// Batch-detect all winget apps in one call for performance.
+	var wingetRefs []string
+	for _, app := range mf.Apps {
+		ref := resolveRef(app)
+		if ref != "" {
+			wingetRefs = append(wingetRefs, ref)
+		}
+	}
+
+	var batchResults map[string]driver.DetectResult
+	if bd, ok := drv.(driver.BatchDetector); ok && len(wingetRefs) > 0 {
+		batchResults, _ = bd.DetectBatch(wingetRefs)
+	}
+
 	for _, app := range mf.Apps {
 		ref := resolveRef(app)
 		isManual := ref == "" && app.Manual != nil && app.Manual.VerifyPath != ""
@@ -79,7 +93,15 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 			continue
 		}
 
-		installed, displayName, _ := drv.Detect(ref)
+		// Use batch results if available; fall back to per-ref Detect.
+		var installed bool
+		var displayName string
+		if br, ok := batchResults[ref]; ok {
+			installed = br.Installed
+			displayName = br.DisplayName
+		} else {
+			installed, displayName, _ = drv.Detect(ref)
+		}
 
 		action := PlanAction{
 			Type:        "app",
