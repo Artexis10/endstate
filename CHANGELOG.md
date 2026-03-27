@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.4.0](https://github.com/Artexis10/endstate/compare/v1.3.0...v1.4.0) (2026-03-26)
+
+### Features
+
+* Manual app declarations with `verifyPath`, `launch`, `instructions`, `fallback`
+* Auto-synthesis of app entries from config module `pathExists` matchers
+* Batch winget detection — 35x speedup (~2min → ~3.5s)
+* `manualApps` capability flag
+* Display name propagation for synthesized manual apps
+
+### Bug Fixes
+
+* Winget capture retry on 0-app results (lock contention)
+* Winget export `--disable-interactivity` for Tauri sidecar context
+* `os.CreateTemp` fix for winget export temp file
 
 ## [1.3.0] - 2026-03-11
 
