@@ -10,11 +10,12 @@ Endstate is a declarative system provisioning and recovery tool for Windows. It 
 
 This repo has an explicit authority hierarchy for AI collaborators:
 
-1. `docs/ai/AI_CONTRACT.md` — global AI behavior contract (highest authority)
-2. `docs/ai/PROJECT_SHADOW.md` — architectural truth, invariants, landmines
-3. `docs/ai/PROJECT_RULES.md` — operational policy (env vars, testing, protected areas)
+1. `docs/ai/AI_CONTRACT.md` — AI behavior contract (highest authority)
+2. `docs/ai/PROJECT_RULES.md` — operational policy (env vars, testing, protected areas)
+3. `CLAUDE.md` — architecture context, commands, landmines (this file, auto-loaded by Claude Code)
+4. `openspec/specs/` — invariants and behavior specifications (lazy-loaded on demand)
 
-Key rules: make the smallest change satisfying acceptance criteria; no unrelated refactors or formatting sweeps; contract-first edits (schema → implementation → tests); behavior changes must be represented in OpenSpec specs.
+Key rules: make the smallest change satisfying acceptance criteria; no unrelated refactors or formatting sweeps; contract-first edits (schema → implementation → tests); significant changes must be represented in OpenSpec specs.
 
 ## Commands
 
@@ -66,6 +67,9 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 7. **Line endings**: Manifest hashes normalize CRLF→LF for cross-platform consistency
 8. **`Get-EndstateVersion` is CWD-dependent**: Uses `git rev-parse --short HEAD` without `-C $repoRoot`, so it returns the git hash of whatever repo the CWD is inside — not the engine's own hash. When the GUI spawns the CLI from `src-tauri/`, the version string reflects the GUI repo hash.
 9. **Stale bootstrapped copies**: The GUI (and PATH-based invocations) run the bootstrapped copy at `%LOCALAPPDATA%\Endstate\bin\`, not the repo. New engine features won't appear in the GUI until re-bootstrapped. Always run `endstate bootstrap` after engine changes. The GUI's `predev` npm hook handles this for `npm run dev` / `tauri dev`.
+10. **Winget database lock contention**: Concurrent winget operations (or rapid successive calls) can fail due to SQLite lock contention on the winget database. Capture retries once on 0-app results to handle this.
+11. **Batch vs per-ref display name differences**: `DetectBatch` returns display names from winget's local database which may differ from per-ref `winget show` output. Use batch results as authoritative for installed app names.
+12. **Manual app `launch`/`instructions` are GUI metadata only**: The engine includes `launch` URLs and `instructions` text in manual app entries, but these are consumed exclusively by the GUI for display. The engine never opens URLs or displays instructions itself.
 
 ## Core Invariants
 
@@ -90,7 +94,7 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 ## Protected Areas
 
 - `bin/endstate.ps1`, `docs/contracts/*.md`, `.github/workflows/` — require explicit instruction to modify
-- `docs/ai/AI_CONTRACT.md`, `docs/ai/PROJECT_SHADOW.md`, `LICENSE`, `NOTICE` — never modify without explicit request
+- `docs/ai/AI_CONTRACT.md`, `LICENSE`, `NOTICE` — never modify without explicit request
 
 ## Environment Variables
 

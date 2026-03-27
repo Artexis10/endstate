@@ -11,7 +11,8 @@ Tool-specific rule files (e.g., Windsurf, Cursor) must delegate to this contract
 **OpenSpec is the canonical system for behavior specifications in this repository.**
 
 - Significant changes MUST be represented in OpenSpec specs (`openspec/specs/`). This includes behavior changes, licensing, dev workflow, tooling, infrastructure, and any decision that benefits from spec-driven documentation.
-- Architecture truth lives in `docs/ai/PROJECT_SHADOW.md`
+- Architecture context is in `CLAUDE.md` (auto-loaded by Claude Code)
+- Invariants are in OpenSpec specs (`openspec/specs/`, lazy-loaded on demand)
 - Procedures live in runbooks (`docs/runbooks/`)
 
 ### Enforcement Levels
@@ -59,17 +60,11 @@ If the human maintainer instructs a manual version bump (e.g., to force a specif
 
 ## Authority & Context
 
-### Project Shadow
+### Architecture Context
 
-If `docs/ai/PROJECT_SHADOW.md` exists:
-- Treat it as authoritative architectural context
-- Do not contradict it
-- If it appears outdated or incomplete, propose a minimal update via PR — do not free-form architectural assumptions
-
-If `docs/ai/PROJECT_SHADOW.md` does not exist and the task is architecture-sensitive:
-- Generate it first before proceeding
-
-If the Project Shadow and repository code appear to conflict, prefer the repository code and propose an update to reconcile the discrepancy.
+- Architecture context, commands, and landmines are in `CLAUDE.md` (auto-loaded by Claude Code)
+- Invariants and behavior specifications are in `openspec/specs/` (lazy-loaded on demand)
+- If architecture context appears outdated, propose a minimal update to `CLAUDE.md` via PR
 
 ### Decision Authority
 
@@ -168,33 +163,19 @@ Breaking changes bump the major version (once past 1.0). Signal them with:
 
 - Prefer **concise, high-signal output**
 - Avoid speculation and roadmap content
-- Use patch-style language for Shadow updates
 - Do not restate unchanged context
 - Do not pad responses with filler or hedging
 
 ---
 
-## When to Update Project Shadow
+## Non-Goals
 
-Propose a Project Shadow update when changes affect any of the following:
-
-| Category | Examples |
-|----------|----------|
-| Core invariants | Rules that must never be violated |
-| Architecture or subsystem boundaries | New modules, removed components, restructured directories |
-| Contracts or public APIs | Interface changes, new integration points |
-| Authority or ownership model | Changed review process, new decision-makers |
-| Landmines or sharp edges | Newly discovered non-obvious failure modes |
-| Explicit non-goals | Scope boundaries added or removed |
-| Testing philosophy | Strategy changes (not individual test additions) |
-| Development workflow assumptions | Build process, environment requirements |
-
-Do **not** update Project Shadow for:
-- Bug fixes within existing architecture
-- Documentation updates
-- Dependency version bumps
-- Test additions that follow existing strategy
-- Performance optimizations that preserve contracts
+1. **Not enterprise configuration management** — this is a personal/small-team tool
+2. **No cross-platform parity yet** — Windows/winget is primary; Linux/macOS is future work
+3. **No package version pinning** — MVP does not compare or pin versions
+4. **No automatic rollback** — failed operations do not auto-rollback; manual `revert` exists for restore only
+5. **No GUI business logic** — GUI must not contain provisioning logic; CLI is source of truth
+6. **No GUI-driven installation of manual apps** — manual apps surface instructions only; the GUI never triggers installs for them
 
 ---
 
@@ -203,9 +184,8 @@ Do **not** update Project Shadow for:
 AI collaborators operating in this repository must:
 
 1. Read and follow this contract
-2. Respect Project Shadow authority when present
-3. Represent behavior changes in OpenSpec specs
-4. Propose Project Shadow updates for architectural changes
-5. Stop when acceptance criteria are met
-6. Ask when uncertain rather than assume
-7. Use conventional commit messages on every commit
+2. Represent significant changes in OpenSpec specs
+3. Update CLAUDE.md when landmines or architecture context changes
+4. Stop when acceptance criteria are met
+5. Ask when uncertain rather than assume
+6. Use conventional commit messages on every commit

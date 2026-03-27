@@ -5,9 +5,10 @@
 This document defines **repo-specific operational policy** for the Endstate CLI project.
 
 **Authority hierarchy:**
-1. `docs/ai/AI_CONTRACT.md` — global AI behavior contract (highest authority)
-2. `docs/ai/PROJECT_SHADOW.md` — architectural truth, invariants, landmines, non-goals
-3. `docs/ai/PROJECT_RULES.md` — this document (operational policy)
+1. `docs/ai/AI_CONTRACT.md` — AI behavior contract (highest authority)
+2. `docs/ai/PROJECT_RULES.md` — this document (operational policy)
+3. `CLAUDE.md` — architecture context, commands, landmines (auto-loaded by Claude Code)
+4. `openspec/specs/` — invariants and behavior specifications (lazy-loaded on demand)
 
 This document complements the above; it does not override them.
 
@@ -39,7 +40,6 @@ This document complements the above; it does not override them.
 
 ### Never Modify Without Explicit Request
 - `docs/ai/AI_CONTRACT.md`
-- `docs/ai/PROJECT_SHADOW.md`
 - `LICENSE`, `NOTICE`
 
 ---
@@ -226,8 +226,7 @@ Behavior specifications live in `openspec/specs/`. See `docs/runbooks/OPENSPEC_E
 
 ## 10. References
 
-- [AI_CONTRACT.md](./AI_CONTRACT.md) — global AI behavior contract
-- [PROJECT_SHADOW.md](./PROJECT_SHADOW.md) — architectural truth
+- [AI_CONTRACT.md](./AI_CONTRACT.md) — AI behavior contract
 - [OpenSpec Enforcement Runbook](../runbooks/OPENSPEC_ENFORCEMENT.md) — spec workflow
 - [CLI JSON Contract](../contracts/cli-json-contract.md) — JSON output schema
 - [GUI Integration Contract](../contracts/gui-integration-contract.md) — GUI ↔ CLI rules

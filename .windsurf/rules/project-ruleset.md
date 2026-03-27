@@ -12,13 +12,12 @@ This file is a **thin Windsurf adapter**. It delegates all substantive policy to
 
 Follow these documents in order of precedence:
 
-1. **`docs/ai/AI_CONTRACT.md`** — global AI behavior contract (highest authority)
-2. **`docs/ai/PROJECT_SHADOW.md`** — architectural truth, invariants, landmines, non-goals
-3. **`docs/ai/PROJECT_RULES.md`** — repo-specific operational policy
+1. **`docs/ai/AI_CONTRACT.md`** — AI behavior contract (highest authority)
+2. **`docs/ai/PROJECT_RULES.md`** — operational policy
+3. **`CLAUDE.md`** — architecture context, commands, landmines (auto-loaded by Claude Code)
+4. **`openspec/specs/`** — invariants and behavior specifications (lazy-loaded on demand)
 
 If any instruction in this file conflicts with the above, the governance documents win.
-
-If code conflicts with PROJECT_SHADOW.md, code wins and a PROJECT_SHADOW.md update should be proposed.
 
 ---
 
@@ -27,7 +26,8 @@ If code conflicts with PROJECT_SHADOW.md, code wins and a PROJECT_SHADOW.md upda
 | To change... | Edit... |
 |--------------|---------|
 | AI behavior rules | `docs/ai/AI_CONTRACT.md` |
-| Architecture, invariants, landmines | `docs/ai/PROJECT_SHADOW.md` |
+| Architecture, landmines | `CLAUDE.md` |
+| Invariants, behavior specs | `openspec/specs/` |
 | Operational policy (env, testing, protected areas) | `docs/ai/PROJECT_RULES.md` |
 | Windsurf-specific enforcement | This file |
 
@@ -82,4 +82,5 @@ Before marking any task complete:
 ### Protected Files (require explicit instruction)
 - `bin/endstate.ps1` — CLI entrypoint
 - `docs/contracts/*.md` — integration contracts
-- `docs/ai/*.md` — AI governance documents
+- `docs/ai/AI_CONTRACT.md` — AI behavior contract
+- `docs/ai/PROJECT_RULES.md` — operational policy
