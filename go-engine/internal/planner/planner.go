@@ -76,9 +76,10 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 			exists := err == nil
 
 			action := PlanAction{
-				Type:   "app",
-				ID:     app.ID,
-				Driver: "manual",
+				Type:        "app",
+				ID:          app.ID,
+				Driver:      "manual",
+				DisplayName: resolveDisplayName("", app),
 			}
 			if exists {
 				action.CurrentStatus = "present"
@@ -108,7 +109,7 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 			ID:          app.ID,
 			Ref:         ref,
 			Driver:      drv.Name(),
-			DisplayName: displayName,
+			DisplayName: resolveDisplayName(displayName, app),
 		}
 
 		if installed {
@@ -126,6 +127,19 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 
 	plan.Summary.Total = len(plan.Actions)
 	return &plan, nil
+}
+
+// resolveDisplayName returns the best available human-readable name for an
+// app. Resolution order: (1) resolved display name from detection, (2)
+// manifest displayName, (3) manifest id.
+func resolveDisplayName(resolved string, app manifest.App) string {
+	if resolved != "" {
+		return resolved
+	}
+	if app.DisplayName != "" {
+		return app.DisplayName
+	}
+	return app.ID
 }
 
 // expandVerifyPath expands Windows-style %VAR% and Go-style $VAR environment

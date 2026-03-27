@@ -14,6 +14,8 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
 
 // ---------------------------------------------------------------------------
@@ -1061,5 +1063,278 @@ func TestRunApply_ManualApp_SummaryCount(t *testing.T) {
 	}
 	if result.Summary.Skipped != 1 {
 		t.Errorf("expected skipped=1 (winget already present), got %d", result.Summary.Skipped)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// restoreModulesAvailable display name enrichment
+// ---------------------------------------------------------------------------
+
+func TestRunApply_RestoreModulesAvailable_DisplayNames(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{
+		"Microsoft.VisualStudioCode": true,
+		"Git.Git":                   true,
+	}}
+
+	catalog := map[string]*modules.Module{
+		"apps.vscode": {
+			ID:          "apps.vscode",
+			DisplayName: "Visual Studio Code",
+			Matches:     modules.MatchCriteria{Winget: []string{"Microsoft.VisualStudioCode"}},
+			Capture:     &modules.CaptureDef{Files: []modules.CaptureFile{{Source: "a", Dest: "b"}}},
+		},
+		"apps.git": {
+			ID:          "apps.git",
+			DisplayName: "Git",
+			Matches:     modules.MatchCriteria{Winget: []string{"Git.Git"}},
+			Capture:     &modules.CaptureDef{Files: []modules.CaptureFile{{Source: "a", Dest: "b"}}},
+		},
+	}
+
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		withMockCatalog(catalog, nil, func() {
+			r, err := RunApply(ApplyFlags{
+				Manifest: fixtureManifest("two-apps.jsonc"),
+				DryRun:   true,
+			})
+			if err != nil {
+				t.Fatalf("RunApply returned unexpected error: %v", err)
+			}
+			result = r.(*ApplyResult)
+		})
+	})
+
+	if len(result.RestoreModulesAvailable) != 2 {
+		t.Fatalf("expected 2 restoreModulesAvailable entries, got %d", len(result.RestoreModulesAvailable))
+	}
+
+	// Build a lookup map for easy assertion.
+	byID := make(map[string]string)
+	for _, ref := range result.RestoreModulesAvailable {
+		byID[ref.ID] = ref.DisplayName
+	}
+
+	if dn, ok := byID["apps.vscode"]; !ok || dn != "Visual Studio Code" {
+		t.Errorf("expected apps.vscode displayName=%q, got %q (present=%v)", "Visual Studio Code", dn, ok)
+	}
+	if dn, ok := byID["apps.git"]; !ok || dn != "Git" {
+		t.Errorf("expected apps.git displayName=%q, got %q (present=%v)", "Git", dn, ok)
+	}
+}
+
+func TestRunApply_RestoreModulesAvailable_FallbackToShortID(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{
+		"Vendor.NoDisplay": true,
+	}}
+
+	catalog := map[string]*modules.Module{
+		"apps.nodisplay": {
+			ID:          "apps.nodisplay",
+			DisplayName: "", // empty — should fall back to "nodisplay"
+			Matches:     modules.MatchCriteria{Winget: []string{"Vendor.NoDisplay"}},
+			Capture:     &modules.CaptureDef{Files: []modules.CaptureFile{{Source: "a", Dest: "b"}}},
+		},
+	}
+
+	// Need a manifest with this app. Create a temp fixture.
+	tmpDir := t.TempDir()
+	manifestContent := `{
+		"name": "test-nodisplay",
+		"apps": [
+			{ "id": "nodisplay", "refs": { "windows": "Vendor.NoDisplay" } }
+		]
+	}`
+	manifestPath := filepath.Join(tmpDir, "test.jsonc")
+	os.WriteFile(manifestPath, []byte(manifestContent), 0644)
+
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		withMockCatalog(catalog, nil, func() {
+			r, err := RunApply(ApplyFlags{
+				Manifest: manifestPath,
+				DryRun:   true,
+			})
+			if err != nil {
+				t.Fatalf("RunApply returned unexpected error: %v", err)
+			}
+			result = r.(*ApplyResult)
+		})
+	})
+
+	if len(result.RestoreModulesAvailable) != 1 {
+		t.Fatalf("expected 1 restoreModulesAvailable entry, got %d", len(result.RestoreModulesAvailable))
+	}
+
+	ref := result.RestoreModulesAvailable[0]
+	if ref.ID != "apps.nodisplay" {
+		t.Errorf("expected id=%q, got %q", "apps.nodisplay", ref.ID)
+	}
+	if ref.DisplayName != "nodisplay" {
+		t.Errorf("expected displayName=%q (short ID fallback), got %q", "nodisplay", ref.DisplayName)
+	}
+}
+
+func TestResolveModuleDisplayName(t *testing.T) {
+	tests := []struct {
+		name string
+		mod  *modules.Module
+		want string
+	}{
+		{
+			name: "uses displayName when set",
+			mod:  &modules.Module{ID: "apps.vscode", DisplayName: "Visual Studio Code"},
+			want: "Visual Studio Code",
+		},
+		{
+			name: "falls back to short ID when displayName empty",
+			mod:  &modules.Module{ID: "apps.myapp", DisplayName: ""},
+			want: "myapp",
+		},
+		{
+			name: "strips apps. prefix only",
+			mod:  &modules.Module{ID: "apps.complex-app-name", DisplayName: ""},
+			want: "complex-app-name",
+		},
+		{
+			name: "handles ID without apps. prefix",
+			mod:  &modules.Module{ID: "other.thing", DisplayName: ""},
+			want: "other.thing",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveModuleDisplayName(tc.mod)
+			if got != tc.want {
+				t.Errorf("resolveModuleDisplayName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// resolveItemDisplayName — streaming event display name helper
+// ---------------------------------------------------------------------------
+
+func TestResolveItemDisplayName(t *testing.T) {
+	tests := []struct {
+		name     string
+		resolved string
+		app      manifest.App
+		ref      string
+		want     string
+	}{
+		{
+			name:     "uses winget resolved name when available",
+			resolved: "Visual Studio Code",
+			app:      manifest.App{ID: "vscode", DisplayName: "VS Code"},
+			ref:      "Microsoft.VisualStudioCode",
+			want:     "Visual Studio Code",
+		},
+		{
+			name:     "falls back to manifest displayName when resolved is empty",
+			resolved: "",
+			app:      manifest.App{ID: "vscode", DisplayName: "VS Code"},
+			ref:      "Microsoft.VisualStudioCode",
+			want:     "VS Code",
+		},
+		{
+			name:     "falls back to winget ref when displayName is empty",
+			resolved: "",
+			app:      manifest.App{ID: "temurin-8-jre"},
+			ref:      "EclipseAdoptium.Temurin.8.JRE",
+			want:     "EclipseAdoptium.Temurin.8.JRE",
+		},
+		{
+			name:     "falls back to manifest id when ref is also empty",
+			resolved: "",
+			app:      manifest.App{ID: "some-app"},
+			ref:      "",
+			want:     "some-app",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveItemDisplayName(tc.resolved, tc.app, tc.ref)
+			if got != tc.want {
+				t.Errorf("resolveItemDisplayName() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Streaming item events include display names
+// ---------------------------------------------------------------------------
+
+func TestRunApply_ItemEvents_IncludeDisplayName(t *testing.T) {
+	// Setup: vscode is installed (will have display name from detect),
+	// git is NOT installed (must fall back to manifest id).
+	md := &mockDriver{
+		installed: map[string]bool{
+			"Microsoft.VisualStudioCode": true,
+			"Git.Git":                   false,
+		},
+	}
+
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		r, err := RunApply(ApplyFlags{
+			Manifest: fixtureManifest("two-apps.jsonc"),
+			DryRun:   true,
+		})
+		if err != nil {
+			t.Fatalf("RunApply returned unexpected error: %v", err)
+		}
+		result = r.(*ApplyResult)
+	})
+
+	// The plan-phase ApplyAction entries should have names.
+	nameByID := make(map[string]string)
+	for _, action := range result.Actions {
+		nameByID[action.ID] = action.Name
+	}
+
+	// vscode: installed, so mock returns "Microsoft.VisualStudioCode Display Name"
+	if name, ok := nameByID["vscode"]; !ok || name == "" {
+		t.Errorf("expected vscode action name to be non-empty, got %q", name)
+	}
+
+	// git: not installed, no winget display name, no manifest displayName →
+	// falls back to winget ref "Git.Git" (more recognizable than manifest id "git")
+	if name, ok := nameByID["git"]; !ok || name == "" {
+		t.Errorf("expected git action name to be non-empty, got %q", name)
+	}
+	if name := nameByID["git"]; name != "Git.Git" {
+		t.Errorf("expected git action name=%q (winget ref fallback), got %q", "Git.Git", name)
+	}
+}
+
+func TestRunVerify_ItemEvents_IncludeDisplayName(t *testing.T) {
+	md := &mockDriver{
+		installed: map[string]bool{
+			"Microsoft.VisualStudioCode": true,
+			"Git.Git":                   false,
+		},
+	}
+
+	var result *VerifyResult
+	withMockDriver(md, func() {
+		r, err := RunVerify(VerifyFlags{
+			Manifest: fixtureManifest("two-apps.jsonc"),
+		})
+		if err != nil {
+			t.Fatalf("RunVerify returned unexpected error: %v", err)
+		}
+		result = r.(*VerifyResult)
+	})
+
+	// Check that all items have names (pass or fail).
+	for _, item := range result.Results {
+		if item.Type == "app" && item.Name == "" && item.ID != "" {
+			t.Errorf("verify item %q (ref=%q) should have a non-empty name", item.ID, item.Ref)
+		}
 	}
 }

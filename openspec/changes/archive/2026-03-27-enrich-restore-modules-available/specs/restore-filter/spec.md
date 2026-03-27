@@ -1,9 +1,5 @@
-# restore-filter Specification
+## MODIFIED Requirements
 
-## Purpose
-Defines the --RestoreFilter flag for apply and restore commands, enabling per-module config selection during restore operations.
-
-## Requirements
 ### Requirement: RestoreFilter for Per-Module Config Selection
 
 The apply and restore commands SHALL support a --RestoreFilter flag that limits restore execution to specified config modules.

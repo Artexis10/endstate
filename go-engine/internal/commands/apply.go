@@ -37,6 +37,15 @@ func checkVerifyPath(verifyPath string) (expanded string, exists bool) {
 	return expanded, err == nil
 }
 
+// resolveModuleDisplayName returns a human-readable display name for a module.
+// Resolution order: (1) DisplayName field, (2) short ID with "apps." prefix stripped.
+func resolveModuleDisplayName(mod *modules.Module) string {
+	if mod.DisplayName != "" {
+		return mod.DisplayName
+	}
+	return strings.TrimPrefix(mod.ID, "apps.")
+}
+
 // ApplyFlags holds the parsed CLI flags for the apply command.
 type ApplyFlags struct {
 	// Manifest is the path to the .jsonc manifest file.
@@ -54,6 +63,13 @@ type ApplyFlags struct {
 	RestoreFilter string
 }
 
+// RestoreModuleRef identifies a config module available for restore, including
+// a human-readable display name resolved from the module catalog.
+type RestoreModuleRef struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+}
+
 // ApplyResult is the data payload for the apply command JSON envelope.
 // Shape matches docs/contracts/cli-json-contract.md section "Command: apply".
 type ApplyResult struct {
@@ -62,7 +78,7 @@ type ApplyResult struct {
 	Summary                 ApplySummary      `json:"summary"`
 	Actions                 []ApplyAction     `json:"actions"`
 	ConfigModuleMap         map[string]string `json:"configModuleMap,omitempty"`
-	RestoreModulesAvailable []string          `json:"restoreModulesAvailable,omitempty"`
+	RestoreModulesAvailable []RestoreModuleRef `json:"restoreModulesAvailable,omitempty"`
 }
 
 // ApplyManifestRef identifies the manifest used for the apply run.
@@ -129,9 +145,9 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 
 	// Resolve module catalog for configModuleMap (non-fatal if unavailable).
 	var configModuleMap map[string]string
-	var restoreModulesAvailable []string
+	var restoreModulesAvailable []RestoreModuleRef
 
-	repoRoot := config.ResolveRepoRoot()
+	repoRoot := resolveRepoRootFn()
 	if repoRoot != "" {
 		catalog, catalogErr := loadModuleCatalogFn(repoRoot)
 		if catalogErr == nil && len(catalog) > 0 {
@@ -152,7 +168,10 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 						shortID := strings.TrimPrefix(mod.ID, "apps.")
 						configModuleMap[shortID] = mod.ID
 					}
-					restoreModulesAvailable = append(restoreModulesAvailable, mod.ID)
+					restoreModulesAvailable = append(restoreModulesAvailable, RestoreModuleRef{
+						ID:          mod.ID,
+						DisplayName: resolveModuleDisplayName(mod),
+					})
 				}
 			}
 		}
@@ -237,25 +256,28 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 			installed, displayName, _ = d.Detect(ref)
 		}
 
+		// Ensure a display name is always available for events and the envelope.
+		itemName := resolveItemDisplayName(displayName, app, ref)
+
 		var action ApplyAction
 		action.ID = app.ID
 		action.Ref = stringPtr(ref)
 		action.Driver = d.Name()
-		action.Name = displayName
+		action.Name = itemName
 
 		if installed {
 			action.Status = "present"
 			action.Reason = driver.ReasonAlreadyInstalled
-			emitter.EmitItem(ref, d.Name(), "present", driver.ReasonAlreadyInstalled, "Already installed", displayName)
+			emitter.EmitItem(ref, d.Name(), "present", driver.ReasonAlreadyInstalled, "Already installed", itemName)
 			presentCount++
 		} else {
 			action.Status = "to_install"
 			action.Reason = driver.ReasonMissing
-			emitter.EmitItem(ref, d.Name(), "to_install", driver.ReasonMissing, "Will be installed", "")
+			emitter.EmitItem(ref, d.Name(), "to_install", driver.ReasonMissing, "Will be installed", itemName)
 			toInstallCount++
 		}
 
-		planEntries = append(planEntries, appPlan{app: app, ref: ref, action: action, displayName: displayName})
+		planEntries = append(planEntries, appPlan{app: app, ref: ref, action: action, displayName: itemName})
 	}
 
 	totalApps := len(planEntries)
@@ -437,13 +459,13 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				detected, verifyName, _ = d.Detect(entry.ref)
 			}
 			if detected {
-				emitter.EmitItem(entry.ref, d.Name(), "present", "", "Verified installed", verifyName)
+				emitter.EmitItem(entry.ref, d.Name(), "present", "", "Verified installed", resolveItemDisplayName(verifyName, entry.app, entry.ref))
 				if verifyName != "" {
 					finalActions[i].Name = verifyName
 				}
 				verifyPass++
 			} else {
-				emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonMissing, "Missing after apply", "")
+				emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonMissing, "Missing after apply", resolveItemDisplayName(entry.displayName, entry.app, entry.ref))
 				verifyFail++
 			}
 		}

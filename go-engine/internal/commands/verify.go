@@ -166,10 +166,13 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			installed, displayName, detectErr = d.Detect(ref)
 		}
 
+		itemName := resolveItemDisplayName(displayName, app, ref)
+
 		item := VerifyItem{
 			Type: "app",
 			ID:   app.ID,
 			Ref:  ref,
+			Name: itemName,
 		}
 
 		if detectErr != nil {
@@ -178,18 +181,17 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Status = "fail"
 			item.Reason = driver.ReasonMissing
 			item.Message = detectErr.Error()
-			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, "")
+			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, itemName)
 			failCount++
 		} else if installed {
 			item.Status = "pass"
-			item.Name = displayName
-			emitter.EmitItem(ref, d.Name(), "present", "", "Verified installed", displayName)
+			emitter.EmitItem(ref, d.Name(), "present", "", "Verified installed", itemName)
 			passCount++
 		} else {
 			item.Status = "fail"
 			item.Reason = driver.ReasonMissing
 			item.Message = "Missing - not installed"
-			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, "")
+			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, itemName)
 			failCount++
 		}
 
@@ -235,7 +237,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 }
 
 // ---------------------------------------------------------------------------
-// Shared helpers (also used by apply.go)
+// Shared helpers (also used by apply.go, plan.go)
 // ---------------------------------------------------------------------------
 
 // loadManifest reads, JSONC-strips, and parses the manifest at path. It
