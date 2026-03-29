@@ -4,9 +4,7 @@
     ".": {
       "release-type": "simple",
       "bump-minor-pre-major": true,
-      "extra-files": [
-        "VERSION"
-      ]
+      "version-file": "VERSION"
     }
   }
 }
