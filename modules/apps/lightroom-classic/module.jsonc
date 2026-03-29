@@ -204,6 +204,27 @@
       "target": "%APPDATA%\\Adobe\\Lightroom\\Import Presets",
       "backup": true,
       "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/CameraRaw Settings",
+      "target": "%APPDATA%\\Adobe\\CameraRaw\\Settings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Metadata",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Metadata",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lightroom-classic/Locations",
+      "target": "%APPDATA%\\Adobe\\Lightroom\\Locations",
+      "backup": true,
+      "optional": true
     }
   ],
   
@@ -234,7 +255,10 @@
       { "source": "%APPDATA%\\Adobe\\CameraRaw\\Curves", "dest": "apps/lightroom-classic/CameraRaw Curves", "optional": true },
       { "source": "%APPDATA%\\Adobe\\CameraRaw\\LensProfiles", "dest": "apps/lightroom-classic/CameraRaw LensProfiles", "optional": true },
       { "source": "%APPDATA%\\Adobe\\CameraRaw\\ImportedSettings", "dest": "apps/lightroom-classic/CameraRaw ImportedSettings", "optional": true },
-      { "source": "%APPDATA%\\Adobe\\Lightroom\\Import Presets", "dest": "apps/lightroom-classic/Import Presets", "optional": true }
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Import Presets", "dest": "apps/lightroom-classic/Import Presets", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\CameraRaw\\Settings", "dest": "apps/lightroom-classic/CameraRaw Settings", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Metadata", "dest": "apps/lightroom-classic/Metadata", "optional": true },
+      { "source": "%APPDATA%\\Adobe\\Lightroom\\Locations", "dest": "apps/lightroom-classic/Locations", "optional": true }
     ],
     "excludeGlobs": [
       "**\\Cache\\**",
@@ -249,7 +273,7 @@
     ]
   },
   
-  "notes": "Captures Lightroom Classic user preferences, develop/export/filter/local-adjustment presets, keyword/label sets, smart collection templates, external editor presets, filename templates, metadata presets, watermarks, and CameraRaw defaults. Excludes catalogs (.lrcat), CameraRaw Settings (binary index), ModelZoo (~750MB AI models), and GPU cache. Installed via Adobe Creative Cloud (no winget ID).",
+  "notes": "Captures Lightroom Classic user preferences (both main and startup .agprefs), develop/export/filter/local-adjustment presets, keyword/label sets, smart collection templates, external editor presets, filename templates, metadata presets, watermarks, metadata panel config, saved map locations, CameraRaw defaults, and CameraRaw Settings (.xmp develop presets — binary .dat index excluded via excludeGlobs). Excludes catalogs (.lrcat), ModelZoo (~750MB AI models), and GPU cache. Installed via Adobe Creative Cloud (no winget ID).",
   
   "curation": {
     "seed": {
