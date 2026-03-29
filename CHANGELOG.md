@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.5.1](https://github.com/Artexis10/endstate/compare/v1.5.0...v1.5.1) (2026-03-29)
+
+
+### Bug Fixes
+
+* **module:** add missing CameraRaw Settings, Metadata, and Locations to lightroom-classic ([0e6e3ba](https://github.com/Artexis10/endstate/commit/0e6e3baa199278ae16481db539a05f9efea3a928))
+
 ## [1.5.0](https://github.com/Artexis10/endstate/compare/v1.4.0...v1.5.0) (2026-03-27)
 
 
