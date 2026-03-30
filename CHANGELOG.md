@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.5.2](https://github.com/Artexis10/endstate/compare/v1.5.1...v1.5.2) (2026-03-30)
+
+
+### Bug Fixes
+
+* **go-engine:** populate FromModule on restore entries so --restore-filter works ([5962b39](https://github.com/Artexis10/endstate/commit/5962b39090ebf5fac228cf8ca4b44d398ecdba8a))
+
 ## [1.5.1](https://github.com/Artexis10/endstate/compare/v1.5.0...v1.5.1) (2026-03-29)
 
 
