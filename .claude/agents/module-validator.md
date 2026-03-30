@@ -61,11 +61,11 @@ For each module with both `capture.files` and `restore` entries:
 
 ## How to Parse Modules
 
-ALWAYS use `Read-JsoncFile` from `engine/manifest.ps1` to parse module files. Never use raw `ConvertFrom-Json` on JSONC files.
+Module files are JSONC (JSON with comments). The Go engine handles loading in `go-engine/internal/modules/catalog.go` via `StripJsoncComments` from `go-engine/internal/manifest/`. Never pass raw `.jsonc` content to `json.Unmarshal`.
 
-```powershell
-. (Join-Path $PSScriptRoot "..\..\engine\manifest.ps1")
-$module = Read-JsoncFile -Path "modules/apps/<id>/module.jsonc"
+## Validation Commands
+```bash
+cd go-engine && go test ./internal/modules/...
 ```
 
 ## Validation Commands
@@ -101,3 +101,4 @@ Symmetry mismatches: 3
 Path issues: 0
 Duplicate IDs: 0
 ```
+
