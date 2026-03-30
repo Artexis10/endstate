@@ -97,28 +97,22 @@ func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 		RunID:       runID,
 	}
 
-	results, err := restore.RunRestore(actions, opts)
+	results, err := restore.RunRestore(actions, opts, emitter)
 	if err != nil {
 		return nil, envelope.NewError(envelope.ErrRestoreFailed, err.Error())
 	}
 
-	// --- 4. Emit item events ---
+	// --- 4. Tally results for summary event (item events emitted inside RunRestore) ---
 	restoredCount := 0
 	skippedCount := 0
 	failedCount := 0
 	for _, r := range results {
 		switch r.Status {
 		case "restored":
-			emitter.EmitItem(r.ID, "restore", "restored", "", "Restored "+r.Target, "")
 			restoredCount++
-		case "skipped_up_to_date":
-			emitter.EmitItem(r.ID, "restore", "skipped", "up_to_date", "Already up to date", "")
-			skippedCount++
-		case "skipped_missing_source":
-			emitter.EmitItem(r.ID, "restore", "skipped", "missing_source", "Optional source not found", "")
+		case "skipped_up_to_date", "skipped_missing_source":
 			skippedCount++
 		case "failed":
-			emitter.EmitItem(r.ID, "restore", "failed", "", r.Error, "")
 			failedCount++
 		default:
 			skippedCount++

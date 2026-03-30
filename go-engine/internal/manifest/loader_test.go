@@ -1069,3 +1069,128 @@ func TestLoadManifest_VerifyEntryFields(t *testing.T) {
 		t.Errorf("Verify[1].Command = %q, want %q", v1.Command, "git")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// HashManifest — CRLF→LF normalization
+// ---------------------------------------------------------------------------
+
+// TestHashManifest_CRLFAndLFProduceSameHash verifies the core invariant:
+// the same manifest content with CRLF line endings and with LF line endings
+// must produce identical hashes.
+func TestHashManifest_CRLFAndLFProduceSameHash(t *testing.T) {
+	dir := t.TempDir()
+
+	content := `{"version":1,"name":"test","apps":[]}` + "\n"
+
+	// Write LF version.
+	lfPath := filepath.Join(dir, "lf.jsonc")
+	if err := os.WriteFile(lfPath, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write CRLF version.
+	crlfContent := strings.ReplaceAll(content, "\n", "\r\n")
+	crlfPath := filepath.Join(dir, "crlf.jsonc")
+	if err := os.WriteFile(crlfPath, []byte(crlfContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	lfHash, err := HashManifest(lfPath)
+	if err != nil {
+		t.Fatalf("HashManifest(lf) error: %v", err)
+	}
+
+	crlfHash, err := HashManifest(crlfPath)
+	if err != nil {
+		t.Fatalf("HashManifest(crlf) error: %v", err)
+	}
+
+	if lfHash != crlfHash {
+		t.Errorf("CRLF and LF hashes differ: LF=%q CRLF=%q", lfHash, crlfHash)
+	}
+}
+
+// TestHashManifest_DifferentContentProducesDifferentHash verifies that
+// genuinely different manifest content produces different hashes.
+func TestHashManifest_DifferentContentProducesDifferentHash(t *testing.T) {
+	dir := t.TempDir()
+
+	aPath := filepath.Join(dir, "a.jsonc")
+	bPath := filepath.Join(dir, "b.jsonc")
+	os.WriteFile(aPath, []byte(`{"version":1,"name":"a","apps":[]}`), 0644)
+	os.WriteFile(bPath, []byte(`{"version":1,"name":"b","apps":[]}`), 0644)
+
+	hashA, err := HashManifest(aPath)
+	if err != nil {
+		t.Fatalf("HashManifest(a) error: %v", err)
+	}
+	hashB, err := HashManifest(bPath)
+	if err != nil {
+		t.Fatalf("HashManifest(b) error: %v", err)
+	}
+
+	if hashA == hashB {
+		t.Errorf("expected different hashes for different content, both got %q", hashA)
+	}
+}
+
+// TestHashManifest_SameContentProducesSameHash verifies that identical
+// manifest files always produce the same hash (determinism).
+func TestHashManifest_SameContentProducesSameHash(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte(`{"version":1,"name":"stable","apps":[]}`)
+
+	aPath := filepath.Join(dir, "a.jsonc")
+	bPath := filepath.Join(dir, "b.jsonc")
+	os.WriteFile(aPath, content, 0644)
+	os.WriteFile(bPath, content, 0644)
+
+	hashA, err := HashManifest(aPath)
+	if err != nil {
+		t.Fatalf("HashManifest(a) error: %v", err)
+	}
+	hashB, err := HashManifest(bPath)
+	if err != nil {
+		t.Fatalf("HashManifest(b) error: %v", err)
+	}
+
+	if hashA != hashB {
+		t.Errorf("identical files produced different hashes: %q vs %q", hashA, hashB)
+	}
+}
+
+// TestHashManifest_MissingFileReturnsError verifies that a missing file
+// returns an error rather than panicking or returning an empty hash.
+func TestHashManifest_MissingFileReturnsError(t *testing.T) {
+	_, err := HashManifest("/nonexistent/path/missing.jsonc")
+	if err == nil {
+		t.Error("expected error for missing file, got nil")
+	}
+}
+
+// TestHashManifest_MultilineCRLFNormalized verifies multi-line JSONC content
+// with CRLF line endings hashes identically to the same content with LF.
+func TestHashManifest_MultilineCRLFNormalized(t *testing.T) {
+	dir := t.TempDir()
+
+	lfContent := "{\n  \"version\": 1,\n  \"name\": \"multi\",\n  \"apps\": []\n}\n"
+	crlfContent := strings.ReplaceAll(lfContent, "\n", "\r\n")
+
+	lfPath := filepath.Join(dir, "lf.jsonc")
+	crlfPath := filepath.Join(dir, "crlf.jsonc")
+	os.WriteFile(lfPath, []byte(lfContent), 0644)
+	os.WriteFile(crlfPath, []byte(crlfContent), 0644)
+
+	hashLF, err := HashManifest(lfPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hashCRLF, err := HashManifest(crlfPath)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if hashLF != hashCRLF {
+		t.Errorf("multi-line CRLF and LF hashes differ: LF=%q CRLF=%q", hashLF, hashCRLF)
+	}
+}

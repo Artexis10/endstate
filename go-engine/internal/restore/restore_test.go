@@ -4,11 +4,14 @@
 package restore
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 )
 
 // ---------------------------------------------------------------------------
@@ -724,7 +727,7 @@ func TestRunRestore_OptionalMissingSource(t *testing.T) {
 		},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{})
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -796,7 +799,7 @@ func TestRunRestore_DispatchToCorrectStrategy(t *testing.T) {
 		},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{})
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -835,7 +838,7 @@ func TestRunRestore_UnsupportedType(t *testing.T) {
 		},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{})
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -948,7 +951,7 @@ func TestRunRestore_DryRunDoesNotModify(t *testing.T) {
 		},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1737,7 +1740,7 @@ func TestRunRestore_WarningsForSensitiveTarget(t *testing.T) {
 		},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{})
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1794,7 +1797,7 @@ func TestRunRestore_DispatchAllStrategies(t *testing.T) {
 		{Type: "append", Source: srcAppend, Target: tgtAppend, ID: "append-1"},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{})
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1827,7 +1830,7 @@ func TestRunRestore_NonOptionalMissingSourceFails(t *testing.T) {
 		},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{})
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1981,7 +1984,7 @@ func TestRevertEndToEnd_DeleteCreatedTarget(t *testing.T) {
 		},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{})
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("RunRestore failed: %v", err)
 	}
@@ -2041,7 +2044,7 @@ func TestRunRestore_DryRunMergeJson(t *testing.T) {
 		{Type: "merge-json", Source: srcFile, Target: tgtFile, ID: "dry-json"},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2070,7 +2073,7 @@ func TestRunRestore_DryRunMergeIni(t *testing.T) {
 		{Type: "merge-ini", Source: srcFile, Target: tgtFile, ID: "dry-ini"},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2099,7 +2102,7 @@ func TestRunRestore_DryRunAppend(t *testing.T) {
 		{Type: "append", Source: srcFile, Target: tgtFile, ID: "dry-append"},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2235,7 +2238,7 @@ func TestRunRestore_ExpandsEnvVarInTarget(t *testing.T) {
 		},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{})
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2270,7 +2273,7 @@ func TestRunRestore_IdempotentSecondRunSkips(t *testing.T) {
 	}
 
 	// First restore.
-	results1, err1 := RunRestore(entries, RestoreOptions{})
+	results1, err1 := RunRestore(entries, RestoreOptions{}, nil)
 	if err1 != nil {
 		t.Fatalf("first restore error: %v", err1)
 	}
@@ -2279,7 +2282,7 @@ func TestRunRestore_IdempotentSecondRunSkips(t *testing.T) {
 	}
 
 	// Second restore should skip (up to date).
-	results2, err2 := RunRestore(entries, RestoreOptions{})
+	results2, err2 := RunRestore(entries, RestoreOptions{}, nil)
 	if err2 != nil {
 		t.Fatalf("second restore error: %v", err2)
 	}
@@ -2326,7 +2329,7 @@ func TestRunRestore_ExportRootPrefersOverManifestDir(t *testing.T) {
 	results, err := RunRestore(entries, RestoreOptions{
 		ExportRoot:  filepath.Join(tmp, "export"),
 		ManifestDir: filepath.Join(tmp, "manifest"),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2374,7 +2377,7 @@ func TestRunRestore_ExportRootFallbackToManifestDir(t *testing.T) {
 	results, err := RunRestore(entries, RestoreOptions{
 		ExportRoot:  exportDir,
 		ManifestDir: filepath.Join(tmp, "manifest"),
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2410,7 +2413,7 @@ func TestWriteJournal_NotCalledInDryRun(t *testing.T) {
 		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "dry-journal"},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{DryRun: true})
+	results, err := RunRestore(entries, RestoreOptions{DryRun: true}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2446,7 +2449,7 @@ func TestJournal_WriteReadAfterRestore(t *testing.T) {
 	results, err := RunRestore(entries, RestoreOptions{
 		RunID:       "journal-test-run",
 		ManifestDir: tmp,
-	})
+	}, nil)
 	if err != nil {
 		t.Fatalf("RunRestore failed: %v", err)
 	}
@@ -2500,7 +2503,7 @@ func TestRevertEndToEnd_FullPipeline(t *testing.T) {
 		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "revert-pipeline"},
 	}
 
-	results, err := RunRestore(entries, RestoreOptions{RunID: "revert-pipeline-run"})
+	results, err := RunRestore(entries, RestoreOptions{RunID: "revert-pipeline-run"}, nil)
 	if err != nil {
 		t.Fatalf("RunRestore failed: %v", err)
 	}
@@ -2539,5 +2542,262 @@ func TestRevertEndToEnd_FullPipeline(t *testing.T) {
 	// Verify target was removed.
 	if _, err := os.Stat(tgtFile); !os.IsNotExist(err) {
 		t.Error("target should have been deleted by revert")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RunRestore: event emission tests
+// ---------------------------------------------------------------------------
+
+// parseTestEvents decodes all NDJSON lines from buf into a slice of raw maps.
+func parseTestEvents(buf *bytes.Buffer) []map[string]interface{} {
+	var out []map[string]interface{}
+	dec := json.NewDecoder(buf)
+	for dec.More() {
+		var obj map[string]interface{}
+		if err := dec.Decode(&obj); err == nil {
+			out = append(out, obj)
+		}
+	}
+	return out
+}
+
+// TestRunRestore_EmitsInstalledEventOnSuccess verifies that a successful copy
+// emits an item event with status "installed" and empty reason.
+func TestRunRestore_EmitsInstalledEventOnSuccess(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "src", "settings.json")
+	os.MkdirAll(filepath.Dir(srcFile), 0755)
+	os.WriteFile(srcFile, []byte(`{"key":"value"}`), 0644)
+
+	tgtFile := filepath.Join(tmp, "tgt", "settings.json")
+
+	var buf bytes.Buffer
+	emitter := events.NewEmitterWithWriter("test-run", true, &buf)
+
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "evt-success"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{}, emitter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 || results[0].Status != "restored" {
+		t.Fatalf("expected restored result, got %v", results)
+	}
+
+	evts := parseTestEvents(&buf)
+	if len(evts) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evts))
+	}
+	if evts[0]["event"] != "item" {
+		t.Errorf("expected event=item, got %v", evts[0]["event"])
+	}
+	if evts[0]["status"] != "installed" {
+		t.Errorf("expected status=installed, got %v", evts[0]["status"])
+	}
+	if evts[0]["reason"] != "" {
+		t.Errorf("expected reason empty, got %v", evts[0]["reason"])
+	}
+	if evts[0]["driver"] != "copy" {
+		t.Errorf("expected driver=copy, got %v", evts[0]["driver"])
+	}
+}
+
+// TestRunRestore_EmitsSkippedAlreadyInstalledOnUpToDate verifies that a
+// skipped_up_to_date result emits an item event with status "skipped" and
+// reason "already_installed".
+func TestRunRestore_EmitsSkippedAlreadyInstalledOnUpToDate(t *testing.T) {
+	tmp := t.TempDir()
+
+	content := []byte(`{"key":"same"}`)
+
+	// Source and target have identical content to trigger skipped_up_to_date.
+	srcFile := filepath.Join(tmp, "src", "settings.json")
+	os.MkdirAll(filepath.Dir(srcFile), 0755)
+	os.WriteFile(srcFile, content, 0644)
+
+	tgtFile := filepath.Join(tmp, "tgt", "settings.json")
+	os.MkdirAll(filepath.Dir(tgtFile), 0755)
+	os.WriteFile(tgtFile, content, 0644)
+
+	var buf bytes.Buffer
+	emitter := events.NewEmitterWithWriter("test-run", true, &buf)
+
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "evt-uptodate"},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{}, emitter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 || results[0].Status != "skipped_up_to_date" {
+		t.Fatalf("expected skipped_up_to_date result, got %v", results)
+	}
+
+	evts := parseTestEvents(&buf)
+	if len(evts) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evts))
+	}
+	if evts[0]["status"] != "skipped" {
+		t.Errorf("expected status=skipped, got %v", evts[0]["status"])
+	}
+	if evts[0]["reason"] != "already_installed" {
+		t.Errorf("expected reason=already_installed, got %v", evts[0]["reason"])
+	}
+}
+
+// TestRunRestore_EmitsSkippedMissingOnOptionalMissingSource verifies that an
+// optional entry with no source emits an item event with status "skipped" and
+// reason "missing".
+func TestRunRestore_EmitsSkippedMissingOnOptionalMissingSource(t *testing.T) {
+	var buf bytes.Buffer
+	emitter := events.NewEmitterWithWriter("test-run", true, &buf)
+
+	entries := []RestoreAction{
+		{
+			Type:     "copy",
+			Source:   "/nonexistent/source.json",
+			Target:   "/some/target.json",
+			Optional: true,
+			ID:       "evt-missing",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{}, emitter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 || results[0].Status != "skipped_missing_source" {
+		t.Fatalf("expected skipped_missing_source result, got %v", results)
+	}
+
+	evts := parseTestEvents(&buf)
+	if len(evts) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evts))
+	}
+	if evts[0]["status"] != "skipped" {
+		t.Errorf("expected status=skipped, got %v", evts[0]["status"])
+	}
+	if evts[0]["reason"] != "missing" {
+		t.Errorf("expected reason=missing, got %v", evts[0]["reason"])
+	}
+}
+
+// TestRunRestore_EmitsFailedOnRestoreFail verifies that a failed restore emits
+// an item event with status "failed" and reason "restore_failed".
+func TestRunRestore_EmitsFailedOnRestoreFail(t *testing.T) {
+	var buf bytes.Buffer
+	emitter := events.NewEmitterWithWriter("test-run", true, &buf)
+
+	// Non-optional missing source will trigger a failed result.
+	entries := []RestoreAction{
+		{
+			Type:     "copy",
+			Source:   "/nonexistent/mandatory.json",
+			Target:   "/some/target.json",
+			Optional: false,
+			ID:       "evt-fail",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{}, emitter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 1 || results[0].Status != "failed" {
+		t.Fatalf("expected failed result, got %v", results)
+	}
+
+	evts := parseTestEvents(&buf)
+	if len(evts) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evts))
+	}
+	if evts[0]["status"] != "failed" {
+		t.Errorf("expected status=failed, got %v", evts[0]["status"])
+	}
+	if evts[0]["reason"] != "restore_failed" {
+		t.Errorf("expected reason=restore_failed, got %v", evts[0]["reason"])
+	}
+}
+
+// TestRunRestore_NilEmitterDoesNotPanic verifies that nil emitter is safe.
+func TestRunRestore_NilEmitterDoesNotPanic(t *testing.T) {
+	tmp := t.TempDir()
+	srcFile := filepath.Join(tmp, "src.txt")
+	tgtFile := filepath.Join(tmp, "tgt.txt")
+	os.WriteFile(srcFile, []byte("data"), 0644)
+
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "nil-emitter"},
+	}
+
+	// Must not panic.
+	_, err := RunRestore(entries, RestoreOptions{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+// TestRunRestore_EmitsDriverFromRestoreType verifies the driver field in
+// the emitted event matches the restore entry type.
+func TestRunRestore_EmitsDriverFromRestoreType(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "src.json")
+	os.WriteFile(srcFile, []byte(`{}`), 0644)
+	tgtFile := filepath.Join(tmp, "tgt.json")
+
+	var buf bytes.Buffer
+	emitter := events.NewEmitterWithWriter("test-run", true, &buf)
+
+	entries := []RestoreAction{
+		{Type: "merge-json", Source: srcFile, Target: tgtFile, ID: "evt-driver"},
+	}
+
+	_, err := RunRestore(entries, RestoreOptions{}, emitter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	evts := parseTestEvents(&buf)
+	if len(evts) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evts))
+	}
+	if evts[0]["driver"] != "merge-json" {
+		t.Errorf("expected driver=merge-json, got %v", evts[0]["driver"])
+	}
+}
+
+// TestRunRestore_EmitsNameFromFromModule verifies that the name field in the
+// emitted event is taken from the entry's FromModule.
+func TestRunRestore_EmitsNameFromFromModule(t *testing.T) {
+	tmp := t.TempDir()
+
+	srcFile := filepath.Join(tmp, "src.json")
+	os.WriteFile(srcFile, []byte(`{"a":1}`), 0644)
+	tgtFile := filepath.Join(tmp, "tgt.json")
+
+	var buf bytes.Buffer
+	emitter := events.NewEmitterWithWriter("test-run", true, &buf)
+
+	entries := []RestoreAction{
+		{Type: "copy", Source: srcFile, Target: tgtFile, ID: "evt-name", FromModule: "apps.vscode"},
+	}
+
+	_, err := RunRestore(entries, RestoreOptions{}, emitter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	evts := parseTestEvents(&buf)
+	if len(evts) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evts))
+	}
+	if evts[0]["name"] != "apps.vscode" {
+		t.Errorf("expected name=apps.vscode, got %v", evts[0]["name"])
 	}
 }

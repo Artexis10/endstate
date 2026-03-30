@@ -4,10 +4,13 @@
 package manifest
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // LoadManifest reads the file at path, strips JSONC comments, unmarshals the
@@ -91,6 +94,23 @@ func resolveIncludes(m *Manifest, basePath string, visited map[string]bool) erro
 	}
 
 	return nil
+}
+
+// HashManifest computes the hex-encoded SHA256 hash of the manifest file at
+// path. The hash is computed over the raw file content after normalizing CRLF
+// to LF, ensuring cross-platform consistency with the PowerShell engine which
+// applies the same normalization before hashing.
+func HashManifest(path string) (string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("manifest: cannot read %q for hashing: %w", path, err)
+	}
+
+	// Normalize CRLF → LF for cross-platform hash consistency.
+	normalized := strings.ReplaceAll(string(data), "\r\n", "\n")
+
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // StripJsoncComments removes single-line (//) and block (/* ... */) comments

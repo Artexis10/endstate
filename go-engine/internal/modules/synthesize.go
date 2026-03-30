@@ -14,10 +14,8 @@ import (
 // but no corresponding app in mf.Apps. This allows config-only modules (e.g.
 // Adobe Lightroom Classic with no winget ID) to surface in the planner and GUI.
 //
+// Modules listed in manifest.ExcludeConfigs are skipped.
 // The function modifies mf.Apps in place, appending synthesized entries.
-//
-// TODO: excludeConfigs is not yet represented in the Go Manifest type. When
-// added, modules listed in excludeConfigs should be skipped here.
 func SynthesizeAppsFromModules(mf *manifest.Manifest, catalog map[string]*Module) {
 	if len(mf.ConfigModules) == 0 || len(catalog) == 0 {
 		return
@@ -34,6 +32,11 @@ func SynthesizeAppsFromModules(mf *manifest.Manifest, catalog map[string]*Module
 	}
 
 	for _, moduleID := range mf.ConfigModules {
+		// Skip modules excluded by excludeConfigs.
+		if isExcluded(moduleID, mf.ExcludeConfigs) {
+			continue
+		}
+
 		mod, exists := catalog[moduleID]
 		if !exists {
 			continue

@@ -267,6 +267,99 @@ func TestSynthesizeApps_EmptyConfigModules(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// SynthesizeAppsFromModules — excludeConfigs filtering
+// ---------------------------------------------------------------------------
+
+// TestSynthesizeApps_ExcludedModuleIsNotSynthesized verifies that a module
+// listed in excludeConfigs is not synthesized into mf.Apps.
+func TestSynthesizeApps_ExcludedModuleIsNotSynthesized(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.lightroom-classic": {
+			ID:          "apps.lightroom-classic",
+			DisplayName: "Adobe Lightroom Classic",
+			Matches: MatchCriteria{
+				PathExists: []string{`C:\Program Files\Adobe\Adobe Lightroom Classic\Lightroom.exe`},
+			},
+		},
+	}
+
+	mf := &manifest.Manifest{
+		ConfigModules:  []string{"apps.lightroom-classic"},
+		ExcludeConfigs: []string{"apps.lightroom-classic"},
+		Apps:           []manifest.App{},
+	}
+
+	SynthesizeAppsFromModules(mf, catalog)
+
+	if len(mf.Apps) != 0 {
+		t.Errorf("expected no synthesis for excluded module, got %d apps", len(mf.Apps))
+	}
+}
+
+// TestSynthesizeApps_ExcludedByShortIDIsNotSynthesized verifies that a short
+// ID in excludeConfigs (e.g. "lightroom-classic") excludes the qualified
+// module ("apps.lightroom-classic") from synthesis.
+func TestSynthesizeApps_ExcludedByShortIDIsNotSynthesized(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.lightroom-classic": {
+			ID:          "apps.lightroom-classic",
+			DisplayName: "Adobe Lightroom Classic",
+			Matches: MatchCriteria{
+				PathExists: []string{`C:\Program Files\Adobe\Lightroom.exe`},
+			},
+		},
+	}
+
+	mf := &manifest.Manifest{
+		ConfigModules:  []string{"apps.lightroom-classic"},
+		ExcludeConfigs: []string{"lightroom-classic"}, // short ID
+		Apps:           []manifest.App{},
+	}
+
+	SynthesizeAppsFromModules(mf, catalog)
+
+	if len(mf.Apps) != 0 {
+		t.Errorf("expected no synthesis for module excluded by short ID, got %d apps", len(mf.Apps))
+	}
+}
+
+// TestSynthesizeApps_NonExcludedModuleStillSynthesized verifies that when only
+// one of two modules is excluded, the other is still synthesized.
+func TestSynthesizeApps_NonExcludedModuleStillSynthesized(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.lightroom-classic": {
+			ID:          "apps.lightroom-classic",
+			DisplayName: "Adobe Lightroom Classic",
+			Matches: MatchCriteria{
+				PathExists: []string{`C:\Program Files\Adobe\Lightroom.exe`},
+			},
+		},
+		"apps.photoshop": {
+			ID:          "apps.photoshop",
+			DisplayName: "Adobe Photoshop",
+			Matches: MatchCriteria{
+				PathExists: []string{`C:\Program Files\Adobe\Photoshop.exe`},
+			},
+		},
+	}
+
+	mf := &manifest.Manifest{
+		ConfigModules:  []string{"apps.lightroom-classic", "apps.photoshop"},
+		ExcludeConfigs: []string{"apps.lightroom-classic"},
+		Apps:           []manifest.App{},
+	}
+
+	SynthesizeAppsFromModules(mf, catalog)
+
+	if len(mf.Apps) != 1 {
+		t.Fatalf("expected 1 synthesized app (photoshop only), got %d", len(mf.Apps))
+	}
+	if mf.Apps[0].ID != "photoshop" {
+		t.Errorf("expected ID=photoshop, got %q", mf.Apps[0].ID)
+	}
+}
+
 // TestSynthesizeApps_EmptyCatalog verifies no-op with empty catalog.
 func TestSynthesizeApps_EmptyCatalog(t *testing.T) {
 	mf := &manifest.Manifest{

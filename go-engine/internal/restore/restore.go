@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 )
 
 // RestoreAction describes a single restore operation to execute.
@@ -153,8 +154,10 @@ func generateID(action RestoreAction) string {
 }
 
 // RunRestore iterates over restore entries, dispatches each to the correct
-// strategy by Type field, and collects RestoreResult structs.
-func RunRestore(entries []RestoreAction, opts RestoreOptions) ([]RestoreResult, error) {
+// strategy by Type field, and collects RestoreResult structs. emitter is
+// optional (nil is a no-op); when provided, item events are emitted for each
+// restore action as it completes.
+func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Emitter) ([]RestoreResult, error) {
 	var results []RestoreResult
 
 	for _, entry := range entries {
@@ -172,12 +175,14 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions) ([]RestoreResult, 
 
 		// Optional entry handling: skip if source does not exist.
 		if !sourceExists && entry.Optional {
-			results = append(results, RestoreResult{
+			r := RestoreResult{
 				ID:     id,
 				Source: source,
 				Target: target,
 				Status: "skipped_missing_source",
-			})
+			}
+			emitRestoreItemEvent(emitter, entry, r)
+			results = append(results, r)
 			continue
 		}
 
@@ -243,8 +248,58 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions) ([]RestoreResult, 
 		// Merge warnings.
 		result.Warnings = append(warnings, result.Warnings...)
 
+		emitRestoreItemEvent(emitter, entry, *result)
 		results = append(results, *result)
 	}
 
 	return results, nil
+}
+
+// emitRestoreItemEvent emits an item event for a completed restore action when
+// emitter is non-nil. Status mapping:
+//   - "restored"              → item status "installed", reason ""
+//   - "skipped_up_to_date"   → item status "skipped",   reason "already_installed"
+//   - "skipped_missing_source"→ item status "skipped",   reason "missing"
+//   - "failed"               → item status "failed",    reason "restore_failed"
+//
+// The event id is the restore entry target (or source when target is empty).
+// The driver field is the restore strategy type (e.g. "copy", "merge-json").
+// The name field is FromModule when set.
+func emitRestoreItemEvent(emitter *events.Emitter, entry RestoreAction, result RestoreResult) {
+	if emitter == nil {
+		return
+	}
+
+	// Determine event id: prefer target, fall back to source.
+	eventID := result.Target
+	if eventID == "" {
+		eventID = result.Source
+	}
+
+	// Determine driver (restore strategy type).
+	driverName := entry.Type
+	if driverName == "" {
+		driverName = "copy"
+	}
+
+	// Determine name (module that owns this entry).
+	name := entry.FromModule
+
+	var itemStatus, reason string
+	switch result.Status {
+	case "restored":
+		itemStatus = "installed"
+		reason = ""
+	case "skipped_up_to_date":
+		itemStatus = "skipped"
+		reason = "already_installed"
+	case "skipped_missing_source":
+		itemStatus = "skipped"
+		reason = "missing"
+	default: // "failed" or any unknown status
+		itemStatus = "failed"
+		reason = "restore_failed"
+	}
+
+	emitter.EmitItem(eventID, driverName, itemStatus, reason, result.Error, name)
 }

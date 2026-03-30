@@ -382,7 +382,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				RunID:       runID,
 			}
 
-			restoreResults, restoreErr := restore.RunRestore(actions, restoreOpts)
+			restoreResults, restoreErr := restore.RunRestore(actions, restoreOpts, emitter)
 			if restoreErr != nil {
 				emitter.EmitError("engine", "Restore failed: "+restoreErr.Error(), "")
 			} else {
@@ -392,13 +392,10 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				for _, r := range restoreResults {
 					switch r.Status {
 					case "restored":
-						emitter.EmitItem(r.ID, "restore", "restored", "", "Restored "+r.Target, "")
 						restoredCnt++
 					case "skipped_up_to_date", "skipped_missing_source":
-						emitter.EmitItem(r.ID, "restore", "skipped", "", r.Status, "")
 						skippedCnt++
 					case "failed":
-						emitter.EmitItem(r.ID, "restore", "failed", "", r.Error, "")
 						failedCnt++
 					}
 				}

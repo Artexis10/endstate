@@ -9,14 +9,15 @@ package manifest
 // Version field is declared as interface{} so the validator can distinguish
 // between a missing field, a wrong type, and the correct numeric 1.
 type Manifest struct {
-	Version       interface{}    `json:"version"`
-	Name          string         `json:"name,omitempty"`
-	Captured      string         `json:"captured,omitempty"`
-	Apps          []App          `json:"apps"`
-	Includes      []string       `json:"includes,omitempty"`
-	Restore       []RestoreEntry `json:"restore,omitempty"`
-	Verify        []VerifyEntry  `json:"verify,omitempty"`
-	ConfigModules []string       `json:"configModules,omitempty"`
+	Version        interface{}    `json:"version"`
+	Name           string         `json:"name,omitempty"`
+	Captured       string         `json:"captured,omitempty"`
+	Apps           []App          `json:"apps"`
+	Includes       []string       `json:"includes,omitempty"`
+	Restore        []RestoreEntry `json:"restore,omitempty"`
+	Verify         []VerifyEntry  `json:"verify,omitempty"`
+	ConfigModules  []string       `json:"configModules,omitempty"`
+	ExcludeConfigs []string       `json:"excludeConfigs,omitempty"`
 }
 
 // App represents a single application entry in the manifest. The Refs map

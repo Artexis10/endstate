@@ -6,6 +6,7 @@ package modules
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
@@ -24,6 +25,11 @@ func ExpandConfigModules(m *manifest.Manifest, catalog map[string]*Module) error
 	}
 
 	for _, moduleID := range m.ConfigModules {
+		// Skip modules that are excluded by the manifest's excludeConfigs list.
+		if isExcluded(moduleID, m.ExcludeConfigs) {
+			continue
+		}
+
 		mod, exists := catalog[moduleID]
 		if !exists {
 			fmt.Fprintf(os.Stderr, "Warning: unknown config module %q referenced in configModules, skipping\n", moduleID)
@@ -57,4 +63,22 @@ func ExpandConfigModules(m *manifest.Manifest, catalog map[string]*Module) error
 	}
 
 	return nil
+}
+
+// isExcluded reports whether moduleID is present in the excludeConfigs list.
+// Both short IDs ("vscode") and qualified IDs ("apps.vscode") are matched
+// against the exclude list entries using the same short/qualified equivalence
+// used by the restore filter: "vscode" matches "apps.vscode" and vice-versa.
+func isExcluded(moduleID string, excludeConfigs []string) bool {
+	if len(excludeConfigs) == 0 {
+		return false
+	}
+	shortID := strings.TrimPrefix(moduleID, "apps.")
+	for _, ex := range excludeConfigs {
+		exShort := strings.TrimPrefix(ex, "apps.")
+		if exShort == shortID {
+			return true
+		}
+	}
+	return false
 }
