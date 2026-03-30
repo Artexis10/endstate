@@ -45,7 +45,7 @@ Endstate has 7 contracts, 3 OpenSpec specs, 10+ invariants, and a 3-layer govern
 3. Verification-first -- observable state is success
 4. Separation of concerns -- install != configure != verify
 5. Backup before overwrite
-6. Restore is opt-in (`-EnableRestore`)
+6. Restore is opt-in (`--enable-restore`)
 7. CLI is source of truth
 8. JSON schema versioning
 
@@ -58,7 +58,7 @@ When reviewing a change, verify:
 - [ ] First event is phase, last event is summary
 - [ ] Status/reason combinations match `docs/ux-language.md` (cross-repo)
 - [ ] No business logic added to GUI
-- [ ] No direct `ConvertFrom-Json` on manifests (must use `Read-JsoncFile`)
+- [ ] No raw `json.Unmarshal` on `.jsonc` files (must use `StripJsoncComments` first)
 - [ ] Restore entries have `backup: true`
 - [ ] No secrets/credentials in capture/restore
 - [ ] Error codes use SCREAMING_SNAKE_CASE from the standard set
@@ -76,12 +76,10 @@ Changes to status, reason, or phase behavior MUST update both repos.
 
 ## Validation Commands
 
-```powershell
+```bash
 # OpenSpec validation
 npm run openspec:validate
 
-# Unit tests (contract subset)
-.\scripts\test-unit.ps1 -Path tests\unit\JsonSchema.Tests.ps1
-.\scripts\test-unit.ps1 -Path tests\unit\ProfileContract.Tests.ps1
-.\scripts\test-unit.ps1 -Path tests\unit\Events.Tests.ps1
+# Run all unit tests
+cd go-engine && go test ./...
 ```

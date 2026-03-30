@@ -124,10 +124,9 @@ For directory copy with exclusions:
 ### Verification
 
 After creating/modifying a module:
-```powershell
+```bash
 # Validate module loads without errors
-$env:ENDSTATE_ALLOW_DIRECT = '1'
-.\bin\endstate.ps1 capture --dry-run --json 2>&1 | Select-Object -Last 1
+cd go-engine && go run ./cmd/endstate capture --dry-run --json
 ```
 
 ### Common Mistakes
@@ -142,96 +141,86 @@ $env:ENDSTATE_ALLOW_DIRECT = '1'
 
 ## TestWriter
 
-**Role:** Write Pester 5 unit tests in `tests/unit/`.
+**Role:** Write Go unit tests in `go-engine/internal/`.
 
 **When to use:** Adding test coverage for engine changes, locking regression behavior, verifying contract compliance.
 
 ### Context
 
-Tests use Pester 5.7.1 vendored in `tools/pester/`. System Pester may be 3.x — never call `Invoke-Pester` directly. All tests must be hermetic: no real winget calls, no network access, no filesystem side effects outside temp directories.
+Tests use Go's standard `testing` package. All tests must be hermetic: no real winget calls, no network access, no filesystem side effects outside temp directories.
 
 ### Test File Convention
 
-- Location: `tests/unit/<Subject>.Tests.ps1`
-- Naming: PascalCase subject matching the engine module or concept being tested
+- Location: `go-engine/internal/<package>/<subject>_test.go`
+- Naming: snake_case file name with `_test.go` suffix, in the same package as the code under test
 - Fixtures: `tests/fixtures/` for test manifests, plans, module definitions
 
 ### Test Structure Pattern
 
-```powershell
-<#
-.SYNOPSIS
-    Pester tests for <subject>.
-#>
+```go
+package manifest
 
-BeforeAll {
-    $script:ProvisioningRoot = Join-Path $PSScriptRoot "..\..\"
-    # Load the module(s) under test
-    . (Join-Path $script:ProvisioningRoot "engine\<module>.ps1")
-}
+import (
+    "testing"
+)
 
-Describe "<FunctionOrConcept>" {
+func TestLoadManifest(t *testing.T) {
+    // Table-driven tests
+    tests := []struct {
+        name    string
+        input   string
+        want    *Manifest
+        wantErr bool
+    }{
+        {
+            name:  "valid manifest",
+            input: `{"version": 1, "name": "test"}`,
+            want:  &Manifest{Version: 1, Name: "test"},
+        },
+        {
+            name:    "invalid JSON",
+            input:   `{invalid}`,
+            wantErr: true,
+        },
+    }
 
-    Context "<scenario>" {
-
-        It "Should <expected behavior>" {
-            # Arrange
-            $input = ...
-
-            # Act
-            $result = Invoke-Something -Param $input
-
-            # Assert
-            $result | Should -Be $expected
-        }
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            got, err := LoadManifest(tt.input)
+            if (err != nil) != tt.wantErr {
+                t.Errorf("LoadManifest() error = %v, wantErr %v", err, tt.wantErr)
+                return
+            }
+            // assertions...
+        })
     }
 }
 ```
 
-### Mocking External Dependencies
-
-```powershell
-# Mock winget calls
-Mock Invoke-WingetInstall { return @{ ExitCode = 0; Output = "Successfully installed" } }
-
-# Mock file system for path existence
-Mock Test-Path { return $true } -ParameterFilter { $Path -like "*\some\path*" }
-
-# Mock Read-JsoncFile for manifest loading
-Mock Read-JsoncFile { return @{ version = 1; apps = @() } }
-```
-
 ### Key Rules
 
-- Use vendored Pester: run via `.\scripts\test-unit.ps1`, never bare `Invoke-Pester`
 - No real installs, no network, no host mutation
-- Use `$TestDrive` for temp files (Pester auto-cleans)
-- Prefer `Should -Be`, `Should -BeExactly`, `Should -Match` over `Should -BeTrue`
-- Tag tests with `[Tag("Unit")]` when appropriate
-- Co-locate fixtures in `tests/fixtures/` — never reference `manifests/local/`
+- Use `t.TempDir()` for temp files (Go auto-cleans)
+- Prefer table-driven tests for comprehensive coverage
+- Use `t.Run()` subtests for clear test case naming
+- Co-locate fixtures in `tests/fixtures/` -- never reference `manifests/local/`
 
-### Existing Test Files (for pattern reference)
+### Existing Test Packages (for pattern reference)
 
-| File | Tests |
-|------|-------|
-| `Manifest.Tests.ps1` | Manifest parsing, include resolution, circular detection |
-| `Plan.Tests.ps1` | Plan generation, diff computation |
-| `Events.Tests.ps1` | Streaming event emission and schema validation |
-| `Verify.Tests.ps1` | All three verifier types (file-exists, command-exists, registry-key-exists) |
-| `Restore.Tests.ps1` | Restore strategies (copy, merge-json, merge-ini, append) |
-| `Capture.Tests.ps1` | Capture pipeline and artifact generation |
-| `JsonSchema.Tests.ps1` | JSON envelope structure validation |
-| `ProfileContract.Tests.ps1` | Profile validation contract compliance |
-| `Bundle.Tests.ps1` | Bundle loading and module grouping |
+| Package | Tests |
+|---------|-------|
+| `go-engine/internal/manifest/` | Manifest parsing, include resolution, JSONC stripping |
+| `go-engine/internal/commands/` | Command implementations (restore, etc.) |
+| `go-engine/internal/modules/` | Module catalog loading, validation, expansion |
 
 ### Verification
 
-```powershell
-# Run specific test file
-.\scripts\test-unit.ps1 -Path tests\unit\<Subject>.Tests.ps1
+```bash
+# Run specific package tests
+cd go-engine && go test ./internal/<package>/...
 
 # Run all unit tests
-.\scripts\test-unit.ps1
+cd go-engine && go test ./...
 ```
 
 ---
@@ -286,7 +275,7 @@ When reviewing a change, verify:
 - [ ] First event is phase, last event is summary
 - [ ] Status/reason combinations match `docs/ux-language.md` (cross-repo)
 - [ ] No business logic added to GUI
-- [ ] No direct `ConvertFrom-Json` on manifests (must use `Read-JsoncFile`)
+- [ ] No raw `json.Unmarshal` on `.jsonc` files (must use `StripJsoncComments` first)
 - [ ] Restore entries have `backup: true`
 - [ ] No secrets/credentials in capture/restore
 - [ ] Error codes use SCREAMING_SNAKE_CASE from the standard set
@@ -304,104 +293,66 @@ Changes to status, reason, or phase behavior MUST update both repos.
 
 ### Validation Commands
 
-```powershell
+```bash
 # OpenSpec validation
 npm run openspec:validate
 
-# Unit tests (contract subset)
-.\scripts\test-unit.ps1 -Path tests\unit\JsonSchema.Tests.ps1
-.\scripts\test-unit.ps1 -Path tests\unit\ProfileContract.Tests.ps1
-.\scripts\test-unit.ps1 -Path tests\unit\Events.Tests.ps1
+# Run all unit tests
+cd go-engine && go test ./...
 ```
 
 ---
 
 ## EngineDev
 
-**Role:** Implement and modify core engine scripts, drivers, restorers, and verifiers.
+**Role:** Implement and modify core engine packages in `go-engine/internal/`.
 
-**When to use:** Core pipeline development — changes to apply, capture, verify, plan, restore, events, state, or manifest processing.
+**When to use:** Core pipeline development -- changes to apply, capture, verify, plan, restore, events, state, or manifest processing.
 
 ### Context
 
 The engine is the authoritative layer of Endstate. All business logic lives here. The GUI is a thin presentation layer that consumes engine output. The engine pipeline is:
 
 ```
-Manifest → Planner → Drivers → Restorers → Verifiers → Reports/State
+Manifest -> Planner -> Drivers -> Restorers -> Verifiers -> Reports/State
 ```
 
-### Key Engine Files
+### Key Engine Packages
 
-| File | Responsibility |
-|------|----------------|
-| `engine/apply.ps1` | Apply orchestration (install + optional restore + verify) |
-| `engine/capture.ps1` | System state capture to manifest |
-| `engine/verify.ps1` | State verification against manifest |
-| `engine/plan.ps1` | Execution plan generation |
-| `engine/manifest.ps1` | Manifest loading, include resolution, JSONC parsing |
-| `engine/config-modules.ps1` | Module catalog loading, validation, manifest expansion |
-| `engine/restore.ps1` | Restore orchestration |
-| `engine/events.ps1` | Streaming event emission (JSONL to stderr) |
-| `engine/json-output.ps1` | JSON envelope construction for `--json` output |
-| `engine/state.ps1` | State persistence (atomic writes) |
-| `engine/diff.ps1` | Diff computation between manifest and current state |
-| `engine/parallel.ps1` | Parallel installation orchestration |
-| `engine/paths.ps1` | Path resolution and environment variable expansion |
-| `engine/snapshot.ps1` | System snapshot for capture |
-| `engine/export-capture.ps1` | Export configuration from system |
-| `engine/export-validate.ps1` | Validate export integrity |
-| `engine/export-revert.ps1` | Revert last restore (journal-based) |
-| `engine/profile-commands.ps1` | Profile CLI subcommands |
-
-### Drivers
-
-| File | Purpose |
-|------|---------|
-| `drivers/driver.ps1` | Driver interface/registry |
-| `drivers/winget.ps1` | winget package manager adapter |
-
-### Restorers
-
-| File | Strategy |
-|------|----------|
-| `restorers/copy.ps1` | File/directory copy with backup |
-| `restorers/merge-json.ps1` | JSON merge (preserve + overlay) |
-| `restorers/merge-ini.ps1` | INI file merge |
-| `restorers/append.ps1` | Append to existing file |
-| `restorers/helpers.ps1` | Shared restore utilities |
-
-### Verifiers
-
-| File | Check |
-|------|-------|
-| `verifiers/file-exists.ps1` | File or directory existence |
-| `verifiers/command-exists.ps1` | Command available on PATH |
-| `verifiers/registry-key-exists.ps1` | Registry key/value existence |
+| Package | Responsibility |
+|---------|----------------|
+| `go-engine/cmd/endstate/` | CLI entrypoint |
+| `go-engine/internal/commands/` | Command implementations (apply, capture, restore, verify, etc.) |
+| `go-engine/internal/manifest/` | Manifest loading, include resolution, JSONC stripping |
+| `go-engine/internal/modules/` | Module catalog loading, validation, manifest expansion |
+| `go-engine/internal/planner/` | Execution plan generation and diff computation |
+| `go-engine/internal/driver/` | Package manager adapters (winget is primary) |
+| `go-engine/internal/restore/` | Config restoration strategies (copy, merge-json, merge-ini, append) |
+| `go-engine/internal/verifier/` | State assertions (file-exists, command-exists, registry-key-exists) |
+| `go-engine/internal/events/` | Streaming event emission (JSONL to stderr) |
+| `go-engine/internal/envelope/` | JSON envelope construction for `--json` output |
+| `go-engine/internal/snapshot/` | System snapshot for capture |
+| `go-engine/internal/config/` | Configuration and path resolution |
+| `go-engine/internal/bundle/` | Bundle loading and module grouping |
 
 ### Landmines
 
-1. **Entrypoint guard:** `bin/endstate.ps1` blocks direct invocation. Set `$env:ENDSTATE_ALLOW_DIRECT='1'` for dev, or re-bootstrap after edits
-2. **JSONC parsing:** ALWAYS use `Read-JsoncFile`. Raw `ConvertFrom-Json` on `.jsonc` files will fail on comments
-3. **`-EnableRestore` wiring:** Must be explicitly threaded from CLI entry → `Invoke-ApplyCore`. Missing wiring silently skips all restore entries with no error
-4. **Capture zip path rewriting:** `New-CaptureBundle` stages under `configs/<module-id>/` but modules reference `./payload/apps/<id>/`. Stage 2b rewrites paths
-5. **`Copy-Item -Recurse` nesting:** When destination exists, PowerShell copies source INSIDE dest. Must `Remove-Item` dest first for idempotent directory copies
-6. **State atomicity:** State writes use temp file + move (`Move-Item`) for atomic updates. Never write directly to `state.json`
-7. **Line ending normalization:** Hash computation normalizes CRLF→LF. If you compute hashes, use the same normalization
-8. **PowerShell 5.1 null handling:** `$null -eq $value` (not `$value -eq $null`) to avoid array comparison. Use `.ContainsKey()` not truthy/falsy for hashtable lookups
-9. **Events to stderr:** `Write-StreamingEvent` uses `[Console]::Error.WriteLine()`, not `Write-Error`. Events are informational, not error streams
-10. **Module catalog caching:** `Get-ConfigModuleCatalog` caches on first load. Pass `-Force` to reload after dynamic changes
-11. **PATH bootstrap:** Bootstrap installs to `%LOCALAPPDATA%\Endstate\bin\lib\` (not `bin\` directly). The CMD shim at `bin\endstate.cmd` must take precedence over `.ps1`
-12. **Exit code capture:** In PowerShell 5.1, `$LASTEXITCODE` is the only reliable way to capture process exit codes. `$?` is unreliable for external commands
+1. **JSONC parsing:** Always use `StripJsoncComments` before `json.Unmarshal`. Raw unmarshal on `.jsonc` files will fail on comments
+2. **Capture zip path rewriting:** Capture stages under `configs/<module-id>/` but modules reference `./payload/apps/<id>/`. Path rewriting must reconcile these
+3. **Directory copy nesting:** When copying directories, ensure the destination is removed first for idempotent behavior
+4. **State atomicity:** State writes use temp file + rename for atomic updates. Never write directly to `state.json`
+5. **Line ending normalization:** Hash computation normalizes CRLF to LF. If you compute hashes, use the same normalization
+6. **Events to stderr:** Streaming events are written to stderr, not stdout. Events are informational, not error streams
+7. **PATH bootstrap:** Bootstrap installs to `%LOCALAPPDATA%\Endstate\bin\`. Re-bootstrap after engine changes
 
 ### Development Workflow
 
-```powershell
-# Test against repo code (bypass bootstrap)
-$env:ENDSTATE_ALLOW_DIRECT = '1'
-.\bin\endstate.ps1 <command> --json
+```bash
+# Run CLI from source
+cd go-engine && go run ./cmd/endstate <command> --json
 
 # Run targeted unit tests after changes
-.\scripts\test-unit.ps1 -Path tests\unit\<Subject>.Tests.ps1
+cd go-engine && go test ./internal/<package>/...
 
 # Validate OpenSpec compliance
 npm run openspec:validate
@@ -469,17 +420,15 @@ For each module with both `capture.files` and `restore` entries:
 - [ ] No duplicate module IDs
 - [ ] All restore entries have `backup: true`
 
-### Validation Script
+### Validation Commands
 
-```powershell
+```bash
 # Load all modules and check for load errors
-$env:ENDSTATE_ALLOW_DIRECT = '1'
-.\bin\endstate.ps1 capture --dry-run --json 2>&1
+cd go-engine && go run ./cmd/endstate capture --dry-run --json
 
 # Run module-related unit tests
-.\scripts\test-unit.ps1 -Path tests\unit\Capture.Tests.ps1
-.\scripts\test-unit.ps1 -Path tests\unit\ModuleRestore.Tests.ps1
-.\scripts\test-unit.ps1 -Path tests\unit\ModuleCli.Tests.ps1
+cd go-engine && go test ./internal/modules/...
+cd go-engine && go test ./internal/commands/...
 ```
 
 ### Expected Output

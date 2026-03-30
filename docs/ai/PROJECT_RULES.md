@@ -17,22 +17,19 @@ This document complements the above; it does not override them.
 ## 2. Protected Areas and Change Boundaries
 
 ### Safe to Change (with normal review)
-- `engine/*.ps1` — core orchestration logic
-- `drivers/*.ps1` — package manager adapters
-- `restorers/*.ps1` — configuration restoration modules
-- `verifiers/*.ps1` — state verification modules
+- `go-engine/internal/` — core engine packages (manifest, commands, driver, restore, verifier, etc.)
 - `modules/apps/*/module.jsonc` — config module definitions
-- `tests/unit/*.Tests.ps1` — unit tests
+- `go-engine/internal/*_test.go` — unit tests
 - `manifests/examples/` — shareable example manifests
 - `manifests/includes/` — reusable manifest fragments
 
 ### Requires Explicit Instruction
-- `bin/endstate.ps1` — CLI entrypoint (public interface)
+- `go-engine/cmd/endstate/` — CLI entrypoint (public interface)
 - `docs/contracts/*.md` — integration contracts (CLI JSON, GUI, events, profiles)
 - `.github/workflows/` — CI configuration
 
 ### Architectural Review Required
-- Adding new drivers, restorers, or verifiers
+- Adding new driver, restore, or verifier implementations
 - Changes to manifest schema (`version` field changes)
 - Changes to JSON output envelope structure
 - Changes to event contract schema
@@ -51,29 +48,26 @@ This document complements the above; it does not override them.
 | Variable | Purpose |
 |----------|---------|
 | `ENDSTATE_ROOT` | Override repo root path |
-| `ENDSTATE_ALLOW_DIRECT` | Bypass entrypoint guard (set to `1`) |
 | `ENDSTATE_TESTMODE` | Enable test mode |
-| `ENDSTATE_ENTRYPOINT` | Set by CMD shim to verify invocation path |
-| `ENDSTATE_WINGET_SCRIPT` | Override winget script for testing |
 
 ### Forbidden Patterns
 - Hardcoded API keys or secrets
-- Hardcoded absolute paths (use `$PSScriptRoot` or environment variables)
-- Direct `ConvertFrom-Json` on manifests/plans (use `Read-JsoncFile`)
+- Hardcoded absolute paths (use relative paths or environment variables)
+- Raw `json.Unmarshal` on `.jsonc` files (use `StripJsoncComments` first)
 
 ### Key Invariants
 - JSONC is the preferred manifest format (`.jsonc`)
-- All manifest parsing uses `Read-JsoncFile` for comment stripping
+- All manifest parsing uses `StripJsoncComments` for comment stripping before JSON decoding
 - Line endings normalized CRLF→LF for cross-platform hash consistency
 
 ---
 
 ## 4. Docker / Runtime Contract
 
-**Not applicable.** Endstate is a PowerShell CLI tool with no Docker dependencies.
+**Not applicable.** Endstate is a Go CLI tool with no Docker dependencies.
 
 Runtime requirements:
-- PowerShell 5.1+ (Windows PowerShell or PowerShell Core)
+- Go 1.22+ for building from source
 - winget (Windows Package Manager) for app installation
 
 ---
@@ -105,33 +99,24 @@ Runtime requirements:
 
 The canonical verification command for this repository is:
 
-```powershell
-.\scripts\test-unit.ps1
+```bash
+cd go-engine && go test ./...
 ```
 
 This is the **required entrypoint** for CI and pre-commit verification. Exit code 0 indicates success.
 
 ### Push-Safe Tests (CI)
-- All tests in `tests/unit/` are hermetic and CI-safe
-- No real winget installs; all external calls mocked
+- All tests in `go-engine/internal/` are hermetic and CI-safe
+- No real winget installs; all external calls mocked or stubbed
 - Deterministic and idempotent
-
-### Integration Tests (Local Only)
-- `tests/Endstate.Tests.ps1` — may require real environment
-- `sandbox-tests/` — sandbox environment tests
 
 ### Test Commands
 
 | Command | Purpose |
 |---------|---------|
-| `.\scripts\test-unit.ps1` | Run all unit tests (RECOMMENDED) |
-| `.\scripts\test-unit.ps1 -Path tests\unit\Manifest.Tests.ps1` | Run specific test file |
-| `.\scripts\test_pester.ps1 -Path tests/unit` | Legacy runner |
-
-### Pester Version Contract
-- **Required:** Pester 5.0.0 or higher
-- **Vendored:** `tools/pester/Pester/5.7.1/` (committed)
-- **Forbidden:** Direct `Invoke-Pester` calls (may load system Pester 3.x)
+| `cd go-engine && go test ./...` | Run all unit tests (RECOMMENDED) |
+| `cd go-engine && go test ./internal/manifest/...` | Run specific package tests |
+| `cd go-engine && go test -v -run TestName ./internal/commands/...` | Run a specific test |
 
 ### Verification Rules
 - Run only minimum targeted verification needed
@@ -160,19 +145,6 @@ This is the **required entrypoint** for CI and pre-commit verification. Exit cod
 ---
 
 ## 8. Tooling and File Write Constraints
-
-### PowerShell Set-Content Fallback
-When standard file write tools fail, use PowerShell fallback:
-
-```powershell
-$Path = "<target-file>"
-if (!(Test-Path -LiteralPath $Path -PathType Leaf)) {
-  throw "Expected leaf file not found: $Path"
-}
-$content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
-# Modify $content
-Set-Content -LiteralPath $Path -Value $content -Encoding UTF8 -NoNewline
-```
 
 ### File Write Rules
 - Treat inability to write files as a bug to work around

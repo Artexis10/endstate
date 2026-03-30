@@ -3,7 +3,7 @@
 **Canonical home of the Endstate CLI** — A declarative system provisioning and recovery tool that restores a machine to a known-good end state safely, repeatably, and without guesswork.
 
 **Author:** Hugo Ander Kivi  
-**Primary Language:** PowerShell  
+**Primary Language:** Go
 **Status:** v1.0.0 — Stable
 
 [![CI](https://github.com/Artexis10/endstate/actions/workflows/ci.yml/badge.svg)](https://github.com/Artexis10/endstate/actions/workflows/ci.yml)
@@ -65,22 +65,17 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 
 ```
 endstate/
-├── bin/                # CLI entrypoints
-│   ├── endstate.ps1    # Main CLI entrypoint
-│   ├── endstate.cmd    # Windows CMD wrapper
-│   └── cli.ps1         # Legacy provisioning subsystem CLI
-├── engine/             # Core orchestration logic
-├── drivers/            # Software installation adapters (winget, apt, brew)
-├── restorers/          # Configuration restoration modules
-├── verifiers/          # State verification modules
+├── go-engine/          # Go engine (sole CLI implementation)
+│   ├── cmd/endstate/   # CLI entrypoint
+│   └── internal/       # Core packages (manifest, commands, driver, restore, verifier, etc.)
 ├── modules/            # Config module catalog (apps.git, apps.vscodium, etc.)
+├── payload/            # Staged configuration files referenced by modules
+├── bundles/            # Named module groupings (JSONC)
 ├── manifests/          # Desired state declarations
 │   ├── examples/       # Shareable example manifests
 │   ├── includes/       # Reusable manifest fragments
 │   └── local/          # Machine-specific captures (gitignored)
-├── tests/              # Pester unit tests
-├── scripts/            # Test runners and utilities
-└── tools/              # Vendored dependencies (Pester)
+└── tests/              # Test fixtures and shared test data
 ```
 
 ---
@@ -89,34 +84,34 @@ endstate/
 
 ### Initial Setup
 
-```powershell
+```bash
 # Clone the repo
 git clone https://github.com/Artexis10/endstate.git
 cd endstate
 
-# (Optional) Unblock downloaded scripts
-Get-ChildItem -Recurse -Filter *.ps1 | Unblock-File
+# Build the CLI
+cd go-engine && go build -o endstate.exe ./cmd/endstate
 
-# Bootstrap: Install endstate to PATH for global access
-.\bin\endstate.ps1 bootstrap
+# Or run directly without building
+cd go-engine && go run ./cmd/endstate bootstrap
 ```
 
 After bootstrap completes, the `endstate` command is available globally from any directory.
 
 ### Basic Workflow
 
-```powershell
+```bash
 # 1. Capture current machine state
 endstate capture
 
 # 2. Preview what would be applied (dry-run)
-endstate apply -Manifest manifests/local/my-machine.jsonc -DryRun
+endstate apply --manifest manifests/local/my-machine.jsonc --dry-run
 
 # 3. Apply the manifest
-endstate apply -Manifest manifests/local/my-machine.jsonc
+endstate apply --manifest manifests/local/my-machine.jsonc
 
 # 4. Verify end state is achieved
-endstate verify -Manifest manifests/local/my-machine.jsonc
+endstate verify --manifest manifests/local/my-machine.jsonc
 
 # 5. Check environment health
 endstate doctor
@@ -240,24 +235,24 @@ Endstate prioritizes safety over speed:
 
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
-| PowerShell | 5.1+ | Script execution |
+| Go | 1.22+ | Build and development |
 | winget | Latest | App installation (Windows) |
 
 ---
 
 ## Testing
 
-Endstate uses Pester 5.7.1 (vendored in `tools/pester/`) for deterministic, offline-capable testing.
+Endstate uses Go's standard `testing` package for deterministic, offline-capable testing.
 
-```powershell
+```bash
 # Run all tests
-.\scripts\test_pester.ps1
+cd go-engine && go test ./...
 
-# Run specific test suite
-.\scripts\test_pester.ps1 -Path tests/unit
+# Run a specific package's tests
+cd go-engine && go test ./internal/manifest/...
 
-# Run tests with tag filter
-.\scripts\test_pester.ps1 -Tag "Manifest"
+# Run tests with verbose output
+cd go-engine && go test -v ./...
 ```
 
 ---

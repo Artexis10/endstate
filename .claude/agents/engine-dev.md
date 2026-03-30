@@ -1,6 +1,6 @@
 ---
 name: engine-dev
-description: Implement and modify core engine scripts, drivers, restorers, and verifiers. Use for core pipeline development -- changes to apply, capture, verify, plan, restore, events, state, or manifest processing.
+description: Implement and modify core engine packages in go-engine/internal/. Use for core pipeline development -- changes to apply, capture, verify, plan, restore, events, state, or manifest processing.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: sonnet
 ---
@@ -22,86 +22,42 @@ The engine is the authoritative layer of Endstate. All business logic lives here
 Manifest -> Planner -> Drivers -> Restorers -> Verifiers -> Reports/State
 ```
 
-## Key Engine Files
+## Key Engine Packages
 
-| File | Responsibility |
-|------|----------------|
-| `engine/apply.ps1` | Apply orchestration (install + optional restore + verify) |
-| `engine/capture.ps1` | System state capture to manifest |
-| `engine/verify.ps1` | State verification against manifest |
-| `engine/plan.ps1` | Execution plan generation |
-| `engine/manifest.ps1` | Manifest loading, include resolution, JSONC parsing |
-| `engine/config-modules.ps1` | Module catalog loading, validation, manifest expansion |
-| `engine/restore.ps1` | Restore orchestration |
-| `engine/events.ps1` | Streaming event emission (JSONL to stderr) |
-| `engine/json-output.ps1` | JSON envelope construction for `--json` output |
-| `engine/state.ps1` | State persistence (atomic writes) |
-| `engine/diff.ps1` | Diff computation between manifest and current state |
-| `engine/parallel.ps1` | Parallel installation orchestration |
-| `engine/paths.ps1` | Path resolution and environment variable expansion |
-| `engine/snapshot.ps1` | System snapshot for capture |
-| `engine/export-capture.ps1` | Export configuration from system |
-| `engine/export-validate.ps1` | Validate export integrity |
-| `engine/export-revert.ps1` | Revert last restore (journal-based) |
-| `engine/profile-commands.ps1` | Profile CLI subcommands |
-
-## Drivers
-
-| File | Purpose |
-|------|---------|
-| `drivers/driver.ps1` | Driver interface/registry |
-| `drivers/winget.ps1` | winget package manager adapter |
-
-## Restorers
-
-| File | Strategy |
-|------|----------|
-| `restorers/copy.ps1` | File/directory copy with backup |
-| `restorers/merge-json.ps1` | JSON merge (preserve + overlay) |
-| `restorers/merge-ini.ps1` | INI file merge |
-| `restorers/append.ps1` | Append to existing file |
-| `restorers/helpers.ps1` | Shared restore utilities |
-
-## Verifiers
-
-| File | Check |
-|------|-------|
-| `verifiers/file-exists.ps1` | File or directory existence |
-| `verifiers/command-exists.ps1` | Command available on PATH |
-| `verifiers/registry-key-exists.ps1` | Registry key/value existence |
+| Package | Responsibility |
+|---------|----------------|
+| `go-engine/cmd/endstate/` | CLI entrypoint |
+| `go-engine/internal/commands/` | Command implementations (apply, capture, restore, verify, etc.) |
+| `go-engine/internal/manifest/` | Manifest loading, include resolution, JSONC stripping |
+| `go-engine/internal/modules/` | Module catalog loading, validation, manifest expansion |
+| `go-engine/internal/planner/` | Execution plan generation and diff computation |
+| `go-engine/internal/driver/` | Package manager adapters (winget is primary) |
+| `go-engine/internal/restore/` | Config restoration strategies (copy, merge-json, merge-ini, append) |
+| `go-engine/internal/verifier/` | State assertions (file-exists, command-exists, registry-key-exists) |
+| `go-engine/internal/events/` | Streaming event emission (JSONL to stderr) |
+| `go-engine/internal/envelope/` | JSON envelope construction for `--json` output |
+| `go-engine/internal/snapshot/` | System snapshot for capture |
+| `go-engine/internal/config/` | Configuration and path resolution |
+| `go-engine/internal/bundle/` | Bundle loading and module grouping |
 
 ## Landmines
 
-1. **Entrypoint guard:** `bin/endstate.ps1` blocks direct invocation. Set `$env:ENDSTATE_ALLOW_DIRECT='1'` for dev, or re-bootstrap after edits
-2. **JSONC parsing:** ALWAYS use `Read-JsoncFile`. Raw `ConvertFrom-Json` on `.jsonc` files will fail on comments
-3. **`-EnableRestore` wiring:** Must be explicitly threaded from CLI entry to `Invoke-ApplyCore`. Missing wiring silently skips all restore entries with no error
-4. **Capture zip path rewriting:** `New-CaptureBundle` stages under `configs/<module-id>/` but modules reference `./payload/apps/<id>/`. Stage 2b rewrites paths
-5. **`Copy-Item -Recurse` nesting:** When destination exists, PowerShell copies source INSIDE dest. Must `Remove-Item` dest first for idempotent directory copies
-6. **State atomicity:** State writes use temp file + move (`Move-Item`) for atomic updates. Never write directly to `state.json`
-7. **Line ending normalization:** Hash computation normalizes CRLF to LF. If you compute hashes, use the same normalization
-8. **PowerShell 5.1 null handling:** `$null -eq $value` (not `$value -eq $null`) to avoid array comparison. Use `.ContainsKey()` not truthy/falsy for hashtable lookups
-9. **Events to stderr:** `Write-StreamingEvent` uses `[Console]::Error.WriteLine()`, not `Write-Error`. Events are informational, not error streams
-10. **Module catalog caching:** `Get-ConfigModuleCatalog` caches on first load. Pass `-Force` to reload after dynamic changes
-11. **PATH bootstrap:** Bootstrap installs to `%LOCALAPPDATA%\Endstate\bin\lib\` (not `bin\` directly). The CMD shim at `bin\endstate.cmd` must take precedence over `.ps1`
-12. **Exit code capture:** In PowerShell 5.1, `$LASTEXITCODE` is the only reliable way to capture process exit codes. `$?` is unreliable for external commands
-
-## PS 5.1 Compatibility (Critical)
-
-All engine code MUST work on PowerShell 5.1:
-- `Join-Path` only accepts 2 arguments. Nest calls: `Join-Path (Join-Path $a "b") "c"`
-- `ConvertFrom-Json -AsHashtable` does not exist in PS 5.1. Use version-gated logic or `Convert-PsObjectToHashtable` from `engine/manifest.ps1`
-- Never use em dashes or non-ASCII in strings -- PS 5.1 reads UTF-8 without BOM as Windows-1252
-- `$object.Count` returns `$null` on single objects in PS 5.1. Wrap in `@()` when needed
+1. **JSONC parsing:** Always use `StripJsoncComments` before `json.Unmarshal`. Raw unmarshal on `.jsonc` files will fail on comments
+2. **Capture zip path rewriting:** Capture stages under `configs/<module-id>/` but modules reference `./payload/apps/<id>/`. Path rewriting must reconcile these
+3. **Directory copy nesting:** When copying directories, ensure the destination is removed first for idempotent behavior
+4. **State atomicity:** State writes use temp file + rename for atomic updates. Never write directly to `state.json`
+5. **Line ending normalization:** Hash computation normalizes CRLF to LF. If you compute hashes, use the same normalization
+6. **Events to stderr:** Streaming events are written to stderr, not stdout. Events are informational, not error streams
+7. **PATH bootstrap:** Bootstrap installs to `%LOCALAPPDATA%\Endstatein\`. Re-bootstrap after engine changes
 
 ## Development Workflow
 
-```powershell
-# Test against repo code (bypass bootstrap)
-$env:ENDSTATE_ALLOW_DIRECT = '1'
-.\bin\endstate.ps1 <command> --json
+```bash
+# Run CLI from source
+cd go-engine && go run ./cmd/endstate <command> --json
 
 # Run targeted unit tests after changes
-.\scripts\test-unit.ps1 -Path tests\unit\<Subject>.Tests.ps1
+cd go-engine && go test ./internal/<package>/...
 
 # Validate OpenSpec compliance
 npm run openspec:validate
