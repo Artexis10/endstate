@@ -73,7 +73,7 @@ The apply, verify, and capture JSON envelopes SHALL include a configModuleMap fi
 - Keys correspond to matches.winget entries in the referenced module definitions
 
 ### INV-CONFIGMAP-3: Consistency Across Operations
-- configModuleMap uses the same construction logic (Build-ConfigModuleMap) in apply, apply --dry-run, verify, and capture
+- configModuleMap uses the same construction logic (`modules.MatchModulesForApps` in `go-engine/internal/modules/matcher.go`) in apply, apply --dry-run, verify, and capture
 - Given the same manifest/module set, all operations produce identical configModuleMap content
 
 ### INV-CONFIGMAP-4: Additive Field
@@ -100,7 +100,7 @@ The apply, verify, and capture JSON envelopes SHALL include a configModuleMap fi
 - capture
 
 ## Implementation
-- engine/config-modules.ps1: Build-ConfigModuleMap function
-- engine/apply.ps1: conditional inclusion in $data block
-- engine/verify.ps1: conditional inclusion in $data block
-- bin/endstate.ps1: capture envelope construction (always present, defaults to empty object)
+- `go-engine/internal/modules/matcher.go`: `MatchModulesForApps` function (builds configModuleMap)
+- `go-engine/internal/commands/apply.go`: conditional inclusion in data block
+- `go-engine/internal/commands/verify.go`: conditional inclusion in data block
+- `go-engine/internal/commands/capture.go`: capture envelope construction (always present, defaults to empty object)

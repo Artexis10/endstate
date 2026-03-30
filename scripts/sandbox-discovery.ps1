@@ -1,3 +1,6 @@
+# TODO: Port snapshot functions (Apply-ExcludeHeuristics, ConvertTo-LogicalToken, etc.)
+# to a standalone utility or Go CLI command. This script currently depends on
+# engine\snapshot.ps1 which is being removed with the PowerShell engine.
 <#
 .SYNOPSIS
     Sandbox-based discovery for generating module drafts from winget installations.
@@ -69,9 +72,16 @@ $script:SnapshotModule = Join-Path $script:RepoRoot "engine\snapshot.ps1"
 $script:HarnessDir = Join-Path $script:RepoRoot "sandbox-tests\discovery-harness"
 $script:ModulesDir = Join-Path $script:RepoRoot "modules\apps"
 
-# Load snapshot module
+# Load snapshot module (dependency on legacy PS engine — will be ported to Go)
 if (-not (Test-Path $script:SnapshotModule)) {
-    Write-Error "Snapshot module not found: $script:SnapshotModule"
+    Write-Host "[ERROR] engine\snapshot.ps1 not found at: $script:SnapshotModule" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "This script depends on snapshot functions from the PowerShell engine" -ForegroundColor Yellow
+    Write-Host "which has been removed. The required functions are:" -ForegroundColor Yellow
+    Write-Host "  - Apply-ExcludeHeuristics" -ForegroundColor Yellow
+    Write-Host "  - ConvertTo-LogicalToken" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "To fix: port these functions to a standalone utility or Go CLI command." -ForegroundColor Yellow
     exit 1
 }
 . $script:SnapshotModule

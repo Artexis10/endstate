@@ -43,12 +43,12 @@ The engine SHALL NOT contain hardcoded `cliVersion` or `schemaVersion` values in
 #### Scenario: Grep for hardcoded versions
 
 - **WHEN** the codebase is searched for hardcoded version assignment to envelope fields
-- **THEN** all `cliVersion` / `endstateVersion` values trace back to a `VERSION` file read via `Get-EndstateVersion`
-- **AND** all `schemaVersion` values trace back to a `SCHEMA_VERSION` file read via `Get-SchemaVersion`
+- **THEN** all `cliVersion` / `endstateVersion` values trace back to a `VERSION` file read via `config.ReadVersion` (`go-engine/internal/config/version.go`)
+- **AND** all `schemaVersion` values trace back to a `SCHEMA_VERSION` file read via `config.ReadSchemaVersion`
 
 ### Requirement: Capture bundle metadata uses shared version functions
 
-The capture bundle metadata constructor (`New-CaptureMetadata` in `engine/bundle.ps1`) SHALL use `Get-EndstateVersion` and `Get-SchemaVersion` from `engine/json-output.ps1` instead of inline file reads with hardcoded fallbacks.
+The capture bundle metadata constructor SHALL use `config.ReadVersion` and `config.ReadSchemaVersion` from `go-engine/internal/config/version.go` instead of inline file reads with hardcoded fallbacks.
 
 #### Scenario: Capture metadata version matches envelope version
 
@@ -98,6 +98,7 @@ The bump automation SHALL enforce that a schema major version bump also bumps th
 - `VERSION` — repo root, plain text
 - `SCHEMA_VERSION` — repo root, plain text
 - `scripts/bump-version.ps1` — version bump automation
-- `engine/json-output.ps1` — envelope construction, version functions
-- `engine/bundle.ps1` — capture bundle metadata
+- `go-engine/internal/config/version.go` — `ReadVersion` and `ReadSchemaVersion` functions
+- `go-engine/internal/envelope/envelope.go` — envelope construction
+- `go-engine/internal/bundle/` — capture bundle metadata
 - `docs/SEMVER_SYSTEM.md` — full design specification

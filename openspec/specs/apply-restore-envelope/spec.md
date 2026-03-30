@@ -39,10 +39,10 @@ The apply command SHALL extend its JSON envelope with `restoreItems[]` and `rest
 - **AND** the journal uses the same schema as standalone restore's journal
 - **AND** the journal is written even if some restore steps fail
 
-#### Scenario: Apply uses Invoke-RestoreAction for multi-restorer dispatch
+#### Scenario: Apply uses restore strategy dispatch for multi-restorer support
 
 - **WHEN** `apply --EnableRestore` processes restore entries
-- **THEN** `Invoke-RestoreAction` from `engine/restore.ps1` is used (not `Invoke-CopyRestore`)
+- **THEN** the restore package (`go-engine/internal/restore/`) dispatches each entry by its `type` field via `RunRestore`
 - **AND** copy, merge-json, merge-ini, and append restorer types are supported
 - **AND** requiresAdmin and requiresClosed checks are enforced
 - **AND** exclude patterns are applied

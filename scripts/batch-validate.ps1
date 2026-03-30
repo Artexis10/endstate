@@ -46,7 +46,19 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $script:RepoRoot = Split-Path -Parent $PSScriptRoot
-. (Join-Path $script:RepoRoot "engine\manifest.ps1")
+
+# Inline JSONC reader — reads a file, strips comments, parses as JSON.
+# Replaces the former dependency on engine\manifest.ps1 (Read-JsoncFile).
+function Read-JsoncFile {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return $null }
+    $content = Get-Content -Path $Path -Raw
+    # Strip block comments (/* ... */) then single-line comments (// ...)
+    $content = $content -replace '/\*[\s\S]*?\*/', ''
+    $content = $content -replace '(?m)^\s*//.*$', ''
+    $content = $content -replace '(?<=,|{|\[)\s*//.*$', ''
+    return $content | ConvertFrom-Json -AsHashtable
+}
 
 # All scaffolded modules (excluding already-validated git, vscodium)
 $allModules = @(

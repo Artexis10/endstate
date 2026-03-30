@@ -187,28 +187,22 @@ function Stop-SandboxSession {
     }
 }
 
-# Load manifest.ps1 for JSONC parsing
-$manifestModule = Join-Path $script:RepoRoot "engine\manifest.ps1"
-if (Test-Path $manifestModule) {
-    . $manifestModule
+# Inline JSONC reader — reads a file, strips comments, parses as JSON.
+# Replaces the former dependency on engine\manifest.ps1 (Read-JsoncFile).
+function Read-JsoncFile {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return $null }
+    $content = Get-Content -Path $Path -Raw
+    # Strip block comments (/* ... */) then single-line comments (// ...)
+    $content = $content -replace '/\*[\s\S]*?\*/', ''
+    $content = $content -replace '(?m)^\s*//.*$', ''
+    $content = $content -replace '(?<=,|{|\[)\s*//.*$', ''
+    return $content | ConvertFrom-Json -AsHashtable
 }
 
 function Read-ModuleJsonc {
     param([string]$Path)
-    
-    if (-not (Test-Path $Path)) {
-        return $null
-    }
-    
-    # Use Read-JsoncFile if available, otherwise basic parsing
-    if (Get-Command Read-JsoncFile -ErrorAction SilentlyContinue) {
-        return Read-JsoncFile -Path $Path
-    }
-    
-    # Fallback: strip comments and parse
-    $content = Get-Content -Path $Path -Raw
-    $content = $content -replace '//.*$', '' -replace '/\*[\s\S]*?\*/', ''
-    return $content | ConvertFrom-Json -AsHashtable
+    return Read-JsoncFile -Path $Path
 }
 
 # ============================================================================
