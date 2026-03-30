@@ -4,61 +4,47 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ## Project Overview
 
-Endstate is a declarative machine provisioning system written in PowerShell. It eliminates the "clean install tax" by enabling safe, repeatable, auditable machine rebuilds from manifests. The system follows strict principles: declarative desired state, idempotence, non-destructive defaults, and verification-first design.
+Endstate is a declarative machine provisioning system written in Go. It eliminates the "clean install tax" by enabling safe, repeatable, auditable machine rebuilds from manifests. The system follows strict principles: declarative desired state, idempotence, non-destructive defaults, and verification-first design.
 
 ## Essential Commands
 
 ### Testing
-```powershell
+```bash
 # Run all tests
-.\scripts\test_pester.ps1
+cd go-engine && go test ./...
 
-# Run specific test suite
-.\scripts\test_pester.ps1 -Path tests/unit
+# Run specific package tests
+cd go-engine && go test ./internal/manifest/...
 
-# Run specific test file
-.\scripts\test_pester.ps1 -Path tests/unit/Manifest.Tests.ps1
-
-# Run tests with tag filter
-.\scripts\test_pester.ps1 -Tag "Manifest"
+# Run CLI from source
+cd go-engine && go run ./cmd/endstate <command> --json
 ```
 
-Tests use Pester 5.7.1 (vendored in `tools/pester/`). Test results are written to `test-results.xml`.
-
 ### CLI Commands
-```powershell
+```bash
 # Capture current machine state
-.\bin\cli.ps1 -Command capture -Profile my-machine
-
-# Capture with templates for restore/verify
-.\bin\cli.ps1 -Command capture -Profile my-machine -IncludeRestoreTemplate -IncludeVerifyTemplate
-
-# Update existing manifest with new capture
-.\bin\cli.ps1 -Command capture -Profile my-machine -Update
+endstate capture --profile my-machine --json
 
 # Generate execution plan
-.\bin\cli.ps1 -Command plan -Manifest manifests\my-machine.jsonc
+endstate plan --manifest manifests/my-machine.jsonc --json
 
 # Dry-run (preview changes)
-.\bin\cli.ps1 -Command apply -Manifest manifests\my-machine.jsonc -DryRun
+endstate apply --manifest manifests/my-machine.jsonc --dry-run --json
 
 # Apply manifest (execute changes)
-.\bin\cli.ps1 -Command apply -Manifest manifests\my-machine.jsonc
+endstate apply --manifest manifests/my-machine.jsonc --json
 
 # Restore configurations (opt-in)
-.\bin\cli.ps1 -Command restore -Manifest manifests\my-machine.jsonc -EnableRestore
+endstate restore --manifest manifests/my-machine.jsonc --enable-restore --json
 
 # Verify desired state
-.\bin\cli.ps1 -Command verify -Manifest manifests\my-machine.jsonc
+endstate verify --manifest manifests/my-machine.jsonc --json
 
 # Check environment health
-.\bin\cli.ps1 -Command doctor
+endstate doctor --json
 
 # View run history
-.\bin\cli.ps1 -Command report -Latest
-
-# Compare artifacts
-.\bin\cli.ps1 -Command diff -FileA plans\run1.json -FileB plans\run2.json
+endstate report --json
 ```
 
 ## Architecture
@@ -68,41 +54,26 @@ Tests use Pester 5.7.1 (vendored in `tools/pester/`). Test results are written t
 Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 ```
 
-### Core Components
+### Core Packages (`go-engine/internal/`)
 
-**engine/** - Orchestration logic (all operations flow through here)
-- `capture.ps1` - Captures current machine state via winget export, generates manifests
-- `plan.ps1` - Resolves manifests into executable plans, computes diff against current state
-- `apply.ps1` - Executes plans: installs apps, applies configs, runs verifications
-- `verify.ps1` - Confirms desired state matches reality
-- `restore.ps1` - Applies configuration files (opt-in for safety)
-- `manifest.ps1` - Manifest parsing (JSONC/JSON/YAML), include resolution, circular detection
-- `state.ps1` - Persists run history for drift detection
-- `report.ps1` - Formats human/machine-readable reports
-- `diff.ps1` - Compares plans/runs
-- `discovery.ps1` - Detects installed software not managed by winget
-- `config-modules.ps1` - Config module catalog system
-- `parallel.ps1` - Parallel execution primitives
-- `logging.ps1` - Structured logging
-- `progress.ps1` - Progress reporting
-
-**drivers/** - Platform-specific package managers
-- `winget.ps1` - Windows package installation adapter (primary driver)
-
-**restorers/** - Configuration restoration modules
-- `copy.ps1` - File copy with backup
-- `append.ps1` - Append content to files
-- `merge-json.ps1` - JSON merge strategies
-- `merge-ini.ps1` - INI merge strategies
-- `helpers.ps1` - Shared utilities (path expansion, backup)
-
-**verifiers/** - State verification modules
-- `file-exists.ps1` - Verify file existence
-- `command-exists.ps1` - Verify command availability
-- `registry-key-exists.ps1` - Verify registry state
+| Package | Purpose |
+|---------|---------|
+| `commands/` | CLI command implementations (apply, capture, restore, verify, etc.) |
+| `manifest/` | Manifest loading, include resolution, JSONC stripping |
+| `modules/` | Config module catalog loading, validation, manifest expansion |
+| `planner/` | Execution plan generation and diff computation |
+| `driver/` | Package manager adapters (winget is primary) |
+| `restore/` | Config restoration strategies (copy, merge-json, merge-ini, append) |
+| `verifier/` | State assertions (file-exists, command-exists, registry-key-exists) |
+| `events/` | JSONL streaming events to stderr |
+| `envelope/` | JSON output envelope construction |
+| `snapshot/` | System snapshot for capture |
+| `config/` | Configuration and path resolution |
+| `bundle/` | Bundle loading and module grouping |
+| `state/` | Run history persistence |
 
 **modules/** - Config module catalog
-- `modules/apps/` - App-specific configuration modules (e.g., apps.git, apps.vscodium)
+- `modules/apps/` - App-specific configuration modules (e.g., apps.git, apps.vscode)
 
 **manifests/** - Desired state declarations
 - `manifests/examples/` - Shareable example manifests
@@ -113,11 +84,11 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 
 Manifests use JSONC (JSON with comments) for human authoring. All plans, state, and reports are JSON.
 
-**Supported formats:** `.jsonc` (preferred), `.json`, `.yaml`, `.yml`
+**Supported formats:** `.jsonc` (preferred), `.json`
 
-**Include mechanism:** Manifests can include other manifests via relative paths. Arrays (apps, restore, verify) are concatenated. Circular includes are detected and rejected. Includes are resolved by `engine/manifest.ps1:Resolve-ManifestIncludes`.
+**Include mechanism:** Manifests can include other manifests via relative paths. Arrays (apps, restore, verify) are concatenated. Circular includes are detected and rejected.
 
-**Config modules:** Apps in manifests can reference config modules (e.g., `"configModules": ["apps.git"]`). Modules expand into restore/verify items via `engine/config-modules.ps1:Expand-ManifestConfigModules`.
+**Config modules:** Apps in manifests can reference config modules (e.g., `"configModules": ["apps.git"]`). Modules expand into restore/verify items via `go-engine/internal/modules/expander.go:ExpandConfigModules`.
 
 ### State and Plans
 
@@ -131,58 +102,25 @@ Manifests use JSONC (JSON with comments) for human authoring. All plans, state, 
 
 ### Code Patterns
 
-**Error Handling:** Use `$ErrorActionPreference = "Stop"` at script top. Wrap risky operations in try/catch. Return structured results with `Success`, `Error`, and optional `Message` properties.
+**Idempotence:** All operations must be safe to re-run. Check state before acting. Skip if already satisfied.
 
-**Logging:** Use functions from `engine/logging.ps1`:
-- `Write-ProvisioningLog -Level INFO|SUCCESS|WARN|ERROR|ACTION|SKIP`
-- `Write-ProvisioningSection "Section Name"`
-- `Initialize-ProvisioningLog -RunId "..."`
-- `Close-ProvisioningLog -SuccessCount X -SkipCount Y -FailCount Z`
+**Non-Destructive:** Backup before overwrite. Files backed up to `state/backups/<timestamp>/`. No deletions unless explicit.
 
-**Idempotence:** All operations must be safe to re-run. Check state before acting. Skip if already satisfied. Example: in `plan.ps1`, apps are marked "skip" if already installed.
+**Testing:** Follow existing Go test patterns in `go-engine/internal/`. Use table-driven tests, `t.TempDir()` for temp files. Tests must be hermetic — no real winget calls, no network access.
 
-**Non-Destructive:** Backup before overwrite. Use `restorers/helpers.ps1:Backup-File` which creates timestamped backups in `state/backups/`. No deletions unless explicit.
+### JSONC Handling
 
-**State Management:** Use `engine/state.ps1` functions:
-- `Save-RunState` - Persist execution results
-- `Get-RunId` - Generate RFC3339 timestamp IDs
-- `Get-ManifestHash` - SHA256 hash for drift detection
-
-**Testing:** Follow existing Pester patterns in `tests/unit/`. Use fixtures from `tests/fixtures/`. Tests should be fast, deterministic, and offline-capable.
-
-### Module Loading
-
-PowerShell modules are dot-sourced at the top of files that depend on them. Example pattern:
-```powershell
-. "$PSScriptRoot\logging.ps1"
-. "$PSScriptRoot\manifest.ps1"
-. "$PSScriptRoot\..\drivers\winget.ps1"
-```
-
-### Manifest Processing Pipeline
-
-1. **Read-Manifest** (`engine/manifest.ps1`) - Entry point, handles includes and config module expansion
-2. **Read-ManifestInternal** - Recursive loader with circular detection
-3. **ConvertFrom-Jsonc** / **ConvertFrom-SimpleYaml** - Format parsers
-4. **Resolve-ManifestIncludes** - Merge included manifests
-5. **Expand-ManifestConfigModules** - Expand config module references into restore/verify items
-6. **Normalize-Manifest** - Ensure required fields exist
-
-### Testing Infrastructure
-
-Pester 5.7.1 is vendored in `tools/pester/` for deterministic, offline-capable testing. The `scripts/ensure-pester.ps1` script handles bootstrap. CI runs `scripts/test_pester.ps1 -Path tests/unit` via GitHub Actions (`.github/workflows/ci.yml`).
+Always use `manifest.StripJsoncComments()` before `json.Unmarshal` on `.jsonc` files. The module catalog loader handles this automatically.
 
 ## Important Constraints
 
-**Windows-first:** While designed platform-agnostic, implementation is currently Windows-only. Uses winget as primary driver. Future: apt/brew support planned.
+**Windows-first:** While designed platform-agnostic, implementation is currently Windows-only. Uses winget as primary driver.
 
-**Opt-in restore:** Configuration restoration is disabled by default. Requires explicit `-EnableRestore` flag for safety.
+**Opt-in restore:** Configuration restoration is disabled by default. Requires explicit `--enable-restore` flag for safety.
 
-**No runtime dependencies:** Pure PowerShell (5.1+). Only external dependency is winget for app installation.
+**No runtime dependencies:** Single Go binary. Only external dependency is winget for app installation.
 
-**Sensitive paths:** `engine/capture.ps1` defines `$script:SensitivePaths` array. Never auto-export SSH keys, credentials, browser profiles, etc.
-
-**Runtime filtering:** By default, capture excludes runtime/framework packages (VCRedist, .NET runtimes) unless `-IncludeRuntimes` specified. Patterns in `$script:RuntimePatterns`.
+**Sensitive paths:** Capture excludes SSH keys, credentials, browser profiles, etc. via sensitive path detection.
 
 **Manifest versioning:** Manifests have a `version` field (currently `1`). This enables future breaking changes with migration paths.
 

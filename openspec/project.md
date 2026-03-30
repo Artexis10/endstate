@@ -3,7 +3,7 @@
 Declarative system provisioning and recovery tool that restores a machine to a known-good end state safely, repeatably, and without guesswork.
 
 **Author:** Hugo Ander Kivi  
-**Primary Language:** PowerShell  
+**Primary Language:** Go  
 **Status:** Functional MVP — actively evolving
 
 ---
@@ -39,12 +39,9 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 ## Key Directories
 
 | Directory | Purpose |
-|-----------|---------|
-| `bin/` | CLI entrypoints (`endstate.ps1`, `endstate.cmd` shim, `cli.ps1`) |
-| `engine/` | Core orchestration logic (manifest, apply, capture, restore, verify, snapshot, etc.) |
-| `drivers/` | Software installation adapters (`winget.ps1` is primary) |
-| `restorers/` | Configuration restoration modules (copy, merge-json, merge-ini, append) |
-| `verifiers/` | State verification modules (file-exists, command-exists, registry-key-exists) |
+|-----------|--------|
+| `go-engine/cmd/endstate/` | CLI entrypoint (Go binary) |
+| `go-engine/internal/` | Core engine packages (manifest, commands, driver, restore, verifier, etc.) |
 | `modules/apps/` | Config module catalog (`<app-id>/module.jsonc`) |
 | `bundles/` | Reusable module groupings (e.g., `core-utilities.jsonc`) |
 | `manifests/` | Desired state declarations |
@@ -52,32 +49,27 @@ Spec → Planner → Drivers → Restorers → Verifiers → Reports/State
 | `manifests/includes/` | Reusable manifest fragments |
 | `manifests/local/` | Machine-specific captures (gitignored) |
 | `sandbox-tests/` | Sandbox-based discovery and validation harnesses |
-| `tests/` | Pester unit tests (`unit/`, `contract/`, `fixtures/`) |
-| `scripts/` | Test runners and utilities |
-| `tools/pester/` | Vendored Pester 5.7.1 |
+| `scripts/` | Utilities and sandbox scripts |
 | `docs/contracts/` | Integration contracts (CLI JSON, GUI, events, profiles) |
 
 ---
 
-## Entry Scripts
+## Engine
 
-### CLI Entrypoint
+The engine is a Go binary at `go-engine/cmd/endstate/`. Core packages live in `go-engine/internal/`:
 
-- **`bin/endstate.ps1`** — Main CLI entrypoint (invoked via `endstate.cmd` shim)
-- **`bin/endstate.cmd`** — Windows CMD wrapper for proper stdout/stderr handling
-
-### Engine Core
-
-| Script | Purpose |
-|--------|---------|
-| `engine/apply.ps1` | Execute plan and apply changes |
-| `engine/capture.ps1` | Capture current machine state into manifest |
-| `engine/verify.ps1` | Run verifiers without modifying state |
-| `engine/snapshot.ps1` | Filesystem snapshot and diff helpers for sandbox discovery |
-| `engine/restore.ps1` | Apply configuration restoration entries |
-| `engine/manifest.ps1` | Manifest loading, includes resolution, module expansion |
-| `engine/plan.ps1` | Plan generation from manifest diff |
-| `engine/diff.ps1` | Diff computation between states |
+| Package | Purpose |
+|---------|--------|
+| `commands/` | CLI command implementations (apply, capture, restore, verify, etc.) |
+| `manifest/` | Manifest loading, include resolution, JSONC stripping |
+| `modules/` | Module catalog loading, validation, manifest expansion |
+| `driver/` | Package manager adapters (winget) |
+| `restore/` | Config restoration strategies (copy, merge-json, merge-ini, append) |
+| `verifier/` | State assertions (file-exists, command-exists, registry-key-exists) |
+| `planner/` | Plan generation and diff computation |
+| `events/` | JSONL streaming events |
+| `envelope/` | JSON output envelope |
+| `snapshot/` | System snapshot for capture |
 
 ### Sandbox Discovery Harness
 
@@ -242,31 +234,24 @@ Deferred apps with similar value but lower priority. See `docs/curation-matrix.m
 ---
 
 ## Testing
-
-```powershell
+n```bash
 # Run all tests
-.\scripts\test_pester.ps1
+cd go-engine && go test ./...
 
-# Run unit tests only
-.\scripts\test-unit.ps1
-
-# Run specific suite
-.\scripts\test_pester.ps1 -Path tests/unit
-
-# Run with tag filter
-.\scripts\test_pester.ps1 -Tag "Manifest"
+# Run specific package
+cd go-engine && go test ./internal/manifest/...
 ```
 
 ---
 
 ## Conventions
 
-- **Manifest format:** JSONC preferred (`.jsonc`), also supports `.json`, `.yaml`
+- **Manifest format:** JSONC preferred (`.jsonc`), also supports `.json`
 - **Module naming:** `modules/apps/<app-id>/module.jsonc` where `<app-id>` is lowercase hyphenated
-- **Test naming:** `<Subject>.Tests.ps1`
-- **Engine scripts:** `<verb>.ps1`
-- **Restore is opt-in:** Requires `-EnableRestore` flag
+- **Test naming:** `<package>_test.go` in same package as code under test
+- **Restore is opt-in:** Requires `--enable-restore` flag
 - **Backup before overwrite:** Files backed up to `state/backups/<timestamp>/`
+
 
 ---
 

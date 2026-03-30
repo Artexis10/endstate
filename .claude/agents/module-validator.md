@@ -64,21 +64,13 @@ For each module with both `capture.files` and `restore` entries:
 Module files are JSONC (JSON with comments). The Go engine handles loading in `go-engine/internal/modules/catalog.go` via `StripJsoncComments` from `go-engine/internal/manifest/`. Never pass raw `.jsonc` content to `json.Unmarshal`.
 
 ## Validation Commands
+
 ```bash
-cd go-engine && go test ./internal/modules/...
-```
-
-## Validation Commands
-
-```powershell
-# Load all modules and check for load errors
-$env:ENDSTATE_ALLOW_DIRECT = '1'
-.\bin\endstate.ps1 capture --dry-run --json 2>&1
-
 # Run module-related unit tests
-.\scripts\test-unit.ps1 -Path tests\unit\Capture.Tests.ps1
-.\scripts\test-unit.ps1 -Path tests\unit\ModuleRestore.Tests.ps1
-.\scripts\test-unit.ps1 -Path tests\unit\ModuleCli.Tests.ps1
+cd go-engine && go test ./internal/modules/...
+
+# Load all modules and check for load errors
+cd go-engine && go run ./cmd/endstate capture --dry-run --json 2>&1
 ```
 
 ## Expected Output Format

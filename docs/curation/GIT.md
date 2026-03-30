@@ -109,9 +109,9 @@ code .\modules\apps\git\module.jsonc
 
 ### Step 5: Run Tests
 
-```powershell
-# Run Git module tests
-Invoke-Pester -Path .\tests\unit\GitModule.Tests.ps1 -Output Detailed
+```bash
+# Run module tests
+cd go-engine && go test ./internal/modules/...
 ```
 
 ---

@@ -27,17 +27,17 @@ endstate/
     └── bump-version.ps1 # Bump automation
 ```
 
-**`VERSION`** — plain text, one line, no newline. Read by `bin/endstate.ps1` at runtime to populate `cliVersion` in the JSON envelope.
+**`VERSION`** — plain text, one line, no newline. Read by the Go engine at runtime to populate `cliVersion` in the JSON envelope.
 
 **`SCHEMA_VERSION`** — plain text, one line. Read at runtime for `schemaVersion` in envelope. Separate file because schema version has independent bump semantics.
 
 ### Runtime Integration
 
-`bin/endstate.ps1` (or the envelope builder) reads both files:
+The Go engine envelope builder (`go-engine/internal/envelope/`) reads both files at build/runtime:
 
-```powershell
-$cliVersion = (Get-Content "$RepoRoot/VERSION" -Raw).Trim()
-$schemaVersion = (Get-Content "$RepoRoot/SCHEMA_VERSION" -Raw).Trim()
+```go
+cliVersion := strings.TrimSpace(readFile(filepath.Join(repoRoot, "VERSION")))
+schemaVersion := strings.TrimSpace(readFile(filepath.Join(repoRoot, "SCHEMA_VERSION")))
 ```
 
 These replace any hardcoded version strings currently in the codebase.

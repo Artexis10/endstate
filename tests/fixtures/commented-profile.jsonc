@@ -1,8 +1,0 @@
-﻿{
-  // This is a comment
-  "version": 1,
-  "name": "commented-profile",
-  /* Multi-line
-     comment */
-  "apps": []
-}

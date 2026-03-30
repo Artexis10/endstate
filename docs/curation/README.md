@@ -151,18 +151,11 @@ Creates `modules/apps/myapp/module.jsonc` with template structure.
 
 ## Testing
 
-Run curation tests:
+Run module-related tests:
 
-```powershell
-.\scripts\test-unit.ps1 -Path tests\unit\Curate.Tests.ps1
+```bash
+cd go-engine && go test ./internal/modules/...
 ```
-
-Run Git module tests:
-
-```powershell
-.\scripts\test-unit.ps1 -Path tests\unit\GitModule.Tests.ps1
-```
-
 ## See Also
 
 - [Git Curation Details](./GIT.md)

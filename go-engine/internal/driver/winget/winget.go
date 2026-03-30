@@ -3,7 +3,7 @@
 
 // Package winget implements the driver.Driver interface for Windows Package
 // Manager (winget). It mirrors the install/detect logic from
-// drivers/winget.ps1 in the PowerShell engine.
+// It wraps the winget CLI for package detection and installation.
 package winget
 
 import (
@@ -54,7 +54,7 @@ func (w *WingetDriver) Name() string { return "winget" }
 //
 //	winget install --id <ref> --accept-source-agreements --accept-package-agreements -e --silent
 //
-// Exit code semantics (matching drivers/winget.ps1):
+// Exit code semantics:
 //   - 0                 → StatusInstalled
 //   - -1978335189 (0x8A150019) → StatusPresent / ReasonAlreadyInstalled
 //   - other non-zero    → StatusFailed / ReasonInstallFailed

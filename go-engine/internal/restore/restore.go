@@ -3,8 +3,8 @@
 
 // Package restore implements the four restore strategies (copy, merge-json,
 // merge-ini, append), backup creation, journaling, and revert for the
-// Endstate Go engine. It mirrors the behaviour of the PowerShell restorers/
-// directory and engine/restore.ps1.
+// Endstate Go engine. It implements the four restore strategies
+// (copy, merge-json, merge-ini, append).
 package restore
 
 import (
