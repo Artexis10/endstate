@@ -41,12 +41,13 @@ type ManualApp struct {
 
 // RestoreEntry describes a single configuration restore operation.
 type RestoreEntry struct {
-	Type     string   `json:"type"`
-	Source   string   `json:"source"`
-	Target   string   `json:"target"`
-	Backup   bool     `json:"backup,omitempty"`
-	Optional bool     `json:"optional,omitempty"`
-	Exclude  []string `json:"exclude,omitempty"`
+	Type       string   `json:"type"`
+	Source     string   `json:"source"`
+	Target     string   `json:"target"`
+	Backup     bool     `json:"backup,omitempty"`
+	Optional   bool     `json:"optional,omitempty"`
+	Exclude    []string `json:"exclude,omitempty"`
+	FromModule string   `json:"fromModule,omitempty"`
 }
 
 // VerifyEntry describes a single state assertion.

@@ -177,13 +177,14 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 		id := fmt.Sprintf("%s:%s->%s", restoreType, filepath.ToSlash(e.Source), filepath.ToSlash(e.Target))
 
 		action := restore.RestoreAction{
-			Type:     e.Type,
-			Source:   e.Source,
-			Target:   e.Target,
-			Backup:   e.Backup,
-			Optional: e.Optional,
-			Exclude:  e.Exclude,
-			ID:       id,
+			Type:       e.Type,
+			Source:     e.Source,
+			Target:     e.Target,
+			Backup:     e.Backup,
+			Optional:   e.Optional,
+			Exclude:    e.Exclude,
+			ID:         id,
+			FromModule: e.FromModule,
 		}
 
 		// Apply filter: if filter is set, skip entries that don't match.
@@ -191,7 +192,7 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 		if len(filterList) > 0 && action.FromModule != "" {
 			matched := false
 			for _, f := range filterList {
-				if f == action.FromModule {
+				if f == action.FromModule || "apps."+f == action.FromModule {
 					matched = true
 					break
 				}

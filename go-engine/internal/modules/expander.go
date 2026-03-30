@@ -33,12 +33,13 @@ func ExpandConfigModules(m *manifest.Manifest, catalog map[string]*Module) error
 		// Inject restore entries.
 		for _, r := range mod.Restore {
 			entry := manifest.RestoreEntry{
-				Type:     r.Type,
-				Source:   r.Source,
-				Target:   r.Target,
-				Backup:   r.Backup,
-				Optional: r.Optional,
-				Exclude:  r.Exclude,
+				Type:       r.Type,
+				Source:     r.Source,
+				Target:     r.Target,
+				Backup:     r.Backup,
+				Optional:   r.Optional,
+				Exclude:    r.Exclude,
+				FromModule: moduleID,
 			}
 			m.Restore = append(m.Restore, entry)
 		}
