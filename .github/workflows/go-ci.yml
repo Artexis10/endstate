@@ -1,0 +1,27 @@
+name: Go Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Go Tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Vet
+        run: cd go-engine && go vet ./...
+
+      - name: Test
+        run: cd go-engine && go test ./...
