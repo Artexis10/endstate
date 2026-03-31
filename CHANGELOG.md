@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.7.1](https://github.com/Artexis10/endstate/compare/v1.7.0...v1.7.1) (2026-03-31)
+
+
+### Bug Fixes
+
+* anchor /state/ gitignore rule so go-engine/internal/state/ is tracked ([b4b5ade](https://github.com/Artexis10/endstate/commit/b4b5ade49ba188c999fd2d5b6864ec6c3da48dd9))
+
 ## [1.7.0](https://github.com/Artexis10/endstate/compare/v1.6.0...v1.7.0) (2026-03-31)
 
 
