@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.7.2](https://github.com/Artexis10/endstate/compare/v1.7.1...v1.7.2) (2026-03-31)
+
+
+### Bug Fixes
+
+* remove unnecessary delete-glob entry from lightroom-classic module ([508493d](https://github.com/Artexis10/endstate/commit/508493d65da8e42a4a22d7d8405d995cf7ea2224))
+
 ## [1.7.1](https://github.com/Artexis10/endstate/compare/v1.7.0...v1.7.1) (2026-03-31)
 
 
