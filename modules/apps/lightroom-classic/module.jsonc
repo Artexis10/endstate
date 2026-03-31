@@ -225,6 +225,13 @@
       "target": "%APPDATA%\\Adobe\\Lightroom\\Locations",
       "backup": true,
       "optional": true
+    },
+    {
+      "type": "delete-glob",
+      "target": "%APPDATA%\\Adobe\\CameraRaw\\Settings",
+      "pattern": "*.dat",
+      "optional": true,
+      "reason": "Clear preset index cache so Lightroom rebuilds from restored XMP presets"
     }
   ],
   

@@ -38,6 +38,8 @@ type RestoreDef struct {
 	Type     string   `json:"type"`
 	Source   string   `json:"source"`
 	Target   string   `json:"target"`
+	Pattern  string   `json:"pattern,omitempty"`
+	Reason   string   `json:"reason,omitempty"`
 	Backup   bool     `json:"backup,omitempty"`
 	Optional bool     `json:"optional,omitempty"`
 	Exclude  []string `json:"exclude,omitempty"`

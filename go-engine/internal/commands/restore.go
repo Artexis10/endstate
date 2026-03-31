@@ -168,12 +168,19 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 		if restoreType == "" {
 			restoreType = "copy"
 		}
-		id := fmt.Sprintf("%s:%s->%s", restoreType, filepath.ToSlash(e.Source), filepath.ToSlash(e.Target))
+		var id string
+		if restoreType == "delete-glob" {
+			id = fmt.Sprintf("delete-glob:%s/%s", filepath.ToSlash(e.Target), e.Pattern)
+		} else {
+			id = fmt.Sprintf("%s:%s->%s", restoreType, filepath.ToSlash(e.Source), filepath.ToSlash(e.Target))
+		}
 
 		action := restore.RestoreAction{
 			Type:       e.Type,
 			Source:     e.Source,
 			Target:     e.Target,
+			Pattern:    e.Pattern,
+			Reason:     e.Reason,
 			Backup:     e.Backup,
 			Optional:   e.Optional,
 			Exclude:    e.Exclude,

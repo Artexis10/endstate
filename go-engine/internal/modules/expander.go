@@ -42,6 +42,8 @@ func ExpandConfigModules(m *manifest.Manifest, catalog map[string]*Module) error
 				Type:       r.Type,
 				Source:     r.Source,
 				Target:     r.Target,
+				Pattern:    r.Pattern,
+				Reason:     r.Reason,
 				Backup:     r.Backup,
 				Optional:   r.Optional,
 				Exclude:    r.Exclude,

@@ -1,10 +1,9 @@
 // Copyright 2025 Substrate Systems OU
 // SPDX-License-Identifier: Apache-2.0
 
-// Package restore implements the four restore strategies (copy, merge-json,
-// merge-ini, append), backup creation, journaling, and revert for the
-// Endstate Go engine. It implements the four restore strategies
-// (copy, merge-json, merge-ini, append).
+// Package restore implements restore strategies (copy, merge-json, merge-ini,
+// append, delete-glob), backup creation, journaling, and revert for the
+// Endstate Go engine.
 package restore
 
 import (
@@ -22,6 +21,8 @@ type RestoreAction struct {
 	Type       string   `json:"type"`
 	Source     string   `json:"source"`
 	Target     string   `json:"target"`
+	Pattern    string   `json:"pattern,omitempty"`
+	Reason     string   `json:"reason,omitempty"`
 	Backup     bool     `json:"backup"`
 	Optional   bool     `json:"optional"`
 	Exclude    []string `json:"exclude,omitempty"`
@@ -150,6 +151,9 @@ func generateID(action RestoreAction) string {
 	if t == "" {
 		t = "copy"
 	}
+	if t == "delete-glob" {
+		return fmt.Sprintf("delete-glob:%s/%s", filepath.ToSlash(action.Target), action.Pattern)
+	}
 	return fmt.Sprintf("%s:%s->%s", t, filepath.ToSlash(action.Source), filepath.ToSlash(action.Target))
 }
 
@@ -162,6 +166,54 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 
 	for _, entry := range entries {
 		id := generateID(entry)
+
+		// delete-glob: no source path, may produce multiple results.
+		if entry.Type == "delete-glob" {
+			target := resolveTarget(entry.Target)
+
+			// Check if target directory exists.
+			if _, err := os.Stat(target); os.IsNotExist(err) {
+				if entry.Optional {
+					r := RestoreResult{
+						ID:     id,
+						Target: target,
+						Status: "skipped_missing_source",
+					}
+					emitRestoreItemEvent(emitter, entry, r)
+					results = append(results, r)
+					continue
+				}
+				r := RestoreResult{
+					ID:     id,
+					Target: target,
+					Status: "failed",
+					Error:  fmt.Sprintf("target directory not found: %s", target),
+				}
+				emitRestoreItemEvent(emitter, entry, r)
+				results = append(results, r)
+				continue
+			}
+
+			deleteResults, err := RestoreDeleteGlob(entry, target, opts)
+			if err != nil {
+				r := RestoreResult{
+					ID:     id,
+					Target: target,
+					Status: "failed",
+					Error:  err.Error(),
+				}
+				emitRestoreItemEvent(emitter, entry, r)
+				results = append(results, r)
+				continue
+			}
+
+			for i := range deleteResults {
+				deleteResults[i].ID = id
+				emitRestoreItemEvent(emitter, entry, deleteResults[i])
+			}
+			results = append(results, deleteResults...)
+			continue
+		}
 
 		// Resolve source and target paths.
 		source := resolveSource(entry.Source, opts)

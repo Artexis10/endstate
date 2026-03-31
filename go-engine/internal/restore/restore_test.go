@@ -2801,3 +2801,368 @@ func TestRunRestore_EmitsNameFromFromModule(t *testing.T) {
 		t.Errorf("expected name=apps.vscode, got %v", evts[0]["name"])
 	}
 }
+
+// ---------------------------------------------------------------------------
+// delete-glob strategy tests
+// ---------------------------------------------------------------------------
+
+func TestRestoreDeleteGlob_DeletesMatchingFiles(t *testing.T) {
+	tmp := t.TempDir()
+	targetDir := filepath.Join(tmp, "settings")
+	os.MkdirAll(targetDir, 0755)
+
+	// Create matching and non-matching files.
+	os.WriteFile(filepath.Join(targetDir, "index.dat"), []byte("cache1"), 0644)
+	os.WriteFile(filepath.Join(targetDir, "presets.dat"), []byte("cache2"), 0644)
+	os.WriteFile(filepath.Join(targetDir, "keep.xmp"), []byte("preset"), 0644)
+
+	backupDir := filepath.Join(tmp, "backups")
+
+	entry := RestoreAction{
+		Type:    "delete-glob",
+		Target:  targetDir,
+		Pattern: "*.dat",
+	}
+
+	results, err := RestoreDeleteGlob(entry, targetDir, RestoreOptions{
+		BackupDir: backupDir,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should have 2 results (one per .dat file).
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	for _, r := range results {
+		if r.Status != "restored" {
+			t.Errorf("expected status=restored, got %q for %s", r.Status, r.Target)
+		}
+		if !r.BackupCreated {
+			t.Errorf("expected BackupCreated=true for %s", r.Target)
+		}
+		if r.BackupPath == "" {
+			t.Errorf("expected BackupPath to be set for %s", r.Target)
+		}
+		// Verify the file was deleted.
+		if _, err := os.Stat(r.Target); !os.IsNotExist(err) {
+			t.Errorf("file should have been deleted: %s", r.Target)
+		}
+	}
+
+	// Verify non-matching file was preserved.
+	if _, err := os.Stat(filepath.Join(targetDir, "keep.xmp")); err != nil {
+		t.Error("non-matching file keep.xmp should still exist")
+	}
+}
+
+func TestRestoreDeleteGlob_SkipsNonMatching(t *testing.T) {
+	tmp := t.TempDir()
+	targetDir := filepath.Join(tmp, "settings")
+	os.MkdirAll(targetDir, 0755)
+
+	// Only non-matching files.
+	os.WriteFile(filepath.Join(targetDir, "preset.xmp"), []byte("data"), 0644)
+	os.WriteFile(filepath.Join(targetDir, "config.json"), []byte("{}"), 0644)
+
+	entry := RestoreAction{
+		Type:    "delete-glob",
+		Target:  targetDir,
+		Pattern: "*.dat",
+	}
+
+	results, err := RestoreDeleteGlob(entry, targetDir, RestoreOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result (skip), got %d", len(results))
+	}
+	if results[0].Status != "skipped_up_to_date" {
+		t.Errorf("expected status=skipped_up_to_date, got %q", results[0].Status)
+	}
+
+	// Both files should still exist.
+	if _, err := os.Stat(filepath.Join(targetDir, "preset.xmp")); err != nil {
+		t.Error("preset.xmp should still exist")
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "config.json")); err != nil {
+		t.Error("config.json should still exist")
+	}
+}
+
+func TestRestoreDeleteGlob_DryRunDoesNotDelete(t *testing.T) {
+	tmp := t.TempDir()
+	targetDir := filepath.Join(tmp, "settings")
+	os.MkdirAll(targetDir, 0755)
+
+	os.WriteFile(filepath.Join(targetDir, "index.dat"), []byte("cache"), 0644)
+	os.WriteFile(filepath.Join(targetDir, "presets.dat"), []byte("cache2"), 0644)
+
+	entry := RestoreAction{
+		Type:    "delete-glob",
+		Target:  targetDir,
+		Pattern: "*.dat",
+	}
+
+	results, err := RestoreDeleteGlob(entry, targetDir, RestoreOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+
+	for _, r := range results {
+		if r.Status != "restored" {
+			t.Errorf("expected status=restored for dry-run, got %q", r.Status)
+		}
+		if r.BackupCreated {
+			t.Error("backup should not be created in dry-run")
+		}
+	}
+
+	// Files should NOT have been deleted.
+	if _, err := os.Stat(filepath.Join(targetDir, "index.dat")); err != nil {
+		t.Error("index.dat should still exist in dry-run mode")
+	}
+	if _, err := os.Stat(filepath.Join(targetDir, "presets.dat")); err != nil {
+		t.Error("presets.dat should still exist in dry-run mode")
+	}
+}
+
+func TestRestoreDeleteGlob_MissingTargetOptionalSkips(t *testing.T) {
+	tmp := t.TempDir()
+	missingDir := filepath.Join(tmp, "does-not-exist")
+
+	entries := []RestoreAction{
+		{
+			Type:     "delete-glob",
+			Target:   missingDir,
+			Pattern:  "*.dat",
+			Optional: true,
+			ID:       "delete-optional",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Status != "skipped_missing_source" {
+		t.Errorf("expected status=skipped_missing_source, got %q", results[0].Status)
+	}
+}
+
+func TestRestoreDeleteGlob_MissingTargetNonOptionalFails(t *testing.T) {
+	tmp := t.TempDir()
+	missingDir := filepath.Join(tmp, "does-not-exist")
+
+	entries := []RestoreAction{
+		{
+			Type:    "delete-glob",
+			Target:  missingDir,
+			Pattern: "*.dat",
+			ID:      "delete-required",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(results) != 1 {
+		t.Fatalf("expected 1 result, got %d", len(results))
+	}
+	if results[0].Status != "failed" {
+		t.Errorf("expected status=failed, got %q", results[0].Status)
+	}
+	if !strings.Contains(results[0].Error, "target directory not found") {
+		t.Errorf("expected 'target directory not found' error, got %q", results[0].Error)
+	}
+}
+
+func TestRestoreDeleteGlob_JournalRecordsDeletedFiles(t *testing.T) {
+	tmp := t.TempDir()
+	targetDir := filepath.Join(tmp, "settings")
+	os.MkdirAll(targetDir, 0755)
+	backupDir := filepath.Join(tmp, "backups")
+	logsDir := filepath.Join(tmp, "logs")
+
+	os.WriteFile(filepath.Join(targetDir, "a.dat"), []byte("data-a"), 0644)
+	os.WriteFile(filepath.Join(targetDir, "b.dat"), []byte("data-b"), 0644)
+
+	entries := []RestoreAction{
+		{
+			Type:    "delete-glob",
+			Target:  targetDir,
+			Pattern: "*.dat",
+			ID:      "delete-journal-test",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{
+		BackupDir: backupDir,
+		RunID:     "journal-test",
+	}, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Write journal from results.
+	err = WriteJournal(logsDir, "journal-test", "test.jsonc", tmp, "", results)
+	if err != nil {
+		t.Fatalf("WriteJournal failed: %v", err)
+	}
+
+	// Read back the journal.
+	journal, err := ReadJournal(filepath.Join(logsDir, "restore-journal-journal-test.json"))
+	if err != nil {
+		t.Fatalf("ReadJournal failed: %v", err)
+	}
+
+	// Should have 2 journal entries (one per deleted file).
+	if len(journal.Entries) != 2 {
+		t.Fatalf("expected 2 journal entries, got %d", len(journal.Entries))
+	}
+
+	for _, je := range journal.Entries {
+		if je.Action != "restored" {
+			t.Errorf("expected journal action=restored, got %q", je.Action)
+		}
+		if !je.BackupCreated {
+			t.Error("expected journal BackupCreated=true")
+		}
+		if je.BackupPath == "" {
+			t.Error("expected journal BackupPath to be set")
+		}
+		if !je.TargetExistedBefore {
+			t.Error("expected journal TargetExistedBefore=true")
+		}
+	}
+}
+
+func TestRestoreDeleteGlob_BackupEnablesRevert(t *testing.T) {
+	tmp := t.TempDir()
+	targetDir := filepath.Join(tmp, "settings")
+	os.MkdirAll(targetDir, 0755)
+	backupDir := filepath.Join(tmp, "backups")
+	logsDir := filepath.Join(tmp, "logs")
+
+	os.WriteFile(filepath.Join(targetDir, "index.dat"), []byte("original-content"), 0644)
+
+	entries := []RestoreAction{
+		{
+			Type:    "delete-glob",
+			Target:  targetDir,
+			Pattern: "*.dat",
+			ID:      "delete-revert-test",
+		},
+	}
+
+	results, err := RunRestore(entries, RestoreOptions{
+		BackupDir: backupDir,
+		RunID:     "revert-test",
+	}, nil)
+	if err != nil {
+		t.Fatalf("RunRestore failed: %v", err)
+	}
+
+	// File should be deleted.
+	datFile := filepath.Join(targetDir, "index.dat")
+	if _, err := os.Stat(datFile); !os.IsNotExist(err) {
+		t.Fatal("index.dat should have been deleted")
+	}
+
+	// Write journal and revert.
+	err = WriteJournal(logsDir, "revert-test", "test.jsonc", tmp, "", results)
+	if err != nil {
+		t.Fatalf("WriteJournal failed: %v", err)
+	}
+
+	journal, err := ReadJournal(filepath.Join(logsDir, "restore-journal-revert-test.json"))
+	if err != nil {
+		t.Fatalf("ReadJournal failed: %v", err)
+	}
+
+	revertResults, err := RunRevert(journal, backupDir)
+	if err != nil {
+		t.Fatalf("RunRevert failed: %v", err)
+	}
+
+	// Should have reverted the deletion.
+	if len(revertResults) != 1 {
+		t.Fatalf("expected 1 revert result, got %d", len(revertResults))
+	}
+	if revertResults[0].Action != "reverted" {
+		t.Errorf("expected revert action=reverted, got %q", revertResults[0].Action)
+	}
+
+	// File should be restored.
+	data, err := os.ReadFile(datFile)
+	if err != nil {
+		t.Fatalf("index.dat should exist after revert: %v", err)
+	}
+	if string(data) != "original-content" {
+		t.Errorf("expected original content, got %q", string(data))
+	}
+}
+
+func TestRestoreDeleteGlob_EmitsPerFileEvents(t *testing.T) {
+	tmp := t.TempDir()
+	targetDir := filepath.Join(tmp, "settings")
+	os.MkdirAll(targetDir, 0755)
+
+	os.WriteFile(filepath.Join(targetDir, "a.dat"), []byte("1"), 0644)
+	os.WriteFile(filepath.Join(targetDir, "b.dat"), []byte("2"), 0644)
+	os.WriteFile(filepath.Join(targetDir, "keep.xmp"), []byte("3"), 0644)
+
+	entries := []RestoreAction{
+		{
+			Type:       "delete-glob",
+			Target:     targetDir,
+			Pattern:    "*.dat",
+			ID:         "event-test",
+			FromModule: "apps.lightroom-classic",
+		},
+	}
+
+	var buf bytes.Buffer
+	emitter := events.NewEmitterWithWriter("event-test", true, &buf)
+
+	_, err := RunRestore(entries, RestoreOptions{
+		BackupDir: filepath.Join(tmp, "backups"),
+	}, emitter)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	evts := parseTestEvents(&buf)
+	if len(evts) != 2 {
+		t.Fatalf("expected 2 item events (one per .dat file), got %d", len(evts))
+	}
+
+	for _, evt := range evts {
+		if evt["event"] != "item" {
+			t.Errorf("expected event=item, got %v", evt["event"])
+		}
+		if evt["driver"] != "delete-glob" {
+			t.Errorf("expected driver=delete-glob, got %v", evt["driver"])
+		}
+		if evt["name"] != "apps.lightroom-classic" {
+			t.Errorf("expected name=apps.lightroom-classic, got %v", evt["name"])
+		}
+		if evt["status"] != "installed" {
+			t.Errorf("expected status=installed, got %v", evt["status"])
+		}
+	}
+}
