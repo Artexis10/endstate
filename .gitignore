@@ -24,7 +24,7 @@ build/
 artifacts/
 logs/
 plans/
-state/
+/state/
 capture/
 payload/
 .endstate/
