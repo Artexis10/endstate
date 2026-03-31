@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.7.0](https://github.com/Artexis10/endstate/compare/v1.6.0...v1.7.0) (2026-03-31)
+
+
+### Features
+
+* add delete-glob restore strategy for post-restore cache cleanup ([7b59f06](https://github.com/Artexis10/endstate/commit/7b59f06a12cf160b40bb389cb7c7be4cf915fed8))
+
 ## [1.6.0](https://github.com/Artexis10/endstate/compare/v1.5.2...v1.6.0) (2026-03-30)
 
 
