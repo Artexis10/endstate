@@ -35,7 +35,7 @@ func MatchModulesForApps(catalog map[string]*Module, apps []manifest.App) []*Mod
 
 	for _, mod := range catalog {
 		// Only consider modules with capture sections.
-		if mod.Capture == nil || len(mod.Capture.Files) == 0 {
+		if mod.Capture == nil || (len(mod.Capture.Files) == 0 && len(mod.Capture.RegistryKeys) == 0) {
 			continue
 		}
 
