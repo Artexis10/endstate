@@ -41,6 +41,7 @@ type RestoreResult struct {
 	TargetExistedBefore bool     `json:"targetExistedBefore"`
 	Error               string   `json:"error,omitempty"`
 	Warnings            []string `json:"warnings,omitempty"`
+	RestoreType         string   `json:"restoreType,omitempty"`
 }
 
 // RestoreOptions holds configuration for a restore run.
@@ -212,6 +213,36 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 				emitRestoreItemEvent(emitter, entry, deleteResults[i])
 			}
 			results = append(results, deleteResults...)
+			continue
+		}
+
+		// registry-import: target is a registry key path, not a file path.
+		// Dispatch early to avoid the generic file-based source/target resolution.
+		if entry.Type == "registry-import" {
+			source := resolveSource(entry.Source, opts)
+			result, err := RestoreRegistryImport(entry, source, opts)
+			if err != nil {
+				r := RestoreResult{
+					ID:          id,
+					Source:      source,
+					Target:      entry.Target,
+					Status:      "failed",
+					Error:       err.Error(),
+					RestoreType: "registry-import",
+				}
+				emitRestoreItemEvent(emitter, entry, r)
+				results = append(results, r)
+				continue
+			}
+			result.ID = id
+			if result.Source == "" {
+				result.Source = source
+			}
+			if result.Target == "" {
+				result.Target = entry.Target
+			}
+			emitRestoreItemEvent(emitter, entry, *result)
+			results = append(results, *result)
 			continue
 		}
 

@@ -26,14 +26,15 @@ type Journal struct {
 
 // JournalEntry records the outcome of a single restore action in the journal.
 type JournalEntry struct {
-	ResolvedSourcePath string `json:"resolvedSourcePath"`
-	TargetPath         string `json:"targetPath"`
-	TargetExistedBefore bool  `json:"targetExistedBefore"`
-	BackupRequested    bool   `json:"backupRequested"`
-	BackupCreated      bool   `json:"backupCreated"`
-	BackupPath         string `json:"backupPath,omitempty"`
-	Action             string `json:"action"`
-	Error              string `json:"error,omitempty"`
+	ResolvedSourcePath  string `json:"resolvedSourcePath"`
+	TargetPath          string `json:"targetPath"`
+	TargetExistedBefore bool   `json:"targetExistedBefore"`
+	BackupRequested     bool   `json:"backupRequested"`
+	BackupCreated       bool   `json:"backupCreated"`
+	BackupPath          string `json:"backupPath,omitempty"`
+	Action              string `json:"action"`
+	Error               string `json:"error,omitempty"`
+	RestoreType         string `json:"restoreType,omitempty"`
 }
 
 // WriteJournal writes a restore journal to logsDir as an atomic temp+rename
@@ -53,6 +54,7 @@ func WriteJournal(logsDir, runID, manifestPath, manifestDir, exportRoot string, 
 			BackupCreated:       r.BackupCreated,
 			BackupPath:          r.BackupPath,
 			Action:              r.Status,
+			RestoreType:         r.RestoreType,
 		}
 		if r.Status == "failed" {
 			entry.Error = r.Error

@@ -1,7 +1,7 @@
 {
   // Config Module: FastRawViewer
   // Provides verify/restore/capture configuration for FastRawViewer (RAW photo viewer)
-  // Curated module - captures settings and presets
+  // Settings stored in Windows Registry, not files
 
   "id": "apps.fastrawviewer",
   "displayName": "FastRawViewer",
@@ -18,54 +18,41 @@
   },
 
   "verify": [
-    { "type": "file-exists", "path": "%APPDATA%\\FastRawViewer\\Settings.xml" }
+    { "type": "file-exists", "path": "%ProgramFiles%\\LibRaw\\FastRawViewer\\FastRawViewer.exe" }
   ],
 
   "restore": [
     {
-      "type": "copy",
-      "source": "./payload/apps/fastrawviewer/Settings.xml",
-      "target": "%APPDATA%\\FastRawViewer\\Settings.xml",
+      "type": "registry-import",
+      "source": "./payload/apps/fastrawviewer/Prefs.reg",
+      "target": "HKCU\\Software\\LibRaw LLC\\FastRawViewer\\Prefs",
       "backup": true,
       "optional": true
     },
     {
-      "type": "copy",
-      "source": "./payload/apps/fastrawviewer/Presets",
-      "target": "%APPDATA%\\FastRawViewer\\Presets",
+      "type": "registry-import",
+      "source": "./payload/apps/fastrawviewer/Shortcuts.reg",
+      "target": "HKCU\\Software\\LibRaw LLC\\FastRawViewer\\Shortcuts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/fastrawviewer/LastUsed.reg",
+      "target": "HKCU\\Software\\LibRaw LLC\\FastRawViewer\\LastUsed",
       "backup": true,
       "optional": true
     }
   ],
 
   "capture": {
-    "files": [
-      { "source": "%APPDATA%\\FastRawViewer\\Settings.xml", "dest": "apps/fastrawviewer/Settings.xml", "optional": true },
-      { "source": "%APPDATA%\\FastRawViewer\\Presets", "dest": "apps/fastrawviewer/Presets", "optional": true }
-    ],
-    "excludeGlobs": [
-      "**\\*.log",
-      "**\\*.tmp",
-      "**\\cache\\**",
-      "**\\Cache\\**"
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\LibRaw LLC\\FastRawViewer\\Prefs", "dest": "apps/fastrawviewer/Prefs.reg", "optional": true },
+      { "key": "HKCU\\Software\\LibRaw LLC\\FastRawViewer\\Shortcuts", "dest": "apps/fastrawviewer/Shortcuts.reg", "optional": true },
+      { "key": "HKCU\\Software\\LibRaw LLC\\FastRawViewer\\LastUsed", "dest": "apps/fastrawviewer/LastUsed.reg", "optional": true }
     ]
   },
 
-  "notes": "Captures FastRawViewer settings (Settings.xml) and user presets (Presets/). Cache and temporary files excluded. Config at %APPDATA%\\FastRawViewer\\.",
-
-  "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
-    "snapshotRoots": [
-      "%APPDATA%"
-    ],
-    "excludePatterns": [
-      "**/*.log",
-      "**/*.tmp",
-      "**/cache/**",
-      "**/Cache/**"
-    ]
-  }
+  "notes": "FastRawViewer stores all settings in the Windows Registry under HKCU\\Software\\LibRaw LLC\\FastRawViewer\\. Prefs contains preferences, Shortcuts contains keyboard shortcuts, LastUsed contains window geometry. Not available via winget; installs to C:\\Program Files\\LibRaw\\FastRawViewer\\."
 }

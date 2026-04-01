@@ -591,7 +591,7 @@ func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors [
 	for _, mod := range matchedModules {
 		dirName := moduleDirName(mod.ID)
 
-		collected, collectErr := bundle.CollectConfigFiles(mod, stagingDir)
+		fileCollected, collectErr := bundle.CollectConfigFiles(mod, stagingDir)
 		if collectErr != nil {
 			captureErrors = append(captureErrors, fmt.Sprintf("module %s: %v", mod.ID, collectErr))
 			moduleErrors[dirName] = true
@@ -599,6 +599,14 @@ func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors [
 			moduleFilePaths[dirName] = []string{}
 			continue
 		}
+
+		regCollected, regErr := bundle.CollectRegistryKeys(mod, stagingDir)
+		if regErr != nil {
+			captureErrors = append(captureErrors, fmt.Sprintf("module %s registry: %v", mod.ID, regErr))
+			// Don't mark the whole module as errored — file collection may have succeeded.
+		}
+
+		collected := append(fileCollected, regCollected...)
 
 		if len(collected) > 0 {
 			includedSet[dirName] = true

@@ -55,13 +55,21 @@ type VerifyDef struct {
 
 // CaptureDef describes the capture configuration for a module.
 type CaptureDef struct {
-	Files        []CaptureFile `json:"files"`
-	ExcludeGlobs []string      `json:"excludeGlobs,omitempty"`
+	Files        []CaptureFile        `json:"files"`
+	RegistryKeys []CaptureRegistryKey `json:"registryKeys,omitempty"`
+	ExcludeGlobs []string             `json:"excludeGlobs,omitempty"`
 }
 
 // CaptureFile describes a single file mapping for capture operations.
 type CaptureFile struct {
 	Source   string `json:"source"`
+	Dest     string `json:"dest"`
+	Optional bool   `json:"optional,omitempty"`
+}
+
+// CaptureRegistryKey describes a single registry key mapping for capture operations.
+type CaptureRegistryKey struct {
+	Key      string `json:"key"`
 	Dest     string `json:"dest"`
 	Optional bool   `json:"optional,omitempty"`
 }

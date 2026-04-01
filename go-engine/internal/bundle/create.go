@@ -72,12 +72,20 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 			moduleDirName = moduleDirName[5:]
 		}
 
-		collected, err := CollectConfigFiles(mod, stagingDir)
+		fileCollected, err := CollectConfigFiles(mod, stagingDir)
 		if err != nil {
 			captureWarnings = append(captureWarnings, fmt.Sprintf("module %s: %v", mod.ID, err))
 			skipped = append(skipped, moduleDirName)
 			continue
 		}
+
+		regCollected, regErr := CollectRegistryKeys(mod, stagingDir)
+		if regErr != nil {
+			captureWarnings = append(captureWarnings, fmt.Sprintf("module %s registry: %v", mod.ID, regErr))
+			// Don't skip the whole module — file collection may have succeeded.
+		}
+
+		collected := append(fileCollected, regCollected...)
 
 		if len(collected) > 0 {
 			included = append(included, moduleDirName)

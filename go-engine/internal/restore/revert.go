@@ -6,6 +6,7 @@ package restore
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 )
 
@@ -41,7 +42,22 @@ func RunRevert(journal *Journal, backupDir string) ([]RevertResult, error) {
 		// CASE 1: Backup exists — restore it.
 		if entry.BackupCreated && entry.BackupPath != "" {
 			if _, err := os.Stat(entry.BackupPath); err == nil {
-				// Restore backup to target.
+				// Registry-import: re-import the backup .reg file instead of
+				// copying a file to the target path.
+				if entry.RestoreType == "registry-import" {
+					cmd := exec.Command("reg", "import", entry.BackupPath)
+					if err := cmd.Run(); err != nil {
+						return nil, fmt.Errorf("cannot revert registry import from %s: %w", entry.BackupPath, err)
+					}
+					results = append(results, RevertResult{
+						Target:     entry.TargetPath,
+						Action:     "reverted",
+						BackupUsed: entry.BackupPath,
+					})
+					continue
+				}
+
+				// File-based restore: copy backup back to target path.
 				targetDir := filepath.Dir(entry.TargetPath)
 				if err := os.MkdirAll(targetDir, 0755); err != nil {
 					return nil, fmt.Errorf("cannot create directory for revert target %s: %w", entry.TargetPath, err)
@@ -78,6 +94,24 @@ func RunRevert(journal *Journal, backupDir string) ([]RevertResult, error) {
 
 		// CASE 2: Target was created by restore (didn't exist before) — delete it.
 		if !entry.TargetExistedBefore {
+			// Registry-import: delete the registry key that was created.
+			if entry.RestoreType == "registry-import" {
+				cmd := exec.Command("reg", "delete", entry.TargetPath, "/f")
+				if err := cmd.Run(); err != nil {
+					// Key may already be gone — treat as success.
+					results = append(results, RevertResult{
+						Target: entry.TargetPath,
+						Action: "skipped",
+					})
+					continue
+				}
+				results = append(results, RevertResult{
+					Target: entry.TargetPath,
+					Action: "deleted",
+				})
+				continue
+			}
+
 			if _, err := os.Stat(entry.TargetPath); err == nil {
 				if err := os.RemoveAll(entry.TargetPath); err != nil {
 					return nil, fmt.Errorf("cannot delete reverted target %s: %w", entry.TargetPath, err)

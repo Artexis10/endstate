@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
@@ -84,6 +86,53 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, er
 			if err := copyFile(sourcePath, destPath); err != nil {
 				return collected, fmt.Errorf("failed to copy file %s: %w", sourcePath, err)
 			}
+		}
+
+		collected = append(collected, relativePath)
+	}
+
+	return collected, nil
+}
+
+// CollectRegistryKeys exports Windows registry keys defined in module.Capture.RegistryKeys
+// to stagingDir using reg.exe. Each key is exported as a .reg file.
+// Returns the list of relative paths (under stagingDir) that were collected.
+// On non-Windows platforms this is a no-op that returns nil.
+func CollectRegistryKeys(module *modules.Module, stagingDir string) ([]string, error) {
+	if runtime.GOOS != "windows" {
+		return nil, nil
+	}
+	if module.Capture == nil || len(module.Capture.RegistryKeys) == 0 {
+		return nil, nil
+	}
+
+	// Determine the module directory name (strip "apps." prefix if present).
+	moduleDirName := module.ID
+	if strings.HasPrefix(moduleDirName, "apps.") {
+		moduleDirName = moduleDirName[5:]
+	}
+
+	var collected []string
+
+	for _, keyEntry := range module.Capture.RegistryKeys {
+		// Dest is relative to the configs/<module>/ staging area.
+		destFileName := filepath.Base(keyEntry.Dest)
+		destPath := filepath.Join(stagingDir, "configs", moduleDirName, destFileName)
+		relativePath := filepath.ToSlash(filepath.Join("configs", moduleDirName, destFileName))
+
+		// Ensure destination directory exists.
+		destDir := filepath.Dir(destPath)
+		if err := os.MkdirAll(destDir, 0755); err != nil {
+			return collected, fmt.Errorf("failed to create directory %s: %w", destDir, err)
+		}
+
+		// Export via reg.exe.
+		cmd := exec.Command("reg", "export", keyEntry.Key, destPath, "/y")
+		if err := cmd.Run(); err != nil {
+			if keyEntry.Optional {
+				continue
+			}
+			return collected, fmt.Errorf("reg export failed for key %s: %w", keyEntry.Key, err)
 		}
 
 		collected = append(collected, relativePath)
