@@ -8,9 +8,13 @@
   "sensitivity": "low",
 
   "matches": {
-    "winget": ["FastRawViewer.FastRawViewer"],
+    "winget": [],
     "exe": ["FastRawViewer.exe"],
-    "uninstallDisplayName": ["^FastRawViewer"]
+    "uninstallDisplayName": ["^FastRawViewer"],
+    "pathExists": [
+      "%ProgramFiles%\\LibRaw\\FastRawViewer\\FastRawViewer.exe",
+      "%ProgramFiles%\\LibRaw\\FastRawViewer 2\\FastRawViewer.exe"
+    ]
   },
 
   "verify": [
