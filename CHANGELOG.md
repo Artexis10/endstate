@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.7.4](https://github.com/Artexis10/endstate/compare/v1.7.3...v1.7.4) (2026-04-01)
+
+
+### Bug Fixes
+
+* **modules:** matcher skips modules with only registryKeys capture ([5a122ca](https://github.com/Artexis10/endstate/commit/5a122caae0ac2d58f5425a2b46674cbe29b5c148))
+
 ## [1.7.3](https://github.com/Artexis10/endstate/compare/v1.7.2...v1.7.3) (2026-04-01)
 
 
