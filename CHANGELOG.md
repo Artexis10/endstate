@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.7.3](https://github.com/Artexis10/endstate/compare/v1.7.2...v1.7.3) (2026-04-01)
+
+
+### Bug Fixes
+
+* **modules:** remove bogus winget ID from fastrawviewer, add pathExists ([4e67dee](https://github.com/Artexis10/endstate/commit/4e67deecf5c835ac4d9e16ab3910adf54f5b6e3a))
+* **restore:** revert deletes freshly created registry keys ([4f453b6](https://github.com/Artexis10/endstate/commit/4f453b6e5d34d392c2faf62c5f041a4aabddda21))
+
 ## [1.7.2](https://github.com/Artexis10/endstate/compare/v1.7.1...v1.7.2) (2026-03-31)
 
 
