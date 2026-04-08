@@ -52,22 +52,22 @@ winget export → filter → sort → Write-Manifest
 ### Profile Discovery (Updated)
 
 ```
-Resolve-ProfilePath("Hugo-Desktop")
+Resolve-ProfilePath("My-Desktop")
   │
-  ├─► Check: Documents\Endstate\Profiles\Hugo-Desktop.zip
+  ├─► Check: Documents\Endstate\Profiles\My-Desktop.zip
   │     └─► Found? → Return zip path
   │
-  ├─► Check: Documents\Endstate\Profiles\Hugo-Desktop\manifest.jsonc
+  ├─► Check: Documents\Endstate\Profiles\My-Desktop\manifest.jsonc
   │     └─► Found? → Return manifest path
   │
-  └─► Check: Documents\Endstate\Profiles\Hugo-Desktop.jsonc
+  └─► Check: Documents\Endstate\Profiles\My-Desktop.jsonc
         └─► Found? → Return bare manifest path
 ```
 
 ### Apply from Zip
 
 ```
-Invoke-ApplyFromZip("Hugo-Desktop.zip")
+Invoke-ApplyFromZip("My-Desktop.zip")
   │
   ├─► Extract to $env:TEMP\endstate-apply-<guid>\
   │

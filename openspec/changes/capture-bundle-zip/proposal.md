@@ -18,7 +18,7 @@ Capture produces a single portable zip artifact containing both the app manifest
 ## Zip Structure
 
 ```
-Hugo-Desktop.zip
+My-Desktop.zip
 ├── manifest.jsonc          # App list (existing capture output)
 ├── configs/                # Config module payloads
 │   ├── vscode/

@@ -191,7 +191,7 @@ endstate capabilities --json
 Captures current machine state into a zip bundle profile.
 
 ```powershell
-endstate capture --profile "Hugo-Desktop" --json
+endstate capture --profile "My-Desktop" --json
 ```
 
 ### Response
@@ -205,7 +205,7 @@ endstate capture --profile "Hugo-Desktop" --json
   "timestampUtc": "2026-02-16T20:00:00Z",
   "success": true,
   "data": {
-    "outputPath": "C:\\Users\\user\\Documents\\Endstate\\Profiles\\Hugo-Desktop.zip",
+    "outputPath": "C:\\Users\\user\\Documents\\Endstate\\Profiles\\My-Desktop.zip",
     "outputFormat": "zip",
     "sanitized": false,
     "isExample": false,

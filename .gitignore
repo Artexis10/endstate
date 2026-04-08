@@ -80,7 +80,7 @@ manifests/*.json
 !manifests/.gitkeep
 
 # Personal machine-specific includes (not committed)
-manifests/includes/hugo-*
+manifests/includes/*-local*
 
 # Examples directory IS committed (shareable, sanitized manifests)
 # !manifests/examples/

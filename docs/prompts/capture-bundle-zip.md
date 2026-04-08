@@ -9,10 +9,10 @@ Capture currently produces a bare `.jsonc` manifest. Config export is a separate
 ## Acceptance Criteria
 
 ### AC-1: Capture produces a zip
-- `endstate capture --profile "Hugo-Desktop"` produces `Documents\Endstate\Profiles\Hugo-Desktop.zip`
+- `endstate capture --profile "My-Desktop"` produces `Documents\Endstate\Profiles\My-Desktop.zip`
 - Zip contains:
   ```
-  Hugo-Desktop.zip
+  My-Desktop.zip
   ├── manifest.jsonc          # App list (existing capture output)
   ├── configs/                # Config module payloads
   │   ├── vscode/
@@ -55,7 +55,7 @@ Capture currently produces a bare `.jsonc` manifest. Config export is a separate
 - First match wins
 
 ### AC-5: Apply accepts zip profiles
-- `endstate apply --profile "Hugo-Desktop.zip"` extracts to temp dir, reads manifest, installs apps
+- `endstate apply --profile "My-Desktop.zip"` extracts to temp dir, reads manifest, installs apps
 - Config restore from zip requires `--enable-restore` (unchanged safety model)
 - Temp extraction cleaned up after apply completes
 - Apply also still works with loose folders and bare manifests
@@ -65,7 +65,7 @@ Capture currently produces a bare `.jsonc` manifest. Config export is a separate
   ```json
   {
     "data": {
-      "outputPath": "C:\\Users\\...\\Profiles\\Hugo-Desktop.zip",
+      "outputPath": "C:\\Users\\...\\Profiles\\My-Desktop.zip",
       "outputFormat": "zip",
       "configsIncluded": ["vscode", "claude-desktop"],
       "configsSkipped": ["git"],

@@ -43,7 +43,7 @@ Write-Host ""
 # ============================================================================
 # PATHS (use a representative version folder)
 # ============================================================================
-$ppDir = Join-Path $env:APPDATA "Adobe\Premiere Pro\25.0\Profile-HugoK\\"
+$ppDir = Join-Path $env:APPDATA "Adobe\Premiere Pro\25.0\Profile-Default\\"
 $layoutsDir = Join-Path $ppDir "Layouts"
 $winDir = Join-Path $ppDir "Win"
 

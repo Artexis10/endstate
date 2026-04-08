@@ -381,7 +381,7 @@ func TestStripJsoncComments_InlineCommentAfterValue(t *testing.T) {
 }
 
 func TestStripJsoncComments_HeaderComments(t *testing.T) {
-	// Pester: "Should parse JSONC with header comments like hugo-desktop.jsonc"
+	// Pester: "Should parse JSONC with header comments like my-desktop.jsonc"
 	// Regression test for manifests with comments at lines 2-6.
 	input := `{
   // Comment at top
