@@ -4,13 +4,7 @@
     ".": {
       "release-type": "simple",
       "bump-minor-pre-major": true,
-      "version-file": "VERSION",
-      "extra-files": [
-        {
-          "type": "plain-text",
-          "path": "VERSION"
-        }
-      ]
+      "version-file": "VERSION"
     }
   }
 }
