@@ -21,17 +21,6 @@ jobs:
           go-version: '1.22'
           cache-dependency-path: go-engine/go.sum
 
-      - name: Check VERSION drift
-        shell: pwsh
-        run: |
-          $ver = (Get-Content VERSION -Raw).Trim()
-          $manifest = (Get-Content .release-please-manifest.json | ConvertFrom-Json).'.'
-          if ($ver -ne $manifest) {
-            Write-Error "VERSION ($ver) does not match .release-please-manifest.json ($manifest). Sync them."
-            exit 1
-          }
-          Write-Host "VERSION check passed: $ver"
-
       - name: Vet
         run: cd go-engine && go vet ./...
 

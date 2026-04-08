@@ -6,6 +6,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,13 +45,14 @@ func EmbeddedSchemaVersion() string {
 
 // ReadVersion returns the Endstate CLI version string.
 // If a version was embedded via ldflags at compile time, it is returned
-// directly. Otherwise, it falls back to reading the VERSION file at repoRoot.
+// directly. Otherwise, it falls back to reading .release-please-manifest.json
+// at repoRoot (the single source of truth managed by release-please).
 // If neither source is available, it returns fallbackVersion ("0.0.0-dev").
 func ReadVersion(repoRoot string) string {
 	if version != "" {
 		return version
 	}
-	return readTrimmedFile(filepath.Join(repoRoot, "VERSION"), fallbackVersion)
+	return readVersionFromManifest(filepath.Join(repoRoot, ".release-please-manifest.json"), fallbackVersion)
 }
 
 // ReadSchemaVersion returns the JSON schema version string.
@@ -62,6 +64,25 @@ func ReadSchemaVersion(repoRoot string) string {
 		return schemaVersion
 	}
 	return readTrimmedFile(filepath.Join(repoRoot, "SCHEMA_VERSION"), fallbackSchemaVersion)
+}
+
+// readVersionFromManifest reads a release-please manifest JSON file (e.g.
+// {"." : "1.7.6"}) and returns the version string for the root package (".").
+// Returns fallback if the file is missing, malformed, or lacks a "." key.
+func readVersionFromManifest(path, fallback string) string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fallback
+	}
+	var m map[string]string
+	if err := json.Unmarshal(data, &m); err != nil {
+		return fallback
+	}
+	v := strings.TrimSpace(m["."])
+	if v == "" {
+		return fallback
+	}
+	return v
 }
 
 // readTrimmedFile reads the named file, trims whitespace, and returns the result.

@@ -3,8 +3,7 @@
   "packages": {
     ".": {
       "release-type": "simple",
-      "bump-minor-pre-major": true,
-      "version-file": "VERSION"
+      "bump-minor-pre-major": true
     }
   }
 }

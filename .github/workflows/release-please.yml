@@ -12,7 +12,5 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      # Config driven via release-please-config.json
       - uses: googleapis/release-please-action@v4
-        with:
-          release-type: simple
-          # "simple" type manages VERSION file automatically

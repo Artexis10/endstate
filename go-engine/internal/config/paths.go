@@ -14,7 +14,8 @@ import (
 // Resolution order:
 //  1. ENDSTATE_ROOT environment variable (if set and non-empty).
 //  2. Walk up from the directory containing the running executable, looking for
-//     a file named "VERSION" — the repo root is the directory that contains it.
+//     ".release-please-manifest.json" — the repo root is the directory that
+//     contains it.
 //  3. If neither source produces a result, returns an empty string and the caller
 //     must handle the missing-root case.
 func ResolveRepoRoot() string {
@@ -35,13 +36,13 @@ func ResolveRepoRoot() string {
 
 	dir := filepath.Dir(exe)
 	for {
-		candidate := filepath.Join(dir, "VERSION")
+		candidate := filepath.Join(dir, ".release-please-manifest.json")
 		if _, err := os.Stat(candidate); err == nil {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached filesystem root without finding VERSION.
+			// Reached filesystem root without finding manifest.
 			break
 		}
 		dir = parent

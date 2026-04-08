@@ -122,7 +122,7 @@ func TestExpandWindowsEnvVars_TEMP(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// ResolveRepoRoot tests
+// ResolveRepoRoot tests (sentinel: .release-please-manifest.json)
 // ---------------------------------------------------------------------------
 
 func TestResolveRepoRoot_WithENDSTATE_ROOT(t *testing.T) {

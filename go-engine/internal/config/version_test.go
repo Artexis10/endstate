@@ -15,21 +15,22 @@ import (
 //   go build -ldflags "-X ...config.version=99.0.0" && ./test-endstate.exe capabilities --json
 
 // ---------------------------------------------------------------------------
-// ReadVersion tests (ldflags unset — file-based and fallback paths)
+// ReadVersion tests (ldflags unset — manifest-based and fallback paths)
 // ---------------------------------------------------------------------------
 
-func TestReadVersion_FallbackWhenNoFileAndNoLdflags(t *testing.T) {
-	// With no VERSION file and no ldflags, ReadVersion should return the
-	// fallback constant.
+func TestReadVersion_FallbackWhenNoManifestAndNoLdflags(t *testing.T) {
+	// With no .release-please-manifest.json and no ldflags, ReadVersion
+	// should return the fallback constant.
 	got := ReadVersion(t.TempDir())
 	if got != fallbackVersion {
 		t.Errorf("ReadVersion() = %q, want %q", got, fallbackVersion)
 	}
 }
 
-func TestReadVersion_ReadsFileWhenLdflagsUnset(t *testing.T) {
+func TestReadVersion_ReadsManifestWhenLdflagsUnset(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "VERSION"), []byte("1.2.3\n"), 0644); err != nil {
+	manifest := `{"." : "1.2.3"}`
+	if err := os.WriteFile(filepath.Join(dir, ".release-please-manifest.json"), []byte(manifest), 0644); err != nil {
 		t.Fatal(err)
 	}
 	got := ReadVersion(dir)
@@ -38,9 +39,20 @@ func TestReadVersion_ReadsFileWhenLdflagsUnset(t *testing.T) {
 	}
 }
 
-func TestReadVersion_EmptyFileReturnsFallback(t *testing.T) {
+func TestReadVersion_EmptyManifestReturnsFallback(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "VERSION"), []byte("  \n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".release-please-manifest.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	got := ReadVersion(dir)
+	if got != fallbackVersion {
+		t.Errorf("ReadVersion() = %q, want %q", got, fallbackVersion)
+	}
+}
+
+func TestReadVersion_MalformedJSONReturnsFallback(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".release-please-manifest.json"), []byte("{corrupt"), 0644); err != nil {
 		t.Fatal(err)
 	}
 	got := ReadVersion(dir)
