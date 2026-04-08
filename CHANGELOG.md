@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.7.7](https://github.com/Artexis10/endstate/compare/v1.7.6...v1.7.7) (2026-04-08)
+
+
+### Bug Fixes
+
+* **version:** eliminate VERSION file, read from release-please manifest ([c052b02](https://github.com/Artexis10/endstate/commit/c052b0243c342c757f337dc2a8a4f6a7363d4172))
+
 ## [1.7.6](https://github.com/Artexis10/endstate/compare/v1.7.5...v1.7.6) (2026-04-08)
 
 
