@@ -1,7 +1,7 @@
 <Configuration>
   <MappedFolders>
     <MappedFolder>
-      <HostFolder>C:\Users\win-laptop\Desktop\projects\endstate</HostFolder>
+      <HostFolder>C:\path\to\endstate</HostFolder>
       <SandboxFolder>C:\Endstate</SandboxFolder>
       <ReadOnly>false</ReadOnly>
     </MappedFolder>

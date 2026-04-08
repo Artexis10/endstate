@@ -86,23 +86,23 @@ When an included profile resolves to a zip:
 ### Main machine capture
 ```
 Documents/Endstate/Profiles/
-  hugo-desktop.zip          # captured bundle (72 apps + configs)
+  my-desktop.zip            # captured bundle (72 apps + configs)
 ```
 
 ### Laptop profile
 ```
 Documents/Endstate/Profiles/
-  hugo-desktop.zip          # copied from main machine
-  win-laptop.jsonc          # authored on laptop
+  my-desktop.zip            # copied from main machine
+  my-laptop.jsonc           # authored on laptop
 ```
 
 ```jsonc
-// win-laptop.jsonc
+// my-laptop.jsonc
 {
   "version": 1,
-  "name": "win-laptop",
+  "name": "my-laptop",
   "includes": [
-    "hugo-desktop"
+    "my-desktop"
   ],
   "exclude": [
     "FocusriteAudioEngineeringLtd.FocusriteControl",
@@ -122,10 +122,10 @@ Documents/Endstate/Profiles/
 
 ```powershell
 # Single command handles everything
-endstate apply --profile "win-laptop"
+endstate apply --profile "my-laptop"
 
 # Verify includes base + local apps minus exclusions
-endstate verify --profile "win-laptop"
+endstate verify --profile "my-laptop"
 ```
 
 ### Mixed includes (file path + profile name)
@@ -133,7 +133,7 @@ endstate verify --profile "win-laptop"
 {
   "version": 1,
   "includes": [
-    "hugo-desktop",              // profile name → resolves to .zip
+    "my-desktop",                // profile name → resolves to .zip
     "./laptop-dev-extras.jsonc"  // relative file path → existing behavior
   ],
   "apps": []

@@ -154,7 +154,7 @@ No instances of `$?` found anywhere in the codebase. The codebase correctly uses
 
 | File | Line | Code | Verdict |
 |------|------|------|---------|
-| `scripts/update-ruleset-bundle.ps1` | 3 | `$Path = "C:\Users\win-laptop\Desktop\projects\endstate\.windsurf\rules\project-ruleset.md"` | **VIOLATION** - hardcoded user-specific absolute path |
+| `scripts/update-ruleset-bundle.ps1` | 3 | `$Path = "C:\Users\<user>\Desktop\projects\endstate\.windsurf\rules\project-ruleset.md"` | **VIOLATION** - hardcoded user-specific absolute path |
 | `tests/unit/Trace.Tests.ps1` | many | `"C:\Users\Test\AppData\Local"` | False positive - test fixture data with fake paths |
 | `tests/unit/Discovery.Tests.ps1` | 32, 52, etc. | `"C:\Program Files\Git\cmd\git.exe"` | False positive - test fixture data |
 | `tests/unit/PathResolver.Tests.ps1` | 141, 184 | `"C:\Users\test\file.txt"` | False positive - test fixture data |

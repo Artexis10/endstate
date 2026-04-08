@@ -45,6 +45,7 @@ sandbox-tests/validation/**
 .DS_Store
 Thumbs.db
 desktop.ini
+NUL
 
 # IDE
 .vscode/
@@ -66,13 +67,20 @@ temp/
 *~
 
 # Test results
+test-results.xml
 
 # Machine-specific captures (not committed)
 manifests/local/
 
-# Test/smoke manifests (local testing only, not committed)
-manifests/*-smoke*.jsonc
-manifests/test-*.jsonc
+# Personal/test manifests at root level (local testing only, not committed)
+# Use manifests/examples/ for shareable manifests, manifests/local/ for machine-specific
+manifests/*.jsonc
+manifests/*.yaml
+manifests/*.json
+!manifests/.gitkeep
+
+# Personal machine-specific includes (not committed)
+manifests/includes/hugo-*
 
 # Examples directory IS committed (shareable, sanitized manifests)
 # !manifests/examples/
@@ -118,6 +126,12 @@ package-lock.json
 capture-test.json
 test-installed-capture.json
 captured-*.jsonc
+
+# Audit script artifacts (generated, not committed)
+scripts/audit/*.md
+scripts/audit/*.txt
+scripts/audit/*.json
+scripts/audit-modules-prompt.md
 
 # Go engine build artifacts
 go-engine/endstate.exe
