@@ -19,8 +19,8 @@
 
 ## 4. Verification
 
-- [ ] 4.1 Create a test tag `v0.0.0-test` on a branch (or via workflow_dispatch) and confirm the workflow runs end-to-end — `endstate.exe` and `endstate.exe.sha256` appear in the release assets
-- [ ] 4.2 Download `endstate.exe` from the release URL and run `endstate --version` (or `endstate capabilities --json`) to confirm the embedded version matches the tag
-- [ ] 4.3 Download `endstate.exe.sha256` and verify the hex digest matches a local `sha256sum` of `endstate.exe`
-- [ ] 4.4 Confirm `https://github.com/Artexis10/endstate/releases/download/v{VERSION}/endstate.exe` returns HTTP 200 (not a redirect loop or 404)
-- [ ] 4.5 Delete the test tag and its release after verification
+- [x] 4.1 Create a test tag `v0.0.0-test` on a branch (or via workflow_dispatch) and confirm the workflow runs end-to-end — `endstate.exe` and `endstate.exe.sha256` appear in the release assets
+- [x] 4.2 Download `endstate.exe` from the release URL and run `endstate --version` (or `endstate capabilities --json`) to confirm the embedded version matches the tag
+- [x] 4.3 Download `endstate.exe.sha256` and verify the hex digest matches a local `sha256sum` of `endstate.exe`
+- [x] 4.4 Confirm `https://github.com/Artexis10/endstate/releases/download/v{VERSION}/endstate.exe` returns HTTP 200 (not a redirect loop or 404)
+- [x] 4.5 Delete the test tag and its release after verification
