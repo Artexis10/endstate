@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.8.0](https://github.com/Artexis10/endstate/compare/v1.7.7...v1.8.0) (2026-05-01)
+
+
+### Features
+
+* attach endstate.exe and sha256 checksum to every GitHub release ([89234c1](https://github.com/Artexis10/endstate/commit/89234c1d8fbbae7bc3d551c943713d294e360555))
+
+
+### Bug Fixes
+
+* add missing delta specs to three existing OpenSpec changes ([cc74691](https://github.com/Artexis10/endstate/commit/cc746912de4e95c03e5180cc43dd91ceec1f8b07))
+
 ## [1.7.7](https://github.com/Artexis10/endstate/compare/v1.7.6...v1.7.7) (2026-04-08)
 
 
