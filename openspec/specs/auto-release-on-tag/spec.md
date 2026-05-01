@@ -37,17 +37,20 @@ The GitHub Release SHALL use the tag name as both the release name and tag refer
 - **AND** prerelease SHALL be `false`
 - **AND** make_latest SHALL be `true`
 
-### Requirement: Lightweight runner
-The release workflow SHALL run on `ubuntu-latest` since no Windows-specific operations are required.
+### Requirement: Lightweight runner for release creation
+The release creation job SHALL run on `ubuntu-latest` since no Windows-specific operations are required for creating the GitHub Release.
 
-#### Scenario: Workflow runs on Ubuntu
+#### Scenario: Release creation job runs on Ubuntu
 - **WHEN** the release workflow executes
-- **THEN** the runner SHALL be `ubuntu-latest`
+- **THEN** the release creation job runner SHALL be `ubuntu-latest`
 
-### Requirement: No release artifacts
-The release SHALL NOT attach zip archives or other build artifacts. Distribution is handled via `endstate bootstrap` (git clone).
+### Requirement: Binary artifacts attached to every release
+The release workflow SHALL attach `endstate.exe` and `endstate.exe.sha256` as assets to every GitHub Release. A separate `publish-artifacts` job runs on `windows-latest` after the release is created.
 
-#### Scenario: No files attached to release
-- **WHEN** a GitHub Release is created
-- **THEN** no binary assets SHALL be attached to the release
+#### Scenario: Release includes binary assets
+- **WHEN** a tag matching `v*` is pushed (e.g., `v1.0.0`, `v2.1.3`)
+- **THEN** the release workflow SHALL execute, create a GitHub Release, and attach `endstate.exe` and `endstate.exe.sha256` as release assets
 
+#### Scenario: Artifact job runs after release creation
+- **WHEN** a `v*` tag is pushed
+- **THEN** the `publish-artifacts` job SHALL only start after the `release` job completes successfully

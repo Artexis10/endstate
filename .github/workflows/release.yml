@@ -26,3 +26,61 @@ jobs:
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-artifacts:
+    needs: release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build endstate.exe
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $schemaVersion = (Get-Content SCHEMA_VERSION -Raw).Trim()
+          Set-Location go-engine
+          go build `
+            -ldflags "-X github.com/Artexis10/endstate/go-engine/internal/config.version=$version -X github.com/Artexis10/endstate/go-engine/internal/config.schemaVersion=$schemaVersion" `
+            -o ../endstate.exe `
+            ./cmd/endstate
+
+      - name: Generate SHA256 checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash endstate.exe -Algorithm SHA256).Hash.ToLower()
+          Set-Content -Path endstate.exe.sha256 -Value $hash -NoNewline
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: |
+            endstate.exe
+            endstate.exe.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify release assets are present
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $release = gh release view "${{ github.ref_name }}" --json assets | ConvertFrom-Json
+          $names = $release.assets | ForEach-Object { $_.name }
+          $missing = @()
+          if ('endstate.exe' -notin $names) { $missing += 'endstate.exe' }
+          if ('endstate.exe.sha256' -notin $names) { $missing += 'endstate.exe.sha256' }
+          if ($missing.Count -gt 0) {
+            Write-Error "Missing release assets: $($missing -join ', ')"
+            exit 1
+          }
+          Write-Host "Verified: endstate.exe and endstate.exe.sha256 are present on release ${{ github.ref_name }}"
