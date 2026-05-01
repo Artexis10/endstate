@@ -4,7 +4,11 @@ on:
   push:
     tags:
       - 'v*'
-
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Tag to build and publish assets for (e.g. v1.8.0)'
+        required: true
 
 jobs:
   release:
@@ -19,8 +23,8 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          name: ${{ github.ref_name }}
-          tag_name: ${{ github.ref_name }}
+          name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -37,6 +41,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag_name || github.ref_name }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -47,7 +53,8 @@ jobs:
       - name: Build endstate.exe
         shell: pwsh
         run: |
-          $version = "${{ github.ref_name }}".TrimStart('v')
+          $tag = "${{ github.event.inputs.tag_name || github.ref_name }}"
+          $version = $tag.TrimStart('v')
           $schemaVersion = (Get-Content SCHEMA_VERSION -Raw).Trim()
           Set-Location go-engine
           go build `
@@ -64,7 +71,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
           files: |
             endstate.exe
             endstate.exe.sha256
@@ -76,7 +83,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $release = gh release view "${{ github.ref_name }}" --json assets | ConvertFrom-Json
+          $tag = "${{ github.event.inputs.tag_name || github.ref_name }}"
+          $release = gh release view "$tag" --json assets | ConvertFrom-Json
           $names = $release.assets | ForEach-Object { $_.name }
           $missing = @()
           if ('endstate.exe' -notin $names) { $missing += 'endstate.exe' }
@@ -85,4 +93,4 @@ jobs:
             Write-Error "Missing release assets: $($missing -join ', ')"
             exit 1
           }
-          Write-Host "Verified: endstate.exe and endstate.exe.sha256 are present on release ${{ github.ref_name }}"
+          Write-Host "Verified: endstate.exe and endstate.exe.sha256 are present on release $tag"
