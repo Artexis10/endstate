@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/backup/client"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/keychain"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/oidc"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/storage"
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
@@ -99,8 +100,10 @@ func stackForBackend(srv *httptest.Server, kc keychain.Keychain) *backup.Stack {
 	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, MaxWait: time.Millisecond}
 	hc := client.New(client.Options{Tokens: store, Retry: &rp})
 	a := auth.NewAuthenticator(auth.Issuer{URL: srv.URL, Audience: "endstate-backup"}, oc, hc, store)
+	st := storage.New(srv.URL, hc)
 	return &backup.Stack{
 		Auth:    a,
+		Storage: st,
 		Issuer:  srv.URL,
 		OIDC:    oc,
 		HTTP:    hc,
@@ -216,7 +219,8 @@ func TestBackupLogin_BackendUnreachable(t *testing.T) {
 	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, MaxWait: time.Millisecond}
 	hc := client.New(client.Options{Tokens: store, Retry: &rp})
 	a := auth.NewAuthenticator(auth.Issuer{URL: "http://127.0.0.1:1"}, oc, hc, store)
-	stack := &backup.Stack{Auth: a, Issuer: "http://127.0.0.1:1", OIDC: oc, HTTP: hc, Session: store}
+	st := storage.New("http://127.0.0.1:1", hc)
+	stack := &backup.Stack{Auth: a, Storage: st, Issuer: "http://127.0.0.1:1", OIDC: oc, HTTP: hc, Session: store}
 
 	restore := commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return stack })
 	defer restore()
@@ -274,16 +278,13 @@ func TestRunBackup_RequiresSubcommand(t *testing.T) {
 	}
 }
 
-func TestRunAccount_DeleteStubbedInPR1(t *testing.T) {
-	// PR 1 (auth-client) wires the dispatcher only; the real handler
-	// ships with add-backup-storage-client. Until then `account delete`
-	// surfaces a clear "not yet implemented" envelope.
-	_, err := commands.RunAccount(commands.AccountFlags{Subcommand: "delete", Confirm: true})
+func TestRunAccount_DeleteRequiresConfirm(t *testing.T) {
+	_, err := commands.RunAccount(commands.AccountFlags{Subcommand: "delete"})
 	if err == nil || err.Code != envelope.ErrInternalError {
 		t.Fatalf("got %+v, want INTERNAL_ERROR", err)
 	}
-	if !strings.Contains(err.Message, "not yet implemented") {
-		t.Errorf("message %q should reference the storage-client follow-up", err.Message)
+	if !strings.Contains(err.Message, "--confirm") {
+		t.Errorf("message %q should mention --confirm", err.Message)
 	}
 }
 
