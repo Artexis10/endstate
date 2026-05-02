@@ -26,6 +26,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/backup/client"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/keychain"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/oidc"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/storage"
 )
 
 // IssuerURL returns the configured OIDC issuer URL with no trailing slash.
@@ -51,12 +52,11 @@ func Concurrency() int {
 }
 
 // Stack groups every component a hosted-backup command handler needs.
-// Components share the same SessionStore + OIDC + HTTP client so a
+// Auth and Storage share the same SessionStore + OIDC + HTTP client so a
 // refresh that happens during one call is visible to the next.
-//
-// The storage client is added by `add-backup-storage-client`.
 type Stack struct {
 	Auth    *auth.Authenticator
+	Storage *storage.Client
 	Issuer  string
 	OIDC    *oidc.Client
 	HTTP    *client.Client
@@ -84,8 +84,10 @@ func newStack(kc keychain.Keychain) *Stack {
 	oc := oidc.NewClient(issuer, nil)
 	hc := client.New(client.Options{Tokens: store})
 	a := auth.NewAuthenticator(auth.Issuer{URL: issuer, Audience: audience}, oc, hc, store)
+	st := storage.New(issuer, hc)
 	return &Stack{
 		Auth:    a,
+		Storage: st,
 		Issuer:  issuer,
 		OIDC:    oc,
 		HTTP:    hc,

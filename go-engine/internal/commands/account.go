@@ -4,6 +4,8 @@
 package commands
 
 import (
+	"context"
+
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
@@ -19,16 +21,10 @@ type AccountFlags struct {
 }
 
 // RunAccount dispatches to the appropriate account subcommand handler.
-//
-// PR 1 (auth-client) wires the dispatcher only; the `delete` handler
-// ships with `add-backup-storage-client` so account purge can coordinate
-// with backup deletion in a single change.
 func RunAccount(flags AccountFlags) (interface{}, *envelope.Error) {
 	switch flags.Subcommand {
 	case "delete":
-		return nil, envelope.NewError(envelope.ErrInternalError,
-			"account delete is not yet implemented in this engine build").
-			WithRemediation("Update the engine; this subcommand ships with add-backup-storage-client.")
+		return runAccountDelete(flags)
 	case "":
 		return nil, envelope.NewError(envelope.ErrInternalError,
 			"account requires a subcommand (delete)")
@@ -36,4 +32,31 @@ func RunAccount(flags AccountFlags) (interface{}, *envelope.Error) {
 		return nil, envelope.NewError(envelope.ErrInternalError,
 			"unknown account subcommand: "+flags.Subcommand)
 	}
+}
+
+// AccountDeleteResult is the data payload for `account delete`.
+type AccountDeleteResult struct {
+	Deleted bool `json:"deleted"`
+}
+
+func runAccountDelete(flags AccountFlags) (interface{}, *envelope.Error) {
+	if !flags.Confirm {
+		return nil, envelope.NewError(envelope.ErrInternalError,
+			"account delete requires --confirm to acknowledge that this destroys your account, subscription, and all backed-up data permanently").
+			WithRemediation("Re-run with --confirm if you really mean to delete your account.")
+	}
+	st := newBackupStack()
+
+	// Hard delete on the backend first; clearing local state is a
+	// follow-up best-effort cleanup. The order matters: if we cleared
+	// local state first and the backend call failed, we'd lose the
+	// session needed to authenticate the delete.
+	if err := st.Storage.DeleteAccount(context.Background()); err != nil {
+		return nil, err
+	}
+	if err := st.Auth.Session().Forget(); err != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError,
+			"account delete: backend purge succeeded but local session could not be cleared: "+err.Error())
+	}
+	return &AccountDeleteResult{Deleted: true}, nil
 }
