@@ -96,6 +96,21 @@ When `success` is `false`, the `error` field contains:
 | `INTERNAL_ERROR` | Unexpected internal error |
 | `SCHEMA_INCOMPATIBLE` | Schema version mismatch |
 
+#### Hosted Backup error codes
+
+These codes are produced exclusively by `endstate backup *` and `endstate account *` commands. Their precise HTTP-status mapping is locked in `hosted-backup-contract.md` §7, §11.
+
+| Code | Description |
+|------|-------------|
+| `AUTH_REQUIRED` | The hosted-backup session is missing or expired. Run `endstate backup login`. |
+| `SUBSCRIPTION_REQUIRED` | An active Endstate subscription is required for backup writes. Read paths remain available during `grace` and `cancelled` states. |
+| `NOT_FOUND` | The requested backup or version does not exist (or is owned by a different user — server returns 404, not 403, to avoid existence leaks). |
+| `RATE_LIMITED` | Backend rate limit hit. Honour the `Retry-After` hint where present. |
+| `BACKEND_ERROR` | Backend returned 5xx after the engine's bounded retries; transient infrastructure issue on Endstate's side. |
+| `BACKEND_UNREACHABLE` | Engine could not reach the configured `ENDSTATE_OIDC_ISSUER_URL` (DNS / TCP / TLS / timeout). |
+| `BACKEND_INCOMPATIBLE` | The configured backend does not advertise the required `endstate_extensions` discovery block (or advertises KDF parameters below the v1 floor). |
+| `STORAGE_QUOTA_EXCEEDED` | The user's hosted-backup storage quota would be exceeded by the operation. |
+
 ---
 
 ## Command: `capabilities`

@@ -106,6 +106,14 @@ func TestErrorCodeSerialization(t *testing.T) {
 		{envelope.ErrPermissionDenied, "PERMISSION_DENIED"},
 		{envelope.ErrInternalError, "INTERNAL_ERROR"},
 		{envelope.ErrSchemaIncompatible, "SCHEMA_INCOMPATIBLE"},
+		{envelope.ErrAuthRequired, "AUTH_REQUIRED"},
+		{envelope.ErrSubscriptionRequired, "SUBSCRIPTION_REQUIRED"},
+		{envelope.ErrNotFound, "NOT_FOUND"},
+		{envelope.ErrRateLimited, "RATE_LIMITED"},
+		{envelope.ErrBackendError, "BACKEND_ERROR"},
+		{envelope.ErrBackendUnreachable, "BACKEND_UNREACHABLE"},
+		{envelope.ErrBackendIncompatible, "BACKEND_INCOMPATIBLE"},
+		{envelope.ErrStorageQuotaExceeded, "STORAGE_QUOTA_EXCEEDED"},
 	}
 
 	for _, tc := range cases {

@@ -24,6 +24,17 @@ const (
 	ErrPermissionDenied       ErrorCode = "PERMISSION_DENIED"
 	ErrInternalError          ErrorCode = "INTERNAL_ERROR"
 	ErrSchemaIncompatible     ErrorCode = "SCHEMA_INCOMPATIBLE"
+
+	// Hosted-backup error codes. Mapped from substrate backend HTTP responses
+	// per docs/contracts/hosted-backup-contract.md and cli-json-contract.md.
+	ErrAuthRequired         ErrorCode = "AUTH_REQUIRED"
+	ErrSubscriptionRequired ErrorCode = "SUBSCRIPTION_REQUIRED"
+	ErrNotFound             ErrorCode = "NOT_FOUND"
+	ErrRateLimited          ErrorCode = "RATE_LIMITED"
+	ErrBackendError         ErrorCode = "BACKEND_ERROR"
+	ErrBackendUnreachable   ErrorCode = "BACKEND_UNREACHABLE"
+	ErrBackendIncompatible  ErrorCode = "BACKEND_INCOMPATIBLE"
+	ErrStorageQuotaExceeded ErrorCode = "STORAGE_QUOTA_EXCEEDED"
 )
 
 // Error is the structured error object included in the JSON envelope when success is false.

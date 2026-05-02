@@ -36,6 +36,8 @@ Commands:
   report          Retrieve run history
   doctor          Run diagnostics
   bootstrap       Bootstrap Endstate installation
+  backup          Hosted Backup commands (login, logout, status, ...)
+  account         Hosted account management (delete)
 
 Global flags:
   --json               Output result as a single-line JSON envelope to stdout
@@ -67,6 +69,10 @@ Subcommands:
   profile list         List discovered profiles
   profile path <name>  Resolve profile path
   profile validate <p> Validate a profile manifest
+  backup login         Sign in to Hosted Backup (passphrase via stdin)
+  backup logout        Clear cached Hosted Backup session
+  backup status        Report Hosted Backup session state
+  account delete       Delete the Hosted Backup account (requires --confirm)
 
 Run 'endstate <command> --help' for command-specific help.
 `
@@ -102,7 +108,14 @@ type parsedArgs struct {
 	last   int
 	runID  string
 
-	// Positional args after command (used by profile subcommands)
+	// Backup / account flags
+	email     string
+	backupID  string
+	versionID string
+	to        string
+	confirm   bool
+
+	// Positional args after command (used by profile / backup / account subcommands)
 	positionalArgs []string
 }
 
@@ -148,6 +161,8 @@ func parseArgs(args []string) parsedArgs {
 			p.minimize = true
 		case "--latest":
 			p.latest = true
+		case "--confirm":
+			p.confirm = true
 		case "--WithConfig":
 			// GUI sends --WithConfig for capture; the Go engine includes
 			// config modules by default, so this is a no-op. Accept it
@@ -198,6 +213,26 @@ func parseArgs(args []string) parsedArgs {
 		case "--restore-filter":
 			if i+1 < len(args) {
 				p.restoreFilter = args[i+1]
+				i++
+			}
+		case "--email":
+			if i+1 < len(args) {
+				p.email = args[i+1]
+				i++
+			}
+		case "--backup-id":
+			if i+1 < len(args) {
+				p.backupID = args[i+1]
+				i++
+			}
+		case "--version-id":
+			if i+1 < len(args) {
+				p.versionID = args[i+1]
+				i++
+			}
+		case "--to":
+			if i+1 < len(args) {
+				p.to = args[i+1]
 				i++
 			}
 		default:
@@ -251,6 +286,10 @@ func commandUsage(cmd string) string {
 		return "Usage: endstate doctor [--json]\n\nRun system diagnostics.\n"
 	case "profile":
 		return "Usage: endstate profile <subcommand> [args] [--json]\n\nSubcommands:\n  list              List discovered profiles\n  path <name>       Resolve profile path from name\n  validate <path>   Validate a profile manifest\n"
+	case "backup":
+		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  login --email <addr>     Sign in (passphrase via stdin)\n  logout                   Clear local session\n  status                   Report current session state\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL  Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE    JWT audience (default: endstate-backup)\n"
+	case "account":
+		return "Usage: endstate account <subcommand> [flags] [--json]\n\nSubcommands:\n  delete --confirm  Delete the Hosted Backup account permanently\n"
 	case "bootstrap":
 		return "Usage: endstate bootstrap\n\nBootstrap Endstate installation.\n"
 	default:
@@ -429,6 +468,40 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 	case "bootstrap":
 		return commands.RunBootstrap(commands.BootstrapFlags{
 			Events: p.events,
+		})
+
+	case "backup":
+		subcommand := ""
+		var subArgs []string
+		if len(p.positionalArgs) > 0 {
+			subcommand = p.positionalArgs[0]
+			subArgs = p.positionalArgs[1:]
+		}
+		return commands.RunBackup(commands.BackupFlags{
+			Subcommand: subcommand,
+			Args:       subArgs,
+			Email:      p.email,
+			BackupID:   p.backupID,
+			VersionID:  p.versionID,
+			Profile:    p.profile,
+			Name:       p.name,
+			To:         p.to,
+			Confirm:    p.confirm,
+			Events:     p.events,
+		})
+
+	case "account":
+		subcommand := ""
+		var subArgs []string
+		if len(p.positionalArgs) > 0 {
+			subcommand = p.positionalArgs[0]
+			subArgs = p.positionalArgs[1:]
+		}
+		return commands.RunAccount(commands.AccountFlags{
+			Subcommand: subcommand,
+			Args:       subArgs,
+			Confirm:    p.confirm,
+			Events:     p.events,
 		})
 
 	default:
