@@ -85,7 +85,8 @@ func runBackupLogin(flags BackupFlags) (interface{}, *envelope.Error) {
 	//
 	// The ErrNotImplemented branch above returns before reaching here, so
 	// no compile-time dead code.
-	return nil, envelope.NewError(envelope.ErrInternalError, "login: unreachable post-stub")
+	return nil, envelope.NewError(envelope.ErrInternalError, "login: post-crypto orchestration not yet implemented").
+		WithRemediation("Wait for the engine release that wires the post-crypto login flow (CompleteLogin → UnwrapDEK → cache DEK).")
 }
 
 // readPassphraseFromStdin reads a single line (terminated by \n) from r

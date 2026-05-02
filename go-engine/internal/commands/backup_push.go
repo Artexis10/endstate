@@ -39,7 +39,9 @@ func runBackupPush(flags BackupFlags) (interface{}, *envelope.Error) {
 		return nil, envelope.NewError(envelope.ErrInternalError, "backup push: generate DEK: "+err.Error())
 	}
 
-	// Unreachable in PR 2 — kept here for the implementer who wires the
-	// real path in PROMPT 3.
-	return nil, envelope.NewError(envelope.ErrInternalError, "push: unreachable post-stub")
+	// Reached once crypto returns nil successfully (PROMPT 3 onward). The
+	// chunked-upload orchestration on top of the crypto module lands in a
+	// follow-up change.
+	return nil, envelope.NewError(envelope.ErrInternalError, "push: post-crypto orchestration not yet implemented").
+		WithRemediation("Wait for the engine release that wires the chunked-upload orchestration on top of the crypto module.")
 }

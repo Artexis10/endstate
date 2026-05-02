@@ -259,16 +259,20 @@ func TestBackupDeleteVersion_HappyPath(t *testing.T) {
 	}
 }
 
-func TestBackupPush_CryptoStubBlocks(t *testing.T) {
+// TestBackupPush_OrchestrationNotImplemented covers the gap between
+// crypto landing (PROMPT 3) and the chunked-upload orchestration landing
+// (a follow-up change). Once the orchestration is wired, this test will
+// be replaced with happy-path coverage.
+func TestBackupPush_OrchestrationNotImplemented(t *testing.T) {
 	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack {
 		return stackForStorageBackend(newStorageBackend(t))
 	})()
 	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: "/path/to/profile"})
 	if err == nil || err.Code != envelope.ErrInternalError {
-		t.Fatalf("got %+v, want INTERNAL_ERROR (crypto stub)", err)
+		t.Fatalf("got %+v, want INTERNAL_ERROR", err)
 	}
-	if !strings.Contains(err.Message, "crypto") {
-		t.Errorf("message %q should reference crypto", err.Message)
+	if !strings.Contains(err.Message, "post-crypto orchestration") {
+		t.Errorf("message %q should reference the not-yet-implemented post-crypto orchestration", err.Message)
 	}
 }
 
@@ -282,7 +286,8 @@ func TestBackupPush_RequiresProfile(t *testing.T) {
 	}
 }
 
-func TestBackupPull_CryptoStubBlocks(t *testing.T) {
+// TestBackupPull_OrchestrationNotImplemented — see Push counterpart.
+func TestBackupPull_OrchestrationNotImplemented(t *testing.T) {
 	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack {
 		return stackForStorageBackend(newStorageBackend(t))
 	})()
@@ -290,12 +295,16 @@ func TestBackupPull_CryptoStubBlocks(t *testing.T) {
 	if err == nil || err.Code != envelope.ErrInternalError {
 		t.Fatalf("got %+v, want INTERNAL_ERROR", err)
 	}
-	if !strings.Contains(err.Message, "crypto") {
-		t.Errorf("message %q should reference crypto", err.Message)
+	if !strings.Contains(err.Message, "post-crypto orchestration") {
+		t.Errorf("message %q should reference the not-yet-implemented post-crypto orchestration", err.Message)
 	}
 }
 
-func TestBackupRecover_CryptoStubBlocks(t *testing.T) {
+// TestBackupRecover_OrchestrationNotImplemented — see Push counterpart.
+// The recovery phrase here is a known-valid 24-word BIP39 phrase
+// ("abandon" * 23 + "art"), so crypto.ParseRecoveryPhrase succeeds and
+// the call falls through to the not-yet-implemented orchestration.
+func TestBackupRecover_OrchestrationNotImplemented(t *testing.T) {
 	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack {
 		return stackForStorageBackend(newStorageBackend(t))
 	})()
@@ -307,8 +316,8 @@ func TestBackupRecover_CryptoStubBlocks(t *testing.T) {
 	if err == nil || err.Code != envelope.ErrInternalError {
 		t.Fatalf("got %+v, want INTERNAL_ERROR", err)
 	}
-	if !strings.Contains(err.Message, "crypto") {
-		t.Errorf("message %q should reference crypto", err.Message)
+	if !strings.Contains(err.Message, "post-crypto orchestration") {
+		t.Errorf("message %q should reference the not-yet-implemented post-crypto orchestration", err.Message)
 	}
 }
 

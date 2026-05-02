@@ -71,7 +71,8 @@ func runBackupRecover(flags BackupFlags) (interface{}, *envelope.Error) {
 		return nil, envelope.NewError(envelope.ErrInternalError, "backup recover: parse phrase: "+kerr.Error())
 	}
 
-	return nil, envelope.NewError(envelope.ErrInternalError, "recover: unreachable post-stub")
+	return nil, envelope.NewError(envelope.ErrInternalError, "recover: post-crypto orchestration not yet implemented").
+		WithRemediation("Wait for the engine release that wires the recovery-flow orchestration on top of the crypto module.")
 }
 
 // readRecoveryFromStdin reads two lines: the first is the recovery
