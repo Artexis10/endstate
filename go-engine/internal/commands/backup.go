@@ -60,10 +60,6 @@ type BackupFlags struct {
 }
 
 // RunBackup dispatches to the appropriate backup subcommand handler.
-//
-// PR 1 (auth-client) wires login, logout, and status. The remaining
-// subcommands — list, versions, push, pull, delete, delete-version,
-// recover — ship in `add-backup-storage-client`.
 func RunBackup(flags BackupFlags) (interface{}, *envelope.Error) {
 	switch flags.Subcommand {
 	case "login":
@@ -74,11 +70,21 @@ func RunBackup(flags BackupFlags) (interface{}, *envelope.Error) {
 		return runBackupStatus(flags)
 	case "":
 		return nil, envelope.NewError(envelope.ErrInternalError,
-			"backup requires a subcommand (login, logout, status)")
-	case "list", "versions", "push", "pull", "delete", "delete-version", "recover":
-		return nil, envelope.NewError(envelope.ErrInternalError,
-			"backup subcommand not yet implemented in this engine build: "+flags.Subcommand).
-			WithRemediation("Update the engine; this subcommand ships with add-backup-storage-client.")
+			"backup requires a subcommand (login, logout, status, push, pull, list, versions, delete, delete-version, recover)")
+	case "list":
+		return runBackupList(flags)
+	case "versions":
+		return runBackupVersions(flags)
+	case "delete":
+		return runBackupDelete(flags)
+	case "delete-version":
+		return runBackupDeleteVersion(flags)
+	case "push":
+		return runBackupPush(flags)
+	case "pull":
+		return runBackupPull(flags)
+	case "recover":
+		return runBackupRecover(flags)
 	default:
 		return nil, envelope.NewError(envelope.ErrInternalError,
 			"unknown backup subcommand: "+flags.Subcommand).
