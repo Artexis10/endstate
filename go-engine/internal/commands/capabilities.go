@@ -7,6 +7,7 @@
 package commands
 
 import (
+	"github.com/Artexis10/endstate/go-engine/internal/backup"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
@@ -38,11 +39,23 @@ type CommandInfo struct {
 
 // FeaturesInfo is the features capability map returned in the capabilities response.
 type FeaturesInfo struct {
-	Streaming       bool `json:"streaming"`
-	ParallelInstall bool `json:"parallelInstall"`
-	ConfigModules   bool `json:"configModules"`
-	JSONOutput      bool `json:"jsonOutput"`
-	ManualApps      bool `json:"manualApps"`
+	Streaming       bool                 `json:"streaming"`
+	ParallelInstall bool                 `json:"parallelInstall"`
+	ConfigModules   bool                 `json:"configModules"`
+	JSONOutput      bool                 `json:"jsonOutput"`
+	ManualApps      bool                 `json:"manualApps"`
+	HostedBackup    HostedBackupFeature  `json:"hostedBackup"`
+}
+
+// HostedBackupFeature is the GUI-facing capability advertisement for the
+// Hosted Backup feature. The GUI gates its hosted-backup UI on this block
+// (contract §11). Issuer/Audience are populated at runtime so a self-host
+// configuration shows up correctly without rebuilding the engine.
+type HostedBackupFeature struct {
+	Supported        bool   `json:"supported"`
+	MinSchemaVersion string `json:"minSchemaVersion"`
+	IssuerURL        string `json:"issuerUrl"`
+	Audience         string `json:"audience"`
 }
 
 // PlatformInfo describes the host operating system and available package manager
@@ -114,6 +127,14 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				Supported: true,
 				Flags:     []string{"--json", "--events"},
 			},
+			"backup": {
+				Supported: true,
+				Flags:     []string{"--email", "--backup-id", "--version-id", "--profile", "--name", "--to", "--confirm", "--json", "--events"},
+			},
+			"account": {
+				Supported: true,
+				Flags:     []string{"--confirm", "--json"},
+			},
 		},
 		Features: FeaturesInfo{
 			Streaming:       false,
@@ -121,6 +142,12 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			ConfigModules:   true,
 			JSONOutput:      true,
 			ManualApps:      true,
+			HostedBackup: HostedBackupFeature{
+				Supported:        true,
+				MinSchemaVersion: "1.0",
+				IssuerURL:        backup.IssuerURL(),
+				Audience:         backup.Audience(),
+			},
 		},
 		Platform: PlatformInfo{
 			OS:      "windows",

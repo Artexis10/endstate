@@ -95,6 +95,8 @@ Each encrypted backup version is structured as a manifest plus chunks. Chunks ar
 
 The manifest itself is encrypted with the DEK before upload, using the same AES-256-GCM scheme as chunks. The server stores the encrypted manifest blob; chunk metadata (index, encryptedSize, sha256) is also tracked in the database for integrity checks but the manifest is the source of truth.
 
+The manifest's AAD when encrypted is the 4-byte big-endian unsigned value `0xFFFFFFFF` — a sentinel chosen because no real chunk index will ever take this value. This binds the encrypted manifest to the "manifest" role and prevents it being decrypted as if it were chunk index 0.
+
 ### Chunk format (AES-256-GCM, RFC 5116)
 
 | Field | Size | Contents |
@@ -303,6 +305,15 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 ### Blob storage endpoints
 
 - `POST /api/backups/:backupId/versions/:versionId/download-urls` → request presigned download URLs for a set of chunk indices: `{ chunkIndices: [int] }` → `{ urls: [{ chunkIndex, presignedUrl, expiresAt }] }`
+
+### Manifest URL convention (transport flag)
+
+In the `uploadUrls` array returned by `POST /api/backups/:backupId/versions` and the `urls` array returned by `POST /api/backups/:backupId/versions/:versionId/download-urls`, the manifest blob is addressed by the sentinel `chunkIndex` value `-1`.
+
+- Servers minting upload URLs always include the manifest URL with `chunkIndex: -1` as the first entry. Clients must PUT the encrypted manifest to that URL.
+- Clients requesting download URLs MUST include `-1` in `chunkIndices` if they need the manifest. Servers return the manifest URL as `chunkIndex: -1` in the response.
+
+This `-1` is a transport-layer flag for "this URL targets the manifest." It is unrelated to the AAD sentinel `0xFFFFFFFF` used during manifest encryption (Section 3): one is a wire-protocol convention in API responses, the other is cryptographic binding inside the encrypted blob. Implementations must treat them as independent.
 
 ### OIDC discovery
 
@@ -574,3 +585,9 @@ A schema bump triggers the breaking-change protocol from Section 11.
 - **Bitwarden** — closest at-scale reference for split-output Argon2 auth
 - **Filen.io** — closest architectural reference (Windows-first hosted backup with self-host option)
 - **Standard Notes** — chunked envelope format reference
+
+---
+
+## Changelog
+
+- **2026-05-02** — Initial locked release. Addendum: Section 7 documents the manifest URL convention (`chunkIndex = -1` as transport flag); Section 3 clarifies the AAD sentinel `0xFFFFFFFF` for manifest encryption is independent of the transport flag.

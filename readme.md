@@ -231,6 +231,66 @@ Endstate prioritizes safety over speed:
 
 ---
 
+## Hosted Backup (optional, paid tier)
+
+End-to-end encrypted profile backups via Endstate Cloud (or any self-host
+backend implementing `docs/contracts/hosted-backup-contract.md`). The
+engine authenticates against the backend's OIDC endpoints, persists the
+refresh token in Windows Credential Manager, and orchestrates chunked
+upload/download against R2 presigned URLs.
+
+The cryptographic primitives (Argon2id KDF, AES-256-GCM, BIP39 recovery
+key) are isolated in a follow-up engine release for focused security
+review. Until that release, `backup login`, `backup push`, `backup pull`,
+and `backup recover` surface a clear `INTERNAL_ERROR` "crypto module not
+yet implemented" message — the orchestration is wired and tested but the
+key derivation cannot complete.
+
+### Configuration
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `ENDSTATE_OIDC_ISSUER_URL` | `https://substratesystems.io` | OIDC issuer / backend URL |
+| `ENDSTATE_OIDC_AUDIENCE` | `endstate-backup` | JWT audience claim |
+| `ENDSTATE_BACKUP_CONCURRENCY` | `4` | Upload/download worker pool size (clamped 1–16) |
+
+### Commands
+
+```bash
+# Sign in (passphrase via stdin — never as a flag)
+endstate backup login --email you@example.com
+
+# Report current session state
+endstate backup status --json
+
+# Sign out (clears local keychain entry; backend logout is best-effort)
+endstate backup logout
+
+# Inventory
+endstate backup list --json
+endstate backup versions --backup-id <id> --json
+
+# Push and pull profile snapshots
+endstate backup push --profile <path> [--name <label>]
+endstate backup pull --backup-id <id> [--version-id <id>] --to <path>
+
+# Destructive operations require --confirm
+endstate backup delete --backup-id <id> --confirm
+endstate backup delete-version --backup-id <id> --version-id <id> --confirm
+
+# Forgotten passphrase (recovery key + new passphrase via stdin)
+endstate backup recover --email you@example.com
+
+# GDPR account deletion (destroys backups + subscription)
+endstate account delete --confirm
+```
+
+The capabilities response (`endstate capabilities --json`) advertises the
+configured issuer and audience under `data.features.hostedBackup`, so the
+GUI can gate hosted-backup UI on a single handshake.
+
+---
+
 ## Prerequisites
 
 | Requirement | Version | Purpose |
