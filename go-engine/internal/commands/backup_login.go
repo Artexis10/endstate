@@ -6,7 +6,7 @@ package commands
 import (
 	"bufio"
 	"context"
-	"errors"
+	stdBase64Pkg "encoding/base64"
 	"io"
 	"os"
 	"strings"
@@ -61,33 +61,69 @@ func runBackupLogin(flags BackupFlags) (interface{}, *envelope.Error) {
 		return nil, envErr
 	}
 
-	// Derive serverPassword + masterKey via Argon2id. STUB until PROMPT 3
-	// — returns crypto.ErrNotImplemented.
-	if _, kerr := crypto.DeriveKeys(passphrase, []byte(pre.Salt), pre.KDFParams); kerr != nil {
-		if errors.Is(kerr, crypto.ErrNotImplemented) {
-			return nil, envelope.NewError(envelope.ErrInternalError,
-				"crypto module not yet implemented; login orchestration ready, key derivation lands in a follow-up change").
-				WithDetail(map[string]string{"phase": "kdf"}).
-				WithRemediation("Wait for the engine release that includes the crypto module (PROMPT 3).")
-		}
-		return nil, envelope.NewError(envelope.ErrInternalError, "derive keys: "+kerr.Error())
+	saltBytes, sderr := loginBase64.DecodeString(pre.Salt)
+	if sderr != nil {
+		return nil, envelope.NewError(envelope.ErrBackendIncompatible,
+			"backup login: server returned a salt that is not valid base64").
+			WithRemediation("Update the engine; this typically means a substrate response shape changed.")
 	}
 
-	// (Unreachable in PR 1 — the lines below describe the post-PROMPT 3
-	// flow.) Once DeriveKeys returns real bytes, the orchestration is:
-	//
-	//   resp, envErr := a.CompleteLogin(ctx, flags.Email, derived.ServerPassword[:])
-	//   if envErr != nil { return nil, envErr }
-	//   dek, _ := crypto.UnwrapDEK([]byte(resp.WrappedDEK), derived.MasterKey)
-	//   _ = dek // cached on session for push/pull
-	//   return &LoginResult{UserID: resp.UserID, Email: flags.Email,
-	//       SubscriptionStatus: resp.SubscriptionStatus}, nil
-	//
-	// The ErrNotImplemented branch above returns before reaching here, so
-	// no compile-time dead code.
-	return nil, envelope.NewError(envelope.ErrInternalError, "login: post-crypto orchestration not yet implemented").
-		WithRemediation("Wait for the engine release that wires the post-crypto login flow (CompleteLogin → UnwrapDEK → cache DEK).")
+	derived, kerr := crypto.DeriveKeys(passphrase, saltBytes, pre.KDFParams)
+	if kerr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup login: derive keys: "+kerr.Error())
+	}
+	defer zero32(&derived.MasterKey)
+	defer zero32(&derived.ServerPassword)
+
+	resp, envErr := a.CompleteLogin(ctx, flags.Email, derived.ServerPassword[:])
+	if envErr != nil {
+		return nil, envErr
+	}
+
+	wrappedDEK, wderr := loginBase64.DecodeString(resp.WrappedDEK)
+	if wderr != nil {
+		return nil, envelope.NewError(envelope.ErrBackendIncompatible,
+			"backup login: server returned a wrappedDEK that is not valid base64").
+			WithRemediation("Update the engine; this typically means a substrate response shape changed.")
+	}
+
+	dek, uderr := crypto.UnwrapDEK(wrappedDEK, derived.MasterKey)
+	if uderr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError,
+			"backup login: unwrap DEK: "+uderr.Error()).
+			WithRemediation("If you recently changed your passphrase out-of-band, run `endstate backup recover` instead.")
+	}
+
+	if serr := a.Session().StoreDEK(dek); serr != nil {
+		for i := range dek {
+			dek[i] = 0
+		}
+		return nil, envelope.NewError(envelope.ErrInternalError,
+			"login succeeded but DEK could not be cached in the OS keychain: "+serr.Error()).
+			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
+	}
+	if werr := a.Session().StoreWrappedDEK(resp.WrappedDEK); werr != nil {
+		for i := range dek {
+			dek[i] = 0
+		}
+		return nil, envelope.NewError(envelope.ErrInternalError,
+			"login succeeded but wrappedDEK could not be cached in the OS keychain: "+werr.Error()).
+			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
+	}
+	for i := range dek {
+		dek[i] = 0
+	}
+
+	return &LoginResult{
+		UserID:             resp.UserID,
+		Email:              strings.ToLower(flags.Email),
+		SubscriptionStatus: resp.SubscriptionStatus,
+	}, nil
 }
+
+// loginBase64 is the standard base64 encoding used by substrate for byte
+// fields on the wire (salt, wrappedDEK, etc.).
+var loginBase64 = stdBase64Pkg.StdEncoding
 
 // readPassphraseFromStdin reads a single line (terminated by \n) from r
 // and returns it with the trailing newline stripped. Suitable for both

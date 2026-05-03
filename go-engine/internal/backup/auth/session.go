@@ -14,6 +14,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -72,8 +73,11 @@ func (s *SessionStore) Persist() error {
 	return s.keychainClient.Store(keychain.AccountForUser(uid), []byte(rt))
 }
 
-// Forget clears the in-memory session and removes the refresh token from
-// the keychain. Idempotent: returns nil even if no entry was present.
+// Forget clears the in-memory session and removes both the refresh token
+// and the cached DEK from the keychain. Idempotent: returns nil even if
+// no entries were present. If both deletes fail, the first error is
+// returned and the second is silently dropped — local state is what
+// matters and we want callers to be able to retry without surprises.
 func (s *SessionStore) Forget() error {
 	s.mu.Lock()
 	uid := s.userID
@@ -87,13 +91,101 @@ func (s *SessionStore) Forget() error {
 	if uid == "" {
 		return nil
 	}
-	if err := s.keychainClient.Delete(keychain.AccountForUser(uid)); err != nil {
-		if err == keychain.ErrNotFound {
-			return nil
+	var firstErr error
+	if err := s.keychainClient.Delete(keychain.AccountForUser(uid)); err != nil && err != keychain.ErrNotFound {
+		firstErr = err
+	}
+	if err := s.keychainClient.Delete(keychain.AccountForDEK(uid)); err != nil && err != keychain.ErrNotFound {
+		if firstErr == nil {
+			firstErr = err
 		}
+	}
+	if err := s.keychainClient.Delete(keychain.AccountForWrappedDEK(uid)); err != nil && err != keychain.ErrNotFound {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// StoreDEK persists the unwrapped DEK to the keychain under the canonical
+// account for the current userId. Returns an error if the session has no
+// userId (caller should set tokens first) or the keychain write fails.
+//
+// The DEK never appears on stdout, in logs, or in error messages. Callers
+// SHOULD zero their local copy after StoreDEK returns; the keychain is
+// the only place the DEK lives long-term.
+func (s *SessionStore) StoreDEK(dek []byte) error {
+	s.mu.Lock()
+	uid := s.userID
+	s.mu.Unlock()
+	if uid == "" {
+		return errors.New("session: cannot store DEK without a userId; call SetTokens first")
+	}
+	return s.keychainClient.Store(keychain.AccountForDEK(uid), dek)
+}
+
+// LoadDEK reads the unwrapped DEK from the keychain. Returns
+// keychain.ErrNotFound if no DEK is persisted (e.g. the user logged out
+// or has not signed in since this engine version). The returned slice is
+// a fresh copy the caller may zero.
+func (s *SessionStore) LoadDEK() ([]byte, error) {
+	s.mu.Lock()
+	uid := s.userID
+	s.mu.Unlock()
+	if uid == "" {
+		return nil, errors.New("session: cannot load DEK without a userId; hydrate first")
+	}
+	return s.keychainClient.Load(keychain.AccountForDEK(uid))
+}
+
+// ClearDEK removes the DEK keychain entry for the current userId.
+// Idempotent: returns nil if the entry was already absent.
+func (s *SessionStore) ClearDEK() error {
+	s.mu.Lock()
+	uid := s.userID
+	s.mu.Unlock()
+	if uid == "" {
+		return nil
+	}
+	if err := s.keychainClient.Delete(keychain.AccountForDEK(uid)); err != nil && err != keychain.ErrNotFound {
 		return err
 	}
 	return nil
+}
+
+// StoreWrappedDEK persists the masterKey-wrapped DEK (60 bytes, supplied
+// as a base64 string from substrate's signup / login / recover-finalize
+// responses) so subsequent push calls can populate the manifest's
+// `wrappedDEK` field per contract §3 without rederiving the masterKey.
+//
+// Stored as raw bytes in the keychain; the base64 encoding is restored
+// in LoadWrappedDEK so callers see the same string substrate returned.
+func (s *SessionStore) StoreWrappedDEK(b64 string) error {
+	s.mu.Lock()
+	uid := s.userID
+	s.mu.Unlock()
+	if uid == "" {
+		return errors.New("session: cannot store wrappedDEK without a userId; call SetTokens first")
+	}
+	return s.keychainClient.Store(keychain.AccountForWrappedDEK(uid), []byte(b64))
+}
+
+// LoadWrappedDEK reads the cached wrappedDEK for the current userId,
+// returning the same base64 string previously passed to StoreWrappedDEK.
+// Returns keychain.ErrNotFound if no entry is present.
+func (s *SessionStore) LoadWrappedDEK() (string, error) {
+	s.mu.Lock()
+	uid := s.userID
+	s.mu.Unlock()
+	if uid == "" {
+		return "", errors.New("session: cannot load wrappedDEK without a userId; hydrate first")
+	}
+	b, err := s.keychainClient.Load(keychain.AccountForWrappedDEK(uid))
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }
 
 // SetTokens updates the cached access + refresh tokens and the subscription
