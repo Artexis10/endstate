@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.9.0](https://github.com/Artexis10/endstate/compare/v1.8.0...v1.9.0) (2026-05-03)
+
+
+### Features
+
+* **backup:** implement Hosted Backup cryptographic module ([#23](https://github.com/Artexis10/endstate/issues/23)) ([d8a01ca](https://github.com/Artexis10/endstate/commit/d8a01ca5b32dc792e70eb2938b3e98114a122605))
+* **backup:** scaffold Hosted Backup auth client + version check ([#19](https://github.com/Artexis10/endstate/issues/19)) ([d65f0ff](https://github.com/Artexis10/endstate/commit/d65f0ff582d60f235b97ef8b620146f00beb36f7))
+* **backup:** wire Hosted Backup storage client + remaining commands ([#22](https://github.com/Artexis10/endstate/issues/22)) ([acae665](https://github.com/Artexis10/endstate/commit/acae6650f6a885ed27878cfe0aaebc9d3658ad91))
+
 ## [1.8.0](https://github.com/Artexis10/endstate/compare/v1.7.7...v1.8.0) (2026-05-01)
 
 
