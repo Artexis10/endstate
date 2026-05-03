@@ -191,7 +191,12 @@ func TestBackupLogin_EmptyPassphrase(t *testing.T) {
 	}
 }
 
-func TestBackupLogin_PreHandshakeOK_CryptoStubBlocks(t *testing.T) {
+// TestBackupLogin_PreHandshakeOK_OrchestrationNotImplemented locks the
+// observable behaviour now that crypto is real (PROMPT 3 onward) but the
+// post-crypto login orchestration (CompleteLogin → UnwrapDEK → cache DEK
+// on the session) has not yet been wired. A follow-up change will turn
+// this into a happy-path assertion.
+func TestBackupLogin_PreHandshakeOK_OrchestrationNotImplemented(t *testing.T) {
 	srv := fakeBackend(t)
 	kc := keychain.NewMemory()
 	restore := commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack {
@@ -202,13 +207,13 @@ func TestBackupLogin_PreHandshakeOK_CryptoStubBlocks(t *testing.T) {
 
 	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "login", Email: "user@example.com"})
 	if err == nil {
-		t.Fatal("expected an error from the crypto stub")
+		t.Fatal("expected INTERNAL_ERROR from the not-yet-wired login orchestration")
 	}
 	if err.Code != envelope.ErrInternalError {
 		t.Errorf("code = %q, want INTERNAL_ERROR", err.Code)
 	}
-	if !strings.Contains(err.Message, "crypto") || !strings.Contains(err.Message, "not yet implemented") {
-		t.Errorf("message %q should reference the crypto stub", err.Message)
+	if !strings.Contains(err.Message, "post-crypto orchestration") {
+		t.Errorf("message %q should reference the not-yet-implemented post-crypto orchestration", err.Message)
 	}
 }
 
