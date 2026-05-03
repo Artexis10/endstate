@@ -38,3 +38,30 @@ type Keychain interface {
 func AccountForUser(userID string) string {
 	return "endstate-refresh-" + userID
 }
+
+// AccountForDEK returns the canonical account name for the unwrapped data
+// encryption key of a given userId. Centralised alongside AccountForUser
+// so command handlers and tests share the convention.
+//
+// The DEK is stored in the same trust boundary as the refresh token (the
+// OS user account) so a `backup push` after `backup login` does not need
+// to re-prompt for the passphrase. Both entries are cleared on logout
+// and on account-delete via SessionStore.Forget.
+func AccountForDEK(userID string) string {
+	return "endstate-dek-" + userID
+}
+
+// AccountForWrappedDEK returns the canonical account name for the
+// masterKey-wrapped DEK (60 bytes raw, stored as base64 string). The
+// engine populates the manifest's `wrappedDEK` field (contract §3) from
+// this cached value rather than re-deriving the masterKey on every
+// push. Cached at login / signup / recover-finalize time and cleared
+// alongside the DEK on logout and account-delete.
+//
+// This value is not secret — it is the same wrappedDEK substrate stores
+// on the user record, and an attacker who has it cannot unwrap the DEK
+// without the masterKey. Storing it in the keychain matches the trust
+// boundary of the refresh token and DEK entries.
+func AccountForWrappedDEK(userID string) string {
+	return "endstate-wdek-" + userID
+}

@@ -4,11 +4,13 @@
 package commands
 
 import (
-	"errors"
+	"context"
 	"strings"
+	"time"
 
-	"github.com/Artexis10/endstate/go-engine/internal/backup/crypto"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/upload"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 )
 
 // PushResult is the data payload for `backup push`.
@@ -20,28 +22,20 @@ type PushResult struct {
 func runBackupPush(flags BackupFlags) (interface{}, *envelope.Error) {
 	if strings.TrimSpace(flags.Profile) == "" {
 		return nil, envelope.NewError(envelope.ErrInternalError,
-			"backup push requires --profile <path>")
+			"backup push requires --profile <path>").
+			WithRemediation("Pass --profile <path> pointing at the file or directory you want to back up.")
 	}
 
-	// PR 2 ships the orchestration scaffolding only. The actual encrypt
-	// path goes through internal/backup/upload, which calls
-	// crypto.EncryptChunk + crypto.EncryptManifest — both stubs until
-	// PROMPT 3. Surface the same documented "crypto not yet implemented"
-	// error login uses, so the GUI can present a single consistent
-	// message.
-	if _, err := crypto.GenerateDEK(); err != nil {
-		if errors.Is(err, crypto.ErrNotImplemented) {
-			return nil, envelope.NewError(envelope.ErrInternalError,
-				"crypto module not yet implemented; backup push orchestration ready, encryption lands in a follow-up change").
-				WithDetail(map[string]string{"phase": "encrypt"}).
-				WithRemediation("Wait for the engine release that includes the crypto module (PROMPT 3).")
-		}
-		return nil, envelope.NewError(envelope.ErrInternalError, "backup push: generate DEK: "+err.Error())
-	}
+	st := newBackupStack()
+	em := events.NewEmitter(envelope.BuildRunID("backup-push", time.Now().UTC()), flags.Events == "jsonl")
 
-	// Reached once crypto returns nil successfully (PROMPT 3 onward). The
-	// chunked-upload orchestration on top of the crypto module lands in a
-	// follow-up change.
-	return nil, envelope.NewError(envelope.ErrInternalError, "push: post-crypto orchestration not yet implemented").
-		WithRemediation("Wait for the engine release that wires the chunked-upload orchestration on top of the crypto module.")
+	res, envErr := upload.PushVersion(context.Background(), upload.Dependencies{
+		Storage: st.Storage,
+		Session: st.Session,
+		Events:  em,
+	}, flags.BackupID, flags.Profile, flags.Name)
+	if envErr != nil {
+		return nil, envErr
+	}
+	return &PushResult{BackupID: res.BackupID, VersionID: res.VersionID}, nil
 }

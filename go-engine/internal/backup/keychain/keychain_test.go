@@ -98,3 +98,17 @@ func TestAccountForUser_Stable(t *testing.T) {
 		t.Errorf("AccountForUser(abc) = %q, want %q", got, want)
 	}
 }
+
+func TestAccountForDEK_Stable(t *testing.T) {
+	if got, want := keychain.AccountForDEK("abc"), "endstate-dek-abc"; got != want {
+		t.Errorf("AccountForDEK(abc) = %q, want %q", got, want)
+	}
+}
+
+func TestAccountForUser_AndDEK_AreDistinct(t *testing.T) {
+	// Both entries live in the same keychain; the engine relies on the
+	// account names not colliding so logout can clear them independently.
+	if keychain.AccountForUser("u") == keychain.AccountForDEK("u") {
+		t.Error("AccountForUser and AccountForDEK must produce distinct account names for the same userId")
+	}
+}
