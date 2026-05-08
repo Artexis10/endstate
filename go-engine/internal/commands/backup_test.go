@@ -171,6 +171,69 @@ func TestBackupStatus_SignedIn(t *testing.T) {
 	}
 }
 
+// faultyTestKeychain returns loadErr from every Load call, leaving
+// Store/Delete as no-ops. Models a permission-denied / locked-store
+// failure for status-reporting tests.
+type faultyTestKeychain struct {
+	loadErr error
+}
+
+func (f *faultyTestKeychain) Store(account string, secret []byte) error { return f.loadErr }
+func (f *faultyTestKeychain) Load(account string) ([]byte, error)       { return nil, f.loadErr }
+func (f *faultyTestKeychain) Delete(account string) error               { return f.loadErr }
+
+// TestBackupStatus_KeychainErrorSurfaced locks the wiring from
+// SessionStore.LastHydrateError to StatusResult.KeychainError. With a
+// keychain that fails on Load, status MUST report signedIn=false (no
+// session could be loaded) AND populate KeychainError with the
+// underlying failure so the caller can distinguish "broken keychain"
+// from "no session". Without this surfacing the two states look
+// identical to the user.
+func TestBackupStatus_KeychainErrorSurfaced(t *testing.T) {
+	srv := fakeBackend(t)
+	synthetic := errors.New("synthetic: keychain locked")
+	kc := &faultyTestKeychain{loadErr: synthetic}
+
+	// Build the stack manually with the faulty keychain. We call
+	// HydrateFromCurrent ourselves to mirror what backup.newStack does
+	// in production — the test seam (stackForBackend) does not auto-
+	// hydrate, so we replicate that step here.
+	store := auth.NewSessionStore(kc)
+	_ = store.HydrateFromCurrent()
+
+	oc := oidc.NewClient(srv.URL, srv.Client())
+	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, MaxWait: time.Millisecond}
+	hc := client.New(client.Options{Tokens: store, Retry: &rp})
+	a := auth.NewAuthenticator(auth.Issuer{URL: srv.URL, Audience: "endstate-backup"}, oc, hc, store)
+	st := storage.New(srv.URL, hc)
+	stack := &backup.Stack{
+		Auth:    a,
+		Storage: st,
+		Issuer:  srv.URL,
+		OIDC:    oc,
+		HTTP:    hc,
+		Session: store,
+	}
+
+	restore := commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return stack })
+	defer restore()
+
+	data, envErr := commands.RunBackup(commands.BackupFlags{Subcommand: "status"})
+	if envErr != nil {
+		t.Fatalf("status with faulty keychain: %+v", envErr)
+	}
+	res := data.(*commands.StatusResult)
+	if res.SignedIn {
+		t.Error("expected signedIn=false on a faulty keychain")
+	}
+	if res.KeychainError == "" {
+		t.Fatal("StatusResult.KeychainError was not populated; the wiring from LastHydrateError is broken")
+	}
+	if !strings.Contains(res.KeychainError, "synthetic: keychain locked") {
+		t.Errorf("KeychainError = %q, want it to contain the synthetic error message", res.KeychainError)
+	}
+}
+
 func TestBackupLogin_RequiresEmail(t *testing.T) {
 	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "login"})
 	if err == nil || err.Code != envelope.ErrInternalError {
