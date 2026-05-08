@@ -69,9 +69,17 @@ Subcommands:
   profile list         List discovered profiles
   profile path <name>  Resolve profile path
   profile validate <p> Validate a profile manifest
+  backup signup        Create Hosted Backup account (passphrase via stdin)
   backup login         Sign in to Hosted Backup (passphrase via stdin)
   backup logout        Clear cached Hosted Backup session
   backup status        Report Hosted Backup session state
+  backup push          Encrypt and upload a profile (--profile required)
+  backup pull          Download and restore a profile (--backup-id, --to required)
+  backup list          List backups
+  backup versions      List versions of a backup (--backup-id required)
+  backup delete        Permanently delete a backup (--backup-id, --confirm)
+  backup delete-version Soft-delete a backup version (--backup-id, --version-id, --confirm)
+  backup recover       Reset passphrase using BIP39 recovery key (stdin)
   account delete       Delete the Hosted Backup account (requires --confirm)
 
 Run 'endstate <command> --help' for command-specific help.
@@ -109,11 +117,13 @@ type parsedArgs struct {
 	runID  string
 
 	// Backup / account flags
-	email     string
-	backupID  string
-	versionID string
-	to        string
-	confirm   bool
+	email          string
+	backupID       string
+	versionID      string
+	to             string
+	confirm        bool
+	saveRecoveryTo string
+	overwrite      bool
 
 	// Positional args after command (used by profile / backup / account subcommands)
 	positionalArgs []string
@@ -163,6 +173,8 @@ func parseArgs(args []string) parsedArgs {
 			p.latest = true
 		case "--confirm":
 			p.confirm = true
+		case "--overwrite":
+			p.overwrite = true
 		case "--WithConfig":
 			// GUI sends --WithConfig for capture; the Go engine includes
 			// config modules by default, so this is a no-op. Accept it
@@ -235,6 +247,11 @@ func parseArgs(args []string) parsedArgs {
 				p.to = args[i+1]
 				i++
 			}
+		case "--save-recovery-to":
+			if i+1 < len(args) {
+				p.saveRecoveryTo = args[i+1]
+				i++
+			}
 		default:
 			// Collect positional args (e.g., profile subcommands: "list", "path", "validate").
 			if !strings.HasPrefix(arg, "-") {
@@ -287,7 +304,7 @@ func commandUsage(cmd string) string {
 	case "profile":
 		return "Usage: endstate profile <subcommand> [args] [--json]\n\nSubcommands:\n  list              List discovered profiles\n  path <name>       Resolve profile path from name\n  validate <path>   Validate a profile manifest\n"
 	case "backup":
-		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  login --email <addr>     Sign in (passphrase via stdin)\n  logout                   Clear local session\n  status                   Report current session state\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL  Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE    JWT audience (default: endstate-backup)\n"
+		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  signup --email <addr> --save-recovery-to <path>\n                              Create account (passphrase + optional 24-word phrase via stdin)\n  login --email <addr>          Sign in (passphrase via stdin)\n  logout                        Clear local session\n  status                        Report current session state\n  push --profile <path> [--backup-id <id>] [--name <label>]\n                              Encrypt and upload a profile\n  pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]\n                              Download and restore a profile\n  list                          List backups\n  versions --backup-id <id>     List versions of a backup\n  delete --backup-id <id> --confirm\n                              Permanently delete a backup\n  delete-version --backup-id <id> --version-id <id> --confirm\n                              Soft-delete a backup version\n  recover --email <addr>        Reset passphrase using recovery phrase (stdin: phrase, then new passphrase)\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL    Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE      JWT audience (default: endstate-backup)\n  ENDSTATE_BACKUP_CONCURRENCY Worker pool size for chunk transfer (default 4, clamp 1..16)\n"
 	case "account":
 		return "Usage: endstate account <subcommand> [flags] [--json]\n\nSubcommands:\n  delete --confirm  Delete the Hosted Backup account permanently\n"
 	case "bootstrap":
@@ -478,16 +495,18 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			subArgs = p.positionalArgs[1:]
 		}
 		return commands.RunBackup(commands.BackupFlags{
-			Subcommand: subcommand,
-			Args:       subArgs,
-			Email:      p.email,
-			BackupID:   p.backupID,
-			VersionID:  p.versionID,
-			Profile:    p.profile,
-			Name:       p.name,
-			To:         p.to,
-			Confirm:    p.confirm,
-			Events:     p.events,
+			Subcommand:     subcommand,
+			Args:           subArgs,
+			Email:          p.email,
+			BackupID:       p.backupID,
+			VersionID:      p.versionID,
+			Profile:        p.profile,
+			Name:           p.name,
+			To:             p.to,
+			Confirm:        p.confirm,
+			SaveRecoveryTo: p.saveRecoveryTo,
+			Overwrite:      p.overwrite,
+			Events:         p.events,
 		})
 
 	case "account":

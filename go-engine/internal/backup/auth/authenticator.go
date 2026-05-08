@@ -201,6 +201,123 @@ func (a *Authenticator) Logout(ctx context.Context) *envelope.Error {
 	return nil
 }
 
+// SignupBody is the contract §5 POST /api/auth/signup body. All
+// byte-typed fields are encoded as standard base64.
+type SignupBody struct {
+	Email                 string           `json:"email"`
+	ServerPassword        string           `json:"serverPassword"`
+	Salt                  string           `json:"salt"`
+	KDFParams             crypto.KDFParams `json:"kdfParams"`
+	WrappedDEK            string           `json:"wrappedDEK"`
+	RecoveryKeyVerifier   string           `json:"recoveryKeyVerifier"`
+	RecoveryKeyWrappedDEK string           `json:"recoveryKeyWrappedDEK"`
+}
+
+// Signup performs `POST /api/auth/signup`. On success the session is
+// updated with the returned tokens and the refresh token is persisted to
+// the keychain. The caller is responsible for caching the unwrapped DEK
+// via SessionStore.StoreDEK separately — Signup does not see plaintext
+// keys.
+func (a *Authenticator) Signup(ctx context.Context, body SignupBody) (*CompleteLoginResponse, *envelope.Error) {
+	doc, err := a.oidc.Discovery(ctx)
+	if err != nil {
+		return nil, mapDiscoveryError(err)
+	}
+	body.Email = strings.ToLower(body.Email)
+	var resp CompleteLoginResponse
+	if cerr := a.httpc.Do(ctx, client.Request{
+		Method:   "POST",
+		URL:      doc.EndstateExtensions.AuthSignupEndpoint,
+		Body:     body,
+		ReadOnly: false,
+	}, &resp); cerr != nil {
+		return nil, cerr
+	}
+	a.session.SetTokens(resp.UserID, body.Email, resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, time.Time{})
+	if perr := a.session.Persist(); perr != nil {
+		return &resp, envelope.NewError(envelope.ErrInternalError,
+			"signup succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
+			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
+	}
+	return &resp, nil
+}
+
+// RecoverBody is the contract §6 POST /api/auth/recover body.
+type RecoverBody struct {
+	Email             string `json:"email"`
+	RecoveryKeyProof  string `json:"recoveryKeyProof"`
+}
+
+// RecoverResponse mirrors the substrate response. The wrapped DEK is the
+// recoveryKey-wrapped variant; the salt is returned for symmetry — the
+// client already has it from PreHandshake but the server may rotate it
+// during recovery (contract is silent so we accept both shapes).
+type RecoverResponse struct {
+	RecoveryKeyWrappedDEK string `json:"recoveryKeyWrappedDEK"`
+	Salt                  string `json:"salt,omitempty"`
+}
+
+// Recover performs `POST /api/auth/recover` (contract §6 step 3–4).
+// On success returns the recoveryKey-wrapped DEK so the caller can
+// unwrap it with the recovery key. Tokens are NOT issued at this step;
+// `RecoverFinalize` issues fresh tokens after the new passphrase is set.
+func (a *Authenticator) Recover(ctx context.Context, body RecoverBody) (*RecoverResponse, *envelope.Error) {
+	doc, err := a.oidc.Discovery(ctx)
+	if err != nil {
+		return nil, mapDiscoveryError(err)
+	}
+	body.Email = strings.ToLower(body.Email)
+	var resp RecoverResponse
+	if cerr := a.httpc.Do(ctx, client.Request{
+		Method:   "POST",
+		URL:      doc.EndstateExtensions.AuthRecoverEndpoint,
+		Body:     body,
+		ReadOnly: false,
+	}, &resp); cerr != nil {
+		return nil, cerr
+	}
+	return &resp, nil
+}
+
+// RecoverFinalizeBody is the contract §6 POST /api/auth/recover/finalize body.
+type RecoverFinalizeBody struct {
+	Email                string           `json:"email"`
+	ServerPassword       string           `json:"serverPassword"`
+	Salt                 string           `json:"salt"`
+	KDFParams            crypto.KDFParams `json:"kdfParams"`
+	WrappedDEK           string           `json:"wrappedDEK"`
+	RecoveryKeyProof     string           `json:"recoveryKeyProof"`
+}
+
+// RecoverFinalize performs `POST /api/auth/recover/finalize` (contract §6
+// step 7–8). The server updates the password hash and the wrappedDEK in
+// a single transaction and returns fresh tokens. On success the session
+// is updated and the refresh token is persisted; the caller is
+// responsible for caching the new DEK via SessionStore.StoreDEK.
+func (a *Authenticator) RecoverFinalize(ctx context.Context, body RecoverFinalizeBody) (*CompleteLoginResponse, *envelope.Error) {
+	doc, err := a.oidc.Discovery(ctx)
+	if err != nil {
+		return nil, mapDiscoveryError(err)
+	}
+	body.Email = strings.ToLower(body.Email)
+	var resp CompleteLoginResponse
+	if cerr := a.httpc.Do(ctx, client.Request{
+		Method:   "POST",
+		URL:      strings.TrimRight(doc.EndstateExtensions.AuthRecoverEndpoint, "/") + "/finalize",
+		Body:     body,
+		ReadOnly: false,
+	}, &resp); cerr != nil {
+		return nil, cerr
+	}
+	a.session.SetTokens(resp.UserID, body.Email, resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, time.Time{})
+	if perr := a.session.Persist(); perr != nil {
+		return &resp, envelope.NewError(envelope.ErrInternalError,
+			"recovery finalize succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
+			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
+	}
+	return &resp, nil
+}
+
 // MeResponse matches the GET /api/account/me payload (contract §7).
 type MeResponse struct {
 	UserID             string `json:"userId"`

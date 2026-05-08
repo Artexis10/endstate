@@ -53,6 +53,7 @@ func fakeBackend(t *testing.T) *httptest.Server {
 	})
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Endstate-API-Version", "1.0")
+		f := loadFixture()
 		var raw map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&raw)
 		if _, hasPwd := raw["serverPassword"]; hasPwd {
@@ -60,13 +61,13 @@ func fakeBackend(t *testing.T) *httptest.Server {
 				"userId":             "user-1",
 				"accessToken":        "access-1",
 				"refreshToken":       "refresh-1",
-				"wrappedDEK":         "AAAA",
+				"wrappedDEK":         f.WrappedDEKB64,
 				"subscriptionStatus": "active",
 			})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
-			"salt": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+			"salt": f.SaltB64,
 			"kdfParams": map[string]interface{}{
 				"algorithm":   "argon2id",
 				"memory":      65536,
@@ -188,32 +189,6 @@ func TestBackupLogin_EmptyPassphrase(t *testing.T) {
 	}
 	if !strings.Contains(err.Message, "passphrase") {
 		t.Errorf("message %q should mention passphrase", err.Message)
-	}
-}
-
-// TestBackupLogin_PreHandshakeOK_OrchestrationNotImplemented locks the
-// observable behaviour now that crypto is real (PROMPT 3 onward) but the
-// post-crypto login orchestration (CompleteLogin → UnwrapDEK → cache DEK
-// on the session) has not yet been wired. A follow-up change will turn
-// this into a happy-path assertion.
-func TestBackupLogin_PreHandshakeOK_OrchestrationNotImplemented(t *testing.T) {
-	srv := fakeBackend(t)
-	kc := keychain.NewMemory()
-	restore := commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack {
-		return stackForBackend(srv, kc)
-	})
-	defer restore()
-	defer commands.WithPassphraseReader(func(io.Reader) (string, error) { return "secret-pass", nil })()
-
-	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "login", Email: "user@example.com"})
-	if err == nil {
-		t.Fatal("expected INTERNAL_ERROR from the not-yet-wired login orchestration")
-	}
-	if err.Code != envelope.ErrInternalError {
-		t.Errorf("code = %q, want INTERNAL_ERROR", err.Code)
-	}
-	if !strings.Contains(err.Message, "post-crypto orchestration") {
-		t.Errorf("message %q should reference the not-yet-implemented post-crypto orchestration", err.Message)
 	}
 }
 

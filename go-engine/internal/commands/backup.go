@@ -55,6 +55,17 @@ type BackupFlags struct {
 	// (delete, delete-version).
 	Confirm bool
 
+	// SaveRecoveryTo is the --save-recovery-to flag (signup), pointing at
+	// the file the BIP39 recovery mnemonic will be written to. Required
+	// for the signup CLI flow when the mnemonic is generated client-side
+	// (contract §1, §6 — the client guarantees the user has the recovery
+	// key saved before signup completes).
+	SaveRecoveryTo string
+
+	// Overwrite permits `backup pull` to write into a path that already
+	// exists. Default false; the command refuses to overwrite without it.
+	Overwrite bool
+
 	// Events controls streaming event output ("jsonl" enables it).
 	Events string
 }
@@ -62,6 +73,8 @@ type BackupFlags struct {
 // RunBackup dispatches to the appropriate backup subcommand handler.
 func RunBackup(flags BackupFlags) (interface{}, *envelope.Error) {
 	switch flags.Subcommand {
+	case "signup":
+		return runBackupSignup(flags)
 	case "login":
 		return runBackupLogin(flags)
 	case "logout":
@@ -70,7 +83,7 @@ func RunBackup(flags BackupFlags) (interface{}, *envelope.Error) {
 		return runBackupStatus(flags)
 	case "":
 		return nil, envelope.NewError(envelope.ErrInternalError,
-			"backup requires a subcommand (login, logout, status, push, pull, list, versions, delete, delete-version, recover)")
+			"backup requires a subcommand (signup, login, logout, status, push, pull, list, versions, delete, delete-version, recover)")
 	case "list":
 		return runBackupList(flags)
 	case "versions":

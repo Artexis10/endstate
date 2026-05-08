@@ -235,16 +235,15 @@ Endstate prioritizes safety over speed:
 
 End-to-end encrypted profile backups via Endstate Cloud (or any self-host
 backend implementing `docs/contracts/hosted-backup-contract.md`). The
-engine authenticates against the backend's OIDC endpoints, persists the
-refresh token in Windows Credential Manager, and orchestrates chunked
-upload/download against R2 presigned URLs.
+engine derives keys client-side via Argon2id, encrypts each chunk with
+AES-256-GCM, ships the chunks to Cloudflare R2 via short-lived presigned
+URLs, and persists the refresh token + the unwrapped DEK in the OS
+keychain so subsequent `push` / `pull` operations don't re-prompt for
+the passphrase.
 
-The cryptographic primitives (Argon2id KDF, AES-256-GCM, BIP39 recovery
-key) are isolated in a follow-up engine release for focused security
-review. Until that release, `backup login`, `backup push`, `backup pull`,
-and `backup recover` surface a clear `INTERNAL_ERROR` "crypto module not
-yet implemented" message — the orchestration is wired and tested but the
-key derivation cannot complete.
+**Endstate cannot decrypt user data uploaded to Hosted Backup.** This is
+a structural property: only the user's passphrase and recovery key can
+unlock the data. See contract §1 for the trust model.
 
 ### Configuration
 
@@ -254,40 +253,68 @@ key derivation cannot complete.
 | `ENDSTATE_OIDC_AUDIENCE` | `endstate-backup` | JWT audience claim |
 | `ENDSTATE_BACKUP_CONCURRENCY` | `4` | Upload/download worker pool size (clamped 1–16) |
 
-### Commands
+### End-to-end workflow
 
 ```bash
-# Sign in (passphrase via stdin — never as a flag)
-endstate backup login --email you@example.com
+# 1. Create an account. Passphrase comes from stdin (line 1).
+#    The 24-word BIP39 recovery mnemonic is generated client-side and
+#    written to --save-recovery-to before the network call. Save this
+#    file somewhere offline — it is the only second-factor recovery
+#    path if you forget your passphrase. If you lose both the
+#    passphrase and the recovery file, your data is unrecoverable.
+echo "<your-passphrase>" | endstate backup signup \
+    --email you@example.com \
+    --save-recovery-to ~/endstate-recovery.txt
 
-# Report current session state
-endstate backup status --json
+# 2. Push a profile. The first push to a fresh account auto-creates a
+#    backup named "default" if --backup-id is omitted.
+endstate backup push --profile <path-to-profile> --name "primary"
 
-# Sign out (clears local keychain entry; backend logout is best-effort)
-endstate backup logout
-
-# Inventory
+# 3. Pull on a different machine. After `backup login`, the engine
+#    caches the unwrapped DEK in the OS keychain so push/pull don't
+#    re-prompt.
+echo "<your-passphrase>" | endstate backup login --email you@example.com
 endstate backup list --json
 endstate backup versions --backup-id <id> --json
+endstate backup pull --backup-id <id> --to ~/restored-profile
 
-# Push and pull profile snapshots
-endstate backup push --profile <path> [--name <label>]
-endstate backup pull --backup-id <id> [--version-id <id>] --to <path>
+# 4. Forgotten passphrase: stdin line 1 = recovery phrase, line 2 = new passphrase.
+endstate backup recover --email you@example.com
 
-# Destructive operations require --confirm
+# 5. Sign out — clears refresh token AND DEK from the keychain.
+endstate backup logout
+
+# 6. Destructive operations require --confirm.
 endstate backup delete --backup-id <id> --confirm
 endstate backup delete-version --backup-id <id> --version-id <id> --confirm
 
-# Forgotten passphrase (recovery key + new passphrase via stdin)
-endstate backup recover --email you@example.com
-
-# GDPR account deletion (destroys backups + subscription)
+# 7. GDPR account deletion (hard-delete: account, subscription, all data).
 endstate account delete --confirm
 ```
 
-The capabilities response (`endstate capabilities --json`) advertises the
-configured issuer and audience under `data.features.hostedBackup`, so the
-GUI can gate hosted-backup UI on a single handshake.
+### Commands
+
+| Command | Purpose | Stdin |
+|---|---|---|
+| `backup signup --email <addr> --save-recovery-to <path>` | Create account, write recovery file | passphrase (line 1); optional mnemonic (line 2) |
+| `backup login --email <addr>` | Sign in; cache DEK in keychain | passphrase |
+| `backup logout` | Clear refresh token + DEK from keychain | — |
+| `backup status [--json]` | Report session state | — |
+| `backup push --profile <path> [--backup-id <id>] [--name <label>]` | Encrypt and upload | — |
+| `backup pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]` | Download and restore | — |
+| `backup list [--json]` | List backups | — |
+| `backup versions --backup-id <id> [--json]` | List versions of one backup | — |
+| `backup delete --backup-id <id> --confirm` | Permanently delete a backup | — |
+| `backup delete-version --backup-id <id> --version-id <id> --confirm` | Soft-delete a version (purged after 7 days) | — |
+| `backup recover --email <addr>` | Reset passphrase using recovery phrase | line 1: phrase; line 2: new passphrase |
+| `account delete --confirm` | Hard-delete account + subscription + all data | — |
+
+`--events jsonl` enables NDJSON event streaming on stderr for `push` and
+`pull` so the GUI can render per-chunk progress.
+
+The capabilities response (`endstate capabilities --json`) advertises
+the configured issuer and audience under `data.features.hostedBackup`,
+so the GUI can gate hosted-backup UI on a single handshake.
 
 ---
 

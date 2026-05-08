@@ -5,7 +5,6 @@ package commands_test
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -142,6 +141,39 @@ func addAuthRoutes(mux *http.ServeMux, srv *httptest.Server) {
 	mux.HandleFunc("/api/.well-known/jwks.json", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"keys": []interface{}{}})
 	})
+	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "1.0")
+		f := loadFixture()
+		var raw map[string]interface{}
+		_ = json.NewDecoder(r.Body).Decode(&raw)
+		if _, hasPwd := raw["serverPassword"]; hasPwd {
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
+				"userId":             "user-1",
+				"accessToken":        "access-1",
+				"refreshToken":       "refresh-1",
+				"wrappedDEK":         f.WrappedDEKB64,
+				"subscriptionStatus": "active",
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"salt":      f.SaltB64,
+			"kdfParams": map[string]interface{}{"algorithm": "argon2id", "memory": 65536, "iterations": 3, "parallelism": 4},
+		})
+	})
+	mux.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "1.0")
+		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
+	})
+	mux.HandleFunc("/api/account/me", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "1.0")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"userId":             "user-1",
+			"email":              "user@example.com",
+			"subscriptionStatus": "active",
+			"createdAt":          "2026-05-02T00:00:00Z",
+		})
+	})
 }
 
 func stackForStorageBackend(sb *storageBackend) *backup.Stack {
@@ -259,23 +291,6 @@ func TestBackupDeleteVersion_HappyPath(t *testing.T) {
 	}
 }
 
-// TestBackupPush_OrchestrationNotImplemented covers the gap between
-// crypto landing (PROMPT 3) and the chunked-upload orchestration landing
-// (a follow-up change). Once the orchestration is wired, this test will
-// be replaced with happy-path coverage.
-func TestBackupPush_OrchestrationNotImplemented(t *testing.T) {
-	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack {
-		return stackForStorageBackend(newStorageBackend(t))
-	})()
-	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push", Profile: "/path/to/profile"})
-	if err == nil || err.Code != envelope.ErrInternalError {
-		t.Fatalf("got %+v, want INTERNAL_ERROR", err)
-	}
-	if !strings.Contains(err.Message, "post-crypto orchestration") {
-		t.Errorf("message %q should reference the not-yet-implemented post-crypto orchestration", err.Message)
-	}
-}
-
 func TestBackupPush_RequiresProfile(t *testing.T) {
 	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "push"})
 	if err == nil || err.Code != envelope.ErrInternalError {
@@ -283,41 +298,6 @@ func TestBackupPush_RequiresProfile(t *testing.T) {
 	}
 	if !strings.Contains(err.Message, "--profile") {
 		t.Errorf("message should mention --profile, got %q", err.Message)
-	}
-}
-
-// TestBackupPull_OrchestrationNotImplemented — see Push counterpart.
-func TestBackupPull_OrchestrationNotImplemented(t *testing.T) {
-	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack {
-		return stackForStorageBackend(newStorageBackend(t))
-	})()
-	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "pull", BackupID: "b-1", To: "/tmp/out"})
-	if err == nil || err.Code != envelope.ErrInternalError {
-		t.Fatalf("got %+v, want INTERNAL_ERROR", err)
-	}
-	if !strings.Contains(err.Message, "post-crypto orchestration") {
-		t.Errorf("message %q should reference the not-yet-implemented post-crypto orchestration", err.Message)
-	}
-}
-
-// TestBackupRecover_OrchestrationNotImplemented — see Push counterpart.
-// The recovery phrase here is a known-valid 24-word BIP39 phrase
-// ("abandon" * 23 + "art"), so crypto.ParseRecoveryPhrase succeeds and
-// the call falls through to the not-yet-implemented orchestration.
-func TestBackupRecover_OrchestrationNotImplemented(t *testing.T) {
-	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack {
-		return stackForStorageBackend(newStorageBackend(t))
-	})()
-	defer commands.WithRecoveryReader(func(io.Reader) (string, string, error) {
-		return "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art",
-			"new-pass", nil
-	})()
-	_, err := commands.RunBackup(commands.BackupFlags{Subcommand: "recover", Email: "user@example.com"})
-	if err == nil || err.Code != envelope.ErrInternalError {
-		t.Fatalf("got %+v, want INTERNAL_ERROR", err)
-	}
-	if !strings.Contains(err.Message, "post-crypto orchestration") {
-		t.Errorf("message %q should reference the not-yet-implemented post-crypto orchestration", err.Message)
 	}
 }
 
