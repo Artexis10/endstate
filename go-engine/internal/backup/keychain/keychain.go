@@ -65,3 +65,14 @@ func AccountForDEK(userID string) string {
 func AccountForWrappedDEK(userID string) string {
 	return "endstate-wdek-" + userID
 }
+
+// AccountForCurrentUser is the fixed account name holding the userID of
+// the currently-signed-in user. Without this pointer a fresh process has
+// no way to discover which userID-keyed entries (refresh, DEK, wrappedDEK)
+// belong to the active session: the keychain is keyed by userID but the
+// userID itself is only learned at login/signup time. Set on
+// signup/login/recover-finalize via SessionStore.Persist; cleared on
+// logout/account-delete via SessionStore.Forget.
+func AccountForCurrentUser() string {
+	return "endstate-current-user"
+}

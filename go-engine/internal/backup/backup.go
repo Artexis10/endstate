@@ -64,15 +64,18 @@ type Stack struct {
 }
 
 // NewStack builds the full hosted-backup component stack using the
-// platform-native keychain. Each invocation returns a fresh stack with
-// an empty in-memory session; callers Hydrate from the keychain when
-// they know the userID they are acting as.
+// platform-native keychain. Each invocation returns a stack that has
+// already hydrated its session from the keychain's current-user pointer
+// (see keychain.AccountForCurrentUser); if no signed-in user is recorded
+// the session remains empty and downstream commands report signed-out.
 func NewStack() *Stack {
 	return newStack(keychain.NewSystem())
 }
 
 // NewStackForTest is a test seam: substitutes the keychain (typically
-// keychain.NewMemory()).
+// keychain.NewMemory()). Hydrates the same way NewStack does — tests
+// that pre-seed AccountForCurrentUser get a hydrated session; tests
+// that don't get an empty one.
 func NewStackForTest(kc keychain.Keychain) *Stack {
 	return newStack(kc)
 }
@@ -85,6 +88,11 @@ func newStack(kc keychain.Keychain) *Stack {
 	hc := client.New(client.Options{Tokens: store})
 	a := auth.NewAuthenticator(auth.Issuer{URL: issuer, Audience: audience}, oc, hc, store)
 	st := storage.New(issuer, hc)
+	// Pull the current user's refresh token into the in-memory session
+	// so subsequent commands see signedIn=true and can load the DEK
+	// without an explicit re-login. HydrateFromCurrent treats absence
+	// and unreadable-keychain errors as "signed out" and returns nil.
+	_ = store.HydrateFromCurrent()
 	return &Stack{
 		Auth:    a,
 		Storage: st,

@@ -60,8 +60,18 @@ func (s *SessionStore) Hydrate(userID string) error {
 }
 
 // Persist writes the refresh token to the keychain under the canonical
-// account name for the current userID. Called after a successful login
-// or refresh. Idempotent.
+// account name for the current userID, and records the userID in the
+// fixed current-user pointer so a subsequent fresh process can find it
+// via HydrateFromCurrent. Called after a successful login, signup,
+// recover-finalize, or refresh. Idempotent.
+//
+// If writing the refresh token succeeds but writing the current-user
+// pointer fails, the first error is returned and the pointer is left
+// unwritten — the next invocation will report signed-out, which the
+// caller can recover from with `endstate backup login`. We do not roll
+// back the refresh-token write on pointer failure: it is harmless data
+// (encrypted at rest by the OS keychain) and rolling back would risk
+// leaving an inconsistent set of three entries on subsequent logins.
 func (s *SessionStore) Persist() error {
 	s.mu.Lock()
 	uid := s.userID
@@ -70,7 +80,36 @@ func (s *SessionStore) Persist() error {
 	if uid == "" || rt == "" {
 		return nil
 	}
-	return s.keychainClient.Store(keychain.AccountForUser(uid), []byte(rt))
+	if err := s.keychainClient.Store(keychain.AccountForUser(uid), []byte(rt)); err != nil {
+		return err
+	}
+	return s.keychainClient.Store(keychain.AccountForCurrentUser(), []byte(uid))
+}
+
+// HydrateFromCurrent loads the active userID from the fixed current-user
+// pointer and then loads the refresh token for that userID into the
+// in-memory session. Called by the stack factory before returning to a
+// command handler so every command starts hydrated.
+//
+// Treats keychain.ErrNotFound at either level as "signed out" and
+// returns nil — a fresh OS user with no Endstate session is not an
+// error condition, just an empty session. Other keychain errors
+// (permissions, locked store) also return nil; the session stays empty
+// and the next signed-in operation will surface the underlying issue
+// when it tries to write.
+func (s *SessionStore) HydrateFromCurrent() error {
+	uidBytes, err := s.keychainClient.Load(keychain.AccountForCurrentUser())
+	if err != nil {
+		return nil
+	}
+	uid := string(uidBytes)
+	if uid == "" {
+		return nil
+	}
+	if err := s.Hydrate(uid); err != nil {
+		return nil
+	}
+	return nil
 }
 
 // Forget clears the in-memory session and removes both the refresh token
@@ -89,6 +128,13 @@ func (s *SessionStore) Forget() error {
 	s.subscription = ""
 	s.mu.Unlock()
 	if uid == "" {
+		// No userID in memory but the current-user pointer may still be
+		// set from a prior process (e.g. user invoked `logout` without
+		// any preceding command in this process). Clear it best-effort
+		// so a subsequent process doesn't see a stale pointer.
+		if err := s.keychainClient.Delete(keychain.AccountForCurrentUser()); err != nil && err != keychain.ErrNotFound {
+			return err
+		}
 		return nil
 	}
 	var firstErr error
@@ -101,6 +147,11 @@ func (s *SessionStore) Forget() error {
 		}
 	}
 	if err := s.keychainClient.Delete(keychain.AccountForWrappedDEK(uid)); err != nil && err != keychain.ErrNotFound {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if err := s.keychainClient.Delete(keychain.AccountForCurrentUser()); err != nil && err != keychain.ErrNotFound {
 		if firstErr == nil {
 			firstErr = err
 		}
