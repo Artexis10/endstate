@@ -35,6 +35,16 @@ type SessionStore struct {
 	subscription   string
 	keychainClient keychain.Keychain
 	refreshFn      refreshFunc
+
+	// lastHydrateErr is the most recent non-ErrNotFound error encountered
+	// by HydrateFromCurrent when reading the current-user pointer, or nil
+	// if the keychain is healthy. Surfaced to the user via
+	// `backup status` so a flaky keychain doesn't read identically to "no
+	// session" — the original review-endstate finding on the keychain-fix
+	// commit. ErrNotFound at the pointer (i.e. genuinely signed out) is
+	// not recorded; only access failures (permissions, locked store, etc.)
+	// land here.
+	lastHydrateErr error
 }
 
 // NewSessionStore constructs a SessionStore backed by the supplied
@@ -91,17 +101,34 @@ func (s *SessionStore) Persist() error {
 // in-memory session. Called by the stack factory before returning to a
 // command handler so every command starts hydrated.
 //
-// Treats keychain.ErrNotFound at either level as "signed out" and
-// returns nil — a fresh OS user with no Endstate session is not an
-// error condition, just an empty session. Other keychain errors
-// (permissions, locked store) also return nil; the session stays empty
-// and the next signed-in operation will surface the underlying issue
-// when it tries to write.
+// Always returns nil so the stack factory does not need to special-case
+// signed-out vs broken-keychain. Two distinct outcomes are encoded:
+//
+//   - keychain.ErrNotFound at the pointer → signed-out; lastHydrateErr
+//     is cleared.
+//   - any other error at the pointer → keychain access failure;
+//     lastHydrateErr is set and `backup status` surfaces it via the
+//     KeychainError field. Session stays empty.
+//
+// A successful pointer read followed by a Hydrate failure is treated as
+// signed-out without recording the error — that case is "stale pointer"
+// (pointer present, refresh entry absent), rare in practice, and self-
+// heals on the next login.
 func (s *SessionStore) HydrateFromCurrent() error {
 	uidBytes, err := s.keychainClient.Load(keychain.AccountForCurrentUser())
 	if err != nil {
+		s.mu.Lock()
+		if err == keychain.ErrNotFound {
+			s.lastHydrateErr = nil
+		} else {
+			s.lastHydrateErr = err
+		}
+		s.mu.Unlock()
 		return nil
 	}
+	s.mu.Lock()
+	s.lastHydrateErr = nil
+	s.mu.Unlock()
 	uid := string(uidBytes)
 	if uid == "" {
 		return nil
@@ -110,6 +137,17 @@ func (s *SessionStore) HydrateFromCurrent() error {
 		return nil
 	}
 	return nil
+}
+
+// LastHydrateError returns the most recent non-ErrNotFound error from
+// HydrateFromCurrent's pointer load, or nil if the last hydration was
+// healthy or genuinely signed out. `backup status` reads this to populate
+// the StatusResult.KeychainError field so users can tell "no session"
+// apart from "keychain is broken".
+func (s *SessionStore) LastHydrateError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastHydrateErr
 }
 
 // Forget clears the in-memory session and removes both the refresh token

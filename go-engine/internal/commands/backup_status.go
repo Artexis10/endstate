@@ -19,12 +19,16 @@ import (
 //     "userId":              string?,
 //     "subscriptionStatus":  string?,
 //     "issuerUrl":           string,
-//     "lastBackupAt":        string?
+//     "lastBackupAt":        string?,
+//     "keychainError":       string?
 //   }
 //
 // Optional fields are present only when the user is signed in. issuerUrl
 // is always present so the GUI can show "you're configured to talk to <X>"
-// even when signed out.
+// even when signed out. keychainError is populated when the OS keychain
+// could not be read at startup (permissions, locked store, etc.) so a
+// flaky keychain does not read identically to "no session" — see
+// SessionStore.LastHydrateError.
 type StatusResult struct {
 	SignedIn           bool   `json:"signedIn"`
 	Email              string `json:"email,omitempty"`
@@ -32,6 +36,7 @@ type StatusResult struct {
 	SubscriptionStatus string `json:"subscriptionStatus,omitempty"`
 	IssuerURL          string `json:"issuerUrl"`
 	LastBackupAt       string `json:"lastBackupAt,omitempty"`
+	KeychainError      string `json:"keychainError,omitempty"`
 }
 
 func runBackupStatus(flags BackupFlags) (interface{}, *envelope.Error) {
@@ -39,9 +44,14 @@ func runBackupStatus(flags BackupFlags) (interface{}, *envelope.Error) {
 	res := &StatusResult{
 		IssuerURL: a.Issuer().URL,
 	}
+	if hErr := a.Session().LastHydrateError(); hErr != nil {
+		res.KeychainError = hErr.Error()
+	}
 
 	// If we have nothing in the keychain to talk to, return signed-out
-	// without making any network calls.
+	// without making any network calls. KeychainError (if set above) lets
+	// the caller distinguish "genuinely signed out" from "keychain access
+	// failed".
 	if !a.Session().SignedIn() {
 		return res, nil
 	}
