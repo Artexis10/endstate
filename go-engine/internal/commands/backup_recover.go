@@ -6,6 +6,7 @@ package commands
 import (
 	"bufio"
 	"context"
+	"crypto/rand"
 	"io"
 	"os"
 	"strings"
@@ -60,6 +61,7 @@ func runBackupRecover(flags BackupFlags) (interface{}, *envelope.Error) {
 		return nil, envelope.NewError(envelope.ErrInternalError, "backup recover: parse phrase: "+perr.Error()).
 			WithRemediation("Supply a valid 24-word BIP39 mnemonic. Order, spelling, and case must match the standard wordlist.")
 	}
+	defer zero32(&rkBytes)
 
 	a := newBackupStack().Auth
 	ctx := context.Background()
@@ -106,18 +108,18 @@ func runBackupRecover(flags BackupFlags) (interface{}, *envelope.Error) {
 			WithRemediation("Verify the recovery phrase matches the one shown at signup. If you no longer have it, your data is unrecoverable per the contract's structural guarantee.")
 	}
 
-	// If the server rotated the salt during recovery, honour it; otherwise
-	// reuse the pre-handshake salt for the new wrapping. The contract is
-	// silent so we accept either.
-	finalizeSalt := saltBytes
-	if strings.TrimSpace(recResp.Salt) != "" {
-		decoded, sErr := loginBase64.DecodeString(recResp.Salt)
-		if sErr == nil && len(decoded) == crypto.SaltSize {
-			finalizeSalt = decoded
+	// Generate a fresh salt for the new passphrase derivation. The new
+	// salt is sent to the server as `newSalt` so future logins can derive
+	// the same serverPassword + masterKey from the new passphrase.
+	newSaltBytes := make([]byte, crypto.SaltSize)
+	if _, sErr := rand.Read(newSaltBytes); sErr != nil {
+		for i := range dek {
+			dek[i] = 0
 		}
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup recover: generate new salt: "+sErr.Error())
 	}
 
-	derived, kerr := crypto.DeriveKeys(newPass, finalizeSalt, pre.KDFParams)
+	derived, kerr := crypto.DeriveKeys(newPass, newSaltBytes, pre.KDFParams)
 	if kerr != nil {
 		for i := range dek {
 			dek[i] = 0
@@ -136,13 +138,11 @@ func runBackupRecover(flags BackupFlags) (interface{}, *envelope.Error) {
 	}
 
 	newWrappedDEKB64 := loginBase64.EncodeToString(newWrappedDEK)
-	finResp, envErr := a.RecoverFinalize(ctx, auth.RecoverFinalizeBody{
-		Email:            flags.Email,
-		ServerPassword:   loginBase64.EncodeToString(derived.ServerPassword[:]),
-		Salt:             loginBase64.EncodeToString(finalizeSalt),
-		KDFParams:        pre.KDFParams,
-		WrappedDEK:       newWrappedDEKB64,
-		RecoveryKeyProof: loginBase64.EncodeToString(proof),
+	finResp, envErr := a.RecoverFinalize(ctx, recResp.RecoveryToken, flags.Email, auth.RecoverFinalizeBody{
+		NewServerPassword: loginBase64.EncodeToString(derived.ServerPassword[:]),
+		NewSalt:           loginBase64.EncodeToString(newSaltBytes),
+		NewKDFParams:      pre.KDFParams,
+		NewWrappedDEK:     newWrappedDEKB64,
 	})
 	if envErr != nil {
 		for i := range dek {

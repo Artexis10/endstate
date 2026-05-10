@@ -95,7 +95,7 @@ func TestBackupLogin_WrongPassphrase(t *testing.T) {
 		})
 	})
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		f := loadFixture()
 		var raw map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&raw)
@@ -238,7 +238,7 @@ func newPushPullBackend(t *testing.T) *pushPullBackend {
 
 	// list backups
 	mux.HandleFunc("/api/backups", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		switch r.Method {
 		case http.MethodGet:
 			if pp.listFn != nil {
@@ -263,7 +263,7 @@ func newPushPullBackend(t *testing.T) *pushPullBackend {
 
 	// versions / create-version / download-urls / single-backup
 	mux.HandleFunc("/api/backups/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		path := strings.TrimPrefix(r.URL.Path, "/api/backups/")
 		segments := strings.Split(path, "/")
 
@@ -574,15 +574,22 @@ func TestBackupRecover_FullFlow(t *testing.T) {
 	t.Cleanup(srv.Close)
 	addAuthRoutes(mux, srv)
 
+	const wantRecoveryToken = "test-recovery-token-for-bearer"
 	mux.HandleFunc("/api/auth/recover", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"recoveryToken":         wantRecoveryToken,
 			"recoveryKeyWrappedDEK": base64.StdEncoding.EncodeToString(rkWrappedDEK),
+			"ttlSeconds":            600,
 		})
 	})
+	var seenAuth string
+	var seenBody map[string]interface{}
 	mux.HandleFunc("/api/auth/recover/finalize", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		seenAuth = r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&seenBody)
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"userId":             "user-1",
 			"accessToken":        "access-recovered",
 			"refreshToken":       "refresh-recovered",
@@ -611,6 +618,95 @@ func TestBackupRecover_FullFlow(t *testing.T) {
 	}
 	if rt, kerr := kc.Load(keychain.AccountForUser("user-1")); kerr != nil || string(rt) != "refresh-recovered" {
 		t.Errorf("refresh token in keychain = %q, %v; want refresh-recovered", rt, kerr)
+	}
+
+	// Contract §6 v2.0: recoveryToken arrives via Authorization: Bearer.
+	if seenAuth != "Bearer "+wantRecoveryToken {
+		t.Errorf("finalize Authorization header = %q, want Bearer %s", seenAuth, wantRecoveryToken)
+	}
+	// And the body carries only the new passphrase-derived material — no
+	// recoveryToken, no email, no recoveryKeyProof from the v1.0 shape.
+	for _, banned := range []string{"recoveryToken", "email", "recoveryKeyProof", "wrappedDEK", "serverPassword"} {
+		if _, present := seenBody[banned]; present {
+			t.Errorf("finalize body must not contain %q (v2.0 wire format)", banned)
+		}
+	}
+	for _, required := range []string{"newServerPassword", "newSalt", "newKdfParams", "newWrappedDEK"} {
+		if _, present := seenBody[required]; !present {
+			t.Errorf("finalize body missing required field %q", required)
+		}
+	}
+}
+
+// TestBackupRecover_BearerNotClobberedByStaleSession is a regression
+// test for the http client's Authorization-header handling. Before this
+// fix, when a user had a hydrated session and ran `backup recover`, the
+// HTTP client would set `Authorization: Bearer <session-access-token>`
+// and overwrite the recoveryToken bearer the auth package set in
+// req.Headers — causing substrate to return 401 UNAUTHENTICATED on
+// /finalize. The fix is in client.go: caller-supplied Authorization
+// headers win over session tokens.
+func TestBackupRecover_BearerNotClobberedByStaleSession(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Argon2id v1 floor parameters are heavy; skipped in short mode")
+	}
+	f := loadFixture()
+	mnemonic := "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art"
+	rkBytes, perr := crypto.ParseRecoveryPhrase(mnemonic)
+	if perr != nil {
+		t.Fatalf("parse: %v", perr)
+	}
+	recoveryKey, drErr := crypto.DeriveRecoveryKey(rkBytes, f.Salt, crypto.DefaultKDFParams())
+	if drErr != nil {
+		t.Fatalf("derive recovery: %v", drErr)
+	}
+	rkWrappedDEK, rwErr := crypto.WrapDEK(f.DEK, recoveryKey)
+	if rwErr != nil {
+		t.Fatalf("wrap: %v", rwErr)
+	}
+
+	mux := http.NewServeMux()
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	addAuthRoutes(mux, srv)
+
+	const wantRecoveryToken = "regression-recovery-token"
+	mux.HandleFunc("/api/auth/recover", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"recoveryToken":         wantRecoveryToken,
+			"recoveryKeyWrappedDEK": base64.StdEncoding.EncodeToString(rkWrappedDEK),
+			"ttlSeconds":            600,
+		})
+	})
+	var seenAuth string
+	mux.HandleFunc("/api/auth/recover/finalize", func(w http.ResponseWriter, r *http.Request) {
+		seenAuth = r.Header.Get("Authorization")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+			"userId":             "user-1",
+			"accessToken":        "access-recovered",
+			"refreshToken":       "refresh-recovered",
+			"subscriptionStatus": "active",
+		})
+	})
+
+	kc := keychain.NewMemory()
+	stack := stackForBackend(srv, kc)
+	// Pre-seed a stale session as if the user is signed in but forgot
+	// their passphrase. This is the realistic state for a recover call.
+	stack.Auth.Session().SetTokens("user-1", "user@example.com", "stale-access-token-DO-NOT-USE", "stale-refresh", "active", noTime())
+	defer commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return stack })()
+	defer commands.WithRecoveryReader(func(io.Reader) (string, string, error) {
+		return mnemonic, "new-passphrase-secret", nil
+	})()
+
+	if _, err := commands.RunBackup(commands.BackupFlags{Subcommand: "recover", Email: "user@example.com"}); err != nil {
+		t.Fatalf("recover: %+v", err)
+	}
+
+	if seenAuth != "Bearer "+wantRecoveryToken {
+		t.Errorf("finalize Authorization header = %q, want Bearer %s — caller-supplied bearer was clobbered by stale session token", seenAuth, wantRecoveryToken)
 	}
 }
 

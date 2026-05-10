@@ -52,7 +52,7 @@ func fakeBackend(t *testing.T) *httptest.Server {
 		_ = json.NewEncoder(w).Encode(oidc.JWKS{Keys: []oidc.JWK{}})
 	})
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		f := loadFixture()
 		var raw map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&raw)
@@ -77,11 +77,11 @@ func fakeBackend(t *testing.T) *httptest.Server {
 		})
 	})
 	mux.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("/api/account/me", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		_ = json.NewEncoder(w).Encode(map[string]string{
 			"userId":             "user-1",
 			"email":              "user@example.com",
@@ -101,7 +101,7 @@ func stackForBackend(srv *httptest.Server, kc keychain.Keychain) *backup.Stack {
 	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, MaxWait: time.Millisecond}
 	hc := client.New(client.Options{Tokens: store, Retry: &rp})
 	a := auth.NewAuthenticator(auth.Issuer{URL: srv.URL, Audience: "endstate-backup"}, oc, hc, store)
-	st := storage.New(srv.URL, hc)
+	st := storage.New(srv.URL, oc, hc)
 	return &backup.Stack{
 		Auth:    a,
 		Storage: st,
@@ -205,7 +205,7 @@ func TestBackupStatus_KeychainErrorSurfaced(t *testing.T) {
 	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, MaxWait: time.Millisecond}
 	hc := client.New(client.Options{Tokens: store, Retry: &rp})
 	a := auth.NewAuthenticator(auth.Issuer{URL: srv.URL, Audience: "endstate-backup"}, oc, hc, store)
-	st := storage.New(srv.URL, hc)
+	st := storage.New(srv.URL, oc, hc)
 	stack := &backup.Stack{
 		Auth:    a,
 		Storage: st,
@@ -262,7 +262,7 @@ func TestBackupLogin_BackendUnreachable(t *testing.T) {
 	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, MaxWait: time.Millisecond}
 	hc := client.New(client.Options{Tokens: store, Retry: &rp})
 	a := auth.NewAuthenticator(auth.Issuer{URL: "http://127.0.0.1:1"}, oc, hc, store)
-	st := storage.New("http://127.0.0.1:1", hc)
+	st := storage.New("http://127.0.0.1:1", oc, hc)
 	stack := &backup.Stack{Auth: a, Storage: st, Issuer: "http://127.0.0.1:1", OIDC: oc, HTTP: hc, Session: store}
 
 	restore := commands.ReplaceBackupStackFactoryForTest(func() *backup.Stack { return stack })

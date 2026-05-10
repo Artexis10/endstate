@@ -33,7 +33,7 @@ func fastRetry() client.RetryPolicy {
 // versionV1 is the header value all test responses include unless a test
 // is specifically exercising the version-mismatch path.
 func versionV1(h http.Header) {
-	h.Set("X-Endstate-API-Version", "1.0")
+	h.Set("X-Endstate-API-Version", "2.0")
 }
 
 // staticTokens is a TokenProvider that returns whatever the test sets.
@@ -257,7 +257,9 @@ func TestDo_4xxNotRetried(t *testing.T) {
 
 func TestDo_VersionMajorMismatch_AlwaysSchemaIncompatible(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "2.0")
+		// Engine speaks major=2 (contract v2.0); a backend advertising
+		// major=3 is the mismatch case.
+		w.Header().Set("X-Endstate-API-Version", "3.0")
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()
@@ -277,7 +279,7 @@ func TestDo_VersionMajorMismatch_AlwaysSchemaIncompatible(t *testing.T) {
 
 func TestDo_VersionMinorMismatch_ReadOnlyProceeds(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.5")
+		w.Header().Set("X-Endstate-API-Version", "2.5")
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}))
 	defer srv.Close()
@@ -289,7 +291,7 @@ func TestDo_VersionMinorMismatch_ReadOnlyProceeds(t *testing.T) {
 
 func TestDo_VersionMinorMismatch_WriteRejected(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.5")
+		w.Header().Set("X-Endstate-API-Version", "2.5")
 		_, _ = w.Write([]byte(`{}`))
 	}))
 	defer srv.Close()

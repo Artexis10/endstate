@@ -38,7 +38,7 @@ func newSignupBackend(t *testing.T) *signupBackend {
 	t.Cleanup(srv.Close)
 	addAuthRoutes(mux, srv)
 	mux.HandleFunc("/api/auth/signup", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		atomic.AddInt32(&sb.signupHits, 1)
 		if sb.signupFn != nil {
 			sb.signupFn(w, r)

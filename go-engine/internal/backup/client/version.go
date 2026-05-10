@@ -14,7 +14,12 @@ import (
 // EngineSchemaMajor is the API schema major version this engine speaks
 // (contract §11). A backend advertising any other major triggers
 // SCHEMA_INCOMPATIBLE on every request.
-const EngineSchemaMajor = 1
+//
+// v2.0 of the contract introduced the bearer-header recovery flow
+// (contract §6) — a breaking auth-flow shape change per §13. Engine
+// and substrate must agree on the major; legacy v1.0 substrates will
+// reject v2.0 engines and vice versa.
+const EngineSchemaMajor = 2
 
 // EngineSchemaMinor is the maximum minor version this engine knows about.
 // A backend advertising a higher minor on a write request also triggers
