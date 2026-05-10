@@ -1,8 +1,8 @@
 # Endstate Hosted Backup Contract
 
 **Status:** Locked
-**Schema Version:** 1.0
-**Last Updated:** 2026-05-02
+**Schema Version:** 2.0
+**Last Updated:** 2026-05-10
 
 This document is the canonical specification for Endstate Hosted Backup — the optional paid tier that allows users to upload encrypted profile backups to Endstate-operated infrastructure and restore them on any machine.
 
@@ -240,14 +240,18 @@ See Section 5. Recovery key is not involved.
 
 ### Recovery flow (passphrase forgotten, recovery key in hand)
 
-1. User initiates recovery, enters their recovery key (typed mnemonic or pasted from saved file)
-2. Client derives `recoveryKey` via Argon2id
-3. Client proves possession to server via `POST /api/auth/recover` with `{ email, recoveryKeyProof }`
-4. Server returns `recoveryKeyWrappedDEK`
-5. Client unwraps DEK with `recoveryKey`
-6. User is prompted to set a new passphrase
-7. Client derives new `serverPassword` and `masterKey`, re-wraps the DEK as new `wrappedDEK`, uploads it via `POST /api/auth/recover/finalize`
-8. Server updates the password hash and the wrappedDEK in a single transaction
+1. User initiates recovery, enters their recovery key (typed mnemonic or pasted from saved file).
+2. Client derives `recoveryKey` via Argon2id (using salt + kdfParams from pre-handshake).
+3. Client proves possession to server via `POST /api/auth/recover` with `{ email, recoveryKeyProof }`.
+4. Server returns `{ recoveryToken, recoveryKeyWrappedDEK, ttlSeconds }`. The `recoveryToken` is single-use, audience-bound, and is the bearer credential for finalize. `ttlSeconds` is currently `600` (10 minutes); the server is authoritative for expiry but clients may surface this hint to the user.
+5. Client unwraps DEK with `recoveryKey` (using `recoveryKeyWrappedDEK`).
+6. User is prompted to set a new passphrase.
+7. Client generates a fresh 16-byte salt, derives new `serverPassword` and `masterKey` from the new passphrase + fresh salt, re-wraps the DEK as `newWrappedDEK`, and posts to `POST /api/auth/recover/finalize` with:
+   - Header: `Authorization: Bearer <recoveryToken>`
+   - Body: `{ newServerPassword, newSalt, newKdfParams, newWrappedDEK }`
+8. Server verifies the bearer token, atomically updates password hash and wrappedDEK, **invalidates the recoveryToken** (replays return `RECOVERY_TOKEN_EXPIRED`), and returns `{ userId, accessToken, refreshToken, subscriptionStatus }`.
+
+**Recovery token semantics.** The token is single-use: a successful finalize burns it. Replays return `RECOVERY_TOKEN_EXPIRED`. The `ttlSeconds` field is advisory — the server is authoritative for expiry — but lets clients show the user a sensible "you have N minutes" hint without parsing the JWT. The token's audience claim is distinct from the access-token audience, preventing cross-use.
 
 ### What the recovery key does not do
 
@@ -411,6 +415,16 @@ The engine fetches `${ENDSTATE_OIDC_ISSUER_URL}/.well-known/openid-configuration
 
 The `endstate_extensions` block is non-standard but namespaced. Anyone implementing a self-host backend implements these extension fields. The engine refuses to talk to a backend that does not advertise them or advertises incompatible KDF / envelope minimums.
 
+### `backup_api_base` is the source of truth for backup endpoint paths
+
+The engine consumes `endstate_extensions.backup_api_base` as the prefix for all `/api/backups/*` calls. Self-hosters who relocate the backup API (e.g., `https://files.example.com/v1/backups`) must populate this field accordingly; the engine honors it verbatim. The field is REQUIRED — `validateDocument` rejects an empty value as `BACKEND_INCOMPATIBLE`, surfacing the misconfiguration loudly rather than silently working off the issuer-based fallback. The fallback path (`${issuer}/api/backups`) only activates when discovery itself fails (transport error, JSON parse error, full outage), preserving the engine's ability to make best-effort calls when the discovery doc is unreachable.
+
+`/api/account/*` and `/api/.well-known/*` are NOT under `backup_api_base` — they live off the issuer host. Self-hosters who fork these need to also place them there.
+
+### Issuer claim must match `ENDSTATE_OIDC_ISSUER_URL`
+
+The engine validates that `discovery.issuer` matches the configured `ENDSTATE_OIDC_ISSUER_URL` after trailing-slash normalization. Mismatch returns `BACKEND_INCOMPATIBLE` with remediation pointing at the env-var disagreement (typically the substrate side hasn't been configured to advertise the right canonical URL). Both engine and substrate must read the same value into `ENDSTATE_OIDC_ISSUER_URL`.
+
 ### Storage backend
 
 Self-hosters can use any S3-compatible object store (R2, S3, MinIO, Backblaze B2, Wasabi). The substrate backend's storage interface is documented as S3-compatible and the storage backend is configured server-side, not client-side. The engine never sees storage credentials.
@@ -438,6 +452,18 @@ Subscription state is authoritative on the substrate backend. The JWT carries `s
 | `active` | Subscription paid, current | Allowed | Allowed |
 | `grace` | Payment failed, in 30-day grace window | Blocked | Allowed |
 | `cancelled` | User cancelled, in 30-day retention window | Blocked | Allowed |
+
+### Delete operations are NOT subscription-gated
+
+`DELETE /api/backups/:backupId` and `DELETE /api/backups/:backupId/versions/:versionId` are exempt from the write-block rule above. A signed-in user may delete their own backups in any non-`none` state.
+
+This is a deliberate kindness exception. Three reasons:
+
+1. A user in `cancelled` is on a 30-day countdown to data purge. Forcing them to re-subscribe to delete is hostile.
+2. A user in `grace` is dealing with a payment problem; the cleanup path should not require fixing billing first.
+3. GDPR's user-controlled-deletion principle outweighs the storage-billing rationale that motivates blocking writes during lapse.
+
+`none` users have no backups to delete (purge has already run), so the gate is moot for them.
 
 ### Transitions (Paddle-driven)
 
@@ -480,11 +506,11 @@ Three independent version axes, with explicit compatibility checks at every boun
 | `engineVersion` | Engine | `MAJOR.MINOR.PATCH` (semver) | `engine/VERSION.txt` |
 | `guiVersion` | GUI | `MAJOR.MINOR.PATCH` (semver) | `endstate-gui/package.json` |
 
-**Contract version:** Currently `1.0`. Changes per the rules in Section 13.
+**Contract version:** Currently `2.0`. The bump from `1.0` was the recovery-flow shape change (see §6 and the Changelog) — a breaking auth-flow change per §13 invariants. Changes per the rules in Section 13.
 
 ### Compatibility check at each boundary
 
-1. **Engine ↔ Backend.** Engine fetches `/api/.well-known/openid-configuration` on startup. Backend includes `X-Endstate-API-Version: 1.0` on every response. Engine refuses to make backup-write calls if the backend's `apiSchemaVersion` major version does not match the engine's expected major. Restore (read-only) is permitted across minor mismatches but warned in logs.
+1. **Engine ↔ Backend.** Engine fetches `/api/.well-known/openid-configuration` on startup. Backend includes `X-Endstate-API-Version: 2.0` on every response. Engine refuses to make backup-write calls if the backend's `apiSchemaVersion` major version does not match the engine's expected major. Restore (read-only) is permitted across minor mismatches but warned in logs.
 
 2. **GUI ↔ Engine.** Existing pattern — `endstate capabilities --json` includes `cliVersion` and `schemaVersion`. GUI checks compatibility on startup. Hosted-backup commands gated behind `engineVersion >= 2.0.0` (the version that introduces the `backup` subcommand).
 
@@ -590,4 +616,9 @@ A schema bump triggers the breaking-change protocol from Section 11.
 
 ## Changelog
 
-- **2026-05-02** — Initial locked release. Addendum: Section 7 documents the manifest URL convention (`chunkIndex = -1` as transport flag); Section 3 clarifies the AAD sentinel `0xFFFFFFFF` for manifest encryption is independent of the transport flag.
+- **2026-05-10 — v2.0** (breaking).
+  - **§6 recovery flow.** Bearer-header `recoveryToken` replaces the v1.0 body-borne shape. Step 3 (`/api/auth/recover`) now returns `{ recoveryToken, recoveryKeyWrappedDEK, ttlSeconds: 600 }`. Step 7 (`/api/auth/recover/finalize`) takes `Authorization: Bearer <recoveryToken>` and a body of `{ newServerPassword, newSalt, newKdfParams, newWrappedDEK }`. Server returns `{ userId, accessToken, refreshToken, subscriptionStatus }`. Recovery tokens are single-use; replays return `RECOVERY_TOKEN_EXPIRED`.
+  - **§9 self-host.** `endstate_extensions.backup_api_base` is now consumed by the engine (was advertised but ignored in v1.0). Issuer claim mismatch surfaces `BACKEND_INCOMPATIBLE` with actionable remediation about `ENDSTATE_OIDC_ISSUER_URL` agreement.
+  - **§10 subscription state.** DELETE endpoints (`/api/backups/:id`, `/api/backups/:id/versions/:vid`) are exempt from the write-block rule; users may delete their own backups in any non-`none` state.
+  - **§11 versioning.** `apiSchemaVersion` bumps to `2.0`. `X-Endstate-API-Version: 2.0` on every response. Engine binary semver bumps to `>=2.0.0`, aligning with the existing GUI gate language.
+- **2026-05-02 — v1.0.** Initial locked release. Addendum: Section 7 documents the manifest URL convention (`chunkIndex = -1` as transport flag); Section 3 clarifies the AAD sentinel `0xFFFFFFFF` for manifest encryption is independent of the transport flag.

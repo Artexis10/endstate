@@ -142,13 +142,20 @@ func (c *Client) Do(ctx context.Context, req Request, out interface{}) *envelope
 			}
 		}
 
-		token, err := c.tokens.AccessToken(ctx)
-		if err != nil {
-			return envelope.NewError(envelope.ErrAuthRequired, "client: get access token: "+err.Error()).
-				WithRemediation(defaultRemediation(envelope.ErrAuthRequired))
-		}
-		if token != "" {
-			httpReq.Header.Set("Authorization", "Bearer "+token)
+		// Caller-supplied Authorization header wins. The recovery-finalize
+		// flow (contract §6) carries `Authorization: Bearer <recoveryToken>`
+		// in req.Headers; replacing it here with the session's cached
+		// access token would clobber the recovery bearer and break recover
+		// for any user with a stale session.
+		if httpReq.Header.Get("Authorization") == "" {
+			token, err := c.tokens.AccessToken(ctx)
+			if err != nil {
+				return envelope.NewError(envelope.ErrAuthRequired, "client: get access token: "+err.Error()).
+					WithRemediation(defaultRemediation(envelope.ErrAuthRequired))
+			}
+			if token != "" {
+				httpReq.Header.Set("Authorization", "Bearer "+token)
+			}
 		}
 
 		resp, err := c.http.Do(httpReq)

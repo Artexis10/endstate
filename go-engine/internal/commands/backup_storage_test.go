@@ -47,7 +47,7 @@ func newStorageBackend(t *testing.T) *storageBackend {
 	addAuthRoutes(mux, srv)
 
 	mux.HandleFunc("/api/backups", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		atomic.AddInt32(&sb.listHits, 1)
 		if sb.listFn != nil {
 			sb.listFn(w, r)
@@ -61,7 +61,7 @@ func newStorageBackend(t *testing.T) *storageBackend {
 	})
 
 	mux.HandleFunc("/api/backups/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		path := strings.TrimPrefix(r.URL.Path, "/api/backups/")
 		segments := strings.Split(path, "/")
 
@@ -101,7 +101,7 @@ func newStorageBackend(t *testing.T) *storageBackend {
 	})
 
 	mux.HandleFunc("/api/account", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		if r.Method != http.MethodDelete {
 			http.NotFound(w, r)
 			return
@@ -142,7 +142,7 @@ func addAuthRoutes(mux *http.ServeMux, srv *httptest.Server) {
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"keys": []interface{}{}})
 	})
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		f := loadFixture()
 		var raw map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&raw)
@@ -162,11 +162,11 @@ func addAuthRoutes(mux *http.ServeMux, srv *httptest.Server) {
 		})
 	})
 	mux.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("/api/account/me", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"userId":             "user-1",
 			"email":              "user@example.com",

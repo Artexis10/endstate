@@ -67,7 +67,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 		_ = json.NewEncoder(w).Encode(oidc.JWKS{Keys: []oidc.JWK{}})
 	})
 	mux.HandleFunc("/api/auth/login", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		// Substrate distinguishes pre-handshake from complete via body shape.
 		var raw map[string]interface{}
 		_ = json.NewDecoder(r.Body).Decode(&raw)
@@ -102,7 +102,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 		})
 	})
 	mux.HandleFunc("/api/auth/refresh", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		atomic.AddInt32(&fb.refreshHits, 1)
 		if fb.refreshFn != nil {
 			fb.refreshFn(w, r)
@@ -114,7 +114,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 		})
 	})
 	mux.HandleFunc("/api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		atomic.AddInt32(&fb.logoutHits, 1)
 		if fb.logoutFn != nil {
 			fb.logoutFn(w, r)
@@ -123,7 +123,7 @@ func newFakeBackend(t *testing.T) *fakeBackend {
 		_ = json.NewEncoder(w).Encode(map[string]bool{"ok": true})
 	})
 	mux.HandleFunc("/api/account/me", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		atomic.AddInt32(&fb.meHits, 1)
 		if fb.meFn != nil {
 			fb.meFn(w, r)
@@ -233,7 +233,7 @@ func TestAuthenticator_LogoutClearsKeychainEvenIfBackendDown(t *testing.T) {
 
 	// Backend returns 500: logout should still wipe local state.
 	fb.logoutFn = func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		w.WriteHeader(http.StatusInternalServerError)
 	}
 	if err := a.Logout(context.Background()); err != nil {
@@ -268,7 +268,7 @@ func TestAuthenticator_Me_ReturnsAccountInfo(t *testing.T) {
 func TestAuthenticator_PreHandshake_404MapsToNotFound(t *testing.T) {
 	fb := newFakeBackend(t)
 	fb.loginPreFn = func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("X-Endstate-API-Version", "1.0")
+		w.Header().Set("X-Endstate-API-Version", "2.0")
 		w.WriteHeader(http.StatusNotFound)
 	}
 	a, _ := newAuthForTest(t, fb)

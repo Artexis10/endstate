@@ -218,6 +218,14 @@ func (c *Client) SetClock(now func() time.Time) {
 // argon2id algorithm).
 var ErrIncompatibleIssuer = errors.New("oidc: backend does not advertise required endstate_extensions")
 
+// ErrIssuerMismatch is returned by Discovery when the backend's
+// advertised `issuer` claim does not match the configured
+// ENDSTATE_OIDC_ISSUER_URL. This is almost always a deployment
+// misconfiguration (env var disagreement between engine and substrate
+// sides) — the auth package elevates it to BACKEND_INCOMPATIBLE with
+// actionable remediation rather than the generic BACKEND_UNREACHABLE.
+var ErrIssuerMismatch = errors.New("oidc: backend issuer claim does not match configured ENDSTATE_OIDC_ISSUER_URL")
+
 func (c *Client) fetchDiscovery(ctx context.Context) (*Document, error) {
 	url := c.issuerURL + "/.well-known/openid-configuration"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
@@ -272,7 +280,7 @@ func (c *Client) fetchJWKS(ctx context.Context, jwksURI string) (*JWKS, error) {
 
 func validateDocument(doc *Document, expectedIssuer string) error {
 	if doc.Issuer == "" || strings.TrimRight(doc.Issuer, "/") != expectedIssuer {
-		return fmt.Errorf("oidc: issuer mismatch (got %q, want %q)", doc.Issuer, expectedIssuer)
+		return fmt.Errorf("%w (got %q, want %q)", ErrIssuerMismatch, doc.Issuer, expectedIssuer)
 	}
 	if doc.JWKSURI == "" {
 		return errors.New("oidc: discovery document missing jwks_uri")

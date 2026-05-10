@@ -212,3 +212,43 @@ func TestJWKS_InvalidatePicksUpNewKey(t *testing.T) {
 		t.Errorf("jwks hits after invalidation = %d, want 2", got)
 	}
 }
+
+// TestDiscovery_IssuerMismatch_ReturnsErrIssuerMismatch covers the
+// engine-substrate env-var-disagreement failure mode. When substrate's
+// ENDSTATE_OIDC_ISSUER_URL drifts from the engine's, substrate stamps
+// the wrong issuer claim into the discovery doc; the engine refuses
+// loudly via ErrIssuerMismatch instead of the generic transport error.
+func TestDiscovery_IssuerMismatch_ReturnsErrIssuerMismatch(t *testing.T) {
+	srv, _, _ := fakeBackend(t, func(d *oidc.Document) {
+		// Substrate is misconfigured — discovery says one issuer, engine
+		// is configured for another.
+		d.Issuer = "https://misconfigured.example.com"
+	})
+	c := oidc.NewClient(srv.URL, srv.Client())
+	_, err := c.Discovery(context.Background())
+	if err == nil {
+		t.Fatal("expected an error from issuer mismatch, got nil")
+	}
+	if !errors.Is(err, oidc.ErrIssuerMismatch) {
+		t.Errorf("err = %v, want errors.Is ErrIssuerMismatch", err)
+	}
+}
+
+// TestDiscovery_BackupAPIBase_PassesThroughCustomURL covers the
+// self-host case where backup_api_base advertises a non-default path.
+// The engine must accept the custom value verbatim — downstream callers
+// (storage.Client) consume it.
+func TestDiscovery_BackupAPIBase_PassesThroughCustomURL(t *testing.T) {
+	const customBase = "https://files.example.com/v1/backups"
+	srv, _, _ := fakeBackend(t, func(d *oidc.Document) {
+		d.EndstateExtensions.BackupAPIBase = customBase
+	})
+	c := oidc.NewClient(srv.URL, srv.Client())
+	doc, err := c.Discovery(context.Background())
+	if err != nil {
+		t.Fatalf("Discovery: %v", err)
+	}
+	if doc.EndstateExtensions.BackupAPIBase != customBase {
+		t.Errorf("BackupAPIBase = %q, want %q", doc.EndstateExtensions.BackupAPIBase, customBase)
+	}
+}

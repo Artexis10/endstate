@@ -8,6 +8,7 @@ import (
 	stdBase64Pkg "encoding/base64"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -248,19 +249,21 @@ type RecoverBody struct {
 	RecoveryKeyProof  string `json:"recoveryKeyProof"`
 }
 
-// RecoverResponse mirrors the substrate response. The wrapped DEK is the
-// recoveryKey-wrapped variant; the salt is returned for symmetry — the
-// client already has it from PreHandshake but the server may rotate it
-// during recovery (contract is silent so we accept both shapes).
+// RecoverResponse mirrors the substrate response per contract §6 v2.0.
+// The recoveryToken is the bearer credential for the subsequent
+// /finalize call; ttlSeconds is advisory — the server is authoritative
+// for expiry — but lets the GUI surface a "you have N minutes" hint.
 type RecoverResponse struct {
+	RecoveryToken         string `json:"recoveryToken"`
 	RecoveryKeyWrappedDEK string `json:"recoveryKeyWrappedDEK"`
-	Salt                  string `json:"salt,omitempty"`
+	TTLSeconds            int    `json:"ttlSeconds"`
 }
 
 // Recover performs `POST /api/auth/recover` (contract §6 step 3–4).
-// On success returns the recoveryKey-wrapped DEK so the caller can
-// unwrap it with the recovery key. Tokens are NOT issued at this step;
-// `RecoverFinalize` issues fresh tokens after the new passphrase is set.
+// On success returns the recoveryToken to bear on the finalize call,
+// along with the recoveryKey-wrapped DEK so the caller can unwrap it.
+// Tokens are NOT issued at this step; `RecoverFinalize` issues fresh
+// access/refresh tokens after the new passphrase is set.
 func (a *Authenticator) Recover(ctx context.Context, body RecoverBody) (*RecoverResponse, *envelope.Error) {
 	doc, err := a.oidc.Discovery(ctx)
 	if err != nil {
@@ -279,37 +282,49 @@ func (a *Authenticator) Recover(ctx context.Context, body RecoverBody) (*Recover
 	return &resp, nil
 }
 
-// RecoverFinalizeBody is the contract §6 POST /api/auth/recover/finalize body.
+// RecoverFinalizeBody is the contract §6 v2.0 POST /api/auth/recover/finalize
+// body. The recoveryToken is NOT in the body — it is carried as
+// `Authorization: Bearer <recoveryToken>`. Substrate identifies the
+// user from the bearer's `sub` claim, so `email` is no longer needed.
 type RecoverFinalizeBody struct {
-	Email                string           `json:"email"`
-	ServerPassword       string           `json:"serverPassword"`
-	Salt                 string           `json:"salt"`
-	KDFParams            crypto.KDFParams `json:"kdfParams"`
-	WrappedDEK           string           `json:"wrappedDEK"`
-	RecoveryKeyProof     string           `json:"recoveryKeyProof"`
+	NewServerPassword string           `json:"newServerPassword"`
+	NewSalt           string           `json:"newSalt"`
+	NewKDFParams      crypto.KDFParams `json:"newKdfParams"`
+	NewWrappedDEK     string           `json:"newWrappedDEK"`
 }
 
 // RecoverFinalize performs `POST /api/auth/recover/finalize` (contract §6
-// step 7–8). The server updates the password hash and the wrappedDEK in
-// a single transaction and returns fresh tokens. On success the session
-// is updated and the refresh token is persisted; the caller is
-// responsible for caching the new DEK via SessionStore.StoreDEK.
-func (a *Authenticator) RecoverFinalize(ctx context.Context, body RecoverFinalizeBody) (*CompleteLoginResponse, *envelope.Error) {
+// v2.0 step 7–8). The recoveryToken is bearer-borne. The server burns
+// the token on success; replays return RECOVERY_TOKEN_EXPIRED.
+//
+// `email` is supplied by the caller (it is not echoed in the substrate
+// response) and is stored in the session for display only — userID is
+// the authoritative key for keychain entries.
+//
+// `SkipAuthRefresh: true` is required: there is no access token in play
+// here, only the recovery bearer. A 401 means the recoveryToken expired
+// or was already consumed; refresh-then-retry would loop without progress.
+func (a *Authenticator) RecoverFinalize(ctx context.Context, recoveryToken, email string, body RecoverFinalizeBody) (*CompleteLoginResponse, *envelope.Error) {
 	doc, err := a.oidc.Discovery(ctx)
 	if err != nil {
 		return nil, mapDiscoveryError(err)
 	}
-	body.Email = strings.ToLower(body.Email)
+	if strings.TrimSpace(recoveryToken) == "" {
+		return nil, envelope.NewError(envelope.ErrInternalError,
+			"recover/finalize: empty recoveryToken — caller must pass the token from the prior /recover step")
+	}
 	var resp CompleteLoginResponse
 	if cerr := a.httpc.Do(ctx, client.Request{
-		Method:   "POST",
-		URL:      strings.TrimRight(doc.EndstateExtensions.AuthRecoverEndpoint, "/") + "/finalize",
-		Body:     body,
-		ReadOnly: false,
+		Method:          "POST",
+		URL:             strings.TrimRight(doc.EndstateExtensions.AuthRecoverEndpoint, "/") + "/finalize",
+		Body:            body,
+		Headers:         http.Header{"Authorization": []string{"Bearer " + recoveryToken}},
+		ReadOnly:        false,
+		SkipAuthRefresh: true,
 	}, &resp); cerr != nil {
 		return nil, cerr
 	}
-	a.session.SetTokens(resp.UserID, body.Email, resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, time.Time{})
+	a.session.SetTokens(resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, time.Time{})
 	if perr := a.session.Persist(); perr != nil {
 		return &resp, envelope.NewError(envelope.ErrInternalError,
 			"recovery finalize succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
@@ -356,6 +371,11 @@ func (a *Authenticator) Me(ctx context.Context) (*MeResponse, *envelope.Error) {
 // mapDiscoveryError converts an oidc package error to the envelope code
 // the command handler should return.
 func mapDiscoveryError(err error) *envelope.Error {
+	if errors.Is(err, oidc.ErrIssuerMismatch) {
+		return envelope.NewError(envelope.ErrBackendIncompatible,
+			"Backend's discovery document advertises a different issuer URL than ENDSTATE_OIDC_ISSUER_URL is configured for. Both engine and substrate must agree on the issuer URL: "+err.Error()).
+			WithRemediation("Set ENDSTATE_OIDC_ISSUER_URL to the same value on both sides, or check that your substrate deployment has it set in its server-side env.")
+	}
 	if errors.Is(err, oidc.ErrIncompatibleIssuer) {
 		return envelope.NewError(envelope.ErrBackendIncompatible,
 			"The configured backend does not advertise the required `endstate_extensions` block.").

@@ -87,7 +87,7 @@ func newStack(kc keychain.Keychain) *Stack {
 	oc := oidc.NewClient(issuer, nil)
 	hc := client.New(client.Options{Tokens: store})
 	a := auth.NewAuthenticator(auth.Issuer{URL: issuer, Audience: audience}, oc, hc, store)
-	st := storage.New(issuer, hc)
+	st := storage.New(issuer, oc, hc)
 	// Pull the current user's refresh token into the in-memory session
 	// so subsequent commands see signedIn=true and can load the DEK
 	// without an explicit re-login. HydrateFromCurrent treats absence

@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/client"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/oidc"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
@@ -35,15 +36,30 @@ const ManifestChunkIndex int = -1
 // Client wraps the storage API surface. Construct it with the same
 // HTTP + OIDC clients the auth package uses so JWT and refresh-token
 // state stays consistent across calls.
+//
+// The base URL for /api/backups/* endpoints is resolved per-request from
+// the OIDC discovery document's `endstate_extensions.backup_api_base`
+// field (contract §9). The OIDC client's 1-hour cache means there is no
+// per-request fetch; resolution is effectively free after warmup.
+//
+// /api/account/* is NOT under backup_api_base — it lives off the
+// issuer. We retain the issuer here for that reason.
 type Client struct {
 	issuer string
+	oc     *oidc.Client
 	httpc  *client.Client
 }
 
-// New returns a Client. issuer is the OIDC issuer URL with no trailing
-// slash; the storage endpoints live under `${issuer}/api/backups/...`.
-func New(issuer string, hc *client.Client) *Client {
-	return &Client{issuer: strings.TrimRight(issuer, "/"), httpc: hc}
+// New returns a Client. issuer is the OIDC issuer URL (with or without
+// trailing slash); oc is the discovery client used to resolve
+// `backup_api_base`. If discovery fails or the field is missing, calls
+// fall back to `${issuer}/api/backups` for backward compatibility.
+func New(issuer string, oc *oidc.Client, hc *client.Client) *Client {
+	return &Client{
+		issuer: strings.TrimRight(issuer, "/"),
+		oc:     oc,
+		httpc:  hc,
+	}
 }
 
 // Backup is one row of the GET /api/backups response.
@@ -65,7 +81,7 @@ func (c *Client) ListBackups(ctx context.Context) ([]Backup, *envelope.Error) {
 	var resp listResp
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "GET",
-		URL:      c.url(""),
+		URL:      c.url(ctx, ""),
 		ReadOnly: true,
 	}, &resp); err != nil {
 		return nil, err
@@ -87,7 +103,7 @@ func (c *Client) CreateBackup(ctx context.Context, name string) (string, *envelo
 	var out resp
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "POST",
-		URL:      c.url(""),
+		URL:      c.url(ctx, ""),
 		Body:     req{Name: name},
 		ReadOnly: false,
 	}, &out); err != nil {
@@ -100,7 +116,7 @@ func (c *Client) CreateBackup(ctx context.Context, name string) (string, *envelo
 func (c *Client) DeleteBackup(ctx context.Context, backupID string) *envelope.Error {
 	return c.httpc.Do(ctx, client.Request{
 		Method:   "DELETE",
-		URL:      c.url("/" + backupID),
+		URL:      c.url(ctx, "/" + backupID),
 		ReadOnly: false,
 	}, nil)
 }
@@ -121,7 +137,7 @@ func (c *Client) ListVersions(ctx context.Context, backupID string) ([]VersionIn
 	var resp vresp
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "GET",
-		URL:      c.url("/" + backupID + "/versions"),
+		URL:      c.url(ctx, "/" + backupID + "/versions"),
 		ReadOnly: true,
 	}, &resp); err != nil {
 		return nil, err
@@ -137,7 +153,7 @@ func (c *Client) ListVersions(ctx context.Context, backupID string) ([]VersionIn
 func (c *Client) DeleteVersion(ctx context.Context, backupID, versionID string) *envelope.Error {
 	return c.httpc.Do(ctx, client.Request{
 		Method:   "DELETE",
-		URL:      c.url("/" + backupID + "/versions/" + versionID),
+		URL:      c.url(ctx, "/" + backupID + "/versions/" + versionID),
 		ReadOnly: false,
 	}, nil)
 }
@@ -171,7 +187,7 @@ func (c *Client) CreateVersion(ctx context.Context, backupID string, encryptedMa
 	var resp CreateVersionResponse
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "POST",
-		URL:      c.url("/" + backupID + "/versions"),
+		URL:      c.url(ctx, "/" + backupID + "/versions"),
 		Body:     req{EncryptedManifest: encryptedManifest, ChunkMetadata: chunkMeta},
 		ReadOnly: false,
 	}, &resp); err != nil {
@@ -206,7 +222,7 @@ func (c *Client) DownloadURLs(ctx context.Context, backupID, versionID string, c
 	var out resp
 	if err := c.httpc.Do(ctx, client.Request{
 		Method:   "POST",
-		URL:      c.url("/" + backupID + "/versions/" + versionID + "/download-urls"),
+		URL:      c.url(ctx, "/" + backupID + "/versions/" + versionID + "/download-urls"),
 		Body:     req{ChunkIndices: chunkIndices},
 		ReadOnly: true,
 	}, &out); err != nil {
@@ -249,8 +265,24 @@ func (c *Client) DeleteAccount(ctx context.Context) *envelope.Error {
 	}, nil)
 }
 
-func (c *Client) url(suffix string) string {
-	return c.issuer + "/api/backups" + suffix
+// backupBaseURL resolves the /api/backups base URL via discovery
+// (contract §9, `endstate_extensions.backup_api_base`). The OIDC
+// validator rejects empty `backup_api_base` as `ErrIncompatibleIssuer`,
+// so under normal operation `doc.EndstateExtensions.BackupAPIBase` is
+// always populated. The `${issuer}/api/backups` fallback only fires
+// when discovery itself fails (transport error, parse error, full
+// outage) — letting individual storage calls degrade gracefully rather
+// than block on every transient discovery hiccup.
+func (c *Client) backupBaseURL(ctx context.Context) string {
+	doc, err := c.oc.Discovery(ctx)
+	if err == nil && doc.EndstateExtensions.BackupAPIBase != "" {
+		return strings.TrimRight(doc.EndstateExtensions.BackupAPIBase, "/")
+	}
+	return c.issuer + "/api/backups"
+}
+
+func (c *Client) url(ctx context.Context, suffix string) string {
+	return c.backupBaseURL(ctx) + suffix
 }
 
 func containsManifestURL(urls []PresignedURL) bool {
