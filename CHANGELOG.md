@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.0.0](https://github.com/Artexis10/endstate/compare/v1.9.0...v2.0.0) (2026-05-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* hosted-backup contract bumps to v2.0. Recovery flow finalized to bearer-header transport. Old engines cannot recover passphrases against new substrate; old substrate cannot respond to new engine recover-finalize calls. Coordinated rollout required.
+
+### Features
+
+* align cross-repo recovery flow and self-host plumbing for v2.0.0 ([#26](https://github.com/Artexis10/endstate/issues/26)) ([d10e6c9](https://github.com/Artexis10/endstate/commit/d10e6c9d1ab13bf8ef8a3690f0e5afed1401912d))
+
 ## [1.9.0](https://github.com/Artexis10/endstate/compare/v1.8.0...v1.9.0) (2026-05-08)
 
 
