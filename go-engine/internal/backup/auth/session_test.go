@@ -4,6 +4,8 @@
 package auth_test
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -136,6 +138,190 @@ func TestSessionStore_HydrateFromCurrent_HealthyClearsPriorError(t *testing.T) {
 	}
 	if got := healthy.LastHydrateError(); got != nil {
 		t.Errorf("LastHydrateError() on healthy fresh keychain = %v; want nil", got)
+	}
+}
+
+// TestSessionStore_AccessTokenHydratesWhenUnexpired locks in the F4
+// behavior: a persisted access token whose `expiresAt` is comfortably in
+// the future is re-hydrated into the in-memory session on a fresh
+// process. This eliminates the per-call refresh round-trip that races
+// with substrate's refresh-token reuse detection (the session-disappears
+// repro), because a valid cached AT lets `Me()` succeed without going
+// through `/api/auth/refresh`.
+func TestSessionStore_AccessTokenHydratesWhenUnexpired(t *testing.T) {
+	kc := keychain.NewMemory()
+	storeA := auth.NewSessionStore(kc)
+	exp := time.Now().Add(10 * time.Minute)
+	storeA.SetTokens("user-1", "user@example.com", "access-tok", "refresh-tok", "active", exp)
+	if err := storeA.Persist(); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+
+	storeB := auth.NewSessionStore(kc)
+	if err := storeB.HydrateFromCurrent(); err != nil {
+		t.Fatalf("HydrateFromCurrent: %v", err)
+	}
+	snap := storeB.Snapshot()
+	if snap.AccessToken != "access-tok" {
+		t.Errorf("AccessToken = %q, want access-tok (must be hydrated when expiry is in the future)", snap.AccessToken)
+	}
+	if snap.AccessExpiry.IsZero() {
+		t.Error("AccessExpiry is zero after hydrate; want the persisted expiry")
+	}
+	// Allow 1s skew for JSON RFC3339 round-trip.
+	if delta := snap.AccessExpiry.Sub(exp); delta > time.Second || delta < -time.Second {
+		t.Errorf("AccessExpiry off by %v from persisted value", delta)
+	}
+}
+
+// TestSessionStore_AccessTokenSkippedWhenExpired verifies the eviction
+// path: a persisted access token whose `expiresAt` is in the past (or
+// within the 30s skew window) is NOT hydrated, even though the
+// surrounding session state is. The refresh token still hydrates, so
+// `SignedIn()` stays true and the 401-refresh hook fires on the next
+// request — which is the correct fall-through.
+func TestSessionStore_AccessTokenSkippedWhenExpired(t *testing.T) {
+	kc := keychain.NewMemory()
+	storeA := auth.NewSessionStore(kc)
+	storeA.SetTokens("user-1", "u@e.com", "access-tok", "refresh-tok", "active", time.Now().Add(-time.Minute))
+	if err := storeA.Persist(); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+
+	storeB := auth.NewSessionStore(kc)
+	if err := storeB.HydrateFromCurrent(); err != nil {
+		t.Fatalf("HydrateFromCurrent: %v", err)
+	}
+	if !storeB.SignedIn() {
+		t.Fatal("expired AT must not affect SignedIn() — RT should still hydrate")
+	}
+	snap := storeB.Snapshot()
+	if snap.AccessToken != "" {
+		t.Errorf("AccessToken = %q, want empty (expired AT must not hydrate)", snap.AccessToken)
+	}
+	if snap.RefreshToken != "refresh-tok" {
+		t.Errorf("RefreshToken = %q, want refresh-tok (RT must still hydrate when AT is expired)", snap.RefreshToken)
+	}
+}
+
+// TestSessionStore_AccessTokenNotPersistedWhenZeroExpiry locks the
+// back-compat behavior: callers that don't supply a parsed expiry (the
+// existing `time.Time{}` shape that pre-F4 tests use) must not have their
+// access token persisted. Without an expiry we can't safely evict, so
+// the value never enters the keychain.
+func TestSessionStore_AccessTokenNotPersistedWhenZeroExpiry(t *testing.T) {
+	kc := keychain.NewMemory()
+	store := auth.NewSessionStore(kc)
+	store.SetTokens("user-1", "u@e.com", "access-tok", "refresh-tok", "active", time.Time{})
+	if err := store.Persist(); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+	if _, err := kc.Load(keychain.AccountForAccessToken("user-1")); err != keychain.ErrNotFound {
+		t.Errorf("access entry should be absent when expiry is zero; got err=%v", err)
+	}
+	// Refresh entry must still be written — back-compat with existing tests.
+	if _, err := kc.Load(keychain.AccountForUser("user-1")); err != nil {
+		t.Errorf("refresh entry should still be persisted; got err=%v", err)
+	}
+}
+
+// TestSessionStore_AccessTokenReturnsEmptyWhenExpired verifies the
+// TokenProvider contract: AccessToken() returns "" when the cached
+// expiry has passed, forcing the client.go 401-refresh hook to fire on
+// the next request. Without this, an expired AT would be sent in the
+// Authorization header and substrate would reject it as 401 anyway —
+// returning "" lets the engine skip that doomed round-trip.
+func TestSessionStore_AccessTokenReturnsEmptyWhenExpired(t *testing.T) {
+	store := auth.NewSessionStore(keychain.NewMemory())
+	store.SetTokens("user-1", "u@e.com", "access-tok", "refresh-tok", "active", time.Now().Add(-time.Minute))
+	got, err := store.AccessToken(context.Background())
+	if err != nil {
+		t.Fatalf("AccessToken: %v", err)
+	}
+	if got != "" {
+		t.Errorf("AccessToken() = %q, want empty (cached AT is expired)", got)
+	}
+}
+
+// TestSessionStore_AccessTokenReturnsValueWhenUnexpired is the positive
+// counterpart: a non-expired AT must round-trip through AccessToken().
+func TestSessionStore_AccessTokenReturnsValueWhenUnexpired(t *testing.T) {
+	store := auth.NewSessionStore(keychain.NewMemory())
+	store.SetTokens("user-1", "u@e.com", "access-tok", "refresh-tok", "active", time.Now().Add(10*time.Minute))
+	got, err := store.AccessToken(context.Background())
+	if err != nil {
+		t.Fatalf("AccessToken: %v", err)
+	}
+	if got != "access-tok" {
+		t.Errorf("AccessToken() = %q, want access-tok", got)
+	}
+}
+
+// TestSessionStore_AccessTokenReturnsValueWhenExpiryZero preserves the
+// pre-F4 default: when no expiry is known, AccessToken() returns the
+// cached value unchanged. Login/refresh paths that don't yet parse the
+// JWT continue to work; only callers that pass a parsed expiry get the
+// expiry-aware behavior.
+func TestSessionStore_AccessTokenReturnsValueWhenExpiryZero(t *testing.T) {
+	store := auth.NewSessionStore(keychain.NewMemory())
+	store.SetTokens("user-1", "u@e.com", "access-tok", "refresh-tok", "active", time.Time{})
+	got, err := store.AccessToken(context.Background())
+	if err != nil {
+		t.Fatalf("AccessToken: %v", err)
+	}
+	if got != "access-tok" {
+		t.Errorf("AccessToken() = %q, want access-tok (zero expiry is treated as unknown, not expired)", got)
+	}
+}
+
+// TestSessionStore_ForgetClearsAccessTokenEntry ensures logout fully
+// wipes session state. Without this, a stale access entry would survive
+// a re-login under a different account on the same machine.
+func TestSessionStore_ForgetClearsAccessTokenEntry(t *testing.T) {
+	kc := keychain.NewMemory()
+	store := auth.NewSessionStore(kc)
+	store.SetTokens("user-1", "u@e.com", "access-tok", "refresh-tok", "active", time.Now().Add(10*time.Minute))
+	if err := store.Persist(); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+	if _, err := kc.Load(keychain.AccountForAccessToken("user-1")); err != nil {
+		t.Fatalf("expected access entry present after Persist, got %v", err)
+	}
+	if err := store.Forget(); err != nil {
+		t.Fatalf("Forget: %v", err)
+	}
+	if _, err := kc.Load(keychain.AccountForAccessToken("user-1")); err != keychain.ErrNotFound {
+		t.Errorf("access entry = %v after Forget; want ErrNotFound", err)
+	}
+}
+
+// TestSessionStore_PersistedAccessEntryShape locks the on-disk JSON
+// shape so a future engine version that reads back an older entry
+// doesn't silently break.
+func TestSessionStore_PersistedAccessEntryShape(t *testing.T) {
+	kc := keychain.NewMemory()
+	store := auth.NewSessionStore(kc)
+	exp := time.Date(2026, 5, 11, 12, 0, 0, 0, time.UTC)
+	store.SetTokens("user-1", "u@e.com", "access-tok", "refresh-tok", "active", exp)
+	if err := store.Persist(); err != nil {
+		t.Fatalf("Persist: %v", err)
+	}
+	raw, err := kc.Load(keychain.AccountForAccessToken("user-1"))
+	if err != nil {
+		t.Fatalf("Load access entry: %v", err)
+	}
+	var entry struct {
+		Token     string    `json:"token"`
+		ExpiresAt time.Time `json:"expiresAt"`
+	}
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		t.Fatalf("unmarshal: %v (raw=%s)", err, raw)
+	}
+	if entry.Token != "access-tok" {
+		t.Errorf("token field = %q, want access-tok", entry.Token)
+	}
+	if !entry.ExpiresAt.Equal(exp) {
+		t.Errorf("expiresAt field = %v, want %v", entry.ExpiresAt, exp)
 	}
 }
 
