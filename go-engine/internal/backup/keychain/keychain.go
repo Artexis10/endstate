@@ -66,6 +66,20 @@ func AccountForWrappedDEK(userID string) string {
 	return "endstate-wdek-" + userID
 }
 
+// AccountForAccessToken returns the canonical account name for the cached
+// access token (and its parsed `exp`) of a given userId. Persisting the
+// access token alongside the refresh token lets fresh subprocesses skip
+// the 401-refresh round-trip while the cached token is still valid (15-min
+// TTL per contract §4), eliminating the per-call refresh that races with
+// substrate's refresh-token reuse-detection (contract §5, refresh.ts:71-110).
+//
+// Stored as a small JSON blob `{"token":"<jwt>","expiresAt":"<RFC3339>"}`.
+// Cleared on logout/account-delete via SessionStore.Forget alongside the
+// other userID-keyed entries.
+func AccountForAccessToken(userID string) string {
+	return "endstate-access-" + userID
+}
+
 // AccountForCurrentUser is the fixed account name holding the userID of
 // the currently-signed-in user. Without this pointer a fresh process has
 // no way to discover which userID-keyed entries (refresh, DEK, wrappedDEK)

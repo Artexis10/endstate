@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	"github.com/Artexis10/endstate/go-engine/internal/backup/client"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/crypto"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/oidc"
@@ -130,7 +132,7 @@ func (a *Authenticator) CompleteLogin(ctx context.Context, email string, serverP
 	}, &resp); cerr != nil {
 		return nil, cerr
 	}
-	a.session.SetTokens(resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, time.Time{})
+	a.session.SetTokens(resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
 	if perr := a.session.Persist(); perr != nil {
 		// Persisting to the keychain failed — the session is still good
 		// in-process but won't survive a restart. Surface as INTERNAL_ERROR
@@ -170,7 +172,18 @@ func (a *Authenticator) refreshAccessToken(ctx context.Context) (string, error) 
 	}, &resp); cerr != nil {
 		return "", fmt.Errorf("auth: refresh: %s: %s", cerr.Code, cerr.Message)
 	}
-	a.session.SetTokens(snap.UserID, snap.Email, resp.AccessToken, resp.RefreshToken, snap.SubscriptionStatus, time.Time{})
+	// Contract guardrail (hosted-backup-contract.md §5.3 line 205-207): the
+	// refresh response must carry both tokens. Sliding-window rotation
+	// means the refresh token we just sent is now invalid server-side;
+	// accepting a response without a fresh refreshToken would leave the
+	// stale-and-invalid one in the keychain to fail on the next subprocess.
+	if resp.AccessToken == "" {
+		return "", errors.New("auth: refresh: substrate response missing accessToken")
+	}
+	if resp.RefreshToken == "" {
+		return "", errors.New("auth: refresh: substrate response missing refreshToken (sliding-window rotation requires a new RT; keychain RT is now stale)")
+	}
+	a.session.SetTokens(snap.UserID, snap.Email, resp.AccessToken, resp.RefreshToken, snap.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
 	if perr := a.session.Persist(); perr != nil {
 		return "", fmt.Errorf("auth: refresh: persist refresh token: %w", perr)
 	}
@@ -234,7 +247,7 @@ func (a *Authenticator) Signup(ctx context.Context, body SignupBody) (*CompleteL
 	}, &resp); cerr != nil {
 		return nil, cerr
 	}
-	a.session.SetTokens(resp.UserID, body.Email, resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, time.Time{})
+	a.session.SetTokens(resp.UserID, body.Email, resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
 	if perr := a.session.Persist(); perr != nil {
 		return &resp, envelope.NewError(envelope.ErrInternalError,
 			"signup succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
@@ -324,7 +337,7 @@ func (a *Authenticator) RecoverFinalize(ctx context.Context, recoveryToken, emai
 	}, &resp); cerr != nil {
 		return nil, cerr
 	}
-	a.session.SetTokens(resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, time.Time{})
+	a.session.SetTokens(resp.UserID, strings.ToLower(email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
 	if perr := a.session.Persist(); perr != nil {
 		return &resp, envelope.NewError(envelope.ErrInternalError,
 			"recovery finalize succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
@@ -389,4 +402,30 @@ func mapDiscoveryError(err error) *envelope.Error {
 // base64Encode is a tiny helper that keeps the call sites readable.
 func base64Encode(b []byte) string {
 	return stdBase64.EncodeToString(b)
+}
+
+// parseAccessExpiry extracts the `exp` claim from a substrate-issued
+// access token without verifying the signature. We trust the token
+// substrate just handed us over TLS-validated HTTPS; we only need the
+// exp to decide when the cached value is no longer safe to send.
+//
+// Returns time.Time{} for unparseable input (e.g. tests that pass
+// opaque strings like "access-1" or a future substrate that issues
+// non-JWT access tokens). A zero return is the documented
+// "expiry unknown" signal and means SessionStore won't persist the
+// token to the keychain — the pre-F4 best-effort behavior continues.
+func parseAccessExpiry(token string) time.Time {
+	if token == "" {
+		return time.Time{}
+	}
+	parser := jwt.NewParser()
+	tok, _, err := parser.ParseUnverified(token, &Claims{})
+	if err != nil {
+		return time.Time{}
+	}
+	claims, ok := tok.Claims.(*Claims)
+	if !ok || claims.ExpiresAt == nil {
+		return time.Time{}
+	}
+	return claims.ExpiresAt.Time
 }

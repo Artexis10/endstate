@@ -14,6 +14,7 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync"
 	"time"
@@ -21,6 +22,21 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/backup/keychain"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/oidc"
 )
+
+// accessSkewBuffer is how much wall-clock margin we add when deciding
+// whether a cached access token is "still good enough to use". Keeps a
+// freshly-hydrated token from being judged expired in flight just
+// because the substrate clock is a few seconds ahead of ours.
+const accessSkewBuffer = 30 * time.Second
+
+// persistedAccess is the on-disk JSON shape of the `endstate-access-{userId}`
+// keychain entry. Kept tiny on purpose: any growth here should be a
+// versioned migration, not an additive struct field — the keychain has no
+// schema-version channel of its own.
+type persistedAccess struct {
+	Token     string    `json:"token"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
 
 // SessionStore caches the access + refresh tokens for the current process
 // invocation. The refresh token is also persisted to the OS keychain so
@@ -57,16 +73,47 @@ func NewSessionStore(kc keychain.Keychain) *SessionStore {
 // into the in-memory session. Called by command handlers on startup so
 // subsequent calls have a session to act on. Returns keychain.ErrNotFound
 // if no refresh token is persisted (i.e. the user is signed out).
+//
+// Also opportunistically loads the persisted access token + expiry from
+// the F4 entry: if present and not yet within accessSkewBuffer of
+// expiry, the in-memory accessToken/accessExpiry fields are populated so
+// the next request can skip the 401-refresh hop. Missing or expired
+// access entries are silently ignored — the refresh path is the fallback.
 func (s *SessionStore) Hydrate(userID string) error {
 	rt, err := s.keychainClient.Load(keychain.AccountForUser(userID))
 	if err != nil {
 		return err
 	}
+	access, accessExp := s.loadCachedAccess(userID)
 	s.mu.Lock()
 	s.userID = userID
 	s.refreshToken = string(rt)
+	s.accessToken = access
+	s.accessExpiry = accessExp
 	s.mu.Unlock()
 	return nil
+}
+
+// loadCachedAccess reads and validates the F4 access-token entry for the
+// given userId. Returns ("", time.Time{}) when the entry is missing,
+// unparseable, or within accessSkewBuffer of expiring — in all such
+// cases the caller falls through to the refresh path.
+func (s *SessionStore) loadCachedAccess(userID string) (string, time.Time) {
+	raw, err := s.keychainClient.Load(keychain.AccountForAccessToken(userID))
+	if err != nil {
+		return "", time.Time{}
+	}
+	var entry persistedAccess
+	if err := json.Unmarshal(raw, &entry); err != nil {
+		return "", time.Time{}
+	}
+	if entry.Token == "" || entry.ExpiresAt.IsZero() {
+		return "", time.Time{}
+	}
+	if time.Now().Add(accessSkewBuffer).After(entry.ExpiresAt) {
+		return "", time.Time{}
+	}
+	return entry.Token, entry.ExpiresAt
 }
 
 // Persist writes the refresh token to the keychain under the canonical
@@ -86,12 +133,28 @@ func (s *SessionStore) Persist() error {
 	s.mu.Lock()
 	uid := s.userID
 	rt := s.refreshToken
+	access := s.accessToken
+	accessExp := s.accessExpiry
 	s.mu.Unlock()
 	if uid == "" || rt == "" {
 		return nil
 	}
 	if err := s.keychainClient.Store(keychain.AccountForUser(uid), []byte(rt)); err != nil {
 		return err
+	}
+	// F4: persist the access token alongside the refresh token when the
+	// caller supplied a parsed expiry. With no expiry we can't decide
+	// when to evict, so we skip rather than store an entry we can't
+	// trust. Callers (login/refresh) that parse the JWT pass a real
+	// expiry; pre-F4 callers fall through harmlessly.
+	if access != "" && !accessExp.IsZero() {
+		entry, mErr := json.Marshal(persistedAccess{Token: access, ExpiresAt: accessExp})
+		if mErr != nil {
+			return mErr
+		}
+		if err := s.keychainClient.Store(keychain.AccountForAccessToken(uid), entry); err != nil {
+			return err
+		}
 	}
 	return s.keychainClient.Store(keychain.AccountForCurrentUser(), []byte(uid))
 }
@@ -185,6 +248,11 @@ func (s *SessionStore) Forget() error {
 		}
 	}
 	if err := s.keychainClient.Delete(keychain.AccountForWrappedDEK(uid)); err != nil && err != keychain.ErrNotFound {
+		if firstErr == nil {
+			firstErr = err
+		}
+	}
+	if err := s.keychainClient.Delete(keychain.AccountForAccessToken(uid)); err != nil && err != keychain.ErrNotFound {
 		if firstErr == nil {
 			firstErr = err
 		}
@@ -326,13 +394,18 @@ func (s *SessionStore) SignedIn() bool {
 
 // AccessToken implements client.TokenProvider.
 //
-// If the cached access token is expired (or expires within 30s), the
-// caller is expected to invoke a refresh before this returns. For the
-// integration scaffold we return whatever we have; the client package's
-// 401-refresh hook handles the rotation when needed.
+// F4: when the cached expiry is non-zero and within accessSkewBuffer of
+// expiring, return "" so the client.go 401-refresh hook fires on the
+// next request instead of sending a doomed bearer. When the expiry is
+// zero ("unknown") we trust the cached token — keeps pre-F4 callers
+// (and the recovery-finalize bearer, which has no parsed exp) working
+// unchanged.
 func (s *SessionStore) AccessToken(_ context.Context) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if !s.accessExpiry.IsZero() && time.Now().Add(accessSkewBuffer).After(s.accessExpiry) {
+		return "", nil
+	}
 	return s.accessToken, nil
 }
 
