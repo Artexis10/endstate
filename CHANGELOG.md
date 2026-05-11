@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.0.1](https://github.com/Artexis10/endstate/compare/v2.0.0...v2.0.1) (2026-05-11)
+
+
+### Bug Fixes
+
+* **backup:** persist access token + expiry to skip per-call refresh ([#28](https://github.com/Artexis10/endstate/issues/28)) ([98bf648](https://github.com/Artexis10/endstate/commit/98bf6489b88c18f9d99a6dadcbb0759a6bae6dd2))
+
 ## [2.0.0](https://github.com/Artexis10/endstate/compare/v1.9.0...v2.0.0) (2026-05-10)
 
 
