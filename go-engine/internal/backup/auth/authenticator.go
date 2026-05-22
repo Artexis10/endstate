@@ -381,6 +381,43 @@ func (a *Authenticator) Me(ctx context.Context) (*MeResponse, *envelope.Error) {
 	return &resp, nil
 }
 
+// CheckoutResponse matches substrate's POST /api/billing/checkout payload.
+// The checkoutUrl is the substrate landing that renders the Paddle _ptxn
+// overlay; transactionId is Paddle's transaction handle, surfaced so the
+// GUI can correlate the opened checkout with webhook-driven state changes.
+type CheckoutResponse struct {
+	CheckoutURL   string `json:"checkoutUrl"`
+	TransactionID string `json:"transactionId"`
+}
+
+// Subscribe initiates a Hosted Backup subscription checkout. It POSTs to
+// <issuer>/api/billing/checkout with no body — substrate resolves the
+// €4/mo price server-side — using the session's persisted access token.
+//
+// Like Me(), the checkout URL is computed from the issuer rather than a
+// discovery field: billing lives off the issuer host (contract §7/§9), and
+// running Discovery first keeps the issuer-mismatch guardrail in the path.
+//
+// The engine returns the URL; it does not open a browser. The GUI opens
+// CheckoutURL in the system browser.
+func (a *Authenticator) Subscribe(ctx context.Context) (*CheckoutResponse, *envelope.Error) {
+	doc, err := a.oidc.Discovery(ctx)
+	if err != nil {
+		return nil, mapDiscoveryError(err)
+	}
+	url := strings.TrimRight(a.issuer.URL, "/") + "/api/billing/checkout"
+	var resp CheckoutResponse
+	if cerr := a.httpc.Do(ctx, client.Request{
+		Method:   "POST",
+		URL:      url,
+		ReadOnly: false,
+	}, &resp); cerr != nil {
+		return nil, cerr
+	}
+	_ = doc // referenced for symmetry with Me(); retained to keep callers in lockstep with Discovery.
+	return &resp, nil
+}
+
 // mapDiscoveryError converts an oidc package error to the envelope code
 // the command handler should return.
 func mapDiscoveryError(err error) *envelope.Error {
