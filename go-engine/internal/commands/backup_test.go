@@ -89,6 +89,13 @@ func fakeBackend(t *testing.T) *httptest.Server {
 			"createdAt":          "2026-05-02T00:00:00Z",
 		})
 	})
+	mux.HandleFunc("/api/billing/checkout", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"checkoutUrl":   srv.URL + "/endstate?_ptxn=txn_abc123",
+			"transactionId": "txn_abc123",
+		})
+	})
 	t.Cleanup(srv.Close)
 	return srv
 }

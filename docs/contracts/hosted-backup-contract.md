@@ -297,6 +297,10 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 - `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt }`
 - `DELETE /api/account` → triggers GDPR deletion (Section 12)
 
+### Billing endpoints
+
+- `POST /api/billing/checkout` → mint a Paddle transaction for the Hosted Backup price → `{ checkoutUrl, transactionId }`. Engine-initiated (the `backup subscribe` command), bearer-authenticated, no request body — substrate resolves the price server-side. The engine returns `checkoutUrl` to the GUI, which opens it in the system browser (substrate's `/endstate` landing renders the Paddle `_ptxn` overlay); the engine never opens a browser. Like `/api/account/*`, this lives off the issuer host (Section 9), not under `backup_api_base`.
+
 ### Backup metadata endpoints
 
 - `GET /api/backups` → list user's backups: `{ backups: [{ id, name, latestVersionId, versionCount, totalSize, updatedAt }] }`
