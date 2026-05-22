@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.1.0](https://github.com/Artexis10/endstate/compare/v2.0.1...v2.1.0) (2026-05-22)
+
+
+### Features
+
+* **backup:** add `backup subscribe` checkout command ([#30](https://github.com/Artexis10/endstate/issues/30)) ([3758527](https://github.com/Artexis10/endstate/commit/3758527feefcf17afca13c49af68320944a18ac0))
+
 ## [2.0.1](https://github.com/Artexis10/endstate/compare/v2.0.0...v2.0.1) (2026-05-11)
 
 
