@@ -119,6 +119,7 @@ type parsedArgs struct {
 
 	// Backup / account flags
 	email          string
+	token          string
 	backupID       string
 	versionID      string
 	to             string
@@ -233,6 +234,11 @@ func parseArgs(args []string) parsedArgs {
 				p.email = args[i+1]
 				i++
 			}
+		case "--token":
+			if i+1 < len(args) {
+				p.token = args[i+1]
+				i++
+			}
 		case "--backup-id":
 			if i+1 < len(args) {
 				p.backupID = args[i+1]
@@ -305,7 +311,7 @@ func commandUsage(cmd string) string {
 	case "profile":
 		return "Usage: endstate profile <subcommand> [args] [--json]\n\nSubcommands:\n  list              List discovered profiles\n  path <name>       Resolve profile path from name\n  validate <path>   Validate a profile manifest\n"
 	case "backup":
-		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  signup --email <addr> --save-recovery-to <path>\n                              Create account (passphrase + optional 24-word phrase via stdin)\n  login --email <addr>          Sign in (passphrase via stdin)\n  logout                        Clear local session\n  status                        Report current session state\n  subscribe                     Start a Hosted Backup subscription checkout (returns checkoutUrl for the GUI to open)\n  push --profile <path> [--backup-id <id>] [--name <label>]\n                              Encrypt and upload a profile\n  pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]\n                              Download and restore a profile\n  list                          List backups\n  versions --backup-id <id>     List versions of a backup\n  delete --backup-id <id> --confirm\n                              Permanently delete a backup\n  delete-version --backup-id <id> --version-id <id> --confirm\n                              Soft-delete a backup version\n  recover --email <addr>        Reset passphrase using recovery phrase (stdin: phrase, then new passphrase)\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL    Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE      JWT audience (default: endstate-backup)\n  ENDSTATE_BACKUP_CONCURRENCY Worker pool size for chunk transfer (default 4, clamp 1..16)\n"
+		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  signup --email <addr> --save-recovery-to <path>\n                              Create account (passphrase + optional 24-word phrase via stdin)\n  claim --token <token> --save-recovery-to <path>\n                              Attach credentials to a pre-account using the bearer claim token\n                              from the buyer's purchase email (passphrase via stdin).\n                              Replaces any existing local session on success.\n  login --email <addr>          Sign in (passphrase via stdin)\n  logout                        Clear local session\n  status                        Report current session state\n  subscribe                     Start a Hosted Backup subscription checkout (returns checkoutUrl for the GUI to open)\n  push --profile <path> [--backup-id <id>] [--name <label>]\n                              Encrypt and upload a profile\n  pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]\n                              Download and restore a profile\n  list                          List backups\n  versions --backup-id <id>     List versions of a backup\n  delete --backup-id <id> --confirm\n                              Permanently delete a backup\n  delete-version --backup-id <id> --version-id <id> --confirm\n                              Soft-delete a backup version\n  recover --email <addr>        Reset passphrase using recovery phrase (stdin: phrase, then new passphrase)\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL    Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE      JWT audience (default: endstate-backup)\n  ENDSTATE_BACKUP_CONCURRENCY Worker pool size for chunk transfer (default 4, clamp 1..16)\n"
 	case "account":
 		return "Usage: endstate account <subcommand> [flags] [--json]\n\nSubcommands:\n  delete --confirm  Delete the Hosted Backup account permanently\n"
 	case "bootstrap":
@@ -499,6 +505,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Subcommand:     subcommand,
 			Args:           subArgs,
 			Email:          p.email,
+			Token:          p.token,
 			BackupID:       p.backupID,
 			VersionID:      p.versionID,
 			Profile:        p.profile,

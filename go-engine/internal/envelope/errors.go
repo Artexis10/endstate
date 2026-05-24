@@ -35,6 +35,19 @@ const (
 	ErrBackendUnreachable   ErrorCode = "BACKEND_UNREACHABLE"
 	ErrBackendIncompatible  ErrorCode = "BACKEND_INCOMPATIBLE"
 	ErrStorageQuotaExceeded ErrorCode = "STORAGE_QUOTA_EXCEEDED"
+
+	// Substrate claim-flow domain codes. Surfaced verbatim by
+	// `client.parseAPIError` when substrate returns them on the
+	// response body of `/api/auth/claim`. NOT declared as constants
+	// because the engine is a transparent pipe for the substrate
+	// claim namespace — the GUI's `friendlyAuthError` map owns the
+	// user-facing copy. Valid `ErrorCode` values produced by this
+	// engine include (cast from the substrate response):
+	//
+	//   "CLAIM_TOKEN_INVALID"   (HTTP 401)
+	//   "CLAIM_TOKEN_EXPIRED"   (HTTP 401)
+	//   "CLAIM_TOKEN_CONSUMED"  (HTTP 409)
+	//   "KDF_TOO_WEAK"          (HTTP 400)
 )
 
 // Error is the structured error object included in the JSON envelope when success is false.
