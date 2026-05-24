@@ -62,6 +62,10 @@ type EndstateExtensions struct {
 	AuthRefreshEndpoint       string         `json:"auth_refresh_endpoint"`
 	AuthLogoutEndpoint        string         `json:"auth_logout_endpoint"`
 	AuthRecoverEndpoint       string         `json:"auth_recover_endpoint"`
+	// AuthClaimEndpoint is optional: substrate v1 does not yet advertise
+	// it. When absent, callers fall back to `<issuer>/api/auth/claim`.
+	// See `Authenticator.Claim`.
+	AuthClaimEndpoint         string         `json:"auth_claim_endpoint,omitempty"`
 	BackupAPIBase             string         `json:"backup_api_base"`
 	SupportedKDFAlgorithms    []string       `json:"supported_kdf_algorithms"`
 	SupportedEnvelopeVersions []int          `json:"supported_envelope_versions"`

@@ -35,6 +35,10 @@ type BackupFlags struct {
 	// Email is the --email flag (login, recover).
 	Email string
 
+	// Token is the --token flag (claim), the 43-char URL-safe base64
+	// claim-token from the buyer's claim email.
+	Token string
+
 	// BackupID identifies an existing backup (versions, push, pull, delete).
 	BackupID string
 
@@ -75,6 +79,8 @@ func RunBackup(flags BackupFlags) (interface{}, *envelope.Error) {
 	switch flags.Subcommand {
 	case "signup":
 		return runBackupSignup(flags)
+	case "claim":
+		return runBackupClaim(flags)
 	case "login":
 		return runBackupLogin(flags)
 	case "logout":
@@ -85,7 +91,7 @@ func RunBackup(flags BackupFlags) (interface{}, *envelope.Error) {
 		return runBackupSubscribe(flags)
 	case "":
 		return nil, envelope.NewError(envelope.ErrInternalError,
-			"backup requires a subcommand (signup, login, logout, status, subscribe, push, pull, list, versions, delete, delete-version, recover)")
+			"backup requires a subcommand (signup, claim, login, logout, status, subscribe, push, pull, list, versions, delete, delete-version, recover)")
 	case "list":
 		return runBackupList(flags)
 	case "versions":

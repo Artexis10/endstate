@@ -104,8 +104,14 @@ type completeLoginRequest struct {
 }
 
 // CompleteLoginResponse matches the contract §5 step-2 response shape.
+//
+// Email is populated only by `/api/auth/claim` — substrate has the
+// canonical email from Paddle and returns it so the engine can display
+// the same identity the buyer purchased under. Other endpoints
+// (signup, login, recover-finalize, refresh) leave it empty.
 type CompleteLoginResponse struct {
 	UserID             string `json:"userId"`
+	Email              string `json:"email,omitempty"`
 	AccessToken        string `json:"accessToken"`
 	RefreshToken       string `json:"refreshToken"`
 	WrappedDEK         string `json:"wrappedDEK"`
@@ -251,6 +257,71 @@ func (a *Authenticator) Signup(ctx context.Context, body SignupBody) (*CompleteL
 	if perr := a.session.Persist(); perr != nil {
 		return &resp, envelope.NewError(envelope.ErrInternalError,
 			"signup succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
+			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
+	}
+	return &resp, nil
+}
+
+// ClaimBody is the POST /api/auth/claim request body. Structurally
+// identical to SignupBody minus Email — substrate identifies the user
+// from the claim-token row (keyed by the bearer token), so the email
+// on the wire would be ignored anyway and surfacing one in the GUI
+// would invite identity-mismatch confusion. The credential block is
+// byte-identical to signup's; the KDF floor check is enforced by
+// substrate on the receiving side.
+type ClaimBody struct {
+	ServerPassword        string           `json:"serverPassword"`
+	Salt                  string           `json:"salt"`
+	KDFParams             crypto.KDFParams `json:"kdfParams"`
+	WrappedDEK            string           `json:"wrappedDEK"`
+	RecoveryKeyVerifier   string           `json:"recoveryKeyVerifier"`
+	RecoveryKeyWrappedDEK string           `json:"recoveryKeyWrappedDEK"`
+}
+
+// Claim performs `POST /api/auth/claim` with `Authorization: Bearer
+// <claimToken>`. Mirrors Signup's success path: on 200 the session is
+// updated with the returned tokens (email is server-supplied) and the
+// refresh token is persisted to the keychain. The caller is
+// responsible for caching the unwrapped DEK via SessionStore.StoreDEK
+// separately — Claim does not see plaintext keys.
+//
+// SkipAuthRefresh is required: the bearer IS the claim token, not an
+// access token. A 401 here means the claim token is invalid, expired,
+// or already consumed; recursing into the refresh hook would loop
+// without progress AND risk clobbering the intended substrate
+// identity.
+//
+// URL: prefer discovery's `auth_claim_endpoint` when non-empty; fall
+// back to `<issuer>/api/auth/claim` otherwise (substrate v1 does not
+// advertise the discovery field — see `oidc.EndstateExtensions`).
+func (a *Authenticator) Claim(ctx context.Context, claimToken string, body ClaimBody) (*CompleteLoginResponse, *envelope.Error) {
+	if strings.TrimSpace(claimToken) == "" {
+		return nil, envelope.NewError(envelope.ErrInternalError,
+			"claim: empty claimToken — caller must pass the token from the buyer's claim link")
+	}
+	doc, err := a.oidc.Discovery(ctx)
+	if err != nil {
+		return nil, mapDiscoveryError(err)
+	}
+	url := doc.EndstateExtensions.AuthClaimEndpoint
+	if url == "" {
+		url = strings.TrimRight(a.issuer.URL, "/") + "/api/auth/claim"
+	}
+	var resp CompleteLoginResponse
+	if cerr := a.httpc.Do(ctx, client.Request{
+		Method:          "POST",
+		URL:             url,
+		Body:            body,
+		Headers:         http.Header{"Authorization": []string{"Bearer " + claimToken}},
+		ReadOnly:        false,
+		SkipAuthRefresh: true,
+	}, &resp); cerr != nil {
+		return nil, cerr
+	}
+	a.session.SetTokens(resp.UserID, strings.ToLower(resp.Email), resp.AccessToken, resp.RefreshToken, resp.SubscriptionStatus, parseAccessExpiry(resp.AccessToken))
+	if perr := a.session.Persist(); perr != nil {
+		return &resp, envelope.NewError(envelope.ErrInternalError,
+			"claim succeeded but refresh token could not be saved to the OS keychain: "+perr.Error()).
 			WithRemediation("Re-run `endstate backup login` after addressing the keychain access issue.")
 	}
 	return &resp, nil

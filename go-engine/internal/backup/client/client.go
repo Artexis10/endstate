@@ -299,10 +299,21 @@ func parseAPIError(resp *http.Response, body []byte) *APIError {
 			ae.Detail = env.Error.Detail
 			ae.Remediation = env.Error.Remediation
 			ae.DocsKey = env.Error.DocsKey
-			// Substrate may surface STORAGE_QUOTA_EXCEEDED on a 409 (or 403).
-			// Honour their code when it's one we recognise.
-			if up := strings.ToUpper(env.Error.Code); up == "STORAGE_QUOTA_EXCEEDED" {
+			// Substrate may surface domain codes on the response body
+			// that warrant overriding the status-derived envelope code:
+			//   - STORAGE_QUOTA_EXCEEDED → mapped to a typed engine
+			//     constant (engine has a native semantic).
+			//   - CLAIM_TOKEN_INVALID / EXPIRED / CONSUMED, KDF_TOO_WEAK
+			//     → passed through verbatim. The engine does not own the
+			//     claim-flow error namespace; the GUI's friendly-error
+			//     map switches on the wire-string code. `envelope.ErrorCode`
+			//     is `type ErrorCode string`, so casting is sound.
+			switch up := strings.ToUpper(env.Error.Code); up {
+			case "STORAGE_QUOTA_EXCEEDED":
 				ae.Code = envelope.ErrStorageQuotaExceeded
+			case "CLAIM_TOKEN_INVALID", "CLAIM_TOKEN_EXPIRED",
+				"CLAIM_TOKEN_CONSUMED", "KDF_TOO_WEAK":
+				ae.Code = envelope.ErrorCode(up)
 			}
 		}
 	}
