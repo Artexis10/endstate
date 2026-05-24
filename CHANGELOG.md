@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.2.0](https://github.com/Artexis10/endstate/compare/v2.1.0...v2.2.0) (2026-05-24)
+
+
+### Features
+
+* **backup:** add `backup claim` subcommand for anonymous-buyer credential attachment ([#32](https://github.com/Artexis10/endstate/issues/32)) ([c48f059](https://github.com/Artexis10/endstate/commit/c48f059da217bfe37bee56abe04923f4a05bbbd8))
+
 ## [2.1.0](https://github.com/Artexis10/endstate/compare/v2.0.1...v2.1.0) (2026-05-22)
 
 
