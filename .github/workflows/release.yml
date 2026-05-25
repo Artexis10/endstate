@@ -1,9 +1,21 @@
 name: Release
 
+# Builds endstate.exe + .sha256 and attaches them to the GitHub Release.
+#
+# Triggers on `release: published` rather than `push: tags` because the tag is
+# created by release-please-action via GITHUB_TOKEN — and per GitHub's
+# recursion-protection rule, GITHUB_TOKEN-created tags do NOT fire
+# `push: tags` workflows. `release: published` does fire for releases created
+# via GITHUB_TOKEN, which is what release-please does (creates tag + release
+# in one step).
+#
+# workflow_dispatch with `tag_name` input remains the manual override for
+# backfilling assets onto an older release (e.g. one created before this
+# trigger was fixed).
+
 on:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       tag_name:
@@ -11,29 +23,7 @@ on:
         required: true
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v3
-        with:
-          name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
-          generate_release_notes: true
-          draft: false
-          prerelease: false
-          make_latest: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   publish-artifacts:
-    needs: release
     runs-on: windows-latest
     permissions:
       contents: write
@@ -42,7 +32,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
-          ref: ${{ github.event.inputs.tag_name || github.ref_name }}
+          ref: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
 
       - name: Set up Go
         uses: actions/setup-go@v6
@@ -53,7 +43,7 @@ jobs:
       - name: Build endstate.exe
         shell: pwsh
         run: |
-          $tag = "${{ github.event.inputs.tag_name || github.ref_name }}"
+          $tag = "${{ github.event.inputs.tag_name || github.event.release.tag_name }}"
           $version = $tag.TrimStart('v')
           $schemaVersion = (Get-Content SCHEMA_VERSION -Raw).Trim()
           Set-Location go-engine
@@ -71,7 +61,7 @@ jobs:
       - name: Upload release assets
         uses: softprops/action-gh-release@v3
         with:
-          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
           files: |
             endstate.exe
             endstate.exe.sha256
@@ -83,7 +73,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "${{ github.event.inputs.tag_name || github.ref_name }}"
+          $tag = "${{ github.event.inputs.tag_name || github.event.release.tag_name }}"
           $release = gh release view "$tag" --json assets | ConvertFrom-Json
           $names = $release.assets | ForEach-Object { $_.name }
           $missing = @()
