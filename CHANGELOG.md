@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.2.1](https://github.com/Artexis10/endstate/compare/v2.2.0...v2.2.1) (2026-05-25)
+
+
+### Bug Fixes
+
+* **modules:** exclude PowerToys self-update installer from captures ([#35](https://github.com/Artexis10/endstate/issues/35)) ([8c2b533](https://github.com/Artexis10/endstate/commit/8c2b533e4f1911ceac30c598e3e6da9374b97e05))
+
 ## [2.2.0](https://github.com/Artexis10/endstate/compare/v2.1.0...v2.2.0) (2026-05-24)
 
 
