@@ -46,11 +46,12 @@
         "**\\Temp\\**",
         "**\\Cache\\**",
         "**\\GPUCache\\**",
-        "**\\Crashpad\\**"
+        "**\\Crashpad\\**",
+        "**\\Updates\\**"
       ]
     }
   ],
-  
+
   "capture": {
     "files": [
       { "source": "%LOCALAPPDATA%\\Microsoft\\PowerToys", "dest": "apps/powertoys", "optional": true }
@@ -60,9 +61,10 @@
       "**\\Temp\\**",
       "**\\Cache\\**",
       "**\\GPUCache\\**",
-      "**\\Crashpad\\**"
+      "**\\Crashpad\\**",
+      "**\\Updates\\**"
     ]
   },
-  
-  "notes": "Full PowerToys configuration including all enabled modules. Excludes runtime logs and volatile files."
+
+  "notes": "Full PowerToys configuration including all enabled modules. Excludes runtime logs, volatile files, and the Updates/ dir where PowerToys stages its ~400 MiB self-update installer (otherwise dominates the capture; see substrate PR #15 regression notes)."
 }
