@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.4.0](https://github.com/Artexis10/endstate/compare/v2.3.1...v2.4.0) (2026-05-26)
+
+
+### Features
+
+* **backup:** add `backup browser-session` command + contract §4-§9 sync ([#42](https://github.com/Artexis10/endstate/issues/42)) ([63349ac](https://github.com/Artexis10/endstate/commit/63349aceffad6131f1eff7ae70989ff0d2b02a39))
+
+
+### Bug Fixes
+
+* **ci:** auth release-please via GitHub App, drop dispatch shim ([#41](https://github.com/Artexis10/endstate/issues/41)) ([2ffd2c7](https://github.com/Artexis10/endstate/commit/2ffd2c7bff1972e1d307b32d1ee2a0fcd279045b))
+
 ## [2.3.1](https://github.com/Artexis10/endstate/compare/v2.3.0...v2.3.1) (2026-05-26)
 
 
