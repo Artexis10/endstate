@@ -2,16 +2,22 @@ name: Release
 
 # Builds endstate.exe + .sha256 and attaches them to the GitHub Release.
 #
-# Triggers on `release: published` rather than `push: tags` because the tag is
-# created by release-please-action via GITHUB_TOKEN — and per GitHub's
-# recursion-protection rule, GITHUB_TOKEN-created tags do NOT fire
-# `push: tags` workflows. `release: published` does fire for releases created
-# via GITHUB_TOKEN, which is what release-please does (creates tag + release
-# in one step).
+# Trigger model: dispatched from release-please.yml via `gh workflow run`
+# once a new release is cut. The `release: published` trigger is kept as a
+# defensive backup in case the release is ever created by a non-
+# GITHUB_TOKEN identity (PAT, GitHub App) where the recursion-protection
+# rule doesn't apply — but the primary path is workflow_dispatch.
 #
-# workflow_dispatch with `tag_name` input remains the manual override for
-# backfilling assets onto an older release (e.g. one created before this
-# trigger was fixed).
+# History: an earlier iteration relied on `release: published` firing for
+# releases created by release-please-action. That doesn't actually work —
+# GitHub blocks GITHUB_TOKEN-triggered events from cascading into other
+# workflows (with `workflow_dispatch` and `repository_dispatch` as the
+# documented exceptions). Releases v2.0.1 / v2.1.0 / v2.2.1 / v2.3.0
+# shipped without binaries as a result. See release-please.yml for the
+# dispatch fix.
+#
+# workflow_dispatch with `tag_name` input also doubles as the manual
+# backfill path for any release that pre-dates the fix.
 
 on:
   release:

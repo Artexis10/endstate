@@ -7,10 +7,41 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # Required for the dispatch-release job below — fires `gh workflow run` to
+  # kick the Release workflow once release-please has cut a new release.
+  actions: write
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
     steps:
       # Config driven via release-please-config.json
       - uses: googleapis/release-please-action@v4
+        id: rp
+
+  # release-please creates the tag + GitHub Release via GITHUB_TOKEN. Per
+  # GitHub's recursion-protection rule, events triggered by GITHUB_TOKEN do
+  # NOT fire other workflows — with two documented exceptions:
+  # `workflow_dispatch` and `repository_dispatch`. So the `release: published`
+  # trigger in release.yml has never actually fired (see the workflow run
+  # history — every Release run is either a manual workflow_dispatch or a
+  # legacy push:tag from before release-please-action). This step closes the
+  # gap by explicitly dispatching release.yml with the just-cut tag.
+  dispatch-release:
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch Release workflow to build + upload binaries
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release.yml \
+            --repo "${{ github.repository }}" \
+            --ref main \
+            --field tag_name="${{ needs.release-please.outputs.tag_name }}"
