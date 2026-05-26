@@ -61,3 +61,41 @@ type ArtifactEvent struct {
 	Kind  string `json:"kind"`
 	Path  string `json:"path"`
 }
+
+// BackupChunkEvent tracks per-chunk progress of a hosted-backup push or pull.
+//
+// Status values:
+//   - Push (backup-push phase): "uploading" → "uploaded" (terminal-success),
+//     with "retrying" between attempts and "failed" on terminal error.
+//   - Pull (backup-pull phase): "downloading" → "verified" → "decrypted"
+//     (per-chunk pipeline), with "failed" on error. The pull path does not
+//     currently retry at the chunk level so "retrying" is push-only today.
+//
+// Retry fields (Attempt / MaxAttempts) are present when Status == "retrying".
+// Current / Total mirror ChunkIndex+1 / TotalChunks for forward-compat with
+// non-chunk-indexed progress sources; they are always populated.
+type BackupChunkEvent struct {
+	BaseEvent
+	// ChunkIndex is the 0-based chunk index, or storage.ManifestChunkIndex (-1)
+	// for the manifest blob itself.
+	ChunkIndex int `json:"chunkIndex"`
+	// TotalChunks is the count of data chunks (excluding the manifest).
+	TotalChunks int `json:"totalChunks"`
+	// EncryptedSize is the on-the-wire size of the chunk in bytes.
+	EncryptedSize int    `json:"encryptedSize"`
+	Status        string `json:"status"`
+	// Message carries a non-fatal hint (e.g. error message before retry).
+	// Omitted when empty.
+	Message string `json:"message,omitempty"`
+	// Attempt is the 1-based current attempt number; only set when
+	// Status == "retrying".
+	Attempt int `json:"attempt,omitempty"`
+	// MaxAttempts is the inclusive upper bound on attempts; only set when
+	// Status == "retrying".
+	MaxAttempts int `json:"maxAttempts,omitempty"`
+	// Current is the 1-based chunk-of-total position (mirrors ChunkIndex+1
+	// for data chunks). Always set.
+	Current int `json:"current,omitempty"`
+	// Total mirrors TotalChunks for forward-compat. Always set.
+	Total int `json:"total,omitempty"`
+}

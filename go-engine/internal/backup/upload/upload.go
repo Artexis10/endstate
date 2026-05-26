@@ -192,7 +192,7 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 		work = append(work, uploadItem{index: i, url: u.PresignedURL, data: blob})
 	}
 
-	successCount, failedCount, perr := putParallel(ctx, httpClient, work, concurrency, retries, deps.Events)
+	successCount, failedCount, perr := putParallel(ctx, httpClient, work, concurrency, retries, chunkCount, deps.Events)
 	if perr != nil {
 		deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, failedCount)
 		return nil, envelope.NewError(envelope.ErrBackendUnreachable,
@@ -343,7 +343,9 @@ type uploadItem struct {
 // concurrency and limited 5xx retries. Returns (successCount,
 // failedCount, error). On any item failing past its retry budget, the
 // returned error is non-nil and ctx propagation cancels remaining work.
-func putParallel(ctx context.Context, hc *http.Client, items []uploadItem, concurrency, retries int, em *events.Emitter) (int, int, error) {
+// totalChunks is the count of data chunks (manifest excluded), forwarded
+// to per-chunk progress events for GUI rendering.
+func putParallel(ctx context.Context, hc *http.Client, items []uploadItem, concurrency, retries, totalChunks int, em *events.Emitter) (int, int, error) {
 	if concurrency < 1 {
 		concurrency = 1
 	}
@@ -365,7 +367,7 @@ func putParallel(ctx context.Context, hc *http.Client, items []uploadItem, concu
 		go func() {
 			defer wg.Done()
 			for it := range work {
-				if err := putWithRetry(ctx, hc, it, retries, em); err != nil {
+				if err := putWithRetry(ctx, hc, it, retries, totalChunks, em); err != nil {
 					counterMu.Lock()
 					failed++
 					counterMu.Unlock()
@@ -403,22 +405,59 @@ func putParallel(ctx context.Context, hc *http.Client, items []uploadItem, concu
 	return success, failed, firstErr
 }
 
-// putWithRetry PUTs one upload item, retrying once on 5xx. Emits item
-// events `uploading` → `uploaded` (or `failed`) for the GUI progress UI.
-func putWithRetry(ctx context.Context, hc *http.Client, it uploadItem, retries int, em *events.Emitter) error {
+// putWithRetry PUTs one upload item, retrying once on 5xx. Emits both
+// item events (for log continuity) and richer backup-chunk events (for the
+// GUI's per-chunk progress dialog, including retry visibility).
+//
+// totalChunks is the count of data chunks (manifest excluded). The
+// manifest item carries chunkIndex == storage.ManifestChunkIndex (-1);
+// data chunks carry their 0-based index.
+func putWithRetry(ctx context.Context, hc *http.Client, it uploadItem, retries, totalChunks int, em *events.Emitter) error {
 	em.EmitItem(itemID(it.index), "hosted-backup", "uploading", "", "", "")
+	em.EmitBackupChunk(events.BackupChunkProgress{
+		ChunkIndex:    it.index,
+		TotalChunks:   totalChunks,
+		EncryptedSize: len(it.data),
+		Status:        "uploading",
+	})
 	attempt := 0
+	maxAttempts := retries + 1
 	for {
 		err := putOnce(ctx, hc, it)
 		if err == nil {
 			em.EmitItem(itemID(it.index), "hosted-backup", "uploaded", "", "", "")
+			em.EmitBackupChunk(events.BackupChunkProgress{
+				ChunkIndex:    it.index,
+				TotalChunks:   totalChunks,
+				EncryptedSize: len(it.data),
+				Status:        "uploaded",
+			})
 			return nil
 		}
 		if !isRetryable(err) || attempt >= retries {
 			em.EmitItem(itemID(it.index), "hosted-backup", "failed", err.Error(), "", "")
+			em.EmitBackupChunk(events.BackupChunkProgress{
+				ChunkIndex:    it.index,
+				TotalChunks:   totalChunks,
+				EncryptedSize: len(it.data),
+				Status:        "failed",
+				Message:       err.Error(),
+			})
 			return err
 		}
 		attempt++
+		// Emit the retry event BEFORE the backoff sleep so the GUI shows
+		// "Retrying chunk N of M (attempt X of Y)" while the sleep runs,
+		// not after.
+		em.EmitBackupChunk(events.BackupChunkProgress{
+			ChunkIndex:    it.index,
+			TotalChunks:   totalChunks,
+			EncryptedSize: len(it.data),
+			Status:        "retrying",
+			Message:       err.Error(),
+			Attempt:       attempt + 1,
+			MaxAttempts:   maxAttempts,
+		})
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

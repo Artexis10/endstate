@@ -132,3 +132,45 @@ func (e *Emitter) EmitArtifact(phase, kind, path string) {
 		Path:      path,
 	})
 }
+
+// BackupChunkProgress carries the per-chunk fields emitted as a
+// `backup-chunk` event. Pass into EmitBackupChunk so future fields can be
+// added without breaking call sites.
+type BackupChunkProgress struct {
+	ChunkIndex    int
+	TotalChunks   int
+	EncryptedSize int
+	Status        string // "uploading"|"uploaded"|"downloading"|"verified"|"decrypted"|"retrying"|"failed"
+	Message       string
+	// Retry-specific. Both set only when Status == "retrying".
+	Attempt     int
+	MaxAttempts int
+}
+
+// EmitBackupChunk emits a hosted-backup per-chunk progress event. Used by
+// the upload and download pipelines so the GUI can render chunk-by-chunk
+// progress (and, for the upload path, retry attempts).
+func (e *Emitter) EmitBackupChunk(p BackupChunkProgress) {
+	if !e.enabled {
+		return
+	}
+	// Current/Total are convenience fields for GUI rendering. The manifest
+	// (chunkIndex == -1) reports current 0 — the GUI treats <=0 as "manifest"
+	// and shows a separate label.
+	current := 0
+	if p.ChunkIndex >= 0 {
+		current = p.ChunkIndex + 1
+	}
+	e.emit(BackupChunkEvent{
+		BaseEvent:     e.base("backup-chunk"),
+		ChunkIndex:    p.ChunkIndex,
+		TotalChunks:   p.TotalChunks,
+		EncryptedSize: p.EncryptedSize,
+		Status:        p.Status,
+		Message:       p.Message,
+		Attempt:       p.Attempt,
+		MaxAttempts:   p.MaxAttempts,
+		Current:       current,
+		Total:         p.TotalChunks,
+	})
+}
