@@ -4,44 +4,28 @@ on:
   push:
     branches: [main]
 
+# Release-please runs under the endstate-release-bot GitHub App identity
+# (App ID + private key live as RELEASE_PLEASE_APP_* secrets). The minted
+# installation token is a non-GITHUB_TOKEN credential, so the PRs and
+# releases it creates fire `pull_request` and `release: published` events
+# normally — bypassing the recursion-protection rule that previously
+# silently swallowed every cascade from this workflow. The earlier
+# `dispatch-release` job (workflow_dispatch shim) is no longer needed.
+
 permissions:
-  contents: write
-  pull-requests: write
-  # Required for the dispatch-release job below — fires `gh workflow run` to
-  # kick the Release workflow once release-please has cut a new release.
-  actions: write
+  contents: read
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.rp.outputs.release_created }}
-      tag_name: ${{ steps.rp.outputs.tag_name }}
     steps:
-      # Config driven via release-please-config.json
-      - uses: googleapis/release-please-action@v4
-        id: rp
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.RELEASE_PLEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLEASE_APP_PRIVATE_KEY }}
 
-  # release-please creates the tag + GitHub Release via GITHUB_TOKEN. Per
-  # GitHub's recursion-protection rule, events triggered by GITHUB_TOKEN do
-  # NOT fire other workflows — with two documented exceptions:
-  # `workflow_dispatch` and `repository_dispatch`. So the `release: published`
-  # trigger in release.yml has never actually fired (see the workflow run
-  # history — every Release run is either a manual workflow_dispatch or a
-  # legacy push:tag from before release-please-action). This step closes the
-  # gap by explicitly dispatching release.yml with the just-cut tag.
-  dispatch-release:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: write
-    steps:
-      - name: Dispatch Release workflow to build + upload binaries
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run release.yml \
-            --repo "${{ github.repository }}" \
-            --ref main \
-            --field tag_name="${{ needs.release-please.outputs.tag_name }}"
+      - uses: googleapis/release-please-action@v4
+        with:
+          token: ${{ steps.app-token.outputs.token }}
