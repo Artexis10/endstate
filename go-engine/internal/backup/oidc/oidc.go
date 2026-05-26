@@ -67,6 +67,14 @@ type EndstateExtensions struct {
 	// See `Authenticator.Claim`.
 	AuthClaimEndpoint         string         `json:"auth_claim_endpoint,omitempty"`
 	BackupAPIBase             string         `json:"backup_api_base"`
+	// AccountPortalURL is optional. When advertised it is the canonical
+	// `/account/start` landing for the GUI→web handoff (contract §9).
+	// Self-hosters who relocate the portal populate this. Engines never
+	// consume this directly — substrate returns `accountUrl` in the
+	// `/api/auth/browser-session` response — but it documents the
+	// self-host contract for any GUI / non-engine client that needs to
+	// resolve the portal URL on its own.
+	AccountPortalURL          string         `json:"account_portal_url,omitempty"`
 	SupportedKDFAlgorithms    []string       `json:"supported_kdf_algorithms"`
 	SupportedEnvelopeVersions []int          `json:"supported_envelope_versions"`
 	MinKDFParams              MinKDFParams   `json:"min_kdf_params"`
