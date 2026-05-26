@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.3.1](https://github.com/Artexis10/endstate/compare/v2.3.0...v2.3.1) (2026-05-26)
+
+
+### Bug Fixes
+
+* **ci:** dispatch Release workflow from release-please job ([#39](https://github.com/Artexis10/endstate/issues/39)) ([4bdff73](https://github.com/Artexis10/endstate/commit/4bdff73ec6ceffa0b5f718726f6129795039e4cd))
+
 ## [2.3.0](https://github.com/Artexis10/endstate/compare/v2.2.1...v2.3.0) (2026-05-26)
 
 
