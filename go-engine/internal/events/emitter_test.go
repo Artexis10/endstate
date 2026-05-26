@@ -594,3 +594,109 @@ func TestEmitMultipleEvents_SeparateLines(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// BackupChunk event (Wave 6 — hosted-backup per-chunk progress + retry)
+// ---------------------------------------------------------------------------
+
+func TestEmitBackupChunk_Uploading(t *testing.T) {
+	runID := "push-test"
+	em, buf := captureEmitter(runID)
+	em.EmitBackupChunk(BackupChunkProgress{
+		ChunkIndex:    46,
+		TotalChunks:   95,
+		EncryptedSize: 4194316,
+		Status:        "uploading",
+	})
+
+	ev := parseEvent(t, lastLine(buf))
+	assertBaseFields(t, ev, runID, "backup-chunk")
+
+	if ev["chunkIndex"] != float64(46) {
+		t.Errorf("chunkIndex = %v, want 46", ev["chunkIndex"])
+	}
+	if ev["totalChunks"] != float64(95) {
+		t.Errorf("totalChunks = %v, want 95", ev["totalChunks"])
+	}
+	if ev["encryptedSize"] != float64(4194316) {
+		t.Errorf("encryptedSize = %v, want 4194316", ev["encryptedSize"])
+	}
+	if ev["status"] != "uploading" {
+		t.Errorf("status = %v, want 'uploading'", ev["status"])
+	}
+	// current = chunkIndex + 1 for data chunks
+	if ev["current"] != float64(47) {
+		t.Errorf("current = %v, want 47", ev["current"])
+	}
+	if ev["total"] != float64(95) {
+		t.Errorf("total = %v, want 95", ev["total"])
+	}
+	// attempt / maxAttempts should be omitted on non-retry status
+	if _, ok := ev["attempt"]; ok {
+		t.Errorf("expected 'attempt' to be omitted for non-retry, got %v", ev["attempt"])
+	}
+	if _, ok := ev["maxAttempts"]; ok {
+		t.Errorf("expected 'maxAttempts' to be omitted for non-retry, got %v", ev["maxAttempts"])
+	}
+}
+
+func TestEmitBackupChunk_Retrying(t *testing.T) {
+	em, buf := captureEmitter("retry-test")
+	em.EmitBackupChunk(BackupChunkProgress{
+		ChunkIndex:    46,
+		TotalChunks:   95,
+		EncryptedSize: 4194316,
+		Status:        "retrying",
+		Message:       "upload: presigned PUT returned HTTP 503",
+		Attempt:       2,
+		MaxAttempts:   3,
+	})
+
+	ev := parseEvent(t, lastLine(buf))
+	if ev["status"] != "retrying" {
+		t.Errorf("status = %v, want 'retrying'", ev["status"])
+	}
+	if ev["attempt"] != float64(2) {
+		t.Errorf("attempt = %v, want 2", ev["attempt"])
+	}
+	if ev["maxAttempts"] != float64(3) {
+		t.Errorf("maxAttempts = %v, want 3", ev["maxAttempts"])
+	}
+	if ev["message"] != "upload: presigned PUT returned HTTP 503" {
+		t.Errorf("message = %v, want 'upload: presigned PUT returned HTTP 503'", ev["message"])
+	}
+}
+
+func TestEmitBackupChunk_ManifestChunk(t *testing.T) {
+	// Manifest carries ChunkIndex == -1; the emitter reports current == 0
+	// so the GUI can distinguish "manifest" from a regular chunk.
+	em, buf := captureEmitter("manifest-test")
+	em.EmitBackupChunk(BackupChunkProgress{
+		ChunkIndex:    -1,
+		TotalChunks:   95,
+		EncryptedSize: 2048,
+		Status:        "uploading",
+	})
+
+	ev := parseEvent(t, lastLine(buf))
+	if ev["chunkIndex"] != float64(-1) {
+		t.Errorf("chunkIndex = %v, want -1", ev["chunkIndex"])
+	}
+	// "current" is omitempty + value 0 → omitted from JSON
+	if _, ok := ev["current"]; ok {
+		t.Errorf("expected 'current' to be omitted for manifest chunk, got %v", ev["current"])
+	}
+}
+
+func TestEmitBackupChunk_DisabledEmitterProducesNoOutput(t *testing.T) {
+	buf := &bytes.Buffer{}
+	em := NewEmitterWithWriter("disabled-test", false, buf)
+	em.EmitBackupChunk(BackupChunkProgress{
+		ChunkIndex:  0,
+		TotalChunks: 1,
+		Status:      "uploading",
+	})
+	if buf.Len() != 0 {
+		t.Errorf("expected no output from disabled emitter, got %q", buf.String())
+	}
+}

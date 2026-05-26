@@ -241,16 +241,30 @@ func getParallelChunks(ctx context.Context, hc *http.Client, urls []storage.Pres
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	totalChunks := len(chunks)
+	emitChunk := func(idx uint32, status, message string, encSize int) {
+		em.EmitBackupChunk(events.BackupChunkProgress{
+			ChunkIndex:    int(idx),
+			TotalChunks:   totalChunks,
+			EncryptedSize: encSize,
+			Status:        status,
+			Message:       message,
+		})
+	}
+
 	var wg sync.WaitGroup
 	for w := 0; w < concurrency; w++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			for j := range work {
+				encSize := int(j.meta.EncryptedSize)
 				em.EmitItem(fmt.Sprintf("chunk-%d", j.index), "hosted-backup", "downloading", "", "", "")
+				emitChunk(j.index, "downloading", "", encSize)
 				blob, gerr := getOnce(ctx, hc, j.url)
 				if gerr != nil {
 					em.EmitItem(fmt.Sprintf("chunk-%d", j.index), "hosted-backup", "failed", gerr.Error(), "", "")
+					emitChunk(j.index, "failed", gerr.Error(), encSize)
 					errCh <- envelope.NewError(envelope.ErrBackendUnreachable,
 						fmt.Sprintf("backup pull: download chunk %d: %s", j.index, gerr.Error()))
 					cancel()
@@ -259,6 +273,7 @@ func getParallelChunks(ctx context.Context, hc *http.Client, urls []storage.Pres
 				sum := sha256.Sum256(blob)
 				if hex.EncodeToString(sum[:]) != strings.ToLower(j.meta.SHA256) {
 					em.EmitItem(fmt.Sprintf("chunk-%d", j.index), "hosted-backup", "failed", "sha256 mismatch", "", "")
+					emitChunk(j.index, "failed", "sha256 mismatch", encSize)
 					errCh <- envelope.NewError(envelope.ErrInternalError,
 						fmt.Sprintf("backup pull: chunk %d SHA-256 mismatch — refusing to decrypt", j.index)).
 						WithRemediation("Re-run; if it persists, the chunk may be corrupted in storage.")
@@ -266,9 +281,11 @@ func getParallelChunks(ctx context.Context, hc *http.Client, urls []storage.Pres
 					return
 				}
 				em.EmitItem(fmt.Sprintf("chunk-%d", j.index), "hosted-backup", "verified", "", "", "")
+				emitChunk(j.index, "verified", "", encSize)
 				plain, derr := crypto.DecryptChunk(blob, j.index, dek)
 				if derr != nil {
 					em.EmitItem(fmt.Sprintf("chunk-%d", j.index), "hosted-backup", "failed", "decrypt failed", "", "")
+					emitChunk(j.index, "failed", "decrypt failed", encSize)
 					errCh <- envelope.NewError(envelope.ErrInternalError,
 						fmt.Sprintf("backup pull: decrypt chunk %d: %s", j.index, derr.Error()))
 					cancel()
@@ -276,6 +293,7 @@ func getParallelChunks(ctx context.Context, hc *http.Client, urls []storage.Pres
 				}
 				out[j.index] = plain
 				em.EmitItem(fmt.Sprintf("chunk-%d", j.index), "hosted-backup", "decrypted", "", "", "")
+				emitChunk(j.index, "decrypted", "", encSize)
 			}
 		}()
 	}

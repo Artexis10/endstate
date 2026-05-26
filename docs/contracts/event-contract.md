@@ -46,7 +46,7 @@ Every event **MUST** include:
 | `version` | integer | Event schema version (always `1` for this contract) |
 | `runId` | string | Run identifier (e.g., `"apply-20250101-120000-MACHINE"`) |
 | `timestamp` | string | RFC3339 UTC timestamp (informational; NDJSON line order is authoritative) |
-| `event` | string | Event type: `"phase"`, `"item"`, `"summary"`, `"error"`, `"artifact"` |
+| `event` | string | Event type: `"phase"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"` |
 
 ### Event Types
 
@@ -249,6 +249,54 @@ Tracks progress of individual restore actions during apply with `--EnableRestore
 **Summary event extension:**
 When `phase` is `"restore"`, the summary event may include an additional optional field:
 - `backupLocation` (string | null): Root backup directory path
+
+---
+
+#### 7. Backup-Chunk Event
+
+Tracks per-chunk progress of a hosted-backup push or pull (added in engine v2.3.0). Non-breaking addition (new event type, no version bump).
+
+```json
+{
+  "version": 1,
+  "runId": "backup-push-20260526-120000-MACHINE",
+  "timestamp": "2026-05-26T12:00:01.456Z",
+  "event": "backup-chunk",
+  "chunkIndex": 46,
+  "totalChunks": 95,
+  "encryptedSize": 4194316,
+  "status": "uploading",
+  "current": 47,
+  "total": 95
+}
+```
+
+**Fields:**
+- `chunkIndex` (integer, required): 0-based chunk index, or `-1` for the manifest blob
+- `totalChunks` (integer, required): Count of data chunks (manifest excluded)
+- `encryptedSize` (integer, required): On-the-wire size of the chunk in bytes
+- `status` (string, required): One of:
+  - `"uploading"` — push: chunk in flight
+  - `"uploaded"` — push: chunk terminally succeeded
+  - `"downloading"` — pull: chunk in flight
+  - `"verified"` — pull: SHA-256 verified
+  - `"decrypted"` — pull: AEAD decrypt succeeded
+  - `"retrying"` — push: previous attempt failed with a retryable error; retry imminent (no pull-side retry today)
+  - `"failed"` — terminal failure after exhausting retries
+- `message` (string, optional): Non-fatal hint (e.g., error message before retry)
+- `attempt` (integer, optional): 1-based current attempt number; present only when `status === "retrying"`
+- `maxAttempts` (integer, optional): Inclusive upper bound on attempts; present only when `status === "retrying"`
+- `current` (integer, optional): 1-based chunk-of-total position (mirrors `chunkIndex + 1` for data chunks; omitted for the manifest chunk)
+- `total` (integer, optional): Mirrors `totalChunks` for forward-compat
+
+**Guarantees:**
+- Emitted during the `"backup-push"` and `"backup-pull"` phases (alongside existing item events for log continuity)
+- Per chunk, the status sequence is `uploading → (retrying* →) uploaded` for push and `downloading → verified → decrypted` for pull
+- A `retrying` event is emitted **before** the backoff sleep, so the GUI shows the retry tag during the sleep window rather than after
+
+**Consumer notes:**
+- The GUI MUST handle missing `attempt` / `maxAttempts` gracefully (treat as a generic retry indicator) so a GUI built against this event can still consume events from an older engine that doesn't yet emit them
+- `current` is omitted from the manifest chunk (chunkIndex == -1); the GUI should render "manifest" rather than a chunk number
 
 ---
 
