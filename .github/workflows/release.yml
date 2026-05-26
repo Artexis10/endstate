@@ -2,22 +2,14 @@ name: Release
 
 # Builds endstate.exe + .sha256 and attaches them to the GitHub Release.
 #
-# Trigger model: dispatched from release-please.yml via `gh workflow run`
-# once a new release is cut. The `release: published` trigger is kept as a
-# defensive backup in case the release is ever created by a non-
-# GITHUB_TOKEN identity (PAT, GitHub App) where the recursion-protection
-# rule doesn't apply — but the primary path is workflow_dispatch.
+# Trigger model: `release: published` fires naturally when release-please
+# cuts a release, because release-please.yml now mints its token from the
+# endstate-release-bot GitHub App (not GITHUB_TOKEN), and App-created
+# events DO cascade into other workflows.
 #
-# History: an earlier iteration relied on `release: published` firing for
-# releases created by release-please-action. That doesn't actually work —
-# GitHub blocks GITHUB_TOKEN-triggered events from cascading into other
-# workflows (with `workflow_dispatch` and `repository_dispatch` as the
-# documented exceptions). Releases v2.0.1 / v2.1.0 / v2.2.1 / v2.3.0
-# shipped without binaries as a result. See release-please.yml for the
-# dispatch fix.
-#
-# workflow_dispatch with `tag_name` input also doubles as the manual
-# backfill path for any release that pre-dates the fix.
+# workflow_dispatch with `tag_name` is kept for manual backfills (e.g.
+# re-running a build that failed for transient reasons, or attaching
+# assets to a pre-App-era release like v2.0.1 / v2.1.0 / v2.2.1).
 
 on:
   release:
