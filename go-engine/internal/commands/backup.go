@@ -89,9 +89,11 @@ func RunBackup(flags BackupFlags) (interface{}, *envelope.Error) {
 		return runBackupStatus(flags)
 	case "subscribe":
 		return runBackupSubscribe(flags)
+	case "browser-session":
+		return runBackupBrowserSession(flags)
 	case "":
 		return nil, envelope.NewError(envelope.ErrInternalError,
-			"backup requires a subcommand (signup, claim, login, logout, status, subscribe, push, pull, list, versions, delete, delete-version, recover)")
+			"backup requires a subcommand (signup, claim, login, logout, status, subscribe, browser-session, push, pull, list, versions, delete, delete-version, recover)")
 	case "list":
 		return runBackupList(flags)
 	case "versions":

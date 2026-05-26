@@ -144,6 +144,22 @@ Authentication tokens are JWTs signed with EdDSA (Ed25519) per RFC 8032 and RFC 
 | `jti` | string | JWT ID (UUID) for revocation lookup |
 | `subscription_status` | string | One of `none`, `active`, `grace`, `cancelled` — UI hint only, server is authoritative for write authorisation |
 
+### Browser-session token (audience `endstate-account`)
+
+A short-lived (60 seconds) bearer credential minted by `POST /api/auth/browser-session` (§5) when an authenticated GUI client requests a web handoff to the substrate `/account` portal. Carried only in the `?session=` URL parameter on the first hit to `/account/start`; substrate's redeem path burns the `jti` and issues an HttpOnly cookie session for subsequent interactions.
+
+The token uses the same EdDSA infrastructure as access tokens (`kid` rotation aware, JWKS-verifiable). The audience claim is enforced server-side: it is NOT a refresh token, NOT a recovery token, and NOT usable for `/api/backups/*` calls.
+
+| Claim | Type | Description |
+|---|---|---|
+| `iss` | string | Same as access token |
+| `sub` | string | User ID (UUID) |
+| `aud` | string | `endstate-account` |
+| `iat` | int | Issued-at |
+| `exp` | int | `iat + 60` |
+| `nbf` | int | Equal to `iat` |
+| `jti` | string | Single-use; burned at redeem (replays return `BROWSER_SESSION_CONSUMED`) |
+
 ### JWKS endpoint
 
 `GET /api/.well-known/jwks.json` returns the public key set in standard JWKS format. The current signing key is identified by `kid`. Multiple keys may be present during rotation.
@@ -217,6 +233,25 @@ Invalidates the refresh token. Access tokens expire on their own; the server doe
 ### POST /api/auth/recover
 
 See Section 6.
+
+### POST /api/auth/browser-session
+
+Bearer-authenticated. Mints a single-use 60-second JWT (`aud: endstate-account`) for the GUI to hand off to the substrate `/account` portal.
+
+**Request:** no body.
+
+**Response:**
+```json
+{ "sessionToken": "<jwt>", "accountUrl": "<issuer>/account/start" }
+```
+
+The engine returns the URL + token; it does NOT open a browser. The GUI composes `${accountUrl}?session=${sessionToken}` and opens it in the system browser. Substrate's `/account/start` route validates the token, burns the `jti`, sets an HttpOnly session cookie, and 302s to the cookie-only `/account` page.
+
+Self-hosters override `accountUrl` via `endstate_extensions.account_portal_url` (§9). The fallback is `${issuer}/account/start`.
+
+### POST /api/auth/browser-session/redeem
+
+Substrate-internal. Accepts `{ "token": "<jwt>" }`, validates audience + expiry, burns the `jti`, and returns 204 with `Set-Cookie: endstate_account_session=<opaque>; HttpOnly; Secure; SameSite=Lax; Max-Age=3600`. The `/account/start` route uses the redeem logic directly via the substrate `browser-session` lib; the body-based POST is provided for non-page consumers (parity / future use).
 
 ---
 
@@ -294,12 +329,15 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 
 ### Account endpoints
 
-- `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt }`
-- `DELETE /api/account` → triggers GDPR deletion (Section 12)
+- `GET /api/account/me` → `{ userId, email, subscriptionStatus, createdAt, plan, currentPeriodEnd, gracePeriodEndsAt, paddleSubscriptionId, paddleCustomerId }` — bearer-authenticated.
+- `DELETE /api/account` → bearer-authenticated; triggers GDPR deletion (Section 12).
+- `POST /api/account/web-delete` → **cookie-authenticated** sibling of `DELETE /api/account` for the `/account` web page. Same cascade as the bearer-auth variant; invalidates the account session cookie on completion. The dual surface (bearer + cookie) is deliberate: the engine's bearer flow stays unchanged, and the cookie-auth path serves the in-browser surface without dual-auth on the canonical route.
+- `POST /api/account/session/logout` → cookie-authenticated. Invalidates the account session row, clears the cookie, 204.
 
 ### Billing endpoints
 
 - `POST /api/billing/checkout` → mint a Paddle transaction for the Hosted Backup price → `{ checkoutUrl, transactionId }`. Engine-initiated (the `backup subscribe` command), bearer-authenticated, no request body — substrate resolves the price server-side. The engine returns `checkoutUrl` to the GUI, which opens it in the system browser (substrate's `/endstate` landing renders the Paddle `_ptxn` overlay); the engine never opens a browser. Like `/api/account/*`, this lives off the issuer host (Section 9), not under `backup_api_base`.
+- `POST /api/billing/portal` → cookie-authenticated. Calls Paddle's `POST /customers/:id/portal-sessions` and returns `{ portalUrl }` (Paddle's `urls.general.overview`). Available in `active`, `grace`, and `paused` states. Returns `404 PADDLE_PORTAL_UNAVAILABLE` when the user has no `paddleCustomerId` on file (e.g. pre-first-payment). The cancelled-state path uses `/api/billing/checkout` instead, since Paddle's hosted portal does not reactivate fully-canceled subscriptions.
 
 ### Backup metadata endpoints
 
@@ -410,12 +448,15 @@ The engine fetches `${ENDSTATE_OIDC_ISSUER_URL}/.well-known/openid-configuration
     "auth_logout_endpoint": "https://substratesystems.io/api/auth/logout",
     "auth_recover_endpoint": "https://substratesystems.io/api/auth/recover",
     "backup_api_base": "https://substratesystems.io/api/backups",
+    "account_portal_url": "https://substratesystems.io/account/start",
     "supported_kdf_algorithms": ["argon2id"],
     "supported_envelope_versions": [1],
     "min_kdf_params": { "memory": 65536, "iterations": 3, "parallelism": 4 }
   }
 }
 ```
+
+`account_portal_url` is optional. When absent, the engine and substrate both fall back to `${issuer}/account/start`. Self-hosters who relocate the portal (e.g. behind a separate hostname) populate this field; like `/api/account/*` and `/api/billing/*`, the portal lives off the issuer host, not under `backup_api_base`.
 
 The `endstate_extensions` block is non-standard but namespaced. Anyone implementing a self-host backend implements these extension fields. The engine refuses to talk to a backend that does not advertise them or advertises incompatible KDF / envelope minimums.
 
@@ -620,6 +661,12 @@ A schema bump triggers the breaking-change protocol from Section 11.
 
 ## Changelog
 
+- **2026-05-27 — additive.**
+  - **§4 JWT format.** New audience `endstate-account` for the GUI→web `/account` portal handoff. 60-second TTL, single-use via `jti` burn at redeem. Reuses the existing EdDSA signing infrastructure.
+  - **§5 auth flow.** New endpoints `POST /api/auth/browser-session` (bearer-authenticated, engine-initiated) and `POST /api/auth/browser-session/redeem` (substrate-internal, sets HttpOnly cookie). The engine command is `endstate backup browser-session`.
+  - **§7 API surface.** New endpoints `POST /api/billing/portal` (cookie-authenticated; mints Paddle customer-portal session), `POST /api/account/session/logout` (cookie-authenticated; ends `/account` web session), and `POST /api/account/web-delete` (cookie-authenticated sibling of the bearer-auth `DELETE /api/account`).
+  - **§9 discovery.** New optional `endstate_extensions.account_portal_url` advertises the substrate `/account/start` URL. Fallback is `${issuer}/account/start`.
+  - All additive per §13 — no schema bump.
 - **2026-05-10 — v2.0** (breaking).
   - **§6 recovery flow.** Bearer-header `recoveryToken` replaces the v1.0 body-borne shape. Step 3 (`/api/auth/recover`) now returns `{ recoveryToken, recoveryKeyWrappedDEK, ttlSeconds: 600 }`. Step 7 (`/api/auth/recover/finalize`) takes `Authorization: Bearer <recoveryToken>` and a body of `{ newServerPassword, newSalt, newKdfParams, newWrappedDEK }`. Server returns `{ userId, accessToken, refreshToken, subscriptionStatus }`. Recovery tokens are single-use; replays return `RECOVERY_TOKEN_EXPIRED`.
   - **§9 self-host.** `endstate_extensions.backup_api_base` is now consumed by the engine (was advertised but ignored in v1.0). Issuer claim mismatch surfaces `BACKEND_INCOMPATIBLE` with actionable remediation about `ENDSTATE_OIDC_ISSUER_URL` agreement.

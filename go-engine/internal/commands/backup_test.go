@@ -96,6 +96,13 @@ func fakeBackend(t *testing.T) *httptest.Server {
 			"transactionId": "txn_abc123",
 		})
 	})
+	mux.HandleFunc("/api/auth/browser-session", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"sessionToken": "synthetic.jwt.body",
+			"accountUrl":   srv.URL + "/account/start",
+		})
+	})
 	t.Cleanup(srv.Close)
 	return srv
 }

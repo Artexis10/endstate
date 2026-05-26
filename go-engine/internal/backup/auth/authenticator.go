@@ -489,6 +489,43 @@ func (a *Authenticator) Subscribe(ctx context.Context) (*CheckoutResponse, *enve
 	return &resp, nil
 }
 
+// BrowserSessionResponse matches substrate's POST /api/auth/browser-session
+// payload (contract §5). SessionToken is a 60s EdDSA JWT (aud=endstate-account);
+// AccountUrl is the substrate-advertised portal landing (defaults to
+// `${issuer}/account/start`). The GUI opens `${AccountUrl}?session=${SessionToken}`
+// in the system browser, where substrate's start route swaps the JWT for an
+// HttpOnly cookie and redirects to the cookie-only /account page.
+type BrowserSessionResponse struct {
+	SessionToken string `json:"sessionToken"`
+	AccountURL   string `json:"accountUrl"`
+}
+
+// BrowserSession mints a short-lived handoff token for the GUI to open the
+// substrate /account portal in the system browser. POSTs to
+// <issuer>/api/auth/browser-session with no body, using the session's
+// persisted access token. Mirrors Subscribe()'s shape; the token is single-
+// use (substrate burns the jti at redeem).
+//
+// The engine returns the URL + token; it does not open a browser. The GUI
+// composes `${AccountURL}?session=${SessionToken}` and opens it externally.
+func (a *Authenticator) BrowserSession(ctx context.Context) (*BrowserSessionResponse, *envelope.Error) {
+	doc, err := a.oidc.Discovery(ctx)
+	if err != nil {
+		return nil, mapDiscoveryError(err)
+	}
+	url := strings.TrimRight(a.issuer.URL, "/") + "/api/auth/browser-session"
+	var resp BrowserSessionResponse
+	if cerr := a.httpc.Do(ctx, client.Request{
+		Method:   "POST",
+		URL:      url,
+		ReadOnly: false,
+	}, &resp); cerr != nil {
+		return nil, cerr
+	}
+	_ = doc // symmetric with Subscribe()/Me(); keeps the issuer-mismatch guardrail in the path.
+	return &resp, nil
+}
+
 // mapDiscoveryError converts an oidc package error to the envelope code
 // the command handler should return.
 func mapDiscoveryError(err error) *envelope.Error {
