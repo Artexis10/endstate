@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.3.0](https://github.com/Artexis10/endstate/compare/v2.2.1...v2.3.0) (2026-05-26)
+
+
+### Features
+
+* **backup:** emit backup-chunk events with per-attempt retry visibility ([#37](https://github.com/Artexis10/endstate/issues/37)) ([610fe4f](https://github.com/Artexis10/endstate/commit/610fe4fdbc27eff27051fc44f1c23fdfa8fca34e))
+
 ## [2.2.1](https://github.com/Artexis10/endstate/compare/v2.2.0...v2.2.1) (2026-05-25)
 
 
