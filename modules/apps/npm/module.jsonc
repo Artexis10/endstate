@@ -1,0 +1,60 @@
+{
+  // Config Module: npm
+  // Provides verify/restore/capture configuration for the npm CLI (Node Package Manager)
+  // Curated module - captures the per-user .npmrc; flagged sensitive because npm stores
+  // registry auth tokens inline in the same file (//registry/:_authToken=...).
+
+  "id": "apps.npm",
+  "displayName": "npm",
+  "sensitivity": "medium",
+
+  "matches": {
+    "exe": ["npm.cmd", "node.exe"],
+    "pathExists": [
+      "%USERPROFILE%\\.npmrc"
+    ]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "npm" }
+    // Note: ~/.npmrc is optional - npm works with built-in defaults if the user
+    // has never set a registry, proxy, or init default. Verify only checks that
+    // npm is installed, not that a user config exists.
+  ],
+
+  "restore": [
+    {
+      // Per-user npm config: registry, proxy, init-* defaults, save-prefix, etc.
+      // WARNING: may contain inline registry _authToken lines (see sensitive block).
+      "type": "copy",
+      "source": "./payload/apps/npm/.npmrc",
+      "target": "~/.npmrc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary per-user config (HOME/.npmrc -> %USERPROFILE%\.npmrc on Windows)
+      { "source": "~/.npmrc", "dest": "apps/npm/.npmrc", "optional": true }
+    ],
+    "excludeGlobs": [
+      // npm cache / logs / temp install artifacts - never config
+      "**\\_cacache\\**",
+      "**\\_logs\\**",
+      "**\\_npx\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.npmrc"
+    ],
+    "warning": "The per-user ~/.npmrc may contain inline registry authentication tokens (e.g. //registry.npmjs.org/:_authToken=...) and other credentials. npm stores these in the same file as ordinary settings, so they cannot be filtered out per-line. Review the captured .npmrc and scrub any _authToken / _auth / _password lines before sharing, and re-authenticate (npm login) after restore rather than relying on a restored token.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the per-user ~/.npmrc (= %USERPROFILE%\\.npmrc on Windows) which holds registry URL, proxy/https-proxy, init-* defaults, save-prefix, and similar global npm settings. The npm cache (_cacache), logs (_logs), and npx cache (_npx) are excluded. Flagged medium-sensitivity because npm stores registry auth tokens inline in this same file (//registry/:_authToken=...); the file is marked warn-only restore and users should scrub tokens before sharing and run `npm login` after restore. Confidence: high - per-user .npmrc location confirmed by official npm docs (docs.npmjs.com/cli/.../configuring-npm/npmrc) and multiple independent sources."
+}

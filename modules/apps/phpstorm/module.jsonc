@@ -1,0 +1,112 @@
+{
+  // Config Module: PhpStorm
+  // Provides verify/restore/capture configuration for JetBrains PhpStorm
+  // Curated module - captures IDE settings, keymaps, templates, code styles
+  // Note: Config folder is version-specific (PhpStorm<version>)
+
+  "id": "apps.phpstorm",
+  "displayName": "PhpStorm",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.PhpStorm"],
+    "exe": ["phpstorm64.exe"],
+    "uninstallDisplayName": ["^PhpStorm"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\PhpStorm*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/phpstorm/options",
+      "target": "%APPDATA%\\JetBrains\\PhpStorm*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/phpstorm/keymaps",
+      "target": "%APPDATA%\\JetBrains\\PhpStorm*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/phpstorm/templates",
+      "target": "%APPDATA%\\JetBrains\\PhpStorm*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/phpstorm/codestyles",
+      "target": "%APPDATA%\\JetBrains\\PhpStorm*\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/phpstorm/colors",
+      "target": "%APPDATA%\\JetBrains\\PhpStorm*\\colors",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\PhpStorm*\\options", "dest": "apps/phpstorm/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\PhpStorm*\\keymaps", "dest": "apps/phpstorm/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\PhpStorm*\\templates", "dest": "apps/phpstorm/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\PhpStorm*\\codestyles", "dest": "apps/phpstorm/codestyles", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\PhpStorm*\\colors", "dest": "apps/phpstorm/colors", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml",
+      "**\\options\\security.xml",
+      "**\\options\\github.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\PhpStorm*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\PhpStorm*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures PhpStorm settings (options/*.xml), keymaps, live templates, code styles, and editor color schemes. Config folder is version-specific (%APPDATA%\\JetBrains\\PhpStorm<version>\\). Workspace-specific files (workspace.xml, tasks.xml), usage stats, caches, index, and logs are excluded; credential-bearing security.xml/github.xml are excluded and never auto-restored. Confidence: high - config directory layout confirmed by official JetBrains PhpStorm directories documentation and matches sibling JetBrains modules.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml"
+    ]
+  }
+}

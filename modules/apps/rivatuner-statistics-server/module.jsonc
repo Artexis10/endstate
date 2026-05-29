@@ -1,0 +1,79 @@
+{
+  // Config Module: RivaTuner Statistics Server (RTSS)
+  // Provides verify/restore/capture configuration for RTSS overlay/framerate-limiter
+  // Curated module - captures OSD layouts, framerate limits, and per-game profiles
+  // NOTE: RTSS stores all settings inside its own install directory (no AppData, no HKCU).
+
+  "id": "apps.rivatuner-statistics-server",
+  "displayName": "RivaTuner Statistics Server (RTSS)",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Guru3D.RTSS"],
+    "exe": ["RTSS.exe"],
+    "uninstallDisplayName": ["^RivaTuner Statistics Server"],
+    "pathExists": [
+      "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\RTSS.exe",
+      "%ProgramFiles%\\RivaTuner Statistics Server\\RTSS.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\RTSS.exe" }
+  ],
+
+  "restore": [
+    {
+      // Per-game + Global/Config profiles (OSD layouts, framerate limits, hooking rules)
+      "type": "copy",
+      "source": "./payload/apps/rivatuner-statistics-server/Profiles",
+      "target": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\Profiles",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.tmp"]
+    },
+    {
+      // Base profile templates shipped/edited under the install dir
+      "type": "copy",
+      "source": "./payload/apps/rivatuner-statistics-server/ProfileTemplates",
+      "target": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\ProfileTemplates",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.tmp"]
+    },
+    {
+      // Custom OSD overlay layouts (.ovl) created via the Overlay Editor plugin
+      "type": "copy",
+      "source": "./payload/apps/rivatuner-statistics-server/Overlays",
+      "target": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\Plugins\\Client\\Overlays",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.tmp"]
+    },
+    {
+      // Main application configuration (window geometry, app behavior)
+      "type": "copy",
+      "source": "./payload/apps/rivatuner-statistics-server/RTSS.cfg",
+      "target": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\RTSS.cfg",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\Profiles", "dest": "apps/rivatuner-statistics-server/Profiles", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\ProfileTemplates", "dest": "apps/rivatuner-statistics-server/ProfileTemplates", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\Plugins\\Client\\Overlays", "dest": "apps/rivatuner-statistics-server/Overlays", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\RivaTuner Statistics Server\\RTSS.cfg", "dest": "apps/rivatuner-statistics-server/RTSS.cfg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Cache\\**",
+      "**\\Logs\\**"
+    ]
+  },
+
+  "notes": "Captures RTSS overlay/OSD layouts, framerate limits, and per-game profiles from the install dir: Profiles\\ (Global, Config, and <exe>.exe.cfg per-game files), ProfileTemplates\\, custom Overlay Editor layouts in Plugins\\Client\\Overlays\\ (.ovl), and RTSS.cfg. RTSS stores all settings inside %ProgramFiles(x86)%\\RivaTuner Statistics Server\\ rather than AppData or HKCU (only HKLM\\SOFTWARE\\WOW6432Node\\Unwinder\\RTSS\\InstallPath holds the install location, which is intentionally not captured); restoring there typically requires running with elevation. Logs/temp files are excluded. No credentials or sensitive data involved. Confidence: high - Profiles location confirmed by multiple independent community sources (phixion/rtss_profiles GitHub repo, overclock.net); ProfileTemplates\\Global and RTSS.cfg confirmed by community guides; .ovl overlay layout location (Plugins\\Client\\Overlays\\) confirmed by guru3D overlay-editor forum, wccftech guide, and PeterKelemen2/RTSS-Overlay install script."
+}

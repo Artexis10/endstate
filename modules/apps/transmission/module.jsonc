@@ -1,0 +1,75 @@
+{
+  // Config Module: Transmission
+  // Provides verify/restore/capture configuration for the Transmission BitTorrent client
+  // Curated module - captures the JSON preferences file, excludes torrent/resume state and blocklist blobs
+
+  "id": "apps.transmission",
+  "displayName": "Transmission",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Transmission.Transmission"],
+    "exe": ["transmission-qt.exe", "transmission-daemon.exe"],
+    "uninstallDisplayName": ["^Transmission\\b"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\transmission\\settings.json",
+      "%LOCALAPPDATA%\\transmission-daemon\\settings.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\transmission\\settings.json" }
+  ],
+
+  "restore": [
+    // Qt GUI client preferences
+    {
+      "type": "copy",
+      "source": "./payload/apps/transmission/settings.json",
+      "target": "%LOCALAPPDATA%\\transmission\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    // Daemon/CLI client preferences (separate config dir when run from the command line)
+    {
+      "type": "copy",
+      "source": "./payload/apps/transmission/daemon-settings.json",
+      "target": "%LOCALAPPDATA%\\transmission-daemon\\settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary preferences file: speed limits, scheduler, watch/incomplete dirs, peer/encryption, RPC, UI prefs
+      { "source": "%LOCALAPPDATA%\\transmission\\settings.json", "dest": "apps/transmission/settings.json", "optional": true },
+      // Daemon/CLI preferences (only present if the daemon was run from the command line)
+      { "source": "%LOCALAPPDATA%\\transmission-daemon\\settings.json", "dest": "apps/transmission/daemon-settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Per-machine torrent download state - not portable settings
+      "**\\torrents\\**",
+      "**\\resume\\**",
+      // Re-downloadable blocklist blobs (large binary data) and session statistics
+      "**\\blocklists\\**",
+      "**\\stats.json",
+      // Locks, logs, caches, temp
+      "**\\*.lock",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\transmission\\settings.json",
+      "%LOCALAPPDATA%\\transmission-daemon\\settings.json"
+    ],
+    "warning": "settings.json can contain the RPC remote-access password under \"rpc-password\". Transmission hashes this value at rest (salted, prefixed with '{'), but a freshly-set value may be plaintext until the daemon rewrites it. Review before restoring to another user or machine; re-set the RPC password if exposure is a concern.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the Transmission preferences file (settings.json) for both the Qt GUI (%LOCALAPPDATA%\\transmission) and the daemon/CLI (%LOCALAPPDATA%\\transmission-daemon) config dirs. Excludes per-machine torrent/resume state, re-downloadable blocklist blobs, and session statistics. The Qt client persists all preferences to settings.json via libtransmission's JSON serializer - it does NOT use the Windows registry. settings.json may carry a (hashed) RPC password; flagged sensitive for review. Confidence: high - Qt config dir and settings.json layout confirmed by official Configuration-Files.md docs and qt/Prefs.cc source (JSON, not QSettings)."
+}

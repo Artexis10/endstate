@@ -1,0 +1,45 @@
+{
+  // Config Module: MPC-HC (Media Player Classic - Home Cinema)
+  // Provides verify/restore/capture configuration for the clsid2 MPC-HC fork
+  // Settings stored in the Windows Registry under HKCU\Software\MPC-HC (installed mode)
+
+  "id": "apps.mpc-hc",
+  "displayName": "MPC-HC (Media Player Classic - Home Cinema)",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["clsid2.mpc-hc"],
+    "exe": ["mpc-hc64.exe", "mpc-hc.exe"],
+    "uninstallDisplayName": ["^MPC-HC"],
+    "pathExists": [
+      "%ProgramFiles%\\MPC-HC\\mpc-hc64.exe",
+      "%ProgramFiles(x86)%\\MPC-HC\\mpc-hc.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\MPC-HC\\MPC-HC" }
+  ],
+
+  "restore": [
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/mpc-hc/MPC-HC.reg",
+      "target": "HKCU\\Software\\MPC-HC",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      // Whole settings tree: HKCU\Software\MPC-HC\MPC-HC and its subkeys
+      // (Settings, Commands2 keybindings, Filters, Internal Filters, Shaders,
+      //  FileFormats, ToolBars, Favorites, etc.). Recursive .reg export.
+      { "key": "HKCU\\Software\\MPC-HC", "dest": "apps/mpc-hc/MPC-HC.reg", "optional": true }
+    ]
+  },
+
+  "notes": "MPC-HC (clsid2 fork) stores all settings in the Windows Registry under HKCU\\Software\\MPC-HC\\MPC-HC by default; the installed/winget build writes no INI in AppData or Program Files unless portable mode is explicitly enabled. Captures the full HKCU\\Software\\MPC-HC tree (preferences, Commands2 keyboard bindings, filters, shaders, file associations, toolbars). Recent-file/MediaHistory subkeys are nested in the same key and included; they hold no credentials. Portable mpc-hc64.ini (only present when 'Store settings to .ini file' is enabled next to the exe) is not captured. No sensitive auth data. Confidence: high - registry path HKCU\\Software\\MPC-HC\\MPC-HC and registry-only default confirmed by the clsid2/mpc-hc GitHub repo and multiple independent sources."
+}

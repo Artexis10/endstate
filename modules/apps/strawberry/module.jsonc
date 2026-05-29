@@ -1,0 +1,60 @@
+{
+  // Config Module: Strawberry Music Player
+  // Clementine fork; Qt-based music player and collection organizer.
+  // On Windows, ALL settings are stored via QSettings NativeFormat in the
+  // registry under HKCU\Software\Strawberry\Strawberry (verified in src/main.cpp:
+  // setOrganizationName("Strawberry") + setApplicationName("Strawberry"), no
+  // setDefaultFormat(IniFormat), so the .conf file is Linux-only).
+  // That single registry key ALSO holds streaming-service access tokens
+  // (Spotify/Tidal/Qobuz/Subsonic), so it cannot be captured without exporting
+  // credentials. Endstate registry capture has no subkey-level exclusion, so we
+  // capture nothing and document the sensitive key instead. Capture-only stub.
+
+  "id": "apps.strawberry",
+  "displayName": "Strawberry Music Player",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["StrawberryMusicPlayer.Strawberry"],
+    "exe": ["strawberry.exe"],
+    "uninstallDisplayName": ["^Strawberry\\b"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Strawberry\\Strawberry"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Strawberry\\Strawberry" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      // Collection/state database and derived caches under %LOCALAPPDATA% — not
+      // portable settings; large, machine-specific scan/state data.
+      "**\\Strawberry\\Strawberry\\strawberry.db",
+      "**\\Strawberry\\Strawberry\\strawberry.db-*",
+      "**\\Strawberry\\Strawberry\\collectionalbumcovers\\**",
+      "**\\Strawberry\\Strawberry\\albumcovers\\**",
+      "**\\Strawberry\\Strawberry\\moodbars\\**",
+      "**\\Strawberry\\Strawberry\\cache\\**",
+      "**\\Strawberry\\Strawberry\\networkcache\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "registryKeys": [
+      "HKCU\\Software\\Strawberry\\Strawberry"
+    ],
+    "files": [
+      "%LOCALAPPDATA%\\Strawberry\\Strawberry\\strawberry.db"
+    ],
+    "warning": "On Windows, Strawberry stores all preferences via Qt QSettings in the registry key HKCU\\Software\\Strawberry\\Strawberry. That same key holds streaming-service access tokens (Spotify, Tidal, Qobuz, Subsonic) in their per-service subkeys; exporting the key would capture those credentials. It MUST NOT be auto-captured or restored. Re-authenticate streaming services after a fresh install.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Capture-only stub: nothing is captured. On Windows, Strawberry keeps all settings in the registry under HKCU\\Software\\Strawberry\\Strawberry (Qt NativeFormat, confirmed in src/main.cpp), and that single key also contains streaming-service access tokens (Spotify/Tidal/Qobuz/Subsonic). Endstate registry capture cannot exclude individual subkeys, so capturing the settings key would unavoidably export credentials. The collection database and album-cover/moodbar caches under %LOCALAPPDATA%\\Strawberry\\Strawberry are excluded as large machine-specific state. Confidence: medium - settings registry key path and credential storage confirmed by source code and multiple community sources, but treated as non-capturable for safety because tokens share the key."
+}

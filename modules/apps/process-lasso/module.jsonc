@@ -1,0 +1,59 @@
+{
+  // Config Module: Process Lasso
+  // Provides verify/restore/capture configuration for Process Lasso (BitSum process optimizer)
+  // Settings stored in prolasso.ini under %LOCALAPPDATA%\ProcessLasso (file-based, no registry)
+
+  "id": "apps.process-lasso",
+  "displayName": "Process Lasso",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["BitSum.ProcessLasso"],
+    "exe": ["ProcessLasso.exe", "ProcessGovernor.exe"],
+    "uninstallDisplayName": ["^Process Lasso"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\ProcessLasso\\prolasso.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\ProcessLasso\\prolasso.ini" }
+  ],
+
+  "restore": [
+    {
+      // Entire config folder: prolasso.ini plus any config-profile subdirectories
+      "type": "copy",
+      "source": "./payload/apps/process-lasso/ProcessLasso",
+      "target": "%LOCALAPPDATA%\\ProcessLasso",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\prolasso.log",
+        "**\\prolasso.log.*",
+        "**\\*.log",
+        // License / offline-activation artifacts are sensitive; never restore them
+        "**\\*.key",
+        "**\\prolasso.lic"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Captures prolasso.ini (process rules, CPU affinity, priority classes, ProBalance,
+      // power profiles) and any config-profile subfolders. Logs excluded via excludeGlobs.
+      { "source": "%LOCALAPPDATA%\\ProcessLasso", "dest": "apps/process-lasso/ProcessLasso", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\prolasso.log",
+      "**\\prolasso.log.*",
+      "**\\*.log",
+      // License / offline-activation artifacts are sensitive; never capture them
+      "**\\*.key",
+      "**\\prolasso.lic"
+    ]
+  },
+
+  "notes": "Captures the entire %LOCALAPPDATA%\\ProcessLasso folder, which holds prolasso.ini (per-process CPU-affinity rules, priority classes, ProBalance tuning, power profiles) plus any named config-profile subdirectories, each with its own prolasso.ini. Rotated log files (prolasso.log, prolasso.log.0/.1/...) are excluded. License/offline-activation artifacts (*.key, prolasso.lic) are also excluded so registration material is never captured or restored. Process Lasso stores no settings in the registry. Confidence: medium - BitSum docs (processlasso-docs/ini-config-file, legacy 'Using the INI Configuration File') place config in the per-user 'application data folder' without distinguishing Local vs Roaming; %LOCALAPPDATA%\\ProcessLasso is the well-established default for the desktop edition (config + logs co-located there), but the docs do not state the literal hive."
+}

@@ -1,0 +1,74 @@
+{
+  // Config Module: Sunshine
+  // Provides verify/restore/capture configuration for Sunshine (LizardByte self-hosted
+  // game-stream host / Moonlight server).
+  // Curated module - captures the app list and host settings, excludes credentials,
+  // device-pairing certificates, TLS private key, state, and logs.
+
+  "id": "apps.sunshine",
+  "displayName": "Sunshine",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["LizardByte.Sunshine"],
+    "exe": ["sunshine.exe"],
+    "uninstallDisplayName": ["^Sunshine\\b"],
+    "pathExists": [
+      "%ProgramFiles%\\Sunshine\\config\\sunshine.conf"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Sunshine\\config\\sunshine.conf" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/sunshine/sunshine.conf",
+      "target": "%ProgramFiles%\\Sunshine\\config\\sunshine.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/sunshine/apps.json",
+      "target": "%ProgramFiles%\\Sunshine\\config\\apps.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Main host settings: encoder, network, ports, display/audio options.
+      { "source": "%ProgramFiles%\\Sunshine\\config\\sunshine.conf", "dest": "apps/sunshine/sunshine.conf", "optional": true },
+      // Curated application/game launch list (highest-value asset).
+      { "source": "%ProgramFiles%\\Sunshine\\config\\apps.json", "dest": "apps/sunshine/apps.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // State + web UI credentials (username/password hash, paired client device certs).
+      "**\\sunshine_state.json",
+      // TLS private key + certificate used for Moonlight pairing and the web UI.
+      "**\\credentials\\**",
+      "**\\*.pem",
+      // Logs and assorted runtime noise.
+      "**\\*.log",
+      "**\\assets\\**",
+      "**\\covers\\**",
+      "**\\box-art\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%ProgramFiles%\\Sunshine\\config\\sunshine_state.json",
+      "%ProgramFiles%\\Sunshine\\config\\credentials\\cakey.pem",
+      "%ProgramFiles%\\Sunshine\\config\\credentials\\cacert.pem"
+    ],
+    "warning": "sunshine_state.json holds the web UI username/password hash and paired Moonlight client device certificates; the credentials/ directory holds the TLS private key (cakey.pem) and certificate (cacert.pem). These MUST NOT be auto-restored - re-pair clients and re-set the web UI password on the new host.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Sunshine host settings (sunshine.conf) and the curated app/game list (apps.json) from %ProgramFiles%\\Sunshine\\config. Web UI credentials, paired-client device certs (sunshine_state.json), the TLS private key/certificate (credentials/), logs, and box-art are explicitly excluded; re-pair clients and reset the web UI password after restore. Config lives in the machine-wide install dir (%ProgramFiles%), not a per-user path. Confidence: high - default paths and file_apps/file_state/credentials_file/pkey/cert defaults confirmed by official LizardByte configuration docs."
+}

@@ -1,0 +1,79 @@
+{
+  // Config Module: Nushell
+  // Provides verify/restore/capture configuration for Nushell (structured-data shell)
+  // Curated module - captures startup config scripts, excludes history and plugin registry
+
+  "id": "apps.nushell",
+  "displayName": "Nushell",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Nushell.Nushell"],
+    "exe": ["nu.exe"],
+    "uninstallDisplayName": ["^Nushell\\b"],
+    "pathExists": [
+      "%APPDATA%\\nushell\\config.nu",
+      "%APPDATA%\\nushell\\env.nu"
+    ]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "nu" }
+    // Note: config.nu/env.nu are optional - a fresh install creates empty stubs
+    // and a user may not have customized them yet.
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/nushell/config.nu",
+      "target": "%APPDATA%\\nushell\\config.nu",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/nushell/env.nu",
+      "target": "%APPDATA%\\nushell\\env.nu",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/nushell/login.nu",
+      "target": "%APPDATA%\\nushell\\login.nu",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/nushell/autoload",
+      "target": "%APPDATA%\\nushell\\autoload",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Startup configuration scripts (read from $nu.default-config-dir)
+      { "source": "%APPDATA%\\nushell\\config.nu", "dest": "apps/nushell/config.nu", "optional": true },
+      { "source": "%APPDATA%\\nushell\\env.nu", "dest": "apps/nushell/env.nu", "optional": true },
+      { "source": "%APPDATA%\\nushell\\login.nu", "dest": "apps/nushell/login.nu", "optional": true },
+      // Auto-loaded *.nu fragments (custom commands, aliases, completions)
+      { "source": "%APPDATA%\\nushell\\autoload", "dest": "apps/nushell/autoload", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Command history is a state/log store, not portable config
+      "**\\history.txt",
+      "**\\history.sqlite3*",
+      // Plugin signature registry is a regenerated binary cache, not user config
+      "**\\plugin.msgpackz",
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Nushell startup config scripts (config.nu, env.nu, login.nu) and the autoload/ directory of custom commands and aliases from %APPDATA%\\nushell. Command history (history.txt / history.sqlite3) and the regenerated plugin.msgpackz signature registry are excluded as state/cache rather than portable settings. config.nu/env.nu are plain scripts that could in principle hold a user-typed secret, but Nushell does not store credentials there by default. Confidence: high - config directory and file names confirmed by official Nushell docs (nushell.sh/book/configuration)."
+}

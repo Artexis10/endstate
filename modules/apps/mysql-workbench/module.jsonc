@@ -1,0 +1,119 @@
+{
+  // Config Module: MySQL Workbench
+  // Provides verify/restore/capture configuration for Oracle's MySQL Workbench GUI
+  // Curated module - captures connections, server instances, preferences and user content;
+  // excludes the encrypted password vault (DPAPI-bound, non-portable), caches, logs and UI state.
+
+  "id": "apps.mysql-workbench",
+  "displayName": "MySQL Workbench",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Oracle.MySQLWorkbench"],
+    "exe": ["MySQLWorkbench.exe"],
+    "uninstallDisplayName": ["^MySQL Workbench"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\MySQL\\Workbench\\wb_options.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/mysql-workbench/connections.xml",
+      "target": "%APPDATA%\\MySQL\\Workbench\\connections.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mysql-workbench/server_instances.xml",
+      "target": "%APPDATA%\\MySQL\\Workbench\\server_instances.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mysql-workbench/wb_options.xml",
+      "target": "%APPDATA%\\MySQL\\Workbench\\wb_options.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mysql-workbench/snippets",
+      "target": "%APPDATA%\\MySQL\\Workbench\\snippets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mysql-workbench/scripts",
+      "target": "%APPDATA%\\MySQL\\Workbench\\scripts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mysql-workbench/modules",
+      "target": "%APPDATA%\\MySQL\\Workbench\\modules",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mysql-workbench/libraries",
+      "target": "%APPDATA%\\MySQL\\Workbench\\libraries",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/mysql-workbench/sql_history",
+      "target": "%APPDATA%\\MySQL\\Workbench\\sql_history",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Saved server connections (host/port/user/options; passwords are NOT here - they live in the vault)
+      { "source": "%APPDATA%\\MySQL\\Workbench\\connections.xml", "dest": "apps/mysql-workbench/connections.xml", "optional": true },
+      // Managed server instance definitions (start/stop, config file path, etc.)
+      { "source": "%APPDATA%\\MySQL\\Workbench\\server_instances.xml", "dest": "apps/mysql-workbench/server_instances.xml", "optional": true },
+      // User preferences (configured + default)
+      { "source": "%APPDATA%\\MySQL\\Workbench\\wb_options.xml", "dest": "apps/mysql-workbench/wb_options.xml", "optional": true },
+      // User-created content directories
+      { "source": "%APPDATA%\\MySQL\\Workbench\\snippets", "dest": "apps/mysql-workbench/snippets", "optional": true },
+      { "source": "%APPDATA%\\MySQL\\Workbench\\scripts", "dest": "apps/mysql-workbench/scripts", "optional": true },
+      { "source": "%APPDATA%\\MySQL\\Workbench\\modules", "dest": "apps/mysql-workbench/modules", "optional": true },
+      { "source": "%APPDATA%\\MySQL\\Workbench\\libraries", "dest": "apps/mysql-workbench/libraries", "optional": true },
+      // Daily SQL statement history (useful reference; no credentials)
+      { "source": "%APPDATA%\\MySQL\\Workbench\\sql_history", "dest": "apps/mysql-workbench/sql_history", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Encrypted password vault - DPAPI-bound to the current Windows user, non-portable, sensitive
+      "**\\workbench_user_data.dat",
+      // Caches, logs, audit cache, transient UI/session state
+      "**\\cache\\**",
+      "**\\log\\**",
+      "**\\audit_cache\\**",
+      "**\\sql_workspaces\\**",
+      "**\\wb_state.xml",
+      "**\\*.column_widths",
+      "**\\*.autosave"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\MySQL\\Workbench\\workbench_user_data.dat"
+    ],
+    "warning": "workbench_user_data.dat is the MySQL Workbench password vault, encrypted with the Windows DPAPI bound to the original user account. It cannot be decrypted on any other machine or account and MUST NOT be captured or restored. Re-enter connection passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures MySQL Workbench connections.xml, server_instances.xml and wb_options.xml plus user content (snippets, scripts, modules, libraries, sql_history) from %APPDATA%\\MySQL\\Workbench\\. Excludes caches, logs, audit_cache, transient UI/session state, and the encrypted workbench_user_data.dat password vault (DPAPI-bound, non-portable) - passwords must be re-entered after restore. Confidence: high - file locations and the vault behaviour are confirmed by the official MySQL Workbench Manual (dev.mysql.com)."
+}

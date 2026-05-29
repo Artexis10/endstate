@@ -1,0 +1,127 @@
+{
+  // Config Module: Winamp
+  // Provides verify/restore/capture configuration for the Winamp media player
+  // Curated module - captures preferences/EQ/skins, excludes the regenerable media library database
+
+  "id": "apps.winamp",
+  "displayName": "Winamp",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Winamp.Winamp"],
+    "exe": ["winamp.exe"],
+    "uninstallDisplayName": ["^Winamp\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Winamp\\winamp.ini" }
+  ],
+
+  "restore": [
+    {
+      // Main preferences: most settings, classic-skin window geometry, most plugin settings
+      "type": "copy",
+      "source": "./payload/apps/winamp/winamp.ini",
+      "target": "%APPDATA%\\Winamp\\winamp.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Modern (Bento/freeform) skin configuration
+      "type": "copy",
+      "source": "./payload/apps/winamp/studio.xnf",
+      "target": "%APPDATA%\\Winamp\\studio.xnf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Milkdrop visualizer settings (lives under Plugins\, not the Winamp root)
+      "type": "copy",
+      "source": "./payload/apps/winamp/Plugins/milk2.ini",
+      "target": "%APPDATA%\\Winamp\\Plugins\\milk2.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Graphic EQ presets (preset banks)
+      "type": "copy",
+      "source": "./payload/apps/winamp/winamp.q1",
+      "target": "%APPDATA%\\Winamp\\winamp.q1",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/winamp/winamp.q2",
+      "target": "%APPDATA%\\Winamp\\winamp.q2",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Bookmarks (ANSI pre-5.58)
+      "type": "copy",
+      "source": "./payload/apps/winamp/winamp.bm",
+      "target": "%APPDATA%\\Winamp\\winamp.bm",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Bookmarks (Unicode, 5.58x and later)
+      "type": "copy",
+      "source": "./payload/apps/winamp/winamp.bm8",
+      "target": "%APPDATA%\\Winamp\\winamp.bm8",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-installed skins (.wsz / Bento etc.)
+      "type": "copy",
+      "source": "./payload/apps/winamp/Skins",
+      "target": "%APPDATA%\\Winamp\\Skins",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Plugin configuration files (gen_ml.ini media-library config + per-plugin .ini settings)
+      "type": "copy",
+      "source": "./payload/apps/winamp/Plugins",
+      "target": "%APPDATA%\\Winamp\\Plugins",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\ml\\**", "**\\*.dat", "**\\*.idx"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Winamp\\winamp.ini", "dest": "apps/winamp/winamp.ini", "optional": true },
+      { "source": "%APPDATA%\\Winamp\\studio.xnf", "dest": "apps/winamp/studio.xnf", "optional": true },
+      { "source": "%APPDATA%\\Winamp\\Plugins\\milk2.ini", "dest": "apps/winamp/Plugins/milk2.ini", "optional": true },
+      { "source": "%APPDATA%\\Winamp\\winamp.q1", "dest": "apps/winamp/winamp.q1", "optional": true },
+      { "source": "%APPDATA%\\Winamp\\winamp.q2", "dest": "apps/winamp/winamp.q2", "optional": true },
+      { "source": "%APPDATA%\\Winamp\\winamp.bm", "dest": "apps/winamp/winamp.bm", "optional": true },
+      { "source": "%APPDATA%\\Winamp\\winamp.bm8", "dest": "apps/winamp/winamp.bm8", "optional": true },
+      // User skins
+      { "source": "%APPDATA%\\Winamp\\Skins", "dest": "apps/winamp/Skins", "optional": true },
+      // Plugin .ini config only - the large media-library DB (Plugins\ml) is excluded below
+      { "source": "%APPDATA%\\Winamp\\Plugins", "dest": "apps/winamp/Plugins", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Media library database - large, machine-specific (absolute paths), regenerable on rescan
+      "**\\Plugins\\ml\\**",
+      "**\\main.dat",
+      "**\\main.idx",
+      // Recently-played history caches
+      "**\\recent.dat",
+      "**\\recent.idx",
+      // Local library view caches
+      "**\\met*.vmd",
+      // General caches/logs/temp
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "notes": "Captures Winamp preferences (winamp.ini), modern-skin config (studio.xnf), Milkdrop visualizer settings (Plugins\\milk2.ini), EQ preset banks (winamp.q1/q2), bookmarks (winamp.bm/.bm8), user-installed Skins, and plugin .ini configs (incl. gen_ml.ini), all under %APPDATA%\\Winamp. milk2.ini lives under the Plugins\\ subfolder (per MilkDrop/Geiss documentation), not the Winamp root. The media library database (Plugins\\ml\\main.dat/main.idx), recent-played history, and local view caches are excluded - they are large, store absolute machine-specific file paths, and rebuild on rescan. Plugin binaries (.dll) install separately under Program Files and are not captured. Confidence: high - %APPDATA%\\Winamp root and the winamp.ini/studio.xnf/EQ/bookmarks/Skins/Plugins layout are confirmed by official Winamp forum threads and MilkDrop documentation."
+}

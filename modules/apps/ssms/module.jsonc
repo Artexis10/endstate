@@ -1,0 +1,164 @@
+{
+  // Config Module: SQL Server Management Studio (SSMS)
+  // Provides verify/restore/capture configuration for SSMS
+  // Curated module - captures user/environment settings + registered servers,
+  // excludes the connection password cache (SqlStudio.bin holds DPAPI-encrypted passwords)
+  //
+  // SSMS stores per-version settings under a version-numbered subfolder under:
+  //   %APPDATA%\Microsoft\SQL Server Management Studio\<ver>\   (UserSettings.xml, SqlStudio.bin, NewSettings.vssettings)
+  // The <ver> folder is version-specific (e.g. 18.0, 19.0, 20.0, 21.0). Capture entries below
+  // enumerate the common version folders; missing ones are skipped via optional:true.
+  //
+  // Registered Servers (RegSrvr*.xml) are NOT per-version: they sit directly in
+  //   %APPDATA%\Microsoft\SQL Server Management Studio\   (RegSrvr.xml for v18/19, RegSrvr17.xml for v20/21)
+
+  "id": "apps.ssms",
+  "displayName": "SQL Server Management Studio",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Microsoft.SQLServerManagementStudio"],
+    "exe": ["Ssms.exe"],
+    "uninstallDisplayName": ["^(Microsoft )?SQL Server Management Studio"],
+    "pathExists": [
+      "%ProgramFiles(x86)%\\Microsoft SQL Server Management Studio 18\\Common7\\IDE\\Ssms.exe",
+      "%ProgramFiles(x86)%\\Microsoft SQL Server Management Studio 19\\Common7\\IDE\\Ssms.exe",
+      "%ProgramFiles(x86)%\\Microsoft SQL Server Management Studio 20\\Common7\\IDE\\Ssms.exe",
+      "%ProgramFiles%\\Microsoft SQL Server Management Studio 21\\Release\\Common7\\IDE\\Ssms.exe"
+    ]
+  },
+
+  "verify": [
+    // Roaming version folders hold UserSettings.xml; checking the common ones confirms SSMS has run.
+    { "type": "file-exists", "path": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\20.0\\UserSettings.xml" },
+    { "type": "file-exists", "path": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\21.0\\UserSettings.xml" }
+  ],
+
+  "restore": [
+    // ---- SSMS 18.0 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/18.0/UserSettings.xml",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\18.0\\UserSettings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/18.0/NewSettings.vssettings",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\18.0\\NewSettings.vssettings",
+      "backup": true,
+      "optional": true
+    },
+    // ---- SSMS 19.0 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/19.0/UserSettings.xml",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\19.0\\UserSettings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/19.0/NewSettings.vssettings",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\19.0\\NewSettings.vssettings",
+      "backup": true,
+      "optional": true
+    },
+    // ---- SSMS 20.0 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/20.0/UserSettings.xml",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\20.0\\UserSettings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/20.0/NewSettings.vssettings",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\20.0\\NewSettings.vssettings",
+      "backup": true,
+      "optional": true
+    },
+    // ---- SSMS 21.0 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/21.0/UserSettings.xml",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\21.0\\UserSettings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/21.0/NewSettings.vssettings",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\21.0\\NewSettings.vssettings",
+      "backup": true,
+      "optional": true
+    },
+    // ---- Registered Servers (Local Server Groups) ----
+    // RegSrvr*.xml lives DIRECTLY under the SSMS roaming folder (NOT in a version subfolder).
+    // SSMS 18/19 use RegSrvr.xml; SSMS 20/21 use RegSrvr17.xml. Confirmed by Microsoft Learn
+    // (ssms-troubleshoot, which lists RegSrvr*.xml under both the Roaming and Local SSMS folders).
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/RegSrvr.xml",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\RegSrvr.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/ssms/RegSrvr17.xml",
+      "target": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\RegSrvr17.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // ---- SSMS 18.0 ----
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\18.0\\UserSettings.xml", "dest": "apps/ssms/18.0/UserSettings.xml", "optional": true },
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\18.0\\NewSettings.vssettings", "dest": "apps/ssms/18.0/NewSettings.vssettings", "optional": true },
+      // ---- SSMS 19.0 ----
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\19.0\\UserSettings.xml", "dest": "apps/ssms/19.0/UserSettings.xml", "optional": true },
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\19.0\\NewSettings.vssettings", "dest": "apps/ssms/19.0/NewSettings.vssettings", "optional": true },
+      // ---- SSMS 20.0 ----
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\20.0\\UserSettings.xml", "dest": "apps/ssms/20.0/UserSettings.xml", "optional": true },
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\20.0\\NewSettings.vssettings", "dest": "apps/ssms/20.0/NewSettings.vssettings", "optional": true },
+      // ---- SSMS 21.0 ----
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\21.0\\UserSettings.xml", "dest": "apps/ssms/21.0/UserSettings.xml", "optional": true },
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\21.0\\NewSettings.vssettings", "dest": "apps/ssms/21.0/NewSettings.vssettings", "optional": true },
+      // ---- Registered Servers (Local Server Groups) ----
+      // RegSrvr*.xml is stored directly under the SSMS roaming folder, not per-version.
+      // SSMS 18/19 -> RegSrvr.xml; SSMS 20/21 -> RegSrvr17.xml.
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\RegSrvr.xml", "dest": "apps/ssms/RegSrvr.xml", "optional": true },
+      { "source": "%APPDATA%\\Microsoft\\SQL Server Management Studio\\RegSrvr17.xml", "dest": "apps/ssms/RegSrvr17.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // SqlStudio.bin holds DPAPI-encrypted saved connection passwords - never capture (see sensitive block).
+      "**\\SqlStudio.bin",
+      // Caches, logs, temp, MEF/component model cache, activity logs.
+      "**\\Cache\\**",
+      "**\\ComponentModelCache\\**",
+      "**\\*.cache",
+      "**\\ActivityLog.xml*",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Microsoft\\SQL Server Management Studio\\18.0\\SqlStudio.bin",
+      "%APPDATA%\\Microsoft\\SQL Server Management Studio\\19.0\\SqlStudio.bin",
+      "%APPDATA%\\Microsoft\\SQL Server Management Studio\\20.0\\SqlStudio.bin",
+      "%APPDATA%\\Microsoft\\SQL Server Management Studio\\21.0\\SqlStudio.bin"
+    ],
+    "warning": "SqlStudio.bin stores saved SQL connection passwords (DPAPI-encrypted, user-scoped). It is excluded from capture and MUST NOT be auto-restored. Re-enter saved passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures SSMS environment and connection settings: UserSettings.xml (connection MRU) and NewSettings.vssettings (preferences) across version folders 18.0-21.0 under %APPDATA%\\Microsoft\\SQL Server Management Studio\\<ver>\\, plus registered-server groups (RegSrvr.xml for v18/19, RegSrvr17.xml for v20/21) which live directly under %APPDATA%\\Microsoft\\SQL Server Management Studio\\ (NOT in a version subfolder). SqlStudio.bin (DPAPI-encrypted saved passwords) and caches/logs are excluded. UserSettings.xml can contain cached server names and usernames, hence medium sensitivity. Confidence: high - file locations and the SqlStudio.bin password store confirmed by Microsoft Learn (ssms-troubleshoot, import-export-settings) and multiple independent sources; RegSrvr* flat-folder location corrected per ssms-troubleshoot and community sources confirming RegSrvr17.xml for SSMS 20/21."
+}

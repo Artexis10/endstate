@@ -1,0 +1,98 @@
+{
+  // Config Module: Playnite
+  // Provides verify/restore/capture configuration for Playnite (unified game-library frontend)
+  // Curated module - captures settings, game library (metadata), themes, and extension list;
+  // excludes large media blobs, caches, logs, and extension auth/credential data
+
+  "id": "apps.playnite",
+  "displayName": "Playnite",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Playnite.Playnite"],
+    "exe": ["Playnite.DesktopApp.exe", "Playnite.FullscreenApp.exe"],
+    "uninstallDisplayName": ["^Playnite\\b"],
+    "pathExists": [
+      "%APPDATA%\\Playnite\\config.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Playnite\\config.json" }
+  ],
+
+  "restore": [
+    // Core settings: desktop + fullscreen configuration
+    {
+      "type": "copy",
+      "source": "./payload/apps/playnite/config.json",
+      "target": "%APPDATA%\\Playnite\\config.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/playnite/fullscreenConfig.json",
+      "target": "%APPDATA%\\Playnite\\fullscreenConfig.json",
+      "backup": true,
+      "optional": true
+    },
+    // Game library (game list / metadata) - media blobs excluded via excludeGlobs
+    {
+      "type": "copy",
+      "source": "./payload/apps/playnite/library",
+      "target": "%APPDATA%\\Playnite\\library",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\files\\**",
+        "**\\*.log"
+      ]
+    },
+    // Installed themes (Desktop + Fullscreen)
+    {
+      "type": "copy",
+      "source": "./payload/apps/playnite/Themes",
+      "target": "%APPDATA%\\Playnite\\Themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Main settings (always included in Playnite's own backups)
+      { "source": "%APPDATA%\\Playnite\\config.json", "dest": "apps/playnite/config.json", "optional": true },
+      { "source": "%APPDATA%\\Playnite\\fullscreenConfig.json", "dest": "apps/playnite/fullscreenConfig.json", "optional": true },
+      // Game library: list of games + per-game metadata. The large media subtree (library\files)
+      // is excluded below as a large binary blob.
+      { "source": "%APPDATA%\\Playnite\\library", "dest": "apps/playnite/library", "optional": true },
+      // Installed UI themes (Desktop + Fullscreen)
+      { "source": "%APPDATA%\\Playnite\\Themes", "dest": "apps/playnite/Themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Large media blobs (covers, backgrounds, icons) - regenerable / huge
+      "**\\Playnite\\library\\files\\**",
+      // Installed extensions are reinstallable from add-on browser; their user data may hold tokens
+      "**\\Playnite\\Extensions\\**",
+      "**\\Playnite\\ExtensionsData\\**",
+      // Caches, logs, temp, and Playnite's own rolling backups
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\Backup\\**",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Playnite\\Extensions",
+      "%APPDATA%\\Playnite\\ExtensionsData"
+    ],
+    "warning": "Playnite extension user data (ExtensionsData) for library importers (Steam, GOG, Epic, etc.) can contain authentication tokens and session credentials. These MUST NOT be auto-captured or restored - reinstall extensions and re-authenticate after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Playnite settings (config.json, fullscreenConfig.json), the game library metadata under %APPDATA%\\Playnite\\library, and installed Themes. Large media blobs (library\\files), installed Extensions, and ExtensionsData are excluded - the latter may hold storefront auth tokens, so reinstall extensions and re-authenticate after restore. Caches, logs, and Playnite's own Backup folder are also excluded. Confidence: high - paths confirmed by official Playnite docs (backup.html) and the project wiki FAQ."
+}

@@ -1,0 +1,105 @@
+{
+  // Config Module: RetroArch
+  // Provides verify/restore/capture configuration for RetroArch (libretro frontend)
+  // Curated module - captures portable user-tuned settings, EXCLUDES the main
+  // retroarch.cfg because it stores plaintext credentials inline (see sensitive block).
+
+  "id": "apps.retroarch",
+  "displayName": "RetroArch",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Libretro.RetroArch"],
+    "exe": ["retroarch.exe"],
+    "uninstallDisplayName": ["^RetroArch"],
+    "pathExists": [
+      "%APPDATA%\\RetroArch\\retroarch.cfg",
+      "%APPDATA%\\RetroArch\\config"
+    ]
+  },
+
+  // RetroArch is portable on Windows (since 1.9.1): config + data folders live
+  // next to retroarch.exe wherever it was extracted. Endstate forbids hardcoded
+  // absolute drive paths, so we only target the legacy/fallback %APPDATA%\RetroArch
+  // tree (used by <=1.9.0 and still honored as a data dir). The verify check below
+  // simply asserts the binary is on PATH.
+  "verify": [
+    { "type": "command-exists", "command": "retroarch" }
+  ],
+
+  "restore": [
+    {
+      // Per-core / per-game config overrides + input remaps (config/remaps/<core>/)
+      "type": "copy",
+      "source": "./payload/apps/retroarch/config",
+      "target": "%APPDATA%\\RetroArch\\config",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\retroarch.cfg",
+        "**\\*.log",
+        "**\\cache\\**"
+      ]
+    },
+    {
+      // Consolidated per-core option values (no credentials)
+      "type": "copy",
+      "source": "./payload/apps/retroarch/retroarch-core-options.cfg",
+      "target": "%APPDATA%\\RetroArch\\retroarch-core-options.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Standalone input remap directory (older layout: %APPDATA%\RetroArch\remaps)
+      "type": "copy",
+      "source": "./payload/apps/retroarch/remaps",
+      "target": "%APPDATA%\\RetroArch\\remaps",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Per-core/per-game overrides (.cfg/.opt) and input remaps (.rmp) under config/.
+      // NOTE: we explicitly exclude the global retroarch.cfg here because it carries
+      // plaintext credentials (cheevos_*, *_stream_key, netplay_password, webdav_*).
+      { "source": "%APPDATA%\\RetroArch\\config", "dest": "apps/retroarch/config", "optional": true },
+      // Aggregated per-core option values - settings only, no credentials.
+      { "source": "%APPDATA%\\RetroArch\\retroarch-core-options.cfg", "dest": "apps/retroarch/retroarch-core-options.cfg", "optional": true },
+      // Standalone remaps dir (alternative/older layout).
+      { "source": "%APPDATA%\\RetroArch\\remaps", "dest": "apps/retroarch/remaps", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Main config carries inline credentials - never capture it.
+      "**\\retroarch.cfg",
+      // Downloaded / large / rebuildable content
+      "**\\cores\\**",
+      "**\\assets\\**",
+      "**\\thumbnails\\**",
+      "**\\downloads\\**",
+      "**\\shaders\\**",
+      "**\\database\\**",
+      "**\\info\\**",
+      "**\\system\\**",
+      "**\\saves\\**",
+      "**\\states\\**",
+      "**\\screenshots\\**",
+      // Caches / logs / temp
+      "**\\cache\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\RetroArch\\retroarch.cfg"
+    ],
+    "warning": "The main retroarch.cfg stores credentials inline in plaintext (cheevos_password, cheevos_token, twitch_stream_key, youtube_stream_key, netplay_password, netplay_spectate_password, webdav_username, webdav_password). It is NOT captured or auto-restored. Reconfigure RetroAchievements / streaming / netplay / cloud-sync logins after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures RetroArch per-core/per-game config overrides, input remaps, and aggregated core options from %APPDATA%\\RetroArch (the legacy/fallback data dir; portable installs keep these next to retroarch.exe, which is not env-var-addressable). The main retroarch.cfg is deliberately excluded because RetroArch stores credentials inline in it (RetroAchievements, Twitch/YouTube stream keys, netplay, WebDAV). Cores, BIOS/system, ROM saves, states, thumbnails, assets, shaders, and downloads are excluded as large/rebuildable content. Confidence: medium - portable exe-relative layout cannot be expressed with env vars, so capture targets the documented %APPDATA% fallback tree; credential-bearing retroarch.cfg confirmed by libretro GitHub issue #18766 and excluded."
+}

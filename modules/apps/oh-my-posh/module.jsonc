@@ -1,0 +1,66 @@
+{
+  // Config Module: Oh My Posh
+  // Provides verify/restore/capture configuration for Oh My Posh (prompt theme engine)
+  // Curated module - captures the user's custom theme file (the portable config),
+  // excludes built-in themes (shipped with the app) and the runtime cache.
+
+  "id": "apps.oh-my-posh",
+  "displayName": "Oh My Posh",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JanDeDobbeleer.OhMyPosh"],
+    "exe": ["oh-my-posh.exe"],
+    "uninstallDisplayName": ["^Oh My Posh"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "oh-my-posh" }
+  ],
+
+  "restore": [
+    // Oh My Posh has no fixed config path; the theme path is set by the user in
+    // their shell profile via `oh-my-posh init <shell> --config <path>`.
+    // The official `config export` convention places custom themes in the home
+    // directory as ~/.mytheme.omp.json (also valid: .omp.toml / .omp.yaml).
+    {
+      "type": "copy",
+      "source": "./payload/apps/oh-my-posh/.mytheme.omp.json",
+      "target": "~/.mytheme.omp.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/oh-my-posh/.mytheme.omp.toml",
+      "target": "~/.mytheme.omp.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/oh-my-posh/.mytheme.omp.yaml",
+      "target": "~/.mytheme.omp.yaml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Conventional home-directory custom theme (official `config export` default).
+      { "source": "~/.mytheme.omp.json", "dest": "apps/oh-my-posh/.mytheme.omp.json", "optional": true },
+      { "source": "~/.mytheme.omp.toml", "dest": "apps/oh-my-posh/.mytheme.omp.toml", "optional": true },
+      { "source": "~/.mytheme.omp.yaml", "dest": "apps/oh-my-posh/.mytheme.omp.yaml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Runtime cache (%LOCALAPPDATA%\oh-my-posh\omp.cache) - never portable.
+      "**\\oh-my-posh\\omp.cache",
+      "**\\omp.cache",
+      // Built-in themes ship with the app via winget - do not capture.
+      "**\\Programs\\oh-my-posh\\themes\\**"
+    ]
+  },
+
+  "notes": "Captures the user's custom Oh My Posh theme file. Oh My Posh has no fixed config location - the theme path is defined in the shell profile via `oh-my-posh init <shell> --config <path>`; this module targets the official `config export` convention of ~/.mytheme.omp.{json,toml,yaml} in the home directory. Built-in themes (%LOCALAPPDATA%\\Programs\\oh-my-posh\\themes) ship with the winget package and the runtime cache (%LOCALAPPDATA%\\oh-my-posh\\omp.cache) are both excluded. Oh My Posh stores no user settings in HKCU. Confidence: medium - the theme file and ~/.mytheme.omp.json naming are confirmed by official docs, but because the config path is fully user-defined a given user may keep their theme elsewhere (e.g. in Documents or a dotfiles dir)."
+}

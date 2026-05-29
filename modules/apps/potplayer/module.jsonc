@@ -1,0 +1,69 @@
+{
+  // Config Module: PotPlayer
+  // Provides verify/restore/capture configuration for the PotPlayer media player
+  // Settings are stored in the Windows Registry under HKCU\Software\DAUM\
+  // (64-bit: PotPlayerMini64, 32-bit: PotPlayerMini). An optional .ini file is
+  // only created if the user enables "Store settings into .ini file" in Preferences.
+
+  "id": "apps.potplayer",
+  "displayName": "PotPlayer",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Daum.PotPlayer"],
+    "exe": ["PotPlayerMini64.exe", "PotPlayerMini.exe"],
+    "uninstallDisplayName": ["^PotPlayer"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\DAUM\\PotPlayerMini64" }
+  ],
+
+  "restore": [
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/potplayer/PotPlayerMini64.reg",
+      "target": "HKCU\\Software\\DAUM\\PotPlayerMini64",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/potplayer/PotPlayerMini.reg",
+      "target": "HKCU\\Software\\DAUM\\PotPlayerMini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Optional .ini file - only exists if the user opted into INI-based storage
+      "type": "copy",
+      "source": "./payload/apps/potplayer/PotPlayerMini64.ini",
+      "target": "%APPDATA%\\PotPlayerMini64\\PotPlayerMini64.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Optional .ini settings file (present only when "Store settings into .ini file" is enabled)
+      { "source": "%APPDATA%\\PotPlayerMini64\\PotPlayerMini64.ini", "dest": "apps/potplayer/PotPlayerMini64.ini", "optional": true }
+    ],
+    "registryKeys": [
+      // Primary settings store (64-bit build)
+      { "key": "HKCU\\Software\\DAUM\\PotPlayerMini64", "dest": "apps/potplayer/PotPlayerMini64.reg", "optional": true },
+      // 32-bit build settings store (present only on 32-bit installs)
+      { "key": "HKCU\\Software\\DAUM\\PotPlayerMini", "dest": "apps/potplayer/PotPlayerMini.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.bak",
+      "**\\Logs\\**",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\Capture\\**"
+    ]
+  },
+
+  "notes": "Captures PotPlayer playback, filter, skin and keyboard preferences from the Windows Registry under HKCU\\Software\\DAUM\\PotPlayerMini64 (64-bit) and PotPlayerMini (32-bit), plus the optional %APPDATA%\\PotPlayerMini64\\PotPlayerMini64.ini that only exists when the user enables INI-based storage. Logs, caches, .bak files and captured snapshots/frames are excluded. No credentials or tokens are stored. Confidence: high - registry path HKCU\\Software\\DAUM\\PotPlayerMini64/PotPlayerMini and INI location confirmed by multiple independent community sources (VideoHelp forum, Softlay)."
+}

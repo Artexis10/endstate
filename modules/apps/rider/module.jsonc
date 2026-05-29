@@ -1,0 +1,115 @@
+{
+  // Config Module: JetBrains Rider
+  // Provides verify/restore/capture configuration for Rider (JetBrains .NET IDE)
+  // Curated module - captures IDE settings, keymaps, templates, code styles, colors
+  // Note: Config folder is version-specific (Rider<version>, e.g. Rider2026.1)
+
+  "id": "apps.rider",
+  "displayName": "JetBrains Rider",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.Rider"],
+    "exe": ["rider64.exe"],
+    "uninstallDisplayName": ["^JetBrains Rider"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\Rider*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/rider/options",
+      "target": "%APPDATA%\\JetBrains\\Rider*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rider/keymaps",
+      "target": "%APPDATA%\\JetBrains\\Rider*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rider/templates",
+      "target": "%APPDATA%\\JetBrains\\Rider*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rider/codestyles",
+      "target": "%APPDATA%\\JetBrains\\Rider*\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rider/colors",
+      "target": "%APPDATA%\\JetBrains\\Rider*\\colors",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\Rider*\\options", "dest": "apps/rider/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\Rider*\\keymaps", "dest": "apps/rider/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\Rider*\\templates", "dest": "apps/rider/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\Rider*\\codestyles", "dest": "apps/rider/codestyles", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\Rider*\\colors", "dest": "apps/rider/colors", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml",
+      "**\\recentSolutions.xml",
+      "**\\security.xml",
+      "**\\github.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\Rider*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\Rider*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures JetBrains Rider settings (options/*.xml), keymaps, live templates, code styles, and color schemes. Config folder is version-specific (%APPDATA%\\JetBrains\\Rider<version>\\, e.g. Rider2026.1); the system/caches directory under %LOCALAPPDATA%\\JetBrains\\Rider<version>\\ is not captured. Workspace/solution-specific files (workspace.xml, tasks.xml, recentProjects.xml, recentSolutions.xml), usage stats, caches, and index are excluded; credential stores (security.xml, github.xml) are excluded from capture and never auto-restored. Confidence: high - config layout confirmed by official JetBrains Rider documentation and consistent with sibling JetBrains modules in this repo.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml",
+      "**/security.xml",
+      "**/github.xml"
+    ]
+  }
+}

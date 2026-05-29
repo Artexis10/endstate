@@ -1,0 +1,108 @@
+{
+  // Config Module: Pidgin
+  // Provides verify/restore/capture configuration for Pidgin (multi-protocol IM client)
+  // Settings stored as XML files under %APPDATA%\.purple (libpurple)
+  // Curated module - captures preferences/buddy list/status, EXCLUDES accounts.xml (plaintext passwords)
+
+  "id": "apps.pidgin",
+  "displayName": "Pidgin",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Pidgin.Pidgin"],
+    "exe": ["pidgin.exe"],
+    "uninstallDisplayName": ["^Pidgin\\b"],
+    "pathExists": [
+      "%APPDATA%\\.purple\\prefs.xml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\.purple\\prefs.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/pidgin/prefs.xml",
+      "target": "%APPDATA%\\.purple\\prefs.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/pidgin/blist.xml",
+      "target": "%APPDATA%\\.purple\\blist.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/pidgin/status.xml",
+      "target": "%APPDATA%\\.purple\\status.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/pidgin/pounces.xml",
+      "target": "%APPDATA%\\.purple\\pounces.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/pidgin/accels",
+      "target": "%APPDATA%\\.purple\\accels",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/pidgin/smileys",
+      "target": "%APPDATA%\\.purple\\smileys",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Preferences (UI, plugins enabled, sounds, conversation settings)
+      { "source": "%APPDATA%\\.purple\\prefs.xml", "dest": "apps/pidgin/prefs.xml", "optional": true },
+      // Local buddy list: aliases, group/buddy ordering (no credentials)
+      { "source": "%APPDATA%\\.purple\\blist.xml", "dest": "apps/pidgin/blist.xml", "optional": true },
+      // Saved status messages
+      { "source": "%APPDATA%\\.purple\\status.xml", "dest": "apps/pidgin/status.xml", "optional": true },
+      // Buddy pounce rules
+      { "source": "%APPDATA%\\.purple\\pounces.xml", "dest": "apps/pidgin/pounces.xml", "optional": true },
+      // Custom menu accelerators / keyboard shortcuts
+      { "source": "%APPDATA%\\.purple\\accels", "dest": "apps/pidgin/accels", "optional": true },
+      // Custom smiley themes (user-added)
+      { "source": "%APPDATA%\\.purple\\smileys", "dest": "apps/pidgin/smileys", "optional": true }
+    ],
+    "excludeGlobs": [
+      // accounts.xml stores account PASSWORDS in plaintext - never capture
+      "**\\accounts.xml",
+      // Conversation logs (private message history)
+      "**\\logs\\**",
+      // Cached buddy icons (large binary blobs, re-fetched from network)
+      "**\\icons\\**",
+      "**\\icons(old)\\**",
+      // Cached SSL/TLS host certificates (re-fetched on connect)
+      "**\\certificates\\**",
+      // Plugin binaries (.dll) - app is reinstalled via winget
+      "**\\plugins\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\.purple\\accounts.xml"
+    ],
+    "warning": "Pidgin stores IM account passwords in plaintext in accounts.xml. This file MUST NOT be captured or auto-restored; re-enter account credentials after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Pidgin/libpurple preferences (prefs.xml), local buddy list aliases and ordering (blist.xml), saved statuses (status.xml), buddy pounces, accelerators, and custom smileys from %APPDATA%\\.purple. Explicitly excludes accounts.xml (plaintext passwords), conversation logs, cached buddy icons, SSL certificate cache, and plugin binaries. Confidence: high - .purple location and file purposes confirmed by official Pidgin developer wiki (ConfigurationFiles, PlainTextPasswords) and multiple independent sources."
+}

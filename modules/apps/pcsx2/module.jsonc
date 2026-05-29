@@ -1,0 +1,109 @@
+{
+  // Config Module: PCSX2
+  // Provides verify/restore/capture configuration for the PCSX2 PlayStation 2 emulator
+  // Curated module - captures emulator settings, controller profiles, and per-game configs
+  // Excludes memory cards, BIOS, save states, caches, logs, and downloaded artwork
+
+  "id": "apps.pcsx2",
+  "displayName": "PCSX2",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["PCSX2Team.PCSX2"],
+    "exe": ["pcsx2-qt.exe", "pcsx2.exe"],
+    "uninstallDisplayName": ["^PCSX2\\b"]
+  },
+
+  "verify": [
+    // Main settings file lives in the inis folder of the PCSX2 data directory
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\PCSX2\\inis\\PCSX2.ini" }
+  ],
+
+  "restore": [
+    {
+      // Main settings: graphics, audio, system, folder paths, hotkeys
+      // (RetroAchievements token in secrets.ini is excluded as sensitive)
+      "type": "copy",
+      "source": "./payload/apps/pcsx2/inis",
+      "target": "%USERPROFILE%\\Documents\\PCSX2\\inis",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved controller / input mapping profiles
+      "type": "copy",
+      "source": "./payload/apps/pcsx2/inputprofiles",
+      "target": "%USERPROFILE%\\Documents\\PCSX2\\inputprofiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Per-game settings overrides
+      "type": "copy",
+      "source": "./payload/apps/pcsx2/gamesettings",
+      "target": "%USERPROFILE%\\Documents\\PCSX2\\gamesettings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User cheat files (.pnach)
+      "type": "copy",
+      "source": "./payload/apps/pcsx2/cheats",
+      "target": "%USERPROFILE%\\Documents\\PCSX2\\cheats",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Game patch files (.pnach)
+      "type": "copy",
+      "source": "./payload/apps/pcsx2/patches",
+      "target": "%USERPROFILE%\\Documents\\PCSX2\\patches",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\Documents\\PCSX2\\inis", "dest": "apps/pcsx2/inis", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\PCSX2\\inputprofiles", "dest": "apps/pcsx2/inputprofiles", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\PCSX2\\gamesettings", "dest": "apps/pcsx2/gamesettings", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\PCSX2\\cheats", "dest": "apps/pcsx2/cheats", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\PCSX2\\patches", "dest": "apps/pcsx2/patches", "optional": true }
+    ],
+    "excludeGlobs": [
+      // RetroAchievements session token (credential) - lives in inis/secrets.ini
+      // on modern PCSX2; never capture it. (Older builds stored it in PCSX2.ini's
+      // [Achievements] section, which migrates out to secrets.ini on next boot.)
+      "**\\secrets.ini",
+      // Auto-generated caches, logs, and shader/gamelist data
+      "**\\cache\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      // Save states, screenshots, and recorded video (large binary blobs)
+      "**\\sstates\\**",
+      "**\\snaps\\**",
+      "**\\videos\\**",
+      // Downloaded cover artwork (re-fetchable, large)
+      "**\\covers\\**",
+      // Custom texture replacement packs (large binary blobs)
+      "**\\textures\\**",
+      // Memory cards contain save game data, not settings
+      "**\\memcards\\**",
+      "**\\*.ps2",
+      // BIOS dumps are user-supplied copyrighted blobs
+      "**\\bios\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\Documents\\PCSX2\\bios",
+      "%USERPROFILE%\\Documents\\PCSX2\\inis\\secrets.ini"
+    ],
+    "warning": "PCSX2 requires a PS2 BIOS dump which is copyrighted and machine/console-specific. BIOS files MUST NOT be captured or auto-restored; users must re-dump their own BIOS. inis\\secrets.ini holds the RetroAchievements session token and is excluded from capture.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures PCSX2 emulator settings from %USERPROFILE%\\Documents\\PCSX2: inis (PCSX2.ini, GS.ini, controller ini), inputprofiles, gamesettings, cheats, and patches. Excludes memory cards/save states, BIOS dumps (copyrighted), downloaded covers, custom textures, screenshots, videos, caches, and logs. Settings are file-based (no registry); portable installs store the same folders next to the executable instead. Confidence: high - folder layout confirmed by official PCSX2 docs (Documents folder as central location) plus EmuDeck wiki and PCSX2 forums."
+}

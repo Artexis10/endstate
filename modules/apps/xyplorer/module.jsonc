@@ -1,0 +1,67 @@
+{
+  // Config Module: XYplorer
+  // Provides verify/restore/capture configuration for XYplorer (power-user file manager)
+  // Registry-free: all settings live in small .ini/.dat files and folders under %APPDATA%\XYplorer
+
+  "id": "apps.xyplorer",
+  "displayName": "XYplorer",
+  // medium: XYplorer.ini embeds the paid license key in its [Register] section
+  // (Name=/Code=/dc=, vendor-marked "PLEASE KEEP THIS PART PRIVATE"). The license
+  // is interleaved with settings in the main .ini and cannot be excluded by file glob.
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["CologneCodeCompany.XYplorer"],
+    "exe": ["XYplorer.exe"],
+    "uninstallDisplayName": ["^XYplorer"],
+    "pathExists": [
+      "%APPDATA%\\XYplorer\\XYplorer.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\XYplorer\\XYplorer.ini" }
+  ],
+
+  "restore": [
+    {
+      // Whole data folder (idempotent dir copy); excludes regenerable caches/temp below
+      "type": "copy",
+      "source": "./payload/apps/xyplorer/XYplorer",
+      "target": "%APPDATA%\\XYplorer",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\Thumbnails\\**",
+        "**\\Fresh\\**",
+        "**\\action.dat",
+        "**\\*.log",
+        "**\\*.tmp"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Entire registry-free data folder; excludeGlobs strips caches/temp
+      { "source": "%APPDATA%\\XYplorer", "dest": "apps/xyplorer/XYplorer", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Thumbnails\\**",   // regenerable thumbnail cache (XYThumbs/.dbits)
+      "**\\Fresh\\**",        // temporary "fresh" profile
+      "**\\action.dat",       // undo/redo history (transient)
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\XYplorer\\XYplorer.ini"
+    ],
+    "warning": "XYplorer.ini embeds the paid license key in its [Register] section (Name=, Code=, dc=) which XYplorer marks 'PLEASE KEEP THIS PART PRIVATE'. Because the license is interleaved with the main settings in the same .ini, it cannot be excluded by file glob. Treat the captured XYplorer.ini as sensitive; do not share captures publicly.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures XYplorer's entire registry-free data folder at %APPDATA%\\XYplorer (XYplorer.ini main settings plus ks.dat keyboard shortcuts, udc.dat user-defined commands, pv.dat permanent variables, tag.dat tags/labels, fvs.dat folder views, and the Catalogs/FindTemplates/NewItems/Panes/Paper/Scripts/Icons folders). Excludes the regenerable Thumbnails cache, the temporary Fresh profile, transient action.dat undo/redo history, and logs. XYplorer is explicitly registry-free. NOTE: XYplorer.ini embeds the paid license key in its [Register] section (see sensitive block); the license is interleaved with settings in the main .ini and cannot be stripped by exclusion, so the file is flagged sensitive and restore is warn-only. Confidence: high - official migrate FAQ directs copying the whole %APPDATA%\\XYplorer folder and the .dat/.ini file roles (including the [Register] license section) are confirmed by multiple independent forum sources."
+}

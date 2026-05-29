@@ -1,0 +1,58 @@
+{
+  // Config Module: Oracle VirtualBox
+  // Provides verify/restore/capture configuration for Oracle VM VirtualBox
+  // Curated module - captures the global settings file, excludes logs/runtime caches and VM disk images
+
+  "id": "apps.virtualbox",
+  "displayName": "Oracle VirtualBox",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Oracle.VirtualBox"],
+    "exe": ["VirtualBox.exe", "VBoxSVC.exe"],
+    "uninstallDisplayName": ["^Oracle VM VirtualBox", "^Oracle VirtualBox"],
+    "pathExists": [
+      "%USERPROFILE%\\.VirtualBox\\VirtualBox.xml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.VirtualBox\\VirtualBox.xml" }
+  ],
+
+  "restore": [
+    {
+      // Global settings: default machine folder, host key, registered VMs list,
+      // host-only / NAT network definitions, extension pack and GUI settings.
+      "type": "copy",
+      "source": "./payload/apps/virtualbox/VirtualBox.xml",
+      "target": "%USERPROFILE%\\.VirtualBox\\VirtualBox.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Authoritative global config. Oracle docs confirm this lives at $HOME/.VirtualBox/VirtualBox.xml.
+      // Note: this references registered VMs by path but does NOT contain the VM disk images themselves.
+      { "source": "%USERPROFILE%\\.VirtualBox\\VirtualBox.xml", "dest": "apps/virtualbox/VirtualBox.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Runtime logs and COM registration / type-library caches that live alongside VirtualBox.xml
+      "**\\*.log",
+      "**\\*.log.*",
+      "**\\VBoxSVC.log*",
+      "**\\selectorwindow.log*",
+      "**\\compreg.dat",
+      "**\\xpti.dat",
+      // Prior-version backups and temp settings written during upgrades
+      "**\\VirtualBox.xml-prev",
+      "**\\VirtualBox.xml-tmp",
+      // Never sweep machine folders or disk images into the bundle
+      "**\\VirtualBox VMs\\**"
+    ]
+  },
+
+  "notes": "Captures Oracle VirtualBox's global settings file %USERPROFILE%\\.VirtualBox\\VirtualBox.xml (default VM folder, host key, registered-VM list, host-only/NAT network definitions, extension-pack and GUI settings). Logs (VBoxSVC.log, selectorwindow.log), COM/type-library caches (compreg.dat, xpti.dat), the VirtualBox.xml-prev backup, and the VirtualBox VMs\\ machine folder (the .vbox files and disk images) are excluded - those are machine-specific, large, or runtime state. The restored XML references VMs by path; the VMs themselves are not captured. Confidence: high - global settings path confirmed by the official Oracle VirtualBox manual (ch10 'Where Oracle VM VirtualBox Stores its Files')."
+}

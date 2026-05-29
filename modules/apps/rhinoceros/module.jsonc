@@ -1,0 +1,95 @@
+{
+  // Config Module: Rhinoceros 3D
+  // Provides verify/restore/capture configuration for Rhino 8 (NURBS CAD/modeler)
+  // Settings stored as XML files under %APPDATA%\McNeel\Rhinoceros\8.0\settings\
+
+  "id": "apps.rhinoceros",
+  "displayName": "Rhinoceros 3D",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["McNeel.Rhino.8", "McNeel.Rhinoceros.7"],
+    "exe": ["Rhino.exe"],
+    "uninstallDisplayName": ["^Rhino(ceros)?\\s*[78]?"],
+    "pathExists": [
+      "%APPDATA%\\McNeel\\Rhinoceros\\8.0\\settings",
+      "%APPDATA%\\McNeel\\Rhinoceros\\7.0\\settings"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\McNeel\\Rhinoceros\\8.0\\settings\\settings-Scheme__Default.xml" }
+  ],
+
+  "restore": [
+    {
+      // Non-default Rhino app and command options (Rhino 8)
+      "type": "copy",
+      "source": "./payload/apps/rhinoceros/8.0/settings-Scheme__Default.xml",
+      "target": "%APPDATA%\\McNeel\\Rhinoceros\\8.0\\settings\\settings-Scheme__Default.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Toolbar / docking window on-screen layout (Rhino 8)
+      "type": "copy",
+      "source": "./payload/apps/rhinoceros/8.0/window_positions.xml",
+      "target": "%APPDATA%\\McNeel\\Rhinoceros\\8.0\\settings\\window_positions.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Edited toolbar / workspace XMLs (Rhino 8 stores user toolbar edits here)
+      "type": "copy",
+      "source": "./payload/apps/rhinoceros/8.0/Scheme__Default",
+      "target": "%APPDATA%\\McNeel\\Rhinoceros\\8.0\\settings\\Scheme__Default",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\Cache\\**", "**\\*.tmp"]
+    },
+    {
+      // Rhino 7 settings (if migrating from / coexisting with v7)
+      "type": "copy",
+      "source": "./payload/apps/rhinoceros/7.0/settings-Scheme__Default.xml",
+      "target": "%APPDATA%\\McNeel\\Rhinoceros\\7.0\\settings\\settings-Scheme__Default.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Rhino 7 toolbar workspace files (.rui-linked XMLs lived in the UI folder)
+      "type": "copy",
+      "source": "./payload/apps/rhinoceros/7.0/UI",
+      "target": "%APPDATA%\\McNeel\\Rhinoceros\\7.0\\UI",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\Cache\\**", "**\\*.tmp"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Rhino 8 - non-default options/commands and window layout
+      { "source": "%APPDATA%\\McNeel\\Rhinoceros\\8.0\\settings\\settings-Scheme__Default.xml", "dest": "apps/rhinoceros/8.0/settings-Scheme__Default.xml", "optional": true },
+      { "source": "%APPDATA%\\McNeel\\Rhinoceros\\8.0\\settings\\window_positions.xml", "dest": "apps/rhinoceros/8.0/window_positions.xml", "optional": true },
+      // Rhino 8 - edited toolbar / workspace XMLs
+      { "source": "%APPDATA%\\McNeel\\Rhinoceros\\8.0\\settings\\Scheme__Default", "dest": "apps/rhinoceros/8.0/Scheme__Default", "optional": true },
+      // Rhino 7 - settings and toolbar workspace folder
+      { "source": "%APPDATA%\\McNeel\\Rhinoceros\\7.0\\settings\\settings-Scheme__Default.xml", "dest": "apps/rhinoceros/7.0/settings-Scheme__Default.xml", "optional": true },
+      { "source": "%APPDATA%\\McNeel\\Rhinoceros\\7.0\\UI", "dest": "apps/rhinoceros/7.0/UI", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Caches\\**",
+      "**\\AutoSave\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.bak",
+      "**\\*.3dmbak",
+      "**\\*.lock",
+      "**\\Crash*\\**",
+      "**\\*.rhl"
+    ]
+  },
+
+  "notes": "Captures Rhino 8 (and legacy 7) user configuration: non-default options/commands (settings-Scheme__Default.xml), docking/toolbar window layout (window_positions), and edited toolbar/workspace XMLs under the settings\\Scheme__Default folder. Autosave, caches, crash dumps, .3dmbak backups, and lock files (.rhl) are excluded. Licenses are not captured: Rhino uses PROGRAMDATA license files and server-leased Cloud Zoo tokens that re-authenticate online, so none are portable or stored in HKCU. Confidence: high - settings folder and primary XML files confirmed by official McNeel docs (docs.mcneel.com support file locations + wiki settings-transfer page); the Scheme__Default toolbar subfolder confirmed by McNeel forum guidance."
+}

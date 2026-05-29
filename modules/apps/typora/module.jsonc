@@ -1,0 +1,68 @@
+{
+  // Config Module: Typora
+  // Provides verify/restore/capture configuration for Typora (Markdown editor)
+  // Curated module - captures advanced settings + custom themes, excludes state/logs/license
+
+  "id": "apps.typora",
+  "displayName": "Typora",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Typora.Typora"],
+    "exe": ["Typora.exe"],
+    "uninstallDisplayName": ["^Typora"],
+    "pathExists": [
+      "%APPDATA%\\Typora\\conf\\conf.user.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Typora\\conf\\conf.user.json" }
+  ],
+
+  "restore": [
+    {
+      // Advanced settings file (autoSaveTimer, custom key bindings, image insert rules, theme selection)
+      "type": "copy",
+      "source": "./payload/apps/typora/conf.user.json",
+      "target": "%APPDATA%\\Typora\\conf\\conf.user.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom CSS themes
+      "type": "copy",
+      "source": "./payload/apps/typora/themes",
+      "target": "%APPDATA%\\Typora\\themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Typora\\conf\\conf.user.json", "dest": "apps/typora/conf.user.json", "optional": true },
+      { "source": "%APPDATA%\\Typora\\themes", "dest": "apps/typora/themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Binary state (recent folders/files), logs
+      "**\\history.data",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      // PicGo-Core binary blob + image-host config that may carry upload credentials/tokens
+      "**\\picgo\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Typora\\picgo\\config.json",
+      "%USERPROFILE%\\.picgo\\config.json"
+    ],
+    "warning": "Typora's license/activation is stored in the Windows Registry by Typora itself and is NOT captured (activation blob, not portable). PicGo image-uploader config (config.json) can contain image-host auth tokens and MUST NOT be auto-restored. Re-activate Typora and re-enter upload credentials after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Typora advanced settings (%APPDATA%\\Typora\\conf\\conf.user.json) and custom CSS themes (%APPDATA%\\Typora\\themes). Excludes history.data (binary recent-files state), logs, and the picgo folder (PicGo-Core binary + image-host credentials). License/activation lives in the Windows Registry as an activation blob and is intentionally not captured. Confidence: high - conf.user.json and themes paths confirmed by official Typora support docs plus multiple GitHub issues and community config repos."
+}

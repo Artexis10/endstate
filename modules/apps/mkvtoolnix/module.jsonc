@@ -1,0 +1,45 @@
+{
+  // Config Module: MKVToolNix
+  // Provides verify/restore/capture configuration for the MKVToolNix GUI
+  // Curated module - captures GUI preferences, excludes the job queue and cache
+
+  "id": "apps.mkvtoolnix",
+  "displayName": "MKVToolNix",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["MoritzBunkus.MKVToolNix"],
+    "exe": ["mkvtoolnix-gui.exe", "mkvmerge.exe"],
+    "uninstallDisplayName": ["^MKVToolNix"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "mkvmerge" }
+  ],
+
+  "restore": [
+    {
+      // GUI preferences, header-editor defaults, merge defaults, etc.
+      "type": "merge-ini",
+      "source": "./payload/apps/mkvtoolnix/mkvtoolnix-gui.ini",
+      "target": "%LOCALAPPDATA%\\bunkus.org\\mkvtoolnix-gui\\mkvtoolnix-gui.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single settings file (v8.3.0+); older versions are auto-migrated here on first launch.
+      { "source": "%LOCALAPPDATA%\\bunkus.org\\mkvtoolnix-gui\\mkvtoolnix-gui.ini", "dest": "apps/mkvtoolnix/mkvtoolnix-gui.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // jobQueue = transient per-machine queued/processed mux jobs; cache = regenerated automatically.
+      "**\\jobQueue\\**",
+      "**\\cache\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures MKVToolNix GUI preferences from %LOCALAPPDATA%\\bunkus.org\\mkvtoolnix-gui\\mkvtoolnix-gui.ini (the single settings file used by v8.3.0+; pre-8.3.0 registry settings are auto-migrated to this file on first launch). The jobQueue and cache subfolders are excluded as transient, machine-specific state that regenerates automatically. Confidence: high - location confirmed by the official MKVToolNix project wiki."
+}

@@ -1,0 +1,40 @@
+{
+  // Config Module: RPCS3 (PlayStation 3 emulator)
+  // Detection-only module - settings are NOT portably capturable (see notes)
+  // RPCS3 is fully portable: all config lives next to rpcs3.exe at a user-chosen
+  // path, never under %APPDATA% / %LOCALAPPDATA% / %USERPROFILE% and never in HKCU.
+
+  "id": "apps.rpcs3",
+  "displayName": "RPCS3",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": [],
+    "exe": ["rpcs3.exe"],
+    "uninstallDisplayName": ["^RPCS3"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "rpcs3" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [
+      // dev_hdd0 holds savedata, trophies, and RAP license keys for PSN
+      // games/DLC. RAP files are per-machine activation blobs and MUST NOT be
+      // captured or restored. They live under the portable install, not an
+      // env-var-rooted path, so they cannot be reliably excluded by glob here.
+      "<RPCS3 install root>\\dev_hdd0\\home\\*\\exdata"
+    ],
+    "warning": "RPCS3 stores RAP license keys, trophies, and savedata under its portable dev_hdd0 directory. RAP licenses are activation blobs and MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "RPCS3 is fully portable: config.yml, games.yml, GuiConfigs\\, input_configs\\, custom_configs\\, patches\\, and dev_hdd0\\ all live next to rpcs3.exe at a user-chosen install path. It never writes to %APPDATA%, %LOCALAPPDATA%, %USERPROFILE%, or the Windows registry, so there is no stable, env-var-rooted location to capture without a hardcoded absolute drive path (forbidden). Nothing is captured; back up the RPCS3 folder manually to preserve settings/profiles. Confidence: high - portable layout and absence of registry/AppData usage confirmed by RPCS3 Wiki FAQ, RPCS3 official quickstart, Emulation General Wiki, and RPCS3 GitHub PR #16494 (config.yml/games.yml moved into the install-local config\\ folder)."
+}

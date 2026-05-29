@@ -1,0 +1,71 @@
+{
+  // Config Module: VMware Workstation Pro
+  // Provides verify/restore/capture configuration for VMware Workstation Pro (Windows host)
+  // Curated module - captures per-user GUI preferences and VM library inventory,
+  // excludes DPAPI-encrypted credential/keysafe files which are not portable across machines
+
+  "id": "apps.vmware-workstation",
+  "displayName": "VMware Workstation Pro",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["VMware.WorkstationPro"],
+    "exe": ["vmware.exe", "vmware-vmx.exe"],
+    "uninstallDisplayName": ["^VMware Workstation"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\VMware\\preferences.ini" }
+  ],
+
+  "restore": [
+    {
+      // Per-user GUI preferences: hotkeys, display/autofit, input-grab behavior,
+      // recent-VM list, toolbar/tab visibility, dismissed hints. INI format.
+      "type": "copy",
+      "source": "./payload/apps/vmware-workstation/preferences.ini",
+      "target": "%APPDATA%\\VMware\\preferences.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // VM library/inventory: list of VMs registered in the Workstation UI.
+      // Plain text; references VM .vmx disk paths. Documented as transferable.
+      "type": "copy",
+      "source": "./payload/apps/vmware-workstation/inventory.vmls",
+      "target": "%APPDATA%\\VMware\\inventory.vmls",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\VMware\\preferences.ini", "dest": "apps/vmware-workstation/preferences.ini", "optional": true },
+      { "source": "%APPDATA%\\VMware\\inventory.vmls", "dest": "apps/vmware-workstation/inventory.vmls", "optional": true }
+    ],
+    "excludeGlobs": [
+      // DPAPI-encrypted VM-encryption keysafe and credential stores - NEVER capture
+      "**\\preferences-private.ini",
+      "**\\ace.dat",
+      "**\\*.dat",
+      // Logs, caches, temp, lock files
+      "**\\*.log",
+      "**\\*.lck",
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\VMware\\preferences-private.ini",
+      "%APPDATA%\\VMware\\ace.dat"
+    ],
+    "warning": "preferences-private.ini holds DPAPI-protected VM-encryption keys (encryption.userKey/keySafe/data) and ace.dat holds encrypted credentials. These are bound to the original Windows user/machine via DPAPI, are not portable, and MUST NOT be captured or auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures VMware Workstation Pro per-user GUI preferences (%APPDATA%\\VMware\\preferences.ini: hotkeys, display/grab behavior, recent VMs, toolbar/hint state) and the VM library inventory (inventory.vmls). DPAPI-encrypted credential/keysafe files (preferences-private.ini, ace.dat) are excluded as sensitive and non-portable. System-wide config.ini lives under %PROGRAMDATA% and is out of scope (not per-user). inventory.vmls references absolute VM disk paths, so VMs must exist at matching locations after restore. Confidence: high - preferences.ini and inventory.vmls locations confirmed by Broadcom/VMware KB, the sanbarrow community wiki, and multiple community sources; sensitivity of preferences-private.ini confirmed by security research (XM Cyber)."
+}
