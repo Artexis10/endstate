@@ -9,3 +9,5 @@ require (
 	golang.org/x/crypto v0.32.0
 	golang.org/x/sys v0.29.0
 )
+
+require github.com/gofrs/flock v0.11.0 // indirect
