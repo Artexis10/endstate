@@ -1,7 +1,7 @@
 {
   // Config Module: 7-Zip
-  // File archiver utility
-  // Install-only - settings stored in registry
+  // File archiver — all settings live in the Windows registry (HKCU)
+  // Enriched from install-only: capture/restore HKCU prefs via registry export/import
 
   "id": "apps.7zip",
   "displayName": "7-Zip",
@@ -17,8 +17,22 @@
     { "type": "file-exists", "path": "%ProgramFiles%\\7-Zip\\7z.exe" }
   ],
 
-  "restore": [],
-  "capture": { "files": [], "excludeGlobs": [] },
+  "restore": [
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/7zip/7-Zip.reg",
+      "target": "HKCU\\Software\\7-Zip",
+      "backup": true,
+      "optional": true
+    }
+  ],
 
-  "notes": "7-Zip stores settings in registry (HKCU\\Software\\7-Zip). No file-based config to capture. Install-only module."
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\7-Zip", "dest": "apps/7zip/7-Zip.reg", "optional": true }
+    ]
+  },
+
+  "notes": "7-Zip stores all settings in the Windows registry under HKCU\\Software\\7-Zip: File Manager options/columns, compression defaults and named profiles, and UI preferences. Captured and restored via registry export/import (HKCU only). No credentials are stored. Confidence: high - registry root is well-documented and confirmed present on this machine (HKCU\\Software\\7-Zip)."
 }

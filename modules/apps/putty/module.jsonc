@@ -1,7 +1,7 @@
 {
   // Config Module: PuTTY
-  // SSH client - sessions stored in registry
-  // Registry export/import via capture/restore scripts
+  // SSH/Telnet client — sessions & settings stored in the Windows registry (HKCU)
+  // Enriched from install-only: capture/restore via registry export/import
 
   "id": "apps.putty",
   "displayName": "PuTTY",
@@ -17,15 +17,28 @@
     { "type": "command-exists", "command": "putty" }
   ],
 
-  "restore": [],
-  "capture": { "files": [], "excludeGlobs": [] },
+  "restore": [
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/putty/PuTTY.reg",
+      "target": "HKCU\\Software\\SimonTatham\\PuTTY",
+      "backup": true,
+      "optional": true
+    }
+  ],
 
-  "notes": "PuTTY stores all sessions and settings in registry (HKCU\\Software\\SimonTatham\\PuTTY). File-based capture/restore not available without registry import/export support. Install-only until registry restorer is implemented.",
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\SimonTatham\\PuTTY", "dest": "apps/putty/PuTTY.reg", "optional": true }
+    ]
+  },
 
-  "curation": {
-    "registryRoots": [
-      "HKCU\\Software\\SimonTatham\\PuTTY"
-    ],
-    "notes": "Future: export via 'reg export' and import via 'reg import' for session portability."
-  }
+  "sensitive": {
+    "files": [],
+    "warning": "PuTTY saved sessions include hostnames, usernames, and private-key file paths (not passwords). PuTTY does NOT store SSH passwords or .ppk passphrases. The only credential risk: if you use an AUTHENTICATED PROXY, the proxy password is stored in plaintext in each session's ProxyPassword value — review the exported PuTTY.reg before sharing a bundle. SSH private keys (.ppk) live in files, not the registry, and are never captured here.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "PuTTY stores sessions and settings in the registry under HKCU\\Software\\SimonTatham\\PuTTY (Sessions, SshHostKeys, and default settings). Captured/restored via registry export/import (HKCU only). See the sensitive warning re: authenticated-proxy passwords. Confidence: high - registry root is standard and well-documented."
 }
