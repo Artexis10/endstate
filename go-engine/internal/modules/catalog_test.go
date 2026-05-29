@@ -6,6 +6,7 @@ package modules
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -494,8 +495,15 @@ func TestMatchModulesForApps_PathExists_WithEnvVar(t *testing.T) {
 
 	t.Setenv("ENDSTATE_PATH_MATCHER_TEST", dir)
 
-	// Use %ENDSTATE_PATH_MATCHER_TEST% which should be expanded.
-	envVarPath := `%ENDSTATE_PATH_MATCHER_TEST%\envtest.cfg`
+	// Use the host-appropriate env var syntax:
+	//   Windows: %VAR%\file  (config.ExpandEnvVars dispatches to ExpandWindowsEnvVars)
+	//   Linux/macOS: $VAR/file  (config.ExpandEnvVars dispatches to os.ExpandEnv)
+	var envVarPath string
+	if runtime.GOOS == "windows" {
+		envVarPath = `%ENDSTATE_PATH_MATCHER_TEST%\envtest.cfg`
+	} else {
+		envVarPath = "$ENDSTATE_PATH_MATCHER_TEST/envtest.cfg"
+	}
 
 	catalog := map[string]*Module{
 		"apps.envtest": {

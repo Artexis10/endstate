@@ -6,6 +6,7 @@ package commands
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"testing"
 )
 
@@ -104,8 +105,12 @@ func TestCheckWinget_WithMockSuccess(t *testing.T) {
 
 	// Mock ExecCommandContext to simulate winget --version returning "v1.9.0"
 	ExecCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		// Use "echo" to simulate winget output
-		return exec.CommandContext(ctx, "cmd", "/C", "echo v1.9.0")
+		// Simulate winget --version output with a host-appropriate shell so the
+		// doctor's parsing logic is exercised on Windows AND Linux/macOS CI.
+		if runtime.GOOS == "windows" {
+			return exec.CommandContext(ctx, "cmd", "/C", "echo v1.9.0")
+		}
+		return exec.CommandContext(ctx, "sh", "-c", "echo v1.9.0")
 	}
 
 	checks := checkWinget()
