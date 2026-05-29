@@ -15,6 +15,7 @@ const (
 	ErrPlanNotFound           ErrorCode = "PLAN_NOT_FOUND"
 	ErrPlanParseError         ErrorCode = "PLAN_PARSE_ERROR"
 	ErrWingetNotAvailable     ErrorCode = "WINGET_NOT_AVAILABLE"
+	ErrRealizerUnavailable    ErrorCode = "REALIZER_UNAVAILABLE"
 	ErrEngineCLINotFound      ErrorCode = "ENGINE_CLI_NOT_FOUND"
 	ErrCaptureFailed          ErrorCode = "CAPTURE_FAILED"
 	ErrCaptureBlocked         ErrorCode = "CAPTURE_BLOCKED"

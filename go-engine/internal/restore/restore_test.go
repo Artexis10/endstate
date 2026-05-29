@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -2123,12 +2124,23 @@ func TestRunRestore_DryRunAppend(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestExpandPath_WindowsPercentVar(t *testing.T) {
-	// Set a test env var and verify %VAR% expansion works.
+	// Verify env var expansion works using the host platform's variable syntax.
+	// On Windows, %VAR% is expanded by config.ExpandEnvVars (dispatches to ExpandWindowsEnvVars).
+	// On Linux/macOS, $VAR is expanded by config.ExpandEnvVars (dispatches to os.ExpandEnv).
 	t.Setenv("ENDSTATE_EXPAND_TEST", "/expanded/dir")
 
-	result := expandPath("%ENDSTATE_EXPAND_TEST%/file.txt")
-	if strings.Contains(result, "%ENDSTATE_EXPAND_TEST%") {
-		t.Errorf("expected %%VAR%% to be expanded, got %q", result)
+	var input, unexpanded string
+	if runtime.GOOS == "windows" {
+		input = "%ENDSTATE_EXPAND_TEST%/file.txt"
+		unexpanded = "%ENDSTATE_EXPAND_TEST%"
+	} else {
+		input = "$ENDSTATE_EXPAND_TEST/file.txt"
+		unexpanded = "$ENDSTATE_EXPAND_TEST"
+	}
+
+	result := expandPath(input)
+	if strings.Contains(result, unexpanded) {
+		t.Errorf("expected env var to be expanded, got %q", result)
 	}
 	if !strings.Contains(result, "/expanded/dir") {
 		t.Errorf("expected expanded path to contain /expanded/dir, got %q", result)
@@ -2180,8 +2192,18 @@ func TestExpandPath_NoVars_PassThrough(t *testing.T) {
 func TestResolveTarget_ExpandsEnvVars(t *testing.T) {
 	t.Setenv("ENDSTATE_TARGET_TEST", "/resolved/target")
 
-	result := resolveTarget("%ENDSTATE_TARGET_TEST%/config.json")
-	if strings.Contains(result, "%ENDSTATE_TARGET_TEST%") {
+	// Use the host-appropriate env var syntax.
+	var input, unexpanded string
+	if runtime.GOOS == "windows" {
+		input = "%ENDSTATE_TARGET_TEST%/config.json"
+		unexpanded = "%ENDSTATE_TARGET_TEST%"
+	} else {
+		input = "$ENDSTATE_TARGET_TEST/config.json"
+		unexpanded = "$ENDSTATE_TARGET_TEST"
+	}
+
+	result := resolveTarget(input)
+	if strings.Contains(result, unexpanded) {
 		t.Errorf("expected env var to be expanded in target, got %q", result)
 	}
 }
@@ -2229,11 +2251,19 @@ func TestRunRestore_ExpandsEnvVarInTarget(t *testing.T) {
 	os.MkdirAll(targetDir, 0755)
 	t.Setenv("ENDSTATE_TARGET_ENV_TEST", targetDir)
 
+	// Use the host-appropriate env var syntax in the target path.
+	var targetPath string
+	if runtime.GOOS == "windows" {
+		targetPath = `%ENDSTATE_TARGET_ENV_TEST%\env.conf`
+	} else {
+		targetPath = "$ENDSTATE_TARGET_ENV_TEST/env.conf"
+	}
+
 	entries := []RestoreAction{
 		{
 			Type:   "copy",
 			Source: srcFile,
-			Target: "%ENDSTATE_TARGET_ENV_TEST%/env.conf",
+			Target: targetPath,
 			ID:     "env-target-test",
 		},
 	}

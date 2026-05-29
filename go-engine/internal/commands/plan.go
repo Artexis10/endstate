@@ -46,6 +46,13 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 		return nil, envelopeErr
 	}
 
+	// --- 2a. Realizer path (whole-set, e.g. Nix on linux/darwin) ---
+	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
+	// the winget driver plan below, byte-identical to prior behavior.
+	if rz, rerr := newRealizerFn(); rerr == nil {
+		return runPlanRealizer(flags, mf, rz, emitter)
+	}
+
 	// --- 2. Create driver and compute plan ---
 	d, derr := newDriverFn()
 	if derr != nil {

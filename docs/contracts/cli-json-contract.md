@@ -86,6 +86,7 @@ When `success` is `false`, the `error` field contains:
 | `PLAN_NOT_FOUND` | Plan file does not exist |
 | `PLAN_PARSE_ERROR` | Plan file is invalid |
 | `WINGET_NOT_AVAILABLE` | winget is not installed or accessible |
+| `REALIZER_UNAVAILABLE` | The package realizer is unavailable (e.g. the Nix daemon/store is unreachable, or `nix` is not installed) |
 | `ENGINE_CLI_NOT_FOUND` | Engine CLI not found (repo root not configured) |
 | `CAPTURE_FAILED` | Capture operation failed |
 | `CAPTURE_BLOCKED` | Capture blocked by guardrail |
@@ -199,7 +200,7 @@ endstate capabilities --json
 | `gitDirty` | boolean | Yes | `true` if working tree has uncommitted changes, `false` otherwise (defaults to `false` if git unavailable) |
 | `bootstrapTimestamp` | string\|null | Yes | ISO 8601 UTC timestamp of last bootstrap, or `null` if not bootstrapped |
 
-> **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the package-manager backends available on that host. On Windows this is `{ "os": "windows", "drivers": ["winget"] }`. On a host with no implemented backend yet, `drivers` is an empty array (`[]`). This is additive: consumers MUST NOT assume a fixed `windows` / `winget` value.
+> **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the package-manager backends available on that host. On Windows this is `{ "os": "windows", "drivers": ["winget"] }`. On Linux and macOS with Nix available this is `["nix"]`. On a host with no implemented backend yet, `drivers` is an empty array (`[]`). This is additive: consumers MUST NOT assume a fixed `windows` / `winget` value.
 
 ---
 

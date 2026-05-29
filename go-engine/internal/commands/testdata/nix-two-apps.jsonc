@@ -1,0 +1,24 @@
+{
+  // Fixture manifest for realizer tests — two apps with linux AND darwin refs
+  // so the same fixture works on any POSIX host running `go test`.
+  "version": 1,
+  "name": "nix-test-manifest",
+  "apps": [
+    {
+      "id": "ripgrep",
+      "displayName": "ripgrep",
+      "refs": {
+        "linux": "nixpkgs#ripgrep",
+        "darwin": "nixpkgs#ripgrep"
+      }
+    },
+    {
+      "id": "jq",
+      "displayName": "jq",
+      "refs": {
+        "linux": "nixpkgs#jq",
+        "darwin": "nixpkgs#jq"
+      }
+    }
+  ]
+}

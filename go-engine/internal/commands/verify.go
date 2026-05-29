@@ -16,6 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/verifier"
 )
 
@@ -25,6 +26,15 @@ import (
 // host OS (non-Windows, until a platform backend is added).
 var newDriverFn func() (driver.Driver, error) = func() (driver.Driver, error) {
 	return selectBackend(runtime.GOOS)
+}
+
+// newRealizerFn is the factory for the host's whole-set package realizer (Nix on
+// linux/darwin). It defaults to selectRealizer(runtime.GOOS) and can be replaced
+// in tests to inject a fake. It returns ErrNoRealizer when the host has no
+// realizer (e.g. Windows, which uses newDriverFn instead). Shared by apply/
+// verify/plan so exactly one of newDriverFn/newRealizerFn drives a given host.
+var newRealizerFn func() (realizer.Realizer, error) = func() (realizer.Realizer, error) {
+	return selectRealizer(runtime.GOOS)
 }
 
 // VerifyFlags holds the parsed CLI flags for the verify command.
@@ -101,6 +111,13 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		if catalogErr == nil && len(catalog) > 0 {
 			modules.SynthesizeAppsFromModules(mf, catalog)
 		}
+	}
+
+	// --- 2a. Realizer path (whole-set, e.g. Nix on linux/darwin) ---
+	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
+	// the winget driver detect loop below, byte-identical to prior behavior.
+	if rz, rerr := newRealizerFn(); rerr == nil {
+		return runVerifyRealizer(flags, mf, rz, emitter)
 	}
 
 	// --- 2. Create driver (platform-selected backend) ---
