@@ -804,6 +804,45 @@ func TestAuthenticator_RefreshLock_CtxCancel(t *testing.T) {
 	}
 }
 
+// TestAuthenticator_RefreshLock_HydrateFailureFailsClosed verifies that when
+// the pre-rotation Hydrate returns a non-ErrNotFound error inside the refresh
+// critical section, RefreshAccessToken returns the error rather than
+// proceeding to POST a potentially-stale RT. Failing open would have the
+// process burn a refresh token that a sibling already rotated, re-introducing
+// exactly the AUTH_REQUIRED symptom F5 is meant to eliminate.
+func TestAuthenticator_RefreshLock_HydrateFailureFailsClosed(t *testing.T) {
+	fb := newFakeBackend(t)
+	fb.refreshFn = func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("substrate refresh endpoint must not be hit when Hydrate fails closed")
+	}
+
+	loadErr := errors.New("keychain temporarily unavailable")
+	kc := &faultyKeychain{loadErr: loadErr}
+	store := auth.NewSessionStore(kc)
+
+	// SetTokens populates in-memory state without writing to the keychain so
+	// the Snapshot has a non-empty UserID (which triggers the Hydrate path)
+	// without depending on Persist succeeding against the faulty keychain.
+	store.SetTokens("user-1", "user@example.com", "", "refresh-1", "active", time.Time{})
+
+	oc := oidc.NewClient(fb.URL(), fb.srv.Client())
+	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, Multiplier: 1, MaxWait: time.Millisecond}
+	hc := client.New(client.Options{Tokens: store, Retry: &rp})
+	a := auth.NewAuthenticator(auth.IssuerFromOIDC(oc, "endstate-backup"), oc, hc, store).
+		WithRefreshLockDir(t.TempDir())
+
+	_, err := a.Session().RefreshAccessToken(context.Background())
+	if err == nil {
+		t.Fatal("RefreshAccessToken returned nil; want wrapped Hydrate error")
+	}
+	if !errors.Is(err, loadErr) {
+		t.Errorf("err = %v; want errors.Is(err, loadErr) so the underlying keychain failure is preserved", err)
+	}
+	if !strings.Contains(err.Error(), "hydrate before rotation") {
+		t.Errorf("err message = %q; want 'hydrate before rotation' phrase", err.Error())
+	}
+}
+
 func TestAuthenticator_PreHandshake_404MapsToNotFound(t *testing.T) {
 	fb := newFakeBackend(t)
 	fb.loginPreFn = func(w http.ResponseWriter, r *http.Request) {
