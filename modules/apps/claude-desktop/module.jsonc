@@ -56,7 +56,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Claude\\Cookies",
       "%APPDATA%\\Claude\\Local Storage\\*",

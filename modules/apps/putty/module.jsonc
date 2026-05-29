@@ -34,7 +34,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [],
     "warning": "PuTTY saved sessions include hostnames, usernames, and private-key file paths (not passwords). PuTTY does NOT store SSH passwords or .ppk passphrases. The only credential risk: if you use an AUTHENTICATED PROXY, the proxy password is stored in plaintext in each session's ProxyPassword value — review the exported PuTTY.reg before sharing a bundle. SSH private keys (.ppk) live in files, not the registry, and are never captured here.",
     "restorer": "warn-only"

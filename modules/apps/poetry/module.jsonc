@@ -41,7 +41,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\pypoetry\\auth.toml"
     ],

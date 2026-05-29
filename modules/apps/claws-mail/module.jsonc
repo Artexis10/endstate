@@ -132,7 +132,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Claws-mail\\passwordstorerc"
     ],

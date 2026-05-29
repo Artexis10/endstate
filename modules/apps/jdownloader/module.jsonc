@@ -83,7 +83,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\JDownloader 2.0\\cfg\\org.jdownloader.settings.AccountSettings.accounts.ejs",
       "%LOCALAPPDATA%\\JDownloader 2.0\\cfg\\org.jdownloader.api.myjdownloader.MyJDownloaderSettings.json"

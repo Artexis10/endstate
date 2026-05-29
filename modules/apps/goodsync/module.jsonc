@@ -74,7 +74,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\GoodSync\\accounts.tgs",
       "%APPDATA%\\GoodSync\\accounts.tgs"

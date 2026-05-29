@@ -149,7 +149,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Microsoft\\SQL Server Management Studio\\18.0\\SqlStudio.bin",
       "%APPDATA%\\Microsoft\\SQL Server Management Studio\\19.0\\SqlStudio.bin",

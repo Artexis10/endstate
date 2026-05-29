@@ -73,7 +73,7 @@
     ]
   },
   
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\VSCodium\\User\\globalStorage\\state.vscdb",
       "%APPDATA%\\VSCodium\\User\\globalStorage\\state.vscdb.backup"

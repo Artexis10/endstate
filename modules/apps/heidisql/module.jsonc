@@ -54,7 +54,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "HKCU\\Software\\HeidiSQL",
       "HKCU\\Software\\HeidiSQL\\Servers"

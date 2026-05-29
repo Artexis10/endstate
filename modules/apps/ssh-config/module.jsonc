@@ -42,7 +42,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.ssh\\id_rsa",
       "%USERPROFILE%\\.ssh\\id_ed25519",

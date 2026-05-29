@@ -91,7 +91,7 @@ $env:ENDSTATE_PROVISIONING_CLI = "C:\nonexistent\cli.ps1"
 - Output path: `Documents\Endstate\Profiles\<ProfileName>.zip`
 - Zip contains at minimum: `manifest.jsonc` + `metadata.json`
 - Config payloads are automatically bundled when config modules match captured apps
-- Sensitive files (listed in `module.sensitive.files`) are NEVER included in the zip
+- Sensitive files (listed in `module.secrets.files`) are NEVER included in the zip
 
 ### INV-CAPTURE-6: Config Capture Failures Don't Block
 

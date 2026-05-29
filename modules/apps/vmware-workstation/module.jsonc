@@ -58,7 +58,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\VMware\\preferences-private.ini",
       "%APPDATA%\\VMware\\ace.dat"

@@ -41,7 +41,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\terraform.d\\credentials.tfrc.json",
       "%USERPROFILE%\\.terraform.d\\credentials.tfrc.json"

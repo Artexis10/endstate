@@ -85,7 +85,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Cemu\\keys.txt",
       "%APPDATA%\\Cemu\\otp.bin",

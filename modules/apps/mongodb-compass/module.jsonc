@@ -85,7 +85,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\MongoDB Compass\\IndexedDB",
       "%APPDATA%\\MongoDB Compass\\Local Storage",

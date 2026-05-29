@@ -59,7 +59,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\bruno\\cookies.json",
       "%APPDATA%\\bruno\\env-secrets.json",

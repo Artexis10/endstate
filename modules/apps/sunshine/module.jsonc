@@ -60,7 +60,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%ProgramFiles%\\Sunshine\\config\\sunshine_state.json",
       "%ProgramFiles%\\Sunshine\\config\\credentials\\cakey.pem",

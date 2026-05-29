@@ -67,7 +67,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Ryujinx\\system\\prod.keys",
       "%APPDATA%\\Ryujinx\\system\\title.keys",

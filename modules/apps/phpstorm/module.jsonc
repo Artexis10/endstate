@@ -79,7 +79,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\JetBrains\\PhpStorm*\\options\\security.xml",
       "%APPDATA%\\JetBrains\\PhpStorm*\\options\\github.xml"

@@ -162,7 +162,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "~/.config/weechat/sec.conf",
       "~/.weechat/sec.conf",

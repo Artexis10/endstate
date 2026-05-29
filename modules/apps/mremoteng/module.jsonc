@@ -46,7 +46,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\mRemoteNG\\confCons.xml"
     ],

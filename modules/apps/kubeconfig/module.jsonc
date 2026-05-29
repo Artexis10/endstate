@@ -64,7 +64,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.kube\\config",
       "%USERPROFILE%\\.kube\\cache",

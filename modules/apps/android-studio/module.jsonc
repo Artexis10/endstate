@@ -80,7 +80,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Google\\AndroidStudio*\\options\\security.xml",
       "%APPDATA%\\Google\\AndroidStudio*\\options\\github.xml"

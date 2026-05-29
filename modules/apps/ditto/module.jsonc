@@ -38,7 +38,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Ditto\\Ditto.db"
     ],

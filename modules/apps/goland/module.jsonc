@@ -79,7 +79,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\JetBrains\\GoLand*\\options\\security.xml",
       "%APPDATA%\\JetBrains\\GoLand*\\options\\github.xml"

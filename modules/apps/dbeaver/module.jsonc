@@ -69,7 +69,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\DBeaverData\\workspace6\\General\\.dbeaver\\credentials-config.json",
       "%APPDATA%\\DBeaverData\\secure"

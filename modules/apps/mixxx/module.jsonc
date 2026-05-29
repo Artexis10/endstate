@@ -92,7 +92,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\Mixxx\\broadcast_profiles"
     ],

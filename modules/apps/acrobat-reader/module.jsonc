@@ -62,7 +62,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "HKCU\\Software\\Adobe\\Acrobat Reader\\DC\\Adobe Cloud",
       "%APPDATA%\\Adobe\\Acrobat\\DC\\Security\\addressbook.acrodata"

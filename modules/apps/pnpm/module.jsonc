@@ -42,7 +42,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\pnpm\\config\\rc",
       "%USERPROFILE%\\.npmrc"

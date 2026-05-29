@@ -53,7 +53,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\AnyDesk\\service.conf",
       "%APPDATA%\\AnyDesk\\system.conf",

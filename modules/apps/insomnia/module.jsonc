@@ -167,7 +167,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Insomnia\\insomnia.Environment.db",
       "%APPDATA%\\Insomnia\\insomnia.Session.db",

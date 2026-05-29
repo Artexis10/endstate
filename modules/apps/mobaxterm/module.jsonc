@@ -55,7 +55,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\Documents\\MobaXterm\\MobaXterm.ini",
       "%APPDATA%\\MobaXterm\\MobaXterm.ini"

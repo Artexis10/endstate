@@ -68,7 +68,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Code\\User\\globalStorage\\state.vscdb",
       "%APPDATA%\\Code\\User\\globalStorage\\state.vscdb.backup"

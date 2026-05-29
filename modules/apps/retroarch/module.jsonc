@@ -93,7 +93,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\RetroArch\\retroarch.cfg"
     ],

@@ -40,7 +40,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\GPSoftware\\Directory Opus\\ConfigFiles\\dopus.cert",
       "%APPDATA%\\GPSoftware\\Directory Opus\\ConfigFiles\\license*"

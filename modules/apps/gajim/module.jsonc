@@ -78,7 +78,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Gajim\\settings.sqlite",
       "%APPDATA%\\Gajim\\logs.db",

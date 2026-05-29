@@ -69,7 +69,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Anki2\\prefs.db",
       "%APPDATA%\\Anki2\\prefs21.db"

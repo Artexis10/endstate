@@ -75,7 +75,7 @@
     ]
   },
   
-  "sensitive": {
+  "secrets": {
     "files": [
       "~/.git-credentials",
       "~/.config/git/credentials",

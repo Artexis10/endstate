@@ -79,7 +79,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\JetBrains\\CLion*\\options\\security.xml",
       "%APPDATA%\\JetBrains\\CLion*\\options\\github.xml"

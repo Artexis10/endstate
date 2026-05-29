@@ -157,7 +157,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "~/.bash_history",
       "~/.zsh_history",

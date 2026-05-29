@@ -57,7 +57,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\obs-studio\\basic\\profiles\\*\\service.json"
     ],

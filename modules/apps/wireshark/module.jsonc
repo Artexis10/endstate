@@ -164,7 +164,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Wireshark\\*.key",
       "%APPDATA%\\Wireshark\\*.pem",

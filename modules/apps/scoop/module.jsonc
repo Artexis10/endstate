@@ -41,7 +41,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.config\\scoop\\config.json"
     ],

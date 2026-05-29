@@ -35,7 +35,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [],
     "warning": "Flycast is portable on Windows: emu.cfg, the mappings\\ folder, and the data\\ folder all live beside flycast.exe at a user-chosen extraction path (e.g. C:\\flycast\\). There is no env-var-rooted location to capture without hardcoding an absolute drive path, so this module is install-only. To preserve settings, manually back up the Flycast folder.",
     "restorer": "warn-only"

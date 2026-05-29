@@ -96,7 +96,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\deluge\\auth",
       "%APPDATA%\\deluge\\hostlist.conf",

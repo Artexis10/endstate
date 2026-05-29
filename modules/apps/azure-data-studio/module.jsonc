@@ -65,7 +65,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\azuredatastudio\\User\\globalStorage\\state.vscdb",
       "%APPDATA%\\azuredatastudio\\User\\globalStorage\\state.vscdb.backup"

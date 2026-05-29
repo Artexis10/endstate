@@ -67,7 +67,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "~/.anaconda/config.toml",
       "~/.continuum/anaconda-client/tokens"

@@ -54,7 +54,7 @@
     "excludeGlobs": []
   },
 
-  "sensitive": {
+  "secrets": {
     "registryKeys": [
       "HKCU\\Software\\Binary Fortress Software\\DisplayFusion"
     ],

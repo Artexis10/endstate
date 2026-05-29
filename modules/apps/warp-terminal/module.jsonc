@@ -33,7 +33,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\Warp\\Warp\\data\\dev.warp.Warp-AiApiKeys",
       "%LOCALAPPDATA%\\Warp\\Warp\\data\\dev.warp.Warp-TemplatableMcpCredentials",

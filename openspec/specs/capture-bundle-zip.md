@@ -19,7 +19,7 @@ Capture produces a single portable zip artifact containing the app manifest, con
 - Match via `matches.winget` array against captured app's `refs.windows`
 - Matched modules' `capture.files` are copied into zip under `configs/<module-id>/`
 - Files matching `capture.excludeGlobs` are skipped
-- Files listed in `sensitive.files` are NEVER included
+- Files listed in `secrets.files` are NEVER included
 
 ### Profile Discovery
 
@@ -51,7 +51,7 @@ Capture success response includes:
 The zip MUST contain everything needed to restore on another machine. No external file references.
 
 ### INV-BUNDLE-2: Sensitive files never bundled
-Files listed in `module.sensitive.files` MUST NOT appear in the zip. Enforced at capture time.
+Files listed in `module.secrets.files` MUST NOT appear in the zip. Enforced at capture time.
 
 ### INV-BUNDLE-3: Config capture failures don't block app capture
 Missing or inaccessible config files are reported in `captureWarnings` and `metadata.json`. Manifest is always written.

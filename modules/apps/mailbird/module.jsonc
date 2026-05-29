@@ -28,7 +28,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\Mailbird\\Store\\Store.db",
       "%LOCALAPPDATA%\\Mailbird\\Store\\Store.db-wal",

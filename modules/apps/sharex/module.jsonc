@@ -55,7 +55,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\Documents\\ShareX\\UploadersConfig.json"
     ],

@@ -40,7 +40,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\Duplicati\\Duplicati-server.sqlite",
       "%LOCALAPPDATA%\\Duplicati\\Duplicati-server.sqlite-wal",

@@ -101,7 +101,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\mIRC\\servers.ini"
     ],

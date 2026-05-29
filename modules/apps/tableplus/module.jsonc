@@ -49,7 +49,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "registryKeys": [
       "HKCU\\Software\\TablePlus\\TablePlus\\WinSparkle"
     ],

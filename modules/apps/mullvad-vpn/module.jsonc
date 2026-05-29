@@ -58,7 +58,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       // The daemon's settings.json (tunnel protocol, relay/location, DNS, kill switch,
       // allow_lan), account-history.json and device.json are written by the daemon, which

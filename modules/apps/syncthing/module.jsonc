@@ -88,7 +88,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\Syncthing\\key.pem",
       "%LOCALAPPDATA%\\Syncthing\\https-key.pem",

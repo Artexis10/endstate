@@ -36,7 +36,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "HKCU\\Software\\Piriform\\CCleaner\\Name",
       "HKCU\\Software\\Piriform\\CCleaner\\License"

@@ -56,7 +56,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\ownCloud\\cookies*.db"
     ],

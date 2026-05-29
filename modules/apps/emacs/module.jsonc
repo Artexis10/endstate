@@ -115,7 +115,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\.emacs.d\\.authinfo",
       "%APPDATA%\\.emacs.d\\.authinfo.gpg",

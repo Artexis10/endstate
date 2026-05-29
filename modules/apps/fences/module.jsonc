@@ -68,7 +68,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Stardock\\Fences\\License.sig"
     ],

@@ -65,7 +65,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\FileBot\\license.txt"
     ],

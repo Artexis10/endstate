@@ -96,7 +96,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\Documents\\PCSX2\\bios",
       "%USERPROFILE%\\Documents\\PCSX2\\inis\\secrets.ini"

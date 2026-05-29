@@ -96,7 +96,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\.purple\\accounts.xml"
     ],

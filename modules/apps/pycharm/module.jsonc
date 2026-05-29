@@ -69,7 +69,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\JetBrains\\PyCharm*\\options\\security.xml",
       "%APPDATA%\\JetBrains\\PyCharm*\\options\\github.xml"

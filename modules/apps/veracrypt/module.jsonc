@@ -55,7 +55,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\VeraCrypt\\Default Keyfiles.xml",
       "%APPDATA%\\VeraCrypt\\History.xml"

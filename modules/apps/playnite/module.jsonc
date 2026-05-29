@@ -85,7 +85,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Playnite\\Extensions",
       "%APPDATA%\\Playnite\\ExtensionsData"

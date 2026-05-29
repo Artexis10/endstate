@@ -49,7 +49,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\Plex Media Server\\Preferences.xml"
     ],

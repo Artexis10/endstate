@@ -51,7 +51,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\rancher-desktop\\rd-engine.json",
       "%LOCALAPPDATA%\\rancher-desktop\\credential-server.json"

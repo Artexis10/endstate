@@ -69,7 +69,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\security.xml",
       "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\github.xml"

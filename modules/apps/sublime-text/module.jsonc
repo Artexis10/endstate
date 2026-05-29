@@ -44,7 +44,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Sublime Text\\Packages\\User\\SFTPBrowser.sublime-settings",
       "%APPDATA%\\Sublime Text\\Packages\\User\\SFTP.sublime-settings"
