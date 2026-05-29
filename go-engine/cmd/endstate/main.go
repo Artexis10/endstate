@@ -34,6 +34,7 @@ Commands:
   export-config   Export configuration files from system
   validate-export Validate export completeness
   report          Retrieve run history
+  generations     List provisioning generations
   doctor          Run diagnostics
   bootstrap       Bootstrap Endstate installation
   backup          Hosted Backup commands (login, logout, status, ...)
@@ -439,6 +440,11 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Latest: p.latest,
 			Last:   p.last,
 			RunID:  p.runID,
+			Events: p.events,
+		})
+
+	case "generations":
+		return commands.RunGenerations(commands.GenerationsFlags{
 			Events: p.events,
 		})
 
