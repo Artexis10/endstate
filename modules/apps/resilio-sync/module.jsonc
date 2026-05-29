@@ -1,0 +1,56 @@
+{
+  // Config Module: Resilio Sync
+  // Install-only: Resilio Sync's persistent config IS its secret/identity store.
+  // The storage folder (%APPDATA%\Resilio Sync\) holds folder KEYS (formerly
+  // "secrets"), the cryptographic peer identity (.SyncUser### subfolder),
+  // WebUI login/password, the license blob, and per-share databases. There is
+  // no separate non-sensitive preferences file to capture portably, so nothing
+  // is captured or restored.
+
+  "id": "apps.resilio-sync",
+  "displayName": "Resilio Sync",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Resilio.ResilioSync"],
+    "exe": ["Resilio Sync.exe"],
+    "uninstallDisplayName": ["^Resilio Sync"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Resilio Sync\\settings.dat" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      "**\\Resilio Sync\\settings.dat",
+      "**\\Resilio Sync\\sync.conf",
+      "**\\Resilio Sync\\.SyncUser*\\**",
+      "**\\Resilio Sync\\License\\**",
+      "**\\Resilio Sync\\*.db",
+      "**\\Resilio Sync\\*.dat",
+      "**\\Resilio Sync\\*.log",
+      "**\\*.SyncID",
+      "**\\.sync\\**",
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Resilio Sync\\settings.dat",
+      "%APPDATA%\\Resilio Sync\\sync.conf",
+      "%APPDATA%\\Resilio Sync\\.SyncUser*",
+      "%APPDATA%\\Resilio Sync\\License"
+    ],
+    "warning": "Resilio Sync stores folder KEYS (secrets), the cryptographic peer identity, the WebUI login/password, and the license inside settings.dat, sync.conf, the .SyncUser### identity folder, and the License directory under %APPDATA%\\Resilio Sync\\. These ARE credentials/identity material and MUST NOT be captured or restored. Re-link shares with their keys and re-create the identity after a rebuild.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. Resilio Sync's only persistent state is its secret/identity store (folder keys, .SyncUser### peer identity, WebUI credentials, license blob, and per-share databases) under %APPDATA%\\Resilio Sync\\ - all of which are credential/identity material that must never be captured or restored. There is no separate non-sensitive preferences file, so nothing is captured. Confidence: high - storage-folder location and contents confirmed by official Resilio docs and the Resilio key/identity articles."
+}

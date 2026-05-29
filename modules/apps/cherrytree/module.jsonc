@@ -1,0 +1,87 @@
+{
+  // Config Module: CherryTree
+  // Provides verify/restore/capture configuration for CherryTree (hierarchical note-taker)
+  // Curated module - captures user preferences and custom styles, excludes logs
+
+  "id": "apps.cherrytree",
+  "displayName": "CherryTree",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["GiuspenSourceforge.CherryTree"],
+    "exe": ["cherrytree.exe"],
+    "uninstallDisplayName": ["^CherryTree"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\cherrytree\\config.cfg"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\cherrytree\\config.cfg" }
+  ],
+
+  "restore": [
+    {
+      // Main settings: theme, toolbar, fonts, behavior (also holds window/cursor state)
+      "type": "copy",
+      "source": "./payload/apps/cherrytree/config.cfg",
+      "target": "%LOCALAPPDATA%\\cherrytree\\config.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Print page setup
+      "type": "copy",
+      "source": "./payload/apps/cherrytree/print.cfg",
+      "target": "%LOCALAPPDATA%\\cherrytree\\print.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Last selected interface language
+      "type": "copy",
+      "source": "./payload/apps/cherrytree/lang",
+      "target": "%LOCALAPPDATA%\\cherrytree\\lang",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-defined rich-text styles (user-style-N.xml) plus any custom
+      // gtksourceview color schemes live here. NOTE: the bare config-dir-root
+      // user-style.xml does NOT exist at runtime; it is only an install-time
+      // template, so it is intentionally not captured/restored separately.
+      "type": "copy",
+      "source": "./payload/apps/cherrytree/styles",
+      "target": "%LOCALAPPDATA%\\cherrytree\\styles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom language syntax definitions
+      "type": "copy",
+      "source": "./payload/apps/cherrytree/language-specs",
+      "target": "%LOCALAPPDATA%\\cherrytree\\language-specs",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\cherrytree\\config.cfg", "dest": "apps/cherrytree/config.cfg", "optional": true },
+      { "source": "%LOCALAPPDATA%\\cherrytree\\print.cfg", "dest": "apps/cherrytree/print.cfg", "optional": true },
+      { "source": "%LOCALAPPDATA%\\cherrytree\\lang", "dest": "apps/cherrytree/lang", "optional": true },
+      { "source": "%LOCALAPPDATA%\\cherrytree\\styles", "dest": "apps/cherrytree/styles", "optional": true },
+      { "source": "%LOCALAPPDATA%\\cherrytree\\language-specs", "dest": "apps/cherrytree/language-specs", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\log",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\Cache\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "notes": "Captures CherryTree user preferences from %LOCALAPPDATA%\\cherrytree\\: config.cfg (theme, toolbar, fonts, behavior), print.cfg, language selection (file named 'lang'), and the styles/ and language-specs/ directories (user-defined rich-text styles user-style-N.xml and custom gtksourceview color schemes). config.cfg also stores window geometry and recent-document history, which restore harmlessly. The application log (file named 'log') is excluded; CherryTree stores no settings in the Windows Registry. The bare user-style.xml at the config-dir root is only an install-time template (read from the app datadir, never written to the user config dir) and is intentionally not captured. Note documents (.ctb/.ctd/.ctz files) are user data stored separately and are not part of this module. Config dir = Glib::get_user_config_dir()/cherrytree, which on Windows is %LOCALAPPDATA%\\cherrytree. Confidence: high - config dir resolution, filenames, and styles layout confirmed from giuspen source (ct_config.cc, ct_filesystem.cc) and corroborated by GitHub issue #2482 + portablefreeware."
+}

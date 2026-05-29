@@ -1,0 +1,54 @@
+{
+  // Config Module: WinBox (MikroTik)
+  // RouterOS management utility. Install-only: the only user-valued data
+  // (the managed device / address list) is a CLEARTEXT credential store and
+  // MUST NOT be captured or restored. Everything else is volatile GUI cache.
+
+  "id": "apps.winbox",
+  "displayName": "WinBox (MikroTik)",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["MikroTik.WinBox"],
+    "exe": ["WinBox.exe", "winbox64.exe"],
+    "uninstallDisplayName": ["^WinBox\\b", "^MikroTik WinBox"],
+    "pathExists": [
+      "%APPDATA%\\MikroTik\\WinBox"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\MikroTik\\WinBox" }
+  ],
+
+  // Install-only: nothing is safely capturable. See notes + sensitive block.
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      // Credential stores (cleartext login + pwd) - never capture
+      "**\\settings.cfg.viw",
+      "**\\Addresses.cdb",
+      "**\\*.wbx",
+      "**\\*.cdb",
+      // Volatile GUI state / per-RouterOS-version feature cache
+      "**\\sessions\\**",
+      "**\\*.viw",
+      "**\\*.crc",
+      "**\\*.jg",
+      "**\\sessionpath"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\MikroTik\\WinBox\\settings.cfg.viw",
+      "%APPDATA%\\MikroTik\\WinBox\\Addresses.cdb"
+    ],
+    "warning": "WinBox stores managed-router usernames AND passwords in CLEARTEXT in settings.cfg.viw (Tenable TRA-2020-23; Rapid7 winbox_settings post module) and in the Addresses.cdb address book (unencrypted unless a master password is set). These are credential stores and MUST NEVER be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. WinBox config lives at %APPDATA%\\MikroTik\\WinBox\\, but the only data worth keeping - the managed device/address list - is stored alongside cleartext router credentials (settings.cfg.viw, Addresses.cdb), so nothing is captured. Remaining files (sessions\\*.viw view geometry, version-specific feature caches, *.crc/*.jg) are volatile GUI state and are excluded. Re-add devices and re-authenticate after reinstall; for portability use WinBox's own Tools > Export Without Passwords. Confidence: high - config path and cleartext-credential storage confirmed by Tenable TRA-2020-23, the Rapid7/Metasploit winbox_settings module, and multiple MikroTik forum threads."
+}

@@ -1,0 +1,90 @@
+{
+  // Config Module: Betterbird
+  // Thunderbird soft-fork email client - captures prefs, filters, add-ons
+  // Shares Thunderbird's profile directory; no credentials or mail data captured
+
+  "id": "apps.betterbird",
+  "displayName": "Betterbird",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Betterbird.Betterbird"],
+    "exe": ["betterbird.exe"],
+    "uninstallDisplayName": ["^Betterbird"],
+    "pathExists": [
+      "%ProgramFiles%\\Betterbird\\betterbird.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Betterbird\\betterbird.exe" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/betterbird/prefs.js",
+      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\prefs.js",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/betterbird/user.js",
+      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\user.js",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/betterbird/msgFilterRules.dat",
+      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\msgFilterRules.dat",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/betterbird/extensions",
+      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\extensions",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\prefs.js", "dest": "apps/betterbird/prefs.js", "optional": true },
+      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\user.js", "dest": "apps/betterbird/user.js", "optional": true },
+      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\msgFilterRules.dat", "dest": "apps/betterbird/msgFilterRules.dat", "optional": true },
+      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\extensions", "dest": "apps/betterbird/extensions", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\cache2\\**",
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.sqlite-wal",
+      "**\\*.sqlite-shm",
+      "**\\global-messages-db.sqlite",
+      "**\\panacea.dat",
+      "**\\ImapMail\\**",
+      "**\\Mail\\**",
+      "**\\key4.db",
+      "**\\key3.db",
+      "**\\logins.json",
+      "**\\cert9.db"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Thunderbird\\Profiles\\*\\key4.db",
+      "%APPDATA%\\Thunderbird\\Profiles\\*\\key3.db",
+      "%APPDATA%\\Thunderbird\\Profiles\\*\\logins.json",
+      "%APPDATA%\\Thunderbird\\Profiles\\*\\cert9.db"
+    ],
+    "warning": "Credential stores (key4.db/key3.db hold the NSS master encryption key, logins.json holds saved email passwords) and certificate stores (cert9.db) are NOT captured. Re-enter account passwords after restore.",
+    "restorer": "block"
+  },
+
+  "notes": "Captures Betterbird user preferences (prefs.js, user.js), message filters (msgFilterRules.dat), and installed add-ons (extensions). Betterbird is a Thunderbird soft-fork and shares the %APPDATA%\\Thunderbird\\Profiles\\<profile>\\ directory. Mail data (Mail/, ImapMail/), rebuildable indexes (global-messages-db.sqlite, panacea.dat), caches, and credential/certificate stores are excluded per security guardrails. Confidence: high - profile layout and credential file names confirmed by Mozilla Thunderbird Help and multiple independent sources; winget id Betterbird.Betterbird confirmed via winget-pkgs."
+}

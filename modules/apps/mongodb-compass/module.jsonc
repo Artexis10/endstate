@@ -1,0 +1,100 @@
+{
+  // Config Module: MongoDB Compass
+  // Provides verify/restore/capture configuration for MongoDB Compass (official MongoDB GUI)
+  // Electron app: persists data under %APPDATA%\MongoDB Compass (app.getPath('userData')).
+  // Connection secrets (passwords, SSH/TLS passphrases) live in the OS credential vault
+  // via keytar and are NEVER stored in these files, so they are not captured.
+
+  "id": "apps.mongodb-compass",
+  "displayName": "MongoDB Compass",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["MongoDB.Compass.Full"],
+    "exe": ["MongoDBCompass.exe"],
+    "uninstallDisplayName": ["^MongoDB Compass"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\MongoDB Compass\\AppPreferences\\General.json" }
+  ],
+
+  "restore": [
+    {
+      // App preferences (interface settings, theme, telemetry choice, default favorites view)
+      "type": "copy",
+      "source": "./payload/apps/mongodb-compass/AppPreferences",
+      "target": "%APPDATA%\\MongoDB Compass\\AppPreferences",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved / favorite connections (one JSON per connection; passwords excluded by Compass design)
+      "type": "copy",
+      "source": "./payload/apps/mongodb-compass/Connections",
+      "target": "%APPDATA%\\MongoDB Compass\\Connections",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved favorite queries
+      "type": "copy",
+      "source": "./payload/apps/mongodb-compass/FavoriteQueries",
+      "target": "%APPDATA%\\MongoDB Compass\\FavoriteQueries",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved aggregation pipelines
+      "type": "copy",
+      "source": "./payload/apps/mongodb-compass/SavedPipelines",
+      "target": "%APPDATA%\\MongoDB Compass\\SavedPipelines",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\MongoDB Compass\\AppPreferences", "dest": "apps/mongodb-compass/AppPreferences", "optional": true },
+      { "source": "%APPDATA%\\MongoDB Compass\\Connections", "dest": "apps/mongodb-compass/Connections", "optional": true },
+      { "source": "%APPDATA%\\MongoDB Compass\\FavoriteQueries", "dest": "apps/mongodb-compass/FavoriteQueries", "optional": true },
+      { "source": "%APPDATA%\\MongoDB Compass\\SavedPipelines", "dest": "apps/mongodb-compass/SavedPipelines", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Chromium/Electron runtime state and caches - never portable
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\DawnGraphiteCache\\**",
+      "**\\DawnWebGPUCache\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      // Session / state databases that may hold transient tokens or cookies
+      "**\\IndexedDB\\**",
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Cookies",
+      "**\\Cookies-journal",
+      "**\\Network\\**",
+      "**\\leveldb\\**",
+      "**\\RecentQueries\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\MongoDB Compass\\IndexedDB",
+      "%APPDATA%\\MongoDB Compass\\Local Storage",
+      "%APPDATA%\\MongoDB Compass\\Session Storage",
+      "%APPDATA%\\MongoDB Compass\\Cookies"
+    ],
+    "warning": "MongoDB Compass connection passwords, SSH and TLS passphrases are stored in the OS credential vault (keytar / Windows Credential Manager), NOT in these files - they cannot be captured and must be re-entered after restore. The captured connection JSON files contain server hostnames, usernames and database names; review before sharing a manifest. Chromium state stores (IndexedDB, Local/Session Storage, Cookies) may hold session tokens and MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures MongoDB Compass user configuration from %APPDATA%\\MongoDB Compass: app preferences (AppPreferences\\General.json), saved/favorite connections (Connections), favorite queries (FavoriteQueries), and saved aggregation pipelines (SavedPipelines). Connection passwords and SSH/TLS passphrases are kept in the OS credential vault via keytar and are NOT captured - re-enter them after restore. Caches, logs, Chromium state databases (IndexedDB, Local/Session Storage, Cookies), and RecentQueries are excluded. Confidence: high - storage layout (userData root, 'Connections'/'AppPreferences'/'FavoriteQueries'/'SavedPipelines' subdirs, General.json) confirmed against Compass source (compass-user-data, connection-storage, preferences-persistent-storage) and corroborated by the MongoDB community forum; keytar credential handling confirmed by official Compass FAQ."
+}

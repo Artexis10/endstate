@@ -1,0 +1,99 @@
+{
+  // Config Module: Cemu
+  // Provides verify/restore/capture configuration for Cemu (Wii U emulator)
+  // Captures emulator preferences and controller/game profiles; excludes save data,
+  // shader caches, dumped game keys, and re-downloadable graphic packs.
+
+  "id": "apps.cemu",
+  "displayName": "Cemu",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Cemu.exe"],
+    "uninstallDisplayName": ["^Cemu\\b"],
+    "pathExists": [
+      "%APPDATA%\\Cemu\\settings.xml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Cemu\\settings.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/cemu/settings.xml",
+      "target": "%APPDATA%\\Cemu\\settings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cemu/controllerProfiles",
+      "target": "%APPDATA%\\Cemu\\controllerProfiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cemu/gameProfiles",
+      "target": "%APPDATA%\\Cemu\\gameProfiles",
+      "backup": true,
+      "optional": true
+    }
+    // Note: the set of ENABLED graphic packs is persisted inside settings.xml
+    // (Cemu's <GraphicPack> entries), so it is covered by the settings.xml entry
+    // above. There is no single graphicPacks/rules.txt "enabled list" file —
+    // rules.txt is a per-pack definition file inside each individual pack folder,
+    // and the downloadable pack payloads are intentionally not captured.
+  ],
+
+  "capture": {
+    "files": [
+      // Main preferences (window layout, paths, graphics/audio/input settings)
+      { "source": "%APPDATA%\\Cemu\\settings.xml", "dest": "apps/cemu/settings.xml", "optional": true },
+      // Controller mappings (controller0.xml ... controllerN.xml and custom profiles)
+      { "source": "%APPDATA%\\Cemu\\controllerProfiles", "dest": "apps/cemu/controllerProfiles", "optional": true },
+      // Per-game override profiles
+      { "source": "%APPDATA%\\Cemu\\gameProfiles", "dest": "apps/cemu/gameProfiles", "optional": true }
+      // Note: enabled graphic packs are recorded inside settings.xml (above);
+      // there is no top-level graphicPacks/rules.txt "enabled list" file to capture.
+    ],
+    "excludeGlobs": [
+      // Wii U encryption keys dumped from a console - sensitive, never capture
+      "**\\keys.txt",
+      "**\\otp.bin",
+      "**\\seeprom.bin",
+      // Re-downloadable graphic pack payloads (can be large)
+      "**\\graphicPacks\\downloadedGraphicPacks\\**",
+      // Emulated NAND, save data, installed titles/updates/DLC (large, machine-specific)
+      "**\\mlc01\\**",
+      // Compiled/transferable shader and pipeline caches (re-generated at runtime)
+      "**\\shaderCache\\**",
+      // Dumped titles, ROMs, and misc large/transient data
+      "**\\dumps\\**",
+      "**\\roms\\**",
+      "**\\memorySearcher\\**",
+      // Bundled resources, cached game icons, logs, crash dumps
+      "**\\resources\\**",
+      "**\\icons\\**",
+      "**\\*.log",
+      "**\\crashdump\\**",
+      "**\\*.bak"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Cemu\\keys.txt",
+      "%APPDATA%\\Cemu\\otp.bin",
+      "%APPDATA%\\Cemu\\seeprom.bin"
+    ],
+    "warning": "keys.txt, otp.bin, and seeprom.bin contain Wii U encryption keys dumped from a physical console. These are secret, machine/console-specific, and MUST NOT be captured or auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Cemu emulator preferences (settings.xml), controller profiles, and per-game profiles from the default Windows location %APPDATA%\\Cemu (Cemu 2.0+ non-portable default for new installs). The set of enabled graphic packs is stored inside settings.xml, so no separate graphicPacks file is captured; the per-pack rules.txt definition files and downloadable pack payloads live under graphicPacks/ and are intentionally not captured (re-downloadable). Excludes the emulated NAND/save storage (mlc01), shader caches, dumps, ROMs, cached icons, logs, and downloaded graphic-pack payloads. Wii U console keys (keys.txt/otp.bin/seeprom.bin) are treated as sensitive and never captured. Confidence: high - %APPDATA%\\Cemu default and the settings.xml/controllerProfiles/gameProfiles layout are confirmed by the official Cemu wiki and installation guide (Cemu 2.0+ Windows non-portable default; portable mode requires a 'portable' folder next to the exe). Removed an erroneous graphicPacks/rules.txt capture/restore pair: rules.txt is a per-pack definition file, not a single top-level 'enabled list'."
+}

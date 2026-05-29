@@ -1,0 +1,73 @@
+{
+  // Config Module: Beekeeper Studio
+  // Provides verify/restore/capture configuration for Beekeeper Studio (open-source SQL editor)
+  // Curated module - captures user preferences/keybindings (user.config.ini).
+  // The connection database (app.db) is EXCLUDED: it holds AES-encrypted credentials
+  // protected by a machine-local key, so it is neither safe nor portable to restore.
+
+  "id": "apps.beekeeper-studio",
+  "displayName": "Beekeeper Studio",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["beekeeper-studio.beekeeper-studio"],
+    "exe": ["Beekeeper Studio.exe"],
+    "uninstallDisplayName": ["^Beekeeper Studio"],
+    "pathExists": [
+      "%APPDATA%\\beekeeper-studio"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\beekeeper-studio\\user.config.ini" }
+  ],
+
+  "restore": [
+    {
+      // User-editable settings (UI layout, query editor, table display, keybindings, plugin toggles).
+      // INI format -> merge-ini preserves machine-local sections not present in the payload.
+      "type": "merge-ini",
+      "source": "./payload/apps/beekeeper-studio/user.config.ini",
+      "target": "%APPDATA%\\beekeeper-studio\\user.config.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\beekeeper-studio\\user.config.ini", "dest": "apps/beekeeper-studio/user.config.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Connection/query database: AES-encrypted credentials + machine-local key (NOT portable).
+      "**\\app.db",
+      "**\\app.db-*",
+      "**\\app.db.*",
+      // Electron/Chromium runtime caches, logs, GPU/shader caches, crash dumps, session state.
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\DawnGraphiteCache\\**",
+      "**\\DawnWebGPUCache\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Network\\**",
+      "**\\blob_storage\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\beekeeper-studio\\app.db"
+    ],
+    "warning": "Beekeeper Studio's app.db holds saved connections and query history with AES-encrypted database passwords. The encryption key is stored locally and tied to the machine, so app.db is non-portable and credential-bearing. It MUST NOT be auto-captured or restored; re-create connections on the new machine.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Beekeeper Studio user preferences and keybindings from %APPDATA%\\beekeeper-studio\\user.config.ini. The connection/query database app.db is explicitly excluded - it contains AES-encrypted credentials secured by a machine-local key (GitHub #943), making it both sensitive and non-portable. Caches, logs, and Electron session/storage are excluded. Confidence: high - config.ini path and app.db storage model confirmed by official Beekeeper Studio documentation (data-location, configuration) plus the project's own security issue tracker."
+}

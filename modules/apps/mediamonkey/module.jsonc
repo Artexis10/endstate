@@ -1,0 +1,75 @@
+{
+  // Config Module: MediaMonkey (v5)
+  // Provides verify/restore/capture configuration for MediaMonkey 5 media library manager
+  // Curated module - captures user settings (.ini + persistent.json), excludes the
+  // large library database, metadata cache, and the registry license/registration key
+
+  "id": "apps.mediamonkey",
+  "displayName": "MediaMonkey",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["VentisMedia.MediaMonkey.5"],
+    "exe": ["MediaMonkey.exe"],
+    "uninstallDisplayName": ["^MediaMonkey 5", "^MediaMonkey\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\MediaMonkey5\\MediaMonkey.ini" }
+  ],
+
+  "restore": [
+    {
+      // Main per-user settings (INI). May embed the registration key - see sensitive note.
+      "type": "copy",
+      "source": "./payload/apps/mediamonkey/MediaMonkey.ini",
+      "target": "%APPDATA%\\MediaMonkey5\\MediaMonkey.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Per-user UI/view state (window layout, panel state) - JSON, editable in MM5.
+      "type": "copy",
+      "source": "./payload/apps/mediamonkey/persistent.json",
+      "target": "%APPDATA%\\MediaMonkey5\\persistent.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\MediaMonkey5\\MediaMonkey.ini", "dest": "apps/mediamonkey/MediaMonkey.ini", "optional": true },
+      { "source": "%APPDATA%\\MediaMonkey5\\persistent.json", "dest": "apps/mediamonkey/persistent.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Large library database (file metadata, play history, playlists) - not portable settings
+      "**\\MM5.DB",
+      "**\\MM5.DB-*",
+      "**\\*.DB",
+      "**\\*.DB-wal",
+      "**\\*.DB-shm",
+      // Metadata / album-art cache
+      "**\\MetadataCache\\**",
+      // Logs, temp, lock and crash artifacts
+      "**\\*.log",
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\*.lock",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\MediaMonkey5\\MediaMonkey.ini"
+    ],
+    "registryKeys": [
+      "HKCU\\Software\\MediaMonkey"
+    ],
+    "warning": "MediaMonkey stores its Gold license registration (username/password key pair) at HKCU\\Software\\MediaMonkey, and the registration may also be cached in MediaMonkey.ini. The registry key is NOT captured. The .ini is captured for user preferences but may contain the license - review before sharing and re-register on a fresh machine if needed.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures MediaMonkey 5 per-user settings: MediaMonkey.ini (preferences) and persistent.json (UI/view layout) under %APPDATA%\\MediaMonkey5\\. Excludes the large MM5.DB library database, MetadataCache, logs, temp and lock files. The HKCU\\Software\\MediaMonkey registry key (license registration + some Views config) is intentionally NOT captured because it holds the license; re-register after restore. Confidence: medium - file paths confirmed by official MediaMonkey knowledge base, but exact split of which settings live in .ini vs persistent.json vs registry is not fully documented."
+}

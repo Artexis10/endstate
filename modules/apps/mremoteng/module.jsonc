@@ -1,0 +1,58 @@
+{
+  // Config Module: mRemoteNG
+  // Provides verify/restore/capture configuration for mRemoteNG (multi-protocol remote connection manager)
+  // The connection tree (confCons.xml) is the primary asset but contains connection passwords
+  // that are encrypted with a recoverable default key unless a custom encryption password is set.
+
+  "id": "apps.mremoteng",
+  "displayName": "mRemoteNG",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["mRemoteNG.mRemoteNG"],
+    "exe": ["mRemoteNG.exe"],
+    "uninstallDisplayName": ["^mRemoteNG"],
+    "pathExists": [
+      "%APPDATA%\\mRemoteNG\\confCons.xml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\mRemoteNG\\confCons.xml" }
+  ],
+
+  // No restore actions: the only deterministic config file (confCons.xml) is a credential
+  // store and is NEVER auto-restored (see sensitive block). The credential-free program
+  // settings (user.config) live at a non-deterministic hash/version-named path that cannot
+  // be expressed as a static target. This module is therefore verify-only.
+  "restore": [],
+
+  "capture": {
+    // Nothing is captured: confCons.xml is a credential store (passwords encrypted with the
+    // public default key mR3m unless a custom encryption key is set - CVE-2023-30367) and the
+    // only credential-free settings file (user.config) has no deterministic path.
+    "files": [],
+    "excludeGlobs": [
+      // NEVER capture the connection file - it is a credential store (stored connection
+      // passwords encrypted with a recoverable default key). Flagged sensitive; migrate manually.
+      "**\\confCons.xml",
+      // Rolling backups of the connection file (mRemoteNG keeps the 10 most recent)
+      "**\\confCons.xml.backup",
+      "**\\confCons.xml.*.backup",
+      "**\\confCons.xml.bak",
+      // Logs
+      "**\\mRemoteNG.log",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\mRemoteNG\\confCons.xml"
+    ],
+    "warning": "mRemoteNG's confCons.xml stores connection passwords. By default they are encrypted with a known/recoverable key (mR3m, CVE-2023-30367), so this file is effectively a credential store unless a custom full-file encryption password is set. It is NOT captured or restored by this module; migrate the connection tree manually after verifying its encryption.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Verify-only module. mRemoteNG's only deterministic config file - the connection tree confCons.xml under %APPDATA%\\mRemoteNG - is a credential store: it holds RDP/SSH/VNC connections AND their stored passwords, encrypted with the recoverable default key 'mR3m' unless the user sets a custom encryption password (CVE-2023-30367; off-the-shelf password-dumper PoCs exist). Following the catalog convention for credential-bearing connection documents (cf. royal-ts), confCons.xml is explicitly excluded from capture and flagged sensitive rather than captured/restored. The credential-free program settings, external tools, and themes live in user.config under a per-machine versioned/hash-named subfolder (%LOCALAPPDATA%\\mRemoteNG\\<hash>\\<version>\\user.config) that has no deterministic static path and cannot be captured. Net result: no portable, non-sensitive local settings exist to capture, so this module verifies presence only. Confidence: high - confCons.xml location confirmed by official docs (readthedocs troubleshooting) and community sources; user.config %LOCALAPPDATA% hash-path confirmed by official docs and the project wiki; credential-store risk confirmed by CVE-2023-30367 (NVD) and the S1lkys password-dumper PoC."
+}

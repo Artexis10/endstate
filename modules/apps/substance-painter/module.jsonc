@@ -1,0 +1,73 @@
+{
+  // Config Module: Adobe Substance 3D Painter
+  // Provides verify/restore/capture configuration for Adobe Substance 3D Painter (3D texturing)
+  // Primary preferences live in the Windows Registry (HKCU); user content (shelf/presets/plugins)
+  // lives under Documents. Caches, thumbnails, and logs are excluded.
+
+  "id": "apps.substance-painter",
+  "displayName": "Adobe Substance 3D Painter",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": [
+      "Adobe Substance 3D Painter.exe",
+      "Substance Painter.exe"
+    ],
+    "uninstallDisplayName": ["^Adobe Substance 3D Painter"],
+    "pathExists": [
+      "%PROGRAMFILES%\\Adobe\\Adobe Substance 3D Painter",
+      "%LOCALAPPDATA%\\Adobe\\Adobe Substance 3D Painter"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Adobe\\Adobe Substance 3D Painter" }
+  ],
+
+  "restore": [
+    {
+      // Application preferences: shortcuts, Shelf/Asset paths, interface layout (7.2+)
+      "type": "registry-import",
+      "source": "./payload/apps/substance-painter/Preferences.reg",
+      "target": "HKCU\\Software\\Adobe\\Adobe Substance 3D Painter",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User content: shelf assets, presets (saved from Asset window), plugins, Shelf.ini
+      "type": "copy",
+      "source": "./payload/apps/substance-painter/UserContent",
+      "target": "%USERPROFILE%\\Documents\\Adobe\\Adobe Substance 3D Painter",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\thumbnails\\**",
+        "**\\*.thumb",
+        "**\\cache\\**",
+        "**\\*.log"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // User content folder: shelf, presets, plugins, Shelf.ini (excludes thumbnails/cache/logs)
+      { "source": "%USERPROFILE%\\Documents\\Adobe\\Adobe Substance 3D Painter", "dest": "apps/substance-painter/UserContent", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\Adobe\\Adobe Substance 3D Painter", "dest": "apps/substance-painter/Preferences.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\thumbnails\\**",
+      "**\\*.thumb",
+      "**\\cache\\**",
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Substance 3D Painter preferences (HKCU\\Software\\Adobe\\Adobe Substance 3D Painter: shortcuts, Shelf/Asset paths, interface layout) and the user content folder under Documents\\Adobe\\Adobe Substance 3D Painter (shelf, presets, plugins, Shelf.ini). Asset thumbnails, caches, and logs (largely in %LOCALAPPDATA%\\Adobe\\Adobe Substance 3D Painter) are excluded; the Documents folder can hold large binary shelf assets that are not strictly settings. Not available via winget. Confidence: high - registry path and Documents/AppData locations confirmed by official Adobe docs (helpx.adobe.com / experienceleague.adobe.com) for v7.2+."
+}

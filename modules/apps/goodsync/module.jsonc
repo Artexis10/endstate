@@ -1,0 +1,87 @@
+{
+  // Config Module: GoodSync
+  // Provides verify/restore/capture configuration for GoodSync (file sync/backup client)
+  // Captures portable job/group definitions; excludes machine-bound encrypted credential store
+
+  "id": "apps.goodsync",
+  "displayName": "GoodSync",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Siber.GoodSync"],
+    "exe": ["GoodSync.exe", "gs-server.exe"],
+    "uninstallDisplayName": ["^GoodSync"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\GoodSync",
+      "%APPDATA%\\GoodSync"
+    ]
+  },
+
+  "verify": [
+    // Current GoodSync Client profile folder; verify presence of the job list file.
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\GoodSync\\jobs.tic" }
+  ],
+
+  "restore": [
+    {
+      // Job list + global options (TIC format). Primary high-value config.
+      "type": "copy",
+      "source": "./payload/apps/goodsync/jobs.tic",
+      "target": "%LOCALAPPDATA%\\GoodSync\\jobs.tic",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Group definitions.
+      "type": "copy",
+      "source": "./payload/apps/goodsync/groups.tic",
+      "target": "%LOCALAPPDATA%\\GoodSync\\groups.tic",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Local program options (TIX text format). GoodSync writes local-only
+      // Program Options to prog-options-local.tix in the profile folder
+      // (instead of the registry on recent builds).
+      "type": "copy",
+      "source": "./payload/apps/goodsync/prog-options-local.tix",
+      "target": "%LOCALAPPDATA%\\GoodSync\\prog-options-local.tix",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Job list + global options (endpoint pairings, schedules, filters).
+      { "source": "%LOCALAPPDATA%\\GoodSync\\jobs.tic", "dest": "apps/goodsync/jobs.tic", "optional": true },
+      // Group definitions.
+      { "source": "%LOCALAPPDATA%\\GoodSync\\groups.tic", "dest": "apps/goodsync/groups.tic", "optional": true },
+      // Local program options (prog-options-local.tix), written to the profile folder instead of the registry on recent builds.
+      { "source": "%LOCALAPPDATA%\\GoodSync\\prog-options-local.tix", "dest": "apps/goodsync/prog-options-local.tix", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Machine-bound encrypted server-account credential store (see sensitive block).
+      "**\\accounts.tgs",
+      // Runtime mirror folder: job state files, per-job logs, previous file versions.
+      "**\\_mirrors_\\**",
+      "**\\_gsdata_\\**",
+      // Logs, lock and temp files.
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\Logs\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\GoodSync\\accounts.tgs",
+      "%APPDATA%\\GoodSync\\accounts.tgs"
+    ],
+    "warning": "GoodSync stores Server Account credentials (passwords and OAuth refresh tokens) in accounts.tgs, locally encrypted and bound to the originating machine. Per GoodSync, these files cannot be read on another computer, so they are never captured or restored. Re-enter Server Accounts (or use GoodSync Account Sync) after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures GoodSync job and group definitions (jobs.tic, groups.tic) plus local program options (prog-options-local.tix) from the Client profile folder %LOCALAPPDATA%\\GoodSync (older 9.x builds used %APPDATA%\\GoodSync). Per the official GoodSync manual, recent builds write local-only Program Options to prog-options-local.tix in the profile folder rather than the registry. The encrypted, machine-bound Server Account credential store (accounts.tgs) and the runtime _mirrors_/_gsdata_ folders, logs, and temp files are excluded. Confidence: high - profile-folder path and file roles confirmed by multiple official GoodSync help-center/manual articles; credential machine-binding stated explicitly by GoodSync."
+}

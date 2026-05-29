@@ -1,0 +1,74 @@
+{
+  // Config Module: MobaXterm
+  // Provides verify/restore/capture configuration for MobaXterm (tabbed SSH/X11/RDP client)
+  // Curated module - captures MobaXterm.ini (sessions + settings); registry secrets are NOT captured
+
+  "id": "apps.mobaxterm",
+  "displayName": "MobaXterm",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Mobatek.MobaXterm"],
+    "exe": ["MobaXterm.exe"],
+    "uninstallDisplayName": ["^MobaXterm"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Mobatek\\MobaXterm" }
+  ],
+
+  "restore": [
+    // Installer Edition default: %MyDocuments%\MobaXterm\MobaXterm.ini
+    {
+      "type": "copy",
+      "source": "./payload/apps/mobaxterm/MobaXterm.ini",
+      "target": "%USERPROFILE%\\Documents\\MobaXterm\\MobaXterm.ini",
+      "backup": true,
+      "optional": true
+    },
+    // Alternate location used by some versions: %APPDATA%\MobaXterm\MobaXterm.ini
+    {
+      "type": "copy",
+      "source": "./payload/apps/mobaxterm/MobaXterm-AppData.ini",
+      "target": "%APPDATA%\\MobaXterm\\MobaXterm.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Installer Edition default location (%MyDocuments%\MobaXterm)
+      { "source": "%USERPROFILE%\\Documents\\MobaXterm\\MobaXterm.ini", "dest": "apps/mobaxterm/MobaXterm.ini", "optional": true },
+      // Alternate %APPDATA% location seen in some versions
+      { "source": "%APPDATA%\\MobaXterm\\MobaXterm.ini", "dest": "apps/mobaxterm/MobaXterm-AppData.ini", "optional": true }
+    ],
+    // Registry NOT captured: HKCU\Software\Mobatek\MobaXterm interleaves general settings
+    // with DPAPI-encrypted, machine-bound secrets (subkeys P, C, M, SessionP) that are
+    // both non-portable and unsafe to extract. See sensitive block below.
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Temp\\**",
+      "**\\slash\\**",
+      "**\\HOME\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\Documents\\MobaXterm\\MobaXterm.ini",
+      "%APPDATA%\\MobaXterm\\MobaXterm.ini"
+    ],
+    "registryKeys": [
+      "HKCU\\Software\\Mobatek\\MobaXterm\\P",
+      "HKCU\\Software\\Mobatek\\MobaXterm\\C",
+      "HKCU\\Software\\Mobatek\\MobaXterm\\M",
+      "HKCU\\Software\\Mobatek\\MobaXterm\\SessionP"
+    ],
+    "warning": "MobaXterm stores saved session passwords/credentials in the registry under HKCU\\Software\\Mobatek\\MobaXterm (subkeys M=master password, P=passwords, C=credentials, SessionP=encryption entropy seed). These are DPAPI/machine-bound and are NOT captured. MobaXterm.ini may also embed encrypted session secrets; review before sharing and re-enter passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures MobaXterm.ini (sessions, bookmarks, terminal/X11/SFTP settings) from the Installer Edition default (%USERPROFILE%\\Documents\\MobaXterm) and the alternate %APPDATA%\\MobaXterm location. The HKCU\\Software\\Mobatek\\MobaXterm registry tree is deliberately NOT captured: it interleaves settings with DPAPI-encrypted, machine-bound secrets (M=master password, P=passwords, C=credentials, SessionP=entropy seed) that are neither portable nor safe to extract. Re-enter saved passwords after restore. Portable Edition (.ini next to the exe) has no fixed path and is not captured. Confidence: high - .ini locations confirmed by Mobatek's official blog/docs; registry secret subkeys (M/P/C/SessionP) confirmed by independent credential-research sources (HyperSine, Velociraptor, xmcyber)."
+}

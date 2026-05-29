@@ -1,0 +1,54 @@
+{
+  // Config Module: OpenVPN Connect
+  // Provides verify/restore/capture configuration for the OpenVPN Connect (v3) Windows client
+  // INSTALL-ONLY: OpenVPN Connect commingles application settings with VPN credentials
+  // and private profile material, so nothing is captured (see sensitive block + notes).
+
+  "id": "apps.openvpn-connect",
+  "displayName": "OpenVPN Connect",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["OpenVPNTechnologies.OpenVPNConnect"],
+    "exe": ["OpenVPNConnect.exe", "openvpn.exe"],
+    "uninstallDisplayName": ["^OpenVPN Connect"],
+    "pathExists": [
+      "%APPDATA%\\OpenVPN Connect\\config.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\OpenVPN Connect\\config.json" }
+  ],
+
+  // INSTALL-ONLY: no portable settings can be captured without also capturing credentials.
+  // OpenVPN Connect stores its application/proxy settings inside %APPDATA%\OpenVPN Connect\config.json,
+  // but that same file is documented to store usernames and passwords UNENCRYPTED, and the
+  // %APPDATA%\OpenVPN Connect\profiles\ directory holds imported .ovpn connection profiles that
+  // typically embed private keys, certificates, and inline VPN auth. There is no clean settings-only
+  // subset to capture, so this module captures nothing and re-importing profiles is left to the user.
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      "**\\config.json",
+      "**\\profiles\\**",
+      "**\\*.ovpn",
+      "**\\Cache\\**",
+      "**\\logs\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\OpenVPN Connect\\config.json",
+      "%APPDATA%\\OpenVPN Connect\\profiles"
+    ],
+    "warning": "OpenVPN Connect's config.json stores VPN usernames and passwords unencrypted, and the profiles directory contains imported .ovpn profiles that embed private keys, certificates, and credentials. These MUST NOT be captured or auto-restored. Re-import VPN profiles manually after a rebuild.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only: nothing is captured. OpenVPN Connect stores application/proxy settings in %APPDATA%\\OpenVPN Connect\\config.json, but that file holds VPN usernames/passwords unencrypted and the sibling profiles\\ folder contains imported .ovpn profiles with private keys/certificates. Because settings are inseparable from credentials, no portable settings subset exists; re-import profiles manually after rebuild. Confidence: medium - config.json/profiles paths confirmed by multiple OpenVPN community-forum sources (including a credential-exposure report), but no official file-layout doc found and exact subfolder structure varies by version."
+}

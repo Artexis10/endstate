@@ -1,0 +1,93 @@
+{
+  // Config Module: Unity Hub
+  // Provides verify/restore/capture configuration for Unity Hub (game-engine launcher) + Unity Editor preferences
+  // Mixed: Hub preferences in %APPDATA%\UnityHub\ (JSON files) + Unity Editor preferences in HKCU registry
+  // Curated module - captures portable preferences only; excludes auth tokens, caches, logs
+
+  "id": "apps.unity-hub",
+  "displayName": "Unity Hub",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Unity.UnityHub"],
+    "exe": ["Unity Hub.exe", "Unity.exe"],
+    "uninstallDisplayName": ["^Unity Hub"],
+    "pathExists": [
+      "%APPDATA%\\UnityHub"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\UnityHub\\hubConfig.json" }
+  ],
+
+  "restore": [
+    {
+      // Hub configuration: default editor, install/download paths, appearance, projects list
+      "type": "copy",
+      "source": "./payload/apps/unity-hub/hubConfig.json",
+      "target": "%APPDATA%\\UnityHub\\hubConfig.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Hub UI language preference
+      "type": "copy",
+      "source": "./payload/apps/unity-hub/languageConfig.json",
+      "target": "%APPDATA%\\UnityHub\\languageConfig.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Unity Editor preferences (EditorPrefs): theme, external script editor, cache server, etc.
+      // NOTE: value names carry a per-machine/per-version hash suffix; general prefs carry over.
+      "type": "registry-import",
+      "source": "./payload/apps/unity-hub/UnityEditor.reg",
+      "target": "HKCU\\Software\\Unity Technologies\\Unity Editor 5.x",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\UnityHub\\hubConfig.json", "dest": "apps/unity-hub/hubConfig.json", "optional": true },
+      { "source": "%APPDATA%\\UnityHub\\languageConfig.json", "dest": "apps/unity-hub/languageConfig.json", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\Unity Technologies\\Unity Editor 5.x", "dest": "apps/unity-hub/UnityEditor.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Auth tokens / sessions - account-bound, sensitive
+      "**\\accessToken.json",
+      "**\\refreshToken.json",
+      "**\\secret.key",
+      "**\\*.session",
+      "**\\Cookies*",
+      // Licenses - server/account-bound, not portable
+      "**\\Unity_lic.ulf",
+      "**\\services-config.json",
+      // Caches, logs, temp
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\UnityHub\\accessToken.json",
+      "%APPDATA%\\UnityHub\\refreshToken.json",
+      "%APPDATA%\\UnityHub\\secret.key",
+      "%PROGRAMDATA%\\Unity\\config\\services-config.json",
+      "%PROGRAMDATA%\\Unity\\Unity_lic.ulf"
+    ],
+    "warning": "Unity Hub stores sign-in access/refresh tokens and license activation blobs that are account- and machine-bound. These MUST NOT be auto-restored; sign in again and re-activate the license after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures portable Unity Hub preferences (hubConfig.json: default editor, install/download paths, appearance, projects list; languageConfig.json) plus Unity Editor preferences from HKCU\\Software\\Unity Technologies\\Unity Editor 5.x. Sign-in tokens (accessToken/refreshToken), the secret.key, and license blobs are explicitly excluded - re-authenticate and re-activate after restore. EditorPrefs registry value names carry a per-machine/per-version hash suffix, so some entries may not apply on a different machine or Unity version. Confidence: medium - Hub config path and EditorPrefs registry root confirmed by official Unity docs, but exact Hub JSON filenames (hubConfig.json/languageConfig.json) and the registry hash caveat are corroborated by community sources rather than a single authoritative file listing."
+}

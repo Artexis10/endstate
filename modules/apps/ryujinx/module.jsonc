@@ -1,0 +1,81 @@
+{
+  // Config Module: Ryujinx
+  // Provides verify/restore/capture configuration for the Ryujinx Nintendo Switch emulator
+  // Curated module - captures emulator preferences + controller profiles only
+  // Excludes encryption keys (copyrighted/sensitive), save data, game ROMs, mods, and caches
+
+  "id": "apps.ryujinx",
+  "displayName": "Ryujinx",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Ryujinx.exe"],
+    "uninstallDisplayName": ["^Ryujinx"],
+    "pathExists": [
+      "%APPDATA%\\Ryujinx\\Config.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Ryujinx\\Config.json" }
+  ],
+
+  "restore": [
+    {
+      // Main settings: graphics, audio, system, UI, and input config
+      "type": "copy",
+      "source": "./payload/apps/ryujinx/Config.json",
+      "target": "%APPDATA%\\Ryujinx\\Config.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved controller/keyboard input profiles (e.g. profiles\controller\*.json)
+      "type": "copy",
+      "source": "./payload/apps/ryujinx/profiles",
+      "target": "%APPDATA%\\Ryujinx\\profiles",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Ryujinx\\Config.json", "dest": "apps/ryujinx/Config.json", "optional": true },
+      { "source": "%APPDATA%\\Ryujinx\\profiles", "dest": "apps/ryujinx/profiles", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Nintendo encryption keys + per-account profile data (sensitive / copyrighted)
+      "**\\system\\**",
+      // Save data
+      "**\\bis\\**",
+      // Game ROMs, mods, simulated SD card (large binary blobs)
+      "**\\games\\**",
+      "**\\mods\\**",
+      "**\\sdcard\\**",
+      // Performance caches (shader / PPTC)
+      "**\\cache\\**",
+      "**\\GuestShaders\\**",
+      "**\\CpuShaders\\**",
+      "**\\*.cache",
+      // Logs, screenshots, crash dumps, backups
+      "**\\Logs\\**",
+      "**\\screenshots\\**",
+      "**\\*.log",
+      "**\\Config.json.bak"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Ryujinx\\system\\prod.keys",
+      "%APPDATA%\\Ryujinx\\system\\title.keys",
+      "%APPDATA%\\Ryujinx\\system\\Profiles.json"
+    ],
+    "warning": "The Ryujinx system folder holds Nintendo console encryption keys (prod.keys/title.keys) which are copyrighted and machine/console-specific, plus per-account profile data. These MUST NOT be captured or restored - re-supply your own keys after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Ryujinx emulator preferences (Config.json: graphics, audio, system, UI, input bindings) and saved controller input profiles. Explicitly excludes encryption keys (system\\), save data (bis\\), game ROMs (games\\), mods, the simulated SD card, and all shader/PPTC caches and logs. No reliable official winget package; installs direct. Confidence: high - %APPDATA%\\Ryujinx\\Config.json and profiles\\ confirmed by the official Ryujinx setup/configuration guide and multiple independent community guides."
+}

@@ -1,0 +1,113 @@
+{
+  // Config Module: VirtualDJ
+  // Provides verify/restore/capture configuration for VirtualDJ (DJ software)
+  // File-based config in the VirtualDJ "home folder" under %LOCALAPPDATA%
+
+  "id": "apps.virtualdj",
+  "displayName": "VirtualDJ",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": [],
+    "exe": ["VirtualDJ.exe", "virtualdj.exe"],
+    "uninstallDisplayName": ["^VirtualDJ"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\VirtualDJ\\settings.xml",
+      "%USERPROFILE%\\Documents\\VirtualDJ\\settings.xml"
+    ]
+  },
+
+  "verify": [
+    // Newer installs use %LOCALAPPDATA%\VirtualDJ as the home folder
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\VirtualDJ\\settings.xml" }
+  ],
+
+  "restore": [
+    // Main preferences file
+    {
+      "type": "copy",
+      "source": "./payload/apps/virtualdj/settings.xml",
+      "target": "%LOCALAPPDATA%\\VirtualDJ\\settings.xml",
+      "backup": true,
+      "optional": true
+    },
+    // Custom controller / keyboard mapping files
+    {
+      "type": "copy",
+      "source": "./payload/apps/virtualdj/Mappers",
+      "target": "%LOCALAPPDATA%\\VirtualDJ\\Mappers",
+      "backup": true,
+      "optional": true
+    },
+    // Custom controller definition files for unsupported hardware
+    {
+      "type": "copy",
+      "source": "./payload/apps/virtualdj/Devices",
+      "target": "%LOCALAPPDATA%\\VirtualDJ\\Devices",
+      "backup": true,
+      "optional": true
+    },
+    // Interface skins
+    {
+      "type": "copy",
+      "source": "./payload/apps/virtualdj/Skins",
+      "target": "%LOCALAPPDATA%\\VirtualDJ\\Skins",
+      "backup": true,
+      "optional": true
+    },
+    // Sampler banks and sample group/property definitions
+    {
+      "type": "copy",
+      "source": "./payload/apps/virtualdj/Sampler",
+      "target": "%LOCALAPPDATA%\\VirtualDJ\\Sampler",
+      "backup": true,
+      "optional": true
+    },
+    // Home folder pointer / preference registry key (HKCU only)
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/virtualdj/VirtualDJ.reg",
+      "target": "HKCU\\Software\\VirtualDJ",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\VirtualDJ\\settings.xml", "dest": "apps/virtualdj/settings.xml", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualDJ\\Mappers", "dest": "apps/virtualdj/Mappers", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualDJ\\Devices", "dest": "apps/virtualdj/Devices", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualDJ\\Skins", "dest": "apps/virtualdj/Skins", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualDJ\\Sampler", "dest": "apps/virtualdj/Sampler", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\VirtualDJ", "dest": "apps/virtualdj/VirtualDJ.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // License / activation blob - machine-specific, never portable
+      "**\\licence.dat",
+      "**\\license.dat",
+      // Track library metadata (large, references absolute media paths) and per-drive databases
+      "**\\database.xml",
+      // Downloaded album-art / Content Unlimited cache
+      "**\\Cache\\**",
+      "**\\Covers\\**",
+      // Logs, temp, lock files
+      "**\\*.log",
+      "**\\Temp\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\VirtualDJ\\licence.dat",
+      "%USERPROFILE%\\Documents\\VirtualDJ\\licence.dat"
+    ],
+    "warning": "licence.dat is a machine-bound VirtualDJ activation blob and MUST NOT be captured or restored. Sign in with your virtualdj.com / Microsoft / Google account after restore to re-activate.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures VirtualDJ preferences (settings.xml) plus user customizations: Mappers (controller/keyboard mappings), Devices (custom controller definitions), Skins, and Sampler banks from the %LOCALAPPDATA%\\VirtualDJ home folder. The activation blob (licence.dat) is excluded and flagged sensitive; the track-library database.xml and album-art/Content Unlimited caches are excluded to keep bundles portable and small. Not on winget (license-gated installer). Confidence: high - home-folder layout, file roles, and licence.dat exclusion confirmed by the official VDJPedia 'How to Transfer To A New Computer' wiki and VirtualDJ user manual."
+}

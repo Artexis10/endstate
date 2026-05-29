@@ -1,0 +1,79 @@
+{
+  // Config Module: Listary
+  // Provides verify/restore/capture configuration for Listary (instant file search / app launcher)
+  // Curated module - captures user preferences (JSON), excludes search index databases, logs and caches
+  // Listary stores all settings in files under %APPDATA%\Listary - no registry storage
+
+  "id": "apps.listary",
+  "displayName": "Listary",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Bopsoft.Listary"],
+    "exe": ["Listary.exe", "ListaryService.exe"],
+    "uninstallDisplayName": ["^Listary"],
+    "pathExists": [
+      "%APPDATA%\\Listary"
+    ]
+  },
+
+  "verify": [
+    // Listary 6 preferences (primary); falls back gracefully if user is on legacy v5
+    { "type": "file-exists", "path": "%APPDATA%\\Listary\\UserProfile\\Settings\\Preferences.json" }
+  ],
+
+  "restore": [
+    // Listary 6 settings folder (Preferences.json + any keyword/command/profile config)
+    {
+      "type": "copy",
+      "source": "./payload/apps/listary/Settings",
+      "target": "%APPDATA%\\Listary\\UserProfile\\Settings",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.db",
+        "**\\*.db-*",
+        "**\\*.sqlite",
+        "**\\*.sqlite-*",
+        "**\\Index\\**",
+        "**\\Cache\\**",
+        "**\\Logs\\**",
+        "**\\*.log",
+        "**\\Temp\\**",
+        "**\\*.lock"
+      ]
+    },
+    // Legacy Listary 5 preferences (importable from v6 via Options > General)
+    {
+      "type": "copy",
+      "source": "./payload/apps/listary/UserData_Preferences.json",
+      "target": "%APPDATA%\\Listary\\UserData\\Preferences.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Listary 6 settings folder - contains Preferences.json (tuned keyword commands, hotkeys, index scopes)
+      { "source": "%APPDATA%\\Listary\\UserProfile\\Settings", "dest": "apps/listary/Settings", "optional": true },
+      // Legacy Listary 5 preferences (single JSON file)
+      { "source": "%APPDATA%\\Listary\\UserData\\Preferences.json", "dest": "apps/listary/UserData_Preferences.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Search index databases and cache - machine-specific, large, regenerated on launch
+      "**\\*.db",
+      "**\\*.db-*",
+      "**\\*.sqlite",
+      "**\\*.sqlite-*",
+      "**\\Index\\**",
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\Temp\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Listary user preferences from %APPDATA%\\Listary\\UserProfile\\Settings\\Preferences.json (keyword commands, hotkeys, indexed folder scopes) plus the legacy v5 %APPDATA%\\Listary\\UserData\\Preferences.json. The machine-specific search index databases, caches and logs are excluded - the index rebuilds automatically after restore. Listary stores everything in files (no registry). Confidence: high - settings path confirmed by official Listary docs (help.listary.com) and multiple community sources; index/cache exclusions are conservative."
+}

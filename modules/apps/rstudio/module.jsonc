@@ -1,0 +1,94 @@
+{
+  // Config Module: RStudio
+  // Provides verify/restore/capture configuration for the RStudio (Posit) IDE
+  // Curated module - captures syncable user preferences from %APPDATA%\RStudio,
+  // excludes machine-specific internal state under %LOCALAPPDATA%\RStudio-Desktop
+
+  "id": "apps.rstudio",
+  "displayName": "RStudio",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Posit.RStudio"],
+    "exe": ["rstudio.exe"],
+    "uninstallDisplayName": ["^RStudio\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\RStudio\\rstudio-prefs.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/rstudio/rstudio-prefs.json",
+      "target": "%APPDATA%\\RStudio\\rstudio-prefs.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rstudio/keybindings",
+      "target": "%APPDATA%\\RStudio\\keybindings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rstudio/snippets",
+      "target": "%APPDATA%\\RStudio\\snippets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rstudio/templates",
+      "target": "%APPDATA%\\RStudio\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rstudio/themes",
+      "target": "%APPDATA%\\RStudio\\themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rstudio/dictionaries-custom",
+      "target": "%APPDATA%\\RStudio\\dictionaries\\custom",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Syncable user preferences (Posit docs: AppData/Roaming/RStudio)
+      { "source": "%APPDATA%\\RStudio\\rstudio-prefs.json", "dest": "apps/rstudio/rstudio-prefs.json", "optional": true },
+      { "source": "%APPDATA%\\RStudio\\keybindings", "dest": "apps/rstudio/keybindings", "optional": true },
+      { "source": "%APPDATA%\\RStudio\\snippets", "dest": "apps/rstudio/snippets", "optional": true },
+      { "source": "%APPDATA%\\RStudio\\templates", "dest": "apps/rstudio/templates", "optional": true },
+      { "source": "%APPDATA%\\RStudio\\themes", "dest": "apps/rstudio/themes", "optional": true },
+      // Custom (user-added) spelling dictionaries only; system dictionaries are large redistributable blobs
+      { "source": "%APPDATA%\\RStudio\\dictionaries\\custom", "dest": "apps/rstudio/dictionaries-custom", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Bundled/system spell dictionaries (large redistributable Hunspell blobs)
+      "**\\dictionaries\\languages-system\\**",
+      // Machine-specific internal state, never syncable
+      "**\\RStudio-Desktop\\**",
+      "**\\Cache\\**",
+      "**\\log\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\crash-handler*",
+      "**\\sessions\\**",
+      "**\\monitored\\**"
+    ]
+  },
+
+  "notes": "Captures RStudio syncable user preferences from %APPDATA%\\RStudio: rstudio-prefs.json, keybindings (editor/rstudio commands), snippets, document templates, custom color themes, and user (custom) spelling dictionaries. Excludes machine-specific internal state under %LOCALAPPDATA%\\RStudio-Desktop (session history, monitored state, crash logs) and bundled system dictionaries, which are not portable and may bloat the bundle. No credentials are stored here. Confidence: high - all paths confirmed by official Posit RStudio User Guide (custom-settings) and the documented Roaming-vs-Local prefs/state split."
+}

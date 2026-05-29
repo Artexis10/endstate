@@ -1,0 +1,67 @@
+{
+  // Config Module: Kopia
+  // Provides verify/restore/capture configuration for Kopia (fast, encrypted backup tool + KopiaUI)
+  // Captures the repository connection definition only; excludes all credentials and caches
+
+  "id": "apps.kopia",
+  "displayName": "Kopia",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Kopia.Kopia", "Kopia.KopiaUI"],
+    "exe": ["kopia.exe", "KopiaUI.exe"],
+    "uninstallDisplayName": ["^Kopia(UI)?\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\kopia\\repository.config" }
+  ],
+
+  "restore": [
+    {
+      // Repository connection definition (storage backend, bucket/endpoint, cache config).
+      // NOTE: the per-repo password is NOT in this file on Windows (it lives in Windows
+      // Credential Manager), so after restore the user must reconnect / re-enter the password.
+      "type": "copy",
+      "source": "./payload/apps/kopia/repository.config",
+      "target": "%APPDATA%\\kopia\\repository.config",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // The only locally-portable Kopia setting: the repository connection definition.
+      // Snapshot policies are stored INSIDE the repository (server-side), not locally,
+      // so they are not capturable here and come back automatically on reconnect.
+      { "source": "%APPDATA%\\kopia\\repository.config", "dest": "apps/kopia/repository.config", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Credentials and secrets - MUST NOT be captured
+      "**\\repository.config.kopia-password",
+      "**\\*.kopia-password",
+      // Transient update-tracking state
+      "**\\repository.config.update-info.json",
+      // Caches (metadata + content blobs) and logs live under %LOCALAPPDATA%\\kopia and
+      // KopiaUI logs under %APPDATA%\\kopia-ui; never config
+      "**\\kopia\\*-*\\**",
+      "**\\cli-logs\\**",
+      "**\\content-logs\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\cache\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\kopia\\repository.config.kopia-password"
+    ],
+    "warning": "The repository.config.kopia-password file is the (base64-obfuscated) repository encryption password, and on Windows the password is normally held in Windows Credential Manager. Neither is captured or restored - the user must re-enter the repository password / reconnect after restore. The repository.config connection file can additionally embed plaintext storage-backend credentials for some backends; treat captured config as secret.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures only Kopia's repository connection definition (%APPDATA%\\kopia\\repository.config) - the storage backend, bucket/endpoint, and cache settings. Snapshot/retention policies live inside the repository itself (server-side) and are not stored locally, so they are not captured and return automatically on reconnect. Excludes the password file, update-info state, and all caches/logs (%LOCALAPPDATA%\\kopia, kopia-ui logs). The repository password is held in Windows Credential Manager and is never captured; users must reconnect / re-enter it after restore. Confidence: high - config path %APPDATA%\\kopia\\repository.config and the Credential Manager password behavior are confirmed by official Kopia docs (FAQ, getting-started, command-line reference) and multiple community sources."
+}

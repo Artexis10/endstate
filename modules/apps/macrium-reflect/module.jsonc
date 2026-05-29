@@ -1,0 +1,81 @@
+{
+  // Config Module: Macrium Reflect
+  // Disk imaging / backup tool for Windows.
+  // The app installs separately (no reliable winget ID); this module captures the
+  // user's backup DEFINITION files (.xml) and non-credential UI defaults.
+
+  "id": "apps.macrium-reflect",
+  "displayName": "Macrium Reflect",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Reflect.exe", "ReflectMonitor.exe"],
+    "uninstallDisplayName": ["^Macrium Reflect"],
+    "pathExists": [
+      "%ProgramFiles%\\Macrium\\Reflect\\Reflect.exe",
+      "%ProgramFiles(x86)%\\Macrium\\Reflect\\Reflect.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Macrium\\Reflect\\Reflect.exe" },
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Macrium\\Reflect" }
+  ],
+
+  "restore": [
+    // Backup definition files (.xml) — the high-value, reusable artifacts.
+    // Default location is the per-user Documents\Reflect folder.
+    {
+      "type": "copy",
+      "source": "./payload/apps/macrium-reflect/Reflect",
+      "target": "%USERPROFILE%\\Documents\\Reflect",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\*.tmp",
+        "**\\*.mrimg",
+        "**\\*.mrbak"
+      ]
+    }
+    // NOTE: No registry import. Macrium stores UI preferences/defaults across the
+    // broad HKCU\Software\Macrium\Reflect tree with no documented isolated
+    // "Defaults" subkey, and that tree neighbors license info and the Email
+    // SMTP password / OAuth token store. Capturing a speculative subkey risks
+    // either missing the data (key does not exist) or sweeping in credentials/
+    // license, so registry preferences are intentionally left to the user via
+    // Macrium's built-in Other Tasks > Export/Import Settings feature.
+  ],
+
+  "capture": {
+    "files": [
+      // Backup definition files live in the per-user Documents\Reflect folder.
+      { "source": "%USERPROFILE%\\Documents\\Reflect", "dest": "apps/macrium-reflect/Reflect", "optional": true }
+    ],
+    // No registryKeys: there is no documented isolated, non-credential per-user
+    // preference subkey to capture. The full HKCU\Software\Macrium\Reflect tree
+    // mixes license info and the Email SMTP password / OAuth tokens, so it is
+    // deliberately NOT swept. See "sensitive" block.
+    "registryKeys": [],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      // Actual backup image data must never be swept into the config bundle.
+      "**\\*.mrimg",
+      "**\\*.mrbak",
+      "**\\*.mrimgx"
+    ]
+  },
+
+  "sensitive": {
+    "files": [],
+    "registryKeys": [
+      "HKCU\\Software\\Macrium\\Reflect"
+    ],
+    "warning": "Macrium Reflect stores its email notification SMTP password and/or OAuth 2.0 tokens, plus license information, within the HKCU\\Software\\Macrium\\Reflect registry tree. This module does NOT capture or restore any Macrium registry settings for that reason — re-enter SMTP/email credentials (or use Macrium's built-in Other Tasks > Export/Import Settings) after a rebuild. Backup definition (.xml) files may also embed an encrypted backup password; treat captured definitions as sensitive.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures only Macrium Reflect backup definition files (.xml) from %USERPROFILE%\\Documents\\Reflect — the high-value, portable, reusable artifacts. No registry settings are captured or restored: Macrium spreads UI defaults across the broad HKCU\\Software\\Macrium\\Reflect tree (no documented isolated non-credential subkey), and that tree neighbors license info plus the email SMTP password / OAuth 2.0 token store. Backup image data (.mrimg/.mrbak/.mrimgx) is excluded. No reliable winget ID; the app installs separately to %ProgramFiles%\\Macrium\\Reflect. Confidence: high for the Documents\\Reflect definition-file path (confirmed by the Macrium KnowledgeBase and multiple community sources). The earlier HKCU\\...\\Reflect\\Defaults subkey capture was removed: no independent source documents such an isolated subkey, so it was speculative and risked either capturing nothing or sweeping in credentials/license. Users should transfer registry preferences via Macrium's built-in Export/Import Settings feature."
+}

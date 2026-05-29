@@ -1,0 +1,89 @@
+{
+  // Config Module: Zed
+  // Provides verify/restore/capture configuration for the Zed editor
+  // File-based config under %APPDATA%\Zed; user data (db/extensions/logs) lives
+  // under %LOCALAPPDATA%\Zed and is intentionally NOT captured.
+
+  "id": "apps.zed",
+  "displayName": "Zed",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["ZedIndustries.Zed"],
+    "exe": ["zed.exe", "Zed.exe"],
+    "uninstallDisplayName": ["^Zed\\b", "^Zed Editor"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Zed\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/zed/settings.json",
+      "target": "%APPDATA%\\Zed\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/zed/keymap.json",
+      "target": "%APPDATA%\\Zed\\keymap.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/zed/tasks.json",
+      "target": "%APPDATA%\\Zed\\tasks.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/zed/themes",
+      "target": "%APPDATA%\\Zed\\themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/zed/snippets",
+      "target": "%APPDATA%\\Zed\\snippets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // User settings (JSON with // comments) - %APPDATA%\Zed\settings.json
+      { "source": "%APPDATA%\\Zed\\settings.json", "dest": "apps/zed/settings.json", "optional": true },
+      // Keybindings - %APPDATA%\Zed\keymap.json
+      { "source": "%APPDATA%\\Zed\\keymap.json", "dest": "apps/zed/keymap.json", "optional": true },
+      // Global task definitions
+      { "source": "%APPDATA%\\Zed\\tasks.json", "dest": "apps/zed/tasks.json", "optional": true },
+      // User-installed custom themes (*.json)
+      { "source": "%APPDATA%\\Zed\\themes", "dest": "apps/zed/themes", "optional": true },
+      // User snippets
+      { "source": "%APPDATA%\\Zed\\snippets", "dest": "apps/zed/snippets", "optional": true }
+    ],
+    "excludeGlobs": [
+      // User data / runtime state lives under %LOCALAPPDATA%\Zed (db, extensions, logs)
+      "**\\db\\**",
+      "**\\extensions\\**",
+      "**\\logs\\**",
+      "**\\crashes\\**",
+      "**\\Cache\\**",
+      "**\\conversations\\**",
+      "**\\prompts\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*-wal",
+      "**\\*-shm"
+    ]
+  },
+
+  "notes": "Captures Zed user configuration from %APPDATA%\\Zed: settings.json, keymap.json, tasks.json, and the custom themes and snippets directories. Runtime/user data under %LOCALAPPDATA%\\Zed (local DB, downloaded extensions, logs, crash reports, AI conversations/prompts) is excluded - it is regenerable and may contain session/AI history. Zed account sign-in uses a separate token not stored in these config files, so no credentials are captured. Confidence: high - settings.json, keymap.json, and themes paths confirmed by official Zed docs; tasks.json and snippets reside in the same %APPDATA%\\Zed config directory."
+}

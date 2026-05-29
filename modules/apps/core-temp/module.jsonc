@@ -1,0 +1,51 @@
+{
+  // Config Module: Core Temp
+  // Provides verify/restore/capture configuration for Core Temp (CPU temperature monitor)
+  // Settings stored in a single INI file ("Core Temp.ini") next to the executable in the install directory
+
+  "id": "apps.core-temp",
+  "displayName": "Core Temp",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["ALCPU.CoreTemp"],
+    "exe": ["Core Temp.exe", "CoreTemp.exe"],
+    "uninstallDisplayName": ["^Core Temp"],
+    "pathExists": [
+      "%ProgramFiles%\\Core Temp\\Core Temp.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Core Temp\\Core Temp.exe" }
+  ],
+
+  "restore": [
+    {
+      // All Core Temp preferences (overheat thresholds, notification-area display,
+      // logging options, plugin settings, window geometry) live in this INI.
+      // Default installer location is %ProgramFiles%\Core Temp; portable installs
+      // keep the INI next to the .exe wherever the user extracted it.
+      "type": "merge-ini",
+      "source": "./payload/apps/core-temp/Core Temp.ini",
+      "target": "%ProgramFiles%\\Core Temp\\Core Temp.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%ProgramFiles%\\Core Temp\\Core Temp.ini", "dest": "apps/core-temp/Core Temp.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\Logs\\**",
+      "**\\*.tmp",
+      "**\\*.lock",
+      "**\\Plugins\\**"
+    ]
+  },
+
+  "notes": "Captures Core Temp's single settings file 'Core Temp.ini' (overheat thresholds, notification-area display, logging and plugin options, window position), located next to the executable in the install directory (default %ProgramFiles%\\Core Temp). Logs, temp/lock files and the Plugins binary folder are excluded. Core Temp stores all configuration in this INI and does not use the Windows Registry. Note: portable installs keep the INI in a user-chosen folder rather than %ProgramFiles%, so capture/restore is best-effort for those. Confidence: medium - INI filename/location and absence of registry usage confirmed by official ALCPU forum threads, but exact install path varies (installer vs portable)."
+}

@@ -1,0 +1,91 @@
+{
+  // Config Module: Ardour
+  // Provides verify/restore/capture configuration for Ardour (open-source DAW)
+  // Curated module - captures the user configuration directory, excludes plugin scan
+  // caches, peaks, backups and other regenerable / machine-specific state.
+
+  "id": "apps.ardour",
+  "displayName": "Ardour",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Ardour.Ardour"],
+    "exe": ["ardour.exe", "Ardour8.exe"],
+    "uninstallDisplayName": ["^Ardour"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Ardour8",
+      "%LOCALAPPDATA%\\Ardour7"
+    ]
+  },
+
+  "verify": [
+    // Ardour appends the major version number to the config dir name, so we
+    // check the two most recent majors. file-exists passes if the dir exists.
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Ardour8\\config" }
+  ],
+
+  "restore": [
+    // Ardour 8 user configuration directory
+    {
+      "type": "copy",
+      "source": "./payload/apps/ardour/Ardour8",
+      "target": "%LOCALAPPDATA%\\Ardour8",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\cache\\**",
+        "**\\peaks\\**",
+        "**\\backups\\**",
+        "**\\vst_blacklist*",
+        "**\\*.vstinfo",
+        "**\\*.bak",
+        "**\\*.tmp",
+        "**\\*.history",
+        "**\\*.log"
+      ]
+    },
+    // Ardour 7 user configuration directory (previous major)
+    {
+      "type": "copy",
+      "source": "./payload/apps/ardour/Ardour7",
+      "target": "%LOCALAPPDATA%\\Ardour7",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\cache\\**",
+        "**\\peaks\\**",
+        "**\\backups\\**",
+        "**\\vst_blacklist*",
+        "**\\*.vstinfo",
+        "**\\*.bak",
+        "**\\*.tmp",
+        "**\\*.history",
+        "**\\*.log"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Whole user config dir: config, ui_config, recent, recent.template,
+      // instant.xml, themes, keybindings, templates/ and scripts/ subfolders.
+      { "source": "%LOCALAPPDATA%\\Ardour8", "dest": "apps/ardour/Ardour8", "optional": true },
+      { "source": "%LOCALAPPDATA%\\Ardour7", "dest": "apps/ardour/Ardour7", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Plugin scan results are machine-specific and regenerate on next launch.
+      "**\\cache\\**",
+      "**\\vst_blacklist*",
+      "**\\*.vstinfo",
+      // Audio peak files, autosave backups and undo history bloat the bundle.
+      "**\\peaks\\**",
+      "**\\backups\\**",
+      "**\\*.bak",
+      "**\\*.tmp",
+      "**\\*.history",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures Ardour's user configuration directory at %LOCALAPPDATA%\\Ardour<major>\\ (config, ui_config, recent, instant.xml, themes, keybindings, templates/ and scripts/) for the two most recent majors (Ardour8, Ardour7). Excludes the plugin-scan cache (machine-specific, regenerated on launch), peak files, autosave backups, undo history and logs. No credentials are stored by Ardour. Confidence: medium - directory location and 'config does not copy the cache' migration guidance confirmed by the Ardour manual and Ardour developer Robin Gareus on the official forum; exact internal filenames are not enumerated in docs so the whole dir is captured with cache/peak exclusions."
+}

@@ -1,0 +1,86 @@
+{
+  // Config Module: yt-dlp
+  // Provides verify/restore/capture configuration for the yt-dlp media downloader
+  // yt-dlp stores its settings in a plain-text config file; no HKCU registry usage.
+
+  "id": "apps.yt-dlp",
+  "displayName": "yt-dlp",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["yt-dlp.yt-dlp"],
+    "exe": ["yt-dlp.exe"],
+    "uninstallDisplayName": ["^yt-dlp"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "yt-dlp" }
+    // Note: config file is optional - a user may run yt-dlp purely with CLI flags.
+    // Verify only checks that yt-dlp is installed, not that a config exists.
+  ],
+
+  "restore": [
+    // User Configuration (%APPDATA%) - the recommended Windows location
+    {
+      "type": "copy",
+      "source": "./payload/apps/yt-dlp/config",
+      "target": "%APPDATA%\\yt-dlp\\config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/yt-dlp/yt-dlp.conf",
+      "target": "%APPDATA%\\yt-dlp.conf",
+      "backup": true,
+      "optional": true
+    },
+    // Home Configuration (%USERPROFILE%) - alternative supported locations
+    {
+      "type": "copy",
+      "source": "./payload/apps/yt-dlp/yt-dlp.conf.home",
+      "target": "~/yt-dlp.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/yt-dlp/.yt-dlp-config",
+      "target": "~/.yt-dlp/config",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // User Configuration (%APPDATA%) - recommended Windows location
+      { "source": "%APPDATA%\\yt-dlp\\config", "dest": "apps/yt-dlp/config", "optional": true },
+      { "source": "%APPDATA%\\yt-dlp.conf", "dest": "apps/yt-dlp/yt-dlp.conf", "optional": true },
+      // Home Configuration (%USERPROFILE%) - alternative supported locations
+      { "source": "~/yt-dlp.conf", "dest": "apps/yt-dlp/yt-dlp.conf.home", "optional": true },
+      { "source": "~/.yt-dlp/config", "dest": "apps/yt-dlp/.yt-dlp-config", "optional": true }
+    ],
+    "excludeGlobs": [
+      // yt-dlp's cache directory (sig players, info json, etc.) - never portable
+      "**\\yt-dlp\\cache\\**",
+      "**\\.cache\\**",
+      "**\\*.log",
+      "**\\*.part",
+      "**\\*.ytdl",
+      // netrc credential file must never be captured (see sensitive block)
+      "**\\.netrc"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.netrc",
+      "%USERPROFILE%\\.netrc"
+    ],
+    "warning": "yt-dlp can read site credentials from a .netrc file (--netrc). This file contains plaintext passwords/tokens and MUST NOT be auto-restored. Re-create it manually after restore. Also, if your config file embeds --username/--password values, review the captured config before sharing it.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures yt-dlp's plain-text config file from the supported Windows locations (%APPDATA%\\yt-dlp\\config, %APPDATA%\\yt-dlp.conf, ~/yt-dlp.conf, ~/.yt-dlp/config) holding default format selectors, output templates, and postprocessor options. Excludes the cache directory, logs, partial/temp downloads, and the .netrc credential file. yt-dlp stores no settings in the registry. Confidence: high - config file precedence and paths confirmed by the official yt-dlp README CONFIGURATION section."
+}
