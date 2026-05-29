@@ -47,7 +47,10 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 	}
 
 	// --- 2. Create driver and compute plan ---
-	d := newDriverFn()
+	d, derr := newDriverFn()
+	if derr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())
+	}
 	emitter.EmitPhase("plan")
 
 	p, planErr := planner.ComputePlan(mf, d)

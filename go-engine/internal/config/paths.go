@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 )
 
 // ResolveRepoRoot returns the absolute path to the Endstate repo root.
@@ -51,16 +52,35 @@ func ResolveRepoRoot() string {
 	return ""
 }
 
-// ProfileDir returns the path to the Endstate profiles directory under the user's
-// home directory: <home>/Documents/Endstate/Profiles.
-//
-// If the home directory cannot be determined, it returns an empty string.
+// ProfileDir returns the path to the Endstate profiles directory for the host
+// platform. On Windows this is <home>\Documents\Endstate\Profiles; on Linux it
+// follows the XDG Base Directory specification; on macOS it uses Application
+// Support. Returns an empty string if the home directory cannot be determined.
 func ProfileDir() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, "Documents", "Endstate", "Profiles")
+	return profileDirFor(runtime.GOOS, home, os.Getenv("XDG_DATA_HOME"))
+}
+
+// profileDirFor computes the profiles directory for the given OS. Path
+// separators are written explicitly for the target OS so the result is
+// host-independent and unit-testable from any platform. The Windows path is
+// unchanged from the historical Documents location.
+func profileDirFor(goos, home, xdgDataHome string) string {
+	switch goos {
+	case "windows":
+		return home + `\Documents\Endstate\Profiles`
+	case "darwin":
+		return home + "/Library/Application Support/Endstate/Profiles"
+	default: // linux and other unix-likes
+		base := xdgDataHome
+		if base == "" {
+			base = home + "/.local/share"
+		}
+		return base + "/endstate/profiles"
+	}
 }
 
 // windowsEnvVarPattern matches %VAR_NAME% style variable references.
@@ -78,4 +98,20 @@ func ExpandWindowsEnvVars(s string) string {
 		}
 		return match
 	})
+}
+
+// ExpandEnvVars expands environment-variable references in s using the host
+// platform's convention: %VAR% on Windows, $VAR / ${VAR} elsewhere. On Windows
+// it is identical to ExpandWindowsEnvVars.
+func ExpandEnvVars(s string) string {
+	return expandEnvVarsFor(runtime.GOOS, s)
+}
+
+// expandEnvVarsFor expands environment variables in s for the given OS. Split
+// from ExpandEnvVars so platform behavior is unit-testable from any host.
+func expandEnvVarsFor(goos, s string) string {
+	if goos == "windows" {
+		return ExpandWindowsEnvVars(s)
+	}
+	return os.ExpandEnv(s)
 }

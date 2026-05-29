@@ -24,7 +24,7 @@ func stringPtr(s string) *string { return &s }
 // expandVerifyPath expands Windows-style %VAR% and Go-style $VAR environment
 // variables in a verify path. Uses the same expansion as the restore module.
 func expandVerifyPath(p string) string {
-	expanded := config.ExpandWindowsEnvVars(p)
+	expanded := config.ExpandEnvVars(p)
 	expanded = os.ExpandEnv(expanded)
 	return expanded
 }
@@ -177,7 +177,10 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		}
 	}
 
-	d := newDriverFn()
+	d, derr := newDriverFn()
+	if derr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())
+	}
 
 	// First event in stream MUST be a phase event per event-contract.md.
 	emitter.EmitPhase("plan")
@@ -193,7 +196,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// Batch-detect all winget apps in one call for performance.
 	var wingetRefs []string
 	for _, app := range mf.Apps {
-		ref := resolveWindowsRef(app)
+		ref := resolveAppRef(app)
 		if ref != "" {
 			wingetRefs = append(wingetRefs, ref)
 		}
@@ -210,7 +213,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	toInstallCount := 0
 
 	for _, app := range mf.Apps {
-		ref := resolveWindowsRef(app)
+		ref := resolveAppRef(app)
 		isManual := ref == "" && app.Manual != nil && app.Manual.VerifyPath != ""
 
 		if ref == "" && !isManual {

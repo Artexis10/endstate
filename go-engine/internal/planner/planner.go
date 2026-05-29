@@ -7,6 +7,7 @@ package planner
 
 import (
 	"os"
+	"runtime"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
@@ -145,22 +146,13 @@ func resolveDisplayName(resolved string, app manifest.App) string {
 // expandVerifyPath expands Windows-style %VAR% and Go-style $VAR environment
 // variables in a verify path.
 func expandVerifyPath(p string) string {
-	expanded := config.ExpandWindowsEnvVars(p)
+	expanded := config.ExpandEnvVars(p)
 	expanded = os.ExpandEnv(expanded)
 	return expanded
 }
 
-// resolveRef returns the platform-specific package ref for an app. It prefers
-// app.Refs["windows"]; if absent it falls back to the first available ref in
-// map iteration order. Returns "" if the map is empty or all refs are blank.
+// resolveRef returns the package ref for an app on the host platform via the
+// shared manifest.ResolveRef resolver (prefers refs[GOOS], else first non-empty).
 func resolveRef(app manifest.App) string {
-	if ref, ok := app.Refs["windows"]; ok && ref != "" {
-		return ref
-	}
-	for _, ref := range app.Refs {
-		if ref != "" {
-			return ref
-		}
-	}
-	return ""
+	return manifest.ResolveRef(app, runtime.GOOS)
 }

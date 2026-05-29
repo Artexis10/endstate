@@ -7,6 +7,8 @@
 package commands
 
 import (
+	"runtime"
+
 	"github.com/Artexis10/endstate/go-engine/internal/backup"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
@@ -149,14 +151,28 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				Audience:         backup.Audience(),
 			},
 		},
-		Platform: PlatformInfo{
-			OS:      "windows",
-			Drivers: []string{"winget"},
-		},
+		Platform: platformInfoFor(runtime.GOOS),
 		GitCommit:          nil,
 		GitDirty:           false,
 		BootstrapTimestamp: nil,
 	}
 
 	return data, nil
+}
+
+// platformInfoFor builds the capabilities PlatformInfo for the given OS. The OS
+// string and available drivers are derived dynamically so the handshake
+// reflects the host rather than a fixed Windows/winget literal.
+func platformInfoFor(goos string) PlatformInfo {
+	return PlatformInfo{OS: goos, Drivers: driversFor(goos)}
+}
+
+// driversFor returns the package-manager drivers available on the given OS. It
+// derives the list from selectBackend so it stays in sync with backend
+// selection (winget on Windows; empty until a platform backend is added).
+func driversFor(goos string) []string {
+	if d, err := selectBackend(goos); err == nil && d != nil {
+		return []string{d.Name()}
+	}
+	return []string{}
 }
