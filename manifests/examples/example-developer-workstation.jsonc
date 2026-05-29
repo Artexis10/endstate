@@ -1,0 +1,42 @@
+{
+  // Example: Developer Workstation
+  // Demonstrates the expanded config-module catalog. Apps install via winget;
+  // configModules capture/restore each app's settings (dotfiles-style).
+  // configModules use the full module id (apps.<id>). Safe to commit — no
+  // machine-specific data or timestamps.
+
+  "version": 1,
+  "name": "example-developer-workstation",
+
+  "apps": [
+    { "id": "git-git", "refs": { "windows": "Git.Git" } },
+    { "id": "microsoft-visualstudiocode", "refs": { "windows": "Microsoft.VisualStudioCode" } },
+    { "id": "zedindustries-zed", "refs": { "windows": "ZedIndustries.Zed" } },
+    { "id": "alacritty-alacritty", "refs": { "windows": "Alacritty.Alacritty" } },
+    { "id": "burntsushi-ripgrep-msvc", "refs": { "windows": "BurntSushi.ripgrep.MSVC" } },
+    { "id": "ajeetdsouza-zoxide", "refs": { "windows": "ajeetdsouza.zoxide" } },
+    { "id": "dbeaver-dbeaver-community", "refs": { "windows": "DBeaver.DBeaver.Community" } }
+  ],
+
+  // Config modules capture/restore settings for installed apps.
+  "configModules": [
+    "apps.git",
+    "apps.vscode",
+    "apps.zed",
+    "apps.alacritty",
+    "apps.wezterm",
+    "apps.zellij",
+    "apps.tmux",
+    "apps.starship",
+    "apps.oh-my-posh",
+    "apps.ripgrep",
+    "apps.zoxide",
+    "apps.yazi",
+    "apps.lazygit",
+    "apps.kubectl",
+    "apps.dbeaver"
+  ],
+
+  "restore": [],
+  "verify": []
+}

@@ -1,0 +1,28 @@
+// Bundle: Productivity & Notes
+// 19 modules grouped for one-step manifest inclusion.
+{
+  "version": 1,
+  "id": "productivity",
+  "name": "Productivity & Notes",
+  "modules": [
+    "acrobat-reader",
+    "anki",
+    "calibre",
+    "cherrytree",
+    "claude-desktop",
+    "drawio-desktop",
+    "freeplane",
+    "joplin",
+    "libreoffice",
+    "logseq",
+    "marktext",
+    "microsoft-office",
+    "obsidian",
+    "onlyoffice-desktop",
+    "pdf-xchange-editor",
+    "sumatra-pdf",
+    "typora",
+    "wps-office",
+    "zotero"
+  ]
+}

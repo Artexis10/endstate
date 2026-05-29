@@ -1,0 +1,15 @@
+// Bundle: Remote Access
+// 6 modules grouped for one-step manifest inclusion.
+{
+  "version": 1,
+  "id": "remote-access",
+  "name": "Remote Access",
+  "modules": [
+    "anydesk",
+    "remmina",
+    "remote-desktop-manager",
+    "royal-ts",
+    "rustdesk",
+    "winbox"
+  ]
+}
