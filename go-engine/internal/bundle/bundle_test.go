@@ -325,7 +325,7 @@ func TestCollectConfigFiles_OptionalMissing(t *testing.T) {
 		},
 	}
 
-	collected, err := CollectConfigFiles(mod, stagingDir)
+	collected, _, err := CollectConfigFiles(mod, stagingDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestCollectConfigFiles_RequiredMissing(t *testing.T) {
 		},
 	}
 
-	_, err := CollectConfigFiles(mod, stagingDir)
+	_, _, err := CollectConfigFiles(mod, stagingDir)
 	if err == nil {
 		t.Fatal("expected error for required missing file, got nil")
 	}
@@ -388,7 +388,7 @@ func TestCollectConfigFiles_ExcludeGlobs(t *testing.T) {
 		},
 	}
 
-	collected, err := CollectConfigFiles(mod, stagingDir)
+	collected, _, err := CollectConfigFiles(mod, stagingDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -429,7 +429,7 @@ func TestCollectConfigFiles_SingleFile(t *testing.T) {
 		},
 	}
 
-	collected, err := CollectConfigFiles(mod, stagingDir)
+	collected, _, err := CollectConfigFiles(mod, stagingDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -453,7 +453,7 @@ func TestCollectConfigFiles_NoCaptureSection(t *testing.T) {
 		ID: "apps.no-capture",
 	}
 
-	collected, err := CollectConfigFiles(mod, t.TempDir())
+	collected, _, err := CollectConfigFiles(mod, t.TempDir())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -971,7 +971,7 @@ func TestCollectConfigFiles_ExcludeGlobs_VENPrefix(t *testing.T) {
 		},
 	}
 
-	collected, err := CollectConfigFiles(mod, stagingDir)
+	collected, _, err := CollectConfigFiles(mod, stagingDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1018,7 +1018,7 @@ func TestCollectConfigFiles_StripsAppsPrefix(t *testing.T) {
 		},
 	}
 
-	_, err := CollectConfigFiles(mod, stagingDir)
+	_, _, err := CollectConfigFiles(mod, stagingDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1061,7 +1061,7 @@ func TestCollectConfigFiles_MultipleFiles(t *testing.T) {
 		},
 	}
 
-	collected, err := CollectConfigFiles(mod, stagingDir)
+	collected, _, err := CollectConfigFiles(mod, stagingDir)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

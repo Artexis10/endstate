@@ -410,6 +410,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	configsIncluded := []string{}
 	configsSkipped := []string{}
 	configsCaptureErrors := []string{}
+	configSecretsExcluded := 0
 
 	outputFormat := "jsonc"
 	finalOutputPath := absPath
@@ -461,7 +462,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 
 					// Build per-module results using a fresh staging pass so we
 					// have accurate file counts and paths.
-					configModules, configsIncluded, configsSkipped, configsCaptureErrors =
+					configModules, configsIncluded, configsSkipped, configsCaptureErrors, configSecretsExcluded =
 						buildConfigModuleResults(matchedModules, configsCaptureErrors)
 				}
 			}
@@ -501,7 +502,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			FilteredRuntimes:       filteredRuntimes,
 			Included:               included,
 			TotalFound:             totalFound,
-			SensitiveExcludedCount: 0,
+			SensitiveExcludedCount: configSecretsExcluded,
 			FilteredStoreApps:      filteredStore,
 			Skipped:                skipped,
 		},
@@ -561,6 +562,7 @@ func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors [
 	included []string,
 	skipped []string,
 	captureErrors []string,
+	sensitiveExcluded int,
 ) {
 	captureErrors = existingErrors
 
@@ -591,7 +593,8 @@ func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors [
 	for _, mod := range matchedModules {
 		dirName := moduleDirName(mod.ID)
 
-		fileCollected, collectErr := bundle.CollectConfigFiles(mod, stagingDir)
+		fileCollected, secretsN, collectErr := bundle.CollectConfigFiles(mod, stagingDir)
+		sensitiveExcluded += secretsN
 		if collectErr != nil {
 			captureErrors = append(captureErrors, fmt.Sprintf("module %s: %v", mod.ID, collectErr))
 			moduleErrors[dirName] = true

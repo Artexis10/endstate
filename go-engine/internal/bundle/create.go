@@ -72,7 +72,7 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 			moduleDirName = moduleDirName[5:]
 		}
 
-		fileCollected, err := CollectConfigFiles(mod, stagingDir)
+		fileCollected, _, err := CollectConfigFiles(mod, stagingDir)
 		if err != nil {
 			captureWarnings = append(captureWarnings, fmt.Sprintf("module %s: %v", mod.ID, err))
 			skipped = append(skipped, moduleDirName)
