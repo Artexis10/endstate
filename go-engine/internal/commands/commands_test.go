@@ -112,7 +112,7 @@ func parseEvents(buf *bytes.Buffer) []map[string]interface{} {
 // restores the original factory.
 func withMockDriver(md *mockDriver, f func()) {
 	orig := newDriverFn
-	newDriverFn = func() driver.Driver { return md }
+	newDriverFn = func() (driver.Driver, error) { return md, nil }
 	defer func() { newDriverFn = orig }()
 	f()
 }

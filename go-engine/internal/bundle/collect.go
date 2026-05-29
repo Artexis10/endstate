@@ -41,7 +41,7 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, er
 	var collected []string
 
 	for _, fileEntry := range module.Capture.Files {
-		sourcePath := config.ExpandWindowsEnvVars(fileEntry.Source)
+		sourcePath := config.ExpandEnvVars(fileEntry.Source)
 		sourcePath = os.ExpandEnv(sourcePath)
 
 		// Expand ~ to home directory.

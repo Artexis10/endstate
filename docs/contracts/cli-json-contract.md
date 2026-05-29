@@ -194,10 +194,12 @@ endstate capabilities --json
 | `supportedSchemaVersions` | object | Yes | Min/max supported schema versions |
 | `commands` | object | Yes | Supported commands with flags |
 | `features` | object | Yes | Feature flags |
-| `platform` | object | Yes | OS and driver information |
+| `platform` | object | Yes | Host OS and available package-manager drivers (host-dependent — see note) |
 | `gitCommit` | string\|null | Yes | Short git SHA of HEAD, or `null` if git unavailable |
 | `gitDirty` | boolean | Yes | `true` if working tree has uncommitted changes, `false` otherwise (defaults to `false` if git unavailable) |
 | `bootstrapTimestamp` | string\|null | Yes | ISO 8601 UTC timestamp of last bootstrap, or `null` if not bootstrapped |
+
+> **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the package-manager backends available on that host. On Windows this is `{ "os": "windows", "drivers": ["winget"] }`. On a host with no implemented backend yet, `drivers` is an empty array (`[]`). This is additive: consumers MUST NOT assume a fixed `windows` / `winget` value.
 
 ---
 

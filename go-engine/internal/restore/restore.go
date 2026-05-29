@@ -87,7 +87,7 @@ func CheckSensitivePath(path string) []string {
 // %VAR% expansion (via config.ExpandWindowsEnvVars) and Go-style $VAR
 // expansion (via os.ExpandEnv).
 func expandPath(p string) string {
-	expanded := config.ExpandWindowsEnvVars(p)
+	expanded := config.ExpandEnvVars(p)
 	expanded = os.ExpandEnv(expanded)
 	// Handle ~ for home directory
 	if strings.HasPrefix(expanded, "~") {

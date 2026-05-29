@@ -7,11 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
-	"github.com/Artexis10/endstate/go-engine/internal/driver/winget"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -19,9 +19,13 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/verifier"
 )
 
-// newDriverFn is the factory used to create the package manager driver. It
-// defaults to winget.New() and can be replaced in tests to inject a mock.
-var newDriverFn func() driver.Driver = func() driver.Driver { return winget.New() }
+// newDriverFn is the factory used to create the package-manager backend for the
+// host platform. It defaults to selectBackend(runtime.GOOS) and can be replaced
+// in tests to inject a mock. It returns an error when no backend exists for the
+// host OS (non-Windows, until a platform backend is added).
+var newDriverFn func() (driver.Driver, error) = func() (driver.Driver, error) {
+	return selectBackend(runtime.GOOS)
+}
 
 // VerifyFlags holds the parsed CLI flags for the verify command.
 type VerifyFlags struct {
@@ -99,8 +103,11 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		}
 	}
 
-	// --- 2. Create driver ---
-	d := newDriverFn()
+	// --- 2. Create driver (platform-selected backend) ---
+	d, derr := newDriverFn()
+	if derr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())
+	}
 
 	// --- 3. Emit phase event (first event in stream per event-contract.md) ---
 	emitter.EmitPhase("verify")
@@ -108,7 +115,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	// Batch-detect all winget apps in one call for performance.
 	var wingetRefs []string
 	for _, app := range mf.Apps {
-		ref := resolveWindowsRef(app)
+		ref := resolveAppRef(app)
 		if ref != "" {
 			wingetRefs = append(wingetRefs, ref)
 		}
@@ -124,7 +131,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	failCount := 0
 
 	for _, app := range mf.Apps {
-		ref := resolveWindowsRef(app)
+		ref := resolveAppRef(app)
 		isManual := ref == "" && app.Manual != nil && app.Manual.VerifyPath != ""
 
 		if ref == "" && !isManual {
@@ -264,19 +271,10 @@ func loadManifest(path string) (*manifest.Manifest, *envelope.Error) {
 	return mf, nil
 }
 
-// resolveWindowsRef returns the Windows-platform package ref for an app.
-// It prefers app.Refs["windows"]; if absent it falls back to the first
-// available ref in map iteration order. Returns "" if the map is empty.
-func resolveWindowsRef(app manifest.App) string {
-	if ref, ok := app.Refs["windows"]; ok && ref != "" {
-		return ref
-	}
-	for _, ref := range app.Refs {
-		if ref != "" {
-			return ref
-		}
-	}
-	return ""
+// resolveAppRef returns the package ref for an app on the host platform via the
+// shared manifest.ResolveRef resolver (prefers refs[GOOS], else first non-empty).
+func resolveAppRef(app manifest.App) string {
+	return manifest.ResolveRef(app, runtime.GOOS)
 }
 
 // buildRunID constructs a simple run identifier for use with the emitter.

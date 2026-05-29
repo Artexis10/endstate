@@ -68,7 +68,7 @@ func RunExport(flags ExportFlags) (interface{}, *envelope.Error) {
 	// --- 2. Process restore entries (inverse: target -> source) ---
 	for _, entry := range mf.Restore {
 		// Expand target path (system path).
-		target := config.ExpandWindowsEnvVars(entry.Target)
+		target := config.ExpandEnvVars(entry.Target)
 		target = os.ExpandEnv(target)
 
 		// Check if system target exists.

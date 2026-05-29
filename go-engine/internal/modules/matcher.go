@@ -52,7 +52,7 @@ func MatchModulesForApps(catalog map[string]*Module, apps []manifest.App) []*Mod
 		// Check pathExists matches (expand env vars, check filesystem).
 		if !isMatch {
 			for _, pathPattern := range mod.Matches.PathExists {
-				expandedPath := config.ExpandWindowsEnvVars(pathPattern)
+				expandedPath := config.ExpandEnvVars(pathPattern)
 				expandedPath = os.ExpandEnv(expandedPath)
 				if _, err := os.Stat(expandedPath); err == nil {
 					isMatch = true
