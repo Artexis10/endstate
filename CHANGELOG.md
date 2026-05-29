@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.5.0](https://github.com/Artexis10/endstate/compare/v2.4.0...v2.5.0) (2026-05-29)
+
+
+### Features
+
+* **backup:** cross-process refresh-token rotation lock (F5) ([#45](https://github.com/Artexis10/endstate/issues/45)) ([12bf7cf](https://github.com/Artexis10/endstate/commit/12bf7cf6e02ffbf5af4a50bff8efdc04517a8cbb))
+
+
+### Bug Fixes
+
+* **backup:** fail closed on Hydrate error inside refresh lock ([#47](https://github.com/Artexis10/endstate/issues/47)) ([0fcd3c5](https://github.com/Artexis10/endstate/commit/0fcd3c500e1db7f7c2dd0e2cb3dbad362edde4b9))
+
 ## [2.4.0](https://github.com/Artexis10/endstate/compare/v2.3.1...v2.4.0) (2026-05-26)
 
 
