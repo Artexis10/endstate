@@ -1,0 +1,158 @@
+{
+  // Config Module: PyCharm Professional
+  // Provides verify/restore/capture configuration for JetBrains PyCharm Professional
+  // Curated module - captures user IDE settings (options, keymaps, colors, code styles),
+  // excludes plugins (large JAR blobs, re-downloaded), caches, logs, and lock files.
+  //
+  // IMPORTANT: JetBrains config lives in a version-numbered folder:
+  //   %APPDATA%\JetBrains\PyCharm<version>\  (e.g. PyCharm2026.1, PyCharm2025.3)
+  // The paths below target the current release line. On a different installed
+  // version, adjust the version segment to match the actual folder on disk.
+
+  "id": "apps.pycharm-professional",
+  "displayName": "PyCharm Professional",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.PyCharm.Professional"],
+    "exe": ["pycharm64.exe"],
+    "uninstallDisplayName": ["^PyCharm( Professional)?"],
+    "pathExists": [
+      "%APPDATA%\\JetBrains"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains" }
+  ],
+
+  "restore": [
+    {
+      // Core IDE options (XML settings: editor, code style refs, general, etc.)
+      "type": "copy",
+      "source": "./payload/apps/pycharm-professional/options",
+      "target": "%APPDATA%\\JetBrains\\PyCharm2026.1\\options",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.lock",
+        "**\\recentProjects.xml",
+        "**\\updates.xml",
+        "**\\usage.statistics.xml"
+      ]
+    },
+    {
+      // Custom keymaps
+      "type": "copy",
+      "source": "./payload/apps/pycharm-professional/keymaps",
+      "target": "%APPDATA%\\JetBrains\\PyCharm2026.1\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom color schemes / themes
+      "type": "copy",
+      "source": "./payload/apps/pycharm-professional/colors",
+      "target": "%APPDATA%\\JetBrains\\PyCharm2026.1\\colors",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom code styles
+      "type": "copy",
+      "source": "./payload/apps/pycharm-professional/codestyles",
+      "target": "%APPDATA%\\JetBrains\\PyCharm2026.1\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // File templates (live/file templates)
+      "type": "copy",
+      "source": "./payload/apps/pycharm-professional/fileTemplates",
+      "target": "%APPDATA%\\JetBrains\\PyCharm2026.1\\fileTemplates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Live templates
+      "type": "copy",
+      "source": "./payload/apps/pycharm-professional/templates",
+      "target": "%APPDATA%\\JetBrains\\PyCharm2026.1\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Inspection profiles
+      "type": "copy",
+      "source": "./payload/apps/pycharm-professional/inspection",
+      "target": "%APPDATA%\\JetBrains\\PyCharm2026.1\\inspection",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Disabled plugins manifest (readable list, not the plugin binaries)
+      "type": "copy",
+      "source": "./payload/apps/pycharm-professional/disabled_plugins.txt",
+      "target": "%APPDATA%\\JetBrains\\PyCharm2026.1\\disabled_plugins.txt",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Core IDE options directory (XML settings)
+      { "source": "%APPDATA%\\JetBrains\\PyCharm2026.1\\options", "dest": "apps/pycharm-professional/options", "optional": true },
+      // Custom keymaps
+      { "source": "%APPDATA%\\JetBrains\\PyCharm2026.1\\keymaps", "dest": "apps/pycharm-professional/keymaps", "optional": true },
+      // Custom color schemes / themes
+      { "source": "%APPDATA%\\JetBrains\\PyCharm2026.1\\colors", "dest": "apps/pycharm-professional/colors", "optional": true },
+      // Custom code styles
+      { "source": "%APPDATA%\\JetBrains\\PyCharm2026.1\\codestyles", "dest": "apps/pycharm-professional/codestyles", "optional": true },
+      // File templates
+      { "source": "%APPDATA%\\JetBrains\\PyCharm2026.1\\fileTemplates", "dest": "apps/pycharm-professional/fileTemplates", "optional": true },
+      // Live templates
+      { "source": "%APPDATA%\\JetBrains\\PyCharm2026.1\\templates", "dest": "apps/pycharm-professional/templates", "optional": true },
+      // Inspection profiles
+      { "source": "%APPDATA%\\JetBrains\\PyCharm2026.1\\inspection", "dest": "apps/pycharm-professional/inspection", "optional": true },
+      // Disabled plugins manifest (readable list, not binaries)
+      { "source": "%APPDATA%\\JetBrains\\PyCharm2026.1\\disabled_plugins.txt", "dest": "apps/pycharm-professional/disabled_plugins.txt", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Installed plugin binaries (large JARs, re-downloaded from marketplace)
+      "**\\plugins\\**",
+      // Caches, system, logs (these live under %LOCALAPPDATA% but exclude defensively)
+      "**\\caches\\**",
+      "**\\Cache\\**",
+      "**\\log\\**",
+      "**\\logs\\**",
+      "**\\tmp\\**",
+      "**\\index\\**",
+      // Lock files and volatile session/state files
+      "**\\*.lock",
+      "**\\port",
+      "**\\port.lock",
+      "**\\token",
+      // Telemetry / volatile state not worth restoring
+      "**\\recentProjects.xml",
+      "**\\updates.xml",
+      "**\\usage.statistics.xml",
+      "**\\window.state.xml",
+      // Trust DB / event log
+      "**\\trusted-paths.xml",
+      "**\\eventLog\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\PyCharm2026.1\\options\\token",
+      "%APPDATA%\\JetBrains\\PyCharm2026.1\\port",
+      "%APPDATA%\\JetBrains\\PyCharm2026.1\\port.lock"
+    ],
+    "warning": "PyCharm stores secrets (VCS passwords, deployment/SSH credentials, API tokens) in the OS-native password manager (Windows Credential Manager) or KeePass, NOT in the config directory, so credentials are not captured. The local IDE built-in-server token file and port files are runtime-only and MUST NOT be restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures PyCharm Professional user IDE settings from %APPDATA%\\JetBrains\\PyCharm<version>\\ (options, keymaps, colors, codestyles, fileTemplates, live templates, inspection profiles, disabled_plugins.txt). Plugin binaries, caches, logs, lock/port/token files, and volatile state (recentProjects, updates, usage stats, window state, trusted paths) are excluded. Credentials are not in config (PyCharm uses Windows Credential Manager / KeePass). The version-numbered folder (PyCharm2026.1) must match the installed version. Confidence: medium - directory structure and Roaming/Local split confirmed by official JetBrains docs, but the exact version segment is release-specific and the subfolder set may vary slightly by version."
+}

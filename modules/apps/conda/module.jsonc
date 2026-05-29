@@ -1,0 +1,80 @@
+{
+  // Config Module: conda (Miniconda)
+  // Provides verify/restore/capture configuration for the conda package/environment manager
+  // Curated module - captures user .condarc configuration, excludes caches, env contents, and auth tokens
+
+  "id": "apps.conda",
+  "displayName": "conda (Miniconda)",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Anaconda.Miniconda3"],
+    "exe": ["conda.exe"],
+    "uninstallDisplayName": ["^Miniconda3", "^Anaconda3"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "conda" }
+    // Note: .condarc is optional - a fresh conda install has no user config file
+  ],
+
+  "restore": [
+    {
+      // Primary user config (home-directory location, highest user precedence)
+      "type": "copy",
+      "source": "./payload/apps/conda/.condarc",
+      "target": "~/.condarc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Alternate condarc location under ~/.conda/
+      "type": "copy",
+      "source": "./payload/apps/conda/conda-condarc",
+      "target": "~/.conda/.condarc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // XDG-style condarc location (~/.config/conda/)
+      "type": "copy",
+      "source": "./payload/apps/conda/config-condarc",
+      "target": "~/.config/conda/.condarc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary user configuration (channels, channel_priority, envs_dirs, proxy_servers, etc.)
+      { "source": "~/.condarc", "dest": "apps/conda/.condarc", "optional": true },
+
+      // Alternate condarc search locations conda honors in the user home directory
+      { "source": "~/.conda/.condarc", "dest": "apps/conda/conda-condarc", "optional": true },
+      { "source": "~/.config/conda/.condarc", "dest": "apps/conda/config-condarc", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Never capture environment contents, package caches, or download artifacts
+      "**\\envs\\**",
+      "**\\pkgs\\**",
+      "**\\.conda\\envs\\**",
+      "**\\.conda\\pkgs\\**",
+      "**\\environments.txt",
+      // Anaconda auth tokens / credentials must never be captured
+      "**\\.anaconda\\**",
+      "**\\*token*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.anaconda/config.toml",
+      "~/.continuum/anaconda-client/tokens"
+    ],
+    "warning": "Anaconda.org auth tokens and proxy credentials must NOT be auto-restored; re-authenticate after restore. Note: a captured .condarc may embed proxy_servers credentials or channel token URLs (/t/<token>/) - review before sharing the captured bundle.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures conda user configuration (.condarc) from its home-directory search locations (~/.condarc, ~/.conda/.condarc, ~/.config/conda/.condarc): channels, channel_priority, envs_dirs, proxy settings, and default packages. Environment contents, package caches (envs/, pkgs/), machine-specific environments.txt, and Anaconda auth tokens (~/.anaconda) are excluded. Sensitivity is medium because .condarc can embed proxy credentials or channel token URLs. Confidence: high - user condarc search paths confirmed by official conda documentation."
+}

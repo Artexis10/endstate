@@ -1,0 +1,35 @@
+{
+  // Config Module: BizHawk
+  // Multi-system TAS/speedrun emulator (NES, SNES, N64, GB/GBA, etc.)
+  // Install-only: BizHawk is fully portable and stores ALL settings in
+  // config.ini next to EmuHawk.exe. There is no portable, env-rooted path
+  // Endstate can target, so nothing is captured. See notes.
+
+  "id": "apps.bizhawk",
+  "displayName": "BizHawk",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["TASEmulators.BizHawk"],
+    "exe": ["EmuHawk.exe"],
+    "uninstallDisplayName": ["^BizHawk"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "EmuHawk" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [],
+    "warning": "BizHawk is a fully portable emulator. Every setting (hotkeys, controller bindings, core/path/firmware config, recent-ROM list) is written to config.ini in the SAME folder as EmuHawk.exe (source: Program.cs resolves the config path as Path.Combine(PathUtils.ExeDirectoryPath, \"config.ini\")). The install folder is chosen by the user and may be moved or renamed to any drive, so its location cannot be expressed with %APPDATA%/%LOCALAPPDATA%/%USERPROFILE%/~ or the registry. BizHawk does not use AppData, the user profile, or HKCU for settings.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. BizHawk stores all configuration in config.ini located next to EmuHawk.exe in its (user-chosen, relocatable) install folder; it never writes to AppData or the registry. Endstate cannot target an arbitrary install-root path with an environment-rooted or HKCU path, so nothing is captured or restored - to migrate settings, copy config.ini (and any custom firmware/SaveRAM folders) alongside the BizHawk binaries manually. Confidence: high - portable config.ini location confirmed in BizHawk source (Program.cs) and official README's portability statement."
+}

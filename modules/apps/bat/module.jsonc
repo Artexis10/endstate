@@ -1,0 +1,64 @@
+{
+  // Config Module: bat
+  // Provides verify/restore/capture configuration for bat (a cat clone with syntax highlighting)
+  // Curated module - captures user config file plus custom themes/syntaxes, excludes the compiled cache
+
+  "id": "apps.bat",
+  "displayName": "bat",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["sharkdp.bat"],
+    "exe": ["bat.exe"],
+    "uninstallDisplayName": ["^bat\\b"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "bat" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/bat/config",
+      "target": "%APPDATA%\\bat\\config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bat/themes",
+      "target": "%APPDATA%\\bat\\themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bat/syntaxes",
+      "target": "%APPDATA%\\bat\\syntaxes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Main config file (named "config", no extension) at the bat config dir
+      { "source": "%APPDATA%\\bat\\config", "dest": "apps/bat/config", "optional": true },
+      // Custom color themes (.tmTheme) - bat cache --build compiles these into the cache
+      { "source": "%APPDATA%\\bat\\themes", "dest": "apps/bat/themes", "optional": true },
+      // Custom language syntax definitions (.sublime-syntax)
+      { "source": "%APPDATA%\\bat\\syntaxes", "dest": "apps/bat/syntaxes", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Compiled cache blobs live in %LOCALAPPDATA%\bat and are regenerable via `bat cache --build`
+      "**\\themes.bin",
+      "**\\syntaxes.bin",
+      "**\\metadata.yaml",
+      "**\\Cache\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures the bat user config file (%APPDATA%\\bat\\config) plus custom themes/ (.tmTheme) and syntaxes/ (.sublime-syntax) source directories. The compiled cache (themes.bin, syntaxes.bin, metadata.yaml) in %LOCALAPPDATA%\\bat is excluded since it is regenerable via `bat cache --build`. No credentials involved. Confidence: high - config dir, file name 'config', and themes/syntaxes subfolders confirmed by sharkdp/bat source (config.rs) and official docs."
+}
