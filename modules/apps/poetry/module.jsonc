@@ -1,0 +1,53 @@
+{
+  // Config Module: Poetry
+  // Provides verify/capture/restore configuration for Poetry (Python dependency manager)
+  // Captures the global config.toml; never auth.toml (repository credentials).
+
+  "id": "apps.poetry",
+  "displayName": "Poetry",
+  "sensitivity": "medium",
+
+  "matches": {
+    "exe": ["poetry.exe"],
+    "uninstallDisplayName": ["^Poetry"],
+    "pathExists": [
+      "%APPDATA%\\pypoetry\\config.toml"
+    ]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "poetry" }
+  ],
+
+  "restore": [
+    {
+      // Global settings: virtualenvs.*, installer.*, and configured (non-auth) repositories
+      "type": "copy",
+      "source": "./payload/apps/poetry/config.toml",
+      "target": "%APPDATA%\\pypoetry\\config.toml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Non-credential global config (virtualenv/install behavior, repository URLs)
+      { "source": "%APPDATA%\\pypoetry\\config.toml", "dest": "apps/poetry/config.toml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // auth.toml holds http-basic / pypi-token repository credentials — NEVER capture
+      "**\\pypoetry\\auth.toml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\pypoetry\\auth.toml"
+    ],
+    "warning": "Poetry stores repository credentials (http-basic.*, pypi-token.*) in auth.toml alongside config.toml. This file MUST NOT be captured or auto-restored. Re-add credentials with `poetry config` after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Poetry's global config.toml (virtualenvs/installer behavior and configured repository URLs) from %APPDATA%\\pypoetry\\. The sibling auth.toml holding repository tokens and basic-auth credentials is explicitly excluded — re-add them with `poetry config` after restore. Confidence: high - %APPDATA%\\pypoetry config.toml/auth.toml split and POETRY_CONFIG_DIR override confirmed by official Poetry documentation."
+}

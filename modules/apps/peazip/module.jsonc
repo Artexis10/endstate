@@ -1,0 +1,52 @@
+{
+  // Config Module: PeaZip
+  // Provides verify/capture/restore configuration for PeaZip (archive manager)
+  // Installed version stores config in %APPDATA%\PeaZip (conf.txt + custom presets/scripts/themes)
+  // NOTE: rationale guessed %LOCALAPPDATA%; verified location for the installed build is %APPDATA%\PeaZip
+
+  "id": "apps.peazip",
+  "displayName": "PeaZip",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Giorgiotani.Peazip"],
+    "exe": ["peazip.exe"],
+    "uninstallDisplayName": ["^PeaZip"],
+    "pathExists": [
+      "%APPDATA%\\PeaZip\\conf.txt"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\PeaZip\\conf.txt" }
+  ],
+
+  "restore": [
+    {
+      // Full config tree: conf.txt + conf-* files, custom compression presets/scripts, themes
+      "type": "copy",
+      "source": "./payload/apps/peazip",
+      "target": "%APPDATA%\\PeaZip",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\*.tmp",
+        "**\\Temp\\**"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\PeaZip", "dest": "apps/peazip", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "notes": "Captures the installed PeaZip config folder %APPDATA%\\PeaZip: conf.txt (main settings), custom compression/extraction presets and scripts, archive layouts, and themes. Logs/temp excluded. The portable build instead stores config under (peazip)\\res\\conf and is not covered. Confidence: medium - %APPDATA%\\PeaZip (Roaming) confirmed for the installed version by two independent sources, correcting the candidate's %LOCALAPPDATA% guess."
+}

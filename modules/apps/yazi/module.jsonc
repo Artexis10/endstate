@@ -1,0 +1,73 @@
+{
+  // Config Module: Yazi
+  // Provides verify/capture/restore configuration for the Yazi terminal file manager
+  // Captures the hand-edited TOML configs + init.lua; excludes runtime state/cache
+
+  "id": "apps.yazi",
+  "displayName": "Yazi",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["sxyazi.yazi"],
+    "exe": ["yazi.exe"],
+    "uninstallDisplayName": ["^Yazi"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "yazi" }
+  ],
+
+  "restore": [
+    {
+      // Main config: layout, sorting, opener rules, preview settings
+      "type": "copy",
+      "source": "./payload/apps/yazi/yazi.toml",
+      "target": "%APPDATA%\\yazi\\config\\yazi.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Keybindings
+      "type": "copy",
+      "source": "./payload/apps/yazi/keymap.toml",
+      "target": "%APPDATA%\\yazi\\config\\keymap.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Color scheme
+      "type": "copy",
+      "source": "./payload/apps/yazi/theme.toml",
+      "target": "%APPDATA%\\yazi\\config\\theme.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Lua startup hooks / custom functions
+      "type": "copy",
+      "source": "./payload/apps/yazi/init.lua",
+      "target": "%APPDATA%\\yazi\\config\\init.lua",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\yazi\\config\\yazi.toml", "dest": "apps/yazi/yazi.toml", "optional": true },
+      { "source": "%APPDATA%\\yazi\\config\\keymap.toml", "dest": "apps/yazi/keymap.toml", "optional": true },
+      { "source": "%APPDATA%\\yazi\\config\\theme.toml", "dest": "apps/yazi/theme.toml", "optional": true },
+      { "source": "%APPDATA%\\yazi\\config\\init.lua", "dest": "apps/yazi/init.lua", "optional": true }
+    ],
+    "excludeGlobs": [
+      // plugins/ and flavors/ are git/package-manager installs (ya pkg) — re-fetched, not portable config
+      "**\\yazi\\config\\plugins\\**",
+      "**\\yazi\\config\\flavors\\**",
+      // Runtime state and cache live outside config\ but exclude defensively
+      "**\\yazi\\state\\**",
+      "**\\yazi\\*.log"
+    ]
+  },
+
+  "notes": "Captures Yazi's hand-edited TOML configs (yazi.toml, keymap.toml, theme.toml) and init.lua from %APPDATA%\\yazi\\config\\. Installed plugins/ and flavors/ are excluded — they are re-fetched with `ya pkg` after restore. Runtime state and DDS data are excluded. No credentials are stored. Confidence: high - %APPDATA%\\yazi\\config\\ location and config filenames confirmed by official Yazi documentation."
+}

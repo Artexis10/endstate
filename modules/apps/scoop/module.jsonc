@@ -1,0 +1,53 @@
+{
+  // Config Module: Scoop
+  // Provides verify/capture/restore configuration for Scoop (Windows package manager)
+  // Captures the user config.json (settings, aliases, configured buckets).
+  // WARNING: config.json may hold proxy credentials / tokens inline — see sensitive block.
+
+  "id": "apps.scoop",
+  "displayName": "Scoop",
+  "sensitivity": "medium",
+
+  "matches": {
+    "exe": ["scoop", "scoop.cmd", "scoop.ps1"],
+    "pathExists": [
+      "%USERPROFILE%\\.config\\scoop\\config.json",
+      "%USERPROFILE%\\scoop\\apps\\scoop\\current\\bin\\scoop.ps1"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.config\\scoop\\config.json" }
+  ],
+
+  "restore": [
+    {
+      // Scoop settings + alias definitions + configured-bucket metadata
+      "type": "copy",
+      "source": "./payload/apps/scoop/config.json",
+      "target": "%USERPROFILE%\\.config\\scoop\\config.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Default config location (overridable via the SCOOP env var / portable root)
+      { "source": "%USERPROFILE%\\.config\\scoop\\config.json", "dest": "apps/scoop/config.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.config\\scoop\\config.json"
+    ],
+    "warning": "Scoop's config.json can contain inline secrets: a `proxy` value (which may embed user:password), and optional `virustotal_token` / `gh_token` API tokens. Review and strip these before sharing the captured bundle. The file is restored with backup but should be inspected for credentials.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Scoop's user config.json (settings, alias definitions, configured-bucket metadata) from the default %USERPROFILE%\\.config\\scoop\\ location (overridable via the SCOOP env var or a portable root). The config.json may hold inline secrets — a proxy string with embedded credentials and optional virustotal_token / gh_token — so the file is flagged sensitive (warn-only); review and strip secrets before sharing. Installed apps/buckets are re-added with `scoop bucket add` / `scoop install`. Confidence: high - %USERPROFILE%\\.config\\scoop\\config.json default location confirmed by official Scoop documentation; proxy/token fields documented in Scoop settings."
+}

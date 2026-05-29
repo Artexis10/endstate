@@ -1,0 +1,71 @@
+{
+  // Config Module: RustDesk
+  // Provides verify/restore/capture configuration for RustDesk (remote desktop)
+  // Captures portable server/relay config (RustDesk2.toml); excludes machine-bound identity (RustDesk.toml)
+
+  "id": "apps.rustdesk",
+  "displayName": "RustDesk",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["RustDesk.RustDesk"],
+    "exe": ["rustdesk.exe"],
+    "uninstallDisplayName": ["^RustDesk"],
+    "pathExists": [
+      "%APPDATA%\\RustDesk\\config"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\RustDesk\\config\\RustDesk2.toml" }
+  ],
+
+  "restore": [
+    {
+      // Self-hosted rendezvous/relay/api server + [options] preferences.
+      // copy (not merge) since this is a TOML file; backup preserves any existing config.
+      "type": "copy",
+      "source": "./payload/apps/rustdesk/RustDesk2.toml",
+      "target": "%APPDATA%\\RustDesk\\config\\RustDesk2.toml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // RustDesk2.toml holds the self-hosted server config (rendezvous/relay/api host,
+      // server public key) and [options] preferences worth retaining.
+      { "source": "%APPDATA%\\RustDesk\\config\\RustDesk2.toml", "dest": "apps/rustdesk/RustDesk2.toml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // RustDesk.toml = device ID + encrypted permanent password + salt (machine-bound, sensitive)
+      "**\\RustDesk.toml",
+      "**\\*_local.toml",
+      "**\\log\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\RustDesk\\config\\RustDesk.toml",
+      "%APPDATA%\\RustDesk\\config\\*_local.toml"
+    ],
+    "warning": "RustDesk.toml stores the device ID, encrypted permanent password and salt, which are bound to the machine GUID (HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid) and will not decrypt on a different machine. These MUST NOT be captured or auto-restored; set a fresh permanent password after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures only the portable RustDesk2.toml (self-hosted rendezvous/relay/api server, server public key, and [options] preferences). The machine-bound identity file RustDesk.toml (device ID + encrypted password + salt) and logs are excluded and flagged sensitive. Confidence: medium - %APPDATA%\\RustDesk\\config and the two-file split are confirmed by multiple sources, but RustDesk2.toml's exact field set varies by version, so review before trusting a captured server config.",
+
+  "curation": {
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/RustDesk.toml",
+      "**/log/**",
+      "**/*.log"
+    ]
+  }
+}

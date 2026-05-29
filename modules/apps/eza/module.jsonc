@@ -1,0 +1,55 @@
+{
+  // Config Module: eza
+  // Provides verify/capture/restore configuration for eza (a modern ls replacement)
+  // eza's only file-based config is theme.yml; it is read from EZA_CONFIG_DIR
+  // (default: XDG ~/.config/eza, with %APPDATA%\eza the typical Windows fallback).
+
+  "id": "apps.eza",
+  "displayName": "eza",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["eza-community.eza"],
+    "exe": ["eza.exe"],
+    "uninstallDisplayName": ["^eza"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "eza" }
+    // Note: eza has no config unless the user creates theme.yml, so verify only
+    // confirms the binary is installed.
+  ],
+
+  "restore": [
+    {
+      // XDG-style location (EZA_CONFIG_DIR default): %USERPROFILE%\.config\eza\theme.yml
+      "type": "copy",
+      "source": "./payload/apps/eza/theme.yml",
+      "target": "%USERPROFILE%\\.config\\eza\\theme.yml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Windows-typical fallback: %APPDATA%\eza\theme.yml
+      "type": "copy",
+      "source": "./payload/apps/eza/theme.appdata.yml",
+      "target": "%APPDATA%\\eza\\theme.yml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Color/icon theme definition (XDG-style location)
+      { "source": "%USERPROFILE%\\.config\\eza\\theme.yml", "dest": "apps/eza/theme.yml", "optional": true },
+      // Windows-typical fallback location
+      { "source": "%APPDATA%\\eza\\theme.yml", "dest": "apps/eza/theme.appdata.yml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures eza's theme.yml (color and icon theming) from both the XDG-style %USERPROFILE%\\.config\\eza\\ and the Windows-typical %APPDATA%\\eza\\ locations. eza's flags and aliases live in the shell rc (out of scope). theme.yml contains only aesthetic settings — no credentials. Confidence: medium - the theme.yml filename and EZA_CONFIG_DIR / XDG-default behavior are confirmed by official eza docs, but there is no single canonical Windows path so the location is convention-dependent."
+}

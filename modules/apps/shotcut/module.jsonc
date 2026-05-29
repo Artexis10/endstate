@@ -1,0 +1,77 @@
+{
+  // Config Module: Shotcut
+  // Provides verify/restore/capture configuration for Shotcut (open-source video editor)
+  // Settings/layouts in the registry (HKCU); user presets/profiles in the App Data Directory
+
+  "id": "apps.shotcut",
+  "displayName": "Shotcut",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Meltytech.Shotcut"],
+    "exe": ["shotcut.exe"],
+    "uninstallDisplayName": ["^Shotcut"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Meltytech\\Shotcut" }
+  ],
+
+  "restore": [
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/shotcut/Settings.reg",
+      "target": "HKCU\\Software\\Meltytech\\Shotcut",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/shotcut/presets",
+      "target": "%LOCALAPPDATA%\\Meltytech\\Shotcut\\presets",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/shotcut/profiles",
+      "target": "%LOCALAPPDATA%\\Meltytech\\Shotcut\\profiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/shotcut/transitions",
+      "target": "%LOCALAPPDATA%\\Meltytech\\Shotcut\\transitions",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // User-saved generator/filter/export presets
+      { "source": "%LOCALAPPDATA%\\Meltytech\\Shotcut\\presets", "dest": "apps/shotcut/presets", "optional": true },
+      // Custom video modes (profiles)
+      { "source": "%LOCALAPPDATA%\\Meltytech\\Shotcut\\profiles", "dest": "apps/shotcut/profiles", "optional": true },
+      // Favorited transition wipes
+      { "source": "%LOCALAPPDATA%\\Meltytech\\Shotcut\\transitions", "dest": "apps/shotcut/transitions", "optional": true }
+    ],
+    "registryKeys": [
+      // Layout, UI preferences, recent projects, defaults
+      { "key": "HKCU\\Software\\Meltytech\\Shotcut", "dest": "apps/shotcut/Settings.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Caches / transient state in the App Data Directory
+      "**\\autosave\\**",
+      "**\\thumbnails\\**",
+      "**\\proxies\\**",
+      "**\\db.sqlite3",
+      "**\\shotcut-log.txt",
+      "**\\*.log",
+      "**\\cache\\**"
+    ]
+  },
+
+  "notes": "Captures Shotcut UI settings/layouts/recents from the registry (HKCU\\Software\\Meltytech\\Shotcut) plus user presets, profiles (custom video modes) and favorited transitions from %LOCALAPPDATA%\\Meltytech\\Shotcut. Autosave, thumbnails, proxies, the sqlite db and logs are excluded. By default Shotcut keeps settings in the registry, not an INI; an INI only appears if a custom App Data Directory is configured. No credentials. Confidence: high - official Shotcut configuration notes confirm registry-default settings and the App Data Directory subfolder layout."
+}

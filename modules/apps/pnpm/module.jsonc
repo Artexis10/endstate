@@ -1,0 +1,55 @@
+{
+  // Config Module: pnpm
+  // Provides verify/capture/restore configuration for the pnpm package manager
+  // Captures the non-credential global config.yaml ONLY; never the rc file or .npmrc
+  // (which hold registry _authToken credentials).
+
+  "id": "apps.pnpm",
+  "displayName": "pnpm",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["pnpm.pnpm"],
+    "exe": ["pnpm.exe", "pnpm.cmd"],
+    "uninstallDisplayName": ["^pnpm"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "pnpm" }
+  ],
+
+  "restore": [
+    {
+      // Non-credential global settings (store-dir, node-linker, hoisting, etc.)
+      "type": "copy",
+      "source": "./payload/apps/pnpm/config.yaml",
+      "target": "%LOCALAPPDATA%\\pnpm\\config\\config.yaml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // YAML config holds all NON-credential pnpm settings (per official docs)
+      { "source": "%LOCALAPPDATA%\\pnpm\\config\\config.yaml", "dest": "apps/pnpm/config.yaml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // The global rc file holds registry URLs + _authToken credentials — NEVER capture
+      "**\\pnpm\\config\\rc",
+      // ~/.npmrc fallback also holds _authToken credentials — NEVER capture
+      "**\\.npmrc"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\pnpm\\config\\rc",
+      "%USERPROFILE%\\.npmrc"
+    ],
+    "warning": "The pnpm global rc file and ~/.npmrc hold registry URLs and _authToken credentials. These MUST NOT be captured or auto-restored. Re-run `pnpm login` / re-add tokens after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures only pnpm's non-credential global config.yaml (store-dir, node-linker, hoist patterns, and other settings) from %LOCALAPPDATA%\\pnpm\\config\\. The INI rc file and ~/.npmrc are explicitly excluded — per official pnpm docs they hold registry auth tokens (_authToken). Re-authenticate with `pnpm login` after restore. Confidence: high - config.yaml vs rc credential split and the %LOCALAPPDATA%\\pnpm\\config location are confirmed by the official pnpm config documentation."
+}

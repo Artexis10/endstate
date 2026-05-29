@@ -1,0 +1,52 @@
+{
+  // Config Module: Fastfetch
+  // Provides verify/capture/restore configuration for the fastfetch system-info tool
+  // Captures the JSONC config from both the Windows default and the XDG-style location
+
+  "id": "apps.fastfetch",
+  "displayName": "Fastfetch",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Fastfetch-cli.Fastfetch"],
+    "exe": ["fastfetch.exe"],
+    "uninstallDisplayName": ["^Fastfetch"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "fastfetch" }
+  ],
+
+  "restore": [
+    {
+      // Windows default config location: %APPDATA%\fastfetch\config.jsonc
+      "type": "copy",
+      "source": "./payload/apps/fastfetch/config.jsonc",
+      "target": "%APPDATA%\\fastfetch\\config.jsonc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // XDG-style location used by some Windows setups: %USERPROFILE%\.config\fastfetch\config.jsonc
+      "type": "copy",
+      "source": "./payload/apps/fastfetch/config.xdg.jsonc",
+      "target": "%USERPROFILE%\\.config\\fastfetch\\config.jsonc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Custom layout/modules/logo definition (Windows default location)
+      { "source": "%APPDATA%\\fastfetch\\config.jsonc", "dest": "apps/fastfetch/config.jsonc", "optional": true },
+      // Alternate XDG-style location
+      { "source": "%USERPROFILE%\\.config\\fastfetch\\config.jsonc", "dest": "apps/fastfetch/config.xdg.jsonc", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures the fastfetch config.jsonc (custom module layout, display settings, logo selection) from both the Windows default %APPDATA%\\fastfetch\\ and the XDG-style %USERPROFILE%\\.config\\fastfetch\\ locations. fastfetch stores no credentials. Custom logo image files, if referenced by absolute path, are not captured. Confidence: high - default config filename config.jsonc confirmed by the official fastfetch wiki; %APPDATA%\\fastfetch is the documented Windows default with the .config fallback also in common use."
+}

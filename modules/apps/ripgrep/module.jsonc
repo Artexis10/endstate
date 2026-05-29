@@ -1,0 +1,55 @@
+{
+  // Config Module: ripgrep
+  // Provides verify/capture/restore configuration for ripgrep (rg)
+  // ripgrep has NO fixed default config path — it reads the file named by RIPGREP_CONFIG_PATH.
+  // This module captures the two established conventions for that file.
+
+  "id": "apps.ripgrep",
+  "displayName": "ripgrep",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["BurntSushi.ripgrep.MSVC"],
+    "exe": ["rg.exe"],
+    "uninstallDisplayName": ["^ripgrep"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "rg" }
+    // Note: ripgrep has no config unless RIPGREP_CONFIG_PATH is set, so verify only
+    // confirms the binary is installed, not that a config file exists.
+  ],
+
+  "restore": [
+    {
+      // Most common convention: ~/.ripgreprc (point RIPGREP_CONFIG_PATH at it)
+      "type": "copy",
+      "source": "./payload/apps/ripgrep/.ripgreprc",
+      "target": "~/.ripgreprc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // XDG-style convention used by some Windows setups: %APPDATA%\ripgrep\config
+      "type": "copy",
+      "source": "./payload/apps/ripgrep/config",
+      "target": "%APPDATA%\\ripgrep\\config",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Default flags, type definitions, and glob rules (one shell-arg per line)
+      { "source": "~/.ripgreprc", "dest": "apps/ripgrep/.ripgreprc", "optional": true },
+      // Alternate XDG-style location
+      { "source": "%APPDATA%\\ripgrep\\config", "dest": "apps/ripgrep/config", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**/*.log"
+    ]
+  },
+
+  "notes": "Captures the ripgrep config file (default flags, custom --type definitions, glob rules) from both the dominant ~/.ripgreprc convention and the alternate %APPDATA%\\ripgrep\\config location. ripgrep has no built-in default config path: it only reads the file named by the RIPGREP_CONFIG_PATH environment variable, which the user must set (typically in their shell rc). No credentials are involved. Confidence: medium - ripgrep's RIPGREP_CONFIG_PATH mechanism and the ~/.ripgreprc convention are confirmed by the official ripgrep GUIDE, but there is no single canonical path so the location is convention-dependent."
+}

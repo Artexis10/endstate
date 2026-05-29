@@ -1,0 +1,54 @@
+{
+  // Config Module: Terraform
+  // Provides verify/capture/restore configuration for the Terraform CLI
+  // Captures the CLI config terraform.rc; never the Terraform Cloud credentials file.
+
+  "id": "apps.terraform",
+  "displayName": "Terraform",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Hashicorp.Terraform"],
+    "exe": ["terraform.exe"],
+    "uninstallDisplayName": ["^Terraform"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "terraform" }
+  ],
+
+  "restore": [
+    {
+      // CLI config: plugin_cache_dir, provider_installation mirrors, dev_overrides, disable_checkpoint
+      "type": "copy",
+      "source": "./payload/apps/terraform/terraform.rc",
+      "target": "%APPDATA%\\terraform.rc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // On Windows the CLI config is the file %APPDATA%\terraform.rc (not a subdirectory)
+      { "source": "%APPDATA%\\terraform.rc", "dest": "apps/terraform/terraform.rc", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Terraform Cloud/Enterprise API tokens written by `terraform login` — NEVER capture
+      "**\\.terraform.d\\credentials.tfrc.json",
+      // Provider plugin cache — large binaries, re-downloaded by `terraform init`
+      "**\\.terraform.d\\plugin-cache\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\terraform.d\\credentials.tfrc.json",
+      "%USERPROFILE%\\.terraform.d\\credentials.tfrc.json"
+    ],
+    "warning": "credentials.tfrc.json (written by `terraform login`) holds Terraform Cloud/Enterprise API tokens. It MUST NOT be captured or auto-restored. Also review terraform.rc for any inline `credentials` blocks before sharing. Re-run `terraform login` after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the Terraform CLI config file %APPDATA%\\terraform.rc (plugin_cache_dir, provider_installation mirrors, dev_overrides, disable_checkpoint). The Terraform Cloud credentials file (~/.terraform.d/credentials.tfrc.json) and the provider plugin cache are excluded — tokens are re-acquired with `terraform login` and providers re-downloaded by `terraform init`. Review terraform.rc for any inline credentials blocks before sharing. Confidence: high - %APPDATA%\\terraform.rc location and credentials.tfrc.json path confirmed by official HashiCorp CLI configuration documentation."
+}

@@ -1,0 +1,35 @@
+{
+  // Config Module: btop++ (btop4win)
+  // Install-only — btop4win is a portable app that stores btop.conf, logs, and the
+  // themes/ folder in the SAME directory as btop4win.exe (the install dir), NOT in any
+  // per-user profile path. Capturing it would require a hardcoded absolute drive path,
+  // which is forbidden, so nothing is captured.
+
+  "id": "apps.btop",
+  "displayName": "btop++",
+  "sensitivity": "none",
+
+  "matches": {
+    "winget": ["aristocratos.btop4win"],
+    "exe": ["btop.exe", "btop4win.exe"],
+    "uninstallDisplayName": ["^btop4win", "^btop"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "btop4win" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [],
+    "warning": "btop4win stores no credentials. Its config is non-sensitive but is not capturable here because it lives in the install directory rather than a user-profile path.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. Unlike Linux btop++ (which uses ~/.config/btop), btop4win stores btop.conf, log files, and the themes/ folder in the same directory as btop4win.exe (the install dir), not in %APPDATA% or %USERPROFILE%. Capturing those files would require a hardcoded absolute drive path, which is forbidden, and the install directory is not stable across machines, so nothing is captured. Confidence: high - portable, exe-relative config storage confirmed by the official btop4win README."
+}

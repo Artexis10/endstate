@@ -1,0 +1,45 @@
+{
+  // Config Module: zoxide
+  // Provides verify/capture/restore configuration for zoxide (smarter cd)
+  // zoxide has no config file — behavior is driven by _ZO_* env vars set in shell rc.
+  // The portable artifact is the learned-directory frecency database db.zo.
+
+  "id": "apps.zoxide",
+  "displayName": "zoxide",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["ajeetdsouza.zoxide"],
+    "exe": ["zoxide.exe"],
+    "uninstallDisplayName": ["^zoxide"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "zoxide" }
+  ],
+
+  "restore": [
+    {
+      // Learned-directory frecency database (binary). Windows default data dir is %LOCALAPPDATA%\zoxide.
+      "type": "copy",
+      "source": "./payload/apps/zoxide/db.zo",
+      "target": "%LOCALAPPDATA%\\zoxide\\db.zo",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // The learned navigation history — the only portable zoxide artifact
+      { "source": "%LOCALAPPDATA%\\zoxide\\db.zo", "dest": "apps/zoxide/db.zo", "optional": true }
+    ],
+    "excludeGlobs": [
+      // zoxide may write a temp file during atomic db updates
+      "**\\zoxide\\*.zo.*",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures zoxide's learned-directory frecency database db.zo from the Windows default data dir %LOCALAPPDATA%\\zoxide (overridable via _ZO_DATA_DIR). zoxide has no settings file — runtime behavior is configured via _ZO_* environment variables in the shell rc, which is out of scope for a capture module. The db.zo holds visited directory paths (user navigation history, no secrets). Confidence: high - default Windows data dir %LOCALAPPDATA%\\zoxide and db.zo filename confirmed by the official zoxide README."
+}

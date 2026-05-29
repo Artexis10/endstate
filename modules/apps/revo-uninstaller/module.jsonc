@@ -1,0 +1,53 @@
+{
+  // Config Module: Revo Uninstaller
+  // Provides verify/capture/restore configuration for Revo Uninstaller (free / Pro)
+  // Options and settings live under HKCU\Software\VS Revo Group
+  // Excludes license key and the large registry/file backup stores under %LOCALAPPDATA%
+
+  "id": "apps.revo-uninstaller",
+  "displayName": "Revo Uninstaller",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["RevoUninstaller.RevoUninstaller"],
+    "exe": ["Revouninstaller.exe", "RevoUnPro.exe"],
+    "uninstallDisplayName": ["^Revo Uninstaller"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\VS Revo Group" }
+  ],
+
+  "restore": [
+    {
+      // Program options, view settings, and the user exclude list
+      "type": "registry-import",
+      "source": "./payload/apps/revo-uninstaller/VSRevoGroup.reg",
+      "target": "HKCU\\Software\\VS Revo Group",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\VS Revo Group", "dest": "apps/revo-uninstaller/VSRevoGroup.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Registry/file backup stores are large machine-local data, not portable config
+      "**\\VS Revo Group\\**\\RegBackup\\**",
+      "**\\VS Revo Group\\**\\BackUpsData\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "HKCU\\Software\\VS Revo Group\\Revo Uninstaller Pro\\License"
+    ],
+    "warning": "Revo Uninstaller Pro license/registration values may reside in the same registry key. Review the captured .reg before restore and re-enter your license manually.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Revo Uninstaller settings from HKCU\\Software\\VS Revo Group (program options, view preferences, user exclude list). The Pro license is flagged sensitive and should be re-entered manually. The registry/file backup stores under %LOCALAPPDATA%\\VS Revo Group (RegBackup, BackUpsData) are machine-local recovery data and are excluded. Confidence: medium - HKCU\\Software\\VS Revo Group settings root confirmed by community/encyclopedia sources; %LOCALAPPDATA% backup paths confirmed by the official guide."
+}

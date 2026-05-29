@@ -1,0 +1,39 @@
+{
+  // Config Module: ONLYOFFICE Desktop Editors
+  // Install-only: no portable plain-text settings file; UI prefs live in a CEF
+  // Local Storage (leveldb) binary store and the data folder is cache/recovery/fonts.
+
+  "id": "apps.onlyoffice-desktop",
+  "displayName": "ONLYOFFICE Desktop Editors",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["ONLYOFFICE.DesktopEditors"],
+    "exe": ["DesktopEditors.exe"],
+    "uninstallDisplayName": ["^ONLYOFFICE"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\ONLYOFFICE\\DesktopEditors"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\ONLYOFFICE\\DesktopEditors" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\ONLYOFFICE\\DesktopEditors\\data\\sdkjs-plugins\\cloud_crypto.xml",
+      "%LOCALAPPDATA%\\ONLYOFFICE\\DesktopEditors\\data\\Local Storage"
+    ],
+    "warning": "ONLYOFFICE stores end-to-end encryption keys in cloud_crypto.xml and connected-portal session tokens plus UI prefs in its CEF Local Storage (leveldb). These MUST NOT be captured or auto-restored. Re-connect portals/clouds and re-enter settings after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. ONLYOFFICE Desktop Editors is a CEF-based app whose user preferences and recent-files list live in a non-portable binary CEF Local Storage (leveldb) store, while %LOCALAPPDATA%\\ONLYOFFICE\\DesktopEditors\\data holds only fonts, autosave/recovery databases, and plugin data. Encryption keys (cloud_crypto.xml) and portal session tokens are sensitive and excluded. There is no plain-text settings file worth capturing portably. Confidence: high - official ONLYOFFICE docs confirm the data-folder layout (fonts/recover/plugins under %LOCALAPPDATA%) and the absence of a portable settings file."
+}

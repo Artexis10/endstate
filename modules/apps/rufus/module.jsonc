@@ -1,0 +1,39 @@
+{
+  // Config Module: Rufus
+  // Provides verify/capture/restore configuration for Rufus (bootable USB creator)
+  // Standard (non-portable) build stores settings in HKCU\Software\Akeo Consulting\Rufus
+
+  "id": "apps.rufus",
+  "displayName": "Rufus",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Rufus.Rufus"],
+    "exe": ["rufus.exe"],
+    "uninstallDisplayName": ["^Rufus"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Akeo Consulting\\Rufus" }
+  ],
+
+  "restore": [
+    {
+      // Preferences: last partition/file-system/cluster choices, update policy, advanced toggles
+      "type": "registry-import",
+      "source": "./payload/apps/rufus/Rufus.reg",
+      "target": "HKCU\\Software\\Akeo Consulting\\Rufus",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\Akeo Consulting\\Rufus", "dest": "apps/rufus/Rufus.reg", "optional": true }
+    ]
+  },
+
+  "notes": "Captures Rufus preferences from HKCU\\Software\\Akeo Consulting\\Rufus (default partition scheme/file system/cluster size, update-check policy, advanced/list-all-drives toggles). The portable build instead uses rufus.ini next to the exe and is not covered. Confidence: high - registry key derived from Rufus source (COMPANY_NAME \"Akeo Consulting\", APPLICATION_NAME \"Rufus\", REGKEY_HKCU = SOFTWARE\\<company>\\<app>)."
+}

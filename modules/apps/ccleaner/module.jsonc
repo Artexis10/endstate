@@ -1,0 +1,49 @@
+{
+  // Config Module: CCleaner
+  // Provides verify/capture/restore configuration for CCleaner (Piriform)
+  // Settings stored in HKCU\Software\Piriform\CCleaner (cleaning options, include/exclude rules)
+  // Excludes registration name + license key
+
+  "id": "apps.ccleaner",
+  "displayName": "CCleaner",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Piriform.CCleaner"],
+    "exe": ["CCleaner64.exe", "CCleaner.exe"],
+    "uninstallDisplayName": ["^CCleaner"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Piriform\\CCleaner" }
+  ],
+
+  "restore": [
+    {
+      // Cleaning options, Include#/Exclude# custom rules, window/UI prefs
+      "type": "registry-import",
+      "source": "./payload/apps/ccleaner/CCleaner.reg",
+      "target": "HKCU\\Software\\Piriform\\CCleaner",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\Piriform\\CCleaner", "dest": "apps/ccleaner/CCleaner.reg", "optional": true }
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "HKCU\\Software\\Piriform\\CCleaner\\Name",
+      "HKCU\\Software\\Piriform\\CCleaner\\License"
+    ],
+    "warning": "CCleaner Professional registration name and license key live in the same registry key. The .reg capture may include them; review before restoring and re-enter your license rather than relying on captured values.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures CCleaner settings from HKCU\\Software\\Piriform\\CCleaner: cleaning options, custom Include#/Exclude# rules, secure-delete method, and window/UI preferences. The registration Name/License values may be present in this key - they are flagged as sensitive and should be re-entered manually rather than trusted from capture. Settings can alternatively live in ccleaner.ini in portable mode, which is not covered here. Confidence: medium - registry key and value structure confirmed by the winreg-kb knowledge base; license values share the key so are flagged sensitive."
+}

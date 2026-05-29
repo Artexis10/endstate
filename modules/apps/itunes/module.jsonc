@@ -1,0 +1,37 @@
+{
+  // Config Module: iTunes
+  // Install-only module: iTunes app preferences are not portably capturable.
+  // Detection + verify only; nothing is captured or restored.
+
+  "id": "apps.itunes",
+  "displayName": "iTunes",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Apple.iTunes"],
+    "exe": ["iTunes.exe"],
+    "uninstallDisplayName": ["^iTunes"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "iTunes" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Apple Computer\\Preferences\\ByHost",
+      "HKCU\\Software\\Apple Computer, Inc.\\iTunes",
+      "%USERPROFILE%\\Apple"
+    ],
+    "warning": "iTunes preferences are machine/account-bound (ByHost files keyed to the hardware UUID, registry entries, and account/DRM authorization tied to the Apple ID). They are not portable and MUST NOT be captured or restored. Re-sign in and re-authorize the computer after a rebuild.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. Since iTunes 12.5.1 the legacy iTunesPrefs.xml is no longer used; preferences are spread across the registry (HKCU\\Software\\Apple Computer, Inc.\\iTunes) and binary/ByHost preference files under %APPDATA%\\Apple Computer\\Preferences that are keyed to the specific machine. The library database and media are user data (not config) and account/DRM authorization is server-side and tied to the Apple ID. Nothing is portably capturable, so capture and restore are empty. Confidence: high - that iTunes preferences are machine-bound and non-portable since 12.5.1 is confirmed by multiple Apple Community sources."
+}
