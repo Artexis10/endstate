@@ -25,7 +25,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [],
     "warning": "btop4win stores no credentials. Its config is non-sensitive but is not capturable here because it lives in the install directory rather than a user-profile path.",
     "restorer": "warn-only"

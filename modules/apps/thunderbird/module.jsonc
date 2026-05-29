@@ -61,7 +61,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Thunderbird\\Profiles\\*\\key4.db",
       "%APPDATA%\\Thunderbird\\Profiles\\*\\logins.json",

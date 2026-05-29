@@ -69,7 +69,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.vagrant.d\\insecure_private_key",
       "%USERPROFILE%\\.vagrant.d\\insecure_private_keys"

@@ -16,7 +16,7 @@ type Module struct {
 	Verify      []VerifyDef   `json:"verify,omitempty"`
 	Restore     []RestoreDef  `json:"restore,omitempty"`
 	Capture     *CaptureDef   `json:"capture,omitempty"`
-	Sensitive   *SensitiveDef `json:"sensitive,omitempty"`
+	Secrets     *SecretsDef   `json:"secrets,omitempty"`
 	Notes       string        `json:"notes,omitempty"`
 
 	// FilePath is the absolute path to the module.jsonc file (set at load time).
@@ -74,8 +74,8 @@ type CaptureRegistryKey struct {
 	Optional bool   `json:"optional,omitempty"`
 }
 
-// SensitiveDef describes files that must never be bundled or auto-restored.
-type SensitiveDef struct {
+// SecretsDef describes files that must never be bundled or auto-restored.
+type SecretsDef struct {
 	Files    []string `json:"files,omitempty"`
 	Warning  string   `json:"warning,omitempty"`
 	Restorer string   `json:"restorer,omitempty"`

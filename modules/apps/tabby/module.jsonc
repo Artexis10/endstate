@@ -48,7 +48,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\tabby\\config.yaml"
     ],

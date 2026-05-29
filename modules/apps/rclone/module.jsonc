@@ -33,7 +33,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\rclone\\rclone.conf"
     ],

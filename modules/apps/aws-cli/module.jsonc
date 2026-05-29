@@ -47,7 +47,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.aws\\credentials",
       "%USERPROFILE%\\.aws\\sso\\cache",

@@ -35,7 +35,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [],
     "warning": "WinSCP.ini may contain saved session passwords if master password is not set. Review before sharing.",
     "restorer": "warn-only"

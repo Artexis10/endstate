@@ -79,7 +79,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\JetBrains\\RubyMine*\\options\\security.xml",
       "%APPDATA%\\JetBrains\\RubyMine*\\options\\github.xml"

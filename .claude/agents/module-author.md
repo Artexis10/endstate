@@ -35,7 +35,7 @@ Every module.jsonc MUST include:
   "verify": [],     // Array of verification steps
   "restore": [],    // Array of restore entries
   "capture": {},    // Capture definition with files and excludeGlobs
-  "sensitive": {},  // Optional. Files that MUST NOT be auto-restored
+  "secrets": {},  // Optional. Files that MUST NOT be auto-restored
   "notes": "",      // Human-readable notes about scope and exclusions
   "curation": {}    // Optional. Seed script and snapshot configuration
 }
@@ -100,7 +100,7 @@ For directory copy with exclusions:
 ## Security Rules (Non-Negotiable)
 
 - NEVER include browser profiles, auth tokens, password databases, or license blobs in capture/restore
-- The `sensitive` section documents paths that MUST NOT be restored; set `"restorer": "warn-only"`
+- The `secrets` section documents paths that MUST NOT be restored; set `"restorer": "warn-only"`
 - Apps with `sensitivity: "high"` require explicit justification in `notes`
 - `excludeGlobs` MUST exclude: Cache, Logs, Temp, lock files, crash reports, GPU cache, state databases (`.vscdb`)
 

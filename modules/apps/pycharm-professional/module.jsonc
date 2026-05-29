@@ -144,7 +144,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\JetBrains\\PyCharm2026.1\\options\\token",
       "%APPDATA%\\JetBrains\\PyCharm2026.1\\port",

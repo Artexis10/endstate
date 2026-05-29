@@ -41,7 +41,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\ScreenToGif\\Settings.xaml"
     ],

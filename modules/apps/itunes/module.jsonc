@@ -23,7 +23,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Apple Computer\\Preferences\\ByHost",
       "HKCU\\Software\\Apple Computer, Inc.\\iTunes",

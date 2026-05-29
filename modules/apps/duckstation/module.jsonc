@@ -120,7 +120,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\DuckStation\\bios",
       "%USERPROFILE%\\Documents\\DuckStation\\bios"

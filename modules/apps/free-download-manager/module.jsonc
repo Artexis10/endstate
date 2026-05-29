@@ -29,7 +29,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\Softdeluxe\\Free Download Manager\\db.sqlite",
       "%LOCALAPPDATA%\\Softdeluxe\\Free Download Manager\\fdm.sqlite",

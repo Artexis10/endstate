@@ -53,7 +53,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.config\\yasb\\.env"
     ],

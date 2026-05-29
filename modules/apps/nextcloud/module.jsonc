@@ -58,7 +58,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       // Credentials are stored by QtKeychain in Windows Credential Manager,
       // not in a portable file. Listed here for documentation/awareness.

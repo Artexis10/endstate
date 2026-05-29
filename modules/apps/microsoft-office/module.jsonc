@@ -86,7 +86,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity",
       "HKCU\\Software\\Microsoft\\Office\\16.0\\Outlook\\Profiles"

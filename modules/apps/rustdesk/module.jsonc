@@ -47,7 +47,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\RustDesk\\config\\RustDesk.toml",
       "%APPDATA%\\RustDesk\\config\\*_local.toml"

@@ -29,7 +29,7 @@ Capture currently produces a bare `.jsonc` manifest. Config export is a separate
 - If a config module matches (via `matches.winget` or `matches.exe`), its `capture.files` are copied into the zip under `configs/<module-id>/`
 - No `--include-config` flag needed — configs are always included when available
 - If no config modules match any apps, zip still contains manifest + metadata (install-only profile — valid and successful)
-- Sensitive files listed in module `sensitive.files` are NEVER included
+- Sensitive files listed in module `secrets.files` are NEVER included
 - `capture.excludeGlobs` are respected
 
 ### AC-3: Metadata file
@@ -86,7 +86,7 @@ Capture currently produces a bare `.jsonc` manifest. Config export is a separate
 - No external file references — all config payloads are embedded
 
 ### INV-BUNDLE-2: Sensitive files never bundled
-- Files listed in `module.sensitive.files` MUST NOT appear in the zip
+- Files listed in `module.secrets.files` MUST NOT appear in the zip
 - Credentials, tokens, session data — always excluded
 - This is enforced at capture time, not at restore time
 
@@ -123,7 +123,7 @@ Capture currently produces a bare `.jsonc` manifest. Config export is a separate
 - Match via `matches.winget` array against captured app's winget ID
 - If match found, iterate `capture.files` and copy source → `configs/<module-id>/<dest>`
 - Skip files matching `capture.excludeGlobs`
-- Skip files in `sensitive.files`
+- Skip files in `secrets.files`
 
 ### Zip Creation
 - Use PowerShell `Compress-Archive` or .NET `System.IO.Compression.ZipFile`
@@ -150,7 +150,7 @@ Before implementation, verify:
 - [ ] `export-config` command unaffected
 - [ ] Profile discovery handles all three formats without regression
 - [ ] Config module matching logic handles missing modules gracefully
-- [ ] Sensitive file exclusion works for all modules with `sensitive` blocks
+- [ ] Sensitive file exclusion works for all modules with `secrets` blocks
 
 ---
 

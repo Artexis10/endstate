@@ -76,7 +76,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\draw.io\\Local Storage",
       "%APPDATA%\\draw.io\\Cookies",

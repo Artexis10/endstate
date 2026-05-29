@@ -60,7 +60,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\copyq\\*.dat",
       "%APPDATA%\\copyq\\items"

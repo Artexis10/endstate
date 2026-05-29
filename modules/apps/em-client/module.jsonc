@@ -122,7 +122,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\eM Client\\accounts.dat",
       "%APPDATA%\\eM Client\\main.dat",

@@ -60,7 +60,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\MediaMonkey5\\MediaMonkey.ini"
     ],

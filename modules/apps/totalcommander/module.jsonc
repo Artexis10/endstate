@@ -40,7 +40,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\GHISLER\\wcx_ftp.ini"
     ],

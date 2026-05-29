@@ -107,7 +107,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\MySQL\\Workbench\\workbench_user_data.dat"
     ],

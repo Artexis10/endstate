@@ -68,7 +68,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [],
     "registryKeys": [
       "HKCU\\Software\\Macrium\\Reflect"

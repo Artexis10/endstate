@@ -37,7 +37,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\GitHub CLI\\hosts.yml"
     ],

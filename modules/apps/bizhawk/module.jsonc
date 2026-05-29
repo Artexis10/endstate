@@ -25,7 +25,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [],
     "warning": "BizHawk is a fully portable emulator. Every setting (hotkeys, controller bindings, core/path/firmware config, recent-ROM list) is written to config.ini in the SAME folder as EmuHawk.exe (source: Program.cs resolves the config path as Path.Combine(PathUtils.ExeDirectoryPath, \"config.ini\")). The install folder is chosen by the user and may be moved or renamed to any drive, so its location cannot be expressed with %APPDATA%/%LOCALAPPDATA%/%USERPROFILE%/~ or the registry. BizHawk does not use AppData, the user profile, or HKCU for settings.",
     "restorer": "warn-only"

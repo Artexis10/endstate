@@ -41,7 +41,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "HKCU\\Software\\VS Revo Group\\Revo Uninstaller Pro\\License"
     ],

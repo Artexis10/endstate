@@ -55,7 +55,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\FreeFileSync\\GlobalSettings.xml",
       "%APPDATA%\\FreeFileSync\\LastRun.ffs_gui"

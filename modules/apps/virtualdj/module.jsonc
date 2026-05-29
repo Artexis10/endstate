@@ -100,7 +100,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\VirtualDJ\\licence.dat",
       "%USERPROFILE%\\Documents\\VirtualDJ\\licence.dat"

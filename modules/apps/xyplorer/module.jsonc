@@ -55,7 +55,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\XYplorer\\XYplorer.ini"
     ],

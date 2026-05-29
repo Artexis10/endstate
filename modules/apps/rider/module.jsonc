@@ -80,7 +80,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\JetBrains\\Rider*\\options\\security.xml",
       "%APPDATA%\\JetBrains\\Rider*\\options\\github.xml"

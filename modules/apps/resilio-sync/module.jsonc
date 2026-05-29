@@ -41,7 +41,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Resilio Sync\\settings.dat",
       "%APPDATA%\\Resilio Sync\\sync.conf",

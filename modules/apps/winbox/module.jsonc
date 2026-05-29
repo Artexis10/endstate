@@ -41,7 +41,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\MikroTik\\WinBox\\settings.cfg.viw",
       "%APPDATA%\\MikroTik\\WinBox\\Addresses.cdb"

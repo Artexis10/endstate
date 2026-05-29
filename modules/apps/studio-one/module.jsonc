@@ -103,7 +103,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%PROGRAMDATA%\\PreSonus\\Studio One 7\\user.license",
       "%PROGRAMDATA%\\PreSonus\\Studio One 6\\user.license",

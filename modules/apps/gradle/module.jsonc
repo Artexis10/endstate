@@ -77,7 +77,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.gradle\\gradle.properties",
       "%USERPROFILE%\\.gradle\\init.gradle",

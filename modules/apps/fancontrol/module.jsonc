@@ -31,7 +31,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [],
     "warning": "FanControl is a portable app that keeps userConfig.json, the Configurations\\ profile folder, and Plugins\\ inside its own install directory (next to FanControl.exe), not in any standard env-rooted location or the registry. The install path is non-deterministic (a hashed winget Packages folder, or an arbitrary user-chosen extract directory), so there is no portable path to capture. Back up userConfig.json and the Configurations folder manually from the FanControl install folder.",
     "restorer": "warn-only"

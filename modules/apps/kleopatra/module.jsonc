@@ -120,7 +120,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\gnupg\\private-keys-v1.d",
       "%APPDATA%\\gnupg\\pubring.kbx",

@@ -87,7 +87,7 @@
     ]
   },
   
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Windsurf\\User\\globalStorage\\state.vscdb",
       "%APPDATA%\\Windsurf\\User\\globalStorage\\state.vscdb.backup",

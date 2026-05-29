@@ -61,7 +61,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\beekeeper-studio\\app.db"
     ],

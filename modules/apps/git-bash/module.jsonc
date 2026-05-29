@@ -108,7 +108,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "~/.bash_history",
       "~/.git-credentials"

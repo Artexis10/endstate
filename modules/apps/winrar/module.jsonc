@@ -54,7 +54,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\WinRAR\\rarreg.key",
       "%ProgramFiles%\\WinRAR\\rarreg.key"

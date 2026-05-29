@@ -24,7 +24,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "warning": "IDM stores all settings (categories, connections, scheduler, file types, proxy, browser integration) AND the purchased license/activation data (the 'Serial' value plus the 'FName'/'LName'/'Email' registration fields) as flat sibling values directly under the single registry key HKCU\\Software\\DownloadManager. Registry capture exports an entire key, so there is no way to capture preferences without also capturing the license/registration blob. This key MUST NOT be auto-captured or auto-restored.",
     "restorer": "warn-only"
   },

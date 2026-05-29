@@ -57,7 +57,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\2BrightSparks\\SyncBackFree"
     ],

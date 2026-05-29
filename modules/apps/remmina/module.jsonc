@@ -27,7 +27,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "~/.config/remmina/remmina.pref",
       "~/.local/share/remmina/"

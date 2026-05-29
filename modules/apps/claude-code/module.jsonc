@@ -63,7 +63,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.claude\\.credentials.json",
       "%USERPROFILE%\\.claude.json"

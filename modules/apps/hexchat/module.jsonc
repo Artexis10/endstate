@@ -158,7 +158,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\HexChat\\servlist.conf",
       "%APPDATA%\\HexChat\\certs"

@@ -123,7 +123,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\jellyfin\\data\\jellyfin.db",
       "%LOCALAPPDATA%\\jellyfin\\data\\library.db",

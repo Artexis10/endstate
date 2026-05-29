@@ -54,7 +54,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\DxO\\DxO PhotoLab*\\License*"
     ],

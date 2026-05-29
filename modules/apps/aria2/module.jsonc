@@ -52,7 +52,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "~/.netrc",
       "~/.aria2/cookies.txt"

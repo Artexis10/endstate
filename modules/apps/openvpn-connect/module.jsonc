@@ -41,7 +41,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\OpenVPN Connect\\config.json",
       "%APPDATA%\\OpenVPN Connect\\profiles"

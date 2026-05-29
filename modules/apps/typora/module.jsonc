@@ -55,7 +55,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Typora\\picgo\\config.json",
       "%USERPROFILE%\\.picgo\\config.json"

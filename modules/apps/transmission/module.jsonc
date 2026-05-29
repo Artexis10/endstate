@@ -62,7 +62,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\transmission\\settings.json",
       "%LOCALAPPDATA%\\transmission-daemon\\settings.json"

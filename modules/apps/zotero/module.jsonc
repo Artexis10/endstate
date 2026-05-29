@@ -107,7 +107,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Zotero\\Zotero\\Profiles\\*\\logins.json",
       "%APPDATA%\\Zotero\\Zotero\\Profiles\\*\\key3.db",

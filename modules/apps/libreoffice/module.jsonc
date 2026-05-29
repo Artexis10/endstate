@@ -131,7 +131,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\LibreOffice\\4\\user\\registrymodifications.xcu",
       "%APPDATA%\\LibreOffice\\4\\user\\database"

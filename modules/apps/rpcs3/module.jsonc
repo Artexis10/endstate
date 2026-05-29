@@ -24,7 +24,7 @@
     "files": []
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       // dev_hdd0 holds savedata, trophies, and RAP license keys for PSN
       // games/DLC. RAP files are per-machine activation blobs and MUST NOT be

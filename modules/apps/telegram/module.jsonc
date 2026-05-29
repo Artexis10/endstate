@@ -19,7 +19,7 @@
   "restore": [],
   "capture": { "files": [], "excludeGlobs": [] },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\Telegram Desktop\\tdata\\**"
     ],

@@ -39,7 +39,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%APPDATA%\\picgo\\data.json",
       "%APPDATA%\\picgo\\external-picgo-cfg.json"

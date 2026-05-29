@@ -63,7 +63,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\Bitwig Studio\\.activation-1-1",
       "%LOCALAPPDATA%\\Bitwig Studio\\activation.bwreg",

@@ -70,7 +70,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%LOCALAPPDATA%\\CaptureOne\\License*"
     ],

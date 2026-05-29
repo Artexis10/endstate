@@ -88,7 +88,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       "%USERPROFILE%\\.config\\joplin-desktop\\database.sqlite",
       "%USERPROFILE%\\.config\\joplin-desktop\\log.txt",

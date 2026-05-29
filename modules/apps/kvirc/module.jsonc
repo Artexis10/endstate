@@ -61,7 +61,7 @@
     ]
   },
 
-  "sensitive": {
+  "secrets": {
     "files": [
       // Local-directory config files store server, proxy, SSL and NickServ
       // passwords as PLAINTEXT interleaved with preferences (kvirc/KVIrc#1294).
