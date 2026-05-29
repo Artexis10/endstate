@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.6.0](https://github.com/Artexis10/endstate/compare/v2.5.0...v2.6.0) (2026-05-29)
+
+
+### Features
+
+* **engine:** Nix package realizer backend for Linux/macOS ([#50](https://github.com/Artexis10/endstate/issues/50)) ([9a06b8e](https://github.com/Artexis10/endstate/commit/9a06b8ea0a31fa0dbc958ccc7c8a5e9ea6f91736))
+* **engine:** platform-aware backend selection foundation ([#44](https://github.com/Artexis10/endstate/issues/44)) ([f84dd6c](https://github.com/Artexis10/endstate/commit/f84dd6cbc78178b3846faa6df779b4b48889f579))
+
 ## [2.5.0](https://github.com/Artexis10/endstate/compare/v2.4.0...v2.5.0) (2026-05-29)
 
 
