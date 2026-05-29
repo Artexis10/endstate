@@ -1,0 +1,68 @@
+{
+  // Config Module: ownCloud Desktop Client
+  // Provides verify/restore/capture configuration for the ownCloud desktop sync client
+  // Curated module - captures connection/sync config (owncloud.cfg), excludes sync journals/logs
+  // Credentials are stored in Windows Credential Manager (QtKeychain), NOT in this folder
+  // NOTE: sync-exclude.lst is a SYSTEM file in the app install directory (next to the binary,
+  // e.g. Program Files), NOT a per-user file in %APPDATA% on Windows, so it is not captured.
+
+  "id": "apps.owncloud",
+  "displayName": "ownCloud Desktop Client",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["ownCloud.ownCloudDesktop"],
+    "exe": ["owncloud.exe"],
+    "uninstallDisplayName": ["^ownCloud"],
+    "pathExists": [
+      "%APPDATA%\\ownCloud\\owncloud.cfg"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\ownCloud\\owncloud.cfg" }
+  ],
+
+  "restore": [
+    {
+      // Connection string + folder-sync mappings + UI preferences (INI format)
+      "type": "copy",
+      "source": "./payload/apps/owncloud/owncloud.cfg",
+      "target": "%APPDATA%\\ownCloud\\owncloud.cfg",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\ownCloud\\owncloud.cfg", "dest": "apps/owncloud/owncloud.cfg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Sync journals / state databases (re-created on next sync)
+      "**\\.sync_*.db*",
+      "**\\.csync_journal.db*",
+      "**\\*.db",
+      "**\\*.db-wal",
+      "**\\*.db-shm",
+      // Logs
+      "**\\.owncloudsync.log*",
+      "**\\logs\\**",
+      "**\\*.log",
+      // Caches / temp / lock files
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\ownCloud\\cookies*.db"
+    ],
+    "warning": "ownCloud account passwords are stored in the Windows Credential Manager (QtKeychain), not in owncloud.cfg, so they are never captured. Session cookies and any local credential cache MUST NOT be auto-restored - re-authenticate after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the ownCloud desktop client connection/sync configuration (owncloud.cfg: server URL, folder-sync mappings, UI preferences) from %APPDATA%\\ownCloud\\. Passwords are stored in Windows Credential Manager (QtKeychain) and are never captured; sync journal databases (.sync_*.db, .csync_journal.db), logs, and caches are excluded since they are rebuilt on the next sync. File contents themselves resync from the server. sync-exclude.lst is intentionally NOT captured: on Windows it is a system file shipped in the app install directory next to the binary (e.g. Program Files / CraftRoot bin), not a per-user file under %APPDATA% (that layout only applies to Linux ~/.config/ownCloud); user-added ignore patterns are persisted via owncloud.cfg. Confidence: high - config path %APPDATA%\\ownCloud\\owncloud.cfg confirmed by official ownCloud docs and GitHub issue #6729 (config folder moved from %LOCALAPPDATA% to %APPDATA% in 2.5)."
+}

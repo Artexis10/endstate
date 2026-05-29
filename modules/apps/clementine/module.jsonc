@@ -1,0 +1,58 @@
+{
+  // Config Module: Clementine Music Player
+  // Qt-based audio player (upstream parent of Strawberry).
+  // On Windows, ALL settings are stored via Qt QSettings NativeFormat in the
+  // registry under HKCU\Software\Clementine\Clementine (verified in src/main.cpp:
+  // setDefaultFormat(IniFormat) is called ONLY in portable mode, so a standard
+  // winget install falls back to Qt's default NativeFormat = the registry; the
+  // Clementine.conf / %USERPROFILE%\.config\Clementine layout is Linux-only).
+  // That single registry key ALSO holds streaming-service credentials
+  // (Spotify and Subsonic store username/password in plaintext via QSettings
+  // setValue, plus other internet-service tokens), so it cannot be captured
+  // without exporting credentials. Endstate registry capture has no subkey-level
+  // exclusion, so we capture nothing and document the sensitive key instead.
+  // Capture-only stub (mirrors the apps.strawberry module for the same reason).
+
+  "id": "apps.clementine",
+  "displayName": "Clementine Music Player",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Clementine.Clementine"],
+    "exe": ["clementine.exe"],
+    "uninstallDisplayName": ["^Clementine"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Clementine\\Clementine" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      // Library database, network cache and album-cover cache under
+      // %USERPROFILE%\.config\Clementine are machine-specific state, not settings.
+      "**\\.config\\Clementine\\clementine.db*",
+      "**\\.config\\Clementine\\networkcache\\**",
+      "**\\.config\\Clementine\\albumcovers\\**",
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "registryKeys": [
+      "HKCU\\Software\\Clementine\\Clementine"
+    ],
+    "files": [
+      "%USERPROFILE%\\.config\\Clementine\\clementine.db"
+    ],
+    "warning": "On Windows, Clementine stores all preferences via Qt QSettings in the registry key HKCU\\Software\\Clementine\\Clementine. That same key holds streaming-service credentials (Spotify and Subsonic store username/password in plaintext, plus other internet-service tokens). Exporting the key would capture those credentials, so it MUST NOT be auto-captured or restored. Re-authenticate streaming services after a fresh install.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Capture-only stub: nothing is captured. On Windows, Clementine keeps all settings in the registry under HKCU\\Software\\Clementine\\Clementine via Qt QSettings NativeFormat (confirmed in src/main.cpp: IniFormat is set only in portable mode, otherwise the default native/registry format is used). That single key also contains streaming-service credentials - Spotify and Subsonic store username/password in plaintext (clementine-player/Clementine issue #3517 and subsonicsettingspage.cpp), plus other internet-service tokens. Endstate registry capture cannot exclude individual subkeys, so capturing the settings key would unavoidably export credentials; it is documented as sensitive (warn-only) instead. The library database and caches under %USERPROFILE%\\.config\\Clementine are excluded as machine-specific state (clementine-player/Clementine FAQ). Confidence: high - registry storage location confirmed by source code, and plaintext credential storage in the same key confirmed by upstream source and issue tracker, so the key is treated as non-capturable for safety."
+}

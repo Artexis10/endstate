@@ -1,0 +1,68 @@
+{
+  // Config Module: Avidemux
+  // Provides verify/restore/capture configuration for Avidemux (video editor/transcoder)
+  // Curated module - captures user presets and encoder profiles, excludes logs/caches
+
+  "id": "apps.avidemux",
+  "displayName": "Avidemux",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Avidemux.Avidemux"],
+    "exe": ["avidemux.exe", "avidemux3_qt5.exe"],
+    "uninstallDisplayName": ["^Avidemux"],
+    "pathExists": [
+      "%APPDATA%\\avidemux"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\avidemux" }
+  ],
+
+  "restore": [
+    {
+      // Custom preset scripts (.js) shown in the Custom menu
+      "type": "copy",
+      "source": "./payload/apps/avidemux/custom",
+      "target": "%APPDATA%\\avidemux\\custom",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved encoder/plugin profiles (.json), organized per-codec subfolders
+      "type": "copy",
+      "source": "./payload/apps/avidemux/pluginSettings",
+      "target": "%APPDATA%\\avidemux\\pluginSettings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Root preferences file (config3): UI prefs / default folders. Single file, no extension.
+      "type": "copy",
+      "source": "./payload/apps/avidemux/config3",
+      "target": "%APPDATA%\\avidemux\\config3",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\avidemux\\custom", "dest": "apps/avidemux/custom", "optional": true },
+      { "source": "%APPDATA%\\avidemux\\pluginSettings", "dest": "apps/avidemux/pluginSettings", "optional": true },
+      { "source": "%APPDATA%\\avidemux\\config3", "dest": "apps/avidemux/config3", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\admlog*",
+      "**\\*.lock",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\recentFiles*",
+      "**\\lastSession*"
+    ]
+  },
+
+  "notes": "Captures Avidemux user presets (%APPDATA%\\avidemux\\custom *.js), encoder/plugin profiles (pluginSettings *.json), and the root preferences file (%APPDATA%\\avidemux\\config3 - single file, no extension). Logs (kept under %LOCALAPPDATA%\\avidemux), lock files, and caches are excluded. Avidemux has no account/credential store, so nothing sensitive is captured. Confidence: high - config root %APPDATA%\\avidemux with custom/ and pluginSettings/ subfolders confirmed by the official Avidemux wiki and forum; the main preferences file is named config3 (per Avidemux source, ~/.avidemux6/config3 on Linux -> %APPDATA%\\avidemux\\config3 on Windows)."
+}

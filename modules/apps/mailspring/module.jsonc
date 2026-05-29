@@ -1,0 +1,86 @@
+{
+  // Config Module: Mailspring
+  // Provides verify/restore/capture configuration for Mailspring (cross-platform email client)
+  // Curated module - captures portable preferences (config.json), excludes mail cache and
+  // local databases.
+  //
+  // NOTE on sensitivity: Mailspring stores everything in a single config.json (no separate
+  // identity.json). The actual secrets (imap_password, smtp_password, OAuth refresh_token,
+  // and the Mailspring ID token) are stripped to the OS keychain (Windows Credential Manager)
+  // before config.json is written, so config.json holds NO live credentials. However config.json
+  // DOES embed a `identity` block (Mailspring ID id, first/last name, email address, Stripe plan)
+  // and the `accounts` list (per-account email + IMAP/SMTP host/port/username). This is personal
+  // identity + account-routing data. The capture engine matches excludeGlobs against file paths
+  // only and cannot redact keys inside a captured file, so capturing config.json carries this PII
+  // into the snapshot. Hence sensitivity is "medium" and config.json itself is flagged below.
+
+  "id": "apps.mailspring",
+  "displayName": "Mailspring",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Foundry376.Mailspring"],
+    "exe": ["Mailspring.exe"],
+    "uninstallDisplayName": ["^Mailspring"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Mailspring\\config.json" }
+  ],
+
+  "restore": [
+    {
+      // Preferences, account server config (host/port/username), signatures, themes,
+      // disabled packages, AND the Mailspring ID `identity` block (id, name, email, Stripe plan).
+      // Secrets (IMAP/SMTP passwords, OAuth refresh_token, Mailspring ID token) are NOT in
+      // config.json - they live in the Windows Credential Manager (keyring) - so users must
+      // re-authenticate accounts and sign back into their Mailspring ID after restore.
+      "type": "copy",
+      "source": "./payload/apps/mailspring/config.json",
+      "target": "%APPDATA%\\Mailspring\\config.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Mailspring\\config.json", "dest": "apps/mailspring/config.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // NOTE: there is no separate identity.json file - the Mailspring ID identity is embedded
+      // inside config.json (see header note). excludeGlobs match file paths and cannot strip keys
+      // from a captured file, so the embedded identity/accounts data cannot be excluded here; it is
+      // flagged in the sensitive block instead. The globs below only matter if a future revision
+      // captures the directory rather than the single config.json file.
+      // Mailbox index + sync database (large, machine-local, regenerated from IMAP)
+      "**\\edgehill.db",
+      "**\\edgehill.db-*",
+      // Cached message bodies, attachments and per-account databases
+      "**\\files\\**",
+      "**\\databases\\**",
+      // Electron / Chromium runtime caches and session state
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Code Cache\\**",
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Service Worker\\**",
+      "**\\blob_storage\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Mailspring\\config.json"
+    ],
+    "warning": "config.json embeds the Mailspring ID `identity` block (Mailspring ID, first/last name, email address, Stripe subscription plan) and the `accounts` list (per-account email + IMAP/SMTP server, port, username) alongside portable UI/theme/signature preferences. It does NOT contain passwords or OAuth tokens - those (IMAP/SMTP passwords, OAuth refresh_token, and the Mailspring ID token) are kept in the Windows Credential Manager and are never captured or restored. After restore you must still sign into your Mailspring ID and re-enter account passwords. Because the engine cannot strip individual keys from a captured file, restoring config.json also restores the embedded identity/account-routing PII; restore only onto your own machine.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Mailspring portable preferences from %APPDATA%\\Mailspring\\config.json (UI/theme, signatures, disabled packages, per-account server settings). Mailspring uses a SINGLE config.json - there is no separate identity.json; the Mailspring ID identity (id, name, email, Stripe plan) and the accounts list are embedded in config.json, while all secrets (IMAP/SMTP passwords, OAuth refresh_token, Mailspring ID token) are extracted to the Windows Credential Manager and never written to config.json. Because excludeGlobs filter file paths and cannot redact keys inside a file, capturing config.json unavoidably carries the embedded identity/account-routing PII into the snapshot - hence config.json is flagged in the sensitive block (warn-only) and re-authentication/Mailspring-ID sign-in is required after restore. The cache/database excludeGlobs (edgehill.db, files/, databases/, Chromium caches) only take effect if a future revision captures the whole directory. Confidence: high - config-dir layout, single-config.json design, KeyManager secret extraction (imap_password/smtp_password/refresh_token), and IdentityStore embedding the identity in config.json (token to keychain) all confirmed by Mailspring source (account-store.ts, key-manager.ts, identity-store.ts) and official support docs."
+}

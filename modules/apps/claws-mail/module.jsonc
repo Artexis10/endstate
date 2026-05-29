@@ -1,0 +1,144 @@
+{
+  // Config Module: Claws Mail
+  // Provides verify/restore/capture configuration for Claws Mail (GTK email/news client)
+  // Curated module - captures plaintext config files, excludes mail data and the encrypted password store
+
+  "id": "apps.claws-mail",
+  "displayName": "Claws Mail",
+  "sensitivity": "medium",
+
+  "matches": {
+    "exe": ["claws-mail.exe"],
+    "uninstallDisplayName": ["^Claws Mail"],
+    "pathExists": [
+      "%APPDATA%\\Claws-mail\\clawsrc"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Claws-mail\\clawsrc" }
+  ],
+
+  "restore": [
+    {
+      // Main configuration: nearly all options from the settings window
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/clawsrc",
+      "target": "%APPDATA%\\Claws-mail\\clawsrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Account settings for POP/IMAP/NNTP/local accounts (no passwords; those live in passwordstorerc)
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/accountrc",
+      "target": "%APPDATA%\\Claws-mail\\accountrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Per-folder settings (hide read messages, sort order, etc.)
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/folderlist.xml",
+      "target": "%APPDATA%\\Claws-mail\\folderlist.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Additional per-folder item settings
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/folderitemrc",
+      "target": "%APPDATA%\\Claws-mail\\folderitemrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Filtering, processing and scoring rules
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/matcherrc",
+      "target": "%APPDATA%\\Claws-mail\\matcherrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-defined actions
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/actionsrc",
+      "target": "%APPDATA%\\Claws-mail\\actionsrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-defined custom header lines
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/customheaderrc",
+      "target": "%APPDATA%\\Claws-mail\\customheaderrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Headers to display above the mail body
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/dispheaderrc",
+      "target": "%APPDATA%\\Claws-mail\\dispheaderrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Key bindings / menu accelerators
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/menurc",
+      "target": "%APPDATA%\\Claws-mail\\menurc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Address book (vCard/XML files; since 3.1.0 kept under addrbook/)
+      "type": "copy",
+      "source": "./payload/apps/claws-mail/addrbook",
+      "target": "%APPDATA%\\Claws-mail\\addrbook",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Claws-mail\\clawsrc", "dest": "apps/claws-mail/clawsrc", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\accountrc", "dest": "apps/claws-mail/accountrc", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\folderlist.xml", "dest": "apps/claws-mail/folderlist.xml", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\folderitemrc", "dest": "apps/claws-mail/folderitemrc", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\matcherrc", "dest": "apps/claws-mail/matcherrc", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\actionsrc", "dest": "apps/claws-mail/actionsrc", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\customheaderrc", "dest": "apps/claws-mail/customheaderrc", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\dispheaderrc", "dest": "apps/claws-mail/dispheaderrc", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\menurc", "dest": "apps/claws-mail/menurc", "optional": true },
+      { "source": "%APPDATA%\\Claws-mail\\addrbook", "dest": "apps/claws-mail/addrbook", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Encrypted credential store - never capture (see sensitive block)
+      "**\\passwordstorerc",
+      // Mail bodies, indexes, caches, logs and tag/session state - large user data, not settings
+      "**\\Mail\\**",
+      "**\\Trash\\**",
+      "**\\*.cache",
+      "**\\*cache*",
+      "**\\dbinfo*",
+      "**\\tagsdb\\**",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Claws-mail\\passwordstorerc"
+    ],
+    "warning": "passwordstorerc holds Claws Mail account passwords. They are encrypted with AES-256-CBC, but without a user-set Master Passphrase the key is a hardcoded default, making them trivially recoverable. This file MUST NOT be captured or auto-restored; re-enter account passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Claws Mail plaintext configuration from %APPDATA%\\Claws-mail (clawsrc, accountrc, folderlist.xml, folderitemrc, matcherrc, actionsrc, customheaderrc, dispheaderrc, menurc, address book). The encrypted password store (passwordstorerc), mail data, caches, and logs are excluded; re-enter passwords after restore. Claws Mail stores no settings in the Windows registry. Confidence: high - config directory and file roles confirmed by the official Claws Mail FAQ and project mailing list."
+}

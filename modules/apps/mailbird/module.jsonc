@@ -1,0 +1,43 @@
+{
+  // Config Module: Mailbird
+  // Email client. Install-only: settings are not portably capturable.
+  // All configuration lives inside the Store.db SQLite database alongside
+  // email bodies/attachments and an encrypted saved-password credential store,
+  // so there is no isolatable settings file to capture or restore.
+
+  "id": "apps.mailbird",
+  "displayName": "Mailbird",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Mailbird.Mailbird"],
+    "exe": ["Mailbird.exe"],
+    "uninstallDisplayName": ["^Mailbird"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Mailbird\\Store\\Store.db"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Mailbird\\Store\\Store.db" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Mailbird\\Store\\Store.db",
+      "%LOCALAPPDATA%\\Mailbird\\Store\\Store.db-wal",
+      "%LOCALAPPDATA%\\Mailbird\\Store\\Store.db-shm",
+      "%LOCALAPPDATA%\\Mailbird"
+    ],
+    "warning": "Mailbird stores all settings, account configuration, contacts, full email bodies, and attachments together in %LOCALAPPDATA%\\Mailbird\\Store\\Store.db. That same SQLite database also holds POP3/IMAP/SMTP/OAuth account passwords (encrypted with a fixed AES key), making it a credential store. It MUST NOT be captured or auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. Mailbird keeps all settings, layout, account config, contacts, full email bodies, and attachments in a single SQLite database (%LOCALAPPDATA%\\Mailbird\\Store\\Store.db) that also contains a saved-password credential store. There is no isolatable settings file, so nothing is captured: capturing settings would unavoidably capture mail data and credentials. The vendor's own transfer method is to copy the entire Mailbird data folder, which is out of scope here. Reconfigure accounts manually after install. Confidence: high - confirmed by Mailbird official support/data-residency docs and multiple independent sources that all config and credentials reside inside Store.db."
+}

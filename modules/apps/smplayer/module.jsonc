@@ -1,0 +1,120 @@
+{
+  // Config Module: SMPlayer
+  // Provides verify/restore/capture configuration for SMPlayer (mpv/MPlayer GUI front-end)
+  // Curated module - captures user preferences and content lists, excludes per-file resume state
+
+  "id": "apps.smplayer",
+  "displayName": "SMPlayer",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["SMPlayer.SMPlayer"],
+    "exe": ["smplayer.exe"],
+    "uninstallDisplayName": ["^SMPlayer"]
+  },
+
+  "verify": [
+    // SMPlayer's default config folder on Windows is %USERPROFILE%\.smplayer
+    { "type": "file-exists", "path": "%USERPROFILE%\\.smplayer\\smplayer.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/smplayer/smplayer.ini",
+      "target": "%USERPROFILE%\\.smplayer\\smplayer.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/smplayer/hdpi.ini",
+      "target": "%USERPROFILE%\\.smplayer\\hdpi.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/smplayer/playlist.ini",
+      "target": "%USERPROFILE%\\.smplayer\\playlist.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/smplayer/styles.ass",
+      "target": "%USERPROFILE%\\.smplayer\\styles.ass",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/smplayer/favorites.m3u8",
+      "target": "%USERPROFILE%\\.smplayer\\favorites.m3u8",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/smplayer/radio.m3u8",
+      "target": "%USERPROFILE%\\.smplayer\\radio.m3u8",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/smplayer/tv.m3u8",
+      "target": "%USERPROFILE%\\.smplayer\\tv.m3u8",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/smplayer/themes",
+      "target": "%USERPROFILE%\\.smplayer\\themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/smplayer/shortcuts",
+      "target": "%USERPROFILE%\\.smplayer\\shortcuts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Main preferences (general settings, equalizer, audio/video defaults)
+      { "source": "%USERPROFILE%\\.smplayer\\smplayer.ini", "dest": "apps/smplayer/smplayer.ini", "optional": true },
+      // High-DPI display settings
+      { "source": "%USERPROFILE%\\.smplayer\\hdpi.ini", "dest": "apps/smplayer/hdpi.ini", "optional": true },
+      // Playlist behaviour settings
+      { "source": "%USERPROFILE%\\.smplayer\\playlist.ini", "dest": "apps/smplayer/playlist.ini", "optional": true },
+      // Subtitle styling
+      { "source": "%USERPROFILE%\\.smplayer\\styles.ass", "dest": "apps/smplayer/styles.ass", "optional": true },
+      // Content lists (favorites / radio / tv menu entries)
+      { "source": "%USERPROFILE%\\.smplayer\\favorites.m3u8", "dest": "apps/smplayer/favorites.m3u8", "optional": true },
+      { "source": "%USERPROFILE%\\.smplayer\\radio.m3u8", "dest": "apps/smplayer/radio.m3u8", "optional": true },
+      { "source": "%USERPROFILE%\\.smplayer\\tv.m3u8", "dest": "apps/smplayer/tv.m3u8", "optional": true },
+      // Optional user-installed themes and custom shortcut definitions (if present)
+      { "source": "%USERPROFILE%\\.smplayer\\themes", "dest": "apps/smplayer/themes", "optional": true },
+      { "source": "%USERPROFILE%\\.smplayer\\shortcuts", "dest": "apps/smplayer/shortcuts", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Per-file resume / playback state for every video ever opened (machine-specific, regenerable, can be large)
+      "**\\file_settings\\**",
+      // Detected player-binary metadata (mplayer/mpv paths) - regenerated on first run, machine-specific
+      "**\\player_info.ini",
+      "**\\device_info.ini",
+      // Screenshots, logs, caches, locks
+      "**\\screenshots\\**",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures SMPlayer user preferences and content lists from %USERPROFILE%\\.smplayer (default Windows config folder): smplayer.ini (general prefs + equalizer), hdpi.ini, playlist.ini, styles.ass, and favorites/radio/tv m3u8 lists, plus user themes/shortcuts when present. Per-file resume data (file_settings), detected-player metadata (player_info.ini/device_info.ini), screenshots, logs and caches are excluded as machine-specific/regenerable state. The mpv backend's separate %APPDATA%\\mpv folder is not captured here. No credentials are stored. Confidence: high - default config folder %USERPROFILE%\\.smplayer and file inventory confirmed by SMPlayer GitHub discussions, the SourceForge config-path feature request, and the independent Backup4all SMPlayer plugin."
+}

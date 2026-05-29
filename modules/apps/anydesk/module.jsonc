@@ -1,0 +1,68 @@
+{
+  // Config Module: AnyDesk
+  // Provides verify/restore/capture configuration for AnyDesk (remote desktop)
+  // Curated module - captures portable user preferences (user.conf), excludes identity/logs/session data
+  // configType: mixed (partial retention - the device ID lives in system.conf/service.conf and is install-bound, NOT portable)
+
+  "id": "apps.anydesk",
+  "displayName": "AnyDesk",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["AnyDeskSoftwareGmbH.AnyDesk"],
+    "exe": ["AnyDesk.exe"],
+    "uninstallDisplayName": ["^AnyDesk"],
+    "pathExists": [
+      "%APPDATA%\\AnyDesk\\user.conf"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\AnyDesk\\user.conf" }
+  ],
+
+  "restore": [
+    {
+      // User-level preferences (UI layout, language, view types, permission profiles)
+      "type": "copy",
+      "source": "./payload/apps/anydesk/user.conf",
+      "target": "%APPDATA%\\AnyDesk\\user.conf",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\AnyDesk\\user.conf", "dest": "apps/anydesk/user.conf", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Identity: service.conf holds ad.anynet.cert + ad.anynet.pkey (TLS private key) - never portable/sensitive
+      "**\\service.conf",
+      // Identity: system.conf holds ad.anynet.id (the device's unique AnyDesk ID), fingerprint, and network IDs - install-bound, cloning it on another machine breaks the AnyDesk identity model
+      "**\\system.conf",
+      // Logs and connection trace history
+      "**\\ad.trace",
+      "**\\ad_svc.trace",
+      "**\\connection_trace.txt",
+      "**\\*.trace",
+      // Session/privacy artifacts: connection screenshots and chat history
+      "**\\thumbnails\\**",
+      "**\\msg_thumbnails\\**",
+      "**\\chat\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\AnyDesk\\service.conf",
+      "%APPDATA%\\AnyDesk\\system.conf",
+      "%PROGRAMDATA%\\AnyDesk\\service.conf",
+      "%PROGRAMDATA%\\AnyDesk\\system.conf"
+    ],
+    "warning": "service.conf holds ad.anynet.cert and ad.anynet.pkey (the device's TLS private key); system.conf holds ad.anynet.id (the unique AnyDesk device ID) plus fingerprint and network IDs. Both are bound to this device's registration; restoring either on another machine clones the AnyDesk identity and breaks trust. They are excluded from capture/restore. The unattended-access password is not portable; re-set it after rebuilding. %PROGRAMDATA% files are system-wide and require admin.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures AnyDesk portable preferences (user.conf) from %APPDATA%\\AnyDesk - UI layout, language, view types, and permission profiles. Identity-bound files are excluded: service.conf (TLS cert + private key) and system.conf (ad.anynet.id device ID, fingerprint, network IDs) - both clone the AnyDesk identity if restored elsewhere. Also excluded: trace logs, connection history, connection-screenshot thumbnails, and chat history. The address book is a licensed cloud feature synced via my.anydesk and is not a portable local file. Confidence: high - file roles and contents (ad.anynet.id in system.conf, cert/pkey in service.conf) confirmed by official AnyDesk backup docs and independent forensic-analysis sources."
+}

@@ -1,0 +1,52 @@
+{
+  // Config Module: LosslessCut
+  // Provides verify/restore/capture configuration for LosslessCut (lossless video trimmer)
+  // Electron app using electron-store; all settings live in a single flat config.json
+
+  "id": "apps.losslesscut",
+  "displayName": "LosslessCut",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["ch.LosslessCut"],
+    "exe": ["LosslessCut.exe"],
+    "uninstallDisplayName": ["^LosslessCut"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\LosslessCut\\config.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/losslesscut/config.json",
+      "target": "%APPDATA%\\LosslessCut\\config.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // All preferences, keybindings, export options and UI state are stored
+      // in this single electron-store flat file (not the registry).
+      { "source": "%APPDATA%\\LosslessCut\\config.json", "dest": "apps/losslesscut/config.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Standard Electron/Chromium runtime artifacts written into userData.
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\blob_storage\\**",
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures the single LosslessCut config.json (keybindings, export options, UI preferences) from %APPDATA%\\LosslessCut\\. LosslessCut stores all settings in this one flat electron-store file, not the registry. Standard Electron/Chromium caches, logs and session storage are excluded. No credentials or tokens are stored (offline trimmer, no accounts). Confidence: high - config path confirmed by the maintainer and multiple independent sources."
+}

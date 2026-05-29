@@ -1,0 +1,30 @@
+{
+  // Config Module: ksnip
+  // Install-only (verify-only): ksnip stores ALL settings in a single flat registry
+  // key that also holds Imgur OAuth tokens + API client secret. The engine cannot
+  // exclude individual registry values, so capturing/restoring the key would leak
+  // credentials. See notes.
+
+  "id": "apps.ksnip",
+  "displayName": "ksnip",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["ksnip.ksnip"],
+    "exe": ["ksnip.exe"],
+    "uninstallDisplayName": ["^ksnip"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\ksnip\\ksnip" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "registryKeys": []
+  },
+
+  "notes": "ksnip (Qt app, QSettings org \"ksnip\" / app \"ksnip\") stores ALL settings in the single flat Windows registry key HKCU\\Software\\ksnip\\ksnip — there is no portable INI on Windows (portable mode is the still-open feature request, ksnip/ksnip#160). Verified against ksnip source: src/main.cpp sets organizationName/applicationName to \"ksnip\" (-> HKCU\\Software\\ksnip\\ksnip), and src/backend/config/Config.cpp persists imgurClientId, imgurClientSecret, imgurAccessToken, imgurRefreshToken, and imgurUsername into that SAME QSettings instance via saveValue(). The previous claim that 'no credentials or tokens are stored under this key' was FALSE. The engine's registry capture (CaptureRegistryKey) and registry-import restore operate on whole keys with no per-value exclusion, so any capture of this key would bundle a live Imgur OAuth access token, refresh token, and API client secret. There is no non-sensitive subset to round-trip, so this module is install-only: registry capture and restore removed; only the read-only presence check is kept. Confidence: high (ksnip source + Qt QSettings NativeFormat behavior)."
+}

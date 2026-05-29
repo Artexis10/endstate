@@ -1,0 +1,58 @@
+{
+  // Config Module: JPEGView
+  // Provides verify/restore/capture configuration for JPEGView (sylikc fork)
+  // Settings are INI-based; the user override lives in %APPDATA%\JPEGView
+
+  "id": "apps.jpegview",
+  "displayName": "JPEGView",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["sylikc.JPEGView"],
+    "exe": ["JPEGView.exe", "JPEGView64.exe"],
+    "uninstallDisplayName": ["^JPEGView"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JPEGView\\JPEGView.ini" }
+  ],
+
+  "restore": [
+    {
+      // User settings override (viewing prefs, default window, file associations behavior)
+      "type": "copy",
+      "source": "./payload/apps/jpegview/JPEGView.ini",
+      "target": "%APPDATA%\\JPEGView\\JPEGView.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Per-user key bindings override. JPEGView search order:
+      // %APPDATA%\JPEGView\KeyMap.txt -> (EXE dir)\KeyMap.txt -> (EXE dir)\KeyMap.txt.default
+      "type": "copy",
+      "source": "./payload/apps/jpegview/KeyMap.txt",
+      "target": "%APPDATA%\\JPEGView\\KeyMap.txt",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Per-user override INI created by 'Apply settings as default' / 'Edit user settings'.
+      // Settings here override the global INI shipped beside the EXE.
+      { "source": "%APPDATA%\\JPEGView\\JPEGView.ini", "dest": "apps/jpegview/JPEGView.ini", "optional": true },
+      // Per-user key bindings override. JPEGView checks %APPDATA%\JPEGView\KeyMap.txt
+      // before the EXE-dir copy, so a user-customized keymap lives here.
+      { "source": "%APPDATA%\\JPEGView\\KeyMap.txt", "dest": "apps/jpegview/KeyMap.txt", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Per-image processing-parameter database: machine/image-path specific data, not preferences.
+      "**\\ParamDB.db",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures JPEGView's per-user settings override at %APPDATA%\\JPEGView\\JPEGView.ini and the per-user key bindings override at %APPDATA%\\JPEGView\\KeyMap.txt (the sylikc fork). Excludes ParamDB.db (per-image processing parameters tied to local image paths, not portable preferences) plus logs/temp. KeyMap.txt supports a per-user override: JPEGView search order is %APPDATA%\\JPEGView\\KeyMap.txt -> (EXE dir)\\KeyMap.txt -> (EXE dir)\\KeyMap.txt.default, so the user copy is portable and captured here (both entries optional - skipped if absent). No HKCU registry usage; no credentials. Confidence: high - %APPDATA%\\JPEGView\\JPEGView.ini confirmed by the official JPEGView.ini source header and issue #300; %APPDATA%\\JPEGView\\KeyMap.txt search path confirmed by the official CHANGELOG.txt (v1.1.43)."
+}

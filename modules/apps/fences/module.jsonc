@@ -1,0 +1,80 @@
+{
+  // Config Module: Stardock Fences
+  // Provides verify/restore/capture configuration for Stardock Fences (desktop organizer)
+  // Settings live in the Windows Registry under HKCU; fence layouts/snapshots live under %APPDATA%
+
+  "id": "apps.fences",
+  "displayName": "Stardock Fences",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Stardock.Fences"],
+    "exe": ["Fences.exe"],
+    "uninstallDisplayName": ["^Fences\\b", "^Stardock Fences"],
+    "pathExists": [
+      "%APPDATA%\\Stardock\\Fences"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Stardock\\Fences" }
+  ],
+
+  "restore": [
+    {
+      // Primary configuration settings (fence rules, appearance, behavior)
+      "type": "registry-import",
+      "source": "./payload/apps/fences/Fences.reg",
+      "target": "HKCU\\Software\\Stardock\\Fences",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Fence layout/snapshot files (XML + PNG) — the hand-built desktop arrangement
+      "type": "copy",
+      "source": "./payload/apps/fences/data",
+      "target": "%APPDATA%\\Stardock\\Fences",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\Backups\\**",
+        "**\\Logs\\**",
+        "**\\*.log",
+        "**\\Cache\\**",
+        "**\\License.sig",
+        "**\\*.sig"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Snapshot/layout data folder (XML layout descriptions + PNG previews)
+      { "source": "%APPDATA%\\Stardock\\Fences", "dest": "apps/fences/data", "optional": true }
+    ],
+    "registryKeys": [
+      // All Fences configuration settings (the canonical, officially-documented restore key)
+      { "key": "HKCU\\Software\\Stardock\\Fences", "dest": "apps/fences/Fences.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Backups\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      // License/activation blob — never capture
+      "**\\License.sig",
+      "**\\*.sig"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Stardock\\Fences\\License.sig"
+    ],
+    "warning": "License.sig is a Stardock activation/license blob tied to your account and MUST NOT be captured or restored. Re-activate Fences with your product key after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Stardock Fences configuration from the registry (HKCU\\Software\\Stardock\\Fences) plus fence layout/snapshot files (XML + PNG) under %APPDATA%\\Stardock\\Fences. Excludes the Backups subfolder, logs/caches, and the License.sig activation blob. Note: icon-position data is volatile and may not restore exactly on a different display configuration. Confidence: high - HKCU registry key and %APPDATA% snapshot location confirmed by Stardock's official Help Center and support documentation."
+}

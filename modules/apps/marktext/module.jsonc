@@ -1,0 +1,71 @@
+{
+  // Config Module: MarkText
+  // Provides verify/restore/capture configuration for MarkText (markdown editor)
+  // Curated module - captures user preferences, keybindings, and export themes;
+  // excludes Electron/Chromium runtime caches and state databases
+
+  "id": "apps.marktext",
+  "displayName": "MarkText",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["marktext.marktext"],
+    "exe": ["MarkText.exe"],
+    "uninstallDisplayName": ["^MarkText"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\marktext\\preferences.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/marktext/preferences.json",
+      "target": "%APPDATA%\\marktext\\preferences.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/marktext/keybindings.json",
+      "target": "%APPDATA%\\marktext\\keybindings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/marktext/themes",
+      "target": "%APPDATA%\\marktext\\themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Main preferences (editor, markdown, theme, spelling, image settings)
+      { "source": "%APPDATA%\\marktext\\preferences.json", "dest": "apps/marktext/preferences.json", "optional": true },
+      // Keybinding overrides (id/accelerator pairs)
+      { "source": "%APPDATA%\\marktext\\keybindings.json", "dest": "apps/marktext/keybindings.json", "optional": true },
+      // User-installed export themes (themes/export/*.css)
+      { "source": "%APPDATA%\\marktext\\themes", "dest": "apps/marktext/themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\blob_storage\\**",
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Dictionaries\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures MarkText user configuration from %APPDATA%\\marktext: preferences.json (editor/markdown/theme/spelling/image settings), keybindings.json (accelerator overrides), and the themes\\ directory (user-installed export themes). Electron/Chromium runtime artifacts (Cache, GPUCache, Code Cache, Crashpad, logs, Local/Session Storage, Dictionaries) are excluded. No credentials are stored; preferences.json holds only a lastOpenedFolder session path. Confidence: high - all paths confirmed by official MarkText docs (APPLICATION_DATA_DIRECTORY.md, PREFERENCES.md, KEYBINDINGS.md, EXPORT_THEMES.md)."
+}

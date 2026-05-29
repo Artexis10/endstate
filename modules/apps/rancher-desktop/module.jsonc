@@ -1,0 +1,64 @@
+{
+  // Config Module: Rancher Desktop
+  // Provides verify/restore/capture configuration for Rancher Desktop (container/Kubernetes management)
+  // Curated module - captures the single-file user settings, excludes credentials, caches, WSL distro blobs
+
+  "id": "apps.rancher-desktop",
+  "displayName": "Rancher Desktop",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["SUSE.RancherDesktop"],
+    "exe": ["Rancher Desktop.exe"],
+    "uninstallDisplayName": ["^Rancher Desktop"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\rancher-desktop\\settings.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\rancher-desktop\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      // Primary user preferences: container engine, Kubernetes version, memory/CPU, ports
+      "type": "copy",
+      "source": "./payload/apps/rancher-desktop/settings.json",
+      "target": "%LOCALAPPDATA%\\rancher-desktop\\settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\rancher-desktop\\settings.json", "dest": "apps/rancher-desktop/settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Credential / auth files - see sensitive block; never capture
+      "**\\rd-engine.json",
+      "**\\credential-server.json",
+      // Caches, logs, and large WSL distro / runtime blobs under %LOCALAPPDATA%\rancher-desktop\
+      "**\\cache\\**",
+      "**\\logs\\**",
+      "**\\distro\\**",
+      "**\\distro-data\\**",
+      "**\\extensions\\**",
+      "**\\snapshots\\**",
+      "**\\containerd-shims\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\rancher-desktop\\rd-engine.json",
+      "%LOCALAPPDATA%\\rancher-desktop\\credential-server.json"
+    ],
+    "warning": "rd-engine.json holds the HTTP command-server user/password and credential-server.json holds the Docker credential-helper server config. These are local auth secrets and MUST NOT be captured or auto-restored; they are regenerated on first launch.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Rancher Desktop's single-file user settings (settings.json: container engine choice, Kubernetes version, memory/CPU, port/mount settings) from %LOCALAPPDATA%\\rancher-desktop\\. Credential files (rd-engine.json, credential-server.json), caches, logs, the WSL distro/data blobs, extensions, snapshots, and containerd-shims are excluded. Windows deployment profiles live in the registry under HKCU\\Software\\Policies\\Rancher Desktop and are admin/group-policy managed, so they are intentionally not captured. Confidence: high - paths confirmed against current upstream source (src/go/rdctl/pkg/paths/paths_windows.go uses %LOCALAPPDATA%\\rancher-desktop as Config/AppHome; settings.json/rd-engine.json/credential-server.json filenames confirmed in rdctl source)."
+}

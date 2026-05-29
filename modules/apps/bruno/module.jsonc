@@ -1,0 +1,76 @@
+{
+  // Config Module: Bruno
+  // Provides verify/restore/capture configuration for Bruno (Git-native API client)
+  // Curated module - captures app preferences (preferences.json, which also embeds recently-opened paths), excludes cookies/secrets/oauth tokens
+
+  "id": "apps.bruno",
+  "displayName": "Bruno",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Bruno.Bruno"],
+    "exe": ["Bruno.exe"],
+    "uninstallDisplayName": ["^Bruno\\b"],
+    "pathExists": [
+      "%APPDATA%\\bruno\\preferences.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\bruno\\preferences.json" }
+  ],
+
+  "restore": [
+    {
+      // App preferences: theme, font, layout, proxy, request defaults, auto-save.
+      // NOTE: this single electron-store file also holds lastOpenedCollections,
+      // workspaces.lastOpenedWorkspaces, and general.defaultWorkspacePath keys --
+      // Bruno does NOT use separate last-opened-*.json / default-workspace.json files.
+      "type": "copy",
+      "source": "./payload/apps/bruno/preferences.json",
+      "target": "%APPDATA%\\bruno\\preferences.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // preferences.json is the only app-level settings file; recently-opened
+      // collections/workspaces and the default-workspace path are stored as KEYS
+      // inside it, not as separate JSON files.
+      { "source": "%APPDATA%\\bruno\\preferences.json", "dest": "apps/bruno/preferences.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Session cookies, environment secrets, OAuth2 tokens, collection security - never capture
+      "**\\cookies.json",
+      "**\\env-secrets.json",
+      "**\\oauth2.json",
+      "**\\collection-security.json",
+      "**\\global-environments.json",
+      "**\\workspace-environments.json",
+      // Volatile / non-portable Electron state
+      "**\\window-state.json",
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Code Cache\\**",
+      "**\\logs\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\bruno\\cookies.json",
+      "%APPDATA%\\bruno\\env-secrets.json",
+      "%APPDATA%\\bruno\\oauth2.json",
+      "%APPDATA%\\bruno\\collection-security.json",
+      "%APPDATA%\\bruno\\global-environments.json",
+      "%APPDATA%\\bruno\\workspace-environments.json"
+    ],
+    "warning": "Bruno stores session cookies (cookies.json), environment secrets (env-secrets.json), OAuth2 tokens (oauth2.json) and collection security configs in the same userData folder. These contain authentication material and MUST NOT be captured or auto-restored. Re-authenticate after restore. NOTE: the captured preferences.json embeds proxy.config.auth.password -- if you use an authenticated proxy, scrub that field before sharing the captured config.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Bruno app-level settings from the single electron-store file %APPDATA%\\bruno\\preferences.json (theme, font, layout, proxy, request defaults, auto-save). Verified against usebruno/bruno source (packages/bruno-electron/src/store): last-opened-collections.js and last-opened-workspaces.js both construct `new Store({ name: 'preferences' })`, so recently-opened collection/workspace paths live as KEYS (lastOpenedCollections, workspaces.lastOpenedWorkspaces) inside preferences.json -- there are NO separate last-opened-collections.json / last-opened-workspaces.json files. default-workspace.js stores the default workspace path under general.defaultWorkspacePath in preferences.json and materializes a default-workspace/ DIRECTORY (workspace.yml + collections/ + environments/) -- there is NO default-workspace.json file; the earlier separate-file capture entries were removed. Collections themselves are plain .bru files in user-chosen folders and are NOT captured (manage via Git). Cookies, environment secrets, OAuth2 tokens, collection-security and per-workspace/global environment files (which may hold secrets) are excluded. Folder name is %APPDATA%\\bruno (lowercase) from package.json name=\"bruno\"."
+}

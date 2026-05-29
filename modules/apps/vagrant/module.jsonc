@@ -1,0 +1,82 @@
+{
+  // Config Module: Vagrant
+  // Provides verify/restore/capture configuration for HashiCorp Vagrant
+  // Curated module - captures user-level Vagrant home config (Vagrantfile, plugin
+  // manifest, aliases); excludes large boxes/gems, runtime state, and SSH key material
+
+  "id": "apps.vagrant",
+  "displayName": "Vagrant",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Hashicorp.Vagrant"],
+    "exe": ["vagrant.exe"],
+    "uninstallDisplayName": ["^Vagrant\\b"],
+    "pathExists": ["%USERPROFILE%\\.vagrant.d"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "vagrant" }
+  ],
+
+  "restore": [
+    {
+      // Global user defaults Vagrantfile (loaded for every project)
+      "type": "copy",
+      "source": "./payload/apps/vagrant/Vagrantfile",
+      "target": "%USERPROFILE%\\.vagrant.d\\Vagrantfile",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Installed-plugin manifest (gem list + dependencies; gems themselves not captured)
+      "type": "copy",
+      "source": "./payload/apps/vagrant/plugins.json",
+      "target": "%USERPROFILE%\\.vagrant.d\\plugins.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-defined CLI aliases
+      "type": "copy",
+      "source": "./payload/apps/vagrant/aliases",
+      "target": "%USERPROFILE%\\.vagrant.d\\aliases",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\.vagrant.d\\Vagrantfile", "dest": "apps/vagrant/Vagrantfile", "optional": true },
+      { "source": "%USERPROFILE%\\.vagrant.d\\plugins.json", "dest": "apps/vagrant/plugins.json", "optional": true },
+      { "source": "%USERPROFILE%\\.vagrant.d\\aliases", "dest": "apps/vagrant/aliases", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Large VM box images (can be many GB)
+      "**\\boxes\\**",
+      // Installed plugin gem binaries (large, Ruby/arch-specific)
+      "**\\gems\\**",
+      // Global runtime/state store
+      "**\\data\\**",
+      // Temporary box download artifacts
+      "**\\tmp\\**",
+      // SSH private key material - never capture
+      "**\\insecure_private_key",
+      "**\\insecure_private_keys\\**",
+      "**\\*.pem",
+      "**\\*.key"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.vagrant.d\\insecure_private_key",
+      "%USERPROFILE%\\.vagrant.d\\insecure_private_keys"
+    ],
+    "warning": "Vagrant's insecure_private_key (and per-machine generated keys) are SSH private key material and MUST NOT be captured or auto-restored. Vagrant regenerates the insecure key automatically on first use.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures user-level Vagrant home config from %USERPROFILE%\\.vagrant.d: the global Vagrantfile (user defaults), plugins.json (installed-plugin manifest), and aliases. Excludes large boxes/ and gems/ directories, runtime data/ store, tmp/ downloads, and SSH key material (insecure_private_key). After restore, run `vagrant plugin install <name>` to reinstall plugins listed in plugins.json. Confidence: high - %USERPROFILE%\\.vagrant.d location and Vagrantfile/plugins.json/aliases contents confirmed by official HashiCorp docs and multiple independent sources."
+}
