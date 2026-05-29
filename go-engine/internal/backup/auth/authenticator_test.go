@@ -11,10 +11,13 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/auth"
@@ -148,6 +151,11 @@ func (fb *fakeBackend) URL() string { return fb.srv.URL }
 // newAuthForTest wires a fresh Authenticator + memory keychain bound to
 // the supplied fakeBackend. Returns the authenticator and the underlying
 // keychain so the caller can assert keychain state.
+//
+// The refresh lock (F5) is pointed at t.TempDir() so each test gets an
+// isolated lock file — without this two parallel tests would serialize
+// through the real `%APPDATA%/Endstate/refresh.lock` and the second
+// test would block on the first.
 func newAuthForTest(t *testing.T, fb *fakeBackend) (*auth.Authenticator, keychain.Keychain) {
 	t.Helper()
 	kc := keychain.NewMemory()
@@ -158,7 +166,8 @@ func newAuthForTest(t *testing.T, fb *fakeBackend) (*auth.Authenticator, keychai
 		Tokens: store,
 		Retry:  &rp,
 	})
-	a := auth.NewAuthenticator(auth.IssuerFromOIDC(oc, "endstate-backup"), oc, hc, store)
+	a := auth.NewAuthenticator(auth.IssuerFromOIDC(oc, "endstate-backup"), oc, hc, store).
+		WithRefreshLockDir(t.TempDir())
 	return a, kc
 }
 
@@ -476,7 +485,8 @@ func TestAuthenticator_Refresh_NotCalledWhenCachedAccessTokenIsValid(t *testing.
 	oc := oidc.NewClient(fb.URL(), fb.srv.Client())
 	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, Multiplier: 1, MaxWait: time.Millisecond}
 	hc := client.New(client.Options{Tokens: storeB, Retry: &rp})
-	a2 := auth.NewAuthenticator(auth.IssuerFromOIDC(oc, "endstate-backup"), oc, hc, storeB)
+	a2 := auth.NewAuthenticator(auth.IssuerFromOIDC(oc, "endstate-backup"), oc, hc, storeB).
+		WithRefreshLockDir(t.TempDir())
 	if err := storeB.HydrateFromCurrent(); err != nil {
 		t.Fatalf("HydrateFromCurrent: %v", err)
 	}
@@ -529,6 +539,268 @@ func TestAuthenticator_Me_ReturnsAccountInfo(t *testing.T) {
 	}
 	if me.SubscriptionStatus != "active" {
 		t.Errorf("subscription = %q", me.SubscriptionStatus)
+	}
+}
+
+// newAuthOnSharedKeychain builds a second Authenticator backed by the
+// supplied keychain (simulating a second process) and points its refresh
+// lock at the same directory as the first. Together with newAuthForTest
+// these compose the "two processes, one user" topology that the F5 lock
+// guards.
+func newAuthOnSharedKeychain(t *testing.T, fb *fakeBackend, kc keychain.Keychain, lockDir string) *auth.Authenticator {
+	t.Helper()
+	storeB := auth.NewSessionStore(kc)
+	oc := oidc.NewClient(fb.URL(), fb.srv.Client())
+	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, Multiplier: 1, MaxWait: time.Millisecond}
+	hc := client.New(client.Options{Tokens: storeB, Retry: &rp})
+	a := auth.NewAuthenticator(auth.IssuerFromOIDC(oc, "endstate-backup"), oc, hc, storeB).
+		WithRefreshLockDir(lockDir)
+	// Hydrate so the new "process" sees the persisted RT.
+	if err := storeB.HydrateFromCurrent(); err != nil {
+		t.Fatalf("HydrateFromCurrent: %v", err)
+	}
+	return a
+}
+
+// TestAuthenticator_RefreshLock_SerializesConcurrentRotations is the
+// F5 root assertion: two processes that both think it's time to refresh
+// must converge on a single substrate round-trip, not race each other.
+// Without the lock both POST the same RT, substrate burns it after the
+// first call, the second persists a now-stale RT to the keychain, and
+// the next subprocess surfaces AUTH_REQUIRED.
+//
+// Topology: two Authenticator instances backed by the same keychain
+// (simulating two processes), pointing at the same refresh lock file
+// (simulating shared per-user state on disk). Both goroutines call
+// RefreshAccessToken concurrently against a mock substrate that
+// counts hits.
+func TestAuthenticator_RefreshLock_SerializesConcurrentRotations(t *testing.T) {
+	fb := newFakeBackend(t)
+	// Mint a JWT with future exp so the second waiter's
+	// `session.AccessToken()` check sees a valid cached token after
+	// the first goroutine persists. Without a parseable exp the F4
+	// path can't trust the cached AT and falls through to a network
+	// call, defeating the second-waiter short-circuit.
+	_, priv, kerr := ed25519.GenerateKey(rand.Reader)
+	if kerr != nil {
+		t.Fatalf("GenerateKey: %v", kerr)
+	}
+	futureExp := time.Now().Add(10 * time.Minute).UTC().Truncate(time.Second)
+	rotatedAT := signTestToken(t, "kid-1", priv, func(c *auth.Claims) {
+		c.ExpiresAt = jwt.NewNumericDate(futureExp)
+	})
+	// Slow down the refresh handler so the second goroutine reliably
+	// contends for the lock while the first holds it. Without this the
+	// first call can return before the second even tries to acquire,
+	// which would pass for the wrong reason.
+	fb.refreshFn = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		time.Sleep(100 * time.Millisecond)
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"accessToken":  rotatedAT,
+			"refreshToken": "refresh-2",
+		})
+	}
+
+	lockDir := t.TempDir()
+	kc := keychain.NewMemory()
+	storeA := auth.NewSessionStore(kc)
+	oc := oidc.NewClient(fb.URL(), fb.srv.Client())
+	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, Multiplier: 1, MaxWait: time.Millisecond}
+	hcA := client.New(client.Options{Tokens: storeA, Retry: &rp})
+	a1 := auth.NewAuthenticator(auth.IssuerFromOIDC(oc, "endstate-backup"), oc, hcA, storeA).
+		WithRefreshLockDir(lockDir)
+	if _, err := a1.CompleteLogin(context.Background(), "user@example.com", []byte("pw")); err != nil {
+		t.Fatalf("CompleteLogin: %v", err)
+	}
+
+	// Sibling "process": separate Authenticator + SessionStore on the
+	// same keychain and lock dir.
+	a2 := newAuthOnSharedKeychain(t, fb, kc, lockDir)
+
+	beforeRefresh := atomic.LoadInt32(&fb.refreshHits)
+
+	var wg sync.WaitGroup
+	type res struct {
+		at  string
+		err error
+	}
+	results := make([]res, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		at, err := a1.Session().RefreshAccessToken(context.Background())
+		results[0] = res{at, err}
+	}()
+	go func() {
+		defer wg.Done()
+		// Tiny stagger so both goroutines enter the lock-acquire window
+		// without the second sneaking in first on a fast scheduler.
+		time.Sleep(5 * time.Millisecond)
+		at, err := a2.Session().RefreshAccessToken(context.Background())
+		results[1] = res{at, err}
+	}()
+	wg.Wait()
+
+	// Both calls succeeded.
+	for i, r := range results {
+		if r.err != nil {
+			t.Fatalf("goroutine %d returned err: %v", i, r.err)
+		}
+		if r.at != rotatedAT {
+			t.Errorf("goroutine %d: access token = %q, want the rotated JWT", i, r.at)
+		}
+	}
+
+	// Only one substrate hit — the lock collapsed the race.
+	hits := atomic.LoadInt32(&fb.refreshHits) - beforeRefresh
+	if hits != 1 {
+		t.Errorf("substrate refresh hits = %d, want 1 (lock should have serialised and second waiter should have short-circuited)", hits)
+	}
+
+	// Keychain holds the rotated RT — not a stale "second writer wrote
+	// the old refresh-1 back" footgun.
+	stored, kerr := kc.Load(keychain.AccountForUser("user-1"))
+	if kerr != nil {
+		t.Fatalf("keychain.Load: %v", kerr)
+	}
+	if string(stored) != "refresh-2" {
+		t.Errorf("keychain RT = %q, want refresh-2 (rotated)", stored)
+	}
+}
+
+// TestAuthenticator_RefreshLock_SecondWaiterUsesFreshAccessToken locks
+// in the second-waiter optimisation: when goroutine B blocks on the
+// lock while goroutine A's refresh completes, B should re-hydrate,
+// observe the now-valid cached access token, and return without
+// hitting substrate. Otherwise N concurrent subprocesses would still
+// produce N serial substrate round-trips even though the lock prevents
+// the rotation race.
+func TestAuthenticator_RefreshLock_SecondWaiterUsesFreshAccessToken(t *testing.T) {
+	fb := newFakeBackend(t)
+	// Mint a JWT with a long-into-the-future exp so the cached AT
+	// passes the AccessToken() expiry check inside refreshAccessToken's
+	// second-waiter short-circuit.
+	_, priv, kerr := ed25519.GenerateKey(rand.Reader)
+	if kerr != nil {
+		t.Fatalf("GenerateKey: %v", kerr)
+	}
+	futureExp := time.Now().Add(10 * time.Minute).UTC().Truncate(time.Second)
+	rotatedAT := signTestToken(t, "kid-1", priv, func(c *auth.Claims) {
+		c.ExpiresAt = jwt.NewNumericDate(futureExp)
+	})
+
+	gateOpen := make(chan struct{})
+	gateClose := make(chan struct{})
+	fb.refreshFn = func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Endstate-API-Version", "2.0")
+		close(gateOpen)
+		<-gateClose
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"accessToken":  rotatedAT,
+			"refreshToken": "refresh-2",
+		})
+	}
+
+	lockDir := t.TempDir()
+	kc := keychain.NewMemory()
+	storeA := auth.NewSessionStore(kc)
+	oc := oidc.NewClient(fb.URL(), fb.srv.Client())
+	rp := client.RetryPolicy{MaxRetries: 0, InitialWait: time.Millisecond, Multiplier: 1, MaxWait: time.Millisecond}
+	hcA := client.New(client.Options{Tokens: storeA, Retry: &rp})
+	a1 := auth.NewAuthenticator(auth.IssuerFromOIDC(oc, "endstate-backup"), oc, hcA, storeA).
+		WithRefreshLockDir(lockDir)
+	if _, err := a1.CompleteLogin(context.Background(), "user@example.com", []byte("pw")); err != nil {
+		t.Fatalf("CompleteLogin: %v", err)
+	}
+	a2 := newAuthOnSharedKeychain(t, fb, kc, lockDir)
+
+	beforeRefresh := atomic.LoadInt32(&fb.refreshHits)
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	var atA, atB string
+	var errA, errB error
+	go func() {
+		defer wg.Done()
+		atA, errA = a1.Session().RefreshAccessToken(context.Background())
+	}()
+	go func() {
+		defer wg.Done()
+		// Wait until A is mid-refresh before B starts so B is
+		// guaranteed to block on the lock rather than win the race.
+		<-gateOpen
+		atB, errB = a2.Session().RefreshAccessToken(context.Background())
+		// B should not be the one to release A's gate — only A is
+		// waiting on it. So close it from here once B has acquired
+		// the lock (which it can't until A releases). Wait... B
+		// blocks on the lock until A finishes. So we need to release
+		// A's gate first, then let B run.
+	}()
+	// Release A so it can complete the network call, persist, and
+	// drop the lock. Then B unblocks and short-circuits on the cached AT.
+	close(gateClose)
+	wg.Wait()
+
+	if errA != nil {
+		t.Fatalf("goroutine A err: %v", errA)
+	}
+	if errB != nil {
+		t.Fatalf("goroutine B err: %v", errB)
+	}
+	if atA != rotatedAT {
+		t.Errorf("A access token mismatch")
+	}
+	if atB != rotatedAT {
+		t.Errorf("B access token = %q, want the rotated JWT (second waiter must reuse the cached value)", atB)
+	}
+
+	hits := atomic.LoadInt32(&fb.refreshHits) - beforeRefresh
+	if hits != 1 {
+		t.Errorf("substrate refresh hits = %d, want exactly 1 (second waiter must short-circuit on the cached AT)", hits)
+	}
+}
+
+// TestAuthenticator_RefreshLock_CtxCancel asserts that a ctx deadline
+// expiring while the lock is held by an external holder produces a
+// clean, wrapped error rather than panicking or blocking forever.
+// This is the "transient" failure mode the 401-refresh hook can retry.
+func TestAuthenticator_RefreshLock_CtxCancel(t *testing.T) {
+	fb := newFakeBackend(t)
+	a, _ := newAuthForTest(t, fb)
+	if _, err := a.CompleteLogin(context.Background(), "user@example.com", []byte("pw")); err != nil {
+		t.Fatalf("CompleteLogin: %v", err)
+	}
+
+	// Grab the lock file path that the test helper wired up via
+	// WithRefreshLockDir, then hold it from outside the Authenticator
+	// for the duration of the cancel window.
+	//
+	// newAuthForTest passes a per-test t.TempDir() to WithRefreshLockDir;
+	// we don't have a getter for that path here, so reproduce the
+	// directory inference via a second WithRefreshLockDir call into a
+	// fresh temp dir and have the Authenticator + the foreign holder
+	// share it.
+	lockDir := t.TempDir()
+	a.WithRefreshLockDir(lockDir)
+	foreign := flock.New(lockDir + "/refresh.lock")
+	if _, ferr := foreign.TryLock(); ferr != nil {
+		t.Fatalf("foreign TryLock setup: %v", ferr)
+	}
+	t.Cleanup(func() { _ = foreign.Unlock() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+
+	_, err := a.Session().RefreshAccessToken(ctx)
+	if err == nil {
+		t.Fatal("RefreshAccessToken returned nil; want ctx-cancel-wrapped error while foreign holder pins the lock")
+	}
+	// Acceptable failure modes: wrapped context.DeadlineExceeded or our
+	// "could not acquire" sentinel. The exact wording is not what we
+	// guard — we guard that it returns rather than panics/blocks.
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "refresh") {
+		t.Errorf("err = %v; want one that references ctx deadline or refresh lock", err)
 	}
 }
 

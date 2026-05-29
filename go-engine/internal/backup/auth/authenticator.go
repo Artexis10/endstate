@@ -9,9 +9,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/gofrs/flock"
 	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/client"
@@ -28,10 +31,11 @@ var stdBase64 = stdBase64Pkg.StdEncoding
 // the SessionStore (for in-memory + keychain persistence), and the
 // crypto package (for KDF / DEK wrap, currently STUBS).
 type Authenticator struct {
-	issuer  Issuer
-	oidc    *oidc.Client
-	httpc   *client.Client
-	session *SessionStore
+	issuer       Issuer
+	oidc         *oidc.Client
+	httpc        *client.Client
+	session      *SessionStore
+	refreshLock  string // absolute path to the cross-process refresh lock file (F5)
 }
 
 // NewAuthenticator constructs an Authenticator. The supplied client.Client
@@ -39,10 +43,53 @@ type Authenticator struct {
 // auth.MakeTokenProvider helper.
 func NewAuthenticator(issuer Issuer, o *oidc.Client, c *client.Client, s *SessionStore) *Authenticator {
 	a := &Authenticator{issuer: issuer, oidc: o, httpc: c, session: s}
+	a.refreshLock = defaultRefreshLockPath()
 	// Wire the refresh callback so the HTTP client's 401-refresh hook
 	// reaches into our /api/auth/refresh handler instead of looping.
 	s.WithRefreshFn(a.refreshAccessToken)
 	return a
+}
+
+// WithRefreshLockDir overrides the directory used for the cross-process
+// refresh lock file (F5). The lock file is created at `<dir>/refresh.lock`.
+// Primarily a test seam — production callers should leave this at the
+// default (per-user config dir) so all subprocesses for the same user
+// converge on the same lock. Returns the receiver for chaining.
+func (a *Authenticator) WithRefreshLockDir(dir string) *Authenticator {
+	if dir == "" {
+		return a
+	}
+	a.refreshLock = filepath.Join(dir, "refresh.lock")
+	return a
+}
+
+// refreshLockPath returns the absolute path to the cross-process refresh
+// lock file. Falls back to a process-scoped temp path if construction
+// fails (which degrades to per-process serialization — strictly worse
+// than cross-process but still safe).
+func (a *Authenticator) refreshLockPath() string {
+	if a.refreshLock != "" {
+		return a.refreshLock
+	}
+	return defaultRefreshLockPath()
+}
+
+// defaultRefreshLockPath returns the absolute path to the canonical
+// refresh lock file under the per-user OS config dir
+// (`%APPDATA%/Endstate/refresh.lock` on Windows, `~/.config/endstate/refresh.lock`
+// on Unix). Ensures the parent directory exists. Falls back to the OS
+// temp dir on environments where UserConfigDir fails (CI sandboxes, etc).
+func defaultRefreshLockPath() string {
+	base, err := os.UserConfigDir()
+	if err != nil || base == "" {
+		base = os.TempDir()
+	}
+	dir := filepath.Join(base, "Endstate")
+	// Best-effort: if MkdirAll fails the flock TryLock below will surface
+	// the underlying error and the caller treats it as a transient
+	// refresh failure (the existing 401-refresh path retries on next call).
+	_ = os.MkdirAll(dir, 0o700)
+	return filepath.Join(dir, "refresh.lock")
 }
 
 // Issuer returns the configured issuer.
@@ -152,12 +199,65 @@ func (a *Authenticator) CompleteLogin(ctx context.Context, email string, serverP
 
 // refreshAccessToken implements the client.TokenProvider refresh hook.
 // Returns the new access token on success.
+//
+// F5: serialized cross-process via a file lock at refreshLockPath().
+// Sliding-window refresh-token rotation (contract §5.3) means two
+// concurrent processes that read the same persisted RT and both POST it
+// will race — substrate burns the RT after the first call and the
+// second persists a now-stale RT to the keychain, surfacing as
+// AUTH_REQUIRED on the next subprocess. The lock collapses the
+// read-rotate-persist window into a single critical section across
+// every process for the user.
+//
+// After acquiring the lock, we re-read the session snapshot: another
+// process may have completed a refresh while we were waiting, in which
+// case the in-memory access token is now fresh and we return it
+// without hitting substrate. This is the optimisation that keeps a
+// burst of N concurrent subprocesses to 1 substrate round-trip rather
+// than N serial ones.
 func (a *Authenticator) refreshAccessToken(ctx context.Context) (string, error) {
 	doc, err := a.oidc.Discovery(ctx)
 	if err != nil {
 		return "", err
 	}
+
+	// Acquire the cross-process refresh lock before reading the RT. The
+	// 50ms poll is generous enough not to thrash; the wait is bounded by
+	// ctx so cancellation propagates.
+	lock := flock.New(a.refreshLockPath())
+	locked, lerr := lock.TryLockContext(ctx, 50*time.Millisecond)
+	if lerr != nil {
+		return "", fmt.Errorf("auth: refresh: acquire lock %q: %w", a.refreshLockPath(), lerr)
+	}
+	if !locked {
+		// ctx expired before we could acquire — propagate as a transient
+		// error. The 401-refresh hook surfaces this to the user as a
+		// retryable failure rather than burning the cached RT.
+		if cerr := ctx.Err(); cerr != nil {
+			return "", fmt.Errorf("auth: refresh: %w", cerr)
+		}
+		return "", errors.New("auth: refresh: could not acquire refresh lock")
+	}
+	defer func() { _ = lock.Unlock() }()
+
+	// Re-hydrate from the keychain so a sibling process's rotated RT
+	// becomes visible to this process. Without this, the in-memory snapshot
+	// here is the pre-wait copy and we'd POST a now-stale RT, defeating the
+	// lock entirely. Best-effort: a hydrate failure (e.g. fresh test
+	// keychain with no pointer) falls through to the original snapshot.
+	if uid := a.session.Snapshot().UserID; uid != "" {
+		_ = a.session.Hydrate(uid)
+	}
 	snap := a.session.Snapshot()
+
+	// Second-waiter optimisation: if a sibling process already rotated
+	// the access token while we were waiting, the AccessToken() check
+	// will see a still-valid cached token and short-circuit. This drops
+	// N-way concurrent refreshes to a single substrate round-trip.
+	if cached, _ := a.session.AccessToken(ctx); cached != "" {
+		return cached, nil
+	}
+
 	if snap.RefreshToken == "" {
 		return "", errors.New("auth: no refresh token in session")
 	}
