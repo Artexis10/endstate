@@ -19,6 +19,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/client"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/crypto"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/keychain"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/oidc"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
@@ -243,10 +244,18 @@ func (a *Authenticator) refreshAccessToken(ctx context.Context) (string, error) 
 	// Re-hydrate from the keychain so a sibling process's rotated RT
 	// becomes visible to this process. Without this, the in-memory snapshot
 	// here is the pre-wait copy and we'd POST a now-stale RT, defeating the
-	// lock entirely. Best-effort: a hydrate failure (e.g. fresh test
-	// keychain with no pointer) falls through to the original snapshot.
+	// lock entirely.
+	//
+	// ErrNotFound at the pointer is the expected signed-out shape and falls
+	// through to the original snapshot (no-op for fresh test keychains).
+	// Any other error means we cannot trust the in-memory snapshot to match
+	// what's in the keychain — proceeding would risk POSTing a stale RT,
+	// which substrate's reuse-detection would burn, re-introducing exactly
+	// the AUTH_REQUIRED symptom F5 is meant to eliminate. Fail closed.
 	if uid := a.session.Snapshot().UserID; uid != "" {
-		_ = a.session.Hydrate(uid)
+		if err := a.session.Hydrate(uid); err != nil && !errors.Is(err, keychain.ErrNotFound) {
+			return "", fmt.Errorf("auth: refresh: hydrate before rotation: %w", err)
+		}
 	}
 	snap := a.session.Snapshot()
 
