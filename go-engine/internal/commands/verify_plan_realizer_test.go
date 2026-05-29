@@ -7,7 +7,6 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
@@ -20,27 +19,9 @@ import (
 // Expected: Summary.Pass==1 (ripgrep present), Summary.Fail==1 (missingpkg
 // absent).
 func TestRunVerifyRealizer_PresentAndMissing(t *testing.T) {
-	appPresent := manifest.App{
-		ID:          "ripgrep",
-		DisplayName: "ripgrep",
-		Refs: map[string]string{
-			"linux":  "nixpkgs#ripgrep",
-			"darwin": "nixpkgs#ripgrep",
-		},
-	}
-	appMissing := manifest.App{
-		ID:          "missingpkg",
-		DisplayName: "missingpkg",
-		Refs: map[string]string{
-			"linux":  "nixpkgs#missingpkg",
-			"darwin": "nixpkgs#missingpkg",
-		},
-	}
-	mf := &manifest.Manifest{
-		Version: 1,
-		Name:    "verify-test",
-		Apps:    []manifest.App{appPresent, appMissing},
-	}
+	appPresent := nixApp("ripgrep", "nixpkgs#ripgrep")
+	appMissing := nixApp("missingpkg", "nixpkgs#missingpkg")
+	mf := nixManifest(appPresent, appMissing)
 
 	fr := &fakeRealizer{
 		currentSet: realizer.Set{
@@ -156,14 +137,9 @@ func TestRunVerifyRealizer_CurrentOnlyCalledOnce(t *testing.T) {
 // TestRunVerifyRealizer_SkipsAppsWithNoHostRef: An app with refs only for
 // "windows" should be silently skipped on linux/darwin.
 func TestRunVerifyRealizer_SkipsAppsWithNoHostRef(t *testing.T) {
-	windowsOnlyApp := manifest.App{
-		ID: "vscode",
-		Refs: map[string]string{
-			"windows": "Microsoft.VisualStudioCode",
-		},
-	}
+	noHostApp := foreignRefApp("vscode", "Some.Pkg")
 	nixApp1 := nixApp("ripgrep", "nixpkgs#ripgrep")
-	mf := nixManifest(windowsOnlyApp, nixApp1)
+	mf := nixManifest(noHostApp, nixApp1)
 
 	fr := &fakeRealizer{
 		currentSet: realizer.Set{
@@ -339,14 +315,9 @@ func TestRunPlanRealizer_PlanOnlyCalledOnce(t *testing.T) {
 // TestRunPlanRealizer_SkipsAppsWithNoHostRef: Apps without a ref for the
 // current GOOS are excluded from the planned installables.
 func TestRunPlanRealizer_SkipsAppsWithNoHostRef(t *testing.T) {
-	windowsOnlyApp := manifest.App{
-		ID: "vscode",
-		Refs: map[string]string{
-			"windows": "Microsoft.VisualStudioCode",
-		},
-	}
+	noHostApp := foreignRefApp("vscode", "Some.Pkg")
 	nixApp1 := nixApp("ripgrep", "nixpkgs#ripgrep")
-	mf := nixManifest(windowsOnlyApp, nixApp1)
+	mf := nixManifest(noHostApp, nixApp1)
 
 	fr := &fakeRealizer{
 		planDiff: realizer.Diff{

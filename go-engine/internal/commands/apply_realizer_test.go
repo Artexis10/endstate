@@ -64,17 +64,28 @@ func (f *fakeRealizer) Realize(toAdd []realizer.Installable) (realizer.Result, e
 // Test helpers
 // ---------------------------------------------------------------------------
 
-// nixApp returns an App with refs set for both linux and darwin, using the
-// same flakeref for each — typical for unit tests.
+// nixApp returns an App whose package ref is keyed by the CURRENT host OS
+// (runtime.GOOS). The realizer path resolves app.Refs[runtime.GOOS] strictly,
+// so keying by the host makes these fixtures exercise the nix path on whatever
+// OS the test runs on — linux, darwin, OR windows CI (where the realizer
+// functions are still invoked directly by these unit tests).
 func nixApp(id, ref string) manifest.App {
 	return manifest.App{
 		ID:          id,
 		DisplayName: id,
-		Refs: map[string]string{
-			"linux":  ref,
-			"darwin": ref,
-		},
+		Refs:        map[string]string{runtime.GOOS: ref},
 	}
+}
+
+// foreignRefApp returns an App whose only ref is for an OS that is NOT the
+// current host, so the realizer path always SKIPS it. Used to test the
+// no-host-ref skip behavior deterministically on any OS.
+func foreignRefApp(id, ref string) manifest.App {
+	foreign := "windows"
+	if runtime.GOOS == "windows" {
+		foreign = "linux"
+	}
+	return manifest.App{ID: id, Refs: map[string]string{foreign: ref}}
 }
 
 // hostRef returns the flakeref for the current GOOS from an app, matching
@@ -83,8 +94,8 @@ func hostRef(app manifest.App) string {
 	return app.Refs[runtime.GOOS]
 }
 
-// nixManifest builds an in-memory Manifest whose apps each carry refs for
-// both linux and darwin so tests work on any POSIX host.
+// nixManifest builds an in-memory Manifest from the given apps (each typically
+// built with nixApp, so they carry a ref for the current host OS).
 func nixManifest(apps ...manifest.App) *manifest.Manifest {
 	return &manifest.Manifest{
 		Version: 1,
