@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.7.0](https://github.com/Artexis10/endstate/compare/v2.6.0...v2.7.0) (2026-05-29)
+
+
+### Features
+
+* **modules:** expand config-module catalog 76 → 315 (high-value + mainstream Windows apps) ([#51](https://github.com/Artexis10/endstate/issues/51)) ([134b646](https://github.com/Artexis10/endstate/commit/134b646271a91e65785a3006281526d12afbd7eb))
+
 ## [2.6.0](https://github.com/Artexis10/endstate/compare/v2.5.0...v2.6.0) (2026-05-29)
 
 
