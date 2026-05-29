@@ -1,0 +1,61 @@
+{
+  // Config Module: AWS CLI
+  // Provides verify/restore/capture configuration for the AWS Command Line Interface
+  // Curated module - captures the shared `config` file only; never the credentials file or token caches
+
+  "id": "apps.aws-cli",
+  "displayName": "AWS CLI",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Amazon.AWSCLI"],
+    "exe": ["aws.exe"],
+    "uninstallDisplayName": ["^AWS Command Line Interface"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "aws" }
+    // Note: ~/.aws/config is optional - user may not have run `aws configure` yet.
+    // Verify only checks the CLI is installed, not that config exists.
+  ],
+
+  "restore": [
+    {
+      // Shared config file: profiles, default region, output format, sso-session blocks
+      "type": "copy",
+      "source": "./payload/apps/aws-cli/config",
+      "target": "%USERPROFILE%\\.aws\\config",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Shared config file (profiles, regions, output, SSO session config). Plaintext INI-style.
+      { "source": "%USERPROFILE%\\.aws\\config", "dest": "apps/aws-cli/config", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Long-term access keys / secret keys - NEVER capture
+      "**\\.aws\\credentials",
+      // Cached SSO bearer + refresh tokens - NEVER capture
+      "**\\.aws\\sso\\cache\\**",
+      // Cached temporary role credentials - NEVER capture
+      "**\\.aws\\cli\\cache\\**",
+      // Account-level metadata cache - not portable
+      "**\\.aws\\boto\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.aws\\credentials",
+      "%USERPROFILE%\\.aws\\sso\\cache",
+      "%USERPROFILE%\\.aws\\cli\\cache"
+    ],
+    "warning": "The AWS credentials file holds long-term access keys and secret keys; the sso/cache and cli/cache directories hold bearer, refresh, and temporary session tokens. These MUST NOT be captured or auto-restored. Re-run `aws configure` or `aws sso login` after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the AWS CLI shared `config` file only (profiles, default region, output format, and sso-session blocks) from %USERPROFILE%\\.aws\\config. The sibling credentials file and the sso/cache and cli/cache token directories are explicitly excluded and never captured or restored - re-authenticate with `aws configure` / `aws sso login` afterward. Confidence: high - default paths and credential/token cache locations confirmed by official AWS CLI and SDK reference documentation."
+}

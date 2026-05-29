@@ -1,0 +1,85 @@
+{
+  // Config Module: Kdenlive
+  // Provides verify/restore/capture configuration for Kdenlive (KDE video editor)
+  // Curated module - captures KDE/Qt .rc config files + user content, excludes caches/proxies/large model blobs
+
+  "id": "apps.kdenlive",
+  "displayName": "Kdenlive",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["KDE.Kdenlive"],
+    "exe": ["kdenlive.exe"],
+    "uninstallDisplayName": ["^Kdenlive"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\kdenliverc" }
+  ],
+
+  "restore": [
+    {
+      // General application settings (KConfig .rc format)
+      "type": "copy",
+      "source": "./payload/apps/kdenlive/kdenliverc",
+      "target": "%LOCALAPPDATA%\\kdenliverc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Dock/workspace layout settings
+      "type": "copy",
+      "source": "./payload/apps/kdenlive/kdenlive-layoutsrc",
+      "target": "%LOCALAPPDATA%\\kdenlive-layoutsrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Toolbar / UI (KXmlGui) configuration
+      "type": "copy",
+      "source": "./payload/apps/kdenlive/kdenliveui.rc",
+      "target": "%LOCALAPPDATA%\\kxmlgui5\\kdenlive\\kdenliveui.rc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User content: custom effects, render profiles, titles, library, presets
+      "type": "copy",
+      "source": "./payload/apps/kdenlive/data",
+      "target": "%APPDATA%\\kdenlive",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\.backup\\**",
+        "**\\speechmodels\\**",
+        "**\\opencvmodels\\**",
+        "**\\*.log",
+        "**\\*.lock"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\kdenliverc", "dest": "apps/kdenlive/kdenliverc", "optional": true },
+      { "source": "%LOCALAPPDATA%\\kdenlive-layoutsrc", "dest": "apps/kdenlive/kdenlive-layoutsrc", "optional": true },
+      { "source": "%LOCALAPPDATA%\\kxmlgui5\\kdenlive\\kdenliveui.rc", "dest": "apps/kdenlive/kdenliveui.rc", "optional": true },
+      // User content lives under %APPDATA%\kdenlive (effects, profiles, titles, library, presets);
+      // %LOCALAPPDATA%\kdenlive is cache (thumbnails, proxy clips, venv) and is NOT captured.
+      { "source": "%APPDATA%\\kdenlive", "dest": "apps/kdenlive/data", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\.backup\\**",
+      "**\\speechmodels\\**",
+      "**\\opencvmodels\\**",
+      "**\\venv\\**",
+      "**\\Thumbnails\\**",
+      "**\\proxy\\**",
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Kdenlive's KConfig settings (%LOCALAPPDATA%\\kdenliverc, kdenlive-layoutsrc, kxmlgui5\\kdenlive\\kdenliveui.rc) plus user content under %APPDATA%\\kdenlive (custom effects, render profiles, titles, library, presets). Excludes auto-save backups, downloaded VOSK speech / OpenCV model blobs, the Python venv, and the %LOCALAPPDATA%\\kdenlive cache (thumbnails, proxy clips). No HKCU registry keys are used. Confidence: high - %LOCALAPPDATA% .rc paths confirmed by official docs.kdenlive.org and the community.kde.org configuration wiki."
+}

@@ -1,0 +1,37 @@
+{
+  // Config Module: MakeMKV
+  // Blu-ray/DVD/UHD ripper. On Windows ALL settings live in one registry key:
+  // HKCU\Software\MakeMKV. That single key mixes user preferences with the
+  // sensitive license/registration value (app_Key), so it cannot be safely
+  // captured. Treated as install-only — nothing is captured or restored.
+
+  "id": "apps.makemkv",
+  "displayName": "MakeMKV",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["GuinpinSoft.MakeMKV"],
+    "exe": ["makemkv.exe", "makemkvcon.exe"],
+    "uninstallDisplayName": ["^MakeMKV"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\MakeMKV" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "registryKeys": [
+      "HKCU\\Software\\MakeMKV"
+    ],
+    "warning": "On Windows, MakeMKV stores all settings as flat values under the single registry key HKCU\\Software\\MakeMKV. That key holds the license/registration value (app_Key) alongside ordinary preferences, with no separate subkey to isolate. Because the license blob cannot be separated from preferences at the key level, the entire key is excluded from capture and restore. Re-enter your registration key manually after reinstall.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. On Windows MakeMKV keeps every setting (speed/decode/streaming preferences, default profile, default output directory) as flat values under HKCU\\Software\\MakeMKV, and the same key stores the sensitive license value app_Key. Endstate captures registry keys whole, so capturing this key would unavoidably include the license blob — therefore nothing is captured or restored. (The settings.conf file is the Linux/macOS store, not used on Windows; custom profile XMLs live in a user-defined data directory with no fixed path.) Confidence: high - Windows registry location and app_Key license value confirmed by official MakeMKV forum (admin response) and multiple independent threads."
+}

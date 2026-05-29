@@ -1,0 +1,41 @@
+{
+  // Config Module: FanControl
+  // Detection-only module for FanControl (Rem0o), a customizable fan controlling tool.
+  // FanControl is a PORTABLE app: it stores ALL settings (userConfig.json, the
+  // Configurations\ profile folder, and Plugins\) inside its own install directory,
+  // right next to FanControl.exe. It does NOT use %APPDATA%, %LOCALAPPDATA%,
+  // %PROGRAMDATA%, %USERPROFILE%, or the Windows registry for configuration.
+  // Because the install location is non-deterministic (winget extracts the zip to a
+  // hashed path under %LOCALAPPDATA%\Microsoft\WinGet\Packages\, and manual installs
+  // can land anywhere the user extracts the archive), there is no portable,
+  // env-var-rooted path to the config. Endstate's path rules forbid hardcoded
+  // absolute drive paths, so nothing can be reliably captured or restored here.
+
+  "id": "apps.fancontrol",
+  "displayName": "FanControl",
+  "sensitivity": "none",
+
+  "matches": {
+    "winget": ["Rem0o.FanControl"],
+    "exe": ["FanControl.exe"],
+    "uninstallDisplayName": ["^Fan ?Control"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "FanControl" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [],
+    "warning": "FanControl is a portable app that keeps userConfig.json, the Configurations\\ profile folder, and Plugins\\ inside its own install directory (next to FanControl.exe), not in any standard env-rooted location or the registry. The install path is non-deterministic (a hashed winget Packages folder, or an arbitrary user-chosen extract directory), so there is no portable path to capture. Back up userConfig.json and the Configurations folder manually from the FanControl install folder.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Detection-only. FanControl stores all settings (userConfig.json, Configurations\\ profiles, Plugins\\) in its own install directory, with no standard %APPDATA%/%LOCALAPPDATA%/HKCU location (see feature request Rem0o/FanControl.Releases#3241). The install path is non-deterministic (hashed winget Packages dir or arbitrary portable extract folder), and hardcoded absolute paths are not permitted, so nothing is captured or restored. To preserve fan curves, manually copy userConfig.json and the Configurations folder from the FanControl install directory. Confidence: high - portable-only storage confirmed by official repo issue #3241, the scoop FanControl-Portable manifest (persists userConfig.json + Plugins), and community install guides; the install-only treatment is the accurate choice given non-deterministic paths."
+}

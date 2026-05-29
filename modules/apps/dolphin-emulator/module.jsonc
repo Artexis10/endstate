@@ -1,0 +1,122 @@
+{
+  // Config Module: Dolphin (GameCube/Wii emulator)
+  // Provides verify/restore/capture configuration for Dolphin Emulator
+  // Captures INI configuration, per-game settings, controller profiles, and GUI themes.
+  // Excludes save states, memory cards, Wii NAND, BIOS, dumps, shader caches, and logs.
+
+  "id": "apps.dolphin-emulator",
+  "displayName": "Dolphin",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["DolphinEmulator.Dolphin"],
+    "exe": ["Dolphin.exe"],
+    "uninstallDisplayName": ["^Dolphin\\b"]
+  },
+
+  "verify": [
+    // Dolphin's default user dir is %APPDATA%\Dolphin Emulator on 5.0-18242+;
+    // older installs (and backward-compat) use %USERPROFILE%\Documents\Dolphin Emulator.
+    { "type": "file-exists", "path": "%APPDATA%\\Dolphin Emulator\\Config\\Dolphin.ini" }
+  ],
+
+  "restore": [
+    // --- New default location (%APPDATA%, Dolphin 5.0-18242 and newer) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/dolphin-emulator/appdata-Config",
+      "target": "%APPDATA%\\Dolphin Emulator\\Config",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\Logs\\**", "**\\*.log"]
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/dolphin-emulator/appdata-GameSettings",
+      "target": "%APPDATA%\\Dolphin Emulator\\GameSettings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/dolphin-emulator/appdata-Styles",
+      "target": "%APPDATA%\\Dolphin Emulator\\Styles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/dolphin-emulator/appdata-Themes",
+      "target": "%APPDATA%\\Dolphin Emulator\\Themes",
+      "backup": true,
+      "optional": true
+    },
+
+    // --- Legacy location (%USERPROFILE%\Documents, pre-5.0-18242 / backward-compat) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/dolphin-emulator/documents-Config",
+      "target": "%USERPROFILE%\\Documents\\Dolphin Emulator\\Config",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\Logs\\**", "**\\*.log"]
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/dolphin-emulator/documents-GameSettings",
+      "target": "%USERPROFILE%\\Documents\\Dolphin Emulator\\GameSettings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/dolphin-emulator/documents-Styles",
+      "target": "%USERPROFILE%\\Documents\\Dolphin Emulator\\Styles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/dolphin-emulator/documents-Themes",
+      "target": "%USERPROFILE%\\Documents\\Dolphin Emulator\\Themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // --- New default location (%APPDATA%) ---
+      // Config holds Dolphin.ini, GFX.ini, DSP.ini, GameSettings.ini, Logger.ini, GBA.ini,
+      // hotkeys, and Profiles\GCPad + Profiles\Wiimote controller profiles.
+      { "source": "%APPDATA%\\Dolphin Emulator\\Config", "dest": "apps/dolphin-emulator/appdata-Config", "optional": true },
+      { "source": "%APPDATA%\\Dolphin Emulator\\GameSettings", "dest": "apps/dolphin-emulator/appdata-GameSettings", "optional": true },
+      { "source": "%APPDATA%\\Dolphin Emulator\\Styles", "dest": "apps/dolphin-emulator/appdata-Styles", "optional": true },
+      { "source": "%APPDATA%\\Dolphin Emulator\\Themes", "dest": "apps/dolphin-emulator/appdata-Themes", "optional": true },
+
+      // --- Legacy location (%USERPROFILE%\Documents) ---
+      { "source": "%USERPROFILE%\\Documents\\Dolphin Emulator\\Config", "dest": "apps/dolphin-emulator/documents-Config", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Dolphin Emulator\\GameSettings", "dest": "apps/dolphin-emulator/documents-GameSettings", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Dolphin Emulator\\Styles", "dest": "apps/dolphin-emulator/documents-Styles", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Dolphin Emulator\\Themes", "dest": "apps/dolphin-emulator/documents-Themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Caches, logs, generated data
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\Maps\\**",
+      "**\\Dump\\**",
+      "**\\ScreenShots\\**",
+      // Compiled shader / pipeline caches
+      "**\\Shaders\\**",
+      // Save states, memory cards, BIOS, Wii NAND, GBA saves/BIOS (large user data, not settings)
+      "**\\StateSaves\\**",
+      "**\\GC\\**",
+      "**\\Wii\\**",
+      "**\\GBA\\**"
+    ]
+  },
+
+  "notes": "Captures Dolphin's INI configuration (Dolphin.ini, GFX.ini, DSP.ini, GameSettings.ini, hotkeys), per-game settings, controller profiles (Config\\Profiles\\GCPad and Config\\Profiles\\Wiimote), and GUI Styles/Themes. Covers both the modern %APPDATA%\\Dolphin Emulator location (Dolphin 5.0-18242+) and the legacy %USERPROFILE%\\Documents\\Dolphin Emulator location. Excludes caches, logs, dumps, screenshots, compiled shaders, save states, memory cards (GC), Wii NAND, and GBA BIOS/saves as these are large user data rather than portable settings. Custom textures (Load) and ResourcePacks are excluded as they can be very large and game-specific. Confidence: high - default locations, Config file names, and Profiles paths confirmed by official Dolphin docs, the upstream GitHub PR #10708 that changed the default to AppData, and community wikis."
+}

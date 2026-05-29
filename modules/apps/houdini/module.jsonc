@@ -1,0 +1,131 @@
+{
+  // Config Module: SideFX Houdini
+  // Provides verify/restore/capture configuration for SideFX Houdini (VFX / procedural 3D suite)
+  // File-based preferences live in the version-specific user home directory under Documents.
+  //
+  // IMPORTANT: Houdini's preference directory is VERSION-SPECIFIC ($HOME/houdiniMAJOR.MINOR,
+  // e.g. houdini20.5). Endstate does not support glob/wildcard source paths, so the recent
+  // major.minor versions are enumerated explicitly below. Each entry is optional, so only the
+  // versions actually installed on the machine are captured/restored.
+
+  "id": "apps.houdini",
+  "displayName": "SideFX Houdini",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["houdini.exe", "houdinifx.exe"],
+    "uninstallDisplayName": ["^(SideFX )?Houdini\\b"],
+    "pathExists": [
+      "%USERPROFILE%\\Documents\\houdini21.0",
+      "%USERPROFILE%\\Documents\\houdini20.5",
+      "%USERPROFILE%\\Documents\\houdini20.0",
+      "%USERPROFILE%\\Documents\\houdini19.5"
+    ]
+  },
+
+  "verify": [
+    // Houdini may not have run yet; presence of any version pref dir confirms it has.
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\houdini21.0\\houdini.env" },
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\houdini20.5\\houdini.env" }
+  ],
+
+  "restore": [
+    // ---- Houdini 21.0 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/houdini/houdini21.0",
+      "target": "%USERPROFILE%\\Documents\\houdini21.0",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\backup\\**",
+        "**\\temp\\**",
+        "**\\tmp\\**",
+        "**\\*.log",
+        "**\\*.lock",
+        "**\\logs\\**",
+        "**\\cache\\**"
+      ]
+    },
+    // ---- Houdini 20.5 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/houdini/houdini20.5",
+      "target": "%USERPROFILE%\\Documents\\houdini20.5",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\backup\\**",
+        "**\\temp\\**",
+        "**\\tmp\\**",
+        "**\\*.log",
+        "**\\*.lock",
+        "**\\logs\\**",
+        "**\\cache\\**"
+      ]
+    },
+    // ---- Houdini 20.0 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/houdini/houdini20.0",
+      "target": "%USERPROFILE%\\Documents\\houdini20.0",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\backup\\**",
+        "**\\temp\\**",
+        "**\\tmp\\**",
+        "**\\*.log",
+        "**\\*.lock",
+        "**\\logs\\**",
+        "**\\cache\\**"
+      ]
+    },
+    // ---- Houdini 19.5 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/houdini/houdini19.5",
+      "target": "%USERPROFILE%\\Documents\\houdini19.5",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\backup\\**",
+        "**\\temp\\**",
+        "**\\tmp\\**",
+        "**\\*.log",
+        "**\\*.lock",
+        "**\\logs\\**",
+        "**\\cache\\**"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Capture each installed version's preference home directory. The directory holds
+      // houdini.env, .pref/.palette/.desk files, and the hotkeys, toolbar (shelves), desktop,
+      // scripts, otls/hda, presets, packages and python_panels subdirectories.
+      { "source": "%USERPROFILE%\\Documents\\houdini21.0", "dest": "apps/houdini/houdini21.0", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\houdini20.5", "dest": "apps/houdini/houdini20.5", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\houdini20.0", "dest": "apps/houdini/houdini20.0", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\houdini19.5", "dest": "apps/houdini/houdini19.5", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Auto-saved scene backups (auto<N> suffix) and transient/render data
+      "**\\backup\\**",
+      "**\\temp\\**",
+      "**\\tmp\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\cache\\**",
+      // Compiled DSO/HDA caches and crash dumps
+      "**\\dso\\**",
+      "**\\crash\\**",
+      "**\\*.dmp"
+    ]
+  },
+
+  "notes": "Captures SideFX Houdini's file-based user preferences from the version-specific home directory %USERPROFILE%\\Documents\\houdiniMAJOR.MINOR\\ (houdini.env, hotkeys, toolbar/shelves, desktops, presets, scripts, otls, packages). Recent versions (21.0, 20.5, 20.0, 19.5) are enumerated explicitly because Endstate does not glob version directories; only installed versions are captured. Auto-backup scene files, temp/render, logs, caches, DSO caches and crash dumps are excluded. Houdini stores no settings in the Windows registry. Confidence: high - user preference directory location ($HOME/houdiniMAJOR.MINOR, $HOME=Documents on Windows) and houdini.env/subdirectory layout confirmed by official SideFX docs and multiple independent community sources."
+}

@@ -1,0 +1,91 @@
+{
+  // Config Module: KiCad
+  // Provides verify/restore/capture configuration for the KiCad EDA/PCB suite
+  // Curated module - captures the versioned user settings directory, excludes caches/logs
+
+  "id": "apps.kicad",
+  "displayName": "KiCad",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["KiCad.KiCad"],
+    "exe": ["kicad.exe", "pcbnew.exe", "eeschema.exe"],
+    "uninstallDisplayName": ["^KiCad\\b"],
+    "pathExists": [
+      "%APPDATA%\\kicad"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\kicad" }
+  ],
+
+  "restore": [
+    // KiCad keeps each minor version's settings in its own subfolder under %APPDATA%\kicad.
+    // Restore the whole versioned config tree per supported version; missing versions are skipped.
+    {
+      "type": "copy",
+      "source": "./payload/apps/kicad/7.0",
+      "target": "%APPDATA%\\kicad\\7.0",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\3d\\**",
+        "**\\*.lock",
+        "**\\*.log",
+        "**\\Cache\\**"
+      ]
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/kicad/8.0",
+      "target": "%APPDATA%\\kicad\\8.0",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\3d\\**",
+        "**\\*.lock",
+        "**\\*.log",
+        "**\\Cache\\**"
+      ]
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/kicad/9.0",
+      "target": "%APPDATA%\\kicad\\9.0",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\3d\\**",
+        "**\\*.lock",
+        "**\\*.log",
+        "**\\Cache\\**"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Capture each version's settings directory as a whole. Each directory contains the
+      // JSON settings files (kicad_common.json, kicad.json, eeschema.json, pcbnew.json,
+      // 3d_viewer.json, gerbview.json, pl_editor.json, footprint/symbol editor settings),
+      // the global library tables (sym-lib-table, fp-lib-table), *.hotkeys files,
+      // and the colors/ and templates/ subdirectories.
+      { "source": "%APPDATA%\\kicad\\7.0", "dest": "apps/kicad/7.0", "optional": true },
+      { "source": "%APPDATA%\\kicad\\8.0", "dest": "apps/kicad/8.0", "optional": true },
+      { "source": "%APPDATA%\\kicad\\9.0", "dest": "apps/kicad/9.0", "optional": true }
+    ],
+    "excludeGlobs": [
+      // 3d/ is a downloaded 3D-model/library cache (large binary blobs), not user settings.
+      "**\\3d\\**",
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\*.lock",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.bak"
+    ]
+  },
+
+  "notes": "Captures KiCad's per-version user settings directories under %APPDATA%\\kicad\\<version>\\ (JSON app settings, global sym-lib-table/fp-lib-table, *.hotkeys, colors/ themes, templates/). The 3d/ model cache, lock files, and logs are excluded. KiCad settings contain no credentials. Project files (.kicad_pro/.kicad_prl) live with each project and are out of scope. Confidence: high - config path and file layout confirmed by official KiCad docs (docs.kicad.org) and the KiCad.info FAQ; versioned subfolder scheme overridable via KICAD_CONFIG_HOME."
+}

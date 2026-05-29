@@ -1,0 +1,112 @@
+{
+  // Config Module: CLion
+  // Provides verify/restore/capture configuration for CLion (JetBrains C/C++ IDE)
+  // Curated module - captures IDE settings, keymaps, templates, code styles
+  // Note: Config folder is version-specific (CLion<version>)
+
+  "id": "apps.clion",
+  "displayName": "CLion",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.CLion"],
+    "exe": ["clion64.exe"],
+    "uninstallDisplayName": ["^CLion"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\CLion*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/clion/options",
+      "target": "%APPDATA%\\JetBrains\\CLion*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/clion/keymaps",
+      "target": "%APPDATA%\\JetBrains\\CLion*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/clion/templates",
+      "target": "%APPDATA%\\JetBrains\\CLion*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/clion/codestyles",
+      "target": "%APPDATA%\\JetBrains\\CLion*\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/clion/colors",
+      "target": "%APPDATA%\\JetBrains\\CLion*\\colors",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\CLion*\\options", "dest": "apps/clion/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\CLion*\\keymaps", "dest": "apps/clion/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\CLion*\\templates", "dest": "apps/clion/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\CLion*\\codestyles", "dest": "apps/clion/codestyles", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\CLion*\\colors", "dest": "apps/clion/colors", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml",
+      "**\\security.xml",
+      "**\\github.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\CLion*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\CLion*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures CLion settings (options/*.xml), keymaps, live templates, code styles, and color schemes. Config folder is version-specific (%APPDATA%\\JetBrains\\CLion<version>\\). Same JetBrains config structure as IntelliJ IDEA and PyCharm. Workspace-specific files (workspace.xml, tasks.xml), usage stats, caches, and index are excluded; credential stores (security.xml, github.xml) are excluded from capture and never auto-restored. Confidence: high - config layout confirmed by official JetBrains CLion documentation and consistent with sibling JetBrains modules in this repo.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml"
+    ]
+  }
+}

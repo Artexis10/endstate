@@ -1,0 +1,68 @@
+{
+  // Config Module: FreeFileSync
+  // Provides verify/restore/capture configuration for FreeFileSync (folder comparison & sync)
+  // File-based config under %APPDATA%\FreeFileSync; excludes per-pair sync databases, locks, logs
+
+  "id": "apps.freefilesync",
+  "displayName": "FreeFileSync",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["FreeFileSync.FreeFileSync"],
+    "exe": ["FreeFileSync.exe", "RealTimeSync.exe"],
+    "uninstallDisplayName": ["^FreeFileSync"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\FreeFileSync\\GlobalSettings.xml" }
+  ],
+
+  "restore": [
+    {
+      // Global application preferences (read on startup, saved on exit)
+      "type": "copy",
+      "source": "./payload/apps/freefilesync/GlobalSettings.xml",
+      "target": "%APPDATA%\\FreeFileSync\\GlobalSettings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Last GUI session configuration (folder pairs, sync modes, exclusions)
+      "type": "copy",
+      "source": "./payload/apps/freefilesync/LastRun.ffs_gui",
+      "target": "%APPDATA%\\FreeFileSync\\LastRun.ffs_gui",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    // Only fixed-name files in %APPDATA%\FreeFileSync have a stable layout:
+    // GlobalSettings.xml (global preferences) and LastRun.ffs_gui (last GUI session,
+    // auto-saved on exit). Named *.ffs_gui / *.ffs_batch job files are saved to
+    // user-chosen filenames and locations via "Save As" (often outside %APPDATA%),
+    // so they cannot be captured by a fixed path; there is no ffs_gui/ffs_batch subdir.
+    "files": [
+      { "source": "%APPDATA%\\FreeFileSync\\GlobalSettings.xml", "dest": "apps/freefilesync/GlobalSettings.xml", "optional": true },
+      { "source": "%APPDATA%\\FreeFileSync\\LastRun.ffs_gui", "dest": "apps/freefilesync/LastRun.ffs_gui", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.ffs_db",
+      "**\\*.ffs_lock",
+      "**\\*.tmp",
+      "**\\*.log",
+      "**\\LastSyncs.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\FreeFileSync\\GlobalSettings.xml",
+      "%APPDATA%\\FreeFileSync\\LastRun.ffs_gui"
+    ],
+    "warning": "FreeFileSync config files (LastRun.ffs_gui and GlobalSettings.xml) may embed SFTP/FTP login passwords if the user opted to save them. Review before sharing; passwords are stored obfuscated, not encrypted.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures FreeFileSync global preferences (GlobalSettings.xml) and the last GUI session (LastRun.ffs_gui, auto-saved on exit and holding folder pairs, sync modes, and exclusions) from %APPDATA%\\FreeFileSync. Named *.ffs_gui / *.ffs_batch job files are NOT captured: FreeFileSync saves them to user-chosen filenames/locations (commonly outside %APPDATA%), and the capture engine matches literal source paths (no glob/wildcard support). Excludes per-folder-pair sync databases (*.ffs_db), lock files (*.ffs_lock), temp files, and logs. Marked medium sensitivity because LastRun.ffs_gui / GlobalSettings.xml can embed obfuscated (not encrypted) saved SFTP/FTP credentials. Confidence: high - %APPDATA%\\FreeFileSync layout and the GlobalSettings.xml / LastRun.ffs_gui file roles confirmed by the official FreeFileSync manual (expert-settings) and forum threads (freefilesync.org/forum t=3828, t=11395, t=10241)."
+}

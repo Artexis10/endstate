@@ -1,0 +1,78 @@
+{
+  // Config Module: Azure Data Studio
+  // Provides verify/restore/capture configuration for Azure Data Studio (VS Code-derived SQL IDE)
+  // Curated module - captures user configuration, excludes extension state databases
+  // NOTE: Azure Data Studio was retired by Microsoft on 2026-02-28; this module remains
+  // useful for capturing/migrating settings off an existing install.
+
+  "id": "apps.azure-data-studio",
+  "displayName": "Azure Data Studio",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Microsoft.AzureDataStudio"],
+    "exe": ["azuredatastudio.exe"],
+    "uninstallDisplayName": ["^Azure Data Studio"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\azuredatastudio\\User\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/azure-data-studio/settings.json",
+      "target": "%APPDATA%\\azuredatastudio\\User\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/azure-data-studio/keybindings.json",
+      "target": "%APPDATA%\\azuredatastudio\\User\\keybindings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/azure-data-studio/snippets",
+      "target": "%APPDATA%\\azuredatastudio\\User\\snippets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // VS Code-style user config (settings.json also holds datasource.connections / connectionGroups)
+      { "source": "%APPDATA%\\azuredatastudio\\User\\settings.json", "dest": "apps/azure-data-studio/settings.json", "optional": true },
+      { "source": "%APPDATA%\\azuredatastudio\\User\\keybindings.json", "dest": "apps/azure-data-studio/keybindings.json", "optional": true },
+      { "source": "%APPDATA%\\azuredatastudio\\User\\snippets", "dest": "apps/azure-data-studio/snippets", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\CachedData\\**",
+      "**\\GPUCache\\**",
+      "**\\Code Cache\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\Temp\\**",
+      "**\\globalStorage\\**",
+      "**\\workspaceStorage\\**",
+      "**\\History\\**",
+      "**\\state.vscdb*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\azuredatastudio\\User\\globalStorage\\state.vscdb",
+      "%APPDATA%\\azuredatastudio\\User\\globalStorage\\state.vscdb.backup"
+    ],
+    "warning": "Azure Data Studio state databases may contain extension tokens and session data. These MUST NOT be auto-restored. Connection passwords are stored in the OS credential store (not in settings.json) and are not captured; re-authenticate after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Azure Data Studio user configuration (settings.json, keybindings.json, snippets) from %APPDATA%\\azuredatastudio\\User\\. settings.json also includes saved connection profiles (datasource.connections / connectionGroups); connection passwords live in the OS credential store, not in files, so none are captured. Extension state databases (state.vscdb) and Cache/GPUCache/logs directories are excluded. Confidence: high - settings/keybindings/snippets paths confirmed by official Microsoft Learn docs and multiple community sources; layout mirrors VS Code (ADS fork)."
+}

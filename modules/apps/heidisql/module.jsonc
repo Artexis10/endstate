@@ -1,0 +1,67 @@
+{
+  // Config Module: HeidiSQL
+  // Provides verify/restore/capture configuration for HeidiSQL (MySQL/MariaDB/PostgreSQL/MSSQL GUI)
+  // Curated module - captures credential-free file settings ONLY.
+  // The installed (non-portable) build keeps its primary settings AND session list
+  // in the Windows Registry under HKCU\Software\HeidiSQL. Each saved session stores its
+  // database password under HKCU\Software\HeidiSQL\Servers\<name>\Password using a weak,
+  // reversible obfuscation. That registry tree is therefore treated as SENSITIVE and is
+  // NOT captured/restored - exporting it would leak recoverable DB credentials.
+
+  "id": "apps.heidisql",
+  "displayName": "HeidiSQL",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["HeidiSQL.HeidiSQL"],
+    "exe": ["heidisql.exe"],
+    "uninstallDisplayName": ["^HeidiSQL"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\HeidiSQL" }
+  ],
+
+  "restore": [
+    {
+      // Query-tab settings (open tab layout, query editor prefs) - no credentials
+      "type": "copy",
+      "source": "./payload/apps/heidisql/tabs.ini",
+      "target": "%APPDATA%\\HeidiSQL\\tabs.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-defined SQL snippets (reusable query fragments) - no credentials
+      "type": "copy",
+      "source": "./payload/apps/heidisql/Snippets",
+      "target": "%USERPROFILE%\\Documents\\HeidiSQL\\Snippets",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\HeidiSQL\\tabs.ini", "dest": "apps/heidisql/tabs.ini", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\HeidiSQL\\Snippets", "dest": "apps/heidisql/Snippets", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Auto-saved query-tab contents (working state, can be large) and session logfiles
+      "**\\HeidiSQL\\Backups\\**",
+      "**\\HeidiSQL\\Sessionlogs\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "HKCU\\Software\\HeidiSQL",
+      "HKCU\\Software\\HeidiSQL\\Servers"
+    ],
+    "warning": "HeidiSQL keeps its saved sessions (hosts, ports) and preferences in HKCU\\Software\\HeidiSQL. Each session's database password is stored under Servers\\<name>\\Password with weak, reversible obfuscation. This registry tree is NOT captured or restored because exporting it would leak recoverable database credentials. Re-create sessions and re-enter passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures credential-free file settings only: %APPDATA%\\HeidiSQL\\tabs.ini (query-tab layout) and %USERPROFILE%\\Documents\\HeidiSQL\\Snippets. The session list and preferences live in HKCU\\Software\\HeidiSQL, but each session embeds a reversibly-obfuscated DB password under Servers\\<name>\\Password, so that registry tree is deliberately excluded as sensitive and NOT captured. Backups\\ (auto-saved tab contents) and Sessionlogs\\ are excluded. Confidence: medium - file/registry locations confirmed by HeidiSQL forum/help and multiple sources; the high-value session list is intentionally not captured because it is inseparable from recoverable credentials in the registry."
+}

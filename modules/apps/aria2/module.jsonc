@@ -1,0 +1,65 @@
+{
+  // Config Module: aria2
+  // Provides verify/restore/capture configuration for aria2 (multi-protocol CLI download utility)
+  // Curated module - captures the single user config file, excludes DHT/session runtime state and credentials
+
+  "id": "apps.aria2",
+  "displayName": "aria2",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["aria2.aria2"],
+    "exe": ["aria2c.exe"],
+    "uninstallDisplayName": ["^aria2"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "aria2c" }
+    // Note: aria2.conf is optional - aria2 runs entirely from defaults/CLI flags if absent.
+    // Verify only checks aria2 is installed, not that a config exists.
+  ],
+
+  "restore": [
+    {
+      // Default legacy config path aria2 checks first on Windows: %USERPROFILE%\.aria2\aria2.conf
+      "type": "copy",
+      "source": "./payload/apps/aria2/aria2.conf",
+      "target": "~/.aria2/aria2.conf",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // aria2's entire user-facing configuration (connections, RPC, dirs, trackers, defaults).
+      // Default location: $HOME/.aria2/aria2.conf (legacy path, checked before XDG) => %USERPROFILE%\.aria2\aria2.conf
+      { "source": "~/.aria2/aria2.conf", "dest": "apps/aria2/aria2.conf", "optional": true }
+    ],
+    "excludeGlobs": [
+      // DHT routing tables (binary cache, regenerated automatically)
+      "**\\.aria2\\dht.dat",
+      "**\\.aria2\\dht6.dat",
+      // Download-queue session state and per-download control files (runtime state, not config)
+      "**\\.aria2\\*.session",
+      "**\\*.aria2",
+      // Server performance stats (runtime cache)
+      "**\\.aria2\\*.stat",
+      // Credential / auth state - never capture
+      "**\\.netrc",
+      "**\\.aria2\\cookies*",
+      "**\\*cookies*.txt"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.netrc",
+      "~/.aria2/cookies.txt"
+    ],
+    "warning": "aria2 reads HTTP/FTP credentials from ~/.netrc and can persist session cookies via --save-cookies. These contain authentication secrets and MUST NOT be auto-restored. Note: aria2.conf itself may contain inline secrets (rpc-secret, http-passwd, ftp-passwd) - review before sharing.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures aria2's single user config file aria2.conf from %USERPROFILE%\\.aria2\\ (the legacy default path aria2 checks before XDG). Excludes DHT routing tables (dht.dat/dht6.dat), session/queue state, server stats, and .aria2 control files - all runtime cache. Credentials (~/.netrc, saved cookies) are excluded as sensitive; aria2.conf may itself hold an rpc-secret or HTTP/FTP password, hence medium sensitivity. aria2 stores no settings in the Windows registry. Confidence: high - default conf-path, dht-file-path, and netrc locations confirmed by official aria2c(1) documentation."
+}

@@ -1,0 +1,91 @@
+{
+  // Config Module: Ferdium
+  // Provides verify/restore/capture configuration for Ferdium (all-in-one messenger aggregator; Franz/Ferdi successor)
+  // Captures app settings, custom CSS, and the curated recipe list; EXCLUDES login-session cookies/partitions and caches
+
+  "id": "apps.ferdium",
+  "displayName": "Ferdium",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Ferdium.Ferdium"],
+    "exe": ["Ferdium.exe"],
+    "uninstallDisplayName": ["^Ferdium"],
+    "pathExists": [
+      "%APPDATA%\\Ferdium\\config"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Ferdium\\config\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      // App settings + customization folder (settings.json, custom.css, service CSS/JS)
+      // Excludes any session/partition or cache data that may live under the data dir
+      "type": "copy",
+      "source": "./payload/apps/ferdium/config",
+      "target": "%APPDATA%\\Ferdium\\config",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\Partitions\\**",
+        "**\\Cache\\**",
+        "**\\*.log"
+      ]
+    },
+    {
+      // Curated/installed service recipes (definitions only, not session data)
+      "type": "copy",
+      "source": "./payload/apps/ferdium/recipes",
+      "target": "%APPDATA%\\Ferdium\\recipes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // App settings, custom CSS, and per-service customization (config/ subfolder)
+      { "source": "%APPDATA%\\Ferdium\\config", "dest": "apps/ferdium/config", "optional": true },
+      // Installed service recipe definitions (the curated service list lives here + in settings)
+      { "source": "%APPDATA%\\Ferdium\\recipes", "dest": "apps/ferdium/recipes", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Login sessions / cookies are stored locally like a browser — NEVER capture
+      "**\\Partitions\\**",
+      "**\\service-partitions\\**",
+      "**\\Session Storage\\**",
+      "**\\Local Storage\\**",
+      "**\\IndexedDB\\**",
+      "**\\Cookies*",
+      // Electron / Chromium caches and runtime state
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\GrShaderCache\\**",
+      "**\\ShaderCache\\**",
+      "**\\Crashpad\\**",
+      "**\\Crash Reports\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      // Downloaded updater payloads (separate Ferdium-updater folder)
+      "**\\ferdium-updater\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Ferdium\\Partitions",
+      "%APPDATA%\\Ferdium\\service-partitions",
+      "%APPDATA%\\Ferdium\\Cookies"
+    ],
+    "warning": "Ferdium stores per-service login sessions and cookies locally (like a browser) under Partitions/service-partitions. These contain authenticated sessions and MUST NOT be captured or auto-restored. Re-authenticate each service after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Ferdium app settings (%APPDATA%\\Ferdium\\config\\settings.json), custom UI CSS (config\\custom.css), per-service customization, and installed service recipes (%APPDATA%\\Ferdium\\recipes). Login sessions, cookies, and partition/cache data are explicitly excluded — services must be re-authenticated after restore. Confidence: medium - root config dir (%APPDATA%\\Ferdium), config\\custom.css, and recipes/ folder are confirmed by official Ferdium docs and the ferdium-app source (environment-remote.ts userDataRecipesPath); the exact settings.json filename within config/ is inferred from the documented config-folder layout rather than a direct source citation."
+}

@@ -1,0 +1,97 @@
+{
+  // Config Module: Aseprite
+  // Provides verify/restore/capture configuration for Aseprite (pixel-art / animation editor)
+  // Curated module - captures the user configuration folder, excludes backup sessions and caches
+
+  "id": "apps.aseprite",
+  "displayName": "Aseprite",
+  "sensitivity": "low",
+
+  "matches": {
+    // Not distributed via winget (Steam / direct paid distribution)
+    "winget": [],
+    "exe": ["aseprite.exe", "Aseprite.exe"],
+    "uninstallDisplayName": ["^Aseprite"],
+    "pathExists": [
+      "%APPDATA%\\Aseprite\\aseprite.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Aseprite\\aseprite.ini" }
+  ],
+
+  "restore": [
+    {
+      // Main preferences file (window layout, tools, UI options)
+      "type": "copy",
+      "source": "./payload/apps/aseprite/aseprite.ini",
+      "target": "%APPDATA%\\Aseprite\\aseprite.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Customized keyboard shortcuts (XML)
+      "type": "copy",
+      "source": "./payload/apps/aseprite/user.aseprite-keys",
+      "target": "%APPDATA%\\Aseprite\\user.aseprite-keys",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom color palette presets
+      "type": "copy",
+      "source": "./payload/apps/aseprite/palettes",
+      "target": "%APPDATA%\\Aseprite\\palettes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom UI themes
+      "type": "copy",
+      "source": "./payload/apps/aseprite/themes",
+      "target": "%APPDATA%\\Aseprite\\themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User Lua scripts
+      "type": "copy",
+      "source": "./payload/apps/aseprite/scripts",
+      "target": "%APPDATA%\\Aseprite\\scripts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Installed extensions (themes/palettes/scripts/plugins packages)
+      "type": "copy",
+      "source": "./payload/apps/aseprite/extensions",
+      "target": "%APPDATA%\\Aseprite\\extensions",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Aseprite\\aseprite.ini", "dest": "apps/aseprite/aseprite.ini", "optional": true },
+      { "source": "%APPDATA%\\Aseprite\\user.aseprite-keys", "dest": "apps/aseprite/user.aseprite-keys", "optional": true },
+      { "source": "%APPDATA%\\Aseprite\\palettes", "dest": "apps/aseprite/palettes", "optional": true },
+      { "source": "%APPDATA%\\Aseprite\\themes", "dest": "apps/aseprite/themes", "optional": true },
+      { "source": "%APPDATA%\\Aseprite\\scripts", "dest": "apps/aseprite/scripts", "optional": true },
+      { "source": "%APPDATA%\\Aseprite\\extensions", "dest": "apps/aseprite/extensions", "optional": true }
+    ],
+    "excludeGlobs": [
+      // sessions/ holds auto-saved backup/recovery sprite data (one folder per run) - volatile, large
+      "**\\sessions\\**",
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\Temp\\**",
+      "**\\tmp\\**"
+    ]
+  },
+
+  "notes": "Captures the Aseprite user configuration folder at %APPDATA%\\Aseprite: aseprite.ini (preferences), user.aseprite-keys (keyboard shortcuts), and the palettes, themes, scripts and extensions subfolders. The sessions backup/recovery folder, caches, logs and temp files are excluded. Aseprite stores no credentials (it is an offline editor; licensing is handled by Steam or the installer, not the config folder). Confidence: high - %APPDATA%\\Aseprite, aseprite.ini, .aseprite-keys, scripts, extensions and the sessions backup folder are confirmed by official Aseprite docs; palettes/themes subfolder names corroborated by the Aseprite community."
+}

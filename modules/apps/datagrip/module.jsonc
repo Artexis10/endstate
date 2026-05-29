@@ -1,0 +1,122 @@
+{
+  // Config Module: DataGrip
+  // Provides verify/restore/capture configuration for JetBrains DataGrip (database IDE)
+  // Curated module - captures IDE settings, keymaps, templates, code styles, SQL dialect options
+  // Note: Config folder is version-specific (DataGrip<version>)
+
+  "id": "apps.datagrip",
+  "displayName": "DataGrip",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["JetBrains.DataGrip"],
+    "exe": ["datagrip64.exe"],
+    "uninstallDisplayName": ["^DataGrip"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\DataGrip*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/datagrip/options",
+      "target": "%APPDATA%\\JetBrains\\DataGrip*\\options",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\security.xml", "**\\github.xml"]
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/datagrip/keymaps",
+      "target": "%APPDATA%\\JetBrains\\DataGrip*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/datagrip/templates",
+      "target": "%APPDATA%\\JetBrains\\DataGrip*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/datagrip/codestyles",
+      "target": "%APPDATA%\\JetBrains\\DataGrip*\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/datagrip/colors",
+      "target": "%APPDATA%\\JetBrains\\DataGrip*\\colors",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\DataGrip*\\options", "dest": "apps/datagrip/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\DataGrip*\\keymaps", "dest": "apps/datagrip/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\DataGrip*\\templates", "dest": "apps/datagrip/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\DataGrip*\\codestyles", "dest": "apps/datagrip/codestyles", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\DataGrip*\\colors", "dest": "apps/datagrip/colors", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml",
+      // Sensitive: stored credentials, tokens, and the Password Safe KeePass DB
+      "**\\security.xml",
+      "**\\github.xml",
+      "**\\c.kdbx",
+      "**\\pdb.pwd"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\DataGrip*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\DataGrip*\\options\\github.xml",
+      "%APPDATA%\\JetBrains\\DataGrip*\\c.kdbx",
+      "%APPDATA%\\JetBrains\\DataGrip*\\pdb.pwd"
+    ],
+    "warning": "DataGrip's security.xml/github.xml hold stored tokens and the Password Safe KeePass database (c.kdbx, pdb.pwd) holds database connection passwords. These MUST NOT be auto-restored. Re-enter database credentials after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures DataGrip IDE settings (options/*.xml including SQL dialect, formatting, and data source view preferences), keymaps, live templates, code styles, and color schemes from the version-specific config folder %APPDATA%\\JetBrains\\DataGrip<version>\\. Database connection passwords (Password Safe KeePass DB c.kdbx/pdb.pwd) and credential/token files (security.xml, github.xml) are explicitly excluded and never restored. Caches, index, logs, and workspace-specific files are excluded. Confidence: high - config layout, subfolder names, and password-storage location confirmed by official JetBrains DataGrip documentation.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml",
+      "**/security.xml",
+      "**/github.xml",
+      "**/c.kdbx",
+      "**/pdb.pwd"
+    ]
+  }
+}

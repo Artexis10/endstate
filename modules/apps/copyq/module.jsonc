@@ -1,0 +1,73 @@
+{
+  // Config Module: CopyQ
+  // Provides verify/restore/capture configuration for CopyQ (advanced clipboard manager)
+  // Curated module - captures settings (copyq.ini) and themes, excludes clipboard history data
+
+  "id": "apps.copyq",
+  "displayName": "CopyQ",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["hluk.CopyQ"],
+    "exe": ["copyq.exe"],
+    "uninstallDisplayName": ["^CopyQ"],
+    "pathExists": [
+      "%APPDATA%\\copyq\\copyq.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\copyq\\copyq.ini" }
+  ],
+
+  "restore": [
+    {
+      // Main settings file: general preferences, custom commands, shortcuts, tab layout
+      "type": "merge-ini",
+      "source": "./payload/apps/copyq/copyq.ini",
+      "target": "%APPDATA%\\copyq\\copyq.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom themes (color schemes / styling)
+      "type": "copy",
+      "source": "./payload/apps/copyq/themes",
+      "target": "%APPDATA%\\copyq\\themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary settings: preferences, custom commands, keyboard shortcuts, tab configuration
+      { "source": "%APPDATA%\\copyq\\copyq.ini", "dest": "apps/copyq/copyq.ini", "optional": true },
+      // Custom theme files
+      { "source": "%APPDATA%\\copyq\\themes", "dest": "apps/copyq/themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Clipboard history / tab data is session content (may contain copied passwords) - never capture
+      "**\\*.dat",
+      "**\\*.dat.tmp",
+      "**\\items\\**",
+      "**\\copyq_*.dat",
+      // Caches, logs, temp, lock files
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\copyq\\*.dat",
+      "%APPDATA%\\copyq\\items"
+    ],
+    "warning": "CopyQ tab data files (.dat) and the items directory contain stored clipboard history, which can include copied passwords, tokens, and other secrets. These MUST NOT be captured or auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures CopyQ settings from %APPDATA%\\copyq: copyq.ini (preferences, custom commands, keyboard shortcuts, tab layout) and the themes folder. Clipboard history tab data (.dat files, items directory) is excluded because it may contain copied secrets. copyq.ini is restored via merge-ini to preserve any machine-local entries. Confidence: high - config directory (%APPDATA%\\copyq), copyq.ini, and themes confirmed by official CopyQ docs (FAQ/Backup) and multiple independent sources."
+}

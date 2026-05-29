@@ -1,0 +1,58 @@
+{
+  // Config Module: IrfanView
+  // Provides verify/restore/capture configuration for IrfanView (image viewer)
+  // All user settings live in a single INI file under %APPDATA%\IrfanView
+
+  "id": "apps.irfanview",
+  "displayName": "IrfanView",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["IrfanSkiljan.IrfanView"],
+    "exe": ["i_view64.exe", "i_view32.exe"],
+    "uninstallDisplayName": ["^IrfanView"]
+  },
+
+  "verify": [
+    // INI is the authoritative settings store; may not exist until user changes a setting.
+    // Match either the 64-bit or 32-bit INI.
+    { "type": "file-exists", "path": "%APPDATA%\\IrfanView\\i_view64.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/irfanview/i_view64.ini",
+      "target": "%APPDATA%\\IrfanView\\i_view64.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/irfanview/i_view32.ini",
+      "target": "%APPDATA%\\IrfanView\\i_view32.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary preferences file (64-bit). Holds all options: toolbar, file
+      // associations, plugin settings, display preferences, language.
+      { "source": "%APPDATA%\\IrfanView\\i_view64.ini", "dest": "apps/irfanview/i_view64.ini", "optional": true },
+      // 32-bit build uses a separate INI; captured for parity if present.
+      { "source": "%APPDATA%\\IrfanView\\i_view32.ini", "dest": "apps/irfanview/i_view32.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Thumbnail database / cache files regenerated on demand.
+      "**\\*.thb",
+      "**\\Thumbnails*",
+      "**\\Cache\\**",
+      "**\\*.tmp",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures IrfanView's user preferences from %APPDATA%\\IrfanView\\i_view64.ini (and i_view32.ini for 32-bit builds), which the official FAQ confirms holds all settings: toolbar, file associations, plugin options, display and language preferences. Thumbnail caches (*.thb) are excluded as they regenerate. The INI_Folder setting can redirect this location; this module targets the standard %APPDATA%\\IrfanView default. Confidence: high - INI path and contents confirmed by the official IrfanView FAQ plus multiple independent sources."
+}

@@ -1,0 +1,172 @@
+{
+  // Config Module: Bash/Zsh dotfiles
+  // Provides verify/restore/capture configuration for POSIX shell startup files
+  // Shell-agnostic: covers Bash (Git Bash / MSYS2 / Cygwin) and Zsh ports on Windows
+  // Curated module - captures user shell customization, excludes command history (secret leak risk)
+
+  "id": "apps.bash-profile",
+  "displayName": "Bash/Zsh dotfiles",
+  "sensitivity": "low",
+
+  "matches": {
+    // No winget package: these shells ship with Git for Windows, MSYS2, Cygwin, etc.
+    "winget": [],
+    "exe": ["bash.exe", "zsh.exe"],
+    // Bash startup file present in the home directory is a strong signal
+    "pathExists": [
+      "%USERPROFILE%\\.bashrc",
+      "%USERPROFILE%\\.bash_profile",
+      "%USERPROFILE%\\.zshrc",
+      "%USERPROFILE%\\.profile"
+    ]
+  },
+
+  "verify": [
+    // Bash is the common case (Git for Windows ships it); zsh is optional
+    { "type": "command-exists", "command": "bash" }
+  ],
+
+  "restore": [
+    // --- Bash dotfiles ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.bashrc",
+      "target": "~/.bashrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.bash_profile",
+      "target": "~/.bash_profile",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.bash_login",
+      "target": "~/.bash_login",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.bash_logout",
+      "target": "~/.bash_logout",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.bash_aliases",
+      "target": "~/.bash_aliases",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.aliases",
+      "target": "~/.aliases",
+      "backup": true,
+      "optional": true
+    },
+    // --- Shell-agnostic ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.profile",
+      "target": "~/.profile",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.inputrc",
+      "target": "~/.inputrc",
+      "backup": true,
+      "optional": true
+    },
+    // --- Zsh dotfiles (loaded in order: .zshenv -> .zprofile -> .zshrc -> .zlogin -> .zlogout) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.zshenv",
+      "target": "~/.zshenv",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.zprofile",
+      "target": "~/.zprofile",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.zshrc",
+      "target": "~/.zshrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.zlogin",
+      "target": "~/.zlogin",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/bash-profile/.zlogout",
+      "target": "~/.zlogout",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // --- Bash dotfiles (home directory == %USERPROFILE% == ~) ---
+      { "source": "~/.bashrc", "dest": "apps/bash-profile/.bashrc", "optional": true },
+      { "source": "~/.bash_profile", "dest": "apps/bash-profile/.bash_profile", "optional": true },
+      { "source": "~/.bash_login", "dest": "apps/bash-profile/.bash_login", "optional": true },
+      { "source": "~/.bash_logout", "dest": "apps/bash-profile/.bash_logout", "optional": true },
+      { "source": "~/.bash_aliases", "dest": "apps/bash-profile/.bash_aliases", "optional": true },
+      { "source": "~/.aliases", "dest": "apps/bash-profile/.aliases", "optional": true },
+
+      // --- Shell-agnostic ---
+      { "source": "~/.profile", "dest": "apps/bash-profile/.profile", "optional": true },
+      { "source": "~/.inputrc", "dest": "apps/bash-profile/.inputrc", "optional": true },
+
+      // --- Zsh dotfiles ---
+      { "source": "~/.zshenv", "dest": "apps/bash-profile/.zshenv", "optional": true },
+      { "source": "~/.zprofile", "dest": "apps/bash-profile/.zprofile", "optional": true },
+      { "source": "~/.zshrc", "dest": "apps/bash-profile/.zshrc", "optional": true },
+      { "source": "~/.zlogin", "dest": "apps/bash-profile/.zlogin", "optional": true },
+      { "source": "~/.zlogout", "dest": "apps/bash-profile/.zlogout", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Command history may contain plaintext secrets/tokens - never capture
+      "**/.bash_history",
+      "**/.zsh_history",
+      "**/.zsh_sessions/**",
+      "**/.histfile",
+      // zsh compiled/cache artifacts
+      "**/.zcompdump*",
+      "**/.zsh_cache/**",
+      "**/.lesshst"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.bash_history",
+      "~/.zsh_history",
+      "~/.zsh_sessions",
+      "~/.histfile"
+    ],
+    "warning": "Shell command history can contain plaintext secrets (tokens, passwords, API keys typed on the command line). These MUST NOT be captured or auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures POSIX shell startup files from the home directory (~ == %USERPROFILE%): Bash (.bashrc, .bash_profile, .bash_login, .bash_logout, .bash_aliases, .aliases), shell-agnostic (.profile, .inputrc), and Zsh (.zshenv, .zprofile, .zshrc, .zlogin, .zlogout). Shells install via Git for Windows / MSYS2 / Cygwin (no standalone winget id). Command history files are explicitly excluded as they may contain plaintext secrets. Confidence: high - dotfile names are stable POSIX/Bash/Zsh conventions confirmed by official Zsh docs and multiple independent sources."
+}

@@ -1,0 +1,133 @@
+{
+  // Config Module: DuckStation
+  // Provides verify/restore/capture configuration for DuckStation (PlayStation 1 emulator)
+  // Curated module - captures emulator settings + input/per-game profiles; excludes BIOS, saves, caches
+
+  "id": "apps.duckstation",
+  "displayName": "DuckStation",
+  // medium: settings.ini may embed a RetroAchievements [Cheevos] login token (Token=...)
+  // when the user has enabled achievements; the engine captures settings.ini whole and
+  // cannot strip a single INI section, so the captured file can carry that credential.
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Stenzek.DuckStation"],
+    "exe": ["duckstation-qt-x64-ReleaseLTCG.exe", "duckstation.exe"],
+    "uninstallDisplayName": ["^DuckStation"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\DuckStation\\settings.ini",
+      "%USERPROFILE%\\Documents\\DuckStation\\settings.ini"
+    ]
+  },
+
+  "verify": [
+    // Newer installs use %LOCALAPPDATA%\DuckStation; older installs use Documents\DuckStation.
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\DuckStation\\settings.ini" }
+  ],
+
+  "restore": [
+    // --- Newer install location: %LOCALAPPDATA%\DuckStation ---
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/duckstation/settings.ini",
+      "target": "%LOCALAPPDATA%\\DuckStation\\settings.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/duckstation/inputprofiles",
+      "target": "%LOCALAPPDATA%\\DuckStation\\inputprofiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/duckstation/gamesettings",
+      "target": "%LOCALAPPDATA%\\DuckStation\\gamesettings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/duckstation/cheats",
+      "target": "%LOCALAPPDATA%\\DuckStation\\cheats",
+      "backup": true,
+      "optional": true
+    },
+
+    // --- Legacy install location: %USERPROFILE%\Documents\DuckStation ---
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/duckstation/settings-docs.ini",
+      "target": "%USERPROFILE%\\Documents\\DuckStation\\settings.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/duckstation/inputprofiles-docs",
+      "target": "%USERPROFILE%\\Documents\\DuckStation\\inputprofiles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/duckstation/gamesettings-docs",
+      "target": "%USERPROFILE%\\Documents\\DuckStation\\gamesettings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/duckstation/cheats-docs",
+      "target": "%USERPROFILE%\\Documents\\DuckStation\\cheats",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // --- Newer install location: %LOCALAPPDATA%\DuckStation ---
+      { "source": "%LOCALAPPDATA%\\DuckStation\\settings.ini", "dest": "apps/duckstation/settings.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\DuckStation\\inputprofiles", "dest": "apps/duckstation/inputprofiles", "optional": true },
+      { "source": "%LOCALAPPDATA%\\DuckStation\\gamesettings", "dest": "apps/duckstation/gamesettings", "optional": true },
+      { "source": "%LOCALAPPDATA%\\DuckStation\\cheats", "dest": "apps/duckstation/cheats", "optional": true },
+
+      // --- Legacy install location: %USERPROFILE%\Documents\DuckStation ---
+      { "source": "%USERPROFILE%\\Documents\\DuckStation\\settings.ini", "dest": "apps/duckstation/settings-docs.ini", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\DuckStation\\inputprofiles", "dest": "apps/duckstation/inputprofiles-docs", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\DuckStation\\gamesettings", "dest": "apps/duckstation/gamesettings-docs", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\DuckStation\\cheats", "dest": "apps/duckstation/cheats-docs", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Caches, shaders, and regenerable data
+      "**\\cache\\**",
+      "**\\shaders\\**",
+      "**\\dump\\**",
+      "**\\screenshots\\**",
+      "**\\covers\\**",
+      "**\\textures\\**",
+      // BIOS images are copyrighted firmware blobs - never capture
+      "**\\bios\\**",
+      // Game save DATA (memory cards / save states), not settings - large and game-specific
+      "**\\memcards\\**",
+      "**\\savestates\\**",
+      // Bundled databases and logs
+      "**\\gamedb.json",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\DuckStation\\bios",
+      "%USERPROFILE%\\Documents\\DuckStation\\bios"
+    ],
+    "warning": "DuckStation requires copyrighted PlayStation BIOS images (e.g. scph*.bin) which are NOT distributable. The bios directory is excluded from capture and MUST NOT be restored; supply your own dumped BIOS. Also note: settings.ini may contain a RetroAchievements login token in its [Cheevos] section (Token=) if achievements were enabled - review/redact before sharing a captured bundle.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures DuckStation emulator settings (settings.ini), controller input profiles (inputprofiles), per-game overrides (gamesettings), and cheats from both the modern %LOCALAPPDATA%\\DuckStation location and the legacy Documents\\DuckStation location. Excludes copyrighted BIOS images, memory card/save-state game data, and regenerable caches/shaders/dumps/covers/textures/screenshots. Confidence: high - directory layout confirmed by the official DuckStation README, the Scoop emulators manifest persist list, and community documentation."
+}

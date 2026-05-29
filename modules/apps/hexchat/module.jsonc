@@ -1,0 +1,171 @@
+{
+  // Config Module: HexChat
+  // Provides verify/restore/capture configuration for HexChat (IRC client)
+  // Curated module - captures user preferences/customizations, excludes the server list
+  // (servlist.conf) because it stores NickServ/SASL/server/channel passwords in PLAINTEXT.
+
+  "id": "apps.hexchat",
+  "displayName": "HexChat",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["HexChat.HexChat"],
+    "exe": ["hexchat.exe"],
+    "uninstallDisplayName": ["^HexChat"],
+    "pathExists": [
+      "%APPDATA%\\HexChat\\hexchat.conf"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\HexChat\\hexchat.conf" }
+  ],
+
+  "restore": [
+    {
+      // Main preferences (general settings, fonts, behavior)
+      "type": "copy",
+      "source": "./payload/apps/hexchat/hexchat.conf",
+      "target": "%APPDATA%\\HexChat\\hexchat.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Color palette (mIRC colors 0-31 + UI colors) - theming
+      "type": "copy",
+      "source": "./payload/apps/hexchat/colors.conf",
+      "target": "%APPDATA%\\HexChat\\colors.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Text event formatting (print events) - pairs with colors.conf for themes
+      "type": "copy",
+      "source": "./payload/apps/hexchat/pevents.conf",
+      "target": "%APPDATA%\\HexChat\\pevents.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User commands / aliases
+      "type": "copy",
+      "source": "./payload/apps/hexchat/commands.conf",
+      "target": "%APPDATA%\\HexChat\\commands.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Userlist / channel right-click popups
+      "type": "copy",
+      "source": "./payload/apps/hexchat/popup.conf",
+      "target": "%APPDATA%\\HexChat\\popup.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Auto-replace (text expansion) rules
+      "type": "copy",
+      "source": "./payload/apps/hexchat/replace.conf",
+      "target": "%APPDATA%\\HexChat\\replace.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom usermenu entries
+      "type": "copy",
+      "source": "./payload/apps/hexchat/usermenu.conf",
+      "target": "%APPDATA%\\HexChat\\usermenu.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // CTCP reply definitions
+      "type": "copy",
+      "source": "./payload/apps/hexchat/ctcpreply.conf",
+      "target": "%APPDATA%\\HexChat\\ctcpreply.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // DCC download buttons
+      "type": "copy",
+      "source": "./payload/apps/hexchat/dlbutton.conf",
+      "target": "%APPDATA%\\HexChat\\dlbutton.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Toolbar buttons
+      "type": "copy",
+      "source": "./payload/apps/hexchat/buttons.conf",
+      "target": "%APPDATA%\\HexChat\\buttons.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Ignore list
+      "type": "copy",
+      "source": "./payload/apps/hexchat/ignore.conf",
+      "target": "%APPDATA%\\HexChat\\ignore.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Addons / plugins / scripts auto-loaded at startup
+      "type": "copy",
+      "source": "./payload/apps/hexchat/addons",
+      "target": "%APPDATA%\\HexChat\\addons",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom event/notification sounds
+      "type": "copy",
+      "source": "./payload/apps/hexchat/sounds",
+      "target": "%APPDATA%\\HexChat\\sounds",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\HexChat\\hexchat.conf", "dest": "apps/hexchat/hexchat.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\colors.conf", "dest": "apps/hexchat/colors.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\pevents.conf", "dest": "apps/hexchat/pevents.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\commands.conf", "dest": "apps/hexchat/commands.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\popup.conf", "dest": "apps/hexchat/popup.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\replace.conf", "dest": "apps/hexchat/replace.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\usermenu.conf", "dest": "apps/hexchat/usermenu.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\ctcpreply.conf", "dest": "apps/hexchat/ctcpreply.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\dlbutton.conf", "dest": "apps/hexchat/dlbutton.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\buttons.conf", "dest": "apps/hexchat/buttons.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\ignore.conf", "dest": "apps/hexchat/ignore.conf", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\addons", "dest": "apps/hexchat/addons", "optional": true },
+      { "source": "%APPDATA%\\HexChat\\sounds", "dest": "apps/hexchat/sounds", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Server list holds NickServ/SASL/server/channel passwords in PLAINTEXT - never capture
+      "**\\servlist.conf",
+      // TLS client certificates (private keys)
+      "**\\certs\\**",
+      // Chat logs, scrollback history, downloads, caches - transient / large / private
+      "**\\logs\\**",
+      "**\\scrollback\\**",
+      "**\\downloads\\**",
+      "**\\cache\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\HexChat\\servlist.conf",
+      "%APPDATA%\\HexChat\\certs"
+    ],
+    "warning": "servlist.conf stores IRC server, NickServ, SASL and channel passwords in PLAINTEXT, and certs holds private TLS client certificates. These MUST NOT be captured or auto-restored; re-enter network passwords and re-import certificates after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures HexChat user preferences and customizations from %APPDATA%\\HexChat (hexchat.conf, colors.conf + pevents.conf for theming, commands/aliases, popups, auto-replace, usermenu, CTCP replies, ignore list, toolbar/DCC buttons, addons, custom sounds). Excludes servlist.conf (contains plaintext NickServ/SASL/server/channel passwords), the certs directory (private TLS keys), and logs/scrollback/downloads/cache. Confidence: high - config directory %APPDATA%\\HexChat and plaintext password storage in servlist.conf confirmed by official HexChat docs and HexChat GitHub issues #75/#518/#519."
+}

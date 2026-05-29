@@ -1,0 +1,110 @@
+{
+  // Config Module: darktable
+  // Provides verify/restore/capture configuration for darktable (open-source RAW photo workflow)
+  // Curated module - captures user preferences/styles/shortcuts, excludes the machine-specific image catalog (library.db)
+
+  "id": "apps.darktable",
+  "displayName": "darktable",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["darktable.darktable"],
+    "exe": ["darktable.exe", "darktable-cli.exe"],
+    "uninstallDisplayName": ["^darktable"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "darktable" }
+  ],
+
+  "restore": [
+    {
+      // Main configuration file (all preferences/options). Use a Unix-line-ending-aware editor if hand-editing.
+      "type": "copy",
+      "source": "./payload/apps/darktable/darktablerc",
+      "target": "%LOCALAPPDATA%\\darktable\\darktablerc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Keyboard shortcut configuration (darktable 3.6+)
+      "type": "copy",
+      "source": "./payload/apps/darktable/shortcutsrc",
+      "target": "%LOCALAPPDATA%\\darktable\\shortcutsrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-defined CSS theme tweaks
+      "type": "copy",
+      "source": "./payload/apps/darktable/user.css",
+      "target": "%LOCALAPPDATA%\\darktable\\user.css",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Lua scripts to load at startup
+      "type": "copy",
+      "source": "./payload/apps/darktable/luarc",
+      "target": "%LOCALAPPDATA%\\darktable\\luarc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Shared configuration database: presets, styles, global settings (machine-independent)
+      "type": "copy",
+      "source": "./payload/apps/darktable/data.db",
+      "target": "%LOCALAPPDATA%\\darktable\\data.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-created styles
+      "type": "copy",
+      "source": "./payload/apps/darktable/styles",
+      "target": "%LOCALAPPDATA%\\darktable\\styles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User Lua scripts
+      "type": "copy",
+      "source": "./payload/apps/darktable/lua",
+      "target": "%LOCALAPPDATA%\\darktable\\lua",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\darktable\\darktablerc", "dest": "apps/darktable/darktablerc", "optional": true },
+      { "source": "%LOCALAPPDATA%\\darktable\\shortcutsrc", "dest": "apps/darktable/shortcutsrc", "optional": true },
+      { "source": "%LOCALAPPDATA%\\darktable\\user.css", "dest": "apps/darktable/user.css", "optional": true },
+      { "source": "%LOCALAPPDATA%\\darktable\\luarc", "dest": "apps/darktable/luarc", "optional": true },
+      // data.db holds presets/styles/global settings and is machine-independent (unlike library.db)
+      { "source": "%LOCALAPPDATA%\\darktable\\data.db", "dest": "apps/darktable/data.db", "optional": true },
+      { "source": "%LOCALAPPDATA%\\darktable\\styles", "dest": "apps/darktable/styles", "optional": true },
+      { "source": "%LOCALAPPDATA%\\darktable\\lua", "dest": "apps/darktable/lua", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Machine-specific image catalog (file locations, edits, tags, history) - not portable
+      "**\\library.db",
+      // SQLite write-ahead-log / shared-memory / journal sidecars
+      "**\\*.db-wal",
+      "**\\*.db-shm",
+      "**\\*.db-journal",
+      "**\\*.db-lock",
+      // Rotated database backups and lock file
+      "**\\data.db-backup-*",
+      "**\\library.db-backup-*",
+      "**\\lock",
+      // Caches, logs, thumbnails
+      "**\\cache\\**",
+      "**\\mipmaps*",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures darktable user preferences (darktablerc), keyboard shortcuts (shortcutsrc), UI theme (user.css), Lua config (luarc, lua/), user styles (styles/), and the machine-independent presets/styles database (data.db) from %LOCALAPPDATA%\\darktable. Excludes library.db (the machine-specific image catalog: file locations, edits, tags, history), SQLite WAL/SHM/journal sidecars, rotated db backups, lock files, mipmap thumbnail caches, and logs. darktable stores no settings in the Windows registry. Confidence: high - config folder (%LOCALAPPDATA%\\darktable) and file names confirmed by official darktable user manual plus pixls.us community sources."
+}

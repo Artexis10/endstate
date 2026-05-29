@@ -1,0 +1,78 @@
+{
+  // Config Module: Kubernetes kubeconfig
+  // Provides verify/restore/capture configuration for kubectl's user prefs.
+  //
+  // IMPORTANT: This module captures ONLY the kuberc user-preferences file
+  // (~/.kube/kuberc). The kubeconfig itself (~/.kube/config) is DELIBERATELY
+  // NOT captured: it routinely embeds credentials inline (client-certificate-data,
+  // client-key-data, bearer tokens, passwords) and there is no safe way to copy
+  // the cluster/context map without also copying those secrets. The sibling
+  // `apps.kubectl` module documents this same decision; recreate cluster access
+  // on a fresh machine via your provider CLI (az/gcloud/aws eks update-kubeconfig)
+  // or `kubectl config set-context`.
+
+  "id": "apps.kubeconfig",
+  "displayName": "Kubernetes kubeconfig",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Kubernetes.kubectl"],
+    "exe": ["kubectl.exe"],
+    "uninstallDisplayName": ["^Kubernetes kubectl", "^kubectl"],
+    "pathExists": [
+      "%USERPROFILE%\\.kube\\config",
+      "%USERPROFILE%\\.kube\\kuberc"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.kube\\kuberc" }
+    // Note: kubectl may be installed without being on PATH (e.g. Docker Desktop,
+    // standalone binary), so we verify a kube config file rather than the command.
+  ],
+
+  "restore": [
+    {
+      // kuberc only: aliases / command defaults. The credential-bearing
+      // ~/.kube/config is intentionally never restored (see header).
+      "type": "copy",
+      "source": "./payload/apps/kubeconfig/kuberc",
+      "target": "%USERPROFILE%\\.kube\\kuberc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // kubectl user preferences (aliases, command defaults). Per official docs
+      // kuberc does NOT contain cluster details, usernames, or passwords, so it
+      // is the only safely-portable file under ~/.kube. The kubeconfig itself is
+      // omitted because it embeds credentials inline.
+      { "source": "%USERPROFILE%\\.kube\\kuberc", "dest": "apps/kubeconfig/kuberc", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Credential-bearing kubeconfig - NEVER capture (embeds client-key-data,
+      // tokens, passwords inline).
+      "**\\.kube\\config",
+      // Discovery / HTTP response cache and credential-plugin token caches
+      // (cache/oidc-login, cache/kubelogin store live auth tokens) - never capture
+      "**\\.kube\\cache\\**",
+      "**\\.kube\\http-cache\\**",
+      "**\\oidc-login\\**",
+      "**\\kubelogin\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.kube\\config",
+      "%USERPROFILE%\\.kube\\cache",
+      "%USERPROFILE%\\.kube\\http-cache"
+    ],
+    "warning": "The kubeconfig (~/.kube/config) routinely embeds credentials inline (client-certificate-data, client-key-data, bearer tokens, passwords) alongside the cluster/context map. It MUST NOT be captured or auto-restored, and this module does not. Recreate cluster access via your provider CLI (az/gcloud/aws eks update-kubeconfig) or `kubectl config set-context`. The cache/ and http-cache/ directories hold live OIDC/exec-plugin auth tokens and discovery/schema caches; they regenerate on demand and are never captured.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures ONLY the kubectl kuberc user-preferences file at %USERPROFILE%\\.kube\\kuberc (aliases, command defaults). Per official Kubernetes docs, kuberc contains no cluster details, usernames, or passwords. The kubeconfig at %USERPROFILE%\\.kube\\config is deliberately NOT captured or restored because it embeds credentials (client certs/keys, tokens, passwords) inline with the cluster/context map; it is excluded and listed under sensitive. The .kube\\cache and .kube\\http-cache directories - including OIDC/exec credential-plugin token caches - are also excluded. Confidence: high - default kuberc/kubeconfig paths and the credential-bearing structure of kubeconfig confirmed by official Kubernetes documentation."
+}

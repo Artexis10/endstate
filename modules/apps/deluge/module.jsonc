@@ -1,0 +1,112 @@
+{
+  // Config Module: Deluge
+  // Provides verify/restore/capture configuration for the Deluge BitTorrent client
+  // Curated module - captures user/daemon preferences, excludes credentials and torrent session state
+
+  "id": "apps.deluge",
+  "displayName": "Deluge",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["DelugeTeam.Deluge"],
+    "exe": ["deluge.exe", "deluged.exe", "deluge-console.exe"],
+    "uninstallDisplayName": ["^Deluge\\b"],
+    "pathExists": [
+      "%APPDATA%\\deluge\\core.conf"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\deluge\\core.conf" }
+  ],
+
+  "restore": [
+    {
+      // Core daemon / torrent preferences (download paths, limits, queue settings)
+      "type": "copy",
+      "source": "./payload/apps/deluge/core.conf",
+      "target": "%APPDATA%\\deluge\\core.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // GTK3 desktop UI preferences (columns, window geometry, classic mode)
+      "type": "copy",
+      "source": "./payload/apps/deluge/gtk3ui.conf",
+      "target": "%APPDATA%\\deluge\\gtk3ui.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Console UI preferences
+      "type": "copy",
+      "source": "./payload/apps/deluge/console.conf",
+      "target": "%APPDATA%\\deluge\\console.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Label plugin configuration
+      "type": "copy",
+      "source": "./payload/apps/deluge/label.conf",
+      "target": "%APPDATA%\\deluge\\label.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // AutoAdd plugin configuration (watch folders, per-folder rules)
+      "type": "copy",
+      "source": "./payload/apps/deluge/autoadd.conf",
+      "target": "%APPDATA%\\deluge\\autoadd.conf",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\deluge\\core.conf", "dest": "apps/deluge/core.conf", "optional": true },
+      { "source": "%APPDATA%\\deluge\\gtk3ui.conf", "dest": "apps/deluge/gtk3ui.conf", "optional": true },
+      { "source": "%APPDATA%\\deluge\\console.conf", "dest": "apps/deluge/console.conf", "optional": true },
+      { "source": "%APPDATA%\\deluge\\label.conf", "dest": "apps/deluge/label.conf", "optional": true },
+      { "source": "%APPDATA%\\deluge\\autoadd.conf", "dest": "apps/deluge/autoadd.conf", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Credentials - daemon auth (plaintext user:pass:level) and connection list
+      "**\\auth",
+      "**\\hostlist.conf",
+      // Web UI config holds hashed password (pwd_sha1/pwd_salt) - never capture
+      "**\\web.conf",
+      // Private keys / certificates for the daemon TLS interface
+      "**\\ssl\\**",
+      // Torrent session state, resume data, and the .torrent store (large, machine-specific, non-portable)
+      "**\\state\\**",
+      "**\\*.fastresume",
+      "**\\session.state",
+      "**\\torrents.state",
+      // Runtime / cache / transient
+      "**\\ipc\\**",
+      "**\\icons\\**",
+      "**\\plugins\\**",
+      "**\\*.log",
+      "**\\*.log.*",
+      "**\\deluged.pid",
+      "**\\*.tmp",
+      "**\\*.bak"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\deluge\\auth",
+      "%APPDATA%\\deluge\\hostlist.conf",
+      "%APPDATA%\\deluge\\web.conf",
+      "%APPDATA%\\deluge\\ssl\\daemon.pkey",
+      "%APPDATA%\\deluge\\ssl\\daemon.cert"
+    ],
+    "warning": "The Deluge 'auth' file stores daemon credentials as plaintext username:password:level, hostlist.conf stores saved daemon connection credentials, and web.conf stores the hashed Web UI password (pwd_sha1/pwd_salt). These MUST NOT be auto-captured or restored - re-set passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Deluge daemon/UI preferences (core.conf, gtk3ui.conf, console.conf) and label/autoadd plugin configs from %APPDATA%\\deluge\\. Excludes credentials (auth, hostlist.conf, web.conf), TLS private keys (ssl/), and torrent session/resume state (state/, *.fastresume, *.state) which are large and non-portable. Confidence: high - config directory %APPDATA%\\deluge\\ and file roles (core.conf, web.conf pwd_sha1/pwd_salt, auth plaintext, hostlist.conf) confirmed by official Deluge FAQ/docs and multiple independent sources."
+}

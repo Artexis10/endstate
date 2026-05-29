@@ -1,0 +1,75 @@
+{
+  // Config Module: AIMP
+  // Provides verify/restore/capture configuration for AIMP (Windows audio player)
+  // Curated module - AIMP stores user preferences as files under %APPDATA%\AIMP
+
+  "id": "apps.aimp",
+  "displayName": "AIMP",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["AIMP.AIMP"],
+    "exe": ["AIMP.exe"],
+    "uninstallDisplayName": ["^AIMP\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\AIMP\\AIMP.ini" }
+  ],
+
+  "restore": [
+    {
+      // Master preferences file (player, UI, audio engine, hotkeys, radio stations)
+      "type": "copy",
+      "source": "./payload/apps/aimp/AIMP.ini",
+      "target": "%APPDATA%\\AIMP\\AIMP.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Equalizer preset library
+      "type": "copy",
+      "source": "./payload/apps/aimp/EQPresetsLibrary.ini",
+      "target": "%APPDATA%\\AIMP\\EQPresetsLibrary.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved playlists (.aimppl4 files)
+      "type": "copy",
+      "source": "./payload/apps/aimp/PlayLists",
+      "target": "%APPDATA%\\AIMP\\PlayLists",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-installed skins
+      "type": "copy",
+      "source": "./payload/apps/aimp/Skins",
+      "target": "%APPDATA%\\AIMP\\Skins",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\Cache\\**"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\AIMP\\AIMP.ini", "dest": "apps/aimp/AIMP.ini", "optional": true },
+      { "source": "%APPDATA%\\AIMP\\EQPresetsLibrary.ini", "dest": "apps/aimp/EQPresetsLibrary.ini", "optional": true },
+      { "source": "%APPDATA%\\AIMP\\PlayLists", "dest": "apps/aimp/PlayLists", "optional": true },
+      { "source": "%APPDATA%\\AIMP\\Skins", "dest": "apps/aimp/Skins", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\!Backup\\**",
+      "**\\Cache\\**",
+      "**\\PluginsCache\\**",
+      "**\\*.bak",
+      "**\\*.log",
+      "**\\Logs\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "notes": "Captures AIMP user preferences from %APPDATA%\\AIMP: AIMP.ini (player/UI/audio/hotkey settings), EQPresetsLibrary.ini (equalizer presets), PlayLists (.aimppl4 playlists), and user Skins. AIMP stores preferences in INI/files, not user-preference registry keys. Auto-generated backups (!Backup), album-art/plugin caches, and .bak files are excluded. Confidence: high - %APPDATA%\\AIMP and EQPresetsLibrary.ini confirmed by official AIMP forum; AIMP.ini and PlayLists confirmed by multiple independent sources."
+}

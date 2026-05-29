@@ -1,0 +1,64 @@
+{
+  // Config Module: Alacritty
+  // Provides verify/restore/capture configuration for Alacritty (GPU-accelerated terminal)
+  // Curated module - captures the hand-edited TOML config; Alacritty stores NO settings in the registry
+
+  "id": "apps.alacritty",
+  "displayName": "Alacritty",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Alacritty.Alacritty"],
+    "exe": ["alacritty.exe"],
+    "uninstallDisplayName": ["^Alacritty"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "alacritty" }
+    // Note: config is optional - Alacritty does not create alacritty.toml itself,
+    // so verify only checks the binary is installed, not that config exists.
+  ],
+
+  "restore": [
+    {
+      // Primary config: fonts, colors, keybindings, window, shell - all in one TOML
+      "type": "copy",
+      "source": "./payload/apps/alacritty/alacritty.toml",
+      "target": "%APPDATA%\\alacritty\\alacritty.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Legacy YAML config (Alacritty < 0.13); harmless if absent on newer installs
+      "type": "copy",
+      "source": "./payload/apps/alacritty/alacritty.yml",
+      "target": "%APPDATA%\\alacritty\\alacritty.yml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Themes directory - imported color-scheme TOMLs the user keeps alongside the config
+      "type": "copy",
+      "source": "./payload/apps/alacritty/themes",
+      "target": "%APPDATA%\\alacritty\\themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\alacritty\\alacritty.toml", "dest": "apps/alacritty/alacritty.toml", "optional": true },
+      // Legacy YAML config for older Alacritty installs
+      { "source": "%APPDATA%\\alacritty\\alacritty.yml", "dest": "apps/alacritty/alacritty.yml", "optional": true },
+      // Imported themes/keybinding fragments (convention: %APPDATA%\alacritty\themes)
+      { "source": "%APPDATA%\\alacritty\\themes", "dest": "apps/alacritty/themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\.git\\**"
+    ]
+  },
+
+  "notes": "Captures Alacritty's hand-edited TOML config (fonts, colors, keybindings, window, shell) from %APPDATA%\\alacritty\\, plus the legacy alacritty.yml and an optional themes/ directory of imported color schemes. Alacritty stores no settings in the Windows Registry and keeps no credentials, caches, or session state in its config directory, so there is nothing sensitive to exclude beyond stray logs/.git. Confidence: high - config path %APPDATA%\\alacritty\\alacritty.toml and registry-free design confirmed by official Alacritty documentation."
+}

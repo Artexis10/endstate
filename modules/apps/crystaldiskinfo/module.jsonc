@@ -1,0 +1,51 @@
+{
+  // Config Module: CrystalDiskInfo
+  // Provides verify/restore/capture configuration for CrystalDiskInfo (S.M.A.R.T. disk health monitor)
+  // Settings live in a single portable-style INI next to the executable (install dir), not %APPDATA% or the registry.
+
+  "id": "apps.crystaldiskinfo",
+  "displayName": "CrystalDiskInfo",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["CrystalDewWorld.CrystalDiskInfo"],
+    "exe": ["DiskInfo64.exe", "DiskInfo32.exe"],
+    "uninstallDisplayName": ["^CrystalDiskInfo"],
+    "pathExists": [
+      "%ProgramFiles%\\CrystalDiskInfo\\DiskInfo64.exe",
+      "%ProgramFiles(x86)%\\CrystalDiskInfo\\DiskInfo64.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\CrystalDiskInfo\\DiskInfo64.exe" }
+  ],
+
+  "restore": [
+    {
+      // merge-ini preserves any per-disk sections ([AlarmTemperature], [AamValue], [ApmValue]
+      // keyed by disk Model+Serial) that already exist on the target machine.
+      "type": "merge-ini",
+      "source": "./payload/apps/crystaldiskinfo/DiskInfo.ini",
+      "target": "%ProgramFiles%\\CrystalDiskInfo\\DiskInfo.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%ProgramFiles%\\CrystalDiskInfo\\DiskInfo.ini", "dest": "apps/crystaldiskinfo/DiskInfo.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.txt",
+      "**\\DiskInfo.dat",
+      "**\\AlertMail\\**",
+      "**\\smtp*.dat",
+      "**\\*.bak"
+    ]
+  },
+
+  "notes": "Captures CrystalDiskInfo's single DiskInfo.ini (language, refresh interval, temperature/alarm thresholds, AAM/APM, sound-alert toggles, window/tray state) which lives next to the executable in the install directory (%ProgramFiles%\\CrystalDiskInfo\\). The app uses no registry and no %APPDATA% location. SMTP alert-mail credentials are NOT stored in DiskInfo.ini (only the AlertMail on/off toggle is); they are handled by a separate bundled AlertMail component, which is excluded. Writing to %ProgramFiles% on restore may require elevation. Confidence: high - settings path confirmed by the official DiskInfo.cpp source (GetModuleFileName dir + \\DiskInfo.ini, no registry) and corroborated by Crystal Dew World docs and community guides."
+}
