@@ -1,0 +1,66 @@
+{
+  // Config Module: Lapce
+  // Provides verify/restore/capture configuration for Lapce (Rust-based code editor)
+  // Curated module - captures user settings, keymaps, and themes; excludes plugin binaries and caches
+
+  "id": "apps.lapce",
+  "displayName": "Lapce",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Lapce.Lapce"],
+    "exe": ["lapce.exe"],
+    "uninstallDisplayName": ["^Lapce"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "lapce" }
+    // Note: config files are optional - a fresh install has no settings.toml until the user changes a setting
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/lapce/settings.toml",
+      "target": "%APPDATA%\\lapce\\Lapce-Stable\\config\\settings.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lapce/keymaps.toml",
+      "target": "%APPDATA%\\lapce\\Lapce-Stable\\config\\keymaps.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/lapce/themes",
+      "target": "%LOCALAPPDATA%\\lapce\\Lapce-Stable\\data\\themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary config (ProjectDirs config_dir on Windows: %APPDATA%\lapce\Lapce-Stable\config)
+      { "source": "%APPDATA%\\lapce\\Lapce-Stable\\config\\settings.toml", "dest": "apps/lapce/settings.toml", "optional": true },
+      { "source": "%APPDATA%\\lapce\\Lapce-Stable\\config\\keymaps.toml", "dest": "apps/lapce/keymaps.toml", "optional": true },
+      // User color themes (data_local_dir on Windows: %LOCALAPPDATA%\lapce\Lapce-Stable\data\themes)
+      { "source": "%LOCALAPPDATA%\\lapce\\Lapce-Stable\\data\\themes", "dest": "apps/lapce/themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\plugins\\**",
+      "**\\cache\\**",
+      "**\\logs\\**",
+      "**\\proxy\\**",
+      "**\\updates\\**",
+      "**\\grammars\\**",
+      "**\\*.sock",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Lapce user settings (settings.toml), keybindings (keymaps.toml), and user color themes. Lapce uses the Rust 'directories' crate: config lives at %APPDATA%\\lapce\\Lapce-Stable\\config\\ and data at %LOCALAPPDATA%\\lapce\\Lapce-Stable\\data\\. Plugin binaries, grammars, caches, logs, proxy, updates, and sockets are excluded (re-downloadable / transient). Lapce stores no auth tokens or credentials on disk. Confidence: high - paths confirmed from Lapce source (lapce-core/src/directory.rs uses ProjectDirs::from(\"dev\",\"lapce\",\"Lapce-Stable\")) and official docs."
+}

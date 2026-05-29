@@ -1,0 +1,73 @@
+{
+  // Config Module: Maxon Cinema 4D
+  // Provides verify/restore/capture configuration for Cinema 4D (Maxon 3D/motion-graphics suite)
+  // Curated module - captures preferences, custom layouts, and scripts
+  // Note: No winget ID - installs via the Maxon App. Preferences folder is version-specific.
+
+  "id": "apps.cinema-4d",
+  "displayName": "Cinema 4D",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Cinema 4D.exe", "CINEMA 4D.exe"],
+    "uninstallDisplayName": ["^Maxon Cinema 4D", "^CINEMA 4D"],
+    "pathExists": [
+      "%APPDATA%\\Maxon\\Maxon Cinema 4D*\\prefs"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Maxon\\Maxon Cinema 4D*\\prefs" }
+  ],
+
+  "restore": [
+    {
+      // Main preferences (Edit > Preferences), UI color schemes, startup layout, and shortcuts (R25+)
+      "type": "copy",
+      "source": "./payload/apps/cinema-4d/prefs",
+      "target": "%APPDATA%\\Maxon\\Maxon Cinema 4D*\\prefs",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom interface layouts
+      "type": "copy",
+      "source": "./payload/apps/cinema-4d/layout",
+      "target": "%APPDATA%\\Maxon\\Maxon Cinema 4D*\\library\\layout",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User scripts (Python/C.O.F.F.E.E.)
+      "type": "copy",
+      "source": "./payload/apps/cinema-4d/scripts",
+      "target": "%APPDATA%\\Maxon\\Maxon Cinema 4D*\\library\\scripts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Maxon\\Maxon Cinema 4D*\\prefs", "dest": "apps/cinema-4d/prefs", "optional": true },
+      { "source": "%APPDATA%\\Maxon\\Maxon Cinema 4D*\\library\\layout", "dest": "apps/cinema-4d/layout", "optional": true },
+      { "source": "%APPDATA%\\Maxon\\Maxon Cinema 4D*\\library\\scripts", "dest": "apps/cinema-4d/scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\_assetcache\\**",
+      "**\\userrepository\\**",
+      "**\\plugins\\**",
+      "**\\Cache\\**",
+      "**\\*.cache",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\crashes\\**",
+      "**\\*.dmp",
+      // License-binding state (machine/account-specific, not a portable preference)
+      "**\\licensetype.prf"
+    ]
+  },
+
+  "notes": "Captures Cinema 4D preferences (prefs/: main preferences file, UI color schemes, startup layout, and R25+ shortcuts), custom layouts (library/layout/), and user scripts (library/scripts/). The preferences folder is version- and install-specific (%APPDATA%\\Maxon\\Maxon Cinema 4D <version>_<hash>\\), so paths use a wildcard. Downloaded asset cache (_assetcache/), the user asset repository (userrepository/, potentially very large), third-party plugin binaries (plugins/), caches/logs/crash dumps, and license-binding state (licensetype.prf, machine/account-specific) are excluded. The Maxon-account password is NOT stored here - automatic-login credentials live in config.txt under the install/resource folder (Program Files), outside the captured prefs. No winget ID - installs via the Maxon App. Confidence: high - folder layout confirmed by Maxon Knowledge Base and corroborating community sources."
+}

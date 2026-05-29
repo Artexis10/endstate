@@ -1,0 +1,44 @@
+{
+  // Config Module: SumatraPDF
+  // Provides verify/restore/capture configuration for SumatraPDF (lightweight PDF/ebook reader)
+  // All settings live in a single human-readable text file; no registry usage
+
+  "id": "apps.sumatra-pdf",
+  "displayName": "SumatraPDF",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["SumatraPDF.SumatraPDF"],
+    "exe": ["SumatraPDF.exe", "SumatraPDF-3.5.exe"],
+    "uninstallDisplayName": ["^SumatraPDF"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\SumatraPDF\\SumatraPDF-settings.txt" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/sumatra-pdf/SumatraPDF-settings.txt",
+      "target": "%LOCALAPPDATA%\\SumatraPDF\\SumatraPDF-settings.txt",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single human-readable settings file: UI prefs, zoom/view modes, color schemes,
+      // keyboard shortcuts, external viewer configs, plus file history & session (open docs).
+      { "source": "%LOCALAPPDATA%\\SumatraPDF\\SumatraPDF-settings.txt", "dest": "apps/sumatra-pdf/SumatraPDF-settings.txt", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Thumbnail PNG cache for the "Frequently read" list
+      "**\\sumatrapdfcache\\**",
+      "**\\*.png"
+    ]
+  },
+
+  "notes": "Captures the single SumatraPDF-settings.txt file (%LOCALAPPDATA%\\SumatraPDF\\) holding all preferences: view modes, zoom, color schemes, keyboard shortcuts, and external viewer configs. The thumbnail cache (sumatrapdfcache) is excluded. The file also embeds file-history and session entries (paths to recently/open documents) but no credentials. SumatraPDF uses no Windows registry for settings; portable installs store the file next to the exe instead. Confidence: high - exact path and cache subdir confirmed by official SumatraPDF docs (How-we-store-settings) and DeepWiki."
+}

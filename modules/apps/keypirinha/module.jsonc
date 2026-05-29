@@ -1,0 +1,67 @@
+{
+  // Config Module: Keypirinha
+  // Provides verify/restore/capture configuration for Keypirinha (keyboard launcher)
+  // Curated module - captures hand-edited INI config + custom packages, excludes
+  // downloaded package archives and runtime cache
+
+  "id": "apps.keypirinha",
+  "displayName": "Keypirinha",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["keypirinha.exe", "keypirinha-x64.exe"],
+    "uninstallDisplayName": ["^Keypirinha"],
+    "pathExists": [
+      "%APPDATA%\\Keypirinha\\User"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Keypirinha\\User\\Keypirinha.ini" }
+  ],
+
+  "restore": [
+    {
+      // User config directory: Keypirinha.ini + variants + per-package .ini overrides
+      "type": "copy",
+      "source": "./payload/apps/keypirinha/User",
+      "target": "%APPDATA%\\Keypirinha\\User",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Live packages: user-authored / modified custom packages (loose files)
+      "type": "copy",
+      "source": "./payload/apps/keypirinha/Packages",
+      "target": "%APPDATA%\\Keypirinha\\Packages",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\Cache\\**",
+        "**\\*.log"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Hand-edited application + package configuration (the primary settings)
+      { "source": "%APPDATA%\\Keypirinha\\User", "dest": "apps/keypirinha/User", "optional": true },
+      // User-authored / modified live packages
+      { "source": "%APPDATA%\\Keypirinha\\Packages", "dest": "apps/keypirinha/Packages", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Downloaded extra packages (re-fetchable .keypirinha-package archives)
+      "**\\InstalledPackages\\**",
+      "**\\*.keypirinha-package",
+      // Runtime cache / temporary files (live under %LOCALAPPDATA%\\Keypirinha)
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures Keypirinha's hand-edited INI configuration (%APPDATA%\\Keypirinha\\User\\Keypirinha.ini plus USER/MACHINE variants and per-package .ini overrides) and user-authored live packages (%APPDATA%\\Keypirinha\\Packages). Excludes downloaded package archives in InstalledPackages (re-fetchable) and all runtime cache/temp files under %LOCALAPPDATA%\\Keypirinha. No credentials or registry settings are involved. Confidence: high - directory layout confirmed by official Keypirinha install/configuration/packages documentation."
+}

@@ -1,0 +1,68 @@
+{
+  // Config Module: pip (Python package installer)
+  // Provides verify/restore/capture configuration for pip's per-user config file
+  // Curated module - captures pip.ini (index URLs, trusted hosts, default options)
+
+  "id": "apps.pip",
+  "displayName": "pip",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["pip.exe"],
+    "pathExists": [
+      "%APPDATA%\\pip\\pip.ini",
+      "%USERPROFILE%\\pip\\pip.ini"
+    ]
+  },
+
+  "verify": [
+    // pip ships with Python; presence of either config location is sufficient
+    { "type": "command-exists", "command": "pip" }
+  ],
+
+  "restore": [
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/pip/pip.ini",
+      "target": "%APPDATA%\\pip\\pip.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Legacy per-user location: pip docs call this %HOME%\pip\pip.ini, but %HOME% is not set by
+      // default on Windows. pip resolves it via os.path.expanduser("~"), so the portable target is
+      // ~/pip/pip.ini (the engine expands ~ to %USERPROFILE% via os.UserHomeDir()).
+      "type": "merge-ini",
+      "source": "./payload/apps/pip/pip.legacy.ini",
+      "target": "~/pip/pip.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary per-user config (Windows default location)
+      { "source": "%APPDATA%\\pip\\pip.ini", "dest": "apps/pip/pip.ini", "optional": true },
+      // Legacy per-user location, still loaded by pip if present
+      { "source": "~/pip/pip.ini", "dest": "apps/pip/pip.legacy.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // pip's download/wheel cache lives at %LOCALAPPDATA%\pip\Cache - never config
+      "**\\Cache\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\pip\\pip.ini",
+      "~/pip/pip.ini"
+    ],
+    "warning": "pip.ini may embed credentials in an index-url (e.g. https://user:token@private-index/simple). Review captured pip.ini before sharing or restoring; rotate any leaked tokens.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures pip's per-user INI config (index-url, extra-index-url, trusted-host, timeout, default options) from %APPDATA%\\pip\\pip.ini and the legacy ~/pip/pip.ini. The download/wheel cache (%LOCALAPPDATA%\\pip\\Cache) is excluded. pip.ini can embed credentials inside a private index-url, so the file is flagged sensitive (warn-only on restore). Confidence: high - %APPDATA%\\pip\\pip.ini and the legacy %HOME%\\pip\\pip.ini are documented in the official pip configuration docs."
+}

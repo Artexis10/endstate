@@ -1,0 +1,140 @@
+{
+  // Config Module: Autodesk Maya
+  // Provides verify/restore/capture configuration for Autodesk Maya (3D animation / modeling DCC)
+  // File-based preferences live in the version-specific user application directory under Documents.
+  //
+  // IMPORTANT: Maya's preference directory is VERSION-SPECIFIC: the MAYA_APP_DIR defaults to
+  // %USERPROFILE%\Documents\maya, and each release keeps its own subfolder (modern releases use a
+  // bare year, e.g. "2026", "2025"; older releases used a "-x64" suffix, e.g. "2024-x64").
+  // Endstate does not support glob/wildcard source paths, so the recent versions are enumerated
+  // explicitly below. Each entry is optional, so only the versions actually present are captured.
+
+  "id": "apps.maya",
+  "displayName": "Autodesk Maya",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["maya.exe"],
+    "uninstallDisplayName": ["^Autodesk Maya\\b"],
+    "pathExists": [
+      "%USERPROFILE%\\Documents\\maya\\2026",
+      "%USERPROFILE%\\Documents\\maya\\2025",
+      "%USERPROFILE%\\Documents\\maya\\2024",
+      "%USERPROFILE%\\Documents\\maya\\2023"
+    ]
+  },
+
+  "verify": [
+    // Maya may not have launched yet; presence of any version's userPrefs.mel confirms it has.
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\maya\\2026\\prefs\\userPrefs.mel" },
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\maya\\2025\\prefs\\userPrefs.mel" }
+  ],
+
+  "restore": [
+    // ---- Maya 2026 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/maya/2026",
+      "target": "%USERPROFILE%\\Documents\\maya\\2026",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\*.lock",
+        "**\\*.bak",
+        "**\\cache\\**",
+        "**\\temp\\**",
+        "**\\tmp\\**",
+        "**\\mayaLog*",
+        "**\\incrementalSave\\**",
+        "**\\autosave\\**"
+      ]
+    },
+    // ---- Maya 2025 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/maya/2025",
+      "target": "%USERPROFILE%\\Documents\\maya\\2025",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\*.lock",
+        "**\\*.bak",
+        "**\\cache\\**",
+        "**\\temp\\**",
+        "**\\tmp\\**",
+        "**\\mayaLog*",
+        "**\\incrementalSave\\**",
+        "**\\autosave\\**"
+      ]
+    },
+    // ---- Maya 2024 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/maya/2024",
+      "target": "%USERPROFILE%\\Documents\\maya\\2024",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\*.lock",
+        "**\\*.bak",
+        "**\\cache\\**",
+        "**\\temp\\**",
+        "**\\tmp\\**",
+        "**\\mayaLog*",
+        "**\\incrementalSave\\**",
+        "**\\autosave\\**"
+      ]
+    },
+    // ---- Maya 2023 ----
+    {
+      "type": "copy",
+      "source": "./payload/apps/maya/2023",
+      "target": "%USERPROFILE%\\Documents\\maya\\2023",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\*.lock",
+        "**\\*.bak",
+        "**\\cache\\**",
+        "**\\temp\\**",
+        "**\\tmp\\**",
+        "**\\mayaLog*",
+        "**\\incrementalSave\\**",
+        "**\\autosave\\**"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Capture each installed version's application directory. This holds prefs/ (userPrefs.mel,
+      // windowPrefs.mel, userHotkeys.mel, userNamedCommands.mel, userColors.mel/userRGBColors.mel,
+      // and the shelves/, icons/, markingMenus/ subdirectories), scripts/ and presets/.
+      { "source": "%USERPROFILE%\\Documents\\maya\\2026", "dest": "apps/maya/2026", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\maya\\2025", "dest": "apps/maya/2025", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\maya\\2024", "dest": "apps/maya/2024", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\maya\\2023", "dest": "apps/maya/2023", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Logs, lock files and editor backups
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.bak",
+      "**\\mayaLog*",
+      // Transient / cache / temp data
+      "**\\cache\\**",
+      "**\\temp\\**",
+      "**\\tmp\\**",
+      // Auto-saved and incremental scene files (user scene data, not settings)
+      "**\\incrementalSave\\**",
+      "**\\autosave\\**"
+    ]
+  },
+
+  "notes": "Captures Autodesk Maya's file-based user preferences from the version-specific application directory %USERPROFILE%\\Documents\\maya\\<version>\\ (prefs/ with userPrefs.mel, windowPrefs.mel, userHotkeys.mel, userNamedCommands.mel, userColors.mel, plus shelves/, icons/, markingMenus/ subdirectories, and the scripts/ and presets/ folders). Recent versions (2026, 2025, 2024, 2023) are enumerated explicitly because Endstate does not glob version directories; only installed versions are captured. Logs, lock files, caches, temp and auto-saved/incremental scene files are excluded; the maya\\projects\\ scene-data folder is intentionally not captured. Maya stores no user preferences in the Windows registry. Confidence: high - preference directory location (MAYA_APP_DIR = %USERPROFILE%\\Documents\\maya\\<version>\\prefs) and the prefs file/subdirectory layout confirmed by official Autodesk documentation and multiple independent community sources."
+}

@@ -1,0 +1,61 @@
+{
+  // Config Module: TablePlus
+  // Provides verify/restore/capture configuration for TablePlus (multi-database GUI)
+  // On Windows, application preferences are stored in the registry under
+  // HKCU\Software\TablePlus\TablePlus\. Saved database passwords are bound to the
+  // OS credential store (keychain) and are NEVER captured/restored.
+
+  "id": "apps.tableplus",
+  "displayName": "TablePlus",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["TablePlus.TablePlus"],
+    "exe": ["TablePlus.exe"],
+    "uninstallDisplayName": ["^TablePlus"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\TablePlus\\TablePlus" }
+  ],
+
+  "restore": [
+    {
+      // Application preferences (UI, editor, behavior settings). Connection
+      // definitions on Windows live under this key in undocumented form; saved
+      // passwords are stored separately in the OS credential store and are not
+      // included here.
+      "type": "registry-import",
+      "source": "./payload/apps/tableplus/Settings.reg",
+      "target": "HKCU\\Software\\TablePlus\\TablePlus",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\TablePlus\\TablePlus", "dest": "apps/tableplus/Settings.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Update-checker state (WinSparkle) is machine/run state, not a preference.
+      "**\\WinSparkle\\**",
+      // Credential / password material must never leave the OS credential store.
+      "**\\*assword*",
+      "**\\* credential*",
+      "**\\*secret*",
+      "**\\*token*"
+    ]
+  },
+
+  "sensitive": {
+    "registryKeys": [
+      "HKCU\\Software\\TablePlus\\TablePlus\\WinSparkle"
+    ],
+    "warning": "TablePlus saved database/server passwords are bound to the Windows credential store (keychain) and are NOT contained in the captured registry preferences. The official, password-aware way to move connections between machines is TablePlus's own Export Connections feature (.tableplusconnection file), which prompts for whether to include passwords. Re-enter credentials after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures TablePlus Windows application preferences from HKCU\\Software\\TablePlus\\TablePlus (verified Windows registry root via the documented WinSparkle update-control subkey). Saved database passwords live in the OS credential store and are intentionally not captured; the WinSparkle update-state subkey is excluded. For full connection portability use TablePlus's built-in Export/Import Connections. Confidence: medium - HKCU registry root is confirmed by an independent install guide, but the exact on-disk/registry layout of connection definitions on Windows is not officially documented (macOS uses Connections.plist, which does not apply here)."
+}

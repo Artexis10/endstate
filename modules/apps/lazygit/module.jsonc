@@ -1,0 +1,67 @@
+{
+  // Config Module: lazygit
+  // Provides verify/restore/capture configuration for lazygit (terminal UI for git)
+  // Curated module - captures user config.yml, excludes runtime state and logs
+
+  "id": "apps.lazygit",
+  "displayName": "lazygit",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JesseDuffield.lazygit"],
+    "exe": ["lazygit.exe"],
+    "uninstallDisplayName": ["^lazygit"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "lazygit" }
+    // Note: config.yml is optional - lazygit runs with built-in defaults if absent.
+    // Verify only checks lazygit is installed, not that user config exists.
+  ],
+
+  "restore": [
+    // Default location on modern Windows installs
+    {
+      "type": "copy",
+      "source": "./payload/apps/lazygit/config-localappdata.yml",
+      "target": "%LOCALAPPDATA%\\lazygit\\config.yml",
+      "backup": true,
+      "optional": true
+    },
+    // Also-recognized / historically common location
+    {
+      "type": "copy",
+      "source": "./payload/apps/lazygit/config-appdata.yml",
+      "target": "%APPDATA%\\lazygit\\config.yml",
+      "backup": true,
+      "optional": true
+    },
+    // Legacy location (older installations)
+    {
+      "type": "copy",
+      "source": "./payload/apps/lazygit/config-legacy.yml",
+      "target": "%APPDATA%\\jesseduffield\\lazygit\\config.yml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary user config (keybindings, custom commands, theme, gui options).
+      // lazygit may resolve its config dir to either %LOCALAPPDATA% or %APPDATA%;
+      // capture all candidate locations so the user's actual file is picked up.
+      { "source": "%LOCALAPPDATA%\\lazygit\\config.yml", "dest": "apps/lazygit/config-localappdata.yml", "optional": true },
+      { "source": "%APPDATA%\\lazygit\\config.yml", "dest": "apps/lazygit/config-appdata.yml", "optional": true },
+      { "source": "%APPDATA%\\jesseduffield\\lazygit\\config.yml", "dest": "apps/lazygit/config-legacy.yml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Runtime state (recent repos, window geometry, startup popup version) - not portable user config
+      "**\\state.yml",
+      "**\\*.log",
+      "**\\lazygit.log"
+    ]
+  },
+
+  "notes": "Captures lazygit's user config.yml (keybindings, custom commands, theme, gui options) from all candidate Windows locations (%LOCALAPPDATA%\\lazygit, %APPDATA%\\lazygit, and the legacy %APPDATA%\\jesseduffield\\lazygit). Runtime state (state.yml: recent repos, window geometry) and logs are excluded. lazygit stores no credentials of its own - it delegates authentication to git, so nothing sensitive is captured. Confidence: high - config path resolution confirmed by official lazygit docs/Config.md and project discussions."
+}

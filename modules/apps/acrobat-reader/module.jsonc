@@ -1,0 +1,75 @@
+{
+  // Config Module: Adobe Acrobat Reader
+  // Provides verify/capture/restore configuration for Adobe Acrobat Reader (DC / 64-bit)
+  // Preferences are split between HKCU registry and %APPDATA%\Adobe\Acrobat\DC
+  // Excludes Document Cloud account tokens and cached sign-in
+
+  "id": "apps.acrobat-reader",
+  "displayName": "Adobe Acrobat Reader",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Adobe.Acrobat.Reader.64-bit"],
+    "exe": ["AcroRd32.exe", "Acrobat.exe"],
+    "uninstallDisplayName": ["^Adobe Acrobat Reader", "^Adobe Acrobat \\(64-bit\\)"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Adobe\\Acrobat Reader\\DC\\AVGeneral" }
+  ],
+
+  "restore": [
+    {
+      // General application preferences (view, comment, units, etc.)
+      "type": "registry-import",
+      "source": "./payload/apps/acrobat-reader/AVGeneral.reg",
+      "target": "HKCU\\Software\\Adobe\\Acrobat Reader\\DC\\AVGeneral",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom stamps (.pdf), JavaScripts, and other file-based customizations
+      "type": "copy",
+      "source": "./payload/apps/acrobat-reader/DC",
+      "target": "%APPDATA%\\Adobe\\Acrobat\\DC",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\Cache\\**",
+        "**\\SharedDataEvents*",
+        "**\\UserCache.bin",
+        "**\\*.log"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Adobe\\Acrobat\\DC", "dest": "apps/acrobat-reader/DC", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\Adobe\\Acrobat Reader\\DC\\AVGeneral", "dest": "apps/acrobat-reader/AVGeneral.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\SharedDataEvents*",
+      "**\\UserCache.bin",
+      "**\\ReaderMessages*",
+      "**\\*.log",
+      "**\\Synchronizer\\**",
+      "**\\SOAP\\**",
+      "**\\Security\\CRLCache\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "HKCU\\Software\\Adobe\\Acrobat Reader\\DC\\Adobe Cloud",
+      "%APPDATA%\\Adobe\\Acrobat\\DC\\Security\\addressbook.acrodata"
+    ],
+    "warning": "Adobe Document Cloud sign-in tokens and cached account credentials MUST NOT be auto-restored. Sign in to Adobe again after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Acrobat Reader general preferences from HKCU\\Software\\Adobe\\Acrobat Reader\\DC\\AVGeneral plus file-based customizations in %APPDATA%\\Adobe\\Acrobat\\DC (custom stamps, JavaScripts, security policies). Document Cloud account tokens, sync state, caches, and CRL cache are excluded. Confidence: medium - registry preference key and AppData\\DC folder confirmed by Adobe community sources, but exact subfolder set worth keeping varies by Reader build."
+}

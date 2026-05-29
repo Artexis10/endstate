@@ -1,0 +1,92 @@
+{
+  // Config Module: Gajim
+  // Provides verify/restore/capture configuration for Gajim (XMPP/Jabber client)
+  // Curated module - captures portable UI preferences only; excludes credential-bearing
+  // settings.sqlite and the private chat-history database (logs.db)
+
+  "id": "apps.gajim",
+  "displayName": "Gajim",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Gajim.Gajim"],
+    "exe": ["Gajim.exe", "gajim.exe"],
+    "uninstallDisplayName": ["^Gajim\\b"],
+    "pathExists": [
+      "%APPDATA%\\Gajim"
+    ]
+  },
+
+  "verify": [
+    // Gajim creates settings.sqlite on first run; its presence confirms a real profile
+    { "type": "file-exists", "path": "%APPDATA%\\Gajim\\settings.sqlite" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/gajim/shortcuts.json",
+      "target": "%APPDATA%\\Gajim\\shortcuts.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/gajim/pluginsconfig",
+      "target": "%APPDATA%\\Gajim\\pluginsconfig",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/gajim/theme",
+      "target": "%APPDATA%\\Gajim\\theme",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Keyboard shortcut overrides (CONFIG, plain JSON)
+      { "source": "%APPDATA%\\Gajim\\shortcuts.json", "dest": "apps/gajim/shortcuts.json", "optional": true },
+      // Per-plugin configuration (CONFIG)
+      { "source": "%APPDATA%\\Gajim\\pluginsconfig", "dest": "apps/gajim/pluginsconfig", "optional": true },
+      // User-authored UI themes (CONFIG)
+      { "source": "%APPDATA%\\Gajim\\theme", "dest": "apps/gajim/theme", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Credential-bearing main settings DB (may hold plaintext account passwords)
+      "**\\settings.sqlite",
+      // Private chat history / message log database
+      "**\\logs.db",
+      // Caches and state databases
+      "**\\cache.db",
+      "**\\avatars\\**",
+      "**\\avatar_icons\\**",
+      "**\\bob\\**",
+      "**\\downloads.thumb\\**",
+      "**\\plugins_download\\**",
+      "**\\plugins_images\\**",
+      "**\\plugins_data\\**",
+      // Downloaded/installed plugin binaries (re-install, not config)
+      "**\\plugins\\**",
+      // TLS certificate trust store (security material, machine-specific)
+      "**\\cert_store\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Gajim\\settings.sqlite",
+      "%APPDATA%\\Gajim\\logs.db",
+      "%APPDATA%\\Gajim\\cert_store"
+    ],
+    "warning": "settings.sqlite holds account configuration and can contain PLAINTEXT account passwords when the OS keyring is unavailable; logs.db is the private message-history database; cert_store holds TLS trust material. These MUST NOT be auto-captured or auto-restored. Re-add accounts and re-enter passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Gajim's portable, credential-free preferences only: keyboard shortcuts (shortcuts.json), per-plugin configuration (pluginsconfig\\), and user themes (theme\\) under %APPDATA%\\Gajim. The main settings.sqlite is deliberately EXCLUDED because it can store plaintext account passwords when no keyring is present; the logs.db chat history, cache.db, avatar/thumbnail caches, downloaded plugins, and cert_store are also excluded. Accounts must be re-added after restore. Confidence: high - paths confirmed from Gajim's own configpaths.py source (CONFIG/DATA/CACHE all resolve to %APPDATA%\\Gajim on Windows)."
+}

@@ -1,0 +1,102 @@
+{
+  // Config Module: Syncthing
+  // Provides verify/restore/capture configuration for Syncthing (continuous file sync)
+  // Curated module - captures folder/device topology, excludes index database and private keys
+
+  "id": "apps.syncthing",
+  "displayName": "Syncthing",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Syncthing.Syncthing", "Syncthing.SyncTrayzor"],
+    "exe": ["syncthing.exe", "SyncTrayzor.exe"],
+    "uninstallDisplayName": ["^Syncthing", "^SyncTrayzor"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Syncthing\\config.xml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Syncthing\\config.xml" }
+  ],
+
+  "restore": [
+    // Syncthing core: folder/device/share topology, ignore patterns, GUI settings
+    {
+      "type": "copy",
+      "source": "./payload/apps/syncthing/config.xml",
+      "target": "%LOCALAPPDATA%\\Syncthing\\config.xml",
+      "backup": true,
+      "optional": true
+    },
+    // Device identity public certificate (defines the device ID). The matching
+    // private key (key.pem) is intentionally NOT restored - see sensitive block.
+    {
+      "type": "copy",
+      "source": "./payload/apps/syncthing/cert.pem",
+      "target": "%LOCALAPPDATA%\\Syncthing\\cert.pem",
+      "backup": true,
+      "optional": true
+    },
+    // GUI HTTPS public certificate
+    {
+      "type": "copy",
+      "source": "./payload/apps/syncthing/https-cert.pem",
+      "target": "%LOCALAPPDATA%\\Syncthing\\https-cert.pem",
+      "backup": true,
+      "optional": true
+    },
+    // SyncTrayzor tray launcher settings (optional companion app)
+    {
+      "type": "copy",
+      "source": "./payload/apps/syncthing/SyncTrayzor-config.xml",
+      "target": "%APPDATA%\\SyncTrayzor\\config.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary settings: folders, devices, shares, ignore patterns, GUI config
+      { "source": "%LOCALAPPDATA%\\Syncthing\\config.xml", "dest": "apps/syncthing/config.xml", "optional": true },
+      // Device identity public cert (basis for device ID); private key excluded as sensitive
+      { "source": "%LOCALAPPDATA%\\Syncthing\\cert.pem", "dest": "apps/syncthing/cert.pem", "optional": true },
+      // GUI HTTPS public cert (private key excluded as sensitive)
+      { "source": "%LOCALAPPDATA%\\Syncthing\\https-cert.pem", "dest": "apps/syncthing/https-cert.pem", "optional": true },
+      // SyncTrayzor companion-app settings
+      { "source": "%APPDATA%\\SyncTrayzor\\config.xml", "dest": "apps/syncthing/SyncTrayzor-config.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Private keys (device identity + HTTPS) - never capture
+      "**\\key.pem",
+      "**\\https-key.pem",
+      // Index/metadata databases (large, machine-specific)
+      "**\\index-*.db\\**",
+      "**\\index-v2\\**",
+      "**\\*.db\\**",
+      // Logs, crash dumps, repair markers, session tokens
+      "**\\syncthing.log",
+      "**\\*.log",
+      "**\\panics\\**",
+      "**\\*.needsrepair",
+      "**\\csrftokens.txt",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.lock",
+      "**\\LOCK"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Syncthing\\key.pem",
+      "%LOCALAPPDATA%\\Syncthing\\https-key.pem",
+      "%LOCALAPPDATA%\\Syncthing\\csrftokens.txt"
+    ],
+    "warning": "key.pem is Syncthing's device private key and https-key.pem secures the GUI - these MUST NOT be captured or auto-restored. Restoring config.xml + cert.pem on a fresh machine reuses the device ID, but a new key.pem is generated on first launch, so the device must be re-approved by peers (or remove cert.pem to let Syncthing mint a fresh identity). The GUI API key inside config.xml is also a secret; review before sharing the bundle.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Syncthing topology and settings (folders, devices, shares, ignore patterns, GUI config) from %LOCALAPPDATA%\\Syncthing\\config.xml plus the public cert.pem/https-cert.pem and the SyncTrayzor launcher config at %APPDATA%\\SyncTrayzor\\config.xml. The index database (index-*.db), logs, crash dumps, lock files, and private keys (key.pem, https-key.pem) are excluded. Note: config.xml embeds a GUI API key (secret) and the restored device will need re-approval by peers since the private key is regenerated. Confidence: high - config.xml, cert/key.pem locations confirmed by official Syncthing docs and SyncTrayzor README."
+}

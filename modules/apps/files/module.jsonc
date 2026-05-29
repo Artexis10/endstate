@@ -1,0 +1,51 @@
+{
+  // Config Module: Files
+  // Provides verify/restore/capture configuration for Files (open-source Explorer replacement)
+  // MSIX-packaged app; settings live in user_settings.json inside the package LocalState
+
+  "id": "apps.files",
+  "displayName": "Files",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["FilesCommunity.Files"],
+    "exe": ["Files.exe"],
+    "uninstallDisplayName": ["^Files"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Packages\\Files_1y0xx7n9077q4\\LocalState"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Packages\\Files_1y0xx7n9077q4\\LocalState\\settings\\user_settings.json" }
+  ],
+
+  "restore": [
+    {
+      // JSON preferences: tags, layout, theme, appearance, behavior toggles
+      "type": "merge-json",
+      "source": "./payload/apps/files/user_settings.json",
+      "target": "%LOCALAPPDATA%\\Packages\\Files_1y0xx7n9077q4\\LocalState\\settings\\user_settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary preferences file (tags, layout, theme); exported via Advanced > settings file
+      { "source": "%LOCALAPPDATA%\\Packages\\Files_1y0xx7n9077q4\\LocalState\\settings\\user_settings.json", "dest": "apps/files/user_settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Per-MSIX cache / roaming-state / databases inside the package container
+      "**\\AC\\**",
+      "**\\TempState\\**",
+      "**\\LocalCache\\**",
+      "**\\*.db",
+      "**\\*.log",
+      "**\\Settings\\settings.dat*"
+    ]
+  },
+
+  "notes": "Captures Files preferences (tags, layout, theme, behavior toggles) from user_settings.json inside the MSIX package container %LOCALAPPDATA%\\Packages\\Files_1y0xx7n9077q4\\LocalState\\settings. The package family name (Files_1y0xx7n9077q4) is stable across versions per the winget manifest. UWP cache/roaming/db state is excluded. No credentials. Confidence: medium - package family name confirmed from the winget-pkgs manifest and settings path corroborated by community sources, but the exact LocalState layout can shift between major Files releases."
+}

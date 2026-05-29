@@ -1,0 +1,26 @@
+// Bundle: Communication & Email
+// 17 modules grouped for one-step manifest inclusion.
+{
+  "version": 1,
+  "id": "communication",
+  "name": "Communication & Email",
+  "modules": [
+    "betterbird",
+    "claws-mail",
+    "discord",
+    "em-client",
+    "ferdium",
+    "gajim",
+    "hexchat",
+    "kvirc",
+    "mailbird",
+    "mailspring",
+    "mirc",
+    "pidgin",
+    "signal",
+    "spotify",
+    "telegram",
+    "thunderbird",
+    "weechat"
+  ]
+}

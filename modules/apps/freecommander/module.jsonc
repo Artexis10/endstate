@@ -1,0 +1,79 @@
+{
+  // Config Module: FreeCommander XE
+  // Provides verify/restore/capture configuration for the FreeCommander XE dual-pane file manager
+  // Curated module - captures the Settings folder, excludes FTP/SFTP credentials, history and caches
+
+  "id": "apps.freecommander",
+  "displayName": "FreeCommander XE",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["MarekJasinski.FreeCommanderXE"],
+    "exe": ["FreeCommander.exe"],
+    "uninstallDisplayName": ["^FreeCommander XE"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\FreeCommanderXE\\Settings"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\FreeCommanderXE\\Settings\\FreeCommander.ini" }
+  ],
+
+  "restore": [
+    {
+      // Restore the whole Settings folder; FreeCommander must NOT be running during restore.
+      // Excludes FTP/SFTP credentials, history and caches (see excludeGlobs / sensitive).
+      "type": "copy",
+      "source": "./payload/apps/freecommander/Settings",
+      "target": "%LOCALAPPDATA%\\FreeCommanderXE\\Settings",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\FreeCommander.ftp.ini",
+        "**\\*.ftp",
+        "**\\FreeCommander.hist.ini",
+        "**\\Bkp_Settings*\\**",
+        "**\\Cache\\**",
+        "**\\*.cache",
+        "**\\*.log",
+        "**\\*.tmp",
+        "**\\*.bak"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Official transfer method is to copy the entire "Settings" folder while FreeCommander is closed.
+      // Contains FreeCommander.ini (main settings), FreeCommander.shc (shortcuts), *.fav.* (favorites),
+      // *.lay.ini (layout), *.views.ini (view settings), color schemes, etc.
+      { "source": "%LOCALAPPDATA%\\FreeCommanderXE\\Settings", "dest": "apps/freecommander/Settings", "optional": true }
+    ],
+    "excludeGlobs": [
+      // FTP/SFTP connection store (FreeCommander.ftp holds encrypted credentials; .ftp.ini is FTP config) - never capture
+      "**\\FreeCommander.ftp.ini",
+      "**\\*.ftp",
+      // Volatile / machine-specific state
+      "**\\FreeCommander.hist.ini",
+      // Timestamped internal backup snapshots that duplicate (incl. sensitive) settings files
+      "**\\Bkp_Settings*\\**",
+      "**\\Cache\\**",
+      "**\\*.cache",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.bak"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\FreeCommanderXE\\Settings\\FreeCommander.ftp",
+      "%LOCALAPPDATA%\\FreeCommanderXE\\Settings\\FreeCommander.ftp.ini"
+    ],
+    "warning": "FreeCommander's FTP/SFTP connection store (FreeCommander.ftp) holds saved server credentials with reversibly-encrypted passwords; FreeCommander.ftp.ini holds related FTP configuration. Neither must be auto-captured or restored - re-enter FTP/SFTP passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the FreeCommander XE Settings folder at %LOCALAPPDATA%\\FreeCommanderXE\\Settings (main settings, shortcuts, favorites, layout, view settings and color schemes). FTP/SFTP credentials (FreeCommander.ftp.ini), history and caches are explicitly excluded. FreeCommander must be closed during restore. Confidence: high - default settings path and whole-folder transfer method confirmed by official FreeCommander documentation (Configuration folder / FAQ) and multiple community sources."
+}

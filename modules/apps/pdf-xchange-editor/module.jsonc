@@ -1,0 +1,47 @@
+{
+  // Config Module: PDF-XChange Editor
+  // Provides verify/restore/capture configuration for PDF-XChange Editor
+  // Settings stored in the Windows Registry under HKCU\Software\Tracker Software
+
+  "id": "apps.pdf-xchange-editor",
+  "displayName": "PDF-XChange Editor",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Tracker.PDF-XChangeEditor"],
+    "exe": ["PDFXEdit.exe"],
+    "uninstallDisplayName": ["^PDF-XChange Editor"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Tracker Software\\PDFXEditor\\3.0" }
+  ],
+
+  "restore": [
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/pdf-xchange-editor/Settings.reg",
+      "target": "HKCU\\Software\\Tracker Software\\PDFXEditor\\3.0",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      // Preferences, toolbars, stamps, keyboard shortcuts and UI customization
+      { "key": "HKCU\\Software\\Tracker Software\\PDFXEditor\\3.0", "dest": "apps/pdf-xchange-editor/Settings.reg", "optional": true }
+    ]
+  },
+
+  "sensitive": {
+    "registryKeys": [
+      "HKCU\\Software\\Tracker Software\\Registration"
+    ],
+    "warning": "PDF-XChange license/serial keys are stored separately under HKCU\\Software\\Tracker Software\\Registration and are tied to your purchased license. They are NOT captured here; re-activate with your own key after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures PDF-XChange Editor UI customization (toolbars, stamps, preferences, keyboard shortcuts) from HKCU\\Software\\Tracker Software\\PDFXEditor\\3.0. The separate Tracker Software\\Registration key holding the license serial is intentionally excluded. Confidence: high - official PDF-XChange sysadmin docs and knowledge base both confirm settings live at HKCU\\Software\\Tracker Software\\PDFXEditor\\3.0."
+}

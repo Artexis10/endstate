@@ -1,0 +1,134 @@
+{
+  // Config Module: Kleopatra
+  // Provides verify/restore/capture configuration for Kleopatra, the Gpg4win certificate manager
+  // Captures UI / keyserver / group settings (files + HKCU registry); NEVER captures GnuPG secret keys
+
+  "id": "apps.kleopatra",
+  "displayName": "Kleopatra",
+  "sensitivity": "medium",
+
+  "matches": {
+    // Typically installed as part of Gpg4win; no standalone winget package
+    "winget": [],
+    "exe": ["kleopatra.exe"],
+    "uninstallDisplayName": ["^Gpg4win", "^Kleopatra"],
+    "pathExists": [
+      "%ProgramFiles%\\Gpg4win\\bin\\kleopatra.exe",
+      "%ProgramFiles(x86)%\\Gpg4win\\bin\\kleopatra.exe"
+    ]
+  },
+
+  "verify": [
+    // App config file present in either the legacy or the Gpg4win 5 location, or the user registry key
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\GNU\\Kleopatra" }
+  ],
+
+  "restore": [
+    // --- Gpg4win 5+ location (%APPDATA%\gnupg\kleopatra) ---
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/kleopatra/gnupg/kleopatrarc",
+      "target": "%APPDATA%\\gnupg\\kleopatra\\kleopatrarc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/kleopatra/gnupg/libkleopatrarc",
+      "target": "%APPDATA%\\gnupg\\kleopatra\\libkleopatrarc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/kleopatra/gnupg/kleopatragroupsrc",
+      "target": "%APPDATA%\\gnupg\\kleopatra\\kleopatragroupsrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/kleopatra/gnupg/klanguageoverridesrc",
+      "target": "%APPDATA%\\gnupg\\kleopatra\\klanguageoverridesrc",
+      "backup": true,
+      "optional": true
+    },
+
+    // --- Legacy location (Gpg4win 4.x and earlier: %APPDATA%\kleopatra) ---
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/kleopatra/legacy/kleopatrarc",
+      "target": "%APPDATA%\\kleopatra\\kleopatrarc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/kleopatra/legacy/libkleopatrarc",
+      "target": "%APPDATA%\\kleopatra\\libkleopatrarc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/kleopatra/legacy/kleopatragroupsrc",
+      "target": "%APPDATA%\\kleopatra\\kleopatragroupsrc",
+      "backup": true,
+      "optional": true
+    },
+
+    // --- HKCU user settings (keyservers, UI prefs) ---
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/kleopatra/Kleopatra.reg",
+      "target": "HKCU\\Software\\GNU\\Kleopatra",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Gpg4win 5+ location (%APPDATA%\gnupg\kleopatra = %GNUPGHOME%\kleopatra)
+      { "source": "%APPDATA%\\gnupg\\kleopatra\\kleopatrarc", "dest": "apps/kleopatra/gnupg/kleopatrarc", "optional": true },
+      { "source": "%APPDATA%\\gnupg\\kleopatra\\libkleopatrarc", "dest": "apps/kleopatra/gnupg/libkleopatrarc", "optional": true },
+      { "source": "%APPDATA%\\gnupg\\kleopatra\\kleopatragroupsrc", "dest": "apps/kleopatra/gnupg/kleopatragroupsrc", "optional": true },
+      { "source": "%APPDATA%\\gnupg\\kleopatra\\klanguageoverridesrc", "dest": "apps/kleopatra/gnupg/klanguageoverridesrc", "optional": true },
+
+      // Legacy location (Gpg4win 4.x and earlier: %APPDATA%\kleopatra)
+      { "source": "%APPDATA%\\kleopatra\\kleopatrarc", "dest": "apps/kleopatra/legacy/kleopatrarc", "optional": true },
+      { "source": "%APPDATA%\\kleopatra\\libkleopatrarc", "dest": "apps/kleopatra/legacy/libkleopatrarc", "optional": true },
+      { "source": "%APPDATA%\\kleopatra\\kleopatragroupsrc", "dest": "apps/kleopatra/legacy/kleopatragroupsrc", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\GNU\\Kleopatra", "dest": "apps/kleopatra/Kleopatra.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Window geometry / transient UI state - not portable settings
+      "**\\kleopatrastaterc",
+      "**\\kxmlgui5\\**",
+      // Never capture the GnuPG home itself: secret keys, trust DB, sockets, logs
+      "**\\private-keys-v1.d\\**",
+      "**\\openpgp-revocs.d\\**",
+      "**\\*.kbx",
+      "**\\*.key",
+      "**\\trustdb.gpg",
+      "**\\random_seed",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\S.*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\gnupg\\private-keys-v1.d",
+      "%APPDATA%\\gnupg\\pubring.kbx",
+      "%APPDATA%\\gnupg\\trustdb.gpg"
+    ],
+    "warning": "GnuPG secret keys, keyrings, and the trust database live alongside Kleopatra's config under %APPDATA%\\gnupg but are NOT part of this module. They are explicitly excluded and MUST NOT be auto-restored - export/import keys manually via Kleopatra instead.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Kleopatra UI, keyserver, language, and certificate-group settings from both the Gpg4win 5 location (%APPDATA%\\gnupg\\kleopatra) and the legacy Gpg4win 4.x location (%APPDATA%\\kleopatra), plus user settings in HKCU\\Software\\GNU\\Kleopatra. Excludes window-state (kleopatrastaterc), the kxmlgui5 cache, and the entire GnuPG keyring/secret-key store. Note: Kleopatra is usually installed via Gpg4win; this module is secondary to a Gpg4win-level entry. Confidence: medium - file locations and HKCU\\Software\\GNU\\Kleopatra key confirmed by official GnuPG VSD docs and GnuPG dev.gnupg.org tickets (T6799, T6931, T7575), but exact present files vary by installed Gpg4win version (4.x vs 5.x), so both layouts are captured optionally."
+}

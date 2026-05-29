@@ -1,0 +1,99 @@
+{
+  // Config Module: Microsoft Office
+  // Provides verify/capture/restore configuration for Microsoft Office desktop apps
+  // Captures portable user customizations (templates, signatures, dictionaries, AutoCorrect, ribbon/QAT)
+  // Excludes Outlook account profiles, cached credentials, and identity/license data
+
+  "id": "apps.microsoft-office",
+  "displayName": "Microsoft Office",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Microsoft.Office"],
+    "exe": ["WINWORD.EXE", "EXCEL.EXE", "OUTLOOK.EXE", "POWERPNT.EXE"],
+    "uninstallDisplayName": ["^Microsoft Office", "^Microsoft 365"],
+    "pathExists": [
+      "%APPDATA%\\Microsoft\\Templates\\Normal.dotm"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Microsoft\\Templates\\Normal.dotm" }
+  ],
+
+  "restore": [
+    {
+      // Word/global templates incl. Normal.dotm (also holds formatted AutoCorrect entries)
+      "type": "copy",
+      "source": "./payload/apps/microsoft-office/Templates",
+      "target": "%APPDATA%\\Microsoft\\Templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Outlook email signatures (.htm/.rtf/.txt + matching subfolders) - classic Outlook only
+      "type": "copy",
+      "source": "./payload/apps/microsoft-office/Signatures",
+      "target": "%APPDATA%\\Microsoft\\Signatures",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom spelling dictionaries (CUSTOM.DIC etc.)
+      "type": "copy",
+      "source": "./payload/apps/microsoft-office/UProof",
+      "target": "%APPDATA%\\Microsoft\\UProof",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Unformatted AutoCorrect lists (MSO####.acl)
+      "type": "copy",
+      "source": "./payload/apps/microsoft-office/Office",
+      "target": "%APPDATA%\\Microsoft\\Office",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Quick Access Toolbar / ribbon customizations (*.officeUI)
+      "type": "copy",
+      "source": "./payload/apps/microsoft-office/LocalOffice",
+      "target": "%LOCALAPPDATA%\\Microsoft\\Office",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Microsoft\\Templates", "dest": "apps/microsoft-office/Templates", "optional": true },
+      { "source": "%APPDATA%\\Microsoft\\Signatures", "dest": "apps/microsoft-office/Signatures", "optional": true },
+      { "source": "%APPDATA%\\Microsoft\\UProof", "dest": "apps/microsoft-office/UProof", "optional": true },
+      // %APPDATA%\Microsoft\Office holds the unformatted AutoCorrect *.acl lists
+      { "source": "%APPDATA%\\Microsoft\\Office", "dest": "apps/microsoft-office/Office", "optional": true },
+      // %LOCALAPPDATA%\Microsoft\Office holds *.officeUI ribbon/QAT customizations
+      { "source": "%LOCALAPPDATA%\\Microsoft\\Office", "dest": "apps/microsoft-office/LocalOffice", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.tmp",
+      "**\\~$*",
+      "**\\Cache\\**",
+      "**\\OfficeFileCache\\**",
+      "**\\OTele\\**",
+      "**\\Telemetry\\**",
+      "**\\16.0\\Lync\\**",
+      "**\\Outlook\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "HKCU\\Software\\Microsoft\\Office\\16.0\\Common\\Identity",
+      "HKCU\\Software\\Microsoft\\Office\\16.0\\Outlook\\Profiles"
+    ],
+    "warning": "Outlook account profiles and Office Identity keys hold cached credentials, mailbox connection data, and sign-in tokens. These MUST NOT be auto-restored; re-add accounts after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures portable Office user customizations: Word/global templates (incl. Normal.dotm), classic Outlook signatures, custom spelling dictionaries (UProof\\CUSTOM.DIC), unformatted AutoCorrect lists (%APPDATA%\\Microsoft\\Office\\*.acl), and ribbon/Quick Access Toolbar files (%LOCALAPPDATA%\\Microsoft\\Office\\*.officeUI). Outlook account profiles, Office Identity/sign-in, license/activation, and the file cache are excluded. New Outlook stores signatures in the cloud, so signature capture covers classic Outlook only. Confidence: medium - file locations confirmed by Microsoft and multiple independent sources, but exact per-version subfolder layout varies (16.0 path assumed for current Office)."
+}

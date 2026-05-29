@@ -1,0 +1,46 @@
+{
+  // Config Module: GlazeWM
+  // Provides verify/restore/capture configuration for GlazeWM (i3-inspired tiling window manager)
+  // Single declarative YAML config file holds all keybinds, workspaces, gaps, and window rules
+
+  "id": "apps.glazewm",
+  "displayName": "GlazeWM",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["glzr-io.glazewm"],
+    "exe": ["glazewm.exe"],
+    "uninstallDisplayName": ["^GlazeWM"],
+    "pathExists": [
+      "%USERPROFILE%\\.glzr\\glazewm\\config.yaml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.glzr\\glazewm\\config.yaml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/glazewm/config.yaml",
+      "target": "%USERPROFILE%\\.glzr\\glazewm\\config.yaml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single YAML config: keybindings, workspaces, gaps, window rules, startup commands
+      { "source": "%USERPROFILE%\\.glzr\\glazewm\\config.yaml", "dest": "apps/glazewm/config.yaml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures GlazeWM's single declarative config at %USERPROFILE%\\.glzr\\glazewm\\config.yaml (keybindings, workspaces, gaps, window rules, startup commands). The companion Zebar status bar (.glzr\\zebar\\) is a separate app and out of scope. GlazeWM stores no user settings in the registry (only HKLM installer/uninstall tracking, which is not restorable). No credentials or tokens involved. Confidence: high - config path confirmed by official GlazeWM GitHub repo, DeepWiki docs, and community dotfiles."
+}

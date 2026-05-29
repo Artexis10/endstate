@@ -1,0 +1,60 @@
+{
+  // Config Module: Foundry Nuke
+  // Provides verify/restore/capture configuration for Foundry Nuke (compositing app)
+  // Curated module - captures the user's ~/.nuke directory (startup scripts, prefs, gizmos)
+
+  "id": "apps.nuke",
+  "displayName": "Foundry Nuke",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Nuke.exe"],
+    "uninstallDisplayName": ["^Nuke\\d", "^Foundry Nuke"],
+    "pathExists": [
+      "%USERPROFILE%\\.nuke"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.nuke" }
+  ],
+
+  "restore": [
+    {
+      // Entire .nuke user directory: init.py, menu.py, preferences*.nk, uistate.ini, gizmos, custom scripts
+      "type": "copy",
+      "source": "./payload/apps/nuke/.nuke",
+      "target": "%USERPROFILE%\\.nuke",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\Cache\\**",
+        "**\\cache\\**",
+        "**\\*.log",
+        "**\\*.tmp",
+        "**\\Temp\\**",
+        "**\\__pycache__\\**",
+        "**\\*.pyc"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Whole .nuke directory - contains init.py, menu.py, preferences*.nk, uistate.ini, gizmos, Python/Tcl scripts
+      { "source": "%USERPROFILE%\\.nuke", "dest": "apps/nuke/.nuke", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Temp\\**",
+      "**\\__pycache__\\**",
+      "**\\*.pyc"
+    ]
+  },
+
+  "notes": "Captures the user's ~/.nuke directory at %USERPROFILE%\\.nuke, which holds Nuke startup scripts (init.py, menu.py), preferences (preferences<version>.nk), workspace state (uistate.ini), gizmos, and custom Python/Tcl scripts. Excludes caches, logs, temp, and Python bytecode; Nuke's frame/disk cache lives outside .nuke (under %LOCALAPPDATA%\\Temp\\nuke) and is not touched. No winget ID; settings are file-based, not in the registry. Confidence: high - .nuke location and file set confirmed by official Foundry docs and support articles."
+}

@@ -1,0 +1,102 @@
+{
+  // Config Module: Joplin
+  // Provides verify/restore/capture configuration for Joplin (open-source note-taking app)
+  // Curated module - captures portable preferences (settings, keymap, custom CSS, plugins);
+  // explicitly EXCLUDES database.sqlite (notes + clear-text sync credentials / master keys) and resources.
+
+  "id": "apps.joplin",
+  "displayName": "Joplin",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Joplin.Joplin"],
+    "exe": ["Joplin.exe"],
+    "uninstallDisplayName": ["^Joplin"],
+    "pathExists": [
+      "%USERPROFILE%\\.config\\joplin-desktop\\settings.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.config\\joplin-desktop\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/joplin/settings.json",
+      "target": "%USERPROFILE%\\.config\\joplin-desktop\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/joplin/keymap-desktop.json",
+      "target": "%USERPROFILE%\\.config\\joplin-desktop\\keymap-desktop.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/joplin/userstyle.css",
+      "target": "%USERPROFILE%\\.config\\joplin-desktop\\userstyle.css",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/joplin/userchrome.css",
+      "target": "%USERPROFILE%\\.config\\joplin-desktop\\userchrome.css",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/joplin/plugins",
+      "target": "%USERPROFILE%\\.config\\joplin-desktop\\plugins",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\Cache\\**"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Portable preferences (Windows profile root: %USERPROFILE%\.config\joplin-desktop\)
+      { "source": "%USERPROFILE%\\.config\\joplin-desktop\\settings.json", "dest": "apps/joplin/settings.json", "optional": true },
+      { "source": "%USERPROFILE%\\.config\\joplin-desktop\\keymap-desktop.json", "dest": "apps/joplin/keymap-desktop.json", "optional": true },
+      // Custom UI / rendering stylesheets (created on demand by the user)
+      { "source": "%USERPROFILE%\\.config\\joplin-desktop\\userstyle.css", "dest": "apps/joplin/userstyle.css", "optional": true },
+      { "source": "%USERPROFILE%\\.config\\joplin-desktop\\userchrome.css", "dest": "apps/joplin/userchrome.css", "optional": true },
+      // Installed plugin packages (.jpl); plugin-data/ runtime state is excluded below
+      { "source": "%USERPROFILE%\\.config\\joplin-desktop\\plugins", "dest": "apps/joplin/plugins", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Notes database — holds note content AND clear-text sync passwords / master keys (sensitive)
+      "**\\database.sqlite",
+      "**\\database.sqlite-*",
+      // Attachments / linked files (large binary user content, not portable config)
+      "**\\resources\\**",
+      // Runtime, cache, logs, IPC and lock files
+      "**\\cache\\**",
+      "**\\plugin-data\\**",
+      "**\\tmp\\**",
+      "**\\log*.txt",
+      "**\\lock",
+      "**\\ipc_secret_key.txt",
+      "**\\flags.txt"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.config\\joplin-desktop\\database.sqlite",
+      "%USERPROFILE%\\.config\\joplin-desktop\\log.txt",
+      "%USERPROFILE%\\.config\\joplin-desktop\\ipc_secret_key.txt"
+    ],
+    "warning": "Joplin's database.sqlite stores note content along with sync target passwords and E2EE master keys in clear text; log.txt may also leak sync passwords. These MUST NOT be captured or auto-restored. Notes themselves should travel via Joplin's own sync, not this module.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Joplin's portable preferences from %USERPROFILE%\\.config\\joplin-desktop\\: settings.json, keymap-desktop.json, userstyle.css, userchrome.css, and the plugins/ directory (.jpl packages). The notes database (database.sqlite) and attachments (resources/) are deliberately excluded - the database holds clear-text sync credentials and master keys, and notes are meant to travel via Joplin's built-in sync, not this module. Cache, logs, IPC and lock files are also excluded. Confidence: high - profile path and config filenames confirmed by Joplin's official user-profile and custom-CSS docs plus multiple forum/GitHub sources."
+}

@@ -1,0 +1,53 @@
+{
+  // Config Module: ScreenToGif
+  // Provides verify/restore/capture configuration for ScreenToGif (screen recorder/editor)
+  // Curated module - captures the single portable Settings.xaml, excludes logs and temp recordings
+
+  "id": "apps.screentogif",
+  "displayName": "ScreenToGif",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["NickeManarin.ScreenToGif"],
+    "exe": ["ScreenToGif.exe"],
+    "uninstallDisplayName": ["^ScreenToGif"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\ScreenToGif\\Settings.xaml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/screentogif/Settings.xaml",
+      "target": "%APPDATA%\\ScreenToGif\\Settings.xaml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single portable settings file: recorder/editor preferences, export presets, keyboard shortcuts
+      { "source": "%APPDATA%\\ScreenToGif\\Settings.xaml", "dest": "apps/screentogif/Settings.xaml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\Recording\\**",
+      "**\\Temp\\**",
+      "**\\*.stg"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\ScreenToGif\\Settings.xaml"
+    ],
+    "warning": "ScreenToGif's Settings.xaml may embed upload-service authorization tokens (e.g. Imgur, Yandex, custom upload presets). Review before sharing the capture, and re-authorize upload presets after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures ScreenToGif's single portable Settings.xaml at %APPDATA%\\ScreenToGif\\ (recorder/editor preferences, export presets, keyboard shortcuts). Logs (%APPDATA%\\ScreenToGif\\Logs) and temporary recordings (under %LOCALAPPDATA%\\Temp\\ScreenToGif) are excluded. The settings file may contain upload-service auth tokens, so it is flagged sensitive and marked warn-only on restore. Portable installs keep Settings.xaml next to the executable and are not captured. Confidence: high - AppData path confirmed in ScreenToGif source (UserSettings.cs builds %APPDATA%\\ScreenToGif\\Settings.xaml) and corroborated by multiple community sources."
+}

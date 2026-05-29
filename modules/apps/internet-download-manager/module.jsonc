@@ -1,0 +1,33 @@
+{
+  // Config Module: Internet Download Manager (IDM)
+  // Install-only: IDM's single authoritative settings key intermixes the
+  // purchased license/activation serial with preferences, so it cannot be
+  // captured/restored without leaking the license blob.
+
+  "id": "apps.internet-download-manager",
+  "displayName": "Internet Download Manager",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Tonec.InternetDownloadManager"],
+    "exe": ["IDMan.exe"],
+    "uninstallDisplayName": ["^Internet Download Manager"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\DownloadManager" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "warning": "IDM stores all settings (categories, connections, scheduler, file types, proxy, browser integration) AND the purchased license/activation data (the 'Serial' value plus the 'FName'/'LName'/'Email' registration fields) as flat sibling values directly under the single registry key HKCU\\Software\\DownloadManager. Registry capture exports an entire key, so there is no way to capture preferences without also capturing the license/registration blob. This key MUST NOT be auto-captured or auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. IDM's only authoritative backup key, HKCU\\Software\\DownloadManager, mixes user preferences with the purchased license/activation serial and registration identity as sibling values under one key (official IDM FAQ documents exporting this whole key for transfer). Because registry capture is key-level (cannot exclude individual values), capturing settings would leak the license blob, so nothing is captured. Re-register with your serial and reconfigure after install. Confidence: high - settings key confirmed by official IDM backup FAQ; license intermixing confirmed by multiple registry-recovery sources."
+}

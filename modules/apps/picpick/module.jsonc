@@ -1,0 +1,55 @@
+{
+  // Config Module: PicPick
+  // Provides verify/restore/capture configuration for PicPick (screen capture, editor, color picker)
+  // Curated module - captures the single per-user INI settings file
+
+  "id": "apps.picpick",
+  "displayName": "PicPick",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["NGWIN.PicPick"],
+    "exe": ["picpick.exe"],
+    "uninstallDisplayName": ["^PicPick"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\picpick\\picpick.ini" }
+  ],
+
+  "restore": [
+    {
+      // Single per-user settings file: editor, hotkeys, file naming, upload (FTP/share) config
+      "type": "copy",
+      "source": "./payload/apps/picpick/picpick.ini",
+      "target": "%APPDATA%\\picpick\\picpick.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\picpick\\picpick.ini", "dest": "apps/picpick/picpick.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Recent-files / session state, caches, logs, temp, and the portability marker
+      "**\\saveappdata.ini",
+      "**\\recent*.ini",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\picpick\\picpick.ini"
+    ],
+    "warning": "picpick.ini may contain FTP/share upload credentials (server, username, password) if the user configured the Share/Upload feature. Review before sharing a capture; re-enter upload credentials after restore if needed.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures PicPick's single per-user settings file picpick.ini under %APPDATA%\\picpick\\, which holds editor, hotkey, file-naming and upload preferences. Excludes recent-files/session state, caches, logs, temp, and the saveappdata.ini portability marker. The autostart entry (HKCU\\...\\Run \"PicPick Start\") is intentionally not captured because it is a machine-specific install path. Note: picpick.ini may embed FTP/share upload credentials. Confidence: high - %APPDATA%\\picpick\\picpick.ini confirmed by official portability guidance and multiple independent community sources."
+}

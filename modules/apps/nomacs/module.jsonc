@@ -1,0 +1,43 @@
+{
+  // Config Module: nomacs
+  // Provides verify/restore/capture configuration for nomacs (Qt image viewer)
+  // Settings stored in a single Qt INI file under %APPDATA%
+
+  "id": "apps.nomacs",
+  "displayName": "nomacs",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["nomacs.nomacs"],
+    "exe": ["nomacs.exe"],
+    "uninstallDisplayName": ["^nomacs"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\nomacs\\Image Lounge\\settings.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/nomacs/settings.ini",
+      "target": "%APPDATA%\\nomacs\\Image Lounge\\settings.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single Qt INI holding view/keyboard/plugin preferences and window state
+      { "source": "%APPDATA%\\nomacs\\Image Lounge\\settings.ini", "dest": "apps/nomacs/settings.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures nomacs preferences (view, keyboard shortcuts, plugin settings) from the single Qt INI file at %APPDATA%\\nomacs\\Image Lounge\\settings.ini. The file also holds transient window geometry/recent-files state, but merge-ini restore is non-destructive. No credentials involved. Confidence: high - official nomacs reset-settings and multi-user docs both confirm %APPDATA%\\nomacs\\Image Lounge\\settings.ini."
+}

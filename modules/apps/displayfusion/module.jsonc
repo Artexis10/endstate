@@ -1,0 +1,66 @@
+{
+  // Config Module: DisplayFusion
+  // Multi-monitor manager by Binary Fortress Software.
+  // All settings are stored in the Windows Registry under
+  // HKCU\Software\Binary Fortress Software\DisplayFusion (no config files).
+  // Captures the high-value, painful-to-rebuild settings subkeys (HotKeys,
+  // Functions, Taskbars) while deliberately NOT capturing the top-level key,
+  // which holds the Pro license key value (treated as sensitive).
+
+  "id": "apps.displayfusion",
+  "displayName": "DisplayFusion",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["BinaryFortress.DisplayFusion"],
+    "exe": ["DisplayFusion.exe"],
+    "uninstallDisplayName": ["^DisplayFusion"],
+    "registryKeyExists": [
+      "HKCU\\Software\\Binary Fortress Software\\DisplayFusion"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Binary Fortress Software\\DisplayFusion" }
+  ],
+
+  "restore": [
+    {
+      // Hotkeys + scripted Functions (Functions are stored as HotKey_Scripted* values here)
+      "type": "registry-import",
+      "source": "./payload/apps/displayfusion/HotKeys.reg",
+      "target": "HKCU\\Software\\Binary Fortress Software\\DisplayFusion\\HotKeys",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Per-monitor taskbar configuration (Taskbars\1, Taskbars\2, ...)
+      "type": "registry-import",
+      "source": "./payload/apps/displayfusion/Taskbars.reg",
+      "target": "HKCU\\Software\\Binary Fortress Software\\DisplayFusion\\Taskbars",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      // HotKeys subkey holds hotkey bindings and scripted Functions (HotKey_Scripted*)
+      { "key": "HKCU\\Software\\Binary Fortress Software\\DisplayFusion\\HotKeys", "dest": "apps/displayfusion/HotKeys.reg", "optional": true },
+      // Taskbars subkey holds per-monitor taskbar layout/behavior (numbered 1,2,3,...)
+      { "key": "HKCU\\Software\\Binary Fortress Software\\DisplayFusion\\Taskbars", "dest": "apps/displayfusion/Taskbars.reg", "optional": true }
+    ],
+    "excludeGlobs": []
+  },
+
+  "sensitive": {
+    "registryKeys": [
+      "HKCU\\Software\\Binary Fortress Software\\DisplayFusion"
+    ],
+    "warning": "The top-level HKCU\\Software\\Binary Fortress Software\\DisplayFusion key holds the DisplayFusion Pro license key as a registry value. The full key is NOT captured to avoid exporting the license blob; only the HotKeys and Taskbars subkeys are captured. Re-enter your license key after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures DisplayFusion's high-value settings from the registry: HotKeys (hotkey bindings + scripted Functions) and Taskbars (per-monitor taskbar configuration). The top-level DisplayFusion key is intentionally excluded because it stores the Pro license key as a value; monitor profiles/window-position values living directly on the top-level key are therefore not captured to avoid sweeping the license blob. Re-enter the license key after restore. Confidence: medium - registry root (HKCU\\Software\\Binary Fortress Software\\DisplayFusion) and the HotKeys/Taskbars subkeys are confirmed by DisplayFusion docs and multiple official discussion threads, but the exact value-level layout (and that license lives directly on the top-level key) is inferred from those sources rather than a single authoritative schema."
+}

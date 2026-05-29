@@ -1,0 +1,96 @@
+{
+  // Config Module: JDownloader 2
+  // Provides verify/restore/capture configuration for JDownloader 2 (link/hoster download manager)
+  // Settings are individual JSON files in the cfg/ folder inside the install directory.
+  // Default user-profile install location: %LOCALAPPDATA%\JDownloader 2.0\cfg\
+  // Captures the cfg/ settings directory; EXCLUDES encrypted account credentials,
+  // MyJDownloader login, download/linkgrabber session lists, logs, tmp, and updates.
+
+  "id": "apps.jdownloader",
+  "displayName": "JDownloader 2",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["AppWork.JDownloader"],
+    "exe": ["JDownloader2.exe"],
+    "uninstallDisplayName": ["^JDownloader"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\JDownloader 2.0\\JDownloader2.exe",
+      "%LOCALAPPDATA%\\JDownloader 2.0\\cfg"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\JDownloader 2.0\\cfg" }
+  ],
+
+  "restore": [
+    {
+      // Whole settings directory. Sensitive/state files are excluded so a restore
+      // never overwrites credentials or session lists on the target machine.
+      "type": "copy",
+      "source": "./payload/apps/jdownloader/cfg",
+      "target": "%LOCALAPPDATA%\\JDownloader 2.0\\cfg",
+      "backup": true,
+      "optional": true,
+      // NOTE: the restore exclude matcher (isPathExcluded) is substring-based and
+      // does NOT support wildcards — a literal '*' in a pattern never matches a real
+      // path. Patterns here are therefore wildcard-free filename/extension fragments
+      // or directory-containment (**/dir/**) forms. These are defense-in-depth: the
+      // sensitive/state files below are already stripped at capture time so they are
+      // not present in the payload.
+      "exclude": [
+        "org.jdownloader.settings.AccountSettings.accounts.ejs",
+        "org.jdownloader.api.myjdownloader.MyJDownloaderSettings.json",
+        ".ejs",
+        "downloadlist",
+        "linkcollector",
+        "**\\logs\\**",
+        "**\\tmp\\**",
+        "**\\update\\**",
+        "**\\extensions\\**",
+        ".lock"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // The cfg/ directory holds all settings as org.jdownloader.settings.*.json files
+      // plus themes/ and langfiles/. excludeGlobs strip credentials, session state, logs.
+      { "source": "%LOCALAPPDATA%\\JDownloader 2.0\\cfg", "dest": "apps/jdownloader/cfg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Sensitive: encrypted premium hoster account credentials
+      "**\\org.jdownloader.settings.AccountSettings.accounts.ejs",
+      "**\\*.ejs",
+      // Sensitive: MyJDownloader login email/password
+      "**\\org.jdownloader.api.myjdownloader.MyJDownloaderSettings.json",
+      // Session/state: download list + linkgrabber list snapshots (machine-specific, large).
+      // Real filenames are lowercase + numbered (downloadlist02.zip, linkcollector02.zip)
+      // with auto-backup *.zip.backup variants. The capture matcher (filepath.Match) is
+      // case-sensitive, so patterns must be lowercase to match.
+      "**\\downloadlist*.zip",
+      "**\\downloadlist*.zip.backup",
+      "**\\linkcollector*.zip",
+      "**\\linkcollector*.zip.backup",
+      // Caches / logs / temp / updates / regenerable
+      "**\\logs\\**",
+      "**\\tmp\\**",
+      "**\\update\\**",
+      "**\\extensions\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\JDownloader 2.0\\cfg\\org.jdownloader.settings.AccountSettings.accounts.ejs",
+      "%LOCALAPPDATA%\\JDownloader 2.0\\cfg\\org.jdownloader.api.myjdownloader.MyJDownloaderSettings.json"
+    ],
+    "warning": "JDownloader stores encrypted premium hoster account credentials (accounts.ejs) and the MyJDownloader login email/password (MyJDownloaderSettings.json) in cfg\\. These MUST NOT be captured or auto-restored. Re-enter hoster accounts and MyJDownloader login manually after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures JDownloader 2 settings from the cfg\\ folder (org.jdownloader.settings.*.json, themes, language files) at %LOCALAPPDATA%\\JDownloader 2.0\\cfg. Excludes encrypted hoster account credentials (accounts.ejs), MyJDownloader login (MyJDownloaderSettings.json), download/linkgrabber session lists (downloadList*.zip/linkcollector*.zip), logs, tmp, updates, and extensions. The winget package installs to %ProgramFiles%\\JDownloader instead; this module targets the portable/user-profile default location only. Confidence: medium - cfg\\ layout and credential file names confirmed by JD community docs and multiple independent sources, but per-install cfg path varies (Program Files vs LocalAppData) and exact JSON settings filenames are version-dependent."
+}

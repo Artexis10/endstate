@@ -1,0 +1,44 @@
+{
+  // Config Module: lazydocker
+  // Provides verify/capture/restore configuration for lazydocker (terminal Docker UI)
+  // Captures the hand-edited config.yml; lazydocker stores no credentials.
+
+  "id": "apps.lazydocker",
+  "displayName": "lazydocker",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JesseDuffield.Lazydocker"],
+    "exe": ["lazydocker.exe"],
+    "uninstallDisplayName": ["^lazydocker"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "lazydocker" }
+  ],
+
+  "restore": [
+    {
+      // GUI prefs, custom commands, keybindings, log/whitelist settings
+      "type": "copy",
+      "source": "./payload/apps/lazydocker/config.yml",
+      "target": "%APPDATA%\\lazydocker\\config.yml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // The single user config file (Windows: %APPDATA%\lazydocker\config.yml)
+      { "source": "%APPDATA%\\lazydocker\\config.yml", "dest": "apps/lazydocker/config.yml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // lazydocker writes a development log here — not config
+      "**\\lazydocker\\development.log",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures lazydocker's config.yml (GUI preferences, custom commands, keybindings, log/whitelist settings) from %APPDATA%\\lazydocker\\. lazydocker reads Docker connection info from the Docker environment, not from this file, so no credentials are stored here. The development.log is excluded. Confidence: high - %APPDATA%\\lazydocker\\config.yml location confirmed by the official lazydocker Config documentation."
+}

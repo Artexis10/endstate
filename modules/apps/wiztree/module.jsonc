@@ -1,0 +1,45 @@
+{
+  // Config Module: WizTree
+  // Provides verify/restore/capture configuration for WizTree (disk space analyzer)
+  // Installed version keeps settings in %APPDATA%\WizTree3\WizTree3.ini
+
+  "id": "apps.wiztree",
+  "displayName": "WizTree",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["AntibodySoftware.WizTree"],
+    "exe": ["WizTree.exe", "WizTree64.exe"],
+    "uninstallDisplayName": ["^WizTree"],
+    "pathExists": [
+      "%APPDATA%\\WizTree3\\WizTree3.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\WizTree3\\WizTree3.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "merge-ini",
+      "source": "./payload/apps/wiztree/WizTree3.ini",
+      "target": "%APPDATA%\\WizTree3\\WizTree3.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Column layout, file-type colors, export settings and view preferences
+      { "source": "%APPDATA%\\WizTree3\\WizTree3.ini", "dest": "apps/wiztree/WizTree3.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures WizTree preferences (column layout, file-type colors, export/view settings) from %APPDATA%\\WizTree3\\WizTree3.ini for the installed (Program Files / winget) version; the portable build instead keeps the INI beside the exe and is not covered. The INI may include recent scan paths, but no credentials. Confidence: high - official WizTree FAQ confirms the installed version stores WizTree3.ini under %APPDATA%\\WizTree3."
+}

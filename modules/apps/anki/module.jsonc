@@ -1,0 +1,82 @@
+{
+  // Config Module: Anki
+  // Provides verify/restore/capture configuration for Anki (spaced-repetition flashcards)
+  // Curated module - captures add-on settings; excludes synced collections and sync credentials
+
+  "id": "apps.anki",
+  "displayName": "Anki",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Anki.Anki"],
+    "exe": ["anki.exe"],
+    "uninstallDisplayName": ["^Anki\\b"],
+    "pathExists": [
+      "%APPDATA%\\Anki2"
+    ]
+  },
+
+  "verify": [
+    // Modern Anki (2.1.x / 23.x+) stores preferences in prefs21.db; legacy prefs.db
+    // only exists when migrated from an old version. A fresh modern install creates
+    // prefs21.db on first launch, so verify against that to avoid false negatives.
+    { "type": "file-exists", "path": "%APPDATA%\\Anki2\\prefs21.db" }
+  ],
+
+  "restore": [
+    // Add-ons folder: each add-on stores user-edited config in meta.json and
+    // user data in user_files/. Restored as a directory tree.
+    {
+      "type": "copy",
+      "source": "./payload/apps/anki/addons21",
+      "target": "%APPDATA%\\Anki2\\addons21",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\__pycache__\\**",
+        "**\\*.pyc",
+        "**\\Cache\\**",
+        "**\\*.log"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Add-ons directory holds installed add-ons plus their per-add-on config:
+      // config.json (defaults), meta.json (user edits + enabled/disabled state),
+      // and user_files/ (preserved user data). This is the portable settings layer.
+      { "source": "%APPDATA%\\Anki2\\addons21", "dest": "apps/anki/addons21", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Compiled Python / caches
+      "**\\__pycache__\\**",
+      "**\\*.pyc",
+      "**\\*.pyo",
+      // Per-profile collection data (notes/decks/cards) — AnkiWeb-synced, large, not config
+      "**\\Anki2\\**\\collection.anki2",
+      "**\\Anki2\\**\\collection.anki2-*",
+      "**\\Anki2\\**\\collection.media\\**",
+      "**\\Anki2\\**\\collection.media.db2",
+      "**\\Anki2\\**\\backups\\**",
+      // Preferences DB holds the AnkiWeb sync auth token — never capture
+      "**\\Anki2\\prefs.db",
+      "**\\Anki2\\prefs21.db",
+      // Logs / caches / locks
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Anki2\\prefs.db",
+      "%APPDATA%\\Anki2\\prefs21.db"
+    ],
+    "warning": "Anki's prefs.db stores the AnkiWeb sync credentials (hostKey/sync token) alongside preferences. It MUST NOT be captured or auto-restored. Re-log in to AnkiWeb after restore. Collections (collection.anki2) are user data and should be synced via AnkiWeb, not copied here.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Anki add-on settings under %APPDATA%\\Anki2\\addons21 (each add-on's meta.json config, enabled state, and user_files). Card collections (collection.anki2) and media are excluded — they are AnkiWeb-synced user data, not portable config. prefs.db is excluded because it holds the AnkiWeb sync auth token; re-login after restore. Confidence: high - data folder %APPDATA%\\Anki2, prefs.db, addons21/meta.json, and collection layout all confirmed by the official Anki manual (docs.ankiweb.net/files.html) and add-on docs (addon-docs.ankiweb.net)."
+}

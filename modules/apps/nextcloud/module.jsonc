@@ -1,0 +1,72 @@
+{
+  // Config Module: Nextcloud Desktop Client
+  // Provides verify/restore/capture configuration for the Nextcloud sync client
+  // Curated module - captures account/sync config + global ignore list, excludes
+  // sync journal databases and logs. Credentials live in Windows Credential
+  // Manager (QtKeychain), NOT in nextcloud.cfg, so no secrets are captured.
+
+  "id": "apps.nextcloud",
+  "displayName": "Nextcloud Desktop Client",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Nextcloud.NextcloudDesktop"],
+    "exe": ["nextcloud.exe"],
+    "uninstallDisplayName": ["^Nextcloud\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Nextcloud\\nextcloud.cfg" }
+  ],
+
+  "restore": [
+    {
+      // Main client config (INI): accounts, server URLs, per-folder sync
+      // mappings, general preferences. Password is NOT here.
+      "type": "copy",
+      "source": "./payload/apps/nextcloud/nextcloud.cfg",
+      "target": "%APPDATA%\\Nextcloud\\nextcloud.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-editable global sync ignore list
+      "type": "copy",
+      "source": "./payload/apps/nextcloud/sync-exclude.lst",
+      "target": "%APPDATA%\\Nextcloud\\sync-exclude.lst",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Nextcloud\\nextcloud.cfg", "dest": "apps/nextcloud/nextcloud.cfg", "optional": true },
+      { "source": "%APPDATA%\\Nextcloud\\sync-exclude.lst", "dest": "apps/nextcloud/sync-exclude.lst", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Sync journal databases (live in the synced data folder, but guard anyway)
+      "**\\._sync_*.db*",
+      "**\\.sync_*.db*",
+      "**\\.csync_journal.db*",
+      // Logs
+      "**\\.owncloudsync.log*",
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\Cache\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      // Credentials are stored by QtKeychain in Windows Credential Manager,
+      // not in a portable file. Listed here for documentation/awareness.
+      "Windows Credential Manager (QtKeychain): Nextcloud account password / app token"
+    ],
+    "warning": "Nextcloud stores sync passwords and E2E credentials in the Windows Credential Manager, not in nextcloud.cfg. These are not captured; re-authenticate after restore. nextcloud.cfg does contain your username and server URL.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the Nextcloud desktop client config (nextcloud.cfg: accounts, server URLs, per-folder sync mappings, preferences) and the global sync-exclude.lst ignore list from %APPDATA%\\Nextcloud. Sync journal databases (._sync_*.db) and logs are excluded; passwords live in Windows Credential Manager and are never captured, so re-login is required after restore. Confidence: high - config path and credential storage confirmed by official Nextcloud admin manual and multiple community sources."
+}

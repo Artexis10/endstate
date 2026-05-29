@@ -1,0 +1,22 @@
+// Bundle: Gaming & Emulation
+// 13 modules grouped for one-step manifest inclusion.
+{
+  "version": 1,
+  "id": "gaming",
+  "name": "Gaming & Emulation",
+  "modules": [
+    "bizhawk",
+    "cemu",
+    "dolphin-emulator",
+    "duckstation",
+    "flycast",
+    "pcsx2",
+    "playnite",
+    "ppsspp",
+    "retroarch",
+    "rpcs3",
+    "ryujinx",
+    "special-k",
+    "sunshine"
+  ]
+}

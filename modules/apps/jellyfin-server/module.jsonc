@@ -1,0 +1,140 @@
+{
+  // Config Module: Jellyfin Server
+  // Provides verify/restore/capture configuration for the Jellyfin self-hosted media server (Windows)
+  // Curated module - captures portable server preference XML, excludes the SQLite databases (user accounts,
+  // password hashes, device/API tokens), caches, logs, metadata blobs, and the TLS certificate password.
+
+  "id": "apps.jellyfin-server",
+  "displayName": "Jellyfin Server",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Jellyfin.Server"],
+    "exe": ["jellyfin.exe"],
+    "uninstallDisplayName": ["^Jellyfin"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\jellyfin\\config\\system.xml",
+      "%PROGRAMDATA%\\Jellyfin\\Server\\config\\system.xml"
+    ]
+  },
+
+  "verify": [
+    // Server preferences live in the config subfolder of the data directory.
+    // Default data dir is %LOCALAPPDATA%\jellyfin (server launched directly) or
+    // %PROGRAMDATA%\Jellyfin\Server (tray app / service). Either is acceptable.
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\jellyfin\\config\\system.xml" }
+  ],
+
+  "restore": [
+    // --- %LOCALAPPDATA% data directory layout ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/jellyfin-server/local/system.xml",
+      "target": "%LOCALAPPDATA%\\jellyfin\\config\\system.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/jellyfin-server/local/encoding.xml",
+      "target": "%LOCALAPPDATA%\\jellyfin\\config\\encoding.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/jellyfin-server/local/dlna.xml",
+      "target": "%LOCALAPPDATA%\\jellyfin\\config\\dlna.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/jellyfin-server/local/branding.xml",
+      "target": "%LOCALAPPDATA%\\jellyfin\\config\\branding.xml",
+      "backup": true,
+      "optional": true
+    },
+
+    // --- %PROGRAMDATA% data directory layout (tray app / Windows service) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/jellyfin-server/programdata/system.xml",
+      "target": "%PROGRAMDATA%\\Jellyfin\\Server\\config\\system.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/jellyfin-server/programdata/encoding.xml",
+      "target": "%PROGRAMDATA%\\Jellyfin\\Server\\config\\encoding.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/jellyfin-server/programdata/dlna.xml",
+      "target": "%PROGRAMDATA%\\Jellyfin\\Server\\config\\dlna.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/jellyfin-server/programdata/branding.xml",
+      "target": "%PROGRAMDATA%\\Jellyfin\\Server\\config\\branding.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Portable server preferences from the %LOCALAPPDATA% data directory.
+      { "source": "%LOCALAPPDATA%\\jellyfin\\config\\system.xml", "dest": "apps/jellyfin-server/local/system.xml", "optional": true },
+      { "source": "%LOCALAPPDATA%\\jellyfin\\config\\encoding.xml", "dest": "apps/jellyfin-server/local/encoding.xml", "optional": true },
+      { "source": "%LOCALAPPDATA%\\jellyfin\\config\\dlna.xml", "dest": "apps/jellyfin-server/local/dlna.xml", "optional": true },
+      { "source": "%LOCALAPPDATA%\\jellyfin\\config\\branding.xml", "dest": "apps/jellyfin-server/local/branding.xml", "optional": true },
+
+      // Same files from the %PROGRAMDATA% data directory (tray app / service install).
+      { "source": "%PROGRAMDATA%\\Jellyfin\\Server\\config\\system.xml", "dest": "apps/jellyfin-server/programdata/system.xml", "optional": true },
+      { "source": "%PROGRAMDATA%\\Jellyfin\\Server\\config\\encoding.xml", "dest": "apps/jellyfin-server/programdata/encoding.xml", "optional": true },
+      { "source": "%PROGRAMDATA%\\Jellyfin\\Server\\config\\dlna.xml", "dest": "apps/jellyfin-server/programdata/dlna.xml", "optional": true },
+      { "source": "%PROGRAMDATA%\\Jellyfin\\Server\\config\\branding.xml", "dest": "apps/jellyfin-server/programdata/branding.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Databases hold user accounts, password hashes, device/API tokens - never capture.
+      "**\\data\\**",
+      "**\\*.db",
+      "**\\*.db-shm",
+      "**\\*.db-wal",
+      // network.xml may contain a TLS certificate password - excluded (see sensitive).
+      "**\\config\\network.xml",
+      // migrations.xml is tied to the local DB/install state - not portable.
+      "**\\config\\migrations.xml",
+      // Large blobs / volatile state.
+      "**\\cache\\**",
+      "**\\log\\**",
+      "**\\logs\\**",
+      "**\\metadata\\**",
+      "**\\transcodes\\**",
+      "**\\plugins\\**",
+      "**\\root\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\jellyfin\\data\\jellyfin.db",
+      "%LOCALAPPDATA%\\jellyfin\\data\\library.db",
+      "%LOCALAPPDATA%\\jellyfin\\config\\network.xml",
+      "%PROGRAMDATA%\\Jellyfin\\Server\\data\\jellyfin.db",
+      "%PROGRAMDATA%\\Jellyfin\\Server\\data\\library.db",
+      "%PROGRAMDATA%\\Jellyfin\\Server\\config\\network.xml"
+    ],
+    "warning": "Jellyfin's SQLite databases (jellyfin.db / library.db) contain user accounts, PBKDF2 password hashes, and device/API access tokens. network.xml may hold a TLS certificate password. These MUST NOT be auto-restored - recreate users and re-enter the certificate password after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Jellyfin Server's portable preference XML (system.xml, encoding.xml, dlna.xml, branding.xml) from the config subfolder of either data directory (%LOCALAPPDATA%\\jellyfin or %PROGRAMDATA%\\Jellyfin\\Server). The SQLite databases (user accounts, password hashes, device/API tokens), network.xml (possible TLS cert password), migrations.xml, caches, logs, metadata, transcodes, and plugin binaries are excluded. Confidence: medium - config/data directory layout and XML filenames confirmed by official Jellyfin docs and multiple community sources, but the exact data-root (%LOCALAPPDATA% vs %PROGRAMDATA%) depends on install/launch method, so both are captured optionally."
+}

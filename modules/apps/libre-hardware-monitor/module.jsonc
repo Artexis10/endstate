@@ -1,0 +1,49 @@
+{
+  // Config Module: Libre Hardware Monitor
+  // Provides verify/restore/capture configuration for Libre Hardware Monitor
+  // Portable app - all settings live in a single XML file next to the executable
+
+  "id": "apps.libre-hardware-monitor",
+  "displayName": "Libre Hardware Monitor",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["LibreHardwareMonitor.LibreHardwareMonitor"],
+    "exe": ["LibreHardwareMonitor.exe"],
+    "uninstallDisplayName": ["^Libre Hardware Monitor"],
+    "pathExists": [
+      // winget ships this as a portable zip; it extracts under the WinGet Packages dir
+      "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\LibreHardwareMonitor.LibreHardwareMonitor_Microsoft.WinGet.Source_8wekyb3d8bbwe\\LibreHardwareMonitor.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\LibreHardwareMonitor.LibreHardwareMonitor_Microsoft.WinGet.Source_8wekyb3d8bbwe\\LibreHardwareMonitor.exe" }
+  ],
+
+  "restore": [
+    {
+      // Single XML config: sensor tree expansion, custom sensor names, tray/gadget
+      // layout, plot config, and web-server port. Lives next to the exe.
+      "type": "copy",
+      "source": "./payload/apps/libre-hardware-monitor/LibreHardwareMonitor.config",
+      "target": "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\LibreHardwareMonitor.LibreHardwareMonitor_Microsoft.WinGet.Source_8wekyb3d8bbwe\\LibreHardwareMonitor.config",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\LibreHardwareMonitor.LibreHardwareMonitor_Microsoft.WinGet.Source_8wekyb3d8bbwe\\LibreHardwareMonitor.config", "dest": "apps/libre-hardware-monitor/LibreHardwareMonitor.config", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.sys",
+      "**\\*.dll",
+      "**\\*.exe"
+    ]
+  },
+
+  "notes": "Libre Hardware Monitor is fully portable: it stores all settings in a single LibreHardwareMonitor.config XML file next to the executable (sensor tree state, custom sensor names, tray/gadget layout, plot config, web-server port). It does NOT use the Windows registry or AppData (open upstream issue #995). The winget package is a portable zip extracted under %LOCALAPPDATA%\\Microsoft\\WinGet\\Packages\\; if installed manually elsewhere the config path will differ. Only the config XML is captured; binaries/logs are excluded. Confidence: medium - config file name and portable-app behavior confirmed by upstream issue #995 and the winget manifest (zip + portable), but the exact extraction directory depends on winget's portable package naming and install method."
+}

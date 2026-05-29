@@ -1,0 +1,38 @@
+{
+  // Config Module: Honeyview
+  // Provides verify/restore/capture configuration for Honeyview (fast image/comic viewer by Bandisoft)
+  // Settings stored in the Windows Registry under HKCU\Software\Honeyview, not files
+
+  "id": "apps.honeyview",
+  "displayName": "Honeyview",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Bandisoft.Honeyview"],
+    "exe": ["Honeyview.exe"],
+    "uninstallDisplayName": ["^Honeyview"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Honeyview" }
+  ],
+
+  "restore": [
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/honeyview/Honeyview.reg",
+      "target": "HKCU\\Software\\Honeyview",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\Honeyview", "dest": "apps/honeyview/Honeyview.reg", "optional": true }
+    ]
+  },
+
+  "notes": "Honeyview (Bandisoft) stores all preferences for the installed version in the Windows Registry under HKCU\\Software\\Honeyview, including viewing options, file associations, and window settings. The portable build instead writes setting.ini/config.ini next to the executable and is not captured here (no fixed env-rooted path). No credentials are stored. Confidence: high - registry key confirmed by two official Bandisoft support replies in the Honeyview support group."
+}

@@ -1,0 +1,52 @@
+{
+  // Config Module: PicGo
+  // Image uploader (screenshot/image hosting client). Installs via winget.
+  // INSTALL-ONLY: PicGo's sole portable config file (data.json) interleaves
+  // plaintext upload credentials with preferences and cannot be safely captured.
+
+  "id": "apps.picgo",
+  "displayName": "PicGo",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["PicGo.PicGo"],
+    "exe": ["PicGo.exe"],
+    "uninstallDisplayName": ["^PicGo"],
+    "pathExists": [
+      "%APPDATA%\\picgo\\data.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\picgo\\data.json" }
+  ],
+
+  // Install-only: nothing is restored. PicGo's config (data.json) holds
+  // plaintext image-bed credentials, so it is never auto-restored.
+  "restore": [],
+
+  // Install-only: nothing is captured. See the sensitive block + notes below.
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      "**\\node_modules\\**",   // regenerable npm plugin dependencies (large)
+      "**\\log\\**",            // picgo.log and rotated logs
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Crashpad\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\picgo\\data.json",
+      "%APPDATA%\\picgo\\external-picgo-cfg.json"
+    ],
+    "warning": "PicGo's data.json stores image-bed upload credentials in plaintext (e.g. GitHub token, Aliyun OSS accessKeyId/accessKeySecret, Tencent COS secretId/secretKey, Qiniu accessKey/secretKey, SM.MS token). It is the only config file PicGo keeps, and preferences cannot be separated from these secrets. It MUST NOT be captured or auto-restored. Re-enter your image-bed credentials in PicGo after a rebuild.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only module: nothing is captured or restored. PicGo's only portable config is %APPDATA%\\picgo\\data.json, which interleaves plaintext image-bed credentials (GitHub/Aliyun/Tencent/Qiniu/SM.MS tokens and keys) with preferences, so it is treated as sensitive and excluded. node_modules, the log folder, and caches are also excluded. Confidence: high - data.json path and plaintext-credential structure confirmed by official PicGo / PicGo-Core docs and multiple community sources."
+}

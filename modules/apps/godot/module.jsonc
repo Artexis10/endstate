@@ -1,0 +1,60 @@
+{
+  // Config Module: Godot Engine
+  // Provides verify/restore/capture configuration for the Godot Engine editor
+  // Editor settings, layouts, keybindings, themes, and script templates live under %APPDATA%\Godot\
+
+  "id": "apps.godot",
+  "displayName": "Godot Engine",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["GodotEngine.GodotEngine"],
+    "exe": ["Godot.exe", "Godot_v4.exe"],
+    "uninstallDisplayName": ["^Godot Engine"],
+    "pathExists": [
+      "%APPDATA%\\Godot"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Godot\\editor_layouts.cfg" }
+  ],
+
+  "restore": [
+    {
+      // Whole editor settings/data directory; caches and large blobs excluded below
+      "type": "copy",
+      "source": "./payload/apps/godot/Godot",
+      "target": "%APPDATA%\\Godot",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\export_templates\\**",
+        "**\\projects\\**",
+        "**\\*.log",
+        "**\\logs\\**",
+        "**\\crash_*",
+        "**\\*.tmp"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Entire editor config/data dir (%APPDATA%\Godot\): editor_settings-N.tres,
+      // editor_layouts.cfg (layouts + keybindings), text_editor_themes\, script_templates\,
+      // feature_profiles\. Caches, export templates, and project metadata excluded.
+      { "source": "%APPDATA%\\Godot", "dest": "apps/godot/Godot", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\export_templates\\**",
+      "**\\projects\\**",
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\crash_*",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures the Godot editor settings directory at %APPDATA%\\Godot\\: editor settings (editor_settings-N.tres), editor layouts and keybindings (editor_layouts.cfg), text editor themes (text_editor_themes\\), script templates (script_templates\\), and feature profiles (feature_profiles\\). Excludes downloaded export templates (large binary blobs), per-machine project list metadata (projects\\), and logs/temp. The editor cache lives separately at %TEMP%\\Godot\\ and is not captured. Godot stores no credentials in editor settings. Confidence: high - %APPDATA%\\Godot\\ confirmed by official Godot data_paths docs and EditorPaths class (get_config_dir/get_data_dir) plus multiple community sources."
+}

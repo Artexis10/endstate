@@ -1,0 +1,73 @@
+{
+  // Config Module: MediaInfo (GUI)
+  // Provides verify/restore/capture configuration for MediaInfo, a media metadata inspector
+  // Curated module - captures user preferences, custom views/templates, and GUI registry prefs
+
+  "id": "apps.mediainfo",
+  "displayName": "MediaInfo",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["MediaArea.MediaInfo.GUI"],
+    "exe": ["MediaInfo.exe"],
+    "uninstallDisplayName": ["^MediaInfo"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\MediaArea\\MediaInfo" }
+  ],
+
+  "restore": [
+    {
+      // Main preferences/config file (output format, view selection, toolbar, etc.)
+      "type": "copy",
+      "source": "./payload/apps/mediainfo/MediaInfo.cfg",
+      "target": "%APPDATA%\\MediaInfo\\Plugin\\MediaInfo.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom display templates (.csv) selectable under Options > Preferences > Custom
+      "type": "copy",
+      "source": "./payload/apps/mediainfo/Custom",
+      "target": "%APPDATA%\\MediaInfo\\Plugin\\Custom",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom sheet/column view selections (.csv)
+      "type": "copy",
+      "source": "./payload/apps/mediainfo/Sheet",
+      "target": "%APPDATA%\\MediaInfo\\Plugin\\Sheet",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // GUI + shell-extension preferences stored in HKCU
+      "type": "registry-import",
+      "source": "./payload/apps/mediainfo/MediaInfo.reg",
+      "target": "HKCU\\Software\\MediaArea\\MediaInfo",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\MediaInfo\\Plugin\\MediaInfo.cfg", "dest": "apps/mediainfo/MediaInfo.cfg", "optional": true },
+      { "source": "%APPDATA%\\MediaInfo\\Plugin\\Custom", "dest": "apps/mediainfo/Custom", "optional": true },
+      { "source": "%APPDATA%\\MediaInfo\\Plugin\\Sheet", "dest": "apps/mediainfo/Sheet", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\MediaArea\\MediaInfo", "dest": "apps/mediainfo/MediaInfo.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures MediaInfo GUI preferences (MediaInfo.cfg), user custom display templates (Plugin\\Custom) and custom sheet/column views (Plugin\\Sheet) under %APPDATA%\\MediaInfo\\Plugin, plus GUI/shell-extension settings under HKCU\\Software\\MediaArea\\MediaInfo. Bundled default Language/Tree/Graph plugin files that ship with the install are not targeted. No credentials are involved. Note: very old installs that ran without AppData redirection may keep MediaInfo.cfg in the install directory (Program Files), which is not portably capturable. Confidence: medium - AppData\\MediaInfo\\Plugin paths (MediaInfo.cfg, Custom, Sheet) and HKCU\\Software\\MediaArea\\MediaInfo confirmed by the MediaArea GitHub installer NSI plus multiple community sources, but the precise contents of the HKCU key are not exhaustively documented."
+}

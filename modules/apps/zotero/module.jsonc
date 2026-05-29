@@ -1,0 +1,121 @@
+{
+  // Config Module: Zotero
+  // Provides verify/restore/capture configuration for Zotero (reference manager)
+  // Firefox/Gecko-architecture app: settings live in a Mozilla-style profile directory.
+  // Captures the preferences file (prefs.js) only; excludes the library database,
+  // attachment storage, caches, and the credential/login store.
+
+  "id": "apps.zotero",
+  "displayName": "Zotero",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Zotero.Zotero"],
+    "exe": ["zotero.exe"],
+    "uninstallDisplayName": ["^Zotero"],
+    "pathExists": [
+      "%APPDATA%\\Zotero\\Zotero\\profiles.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Zotero\\Zotero\\profiles.ini" }
+  ],
+
+  "restore": [
+    {
+      // profiles.ini maps the profile name to its randomized profile folder.
+      // Restoring it preserves the profile mapping created at capture time.
+      "type": "copy",
+      "source": "./payload/apps/zotero/profiles.ini",
+      "target": "%APPDATA%\\Zotero\\Zotero\\profiles.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Preferences (Zotero + Mozilla prefs, mixed). The profile folder name is
+      // a random string; the leaf 'Profiles' tree is captured wholesale below.
+      "type": "copy",
+      "source": "./payload/apps/zotero/Profiles",
+      "target": "%APPDATA%\\Zotero\\Zotero\\Profiles",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\logins.json",
+        "**\\key3.db",
+        "**\\key4.db",
+        "**\\cert8.db",
+        "**\\cert9.db",
+        "**\\secmod.db",
+        "**\\pkcs11.txt",
+        "**\\cookies.sqlite*",
+        "**\\permissions.sqlite*",
+        "**\\webappsstore.sqlite*",
+        "**\\storage.sqlite*",
+        "**\\formhistory.sqlite*",
+        "**\\sessionstore*",
+        "**\\sessionCheckpoints.json",
+        "**\\cache2\\**",
+        "**\\startupCache\\**",
+        "**\\safebrowsing\\**",
+        "**\\crashes\\**",
+        "**\\minidumps\\**",
+        "**\\datareporting\\**",
+        "**\\*.log"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // profiles.ini: maps profile name -> randomized profile directory.
+      { "source": "%APPDATA%\\Zotero\\Zotero\\profiles.ini", "dest": "apps/zotero/profiles.ini", "optional": true },
+      // The Profiles tree holds prefs.js (the actual preferences). Captured as a
+      // directory because the profile folder name is a random string; sensitive
+      // credential/login files and caches are stripped via excludeGlobs.
+      { "source": "%APPDATA%\\Zotero\\Zotero\\Profiles", "dest": "apps/zotero/Profiles", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Credential / login / key stores (Firefox-style login manager) — NEVER capture.
+      "**\\logins.json",
+      "**\\key3.db",
+      "**\\key4.db",
+      "**\\cert8.db",
+      "**\\cert9.db",
+      "**\\secmod.db",
+      "**\\pkcs11.txt",
+      // Cookies and other session/state databases.
+      "**\\cookies.sqlite*",
+      "**\\permissions.sqlite*",
+      "**\\webappsstore.sqlite*",
+      "**\\storage.sqlite*",
+      "**\\formhistory.sqlite*",
+      "**\\sessionstore*",
+      "**\\sessionCheckpoints.json",
+      // Caches, crash dumps, telemetry, logs.
+      "**\\cache2\\**",
+      "**\\startupCache\\**",
+      "**\\safebrowsing\\**",
+      "**\\crashes\\**",
+      "**\\minidumps\\**",
+      "**\\datareporting\\**",
+      "**\\*.log",
+      // Library database + attachments live in the separate DATA directory
+      // (default %USERPROFILE%\\Zotero), but guard against any profile-local copies.
+      "**\\zotero.sqlite*",
+      "**\\storage\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Zotero\\Zotero\\Profiles\\*\\logins.json",
+      "%APPDATA%\\Zotero\\Zotero\\Profiles\\*\\key3.db",
+      "%APPDATA%\\Zotero\\Zotero\\Profiles\\*\\key4.db"
+    ],
+    "warning": "Zotero stores its sync API key in a Firefox-style login manager (logins.json + key3.db/key4.db). These contain account credentials and MUST NOT be auto-restored. Re-enter your Zotero sync login after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Zotero preferences (prefs.js inside the Mozilla-style profile under %APPDATA%\\Zotero\\Zotero\\Profiles\\<random>) plus profiles.ini. The library database (zotero.sqlite) and attachment storage live in the separate data directory (default %USERPROFILE%\\Zotero) and are NOT captured — they are large and managed by Zotero's own sync. Sync credentials (logins.json, key3.db/key4.db), cookies, session/state databases, caches, and crash dumps are explicitly excluded. Confidence: high - profile path and contents confirmed by official Zotero documentation (profile_directory, zotero_data) and credential storage confirmed by Zotero forums."
+}

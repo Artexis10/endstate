@@ -1,0 +1,48 @@
+{
+  // Config Module: AltSnap
+  // Provides verify/restore/capture configuration for AltSnap (Alt-drag window mover/resizer, AltDrag successor)
+  // Curated module - captures the single INI settings file from the standard (non-portable) location
+
+  "id": "apps.altsnap",
+  "displayName": "AltSnap",
+  "sensitivity": "none",
+
+  "matches": {
+    "winget": ["AltSnap.AltSnap"],
+    "exe": ["AltSnap.exe"],
+    "uninstallDisplayName": ["^AltSnap"],
+    "pathExists": [
+      "%APPDATA%\\AltSnap\\AltSnap.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\AltSnap\\AltSnap.ini" }
+  ],
+
+  "restore": [
+    {
+      // All user settings (hotkeys, snapping behavior, modifiers) live in this single INI
+      "type": "copy",
+      "source": "./payload/apps/altsnap/AltSnap.ini",
+      "target": "%APPDATA%\\AltSnap\\AltSnap.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\AltSnap\\AltSnap.ini", "dest": "apps/altsnap/AltSnap.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.dni",
+      "**\\hooks.dll",
+      "**\\Lang\\**",
+      "**\\Themes\\**"
+    ]
+  },
+
+  "notes": "Captures AltSnap's single user settings file AltSnap.ini (hotkeys, modifier keys, snapping/move/resize behavior) from the standard multi-user location %APPDATA%\\AltSnap\\. Portable-mode installs keep AltSnap.ini next to the exe (a non-env-var drive path, out of scope). The default-config template AltSnap.dni, hooks.dll, and Lang/Themes program files are excluded. AltSnap's only registry use is the shared Windows autostart key HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run, which is intentionally NOT captured to avoid clobbering other apps' run entries. Confidence: high - confirmed by official AltSnap.txt docs, the RamonUnch/AltSnap GitHub wiki, and DeepWiki."
+}

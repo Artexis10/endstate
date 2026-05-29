@@ -1,0 +1,43 @@
+{
+  // Config Module: Free Download Manager (FDM 6)
+  // Install-only: FDM 6 stores settings + the full download list in a single
+  // version-bound SQLite state database (no portable text/JSON/INI config),
+  // so nothing is captured. The app installs via winget; settings can be moved
+  // between machines using FDM's built-in Export/Import feature.
+
+  "id": "apps.free-download-manager",
+  "displayName": "Free Download Manager",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["SoftDeluxe.FreeDownloadManager"],
+    "exe": ["fdm.exe"],
+    "uninstallDisplayName": ["^Free Download Manager"],
+    "pathExists": [
+      "%ProgramFiles%\\Softdeluxe\\Free Download Manager\\fdm.exe",
+      "%LOCALAPPDATA%\\Programs\\Softdeluxe\\Free Download Manager\\fdm.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Softdeluxe\\Free Download Manager" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Softdeluxe\\Free Download Manager\\db.sqlite",
+      "%LOCALAPPDATA%\\Softdeluxe\\Free Download Manager\\fdm.sqlite",
+      "%LOCALAPPDATA%\\Softdeluxe\\Free Download Manager\\backup\\db"
+    ],
+    "warning": "FDM 6 keeps preferences and the entire download list/history in a single version-bound SQLite state database. It is not a portable config file and is fragile/corruption-prone when copied across machines or versions. Use FDM's built-in Export/Import to migrate settings; do not auto-capture or auto-restore the database.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. FDM 6 (SoftDeluxe.FreeDownloadManager) stores all settings and the download list in a single SQLite state database under %LOCALAPPDATA%\\Softdeluxe\\Free Download Manager\\ (db.sqlite / fdm.sqlite, with DB backups under backup\\db\\ and a Qt qmlcache/shader cache\\). There is no portable text/JSON/INI/registry settings file to capture: HKCU\\Software\\Softdeluxe\\Free Download Manager holds only undocumented integration/bookkeeping state, and the SQLite DB is excluded as a fragile, version-bound state database (it also commingles the live download queue). Migrate via FDM's built-in Export/Import feature instead. Confidence: high - settings location (SQLite under %LOCALAPPDATA%\\Softdeluxe) and HKCU key confirmed by multiple independent sources (advanceduninstaller leftover lists, theitbros, exefiles); no documented portable config file exists for FDM 6 on Windows."
+}

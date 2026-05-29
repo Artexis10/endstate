@@ -1,0 +1,19 @@
+// Bundle: Downloads & Torrents
+// 10 modules grouped for one-step manifest inclusion.
+{
+  "version": 1,
+  "id": "downloads",
+  "name": "Downloads & Torrents",
+  "modules": [
+    "aria2",
+    "biglybt",
+    "deluge",
+    "free-download-manager",
+    "frostwire",
+    "internet-download-manager",
+    "jdownloader",
+    "qbittorrent",
+    "tixati",
+    "transmission"
+  ]
+}

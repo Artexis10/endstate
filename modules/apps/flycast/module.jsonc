@@ -1,0 +1,45 @@
+{
+  // Config Module: Flycast
+  // Sega Dreamcast / Naomi / Naomi 2 / Atomiswave emulator (flyinghead/flycast)
+  // Install-only: on Windows, Flycast is fully PORTABLE — all settings live next to flycast.exe,
+  // so there is no env-var-anchored path to capture. Nothing is captured.
+
+  "id": "apps.flycast",
+  "displayName": "Flycast",
+  "sensitivity": "none",
+
+  "matches": {
+    // Not distributed via winget; shipped as a portable .zip from GitHub releases.
+    "winget": [],
+    "exe": ["flycast.exe"],
+    "uninstallDisplayName": ["^Flycast\\b"]
+  },
+
+  "verify": [
+    // No reliable env-var-rooted install path exists (user extracts the portable zip anywhere),
+    // so detection relies on the executable name only.
+    { "type": "command-exists", "command": "flycast" }
+  ],
+
+  // Nothing to restore — config is not captured (see notes).
+  "restore": [],
+
+  "capture": {
+    // Flycast on Windows resolves its config dir to the folder containing flycast.exe and its
+    // data dir to a "data\\" subfolder beside the exe (confirmed in core/windows/winmain.cpp:
+    // GetModuleFileNameW -> set_user_config_dir(exeDir); set_user_data_dir(exeDir + "data\\")).
+    // Settings (emu.cfg, mappings\\, data\\) therefore live at an arbitrary user-chosen path
+    // such as C:\\flycast\\ with NO %APPDATA% / %LOCALAPPDATA% / %USERPROFILE% anchor.
+    // Capturing would require a hardcoded absolute drive path, which is forbidden, so nothing
+    // is captured.
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [],
+    "warning": "Flycast is portable on Windows: emu.cfg, the mappings\\ folder, and the data\\ folder all live beside flycast.exe at a user-chosen extraction path (e.g. C:\\flycast\\). There is no env-var-rooted location to capture without hardcoding an absolute drive path, so this module is install-only. To preserve settings, manually back up the Flycast folder.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. Flycast (Dreamcast/Naomi emulator) runs in portable mode on Windows — emu.cfg, the mappings\\ folder, and data\\ are stored next to flycast.exe at an arbitrary user-chosen path with no standard env-var anchor (%APPDATA%/%LOCALAPPDATA%/%USERPROFILE%). Capturing them would require a forbidden hardcoded absolute drive path, so nothing is captured or restored; manually copy the Flycast folder to preserve settings. Confidence: high - portable Windows path resolution confirmed in flyinghead/flycast source (core/windows/winmain.cpp) and multiple community wikis."
+}

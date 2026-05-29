@@ -1,0 +1,56 @@
+{
+  // Config Module: Duplicati
+  // Backup client. INSTALL-ONLY: settings are not portably/safely capturable.
+  //
+  // Duplicati stores ALL of its configuration (backup jobs, schedules, options)
+  // inside a single SQLite database, Duplicati-server.sqlite, located at
+  //   %LOCALAPPDATA%\Duplicati  (modern versions; older versions used %APPDATA%\Duplicati).
+  // That same database inseparably contains highly sensitive secrets: the backup
+  // encryption passphrase, the destination connection credentials, server token
+  // signing keys, and (optionally) an SSL certificate password. There is no way to
+  // capture the job definitions without also capturing those live secrets.
+  //
+  // It is also an actively-written state/session database (WAL + lock files), and
+  // Duplicati's own supported migration path is the GUI "Export to File" feature
+  // (with an explicit "Export passwords" choice), followed by a Repair to rebuild
+  // the per-job local databases. A raw copy of the DB does not transplant cleanly.
+  // For all of these reasons this module captures and restores nothing.
+
+  "id": "apps.duplicati",
+  "displayName": "Duplicati",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Duplicati.Duplicati"],
+    "exe": ["Duplicati.GUI.TrayIcon.exe", "Duplicati.Server.exe"],
+    "uninstallDisplayName": ["^Duplicati\\b"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Duplicati\\Duplicati-server.sqlite",
+      "%APPDATA%\\Duplicati\\Duplicati-server.sqlite"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Duplicati\\Duplicati-server.sqlite" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Duplicati\\Duplicati-server.sqlite",
+      "%LOCALAPPDATA%\\Duplicati\\Duplicati-server.sqlite-wal",
+      "%LOCALAPPDATA%\\Duplicati\\Duplicati-server.sqlite-shm",
+      "%APPDATA%\\Duplicati\\Duplicati-server.sqlite",
+      "%ProgramData%\\Duplicati\\Duplicati-server.sqlite"
+    ],
+    "warning": "Duplicati-server.sqlite holds backup-destination credentials, the backup encryption passphrase, token signing keys, and SSL certificate passwords alongside the job definitions. It is an actively-written state database and MUST NOT be captured or auto-restored. Migrate jobs via Duplicati's GUI Export-to-File feature instead, then run Repair on the new machine.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only. All Duplicati settings live in a single state SQLite database (Duplicati-server.sqlite under %LOCALAPPDATA%\\Duplicati, or %APPDATA%\\Duplicati on older versions / %ProgramData%\\Duplicati for service installs) that inseparably contains destination credentials, the backup encryption passphrase, and token signing keys, so nothing is captured. Migrate backup jobs using Duplicati's own GUI Export-to-File feature, then run Repair to rebuild per-job local databases. Confidence: high - file path, single-file storage, and the embedded secrets are all confirmed by official Duplicati docs (docs.duplicati.com server-database / import-export / migration pages)."
+}

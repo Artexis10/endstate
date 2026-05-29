@@ -1,0 +1,65 @@
+{
+  // Config Module: YASB (Yet Another Status Bar)
+  // Provides verify/restore/capture configuration for YASB Reborn (amnweb fork)
+  // Curated module - captures file-based config, excludes the secrets .env and logs
+
+  "id": "apps.yasb",
+  "displayName": "YASB (Yet Another Status Bar)",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["AmN.yasb"],
+    "exe": ["yasb.exe"],
+    "uninstallDisplayName": ["^YASB\\b", "^Yet Another Status Bar"],
+    "pathExists": [
+      "%USERPROFILE%\\.config\\yasb\\config.yaml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.config\\yasb\\config.yaml" }
+  ],
+
+  "restore": [
+    {
+      // Main configuration (widgets, bars, layout, window-manager hooks)
+      "type": "copy",
+      "source": "./payload/apps/yasb/config.yaml",
+      "target": "%USERPROFILE%\\.config\\yasb\\config.yaml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Visual styling (CSS)
+      "type": "copy",
+      "source": "./payload/apps/yasb/styles.css",
+      "target": "%USERPROFILE%\\.config\\yasb\\styles.css",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\.config\\yasb\\config.yaml", "dest": "apps/yasb/config.yaml", "optional": true },
+      { "source": "%USERPROFILE%\\.config\\yasb\\styles.css", "dest": "apps/yasb/styles.css", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Secrets file: holds API keys / tokens (e.g. weather API key) - never capture
+      "**\\.config\\yasb\\.env",
+      // Logs
+      "**\\.config\\yasb\\yasb.log",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.config\\yasb\\.env"
+    ],
+    "warning": "YASB's .env file stores secrets (e.g. weather/widget API keys and tokens) referenced from config.yaml. It MUST NOT be auto-restored - re-create it with fresh credentials after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures YASB Reborn's file-based config from %USERPROFILE%\\.config\\yasb\\: config.yaml (bars/widgets/layout) and styles.css (CSS styling). The secrets .env (API keys/tokens) and yasb.log are excluded. YASB stores no HKCU registry settings; settings can also live under YASB_CONFIG_HOME if that env var is set (non-default). Confidence: high - default paths confirmed by official docs (docs.yasb.dev) and the amnweb/yasb wiki."
+}

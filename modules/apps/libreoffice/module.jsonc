@@ -1,0 +1,144 @@
+{
+  // Config Module: LibreOffice
+  // Provides verify/restore/capture configuration for the LibreOffice office suite
+  // Curated module - captures the user profile, excludes caches/temp/lock files and document backups
+  // Settings live in %APPDATA%\LibreOffice\4\user (registrymodifications.xcu + supporting folders)
+
+  "id": "apps.libreoffice",
+  "displayName": "LibreOffice",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["TheDocumentFoundation.LibreOffice"],
+    "exe": ["soffice.exe", "swriter.exe", "scalc.exe"],
+    "uninstallDisplayName": ["^LibreOffice\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\LibreOffice\\4\\user\\registrymodifications.xcu" }
+  ],
+
+  "restore": [
+    {
+      // Primary settings file: options, paths, UI tweaks, toolbar/menu state.
+      // NOTE: may contain encrypted stored web/WebDAV passwords (see sensitive block).
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/registrymodifications.xcu",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\registrymodifications.xcu",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // AutoCorrect substitution tables (Tools > AutoCorrect Options)
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/autocorr",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\autocorr",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // AutoText entries (Tools > AutoText)
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/autotext",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\autotext",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User Basic macros
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/basic",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\basic",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Toolbar/menu customizations and custom color palettes
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/config",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User gallery items
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/gallery",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\gallery",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User document templates
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/template",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\template",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom dictionaries (spellcheck wordbooks)
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/wordbook",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\wordbook",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-defined macro scripts (python / java / javascript / beanshell)
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/Scripts",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\Scripts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Installed extension packages
+      "type": "copy",
+      "source": "./payload/apps/libreoffice/uno_packages",
+      "target": "%APPDATA%\\LibreOffice\\4\\user\\uno_packages",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\cache\\**"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\registrymodifications.xcu", "dest": "apps/libreoffice/registrymodifications.xcu", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\autocorr", "dest": "apps/libreoffice/autocorr", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\autotext", "dest": "apps/libreoffice/autotext", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\basic", "dest": "apps/libreoffice/basic", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\config", "dest": "apps/libreoffice/config", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\gallery", "dest": "apps/libreoffice/gallery", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\template", "dest": "apps/libreoffice/template", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\wordbook", "dest": "apps/libreoffice/wordbook", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\Scripts", "dest": "apps/libreoffice/Scripts", "optional": true },
+      { "source": "%APPDATA%\\LibreOffice\\4\\user\\uno_packages", "dest": "apps/libreoffice/uno_packages", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Regenerated extension cache (uno_packages\cache + the runtime extensions cache)
+      "**\\uno_packages\\cache\\**",
+      "**\\extensions\\**",
+      // Temp, print spooler scratch, document backups (large; not settings)
+      "**\\temp\\**",
+      "**\\psprint\\**",
+      "**\\backup\\**",
+      // Lock files and recovery scratch
+      "**\\*.lock",
+      "**\\.~lock*",
+      "**\\document_io_logring.txt"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\LibreOffice\\4\\user\\registrymodifications.xcu",
+      "%APPDATA%\\LibreOffice\\4\\user\\database"
+    ],
+    "warning": "registrymodifications.xcu may contain stored web/WebDAV passwords (under /org.openoffice.Office.Common/Passwords, encrypted with the LibreOffice master password) and the database folder may reference registered database connection credentials. Review before sharing; re-enter the master password and re-authenticate database connections after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the LibreOffice user profile under %APPDATA%\\LibreOffice\\4\\user: registrymodifications.xcu (all options), autocorrect/autotext, Basic macros and Scripts, toolbar config and color palettes, gallery, templates, custom dictionaries, and installed extensions (uno_packages). Excludes extension/print caches, temp, document backups, and lock files. registrymodifications.xcu can hold encrypted stored passwords, so the profile is flagged sensitive. Confidence: high - profile root and folder roles confirmed by The Document Foundation wiki plus multiple independent sources."
+}

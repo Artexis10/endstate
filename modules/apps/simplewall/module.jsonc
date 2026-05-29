@@ -1,0 +1,62 @@
+{
+  // Config Module: simplewall
+  // Provides verify/restore/capture configuration for simplewall (WFP firewall, by Henry++)
+  // Curated module - captures the XML profile (all per-app allow/block rules + settings), excludes logs
+  // simplewall stores configuration in XML files under %APPDATA%\Henry++\simplewall - NOT the registry
+
+  "id": "apps.simplewall",
+  "displayName": "simplewall",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Henry++.simplewall"],
+    "exe": ["simplewall.exe"],
+    "uninstallDisplayName": ["^simplewall"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Henry++\\simplewall\\profile.xml" }
+  ],
+
+  "restore": [
+    {
+      // Primary profile: all per-app allow/block rules and application settings
+      "type": "copy",
+      "source": "./payload/apps/simplewall/profile.xml",
+      "target": "%APPDATA%\\Henry++\\simplewall\\profile.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Backup copy of the profile (auto-maintained by simplewall)
+      "type": "copy",
+      "source": "./payload/apps/simplewall/profile.xml.bak",
+      "target": "%APPDATA%\\Henry++\\simplewall\\profile.xml.bak",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Internal/system rule set referenced by the profile
+      "type": "copy",
+      "source": "./payload/apps/simplewall/profile_internal.xml",
+      "target": "%APPDATA%\\Henry++\\simplewall\\profile_internal.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Henry++\\simplewall\\profile.xml", "dest": "apps/simplewall/profile.xml", "optional": true },
+      { "source": "%APPDATA%\\Henry++\\simplewall\\profile.xml.bak", "dest": "apps/simplewall/profile.xml.bak", "optional": true },
+      { "source": "%APPDATA%\\Henry++\\simplewall\\profile_internal.xml", "dest": "apps/simplewall/profile_internal.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\errors.log",
+      "**\\simplewall.log"
+    ]
+  },
+
+  "notes": "Captures simplewall's XML profile (profile.xml plus its .bak and profile_internal.xml) under %APPDATA%\\Henry++\\simplewall - this holds the entire set of per-app allow/block firewall rules and application settings, which are tedious to recreate. Packet/error logs (*.log) are excluded. simplewall stores all config in XML files, not the Windows registry; portable-mode installs instead keep these files next to the executable. Confidence: high - profile.xml location and contents confirmed by official README and multiple independent sources."
+}

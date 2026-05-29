@@ -1,0 +1,54 @@
+{
+  // Config Module: Mp3tag
+  // Provides verify/capture/restore configuration for Mp3tag (audio tag editor)
+  // All settings live in %APPDATA%\Mp3tag (config, custom actions, export scripts, web sources)
+  // Excludes the Library metadata database/cache
+
+  "id": "apps.mp3tag",
+  "displayName": "Mp3tag",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["FlorianHeidenreich.Mp3tag"],
+    "exe": ["Mp3tag.exe"],
+    "uninstallDisplayName": ["^Mp3tag"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Mp3tag\\mp3tag.cfg" }
+  ],
+
+  "restore": [
+    {
+      // Entire config tree: mp3tag.cfg, data\actions (*.mta/*.src), export (*.mte), column/web-source configs
+      "type": "copy",
+      "source": "./payload/apps/mp3tag",
+      "target": "%APPDATA%\\Mp3tag",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.db",
+        "**\\*.db-*",
+        "**\\*.sqlite*",
+        "**\\*.log",
+        "**\\*.tmp"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Mp3tag", "dest": "apps/mp3tag", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Library metadata database is a rebuildable cache, not portable config
+      "**\\*.db",
+      "**\\*.db-*",
+      "**\\*.sqlite*",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures the full Mp3tag config folder %APPDATA%\\Mp3tag: mp3tag.cfg, custom actions (data\\actions\\*.mta), export scripts (export\\*.mte), web sources (*.src), and column/filter layouts. The Library metadata database is a rebuildable cache and is excluded. Confidence: medium - %APPDATA%\\Mp3tag config root and data/export subfolders confirmed by Mp3tag docs and community; exact database filename varies so excluded by *.db/*.sqlite glob."
+}

@@ -1,0 +1,75 @@
+{
+  // Config Module: komorebi
+  // Provides verify/restore/capture configuration for komorebi (Windows tiling window manager)
+  // Curated module - captures the hand-tuned JSON config + whkd keybindings, excludes runtime/socket/logs
+
+  "id": "apps.komorebi",
+  "displayName": "komorebi",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["LGUG2Z.komorebi"],
+    "exe": ["komorebi.exe", "komorebic.exe"],
+    "uninstallDisplayName": ["^komorebi"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "komorebic" }
+  ],
+
+  "restore": [
+    {
+      // Main window manager configuration (workspaces, layouts, rules, monitors)
+      "type": "copy",
+      "source": "./payload/apps/komorebi/komorebi.json",
+      "target": "%USERPROFILE%\\komorebi.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Status bar configuration
+      "type": "copy",
+      "source": "./payload/apps/komorebi/komorebi.bar.json",
+      "target": "%USERPROFILE%\\komorebi.bar.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Application-specific behavior overrides (referenced by app_specific_configuration_path)
+      "type": "copy",
+      "source": "./payload/apps/komorebi/applications.json",
+      "target": "%USERPROFILE%\\applications.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // whkd hotkey bindings (default search location is %USERPROFILE%\.config\whkdrc)
+      "type": "copy",
+      "source": "./payload/apps/komorebi/whkdrc",
+      "target": "%USERPROFILE%\\.config\\whkdrc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\komorebi.json", "dest": "apps/komorebi/komorebi.json", "optional": true },
+      { "source": "%USERPROFILE%\\komorebi.bar.json", "dest": "apps/komorebi/komorebi.bar.json", "optional": true },
+      { "source": "%USERPROFILE%\\applications.json", "dest": "apps/komorebi/applications.json", "optional": true },
+      { "source": "%USERPROFILE%\\.config\\whkdrc", "dest": "apps/komorebi/whkdrc", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Runtime state, socket, window-handle cache and logs live under %LOCALAPPDATA%\komorebi
+      "**\\komorebi.hwnd.json",
+      "**\\komorebi.sock",
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures komorebi's hand-tuned configuration: komorebi.json (workspaces/layouts/rules), komorebi.bar.json (status bar), applications.json (per-app overrides), and the whkd keybindings file (whkdrc), all at their default %USERPROFILE% locations. Runtime artifacts under %LOCALAPPDATA%\\komorebi (socket, komorebi.hwnd.json, logs) are excluded. If the user sets KOMOREBI_CONFIG_HOME / WHKD_CONFIG_HOME to a non-default directory these paths will differ; the default USERPROFILE layout is targeted. No credentials involved. Confidence: high - default file names and %USERPROFILE% location confirmed by official komorebi docs (lgug2z.github.io/komorebi), whkdrc default at %USERPROFILE%\\.config\\whkdrc confirmed by official docs."
+}

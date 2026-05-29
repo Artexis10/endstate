@@ -1,0 +1,118 @@
+{
+  // Config Module: IntelliJ IDEA Ultimate
+  // Provides verify/restore/capture configuration for IntelliJ IDEA Ultimate (paid edition)
+  // Curated module - captures IDE settings, keymaps, color schemes, templates, code styles
+  // Note: Config folder is version-specific (IntelliJIdea<version>); both Ultimate and
+  // modern Community Edition (2020.1+) use the IntelliJIdea prefix, with Community
+  // appending a CE suffix (e.g. IntelliJIdea2025.3CE). The winget/exe matchers gate
+  // this module to the Ultimate install.
+
+  "id": "apps.intellij-idea-ultimate",
+  "displayName": "IntelliJ IDEA Ultimate",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.IntelliJIDEA.Ultimate"],
+    "exe": ["idea64.exe"],
+    "uninstallDisplayName": ["^IntelliJ IDEA(?! Community)", "^IntelliJ IDEA Ultimate"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea-ultimate/options",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea-ultimate/keymaps",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea-ultimate/colors",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\colors",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea-ultimate/codestyles",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/intellij-idea-ultimate/templates",
+      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\templates",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options", "dest": "apps/intellij-idea-ultimate/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\keymaps", "dest": "apps/intellij-idea-ultimate/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\colors", "dest": "apps/intellij-idea-ultimate/colors", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\codestyles", "dest": "apps/intellij-idea-ultimate/codestyles", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\templates", "dest": "apps/intellij-idea-ultimate/templates", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml",
+      "**\\security.xml",
+      "**\\github.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and access tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures IntelliJ IDEA Ultimate settings (options/*.xml), keymaps, color schemes, code styles, and live templates. Config folder is version-specific (%APPDATA%\\JetBrains\\IntelliJIdea<version>\\); both Ultimate and modern Community (2020.1+) use the IntelliJIdea prefix, with Community appending a CE suffix (e.g. IntelliJIdea2025.3CE). This module is gated to Ultimate by the winget/exe matchers. Workspace-specific files (workspace.xml, tasks.xml), usage stats, recent projects, caches, index, and logs are excluded; credential stores (security.xml, github.xml) are excluded from capture and never auto-restored. License/activation state is not stored here and is not captured. Confidence: high - config layout and Ultimate directory naming confirmed by official JetBrains documentation and consistent with sibling JetBrains modules in this repo.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml",
+      "**/recentProjects.xml",
+      "**/security.xml",
+      "**/github.xml"
+    ]
+  }
+}

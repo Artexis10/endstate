@@ -1,0 +1,115 @@
+{
+  // Config Module: Android Studio
+  // Provides verify/restore/capture configuration for Android Studio
+  // Curated module - captures IDE settings, keymaps, templates, code styles, colors
+  // Note: Config folder is version-specific (Google\AndroidStudio<version>)
+  // Android Studio is built on the IntelliJ Platform and uses the same config layout.
+
+  "id": "apps.android-studio",
+  "displayName": "Android Studio",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Google.AndroidStudio"],
+    "exe": ["studio64.exe"],
+    "uninstallDisplayName": ["^Android Studio"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Google\\AndroidStudio*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/android-studio/options",
+      "target": "%APPDATA%\\Google\\AndroidStudio*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/android-studio/keymaps",
+      "target": "%APPDATA%\\Google\\AndroidStudio*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/android-studio/templates",
+      "target": "%APPDATA%\\Google\\AndroidStudio*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/android-studio/codestyles",
+      "target": "%APPDATA%\\Google\\AndroidStudio*\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/android-studio/colors",
+      "target": "%APPDATA%\\Google\\AndroidStudio*\\colors",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Google\\AndroidStudio*\\options", "dest": "apps/android-studio/options", "optional": true },
+      { "source": "%APPDATA%\\Google\\AndroidStudio*\\keymaps", "dest": "apps/android-studio/keymaps", "optional": true },
+      { "source": "%APPDATA%\\Google\\AndroidStudio*\\templates", "dest": "apps/android-studio/templates", "optional": true },
+      { "source": "%APPDATA%\\Google\\AndroidStudio*\\codestyles", "dest": "apps/android-studio/codestyles", "optional": true },
+      { "source": "%APPDATA%\\Google\\AndroidStudio*\\colors", "dest": "apps/android-studio/colors", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml",
+      "**\\security.xml",
+      "**\\github.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Google\\AndroidStudio*\\options\\security.xml",
+      "%APPDATA%\\Google\\AndroidStudio*\\options\\github.xml"
+    ],
+    "warning": "JetBrains/Android Studio security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Android Studio IDE settings (options/*.xml), keymaps, live templates, code styles, and color schemes. Config folder is version-specific (%APPDATA%\\Google\\AndroidStudio<version>\\); the * wildcard matches the active version. Workspace-specific files (workspace.xml, tasks.xml), usage stats, recent-projects list, caches/index, and credential stores (security.xml, github.xml) are excluded. SDK, Gradle caches, and the %LOCALAPPDATA% system/log dirs are not captured. Confidence: high - config path confirmed by official Android Studio docs and the IntelliJ Platform directories reference; subfolder layout matches the curated intellij-idea module.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.lock",
+      "**/caches/**",
+      "**/index/**",
+      "**/log/**",
+      "**/workspace.xml",
+      "**/tasks.xml",
+      "**/usage.statistics.xml",
+      "**/security.xml",
+      "**/github.xml"
+    ]
+  }
+}

@@ -1,0 +1,45 @@
+{
+  // Config Module: Flameshot
+  // Provides verify/restore/capture configuration for Flameshot (screenshot tool)
+  // All settings live in a single INI file under %APPDATA%\flameshot\
+
+  "id": "apps.flameshot",
+  "displayName": "Flameshot",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Flameshot.Flameshot"],
+    "exe": ["flameshot.exe"],
+    "uninstallDisplayName": ["^Flameshot"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\flameshot\\flameshot.ini" }
+  ],
+
+  "restore": [
+    {
+      // merge-ini preserves machine-specific keys (e.g. savePath) not present in payload
+      "type": "merge-ini",
+      "source": "./payload/apps/flameshot/flameshot.ini",
+      "target": "%APPDATA%\\flameshot\\flameshot.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single INI holding [General] (UI colors, draw defaults, savePath, button layout)
+      // and [Shortcuts] (keyboard bindings)
+      { "source": "%APPDATA%\\flameshot\\flameshot.ini", "dest": "apps/flameshot/flameshot.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\Cache\\**"
+    ]
+  },
+
+  "notes": "Captures Flameshot's single settings file %APPDATA%\\flameshot\\flameshot.ini ([General] UI/draw/save preferences + [Shortcuts] key bindings). savePath is machine-specific and should be re-checked after restore (merge-ini preserves the target's existing value when absent from payload). Flameshot stores no settings in HKCU; only HKLM integration entries exist (not captured). Any custom Imgur Client ID in the INI is an anonymous upload quota key, not account credentials. Confidence: high - config path and INI structure confirmed by official Flameshot docs and the upstream flameshot.example.ini."
+}

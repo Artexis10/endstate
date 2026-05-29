@@ -1,0 +1,61 @@
+{
+  // Config Module: Cryptomator
+  // Provides verify/restore/capture configuration for Cryptomator (encrypted vaults)
+  // Curated module - captures the vault registry + UI preferences, EXCLUDES the password keychain
+
+  "id": "apps.cryptomator",
+  "displayName": "Cryptomator",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Cryptomator.Cryptomator"],
+    "exe": ["Cryptomator.exe"],
+    "uninstallDisplayName": ["^Cryptomator"],
+    "pathExists": [
+      "%ProgramFiles%\\Cryptomator\\Cryptomator.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Cryptomator\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      // Vault list, drive-letter/mount preferences, UI options.
+      // NOT the encrypted vault data - only the registry of where vaults live.
+      "type": "copy",
+      "source": "./payload/apps/cryptomator/settings.json",
+      "target": "%APPDATA%\\Cryptomator\\settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Cryptomator\\settings.json", "dest": "apps/cryptomator/settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Password keychain (DPAPI/Windows Hello protected salted passwords) - NEVER capture
+      "**\\keychain.json",
+      // Logs, lock files, IPC metadata, caches
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\*.lock",
+      "**\\ipcMetadata*",
+      "**\\Cache\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Cryptomator\\keychain.json"
+    ],
+    "warning": "Cryptomator's keychain.json holds vault passwords encrypted with Windows DPAPI/Windows Hello (machine- and account-bound) plus salts. It is a credential store, is not portable across machines, and MUST NOT be captured or auto-restored. Re-enter vault passwords after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Cryptomator's vault registry and UI/mount preferences from %APPDATA%\\Cryptomator\\settings.json (vault IDs, paths, drive-letter/mount-point options) so configured vaults reappear after a rebuild. The encrypted vault contents are NOT touched. The password keychain (keychain.json) is explicitly excluded - it is DPAPI/Windows Hello protected and account-bound, so users re-enter vault passwords after restore. Confidence: high - settings.json path and keychain.json password-store location confirmed by official docs reference and multiple Cryptomator community sources."
+}

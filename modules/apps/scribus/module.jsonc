@@ -1,0 +1,126 @@
+{
+  // Config Module: Scribus
+  // Provides verify/restore/capture configuration for Scribus (open-source desktop publishing)
+  // Curated module - captures user preferences, color palettes, scrapbook and scripts; excludes caches/state
+
+  "id": "apps.scribus",
+  "displayName": "Scribus",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Scribus.Scribus"],
+    "exe": ["Scribus.exe", "scribus.exe"],
+    "uninstallDisplayName": ["^Scribus"],
+    "pathExists": [
+      "%APPDATA%\\Scribus\\scribus150.rc",
+      "%APPDATA%\\Scribus\\scribus170.rc"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Scribus\\scribus150.rc" }
+  ],
+
+  "restore": [
+    {
+      // Main preferences file (recent files, keyboard shortcuts, PDF export, font settings). XML despite .rc extension.
+      "type": "copy",
+      "source": "./payload/apps/scribus/scribus150.rc",
+      "target": "%APPDATA%\\Scribus\\scribus150.rc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Window geometry / dialog placement saved on close
+      "type": "copy",
+      "source": "./payload/apps/scribus/prefs150.xml",
+      "target": "%APPDATA%\\Scribus\\prefs150.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Font selection / usability state
+      "type": "copy",
+      "source": "./payload/apps/scribus/checkfonts150.xml",
+      "target": "%APPDATA%\\Scribus\\checkfonts150.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom shapes
+      "type": "copy",
+      "source": "./payload/apps/scribus/scribusshapes.xml",
+      "target": "%APPDATA%\\Scribus\\scribusshapes.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User short-words list (prevents undesired line breaks)
+      "type": "copy",
+      "source": "./payload/apps/scribus/scribus-short-words.rc",
+      "target": "%APPDATA%\\Scribus\\scribus-short-words.rc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User color palettes / swatches (XML)
+      "type": "copy",
+      "source": "./payload/apps/scribus/swatches",
+      "target": "%APPDATA%\\Scribus\\swatches",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-created color palettes
+      "type": "copy",
+      "source": "./payload/apps/scribus/palettes",
+      "target": "%APPDATA%\\Scribus\\palettes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Scrapbook (reusable object library)
+      "type": "copy",
+      "source": "./payload/apps/scribus/scrapbook",
+      "target": "%APPDATA%\\Scribus\\scrapbook",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User scripts
+      "type": "copy",
+      "source": "./payload/apps/scribus/scripts",
+      "target": "%APPDATA%\\Scribus\\scripts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Scribus\\scribus150.rc", "dest": "apps/scribus/scribus150.rc", "optional": true },
+      { "source": "%APPDATA%\\Scribus\\prefs150.xml", "dest": "apps/scribus/prefs150.xml", "optional": true },
+      { "source": "%APPDATA%\\Scribus\\checkfonts150.xml", "dest": "apps/scribus/checkfonts150.xml", "optional": true },
+      { "source": "%APPDATA%\\Scribus\\scribusshapes.xml", "dest": "apps/scribus/scribusshapes.xml", "optional": true },
+      { "source": "%APPDATA%\\Scribus\\scribus-short-words.rc", "dest": "apps/scribus/scribus-short-words.rc", "optional": true },
+      { "source": "%APPDATA%\\Scribus\\swatches", "dest": "apps/scribus/swatches", "optional": true },
+      { "source": "%APPDATA%\\Scribus\\palettes", "dest": "apps/scribus/palettes", "optional": true },
+      { "source": "%APPDATA%\\Scribus\\scrapbook", "dest": "apps/scribus/scrapbook", "optional": true },
+      { "source": "%APPDATA%\\Scribus\\scripts", "dest": "apps/scribus/scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\cache\\**",
+      "**\\dicts\\**",
+      "**\\fonts\\**",
+      "**\\doc\\**",
+      "**\\downloads\\**",
+      "**\\temp\\**",
+      "**\\plugins\\**",
+      "**\\*.ps",
+      "**\\charpalette.ucp",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures Scribus user preferences (scribus150.rc, prefs150.xml, font/shape state), color swatches and palettes, scrapbook, and user scripts from %APPDATA%\\Scribus\\. Excludes image cache, loaded spelling dictionaries, saved fonts, browsing-history/bookmark state (doc), downloads, and temp files. Scribus stores all settings in files (no HKCU registry usage) and no credentials are involved. Version-specific filenames (150) match Scribus 1.5/1.6; 1.7+ uses 170 equivalents not yet covered. Confidence: high - file locations confirmed by official Scribus docs (configfiles.html) and Scribus community forum/wiki."
+}

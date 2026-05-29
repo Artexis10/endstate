@@ -1,0 +1,92 @@
+{
+  // Config Module: GoLand
+  // Provides verify/restore/capture configuration for GoLand (JetBrains Go IDE)
+  // Curated module - captures IDE settings, keymaps, templates, code styles
+  // Note: Config folder is version-specific (GoLand<version>)
+
+  "id": "apps.goland",
+  "displayName": "GoLand",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.GoLand"],
+    "exe": ["goland64.exe"],
+    "uninstallDisplayName": ["^GoLand"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\GoLand*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/goland/options",
+      "target": "%APPDATA%\\JetBrains\\GoLand*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/goland/keymaps",
+      "target": "%APPDATA%\\JetBrains\\GoLand*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/goland/templates",
+      "target": "%APPDATA%\\JetBrains\\GoLand*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/goland/codestyles",
+      "target": "%APPDATA%\\JetBrains\\GoLand*\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/goland/colors",
+      "target": "%APPDATA%\\JetBrains\\GoLand*\\colors",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\GoLand*\\options", "dest": "apps/goland/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\GoLand*\\keymaps", "dest": "apps/goland/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\GoLand*\\templates", "dest": "apps/goland/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\GoLand*\\codestyles", "dest": "apps/goland/codestyles", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\GoLand*\\colors", "dest": "apps/goland/colors", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml",
+      "**\\security.xml",
+      "**\\github.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\GoLand*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\GoLand*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures GoLand settings (options/*.xml), keymaps, live templates, code styles, and color schemes. Config folder is version-specific (%APPDATA%\\JetBrains\\GoLand<version>\\); the system/caches directory under %LOCALAPPDATA%\\JetBrains\\GoLand<version>\\ is not captured. Workspace-specific files (workspace.xml, tasks.xml), usage stats, caches, and index are excluded; credential stores (security.xml, github.xml) are excluded from capture and never auto-restored. Confidence: high - config layout confirmed by official JetBrains GoLand documentation and consistent with sibling JetBrains modules in this repo."
+}

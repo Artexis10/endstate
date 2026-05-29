@@ -1,0 +1,40 @@
+{
+  // Config Module: TechPowerUp GPU-Z
+  // Provides verify/restore/capture configuration for GPU-Z (GPU information utility)
+  // Settings stored in the Windows Registry under HKCU, not files
+
+  "id": "apps.gpu-z",
+  "displayName": "TechPowerUp GPU-Z",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["TechPowerUp.GPU-Z"],
+    "exe": ["GPU-Z.exe"],
+    "uninstallDisplayName": ["^GPU-Z", "^TechPowerUp GPU-Z"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\techPowerUp\\GPU-Z" }
+  ],
+
+  "restore": [
+    {
+      // Whole GPU-Z preference tree (window position, selected card, sensor
+      // display prefs under the Sensors subkey, memory-sensor override, etc.)
+      "type": "registry-import",
+      "source": "./payload/apps/gpu-z/GPU-Z.reg",
+      "target": "HKCU\\Software\\techPowerUp\\GPU-Z",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\techPowerUp\\GPU-Z", "dest": "apps/gpu-z/GPU-Z.reg", "optional": true }
+    ]
+  },
+
+  "notes": "GPU-Z stores all settings in the Windows Registry under HKCU\\Software\\techPowerUp\\GPU-Z (general preferences such as WindowPos, LastCardIndex, Force_WDDM_Mem_Sensor, plus the Sensors subkey holding per-GPU sensor display preferences). No config files or INI are used by the default installed build. No credentials or tokens are involved. Confidence: high - confirmed by an exported GPU-Z.reg in the community portable build and multiple sources documenting the HKCU\\Software\\techPowerUp\\GPU-Z key and its Sensors subkey."
+}

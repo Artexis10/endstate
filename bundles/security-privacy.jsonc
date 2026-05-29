@@ -1,0 +1,20 @@
+// Bundle: Security & Privacy
+// 11 modules grouped for one-step manifest inclusion.
+{
+  "version": 1,
+  "id": "security-privacy",
+  "name": "Security & Privacy",
+  "modules": [
+    "cryptomator",
+    "gpg4win",
+    "keepass",
+    "keepassxc",
+    "kleopatra",
+    "malwarebytes",
+    "mullvad-vpn",
+    "openvpn-connect",
+    "simplewall",
+    "veracrypt",
+    "wireguard"
+  ]
+}

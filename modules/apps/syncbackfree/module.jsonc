@@ -1,0 +1,69 @@
+{
+  // Config Module: SyncBackFree
+  // Provides verify/restore/capture configuration for SyncBackFree (2BrightSparks)
+  // File-based module - profiles (.db/.ini) + global settings live under
+  // %LOCALAPPDATA%\2BrightSparks\SyncBackFree (the Free edition's edition-specific folder;
+  // Pro uses ...\SyncBackPro). Official docs confirm the registry is NOT used in current versions.
+
+  "id": "apps.syncbackfree",
+  "displayName": "SyncBackFree",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["2BrightSparks.SyncBackFree"],
+    "exe": ["SyncBackFree.exe", "SyncBackPro.exe"],
+    "uninstallDisplayName": ["^SyncBackFree", "^SyncBack Free"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\2BrightSparks\\SyncBackFree"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\2BrightSparks\\SyncBackFree" }
+  ],
+
+  "restore": [
+    {
+      // Primary settings folder (profiles + global settings). SyncBackFree defaults here
+      // and cannot relocate it via the UI, so this is the authoritative location.
+      "type": "copy",
+      "source": "./payload/apps/syncbackfree/SyncBackFree",
+      "target": "%LOCALAPPDATA%\\2BrightSparks\\SyncBackFree",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\Logs\\**",
+        "**\\*.log",
+        "**\\Cache\\**",
+        "**\\Temp\\**",
+        "**\\*.tmp",
+        "**\\*.lock"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Default (local) settings folder: profile files (.db/.ini) + global settings.
+      { "source": "%LOCALAPPDATA%\\2BrightSparks\\SyncBackFree", "dest": "apps/syncbackfree/SyncBackFree", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.tmp",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\2BrightSparks\\SyncBackFree"
+    ],
+    "warning": "SyncBack profile files may embed FTP/SFTP credentials and cloud OAuth tokens for backup destinations. These are captured because profiles are the core configuration, but review before sharing a bundle and re-authenticate destinations after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures SyncBackFree profiles (.db/.ini) and global settings from %LOCALAPPDATA%\\2BrightSparks\\SyncBackFree (the Free edition's default, non-relocatable, edition-specific folder; Pro uses ...\\SyncBackPro). Logs, caches, and temp files are excluded. Profiles can contain embedded FTP/SFTP credentials and cloud tokens for backup destinations, so the module is flagged sensitive=high and warn-only on restore. Per official 2BrightSparks docs the Windows registry is not used in current versions. Confidence: high - settings folder path confirmed by official 2BrightSparks support docs (edition-specific final folder name) and corroborated independently; exact internal subfolder/file layout (e.g. a dedicated Logs folder) is not officially documented, so excludeGlobs are best-effort."
+}

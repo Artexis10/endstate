@@ -1,0 +1,76 @@
+{
+  // Config Module: Royal TS
+  // Provides verify/restore/capture configuration for Royal TS (premium connection / remote-access manager by code4ward.net)
+  // Curated module - captures credential-free default-settings JSON only; the primary Application Document
+  // (UserPreferences.config) and user .rtsz/.rtsx documents are credential stores and are NEVER captured/restored.
+
+  "id": "apps.royal-ts",
+  "displayName": "Royal TS",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["RoyalApps.RoyalTS"],
+    "exe": ["RoyalTS.exe"],
+    "uninstallDisplayName": ["^Royal TS"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\code4ward" }
+  ],
+
+  "restore": [
+    {
+      // Admin/onboarding defaults applied on first launch - object & connection defaults only, no credentials
+      "type": "copy",
+      "source": "./payload/apps/royal-ts/initial.settings.json",
+      "target": "%APPDATA%\\code4ward\\initial.settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Enforced default settings applied on every startup - object & connection defaults only, no credentials
+      "type": "copy",
+      "source": "./payload/apps/royal-ts/default.settings.json",
+      "target": "%APPDATA%\\code4ward\\default.settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Default/initial object & connection settings (credential-free per official docs).
+      // The configuration path is always %APPDATA%\code4ward on Windows.
+      { "source": "%APPDATA%\\code4ward\\initial.settings.json", "dest": "apps/royal-ts/initial.settings.json", "optional": true },
+      { "source": "%APPDATA%\\code4ward\\default.settings.json", "dest": "apps/royal-ts/default.settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // NEVER capture the Application Document - it stores saved connection credentials/passwords
+      // (encrypted with a static key when no document password is set, i.e. recoverable).
+      "**\\code4ward.RoyalTS.UserPreferences.config",
+      "**\\code4ward.RoyalTS.UserPreferences.config.*",
+      // User connection documents - contain encrypted connection credentials.
+      "**\\*.rtsz",
+      "**\\*.rtsx",
+      // Caches, logs, temp, backups
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\Temp\\**",
+      "**\\*.tmp",
+      "**\\*.bak"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\code4ward\\code4ward.RoyalTS.UserPreferences.config",
+      "%USERPROFILE%\\**\\*.rtsz",
+      "%USERPROFILE%\\**\\*.rtsx"
+    ],
+    "warning": "Royal TS stores its Application Document (code4ward.RoyalTS.UserPreferences.config) and user connection documents (.rtsz/.rtsx) which can contain saved connection credentials and passwords. When no document password is set these are encrypted with a static key and are effectively recoverable. These MUST NOT be auto-captured or auto-restored - migrate them manually and re-protect with a document password.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures only Royal TS's credential-free default-settings JSON (initial.settings.json, default.settings.json) under %APPDATA%\\code4ward. The Application Document (code4ward.RoyalTS.UserPreferences.config) and user .rtsz/.rtsx connection documents are credential stores - they hold saved connection passwords (statically encrypted when unprotected) - and are explicitly excluded and flagged sensitive; migrate them manually. The only HKCU registry presence is admin policy (HKCU\\Software\\Policies\\RoyalApps\\RoyalTS), not user settings, so no registry keys are captured. Confidence: medium - config path and file names confirmed by official docs and support articles, but most users keep few/no standalone *.settings.json files (settings normally live inside the credential-bearing Application Document that we deliberately do not capture)."
+}

@@ -1,0 +1,68 @@
+{
+  // Config Module: VeraCrypt
+  // Provides verify/restore/capture configuration for VeraCrypt (disk encryption)
+  // Curated module - captures preferences and favorite-volume settings ONLY.
+  // NEVER captures volume containers, keyfiles, or mount history.
+
+  "id": "apps.veracrypt",
+  "displayName": "VeraCrypt",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["IDRIX.VeraCrypt"],
+    "exe": ["VeraCrypt.exe"],
+    "uninstallDisplayName": ["^VeraCrypt"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\VeraCrypt\\Configuration.xml" }
+  ],
+
+  "restore": [
+    {
+      // Main preferences: settings, hotkeys, mount options, security options
+      "type": "copy",
+      "source": "./payload/apps/veracrypt/Configuration.xml",
+      "target": "%APPDATA%\\VeraCrypt\\Configuration.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Favorite volumes list (auto-mount targets, per-volume mount options).
+      // References paths to volume containers, NOT the containers themselves.
+      "type": "copy",
+      "source": "./payload/apps/veracrypt/Favorite Volumes.xml",
+      "target": "%APPDATA%\\VeraCrypt\\Favorite Volumes.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\VeraCrypt\\Configuration.xml", "dest": "apps/veracrypt/Configuration.xml", "optional": true },
+      { "source": "%APPDATA%\\VeraCrypt\\Favorite Volumes.xml", "dest": "apps/veracrypt/Favorite Volumes.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Keyfile settings reference credential material - never capture
+      "**\\Default Keyfiles.xml",
+      // Mount history is privacy-sensitive user activity tracking
+      "**\\History.xml",
+      // Temporary / in-progress operation state files
+      "**\\System Encryption.xml",
+      "**\\In-Place Encryption*",
+      "**\\Post-Install Task*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\VeraCrypt\\Default Keyfiles.xml",
+      "%APPDATA%\\VeraCrypt\\History.xml"
+    ],
+    "warning": "Default Keyfiles.xml references keyfile paths used as encryption credentials, and History.xml records recently mounted volumes (sensitive user activity). Neither is captured or restored. Volume containers themselves are never touched by this module.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures VeraCrypt application preferences (Configuration.xml: settings, hotkeys, mount/security options) and the favorite-volume list (Favorite Volumes.xml). Keyfile settings, mount history, and all temporary/in-progress state files are excluded; encrypted volume containers are never touched. Settings live in %APPDATA%\\VeraCrypt\\ (XML files; VeraCrypt does not use HKCU for these). Confidence: high - file locations confirmed by official VeraCrypt documentation (veracrypt.io / VeraCrypt System Files)."
+}

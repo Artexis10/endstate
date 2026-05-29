@@ -1,0 +1,41 @@
+{
+  // Config Module: LMMS
+  // Provides verify/restore/capture configuration for LMMS (free, open-source DAW)
+  // All user settings live in a single portable XML file in the home directory
+
+  "id": "apps.lmms",
+  "displayName": "LMMS",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["LMMS.LMMS"],
+    "exe": ["lmms.exe"],
+    "uninstallDisplayName": ["^LMMS"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.lmmsrc.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/lmms/.lmmsrc.xml",
+      "target": "~/.lmmsrc.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single portable config: audio/MIDI backend, working & plugin/VST directories,
+      // sample/preset paths, theme, and general preferences.
+      // Source: ConfigManager.cpp -> QDir::home().absolutePath() + "/.lmmsrc.xml"
+      { "source": "~/.lmmsrc.xml", "dest": "apps/lmms/.lmmsrc.xml", "optional": true }
+    ],
+    "excludeGlobs": []
+  },
+
+  "notes": "Captures LMMS's single portable configuration file (~/.lmmsrc.xml), which stores the audio/MIDI backend, working directory, VST/plugin and sample search paths, theme, and general preferences. The Documents\\lmms working directory (user projects, samples, presets) is intentionally not captured -- it is user content, can be very large, and is not application settings. LMMS uses no QSettings/registry hive for user settings (HKCU\\SOFTWARE\\LMMS holds only installer paths). No credentials are stored. Confidence: high - config file path confirmed directly in LMMS source (src/core/ConfigManager.cpp) and the official directory-setup user manual."
+}

@@ -1,0 +1,66 @@
+{
+  // Config Module: Helix
+  // Provides verify/restore/capture configuration for the Helix modal terminal editor
+  // Curated module - captures user configuration (config.toml, languages.toml, themes), excludes logs
+
+  "id": "apps.helix",
+  "displayName": "Helix",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Helix.Helix"],
+    "exe": ["hx.exe"],
+    "uninstallDisplayName": ["^Helix\\b"],
+    "pathExists": [
+      "%APPDATA%\\helix\\config.toml"
+    ]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "hx" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/helix/config.toml",
+      "target": "%APPDATA%\\helix\\config.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/helix/languages.toml",
+      "target": "%APPDATA%\\helix\\languages.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/helix/themes",
+      "target": "%APPDATA%\\helix\\themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Main editor configuration (Roaming config directory)
+      { "source": "%APPDATA%\\helix\\config.toml", "dest": "apps/helix/config.toml", "optional": true },
+      // User language-server / language settings
+      { "source": "%APPDATA%\\helix\\languages.toml", "dest": "apps/helix/languages.toml", "optional": true },
+      // Custom user themes (TOML files)
+      { "source": "%APPDATA%\\helix\\themes", "dest": "apps/helix/themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Verbose log written to %LOCALAPPDATA%\helix\helix.log
+      "**\\*.log",
+      "**\\helix.log",
+      "**\\Cache\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "notes": "Captures Helix user configuration from the Roaming config directory %APPDATA%\\helix\\: config.toml (editor settings/keybindings), languages.toml (language-server settings), and the themes\\ folder (custom themes). The verbose log at %LOCALAPPDATA%\\helix\\helix.log is excluded. Helix is fully file-based with no credentials or HKCU registry settings. Confidence: high - config directory (%APPDATA%\\helix\\) and themes/languages locations confirmed by official Helix documentation and project FAQ."
+}

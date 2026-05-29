@@ -1,0 +1,63 @@
+{
+  // Config Module: PPSSPP
+  // Provides verify/restore/capture configuration for the PPSSPP PSP emulator
+  // Curated module - captures INI settings only, excludes game data / ROMs / caches / saves
+
+  "id": "apps.ppsspp",
+  "displayName": "PPSSPP",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["PPSSPPTeam.PPSSPP"],
+    "exe": ["PPSSPPWindows64.exe", "PPSSPPWindows.exe"],
+    "uninstallDisplayName": ["^PPSSPP"]
+  },
+
+  "verify": [
+    // Default memstick is Documents\PPSSPP because installed builds live in Program Files (non-writable),
+    // so PPSSPP falls back to the user's Documents folder for its memory stick.
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\PPSSPP\\PSP\\SYSTEM\\ppsspp.ini" }
+  ],
+
+  "restore": [
+    {
+      // Main config: graphics, sound, system params, control layout, CPU/JIT, speed hacks
+      "type": "copy",
+      "source": "./payload/apps/ppsspp/ppsspp.ini",
+      "target": "%USERPROFILE%\\Documents\\PPSSPP\\PSP\\SYSTEM\\ppsspp.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Controller / input button mappings
+      "type": "copy",
+      "source": "./payload/apps/ppsspp/controls.ini",
+      "target": "%USERPROFILE%\\Documents\\PPSSPP\\PSP\\SYSTEM\\controls.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\Documents\\PPSSPP\\PSP\\SYSTEM\\ppsspp.ini", "dest": "apps/ppsspp/ppsspp.ini", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\PPSSPP\\PSP\\SYSTEM\\controls.ini", "dest": "apps/ppsspp/controls.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Game data, ROMs, saves, and large/regenerable artifacts must never be captured
+      "**\\PSP\\GAME\\**",
+      "**\\PSP\\SAVEDATA\\**",
+      "**\\PSP\\PPSSPP_STATE\\**",
+      "**\\PSP\\TEXTURES\\**",
+      "**\\PSP\\Cheats\\**",
+      "**\\PSP\\SYSTEM\\CACHE\\**",
+      "**\\SCREENSHOT\\**",
+      "**\\*.ppst",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures PPSSPP settings (ppsspp.ini = graphics/sound/system/CPU; controls.ini = controller mappings) from the default Windows memstick at %USERPROFILE%\\Documents\\PPSSPP\\PSP\\SYSTEM\\. Game ROMs, save data, save states, shader cache, replacement textures, cheats, and screenshots are excluded. PPSSPP is INI-file based with no HKCU registry settings; no credentials are stored. If the user runs a portable build, the memstick lives next to the executable instead and is not captured. Confidence: high - PSP/SYSTEM/{ppsspp.ini,controls.ini} confirmed by official PPSSPP forum directories guide and FAQ plus independent community sources."
+}

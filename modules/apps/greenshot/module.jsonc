@@ -1,0 +1,48 @@
+{
+  // Config Module: Greenshot
+  // Provides verify/restore/capture configuration for Greenshot (screenshot tool)
+  // Curated module - all settings live in a single human-readable INI file
+
+  "id": "apps.greenshot",
+  "displayName": "Greenshot",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Greenshot.Greenshot"],
+    "exe": ["Greenshot.exe"],
+    "uninstallDisplayName": ["^Greenshot"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Greenshot\\Greenshot.ini" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/greenshot/Greenshot.ini",
+      "target": "%APPDATA%\\Greenshot\\Greenshot.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // All Greenshot settings (hotkeys, output destinations, filename patterns,
+      // plugin config) live in this single INI. Installer version stores it under
+      // %APPDATA%\Greenshot\ (roaming app data).
+      { "source": "%APPDATA%\\Greenshot\\Greenshot.ini", "dest": "apps/greenshot/Greenshot.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Logs are written to the local (non-roaming) app data folder, not %APPDATA%.
+      "**\\*.log",
+      // Plugin packages live in the install dir, not %APPDATA% — harmless guard.
+      "**\\*.gsp"
+    ]
+  },
+
+  "warning": "Greenshot.ini may contain OAuth tokens. If the user has authenticated any cloud upload destination plugin (Imgur, Box, Dropbox, Flickr, Photobucket, Google Photos), the plugin's access/refresh token is written as a line inside Greenshot.ini (e.g. RefreshToken in the [Imgur] section). The Greenshot developers instruct users to delete the RefreshToken line from Greenshot.ini to reset authentication, confirming these secrets live in this file. Endstate captures the whole file, so these tokens will be captured if present and MUST NOT be shared or auto-restored without review. Re-authenticate cloud destinations after restore.",
+
+  "notes": "Captures Greenshot's single configuration file Greenshot.ini at %APPDATA%\\Greenshot\\ (installer/winget version), which holds capture hotkeys, output destinations, filename patterns, and plugin config. Log files (written to %LOCALAPPDATA%\\Greenshot\\) and plugin packages (.gsp, stored in the install dir) are excluded. Greenshot stores no settings in the registry. CAVEAT: the same INI also stores OAuth access/refresh tokens for cloud upload plugins (Imgur, Box, Dropbox, Flickr, etc.) when configured — see the warning field; treat captured Greenshot.ini as containing potential secrets. Confidence: high - %APPDATA%\\Greenshot\\Greenshot.ini path and the embedded RefreshToken storage both confirmed by official Greenshot FAQ and developer guidance."
+}

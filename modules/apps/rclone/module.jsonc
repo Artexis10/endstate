@@ -1,0 +1,45 @@
+{
+  // Config Module: rclone
+  // Provides verify/detect configuration for rclone (command-line cloud sync tool)
+  // INSTALL-ONLY: rclone's single config file is an inseparable credential store
+
+  "id": "apps.rclone",
+  "displayName": "rclone",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Rclone.Rclone"],
+    "exe": ["rclone.exe"],
+    "uninstallDisplayName": ["^Rclone\\b"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "rclone" }
+    // Note: rclone.conf is intentionally NOT verified - it contains live credentials
+    // and is never captured/restored. Absence of config does not indicate a problem.
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      // The sole config file is an inseparable credential store - never captured
+      "**\\rclone\\rclone.conf",
+      // VFS / cache directory (transient, not settings)
+      "**\\rclone\\cache\\**",
+      "**\\rclone\\vfs*\\**",
+      "**\\rclone\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\rclone\\rclone.conf"
+    ],
+    "warning": "rclone stores ALL settings in a single file at %APPDATA%\\rclone\\rclone.conf. Each remote definition interleaves endpoint settings with inline OAuth access/refresh tokens, OAuth client_secret values, and obscured passwords (crypt remotes embed their encryption credentials here too). The remote definitions cannot be separated from the secrets, so the file is treated as a credential store and is NEVER captured or restored. Re-run `rclone config` to recreate remotes on a new machine.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only: rclone keeps every setting (remote definitions, endpoints, OAuth tokens, obscured passwords, crypt keys) inline in the single file %APPDATA%\\rclone\\rclone.conf. Because the remote definitions are inseparable from the embedded credentials, nothing is captured or restored - the config file and the cache/log directories are excluded. Recreate remotes with `rclone config` after install. Confidence: high - default Windows config path %APPDATA%\\rclone\\rclone.conf and the inline-secret file structure are confirmed by official rclone docs (rclone.org/docs)."
+}

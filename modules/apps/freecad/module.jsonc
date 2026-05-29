@@ -1,0 +1,77 @@
+{
+  // Config Module: FreeCAD
+  // Provides verify/restore/capture configuration for FreeCAD (open-source parametric CAD)
+  // Settings are file-based under %APPDATA%\FreeCAD (user.cfg, system.cfg, Macro\)
+
+  "id": "apps.freecad",
+  "displayName": "FreeCAD",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["FreeCAD.FreeCAD"],
+    "exe": ["FreeCAD.exe", "freecad.exe"],
+    "uninstallDisplayName": ["^FreeCAD"],
+    "pathExists": [
+      "%APPDATA%\\FreeCAD\\user.cfg"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\FreeCAD\\user.cfg" }
+  ],
+
+  "restore": [
+    {
+      // User-related application data: all GUI/tool preferences
+      "type": "copy",
+      "source": "./payload/apps/freecad/user.cfg",
+      "target": "%APPDATA%\\FreeCAD\\user.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Application-related data (paths, plugin registry, last-run metadata)
+      "type": "copy",
+      "source": "./payload/apps/freecad/system.cfg",
+      "target": "%APPDATA%\\FreeCAD\\system.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User macros directory
+      "type": "copy",
+      "source": "./payload/apps/freecad/Macro",
+      "target": "%APPDATA%\\FreeCAD\\Macro",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\*.tmp",
+        "**\\Cache\\**"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\FreeCAD\\user.cfg", "dest": "apps/freecad/user.cfg", "optional": true },
+      { "source": "%APPDATA%\\FreeCAD\\system.cfg", "dest": "apps/freecad/system.cfg", "optional": true },
+      { "source": "%APPDATA%\\FreeCAD\\Macro", "dest": "apps/freecad/Macro", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Installed workbenches/addons - large reinstallable package trees, not portable settings
+      "**\\Mod\\**",
+      // Caches, logs, thumbnails, temp, lock files
+      "**\\Cache\\**",
+      "**\\Thumbnails\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.lock",
+      "**\\.git\\**",
+      "**\\__pycache__\\**",
+      "**\\*.pyc"
+    ]
+  },
+
+  "notes": "Captures FreeCAD file-based settings under %APPDATA%\\FreeCAD: user.cfg (preferences), system.cfg (application data), and the user Macro\\ directory. Excludes the Mod\\ addon/workbench tree (large reinstallable packages via the Addon Manager, not portable settings) plus caches, logs, thumbnails, and Python bytecode. No credentials or tokens are stored. Confidence: high - config paths confirmed by official FreeCAD documentation (Start_up_and_Configuration, FAQ wiki) and multiple independent sources."
+}

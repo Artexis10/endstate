@@ -1,0 +1,77 @@
+{
+  // Config Module: FileBot
+  // Provides verify/restore/capture configuration for FileBot (media file renamer)
+  // Live settings are stored via the Java Preferences API, which maps to the
+  // Windows Registry under HKCU\Software\JavaSoft\Prefs\net\filebot. The
+  // %APPDATA%\FileBot folder holds a portable preferences backup (XML) plus
+  // the license blob (sensitive, excluded) and logs (excluded).
+
+  "id": "apps.filebot",
+  "displayName": "FileBot",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["PointPlanck.FileBot"],
+    "exe": ["FileBot.exe", "filebot.exe"],
+    "uninstallDisplayName": ["^FileBot"],
+    "pathExists": [
+      "%APPDATA%\\FileBot"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\JavaSoft\\Prefs\\net\\filebot" }
+  ],
+
+  "restore": [
+    {
+      // Live settings: format presets, format history, and all preferences.
+      // Stored via Java Preferences API -> HKCU\Software\JavaSoft\Prefs\net\filebot.
+      "type": "registry-import",
+      "source": "./payload/apps/filebot/JavaPrefs.reg",
+      "target": "HKCU\\Software\\JavaSoft\\Prefs\\net\\filebot",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Portable preferences export auto-written by FileBot; human-readable XML
+      // snapshot of the same settings, useful for cross-machine / Store migration.
+      "type": "copy",
+      "source": "./payload/apps/filebot/preferences.backup.xml",
+      "target": "%APPDATA%\\FileBot\\preferences.backup.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\FileBot\\preferences.backup.xml", "dest": "apps/filebot/preferences.backup.xml", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\JavaSoft\\Prefs\\net\\filebot", "dest": "apps/filebot/JavaPrefs.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // License / activation blob - never capture (handled in sensitive block)
+      "**\\license.txt",
+      // Logs, history, caches, temp
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\cache\\**",
+      "**\\Cache\\**",
+      "**\\temp\\**",
+      "**\\*.tmp",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\FileBot\\license.txt"
+    ],
+    "warning": "license.txt is FileBot's purchased license/activation blob tied to your account. It MUST NOT be auto-restored - reinstall your license via FileBot's activation after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures FileBot's live settings (format presets, format history, preferences) from the Java Preferences registry key HKCU\\Software\\JavaSoft\\Prefs\\net\\filebot, plus the portable preferences.backup.xml in %APPDATA%\\FileBot. Excludes license.txt (sensitive activation blob), logs, history, and caches. Note: the Microsoft Store build mirrors the registry under a per-package container and stores data under %LOCALAPPDATA%\\Packages\\PointPlanck.FileBot_*; the registry/AppData paths here apply to the classic desktop install. Confidence: high - registry path and AppData layout confirmed by FileBot's official forum (developer responses) across multiple independent threads."
+}

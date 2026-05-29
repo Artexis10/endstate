@@ -1,0 +1,121 @@
+{
+  // Config Module: Git Bash (MinTTY)
+  // Provides verify/restore/capture configuration for the MinTTY terminal and
+  // Bash shell shipped with Git for Windows.
+  // Curated module - captures terminal appearance + shell dotfiles, excludes history/credentials
+
+  "id": "apps.git-bash",
+  "displayName": "Git Bash (MinTTY)",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Git.Git"],
+    "exe": ["mintty.exe", "git-bash.exe"],
+    "uninstallDisplayName": ["^Git\\b", "^Git version"],
+    "pathExists": [
+      "%ProgramFiles%\\Git\\usr\\bin\\mintty.exe",
+      "%ProgramFiles%\\Git\\git-bash.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "git" }
+    // .minttyrc and shell dotfiles are optional - the user may not have customized them yet
+  ],
+
+  "restore": [
+    // MinTTY terminal config (colours, font, cursor, keys)
+    {
+      "type": "copy",
+      "source": "./payload/apps/git-bash/.minttyrc",
+      "target": "~/.minttyrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git-bash/config",
+      "target": "~/.config/mintty/config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git-bash/mintty-appdata-config",
+      "target": "%APPDATA%\\mintty\\config",
+      "backup": true,
+      "optional": true
+    },
+    // Bash shell startup dotfiles (aliases, prompt, PATH, readline bindings)
+    {
+      "type": "copy",
+      "source": "./payload/apps/git-bash/.bashrc",
+      "target": "~/.bashrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git-bash/.bash_profile",
+      "target": "~/.bash_profile",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git-bash/.bash_logout",
+      "target": "~/.bash_logout",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git-bash/.profile",
+      "target": "~/.profile",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/git-bash/.inputrc",
+      "target": "~/.inputrc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // MinTTY terminal config (confirmed precedence: $APPDATA/mintty/config,
+      // ~/.config/mintty/config, ~/.minttyrc per the mintty man page)
+      { "source": "~/.minttyrc", "dest": "apps/git-bash/.minttyrc", "optional": true },
+      { "source": "~/.config/mintty/config", "dest": "apps/git-bash/config", "optional": true },
+      { "source": "%APPDATA%\\mintty\\config", "dest": "apps/git-bash/mintty-appdata-config", "optional": true },
+
+      // Bash shell startup dotfiles in the Git Bash home directory (%USERPROFILE%)
+      { "source": "~/.bashrc", "dest": "apps/git-bash/.bashrc", "optional": true },
+      { "source": "~/.bash_profile", "dest": "apps/git-bash/.bash_profile", "optional": true },
+      { "source": "~/.bash_logout", "dest": "apps/git-bash/.bash_logout", "optional": true },
+      { "source": "~/.profile", "dest": "apps/git-bash/.profile", "optional": true },
+      { "source": "~/.inputrc", "dest": "apps/git-bash/.inputrc", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Shell history may leak typed secrets/tokens
+      "**/.bash_history",
+      // Git credential stores (re-authenticate after restore)
+      "**/.git-credentials",
+      "**/credentials"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.bash_history",
+      "~/.git-credentials"
+    ],
+    "warning": "Shell history (.bash_history) can contain secrets typed on the command line, and .git-credentials holds authentication tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the MinTTY terminal config (~/.minttyrc, ~/.config/mintty/config, %APPDATA%\\mintty\\config) and Bash shell startup dotfiles (.bashrc, .bash_profile, .bash_logout, .profile, .inputrc) from the Git Bash home directory. Shell history and credential files are explicitly excluded. The terminal config search order is confirmed by the mintty man page; dotfile locations are standard Bash conventions in %USERPROFILE%. Confidence: high - MinTTY paths confirmed by official mintty docs, dotfiles are well-established Bash conventions."
+}

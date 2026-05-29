@@ -1,0 +1,130 @@
+{
+  // Config Module: GNU Emacs
+  // Provides verify/restore/capture configuration for GNU Emacs on Windows
+  // Curated module - captures hand-written config, excludes packages/native cache/state
+
+  "id": "apps.emacs",
+  "displayName": "GNU Emacs",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["GNU.Emacs"],
+    "exe": ["emacs.exe", "runemacs.exe"],
+    "uninstallDisplayName": ["^GNU Emacs", "^Emacs\\b"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "emacs" }
+    // Note: init files are optional - a fresh Emacs install has none.
+    // Verify only checks Emacs is installed, not that config exists.
+  ],
+
+  "restore": [
+    // Modern config directory (HOME defaults to %APPDATA% on Windows, so .emacs.d
+    // lives under %APPDATA%). Restored as a directory copy with caches excluded.
+    {
+      "type": "copy",
+      "source": "./payload/apps/emacs/.emacs.d",
+      "target": "%APPDATA%\\.emacs.d",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\elpa\\**",
+        "**\\elpa-*\\**",
+        "**\\eln-cache\\**",
+        "**\\.cache\\**",
+        "**\\url\\cache\\**",
+        "**\\auto-save-list\\**",
+        "**\\tree-sitter\\**",
+        "**\\tramp\\**",
+        "**\\transient\\**",
+        "**\\var\\**",
+        "**\\eshell\\**",
+        "**\\backups\\**",
+        "**\\*.elc",
+        "**\\*.eln",
+        "**\\*~",
+        "**\\#*#",
+        "**\\.#*",
+        "**\\recentf",
+        "**\\history",
+        "**\\savehist",
+        "**\\saveplace",
+        "**\\ido.last",
+        "**\\.emacs.desktop*",
+        "**\\network-security.data",
+        "**\\*.lock",
+        "**\\.authinfo",
+        "**\\.authinfo.gpg",
+        "**\\authinfo",
+        "**\\authinfo.gpg"
+      ]
+    },
+    // Legacy single-file init at HOME root (~/.emacs or ~/_emacs).
+    {
+      "type": "copy",
+      "source": "./payload/apps/emacs/.emacs",
+      "target": "%APPDATA%\\.emacs",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Whole config directory (init.el, early-init.el, custom.el, lisp/, themes/,
+      // snippets/, etc.). Excludes below strip packages, native cache, and state.
+      { "source": "%APPDATA%\\.emacs.d", "dest": "apps/emacs/.emacs.d", "optional": true },
+      // Legacy single-file init at HOME root.
+      { "source": "%APPDATA%\\.emacs", "dest": "apps/emacs/.emacs", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Package archives & native/byte compilation cache (large, machine-specific)
+      "**\\elpa\\**",
+      "**\\elpa-*\\**",
+      "**\\eln-cache\\**",
+      "**\\.cache\\**",
+      "**\\url\\cache\\**",
+      "**\\tree-sitter\\**",
+      "**\\*.elc",
+      "**\\*.eln",
+      // Session / history / runtime state
+      "**\\auto-save-list\\**",
+      "**\\tramp\\**",
+      "**\\transient\\**",
+      "**\\var\\**",
+      "**\\eshell\\**",
+      "**\\backups\\**",
+      "**\\recentf",
+      "**\\history",
+      "**\\savehist",
+      "**\\saveplace",
+      "**\\ido.last",
+      "**\\.emacs.desktop*",
+      "**\\network-security.data",
+      // Backup / autosave / lock files
+      "**\\*~",
+      "**\\#*#",
+      "**\\.#*",
+      "**\\*.lock",
+      // Credentials (also documented in sensitive block)
+      "**\\.authinfo",
+      "**\\.authinfo.gpg",
+      "**\\authinfo",
+      "**\\authinfo.gpg"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\.emacs.d\\.authinfo",
+      "%APPDATA%\\.emacs.d\\.authinfo.gpg",
+      "%APPDATA%\\.authinfo",
+      "%APPDATA%\\.authinfo.gpg"
+    ],
+    "warning": "Emacs auth-source files (.authinfo / .authinfo.gpg) hold logins, passwords, and API tokens for Gnus, ERC, magit/forge, etc. These MUST NOT be auto-restored. Re-create or re-decrypt them after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the hand-written Emacs config directory under %APPDATA%\\.emacs.d (init.el, early-init.el, custom.el, lisp/themes/snippets) plus the legacy ~/.emacs single-file init. On Windows, Emacs's HOME defaults to %APPDATA% when the HOME env var/registry override is unset, so .emacs.d lives under AppData\\Roaming. Excludes installed packages (elpa), native/byte-compile caches (eln-cache, *.elc/*.eln), and session/history state since these are regenerated on first launch. Auth-source credential files are excluded and flagged sensitive. Confidence: high - HOME-resolution order and AppData default confirmed by the official GNU Emacs MS-Windows FAQ; exclude set confirmed against established community .emacs.d .gitignore conventions."
+}

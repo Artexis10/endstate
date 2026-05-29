@@ -1,0 +1,63 @@
+{
+  // Config Module: Tixati
+  // Provides verify/restore/capture configuration for the Tixati BitTorrent client
+  // Tixati stores all state as a collection of small .dat files in %APPDATA%\tixati
+  // (no registry use, no text config). The whole folder is the unit of configuration.
+
+  "id": "apps.tixati",
+  "displayName": "Tixati",
+  // medium: Tixati's settings and its transfer list / download history (transfer
+  // names, file hashes, file names per official docs) are all stored as flat
+  // .dat files with undocumented names in one proprietary-binary folder. The
+  // history cannot be separated from the preferences, so the whole-folder
+  // capture unavoidably includes a record of past download activity.
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Tixati.Tixati.Portable"],
+    "exe": ["tixati.exe"],
+    "uninstallDisplayName": ["^Tixati"],
+    "pathExists": ["%APPDATA%\\tixati"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\tixati" }
+  ],
+
+  "restore": [
+    {
+      // Tixati keeps settings, channels, RSS, queue and transfer state as many
+      // small .dat files; the folder is the smallest portable unit of config.
+      "type": "copy",
+      "source": "./payload/apps/tixati/tixati",
+      "target": "%APPDATA%\\tixati",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\logs\\**",
+        "**\\*.tmp",
+        "**\\*.lock",
+        "**\\*.bak"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Entire Tixati config folder: all .dat files (settings, channels, RSS,
+      // queue, transfer list, peer/event data). Settings are not separable into
+      // a single named file, so the directory is captured as a whole.
+      { "source": "%APPDATA%\\tixati", "dest": "apps/tixati/tixati", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\*.tmp",
+      "**\\*.lock",
+      "**\\*.bak"
+    ]
+  },
+
+  "notes": "Captures the entire %APPDATA%\\tixati folder (Tixati stores all settings, channels, RSS, queue and transfer state as small .dat files; it uses no registry or text config). Logs, temp, lock and backup files are excluded. The folder also holds transfer/session state (not just preferences), so a restore reproduces the prior transfer list - and the captured set therefore includes a record of past download activity (transfer names, file hashes, file names), which is why sensitivity is medium rather than low. The .dat names are undocumented and the format is proprietary binary, so settings cannot be separated from this history (unlike biglybt/deluge, which exclude their state/ folders); the whole folder is captured as one unit. Portable installs keep the same .dat files beside the exe (not captured). Config location (%APPDATA%\\tixati, AppData\\Roaming) and the no-registry/.dat-only design are confirmed by Tixati's official support.tixati.com/config_path page; the portable build storing config beside the exe is also confirmed there. Confidence: medium - location and design authoritative, but individual file roles are undocumented so capture granularity is folder-level."
+}

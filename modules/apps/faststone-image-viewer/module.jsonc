@@ -1,0 +1,62 @@
+{
+  // Config Module: FastStone Image Viewer
+  // Provides verify/restore/capture configuration for FastStone Image Viewer (photo viewer/editor)
+  // Curated module - captures user configuration folder (incl. FSSettings.db settings DB), excludes thumbnail-cache database only
+
+  "id": "apps.faststone-image-viewer",
+  "displayName": "FastStone Image Viewer",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["FastStone.Viewer"],
+    "exe": ["FSViewer.exe"],
+    "uninstallDisplayName": ["^FastStone Image Viewer"],
+    "pathExists": [
+      "%APPDATA%\\FastStone\\FSIV"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\FastStone\\FSIV" }
+  ],
+
+  "restore": [
+    {
+      // FastStone is file-based: settings/UI/toolbar prefs live in FSSettings.db (and folder
+      // history in HisFolderList.db) under the roaming FSIV folder. Restore the whole config
+      // folder, excluding ONLY the rebuildable thumbnail-cache database (FSViewer.db).
+      // NOTE: do NOT use a blanket *.db exclude here - FSSettings.db is the actual settings file.
+      "type": "copy",
+      "source": "./payload/apps/faststone-image-viewer/FSIV",
+      "target": "%APPDATA%\\FastStone\\FSIV",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\FSViewer.db",
+        "**\\Thumb*\\**",
+        "**\\Cache\\**",
+        "**\\*.log",
+        "**\\*.tmp"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Primary (roaming) config folder: FSSettings.db holds viewing/toolbar/UI prefs and
+      // HisFolderList.db holds folder history (both confirmed by the Scoop persist manifest).
+      { "source": "%APPDATA%\\FastStone\\FSIV", "dest": "apps/faststone-image-viewer/FSIV", "optional": true }
+    ],
+    "excludeGlobs": [
+      // FSViewer.db is the rebuildable thumbnail database (per-folder cache) - never worth keeping.
+      // Do NOT blanket-exclude *.db: FSSettings.db is the real settings file and must be captured.
+      "**\\FSViewer.db",
+      "**\\Thumb*\\**",
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures FastStone Image Viewer's roaming user configuration folder (%APPDATA%\\FastStone\\FSIV). FastStone stores settings in FSSettings.db (settings/UI/toolbar prefs) and folder history in HisFolderList.db - NOT in .cfg/.ini files; these are kept. Only the rebuildable per-folder thumbnail-cache database FSViewer.db (and logs/temp) is excluded - a blanket *.db exclude would wrongly drop the real settings DB. The %LOCALAPPDATA%\\FastStone\\FSIV folder (holding FSIV.db, the large ratings/thumbnail database) is intentionally not captured: it is large and machine-local. Machine-level HKLM file-association keys are out of scope (not restorable). Confidence: high - FSSettings.db + HisFolderList.db in %APPDATA%\\FastStone\\FSIV are exactly the two files persisted by the independent Scoop (scoop-extras) manifest, and the Roaming location is corroborated by multiple community sources."
+}

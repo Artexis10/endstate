@@ -1,0 +1,236 @@
+{
+  // Config Module: Renoise
+  // Provides verify/restore/capture configuration for Renoise (tracker-based DAW).
+  // Settings live under %APPDATA%\Renoise\V<version>\ as XML files (Config.xml,
+  // KeyBindings.xml) plus user Themes and Scripts subfolders. The version subfolder
+  // name embeds the full release (e.g. V3.5.4), so recent stable lines are enumerated
+  // explicitly (like the Cubase module). Renoise is a paid download and is NOT on winget,
+  // so matches use exe + uninstall display name + pathExists.
+
+  "id": "apps.renoise",
+  "displayName": "Renoise",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Renoise.exe"],
+    "uninstallDisplayName": ["^Renoise\\b"],
+    "pathExists": [
+      "%APPDATA%\\Renoise\\V3.5.4",
+      "%APPDATA%\\Renoise\\V3.5.0",
+      "%APPDATA%\\Renoise\\V3.4.4",
+      "%APPDATA%\\Renoise\\V3.4.3",
+      "%APPDATA%\\Renoise\\V3.4.0"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Renoise\\V3.5.4\\Config.xml" }
+  ],
+
+  "restore": [
+    // --- Renoise 3.5.4 (current stable) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.5.4/Config.xml",
+      "target": "%APPDATA%\\Renoise\\V3.5.4\\Config.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.5.4/KeyBindings.xml",
+      "target": "%APPDATA%\\Renoise\\V3.5.4\\KeyBindings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.5.4/Themes",
+      "target": "%APPDATA%\\Renoise\\V3.5.4\\Themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.5.4/Scripts",
+      "target": "%APPDATA%\\Renoise\\V3.5.4\\Scripts",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.lock"]
+    },
+    // --- Renoise 3.5.0 ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.5.0/Config.xml",
+      "target": "%APPDATA%\\Renoise\\V3.5.0\\Config.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.5.0/KeyBindings.xml",
+      "target": "%APPDATA%\\Renoise\\V3.5.0\\KeyBindings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.5.0/Themes",
+      "target": "%APPDATA%\\Renoise\\V3.5.0\\Themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.5.0/Scripts",
+      "target": "%APPDATA%\\Renoise\\V3.5.0\\Scripts",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.lock"]
+    },
+    // --- Renoise 3.4.4 ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.4/Config.xml",
+      "target": "%APPDATA%\\Renoise\\V3.4.4\\Config.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.4/KeyBindings.xml",
+      "target": "%APPDATA%\\Renoise\\V3.4.4\\KeyBindings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.4/Themes",
+      "target": "%APPDATA%\\Renoise\\V3.4.4\\Themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.4/Scripts",
+      "target": "%APPDATA%\\Renoise\\V3.4.4\\Scripts",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.lock"]
+    },
+    // --- Renoise 3.4.3 ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.3/Config.xml",
+      "target": "%APPDATA%\\Renoise\\V3.4.3\\Config.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.3/KeyBindings.xml",
+      "target": "%APPDATA%\\Renoise\\V3.4.3\\KeyBindings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.3/Themes",
+      "target": "%APPDATA%\\Renoise\\V3.4.3\\Themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.3/Scripts",
+      "target": "%APPDATA%\\Renoise\\V3.4.3\\Scripts",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.lock"]
+    },
+    // --- Renoise 3.4.0 ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.0/Config.xml",
+      "target": "%APPDATA%\\Renoise\\V3.4.0\\Config.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.0/KeyBindings.xml",
+      "target": "%APPDATA%\\Renoise\\V3.4.0\\KeyBindings.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.0/Themes",
+      "target": "%APPDATA%\\Renoise\\V3.4.0\\Themes",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/renoise/V3.4.0/Scripts",
+      "target": "%APPDATA%\\Renoise\\V3.4.0\\Scripts",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.lock"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // --- Renoise 3.5.4 (current stable) ---
+      { "source": "%APPDATA%\\Renoise\\V3.5.4\\Config.xml", "dest": "apps/renoise/V3.5.4/Config.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.5.4\\KeyBindings.xml", "dest": "apps/renoise/V3.5.4/KeyBindings.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.5.4\\Themes", "dest": "apps/renoise/V3.5.4/Themes", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.5.4\\Scripts", "dest": "apps/renoise/V3.5.4/Scripts", "optional": true },
+
+      // --- Renoise 3.5.0 ---
+      { "source": "%APPDATA%\\Renoise\\V3.5.0\\Config.xml", "dest": "apps/renoise/V3.5.0/Config.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.5.0\\KeyBindings.xml", "dest": "apps/renoise/V3.5.0/KeyBindings.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.5.0\\Themes", "dest": "apps/renoise/V3.5.0/Themes", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.5.0\\Scripts", "dest": "apps/renoise/V3.5.0/Scripts", "optional": true },
+
+      // --- Renoise 3.4.4 ---
+      { "source": "%APPDATA%\\Renoise\\V3.4.4\\Config.xml", "dest": "apps/renoise/V3.4.4/Config.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.4\\KeyBindings.xml", "dest": "apps/renoise/V3.4.4/KeyBindings.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.4\\Themes", "dest": "apps/renoise/V3.4.4/Themes", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.4\\Scripts", "dest": "apps/renoise/V3.4.4/Scripts", "optional": true },
+
+      // --- Renoise 3.4.3 ---
+      { "source": "%APPDATA%\\Renoise\\V3.4.3\\Config.xml", "dest": "apps/renoise/V3.4.3/Config.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.3\\KeyBindings.xml", "dest": "apps/renoise/V3.4.3/KeyBindings.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.3\\Themes", "dest": "apps/renoise/V3.4.3/Themes", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.3\\Scripts", "dest": "apps/renoise/V3.4.3/Scripts", "optional": true },
+
+      // --- Renoise 3.4.0 ---
+      { "source": "%APPDATA%\\Renoise\\V3.4.0\\Config.xml", "dest": "apps/renoise/V3.4.0/Config.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.0\\KeyBindings.xml", "dest": "apps/renoise/V3.4.0/KeyBindings.xml", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.0\\Themes", "dest": "apps/renoise/V3.4.0/Themes", "optional": true },
+      { "source": "%APPDATA%\\Renoise\\V3.4.0\\Scripts", "dest": "apps/renoise/V3.4.0/Scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Plugin / device scan caches and databases — machine-specific, regenerated on launch
+      "**\\CachedVSTs*.db",
+      "**\\CachedVST3s*.db",
+      "**\\CachedAUs*.db",
+      "**\\Cached*.db",
+      "**\\*Cache*\\**",
+      // Compiled Lua bytecode / tool state inside Scripts
+      "**\\*.luac",
+      // Logs, crash dumps, temp, lock files
+      "**\\*.log",
+      "**\\Log.txt",
+      "**\\*.dmp",
+      "**\\Crash*\\**",
+      "**\\Backups\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Renoise user preferences (Config.xml), keyboard shortcuts (KeyBindings.xml), custom Themes (.xrnc) and user Scripts/tools under %APPDATA%\\Renoise\\V<version>\\, for recent stable lines (3.5.4, 3.5.0, 3.4.4, 3.4.3, 3.4.0). The version subfolder embeds the exact release, so only enumerated versions are covered. Machine-specific plugin scan caches (CachedVSTs/CachedAUs *.db), logs, crash dumps, auto-backup songs, and lock files are excluded. The large User Library (Instruments/Samples/Songs, stored one level up) is intentionally out of scope. Renoise is a paid download, not on winget. Confidence: medium - %APPDATA%\\Renoise\\V<version>\\ location, Config.xml, KeyBindings.xml, Themes and Scripts confirmed by official Renoise wiki/manual references and multiple forum sources; exact patch-version folder names vary per build, so coverage is limited to enumerated recent versions."
+}

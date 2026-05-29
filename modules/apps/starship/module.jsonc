@@ -1,0 +1,49 @@
+{
+  // Config Module: Starship
+  // Provides verify/restore/capture configuration for the Starship cross-shell prompt
+  // Single hand-tuned TOML file; no registry usage
+
+  "id": "apps.starship",
+  "displayName": "Starship",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Starship.Starship"],
+    "exe": ["starship.exe"],
+    "uninstallDisplayName": ["^Starship"],
+    "pathExists": [
+      "%USERPROFILE%\\.config\\starship.toml"
+    ]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "starship" }
+    // Note: starship.toml is optional - a user may rely on Starship defaults
+    // Verify only checks Starship is installed, not that the config exists
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/starship/starship.toml",
+      "target": "%USERPROFILE%\\.config\\starship.toml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single TOML config (default location; honors STARSHIP_CONFIG override)
+      { "source": "%USERPROFILE%\\.config\\starship.toml", "dest": "apps/starship/starship.toml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Session logs / cache (~/.cache/starship or STARSHIP_CACHE)
+      "**\\.cache\\starship\\**",
+      "**\\session_*.log",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures the single Starship prompt config at %USERPROFILE%\\.config\\starship.toml (the default location; respects STARSHIP_CONFIG override). Starship stores no settings in the registry. Session logs under ~/.cache/starship are excluded. Confidence: high - default config path and single-TOML model confirmed by official Starship docs (starship.rs/config)."
+}

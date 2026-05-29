@@ -1,0 +1,94 @@
+{
+  // Config Module: Remote Desktop Manager (Devolutions)
+  // Provides verify/restore/capture configuration for Devolutions Remote Desktop Manager
+  // Curated module - captures application options only; EXCLUDES encryption keys,
+  // the local data source vault (connections.db), and offline/website caches.
+
+  "id": "apps.remote-desktop-manager",
+  "displayName": "Remote Desktop Manager",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Devolutions.RemoteDesktopManager"],
+    "exe": ["RemoteDesktopManager.exe"],
+    "uninstallDisplayName": ["^Remote Desktop Manager"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.cfg" }
+  ],
+
+  "restore": [
+    {
+      // Application options/settings (UI, layout, behavior). NOT the vault/credentials.
+      "type": "copy",
+      "source": "./payload/apps/remote-desktop-manager/RemoteDesktopManager.cfg",
+      "target": "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Companion settings files kept alongside the main .cfg
+      "type": "copy",
+      "source": "./payload/apps/remote-desktop-manager/RemoteDesktopManager.stv",
+      "target": "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.stv",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/remote-desktop-manager/RemoteDesktopManager.stb",
+      "target": "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.stb",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.cfg", "dest": "apps/remote-desktop-manager/RemoteDesktopManager.cfg", "optional": true },
+      { "source": "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.stv", "dest": "apps/remote-desktop-manager/RemoteDesktopManager.stv", "optional": true },
+      { "source": "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.stb", "dest": "apps/remote-desktop-manager/RemoteDesktopManager.stb", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Encryption key material (master secret store) - NEVER capture
+      "**\\RemoteDesktopManager.enc",
+      "**\\RemoteDesktopManager.enb",
+      // Local data source vault: connection entries + saved credentials - NEVER capture
+      "**\\*.db",
+      "**\\*.db-shm",
+      "**\\*.db-wal",
+      "**\\*.rdm",
+      "**\\*.bak",
+      // Personal/privileged credential files (My personal credentials, My privileged account) - NEVER capture
+      "**\\*.rdt",
+      // Offline / website cache (folder can exceed several GB), logs, temp
+      "**\\Cache\\**",
+      "**\\Caches\\**",
+      "**\\Offline\\**",
+      "**\\Website\\**",
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.enc",
+      "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\RemoteDesktopManager.enb",
+      "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\connections.db",
+      "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\*.db",
+      "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\*.rdm",
+      "%LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager\\*.rdt"
+    ],
+    "warning": "Remote Desktop Manager's encryption files (.enc/.enb), the local data source vault (connections.db, *.rdm), personal/privileged credential files (*.rdt), and .bak backups contain connection entries, saved passwords, and encryption keys. These MUST NOT be captured or auto-restored. Migrate vaults via RDM's built-in encrypted vault export (File - Export) instead.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures only Remote Desktop Manager application options (RemoteDesktopManager.cfg and its .stv/.stb companions) from %LOCALAPPDATA%\\Devolutions\\RemoteDesktopManager. The encryption key files (.enc/.enb), the local SQLite data source vault (connections.db) with saved connections and credentials, exported .rdm vaults, .bak backups, and the offline/website caches and logs are explicitly excluded - migrate vaults via RDM's encrypted in-app export. The HKCU\\Software\\RemoteDesktopManager\\OptionPath key is intentionally not captured as it only overrides the config-folder location. Confidence: medium - config folder, file names, and credential/encryption file roles are confirmed by official Devolutions docs, but RemoteDesktopManager.cfg may itself embed data-source connection configuration, so it is treated as high-sensitivity."
+}

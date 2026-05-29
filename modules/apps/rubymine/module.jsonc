@@ -1,0 +1,92 @@
+{
+  // Config Module: RubyMine
+  // Provides verify/restore/capture configuration for RubyMine (JetBrains Ruby IDE)
+  // Curated module - captures IDE settings, keymaps, templates, code styles, color schemes
+  // Note: Config folder is version-specific (RubyMine<version>)
+
+  "id": "apps.rubymine",
+  "displayName": "RubyMine",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JetBrains.RubyMine"],
+    "exe": ["rubymine64.exe"],
+    "uninstallDisplayName": ["^RubyMine"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\RubyMine*\\options\\ide.general.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/rubymine/options",
+      "target": "%APPDATA%\\JetBrains\\RubyMine*\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rubymine/keymaps",
+      "target": "%APPDATA%\\JetBrains\\RubyMine*\\keymaps",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rubymine/templates",
+      "target": "%APPDATA%\\JetBrains\\RubyMine*\\templates",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rubymine/codestyles",
+      "target": "%APPDATA%\\JetBrains\\RubyMine*\\codestyles",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rubymine/colors",
+      "target": "%APPDATA%\\JetBrains\\RubyMine*\\colors",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\JetBrains\\RubyMine*\\options", "dest": "apps/rubymine/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\RubyMine*\\keymaps", "dest": "apps/rubymine/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\RubyMine*\\templates", "dest": "apps/rubymine/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\RubyMine*\\codestyles", "dest": "apps/rubymine/codestyles", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\RubyMine*\\colors", "dest": "apps/rubymine/colors", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\index\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\workspace.xml",
+      "**\\tasks.xml",
+      "**\\usage.statistics.xml",
+      "**\\recentProjects.xml",
+      "**\\security.xml",
+      "**\\github.xml"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\JetBrains\\RubyMine*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\RubyMine*\\options\\github.xml"
+    ],
+    "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures RubyMine settings (options/*.xml), keymaps, live templates, code styles, and color schemes. Config folder is version-specific (%APPDATA%\\JetBrains\\RubyMine<version>\\); the system/caches directory under %LOCALAPPDATA%\\JetBrains\\RubyMine<version>\\ is not captured. Workspace-specific files (workspace.xml, tasks.xml), usage stats, recentProjects, caches, and index are excluded; credential stores (security.xml, github.xml) are excluded from capture and never auto-restored. Confidence: high - config layout confirmed by official JetBrains RubyMine documentation and consistent with sibling JetBrains modules in this repo."
+}

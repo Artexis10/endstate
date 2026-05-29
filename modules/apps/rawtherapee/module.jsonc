@@ -1,0 +1,64 @@
+{
+  // Config Module: RawTherapee
+  // Provides verify/restore/capture configuration for RawTherapee (RAW photo developer)
+  // Curated module - captures user settings + processing profiles, excludes thumbnail/metadata cache
+
+  "id": "apps.rawtherapee",
+  "displayName": "RawTherapee",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["RawTherapee.RawTherapee"],
+    "exe": ["rawtherapee.exe", "rawtherapee-cli.exe"],
+    "uninstallDisplayName": ["^RawTherapee"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "rawtherapee-cli" },
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\RawTherapee\\options" }
+  ],
+
+  "restore": [
+    {
+      // Main preferences file (all settings from the Preferences dialog)
+      "type": "copy",
+      "source": "./payload/apps/rawtherapee/options",
+      "target": "%LOCALAPPDATA%\\RawTherapee\\options",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom raw format definitions
+      "type": "copy",
+      "source": "./payload/apps/rawtherapee/camconst.json",
+      "target": "%LOCALAPPDATA%\\RawTherapee\\camconst.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom processing profiles (.pp3) and dynamic profile rules
+      "type": "copy",
+      "source": "./payload/apps/rawtherapee/profiles",
+      "target": "%LOCALAPPDATA%\\RawTherapee\\profiles",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\cache\\**", "**\\batch\\**"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\RawTherapee\\options", "dest": "apps/rawtherapee/options", "optional": true },
+      { "source": "%LOCALAPPDATA%\\RawTherapee\\camconst.json", "dest": "apps/rawtherapee/camconst.json", "optional": true },
+      { "source": "%LOCALAPPDATA%\\RawTherapee\\profiles", "dest": "apps/rawtherapee/profiles", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\cache\\**",
+      "**\\batch\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures RawTherapee preferences (the 'options' file), custom raw format definitions (camconst.json), and custom processing profiles (the 'profiles' folder, .pp3 files and dynamic profile rules) from %LOCALAPPDATA%\\RawTherapee. The thumbnail/metadata 'cache' folder and the temporary 'batch' folder are excluded - they are regenerated on use. RawTherapee stores no settings in the registry and uses no credentials. Confidence: high - config folder, options file, profiles and cache layout confirmed by official RawPedia File Paths docs and the pixls.us community forum."
+}

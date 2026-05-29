@@ -1,0 +1,58 @@
+{
+  // Config Module: WezTerm
+  // Provides verify/restore/capture configuration for WezTerm (GPU-accelerated terminal)
+  // Configuration is hand-written Lua; supports a single-file or a multi-file config directory
+
+  "id": "apps.wezterm",
+  "displayName": "WezTerm",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["wez.wezterm"],
+    "exe": ["wezterm-gui.exe", "wezterm.exe"],
+    "uninstallDisplayName": ["^WezTerm"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "wezterm" }
+  ],
+
+  "restore": [
+    {
+      // Single-file config (home directory fallback location)
+      "type": "copy",
+      "source": "./payload/apps/wezterm/.wezterm.lua",
+      "target": "~/.wezterm.lua",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Recommended multi-file config directory (~/.config/wezterm/)
+      // Holds wezterm.lua plus require'd Lua modules, color schemes, and resources
+      "type": "copy",
+      "source": "./payload/apps/wezterm/config",
+      "target": "~/.config/wezterm",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\Cache\\**", "**\\*.lock"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single-file config (home directory fallback)
+      { "source": "~/.wezterm.lua", "dest": "apps/wezterm/.wezterm.lua", "optional": true },
+
+      // Recommended config directory (entry point + modules/color schemes/resources)
+      { "source": "~/.config/wezterm", "dest": "apps/wezterm/config", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\logs\\**",
+      "**\\Cache\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures WezTerm's hand-written Lua configuration: the single-file ~/.wezterm.lua fallback and the recommended ~/.config/wezterm/ directory (wezterm.lua entry point plus any require'd modules, color schemes, and resources). Runtime state and logs (gui-log-*.txt) live under %USERPROFILE%\\.local\\share\\wezterm and are not part of the captured config dirs; logs/cache/lock files are also excluded defensively. WezTerm does NOT use %APPDATA% for config. No credentials are stored in config. Confidence: high - config paths confirmed by official WezTerm docs (wezterm.org/config/files.html) and maintainer statements (HOME resolves to C:/Users/<user> on Windows)."
+}

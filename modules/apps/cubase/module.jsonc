@@ -1,0 +1,152 @@
+{
+  // Config Module: Steinberg Cubase
+  // Provides verify/restore/capture configuration for the Cubase DAW
+  // Settings live under %APPDATA%\Steinberg\Cubase <version>_64\ as XML preference files.
+  // The Cubase application is license-gated (Steinberg Download Assistant / eLicenser /
+  // Steinberg Licensing) and is NOT distributed via winget, so matches use exe + display name.
+
+  "id": "apps.cubase",
+  "displayName": "Steinberg Cubase",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Cubase14.exe", "Cubase13.exe", "Cubase.exe"],
+    "uninstallDisplayName": ["^Steinberg Cubase", "^Cubase\\b"],
+    "pathExists": [
+      "%APPDATA%\\Steinberg\\Cubase 14_64",
+      "%APPDATA%\\Steinberg\\Cubase 13_64"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Steinberg\\Cubase 14_64\\Defaults.xml" }
+  ],
+
+  "restore": [
+    // --- Cubase 14 (primary) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 14_64/Defaults.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 14_64\\Defaults.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 14_64/UserPreferences.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 14_64\\UserPreferences.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 14_64/Key Commands.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 14_64\\Key Commands.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 14_64/RAMPresets.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 14_64\\RAMPresets.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 14_64/pluginmanager.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 14_64\\pluginmanager.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 14_64/Presets",
+      "target": "%APPDATA%\\Steinberg\\Cubase 14_64\\Presets",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*Module Cache*.xml", "**\\*Cache*\\**", "**\\*.log"]
+    },
+    // --- Cubase 13 (fallback for users still on prior major version) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 13_64/Defaults.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 13_64\\Defaults.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 13_64/UserPreferences.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 13_64\\UserPreferences.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 13_64/Key Commands.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 13_64\\Key Commands.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 13_64/RAMPresets.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 13_64\\RAMPresets.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 13_64/pluginmanager.xml",
+      "target": "%APPDATA%\\Steinberg\\Cubase 13_64\\pluginmanager.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cubase/Cubase 13_64/Presets",
+      "target": "%APPDATA%\\Steinberg\\Cubase 13_64\\Presets",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*Module Cache*.xml", "**\\*Cache*\\**", "**\\*.log"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // --- Cubase 14 (primary) ---
+      { "source": "%APPDATA%\\Steinberg\\Cubase 14_64\\Defaults.xml", "dest": "apps/cubase/Cubase 14_64/Defaults.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 14_64\\UserPreferences.xml", "dest": "apps/cubase/Cubase 14_64/UserPreferences.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 14_64\\Key Commands.xml", "dest": "apps/cubase/Cubase 14_64/Key Commands.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 14_64\\RAMPresets.xml", "dest": "apps/cubase/Cubase 14_64/RAMPresets.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 14_64\\pluginmanager.xml", "dest": "apps/cubase/Cubase 14_64/pluginmanager.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 14_64\\Presets", "dest": "apps/cubase/Cubase 14_64/Presets", "optional": true },
+
+      // --- Cubase 13 (fallback) ---
+      { "source": "%APPDATA%\\Steinberg\\Cubase 13_64\\Defaults.xml", "dest": "apps/cubase/Cubase 13_64/Defaults.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 13_64\\UserPreferences.xml", "dest": "apps/cubase/Cubase 13_64/UserPreferences.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 13_64\\Key Commands.xml", "dest": "apps/cubase/Cubase 13_64/Key Commands.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 13_64\\RAMPresets.xml", "dest": "apps/cubase/Cubase 13_64/RAMPresets.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 13_64\\pluginmanager.xml", "dest": "apps/cubase/Cubase 13_64/pluginmanager.xml", "optional": true },
+      { "source": "%APPDATA%\\Steinberg\\Cubase 13_64\\Presets", "dest": "apps/cubase/Cubase 13_64/Presets", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Plugin / module scan caches and blacklists — machine-specific, regenerated on launch
+      "**\\*Module Cache*.xml",
+      "**\\Vst2xBlacklist*.xml",
+      "**\\Vst2xPlugins*.xml",
+      "**\\*VST3 Cache*\\**",
+      "**\\*Cache*\\**",
+      // Logs, crash dumps, temp
+      "**\\*.log",
+      "**\\*.dmp",
+      "**\\Crash*\\**",
+      "**\\Temp\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Cubase user preferences (Defaults.xml, UserPreferences.xml), key command maps (Key Commands.xml), I/O & track-control presets (RAMPresets.xml), the plugin-collection manager list (pluginmanager.xml), and the Presets folder, under %APPDATA%\\Steinberg\\Cubase <ver>_64\\ for both Cubase 14 (primary) and 13. Machine-specific plugin/module scan caches, VST blacklists, VST3 cache, logs and crash dumps are excluded. The Cubase app is license-gated and not on winget. Confidence: medium - base AppData location and file names confirmed by Steinberg official docs plus multiple forum sources, but the folder is version-suffixed (Cubase 14_64 / 13_64) so only the targeted major versions are covered and some preset filenames vary slightly across builds."
+}

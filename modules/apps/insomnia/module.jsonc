@@ -1,0 +1,182 @@
+{
+  // Config Module: Insomnia
+  // Provides verify/restore/capture configuration for Insomnia (REST/GraphQL API client)
+  // Curated module - captures local NeDB settings/workspace stores, excludes response cache,
+  // logs, Electron caches, and the environment store (commonly holds API keys/tokens in plaintext)
+
+  "id": "apps.insomnia",
+  "displayName": "Insomnia",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Insomnia.Insomnia"],
+    "exe": ["Insomnia.exe"],
+    "uninstallDisplayName": ["^Insomnia"],
+    "pathExists": [
+      "%APPDATA%\\Insomnia"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Insomnia\\insomnia.Settings.db" }
+  ],
+
+  "restore": [
+    {
+      // Application preferences (theme, request timeout, editor settings, etc.)
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.Settings.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.Settings.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Workspace / document structure
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.Workspace.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.Workspace.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Workspace metadata (sort order, active environment, etc.)
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.WorkspaceMeta.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.WorkspaceMeta.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Request folders / groups
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.RequestGroup.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.RequestGroup.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // HTTP / GraphQL requests
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.Request.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.Request.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // gRPC requests
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.GrpcRequest.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.GrpcRequest.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // WebSocket requests
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.WebSocketRequest.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.WebSocketRequest.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Design documents (OpenAPI/API specs)
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.ApiSpec.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.ApiSpec.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Unit test suites / unit tests
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.UnitTestSuite.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.UnitTestSuite.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.UnitTest.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.UnitTest.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Proto files for gRPC
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.ProtoFile.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.ProtoFile.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Cookie jars (per-workspace) - session cookies; restore is opt-in/backed up
+      "type": "copy",
+      "source": "./payload/apps/insomnia/insomnia.CookieJar.db",
+      "target": "%APPDATA%\\Insomnia\\insomnia.CookieJar.db",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Insomnia\\insomnia.Settings.db", "dest": "apps/insomnia/insomnia.Settings.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.Workspace.db", "dest": "apps/insomnia/insomnia.Workspace.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.WorkspaceMeta.db", "dest": "apps/insomnia/insomnia.WorkspaceMeta.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.RequestGroup.db", "dest": "apps/insomnia/insomnia.RequestGroup.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.Request.db", "dest": "apps/insomnia/insomnia.Request.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.GrpcRequest.db", "dest": "apps/insomnia/insomnia.GrpcRequest.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.WebSocketRequest.db", "dest": "apps/insomnia/insomnia.WebSocketRequest.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.ApiSpec.db", "dest": "apps/insomnia/insomnia.ApiSpec.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.UnitTestSuite.db", "dest": "apps/insomnia/insomnia.UnitTestSuite.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.UnitTest.db", "dest": "apps/insomnia/insomnia.UnitTest.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.ProtoFile.db", "dest": "apps/insomnia/insomnia.ProtoFile.db", "optional": true },
+      { "source": "%APPDATA%\\Insomnia\\insomnia.CookieJar.db", "dest": "apps/insomnia/insomnia.CookieJar.db", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Environment store routinely holds API keys / bearer tokens in plaintext - never capture
+      "**\\insomnia.Environment.db",
+      // Local Vault / encrypted credential & session material
+      "**\\insomnia.Session.db",
+      "**\\insomnia.PluginData.db",
+      // OAuth2 access/refresh tokens cached locally - never capture
+      "**\\insomnia.OAuth2Token.db",
+      // Response bodies, timelines, and request history cache (grows unbounded)
+      "**\\responses\\**",
+      // Git Sync working repos (separate VCS concern, can be large)
+      "**\\version-control\\**",
+      // Electron / Chromium caches and runtime state
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\DawnGraphiteCache\\**",
+      "**\\DawnWebGPUCache\\**",
+      "**\\Crashpad\\**",
+      "**\\blob_storage\\**",
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Service Worker\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\Cookies",
+      "**\\Cookies-journal",
+      "**\\Network Persistent State"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Insomnia\\insomnia.Environment.db",
+      "%APPDATA%\\Insomnia\\insomnia.Session.db",
+      "%APPDATA%\\Insomnia\\insomnia.PluginData.db",
+      "%APPDATA%\\Insomnia\\insomnia.OAuth2Token.db"
+    ],
+    "warning": "Insomnia stores environment variables (insomnia.Environment.db) in plaintext NeDB - these commonly contain API keys, bearer tokens, and other secrets. The session store holds login/auth state, and insomnia.OAuth2Token.db caches OAuth2 access/refresh tokens. These MUST NOT be auto-captured or restored; re-enter secrets manually after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Insomnia's local NeDB stores (settings, workspaces, requests, design docs, unit tests, proto files, cookie jars) from %APPDATA%\\Insomnia. The environment store (insomnia.Environment.db), session/auth store, and plugin data are excluded because environments routinely hold API keys and tokens in plaintext. Response cache (responses/), Git-sync repos (version-control/), Electron caches, and logs are excluded. Cloud Sync / Local Vault content is not captured. Confidence: medium - %APPDATA%\\Insomnia and the insomnia.<resource>.db NeDB layout are confirmed by official Kong docs and multiple community sources, but the exact per-resource .db filenames captured are inferred from Insomnia's model schema rather than an authoritative file inventory; every capture entry is optional so missing stores are skipped."
+}

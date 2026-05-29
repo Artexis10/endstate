@@ -1,0 +1,117 @@
+{
+  // Config Module: PreSonus Studio One
+  // Provides verify/restore/capture configuration for the Studio One DAW
+  // Settings live in a version-numbered folder under %APPDATA%\PreSonus\Studio One <ver>
+
+  "id": "apps.studio-one",
+  "displayName": "PreSonus Studio One",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Studio One.exe"],
+    "uninstallDisplayName": ["^(PreSonus )?Studio One"],
+    "pathExists": [
+      "%APPDATA%\\PreSonus\\Studio One 7",
+      "%APPDATA%\\PreSonus\\Studio One 6",
+      "%APPDATA%\\PreSonus\\Studio One 5"
+    ]
+  },
+
+  "verify": [
+    // Settings folder name carries the major version, so check the common recent ones.
+    { "type": "file-exists", "path": "%APPDATA%\\PreSonus\\Studio One 7" }
+  ],
+
+  "restore": [
+    {
+      // Studio One Pro 7 settings tree (preferences, key commands, devices, surfaces, presets, templates)
+      "type": "copy",
+      "source": "./payload/apps/studio-one/Studio One 7",
+      "target": "%APPDATA%\\PreSonus\\Studio One 7",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\PluginBlacklist.settings",
+        "**\\PlugInScanner.log",
+        "**\\*.log",
+        "**\\Cache\\**",
+        "**\\*Cache*",
+        "**\\Temp\\**",
+        "**\\*.lock",
+        "**\\user.license"
+      ]
+    },
+    {
+      // Studio One 6 settings tree
+      "type": "copy",
+      "source": "./payload/apps/studio-one/Studio One 6",
+      "target": "%APPDATA%\\PreSonus\\Studio One 6",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\PluginBlacklist.settings",
+        "**\\PlugInScanner.log",
+        "**\\*.log",
+        "**\\Cache\\**",
+        "**\\*Cache*",
+        "**\\Temp\\**",
+        "**\\*.lock",
+        "**\\user.license"
+      ]
+    },
+    {
+      // Studio One 5 settings tree
+      "type": "copy",
+      "source": "./payload/apps/studio-one/Studio One 5",
+      "target": "%APPDATA%\\PreSonus\\Studio One 5",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\PluginBlacklist.settings",
+        "**\\PlugInScanner.log",
+        "**\\*.log",
+        "**\\Cache\\**",
+        "**\\*Cache*",
+        "**\\Temp\\**",
+        "**\\*.lock",
+        "**\\user.license"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Whole versioned settings folder: preferences/Options, Key Commands (keymaps),
+      // User Devices + Surface Data (control surfaces), Presets, Templates, plug-in path config.
+      { "source": "%APPDATA%\\PreSonus\\Studio One 7", "dest": "apps/studio-one/Studio One 7", "optional": true },
+      { "source": "%APPDATA%\\PreSonus\\Studio One 6", "dest": "apps/studio-one/Studio One 6", "optional": true },
+      { "source": "%APPDATA%\\PreSonus\\Studio One 5", "dest": "apps/studio-one/Studio One 5", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Plug-in scan database / blacklist + scanner log: rebuilt automatically on launch.
+      "**\\PluginBlacklist.settings",
+      "**\\PlugInScanner.log",
+      "**\\*.log",
+      // Caches, temp, lock files.
+      "**\\Cache\\**",
+      "**\\*Cache*",
+      "**\\Temp\\**",
+      "**\\*.lock",
+      // Activation/license blob (machine-bound; primary copy lives under ProgramData, never restorable).
+      "**\\user.license"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%PROGRAMDATA%\\PreSonus\\Studio One 7\\user.license",
+      "%PROGRAMDATA%\\PreSonus\\Studio One 6\\user.license",
+      "%PROGRAMDATA%\\PreSonus\\Studio One 5\\user.license"
+    ],
+    "warning": "Studio One activation is a machine-bound user.license file stored under %PROGRAMDATA% (outside the captured user settings folder). It MUST NOT be restored - re-activate via your My.PreSonus account after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the Studio One user settings tree at %APPDATA%\\PreSonus\\Studio One <ver> (preferences/Options, Key Commands/keymaps, User Devices and Surface Data for control surfaces, Presets, Templates, plug-in path config). Plug-in scan blacklist/log, caches, and the machine-bound license blob are excluded. Folder is version-numbered, so versions 5-7 are each captured. Not on winget (license-gated installer). Confidence: high - settings path confirmed by PreSonus official KB and multiple independent sources (Acustica, Slate Digital, Sound On Sound)."
+}

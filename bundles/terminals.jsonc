@@ -1,0 +1,28 @@
+// Bundle: Terminals & Shells
+// 19 modules grouped for one-step manifest inclusion.
+{
+  "version": 1,
+  "id": "terminals",
+  "name": "Terminals & Shells",
+  "modules": [
+    "alacritty",
+    "bash-profile",
+    "clink",
+    "cmder",
+    "conemu",
+    "ghostty",
+    "git-bash",
+    "hyper",
+    "mobaxterm",
+    "nushell",
+    "oh-my-posh",
+    "powershell-profile",
+    "starship",
+    "tabby",
+    "tmux",
+    "warp-terminal",
+    "wezterm",
+    "windows-terminal",
+    "zellij"
+  ]
+}

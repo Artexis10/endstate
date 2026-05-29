@@ -1,0 +1,62 @@
+{
+  // Config Module: Freeplane
+  // Provides verify/restore/capture configuration for Freeplane (mind-mapping tool)
+  // Settings live under %APPDATA%\Freeplane\<version>\ (e.g. 1.12.x)
+
+  "id": "apps.freeplane",
+  "displayName": "Freeplane",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Freeplane.Freeplane"],
+    "exe": ["freeplane.exe"],
+    "uninstallDisplayName": ["^Freeplane"],
+    "pathExists": ["%APPDATA%\\Freeplane"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Freeplane" }
+  ],
+
+  "restore": [
+    {
+      // Entire versioned user directory (auto.properties, user.properties,
+      // accelerators.properties, scripts, templates, addons, lib). Logs and
+      // caches are excluded below for idempotent, lean restoration.
+      "type": "copy",
+      "source": "./payload/apps/freeplane/Freeplane",
+      "target": "%APPDATA%\\Freeplane",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\logs\\**",
+        "**\\log.*",
+        "**\\*.log",
+        "**\\Cache\\**",
+        "**\\cache\\**",
+        "**\\.lock",
+        "**\\*.lock"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Capture the whole Freeplane user tree; the version subfolder (e.g.
+      // 1.12.x) and its contents are preserved verbatim. excludeGlobs strip
+      // logs/caches/lock files so only portable settings are staged.
+      { "source": "%APPDATA%\\Freeplane", "dest": "apps/freeplane/Freeplane", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\logs\\**",
+      "**\\log.*",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\.lock",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures the Freeplane user directory under %APPDATA%\\Freeplane (versioned subfolder, e.g. 1.12.x): auto.properties (preferences + keyboard bindings), user.properties, accelerators.properties, custom scripts, templates, add-ons, and lib. Excludes the logs subfolder (log.0 etc.), caches, and lock files. Freeplane stores no credentials by default. Confidence: high - user directory location (%APPDATA%\\Freeplane\\<version>) and its contents confirmed by official Freeplane docs (FAQ, customizing-freeplane) and the project's own backup discussion (GitHub #2728)."
+}

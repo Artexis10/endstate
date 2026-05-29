@@ -1,0 +1,63 @@
+{
+  // Config Module: KeePass 2
+  // Provides verify/restore/capture configuration for classic KeePass 2.x
+  // (DominikReichl.KeePass, distinct from KeePassXC)
+  // Captures the user options XML only - NEVER the .kdbx password databases
+
+  "id": "apps.keepass",
+  "displayName": "KeePass 2",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["DominikReichl.KeePass"],
+    "exe": ["KeePass.exe"],
+    "uninstallDisplayName": ["^KeePass Password Safe", "^KeePass\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\KeePass\\KeePass.config.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/keepass/KeePass.config.xml",
+      "target": "%APPDATA%\\KeePass\\KeePass.config.xml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // User options: UI preferences, integration settings, plugin config,
+      // and the most-recently-used database list (file paths only, no keys).
+      { "source": "%APPDATA%\\KeePass\\KeePass.config.xml", "dest": "apps/keepass/KeePass.config.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // NEVER capture password databases or key files.
+      "**\\*.kdbx",
+      "**\\*.kdb",
+      "**\\*.key",
+      "**\\*.keyx",
+      // Backups / temp / plugin caches.
+      "**\\*.bak",
+      "**\\KeePass.config.xml.bak",
+      "**\\PluginCache\\**",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "**\\*.kdbx",
+      "**\\*.kdb",
+      "**\\*.key",
+      "**\\*.keyx"
+    ],
+    "warning": "KeePass .kdbx/.kdb databases and .key/.keyx key files are the user's encrypted password vaults and their unlock keys. These MUST NEVER be captured or auto-restored. Only the KeePass.config.xml options file is portable.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the KeePass 2.x user options file %APPDATA%\\KeePass\\KeePass.config.xml (UI preferences, integration/plugin settings, and the recently-used database list which contains file paths only, no secrets). Password databases (.kdbx/.kdb) and key files (.key/.keyx) are explicitly excluded and never restored. Applies to installer-based KeePass; portable installs keep config next to KeePass.exe and are out of scope. Enforced config (KeePass.config.enforced.xml) lives in the program directory, not user space, and is not captured. Confidence: high - %APPDATA%\\KeePass\\KeePass.config.xml confirmed by official KeePass documentation (keepass.info) plus multiple independent sources."
+}

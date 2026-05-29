@@ -1,0 +1,74 @@
+{
+  // Config Module: Special K
+  // Provides verify/restore/capture configuration for Special K ("Kaldaien's Mod")
+  // Game tweak/mod framework; global module settings and per-game profiles are .ini files
+  // stored under %USERPROFILE%\Documents\My Mods\SpecialK\. Logs, crash dumps, and large
+  // resource/font/driver blobs are excluded.
+
+  "id": "apps.special-k",
+  "displayName": "Special K",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["SpecialK.SpecialK"],
+    "exe": ["SKIF.exe"],
+    "uninstallDisplayName": ["^Special K"],
+    "pathExists": [
+      "%USERPROFILE%\\Documents\\My Mods\\SpecialK"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\My Mods\\SpecialK" }
+  ],
+
+  "restore": [
+    {
+      // Global module settings (achievements.ini, macros.ini, osd.ini, input.ini, SKIF.ini, etc.)
+      "type": "copy",
+      "source": "./payload/apps/special-k/Global",
+      "target": "%USERPROFILE%\\Documents\\My Mods\\SpecialK\\Global",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\logs\\**",
+        "**\\*.log",
+        "**\\crash\\**"
+      ]
+    },
+    {
+      // Per-game profiles (each Profiles\<GameName>\SpecialK.ini and related .ini files)
+      "type": "copy",
+      "source": "./payload/apps/special-k/Profiles",
+      "target": "%USERPROFILE%\\Documents\\My Mods\\SpecialK\\Profiles",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\logs\\**",
+        "**\\*.log",
+        "**\\crash\\**",
+        "**\\*.dmp"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\Documents\\My Mods\\SpecialK\\Global", "dest": "apps/special-k/Global", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\My Mods\\SpecialK\\Profiles", "dest": "apps/special-k/Profiles", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\logs\\**",
+      "**\\crash\\**",
+      "**\\*.log",
+      "**\\*.dmp",
+      "**\\Assets\\**",
+      "**\\Fonts\\**",
+      "**\\Drivers\\**",
+      "**\\SK_Res\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Special K global module settings (Global\\*.ini: achievements, macros, osd, input, SKIF) and per-game profiles (Profiles\\<GameName>\\SpecialK.ini) under %USERPROFILE%\\Documents\\My Mods\\SpecialK\\. Logs, crash dumps, and downloaded Assets/Fonts/Drivers resource blobs are excluded. The HKCU\\Software\\Kaldaien\\Special K registry key only stores a machine-specific Path pointer to this folder and is intentionally not captured. Confidence: medium - folder structure and .ini layout confirmed by the official Special K wiki, PCGamingWiki, and Steam community, but exact per-version file set may vary."
+}

@@ -1,0 +1,79 @@
+{
+  // Config Module: KVIrc
+  // Scriptable Qt IRC client. Settings live in a per-user "Local directory"
+  // whose path is NOT fixed: it is recorded in %USERPROFILE%\kvirc4.ini and
+  // chosen at first-run (installer default, portable folder, or VirtualStore).
+  // The config files (serverdb.kvc, proxydb.kvc, main.kvc) store server,
+  // proxy, SSL and NickServ passwords in PLAINTEXT, interleaved with prefs.
+  // Curated module - captures only the credential-free bootstrap pointer file.
+
+  "id": "apps.kvirc",
+  "displayName": "KVIrc",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["kvirc.KVIrc"],
+    "exe": ["kvirc.exe"],
+    "uninstallDisplayName": ["^KVIrc"],
+    "pathExists": [
+      "%USERPROFILE%\\kvirc4.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\kvirc4.ini" }
+  ],
+
+  "restore": [
+    {
+      // Bootstrap pointer file: a single non-empty line giving the path of the
+      // KVIrc Local directory. Contains no credentials. Restoring it lets a
+      // fresh KVIrc find a previously-configured (manually migrated) Local dir.
+      "type": "copy",
+      "source": "./payload/apps/kvirc/kvirc4.ini",
+      "target": "%USERPROFILE%\\kvirc4.ini",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Bootstrap pointer only - the sole deterministically-locatable artifact.
+      // The actual Local directory (config/, scripts/, themes/, msgcolors/, ...)
+      // is at a user-chosen path recorded inside this file and is NOT captured:
+      // its config/*.kvc files embed plaintext server/proxy/NickServ passwords
+      // that cannot be safely separated from preferences. See sensitive block.
+      { "source": "%USERPROFILE%\\kvirc4.ini", "dest": "apps/kvirc/kvirc4.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Never capture the password-bearing config DB or any Local-dir runtime data
+      "**\\config\\serverdb.kvc",
+      "**\\config\\proxydb.kvc",
+      "**\\config\\main.kvc",
+      "**\\config\\*.kvc",
+      "**\\log\\**",
+      "**\\help\\**",
+      "**\\incoming\\**",
+      "**\\Downloads\\**",
+      "**\\*.tmp",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      // Local-directory config files store server, proxy, SSL and NickServ
+      // passwords as PLAINTEXT interleaved with preferences (kvirc/KVIrc#1294).
+      // Paths are illustrative of the installer-default Local dir; the real
+      // path is whatever %USERPROFILE%\kvirc4.ini points to.
+      "%USERPROFILE%\\KVIrc\\config\\serverdb.kvc",
+      "%USERPROFILE%\\KVIrc\\config\\proxydb.kvc",
+      "%USERPROFILE%\\KVIrc\\config\\main.kvc"
+    ],
+    "warning": "KVIrc stores server, proxy, SSL and NickServ passwords in plaintext inside serverdb.kvc, proxydb.kvc and main.kvc (interleaved with preferences). These config files MUST NOT be auto-captured or restored. Re-enter server/network credentials manually after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures only %USERPROFILE%\\kvirc4.ini, the credential-free bootstrap pointer that records the path of the user-chosen KVIrc Local directory. The Local dir itself (config/, scripts/, themes/, msgcolors/, avatars/) is at a non-deterministic path and its config/*.kvc files embed plaintext server/proxy/NickServ passwords, so it is deliberately not captured. Settings are file-based; KVIrc does not use the registry. Confidence: medium - kvirc4.ini location and plaintext-password storage confirmed by the official wiki FAQ and kvirc/KVIrc#1294, but the Local directory path is user-configurable and not portably env-rooted, so only the safe pointer file is handled."
+}

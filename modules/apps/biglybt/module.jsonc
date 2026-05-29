@@ -1,0 +1,106 @@
+{
+  // Config Module: BiglyBT
+  // Provides verify/restore/capture configuration for BiglyBT (Azureus-derived BitTorrent client)
+  // Curated module - captures the user config directory, excludes torrent download-state,
+  // caches, logs, lock files, and the anonymity-network plugin folders (which hold the
+  // embedded I2P/Tor router's private identity keys + per-machine network state)
+
+  "id": "apps.biglybt",
+  "displayName": "BiglyBT",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["BiglySoftware.BiglyBT"],
+    "exe": ["BiglyBT.exe"],
+    "uninstallDisplayName": ["^BiglyBT"],
+    "pathExists": [
+      "%APPDATA%\\BiglyBT"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\BiglyBT" }
+  ],
+
+  "restore": [
+    {
+      // Whole user config directory: *.config files (biglybt.config/azureus.config,
+      // categories.config, tags, speed-limit schedules), dirs settings, and plugins config.
+      // Removed first for idempotent directory copy; exclude list keeps state/cache out.
+      "type": "copy",
+      "source": "./payload/apps/biglybt/BiglyBT",
+      "target": "%APPDATA%\\BiglyBT",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\active\\**",
+        "**\\tmp\\**",
+        "**\\cache\\**",
+        "**\\logs\\**",
+        "**\\updates\\**",
+        "**\\debug\\**",
+        "**\\*.lock",
+        "**\\*.azlock",
+        "**\\*.log",
+        "**\\*.saving",
+        "**\\*.dat",
+        "**\\*.dat._az",
+        "**\\*.gz",
+        "**\\*.jar",
+        "**\\*.zip",
+        "**\\*.dll",
+        "**\\*.so",
+        "**\\update.properties",
+        // Anonymity-network plugin folders: contain the embedded I2P/Tor router's
+        // PRIVATE identity keys (router.keys/router.info/keyBackup), netDb, peer
+        // profiles, and an embedded browser. This is sensitive private-key material
+        // and per-machine network state - never portable, never captured/restored.
+        "**\\azneti2phelper\\**",
+        "**\\aznettor\\**",
+        "**\\aznettorbrowser\\**",
+        "**\\azwebtorrent\\**"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Entire user config folder; excludeGlobs prune download-state, caches, logs, and plugin state.
+      { "source": "%APPDATA%\\BiglyBT", "dest": "apps/biglybt/BiglyBT", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Per-torrent download/resume state (.dat) carrying absolute save paths - not portable
+      "**\\active\\**",
+      "**\\tmp\\**",
+      "**\\*.dat",
+      "**\\*.dat._az",
+      "**\\*.saving",
+      // Caches, logs, downloaded updates, debug dumps, lock files
+      "**\\cache\\**",
+      "**\\logs\\**",
+      "**\\updates\\**",
+      "**\\debug\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.azlock",
+      "**\\update.properties",
+      // Large binary blobs / downloaded plugin payloads
+      "**\\*.gz",
+      "**\\*.jar",
+      "**\\*.zip",
+      "**\\*.dll",
+      "**\\*.so",
+      // Anonymity-network plugin folders: hold the embedded I2P/Tor router's PRIVATE
+      // identity keys (router.keys/router.info/keyBackup), netDb, peer profiles, and an
+      // embedded browser. Sensitive private-key material + per-machine network state -
+      // never portable, never captured. Whole folders excluded (broader than BiglyBT's
+      // own same-machine backup, which retains the identity) for cross-machine safety.
+      "**\\azneti2phelper\\**",
+      "**\\aznettor\\**",
+      "**\\aznettorbrowser\\**",
+      "**\\azwebtorrent\\**"
+    ]
+  },
+
+  "notes": "Captures the BiglyBT user config directory (%APPDATA%\\BiglyBT): *.config settings files (preferences, categories, tags, speed-limit schedules), the dirs/path settings, and plugin configuration. Excludes the active/ and tmp/ torrent download-state (.dat resume files hold absolute save paths and are not portable), caches, logs, downloaded updates, lock files, and large binaries (.jar/.zip/.gz/.dll/.so). Also fully excludes the anonymity-network plugin folders (azneti2phelper, aznettor, aznettorbrowser, azwebtorrent) because they hold the embedded I2P/Tor router's PRIVATE identity keys plus per-machine netDb/peer state - sensitive and non-portable. Settings live in %APPDATA%\\BiglyBT. Confidence: high - location confirmed against BiglyBT's official wiki (Diagnostics, Command Line Options) and the include/exclude set against its BackupManagerImpl source; the network-plugin folders are excluded more aggressively than BiglyBT's own same-machine backup to avoid capturing private network identity keys."
+}

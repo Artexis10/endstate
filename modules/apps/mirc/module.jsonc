@@ -1,0 +1,113 @@
+{
+  // Config Module: mIRC
+  // Provides verify/restore/capture configuration for mIRC (scriptable IRC client)
+  // Curated module - captures settings + scripts, EXCLUDES servers.ini (server/NickServ passwords stored as weakly-encoded, reversible obfuscation) and chat logs
+
+  "id": "apps.mirc",
+  "displayName": "mIRC",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["mIRC.mIRC"],
+    "exe": ["mirc.exe"],
+    "uninstallDisplayName": ["^mIRC\\b"],
+    "pathExists": [
+      "%APPDATA%\\mIRC\\mirc.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\mIRC\\mirc.ini" }
+  ],
+
+  "restore": [
+    {
+      // Main settings: general preferences, options, window layout
+      "type": "copy",
+      "source": "./payload/apps/mirc/mirc.ini",
+      "target": "%APPDATA%\\mIRC\\mirc.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Command aliases
+      "type": "copy",
+      "source": "./payload/apps/mirc/aliases.ini",
+      "target": "%APPDATA%\\mIRC\\aliases.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Popup (right-click) menu definitions
+      "type": "copy",
+      "source": "./payload/apps/mirc/popups.ini",
+      "target": "%APPDATA%\\mIRC\\popups.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Remote scripts / event handlers
+      "type": "copy",
+      "source": "./payload/apps/mirc/remote.ini",
+      "target": "%APPDATA%\\mIRC\\remote.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved URLs list
+      "type": "copy",
+      "source": "./payload/apps/mirc/urls.ini",
+      "target": "%APPDATA%\\mIRC\\urls.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Auto/ignore/op/protect lists
+      "type": "copy",
+      "source": "./payload/apps/mirc/control.ini",
+      "target": "%APPDATA%\\mIRC\\control.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User .mrc script files (scriptable IRC client's signature feature)
+      "type": "copy",
+      "source": "./payload/apps/mirc/scripts",
+      "target": "%APPDATA%\\mIRC\\scripts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\mIRC\\mirc.ini", "dest": "apps/mirc/mirc.ini", "optional": true },
+      { "source": "%APPDATA%\\mIRC\\aliases.ini", "dest": "apps/mirc/aliases.ini", "optional": true },
+      { "source": "%APPDATA%\\mIRC\\popups.ini", "dest": "apps/mirc/popups.ini", "optional": true },
+      { "source": "%APPDATA%\\mIRC\\remote.ini", "dest": "apps/mirc/remote.ini", "optional": true },
+      { "source": "%APPDATA%\\mIRC\\urls.ini", "dest": "apps/mirc/urls.ini", "optional": true },
+      { "source": "%APPDATA%\\mIRC\\control.ini", "dest": "apps/mirc/control.ini", "optional": true },
+      { "source": "%APPDATA%\\mIRC\\scripts", "dest": "apps/mirc/scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      // servers.ini stores server + NickServ/SASL passwords as a weakly-encoded (reversible) string - sensitive, NEVER capture
+      "**\\servers.ini",
+      // Private chat/channel logs
+      "**\\logs\\**",
+      "**\\*.log",
+      // DCC downloads and transfers
+      "**\\downloads\\**",
+      "**\\download\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\mIRC\\servers.ini"
+    ],
+    "warning": "mIRC stores server and NickServ/SASL passwords in servers.ini using a weak, reversible encoding (not encryption with a user key) - effectively recoverable credentials. This file is excluded from capture and MUST NOT be auto-restored - re-enter server passwords manually after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures mIRC settings (mirc.ini), aliases, popups, remote scripts, URLs, control lists, and the scripts folder from %APPDATA%\\mIRC. Excludes servers.ini (server/NickServ passwords stored as weakly-encoded, reversible strings per mIRC developer), chat logs, and DCC downloads. Confidence: high - default settings path %APPDATA%\\mIRC (AppData mode is mIRC's default unless mirc.ini sits beside mirc.exe for portable mode) confirmed by official mIRC forum sources; servers.ini encoded-password storage confirmed by mIRC developer (Khaled) forum post."
+}

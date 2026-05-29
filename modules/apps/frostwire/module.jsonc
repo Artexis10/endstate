@@ -1,0 +1,74 @@
+{
+  // Config Module: FrostWire
+  // Provides verify/restore/capture configuration for FrostWire (BitTorrent client + media library)
+  // FrostWire stores all settings in a plain file directory under the user home: %USERPROFILE%\.frostwire5
+  // Confirmed via FrostWire desktop source: CommonUtils.FROSTWIRE_500_PREFS_DIR_NAME = ".frostwire5",
+  // main settings file is "frostwire.props" (LimeProps/LimeWireSettings).
+
+  "id": "apps.frostwire",
+  "displayName": "FrostWire",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["FrostWire.FrostWire"],
+    "exe": ["frostwire.exe"],
+    "uninstallDisplayName": ["^FrostWire"],
+    "pathExists": [
+      "%USERPROFILE%\\.frostwire5\\frostwire.props"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.frostwire5\\frostwire.props" }
+  ],
+
+  "restore": [
+    {
+      // Main settings file: UI prefs, download/torrent options, save paths, table columns, filters
+      "type": "copy",
+      "source": "./payload/apps/frostwire/frostwire.props",
+      "target": "%USERPROFILE%\\.frostwire5\\frostwire.props",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // First-run intent/legal acceptance + minor UI intent state
+      "type": "copy",
+      "source": "./payload/apps/frostwire/intent.props",
+      "target": "%USERPROFILE%\\.frostwire5\\intent.props",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\.frostwire5\\frostwire.props", "dest": "apps/frostwire/frostwire.props", "optional": true },
+      { "source": "%USERPROFILE%\\.frostwire5\\intent.props", "dest": "apps/frostwire/intent.props", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Logs
+      "**\\bugs.log",
+      "**\\*.log",
+      // libtorrent session state: resume data, DHT state, fastresume, .torrent working files
+      "**\\libtorrent\\**",
+      // Downloaded updates / installers
+      "**\\updates\\**",
+      // Library / app state databases (indexed local media, not portable settings)
+      "**\\library_db\\**",
+      "**\\library_db",
+      "**\\dbs\\**",
+      "**\\crawldb\\**",
+      // Image thumbnail cache
+      "**\\image_cache\\**",
+      // IP filter blocklist DB + temp blocklist downloads
+      "**\\ip_filter.db",
+      "**\\*blocklist*.temp",
+      "**\\*.temp",
+      // Misc transient state
+      "**\\seenMessages.dat"
+    ]
+  },
+
+  "notes": "Captures FrostWire user preferences (frostwire.props: UI layout, download/torrent options, save paths, table columns, search filters) plus first-run intent.props, all under %USERPROFILE%\\.frostwire5. Excludes the libtorrent session/resume/DHT state, downloaded update installers, the library and app databases (library_db, dbs, crawldb), image thumbnail cache, IP-filter blocklist DB, and logs. FrostWire is account-less P2P software with no stored credentials or tokens, so sensitivity is low. Confidence: high - .frostwire5 directory and frostwire.props filename confirmed against the official FrostWire blog and the FrostWire desktop source (CommonUtils, LimeProps, GUILoader)."
+}

@@ -1,0 +1,79 @@
+{
+  // Config Module: Mullvad VPN
+  // Provides verify/restore/capture configuration for the Mullvad VPN desktop app.
+  // Curated module - captures GUI cosmetic preferences only. The daemon's network
+  // settings live under the SYSTEM service profile and are not reachable in user
+  // context; the account number / WireGuard keys live in secure storage (never a file).
+
+  "id": "apps.mullvad-vpn",
+  "displayName": "Mullvad VPN",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["MullvadVPN.MullvadVPN"],
+    "exe": ["mullvad.exe", "mullvad-vpn.exe"],
+    "uninstallDisplayName": ["^Mullvad VPN"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Mullvad VPN\\gui_settings.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Mullvad VPN\\gui_settings.json" }
+  ],
+
+  "restore": [
+    {
+      // GUI cosmetic preferences only (locale, tray/start behaviour, icon style,
+      // window pin/animation, notification toggle). Contains no credentials.
+      "type": "copy",
+      "source": "./payload/apps/mullvad-vpn/gui_settings.json",
+      "target": "%LOCALAPPDATA%\\Mullvad VPN\\gui_settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Electron GUI settings. Mullvad explicitly overrides Electron's default
+      // userData (Roaming) to %LOCALAPPDATA% on Windows via app.setPath in
+      // src/main/index.ts (overrideAppPaths), so app.getPath('userData') =>
+      // %LOCALAPPDATA%\Mullvad VPN.
+      // Fields: preferredLocale, autoConnect, enableSystemNotifications,
+      // monochromaticIcon, startMinimized, unpinnedWindow, animateMap, etc.
+      { "source": "%LOCALAPPDATA%\\Mullvad VPN\\gui_settings.json", "dest": "apps/mullvad-vpn/gui_settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Daemon state, caches, logs and relay databases are not user preferences
+      // and/or live outside the user profile.
+      "**\\Cache\\**",
+      "**\\logs\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\relays.json",
+      "**\\account-history.json",
+      "**\\device.json",
+      "**\\settings.json"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      // The daemon's settings.json (tunnel protocol, relay/location, DNS, kill switch,
+      // allow_lan), account-history.json and device.json are written by the daemon, which
+      // runs as a SYSTEM service and stores them under the system profile
+      // (C:\Windows\system32\config\systemprofile\AppData\Local\Mullvad VPN\). They are NOT
+      // in the user's %LOCALAPPDATA%\Mullvad VPN (that dir holds the GUI's gui_settings.json
+      // and logs), so they cannot be portably captured in user context. The user-context
+      // entries below are warn-only safety guards in case a stray copy ever lands there.
+      "%LOCALAPPDATA%\\Mullvad VPN\\account-history.json",
+      "%LOCALAPPDATA%\\Mullvad VPN\\device.json",
+      "%LOCALAPPDATA%\\Mullvad VPN\\settings.json"
+    ],
+    "warning": "Mullvad's account number and WireGuard private keys are held in OS secure storage and were deliberately moved out of settings.json; they MUST NOT be captured or restored. Re-enter the account number and reconnect after a rebuild.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures only the Mullvad VPN GUI cosmetic preferences at %LOCALAPPDATA%\\Mullvad VPN\\gui_settings.json (locale, start/tray behaviour, icon style, window pin/animation, notification toggle). On Windows the GUI runs in user context and Mullvad explicitly remaps Electron's userData from Roaming to %LOCALAPPDATA% (src/main/index.ts overrideAppPaths), so the GUI settings and its logs subdir live under %LOCALAPPDATA%\\Mullvad VPN, not %APPDATA%. The daemon's network settings.json (tunnel protocol, relay/location, DNS, kill switch, LAN) is written by the daemon, which runs as a SYSTEM service and stores its settings under the system profile (C:\\Windows\\system32\\config\\systemprofile\\AppData\\Local\\Mullvad VPN); it is not reachable via user-context env-var expansion, so it is intentionally not captured. The account number and WireGuard keys were moved out of settings.json into OS secure storage (migration v5) and are never captured. Confidence: high - GUI userData override, gui_settings.json path and field list confirmed by app source (index.ts overrideAppPaths + gui-settings.ts); daemon system-profile path confirmed by Mullvad's File Paths doc; secrets-in-secure-storage confirmed by app source. Portable capture surface is limited to gui_settings.json."
+}

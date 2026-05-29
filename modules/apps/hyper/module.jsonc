@@ -1,0 +1,61 @@
+{
+  // Config Module: Hyper
+  // Provides verify/restore/capture configuration for Hyper (Electron terminal)
+  // Curated module - captures the single .hyper.js config + user-authored local plugins
+
+  "id": "apps.hyper",
+  "displayName": "Hyper",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Vercel.Hyper"],
+    "exe": ["Hyper.exe"],
+    "uninstallDisplayName": ["^Hyper\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Hyper\\.hyper.js" }
+  ],
+
+  "restore": [
+    {
+      // Primary hand-edited config: theme, fontFamily, plugins, keymaps (Hyper 3 location)
+      "type": "copy",
+      "source": "./payload/apps/hyper/.hyper.js",
+      "target": "%APPDATA%\\Hyper\\.hyper.js",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-authored local plugins (not published to npm; Hyper re-downloads npm plugins itself)
+      "type": "copy",
+      "source": "./payload/apps/hyper/local",
+      "target": "%APPDATA%\\Hyper\\.hyper_plugins\\local",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Hyper\\.hyper.js", "dest": "apps/hyper/.hyper.js", "optional": true },
+      { "source": "%APPDATA%\\Hyper\\.hyper_plugins\\local", "dest": "apps/hyper/local", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Auto-downloaded npm plugin packages - reinstalled from the plugins list in .hyper.js
+      "**\\.hyper_plugins\\node_modules\\**",
+      "**\\.hyper_plugins\\cache\\**",
+      "**\\.hyper_plugins\\package.json",
+      "**\\.hyper_plugins\\package-lock.json",
+      // Electron caches / logs / crash dumps
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Code Cache\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures Hyper's single hand-edited .hyper.js config (theme, fontFamily, shell, keymaps, and the declarative plugins/localPlugins lists) from %APPDATA%\\Hyper\\, plus any user-authored local plugins under .hyper_plugins\\local. npm-installed plugins are excluded because Hyper re-downloads them automatically from the plugins array in .hyper.js; Electron caches, logs, and crash dumps are also excluded. Confidence: high - %APPDATA%\\Hyper\\.hyper.js confirmed for Hyper 3 by the vercel/hyper GitHub issue tracker and multiple independent setup guides."
+}

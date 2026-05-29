@@ -1,0 +1,48 @@
+{
+  // Config Module: TranslucentTB
+  // Provides verify/restore/capture configuration for TranslucentTB (taskbar styling tool)
+  // Curated module - captures the single settings.json (per-state taskbar appearance)
+
+  "id": "apps.translucenttb",
+  "displayName": "TranslucentTB",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["CharlesMilette.TranslucentTB"],
+    "exe": ["TranslucentTB.exe"],
+    "uninstallDisplayName": ["^TranslucentTB"]
+  },
+
+  "verify": [
+    // Packaged (Store/winget) build keeps its only config here.
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Packages\\28017CharlesMilette.TranslucentTB_v826wp6bftszj\\RoamingState\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/translucenttb/settings.json",
+      "target": "%LOCALAPPDATA%\\Packages\\28017CharlesMilette.TranslucentTB_v826wp6bftszj\\RoamingState\\settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single JSON config holding per-state (desktop/maximized/start/search/timeline) appearance,
+      // color, blur and per-monitor rules. Packaged build only; portable build stores it beside
+      // the exe at a non-fixed path that cannot be captured portably.
+      { "source": "%LOCALAPPDATA%\\Packages\\28017CharlesMilette.TranslucentTB_v826wp6bftszj\\RoamingState\\settings.json", "dest": "apps/translucenttb/settings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\AC\\**",
+      "**\\LocalCache\\**",
+      "**\\TempState\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures TranslucentTB's single settings.json (per-state taskbar appearance, color, blur, and per-monitor rules) from the packaged Store/winget build at %LOCALAPPDATA%\\Packages\\28017CharlesMilette.TranslucentTB_v826wp6bftszj\\RoamingState\\. No credentials or sensitive data are stored. The portable build keeps settings beside the exe (non-fixed path) and is not captured. Confidence: high - packaged path confirmed by upstream GitHub issues #1088 and #467 and matches the winget package's publisher family name."
+}

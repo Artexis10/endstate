@@ -1,0 +1,71 @@
+{
+  // Config Module: Arduino IDE
+  // Provides verify/restore/capture configuration for Arduino IDE 2.x
+  // Curated module - captures IDE preferences/keymaps and shared CLI config,
+  // excludes the large/regenerable Arduino15 board-package + library cache.
+
+  "id": "apps.arduino-ide",
+  "displayName": "Arduino IDE",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["ArduinoSA.IDE.stable"],
+    "exe": ["Arduino IDE.exe"],
+    "uninstallDisplayName": ["^Arduino IDE"]
+  },
+
+  "verify": [
+    // Arduino IDE 2.x writes its settings here on first run.
+    { "type": "file-exists", "path": "%USERPROFILE%\\.arduinoIDE\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      // IDE preferences (editor, theme, ports, language, advanced settings)
+      "type": "copy",
+      "source": "./payload/apps/arduino-ide/settings.json",
+      "target": "%USERPROFILE%\\.arduinoIDE\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Keyboard shortcut overrides
+      "type": "copy",
+      "source": "./payload/apps/arduino-ide/keymaps.json",
+      "target": "%USERPROFILE%\\.arduinoIDE\\keymaps.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Shared Arduino CLI config: board_manager additional_urls, library
+      // settings, network/proxy, sketchbook/data dirs.
+      "type": "copy",
+      "source": "./payload/apps/arduino-ide/arduino-cli.yaml",
+      "target": "%USERPROFILE%\\.arduinoIDE\\arduino-cli.yaml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\.arduinoIDE\\settings.json", "dest": "apps/arduino-ide/settings.json", "optional": true },
+      { "source": "%USERPROFILE%\\.arduinoIDE\\keymaps.json", "dest": "apps/arduino-ide/keymaps.json", "optional": true },
+      { "source": "%USERPROFILE%\\.arduinoIDE\\arduino-cli.yaml", "dest": "apps/arduino-ide/arduino-cli.yaml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // The Arduino15 folder holds downloaded board packages, the library/board
+      // package index, staging downloads, and caches - large and regenerable,
+      // not portable settings. Never capture it.
+      "**\\Arduino15\\**",
+      "**\\staging\\**",
+      "**\\.cache\\**",
+      "**\\Cache\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Arduino IDE 2.x user configuration from %USERPROFILE%\\.arduinoIDE\\: settings.json (preferences), keymaps.json (keyboard shortcuts), and arduino-cli.yaml (board manager additional URLs, library/network settings). The %LOCALAPPDATA%\\Arduino15 folder (downloaded board packages, library index, downloads, caches) is excluded as large and regenerable. arduino-cli.yaml may contain a network proxy URL with embedded credentials and machine-specific data/sketchbook directory paths - review before sharing. Confidence: high - %USERPROFILE%\\.arduinoIDE\\{settings.json,keymaps.json,arduino-cli.yaml} confirmed by official Arduino docs/forum and multiple independent sources."
+}

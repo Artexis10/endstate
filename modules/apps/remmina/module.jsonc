@@ -1,0 +1,40 @@
+{
+  // Config Module: Remmina
+  // Remote desktop client (RDP / VNC / SSH / SPICE) for POSIX systems.
+  // INSTALL-ONLY on Windows: Remmina has NO native Windows build. It depends on
+  // GTK+/GDK functions unavailable on Windows and only runs via WSL (Windows
+  // Subsystem for Linux). Its profiles and preferences therefore live on the
+  // Linux side (~/.local/share/remmina/, ~/.config/remmina/) inside the WSL
+  // filesystem, which the Windows capture/restore engine cannot portably reach.
+  // Nothing is captured. See notes.
+
+  "id": "apps.remmina",
+  "displayName": "Remmina",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": [],
+    "exe": ["remmina"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "remmina" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": []
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.config/remmina/remmina.pref",
+      "~/.local/share/remmina/"
+    ],
+    "warning": "Remmina connection profiles (*.remmina) can embed saved passwords and credentials, and remmina.pref / its keyring may hold secrets. These live inside the WSL/Linux filesystem and MUST NOT be captured or auto-restored by the Windows engine.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Nothing is captured. Remmina has no native Windows build (it requires GTK+/GDK and runs only under WSL), so its profiles (~/.local/share/remmina/*.remmina) and preferences (~/.config/remmina/remmina.pref) reside in the Linux/WSL filesystem, which the Windows capture/restore engine cannot portably or safely access. Connection profiles may also embed saved credentials, so capturing them would be a security risk. Confidence: high - official Remmina site confirms no native Windows port (WSL-only), and connection profiles are credential-bearing."
+}

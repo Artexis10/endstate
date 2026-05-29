@@ -1,0 +1,112 @@
+{
+  // Config Module: Cmder
+  // Provides verify/restore/capture configuration for Cmder (portable ConEmu + Clink console bundle)
+  // Curated module - captures the per-user config folder; excludes history and vendor-managed files
+  //
+  // IMPORTANT - portability caveat:
+  // Cmder is a portable bundle. By default its settings live in %CMDER_ROOT%\config\ where
+  // %CMDER_ROOT% is the (variable, drive-rooted) install directory - NOT a value we can safely
+  // hardcode or rely on at capture time. The portably-capturable location is the documented
+  // individual-user config root %USERPROFILE%\cmder_config\config\ (also exposed as
+  // %CMDER_USER_CONFIG% inside a running Cmder process). This module targets that user-rooted
+  // location so capture/restore stay free of hardcoded absolute drive paths.
+
+  "id": "apps.cmder",
+  "displayName": "Cmder",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Cmder.exe"],
+    "uninstallDisplayName": ["^Cmder"],
+    "pathExists": [
+      "%USERPROFILE%\\cmder_config\\config\\user_profile.cmd",
+      "%USERPROFILE%\\cmder_config\\config\\user-ConEmu.xml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\cmder_config\\config\\user-ConEmu.xml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/cmder/user_profile.cmd",
+      "target": "%USERPROFILE%\\cmder_config\\config\\user_profile.cmd",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cmder/user_profile.ps1",
+      "target": "%USERPROFILE%\\cmder_config\\config\\user_profile.ps1",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cmder/user_profile.sh",
+      "target": "%USERPROFILE%\\cmder_config\\config\\user_profile.sh",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cmder/user_aliases.cmd",
+      "target": "%USERPROFILE%\\cmder_config\\config\\user_aliases.cmd",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cmder/cmder_prompt_config.lua",
+      "target": "%USERPROFILE%\\cmder_config\\config\\cmder_prompt_config.lua",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cmder/user-ConEmu.xml",
+      "target": "%USERPROFILE%\\cmder_config\\config\\user-ConEmu.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/cmder/profile.d",
+      "target": "%USERPROFILE%\\cmder_config\\config\\profile.d",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Per-user Cmder config folder (%USERPROFILE%\cmder_config\config\). Individual files
+      // captured rather than the whole folder so volatile/vendor-managed files can be skipped.
+      { "source": "%USERPROFILE%\\cmder_config\\config\\user_profile.cmd", "dest": "apps/cmder/user_profile.cmd", "optional": true },
+      { "source": "%USERPROFILE%\\cmder_config\\config\\user_profile.ps1", "dest": "apps/cmder/user_profile.ps1", "optional": true },
+      { "source": "%USERPROFILE%\\cmder_config\\config\\user_profile.sh", "dest": "apps/cmder/user_profile.sh", "optional": true },
+      { "source": "%USERPROFILE%\\cmder_config\\config\\user_aliases.cmd", "dest": "apps/cmder/user_aliases.cmd", "optional": true },
+      { "source": "%USERPROFILE%\\cmder_config\\config\\cmder_prompt_config.lua", "dest": "apps/cmder/cmder_prompt_config.lua", "optional": true },
+      // ConEmu UI settings (tasks, colors, fonts). Filename is hyphenated per upstream.
+      { "source": "%USERPROFILE%\\cmder_config\\config\\user-ConEmu.xml", "dest": "apps/cmder/user-ConEmu.xml", "optional": true },
+      // Drop-in startup scripts (*.cmd, *.bat, *.ps1, *.sh)
+      { "source": "%USERPROFILE%\\cmder_config\\config\\profile.d", "dest": "apps/cmder/profile.d", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Auto-maintained command history (volatile, may contain sensitive command text)
+      "**\\.history",
+      "**\\*.history",
+      // Readline config - vendor-overwritten on update
+      "**\\settings",
+      // Vendor template defaults and clink state
+      "**\\*.default",
+      "**\\clink_history*",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures the per-user Cmder config folder (%USERPROFILE%\\cmder_config\\config\\): cmd/ps1/sh profiles, user_aliases.cmd, cmder_prompt_config.lua, the user-ConEmu.xml UI settings, and the profile.d startup-script folder. Cmder is portable and not on winget; its DEFAULT config lives in the install-relative %CMDER_ROOT%\\config\\ which cannot be referenced without a hardcoded drive path, so this module targets the documented user-rooted config location. Command history (.history/clink_history), the vendor-overwritten readline 'settings' file, and *.default templates are excluded. No credentials are stored by default. Confidence: medium - config file names and the user-config convention are confirmed by the upstream README, wiki, and config tree, but the default install-rooted location (%CMDER_ROOT%) is non-portable, so capture only succeeds when the user adopts the %USERPROFILE%\\cmder_config convention."
+}

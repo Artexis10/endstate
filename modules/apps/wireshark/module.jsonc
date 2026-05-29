@@ -1,0 +1,179 @@
+{
+  // Config Module: Wireshark
+  // Provides verify/restore/capture configuration for Wireshark (network protocol analyzer)
+  // Settings are fully file-based under %APPDATA%\Wireshark (no registry usage)
+
+  "id": "apps.wireshark",
+  "displayName": "Wireshark",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["WiresharkFoundation.Wireshark"],
+    "exe": ["Wireshark.exe"],
+    "uninstallDisplayName": ["^Wireshark"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Wireshark\\preferences" }
+  ],
+
+  "restore": [
+    // Common (all-profile) configuration files in the personal config folder root
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/preferences",
+      "target": "%APPDATA%\\Wireshark\\preferences",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/cfilters",
+      "target": "%APPDATA%\\Wireshark\\cfilters",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/dfilters",
+      "target": "%APPDATA%\\Wireshark\\dfilters",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/dmacros",
+      "target": "%APPDATA%\\Wireshark\\dmacros",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/colorfilters",
+      "target": "%APPDATA%\\Wireshark\\colorfilters",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/dfilter_buttons",
+      "target": "%APPDATA%\\Wireshark\\dfilter_buttons",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/disabled_protos",
+      "target": "%APPDATA%\\Wireshark\\disabled_protos",
+      "backup": true,
+      "optional": true
+    },
+    // Name-resolution / user-accessible tables
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/hosts",
+      "target": "%APPDATA%\\Wireshark\\hosts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/ethers",
+      "target": "%APPDATA%\\Wireshark\\ethers",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/services",
+      "target": "%APPDATA%\\Wireshark\\services",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/vlans",
+      "target": "%APPDATA%\\Wireshark\\vlans",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/manuf",
+      "target": "%APPDATA%\\Wireshark\\manuf",
+      "backup": true,
+      "optional": true
+    },
+    // Named configuration profiles (each holds its own preferences/filters/coloring rules)
+    {
+      "type": "copy",
+      "source": "./payload/apps/wireshark/profiles",
+      "target": "%APPDATA%\\Wireshark\\profiles",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.pcap",
+        "**\\*.pcapng",
+        "**\\*.key",
+        "**\\*.pem",
+        "**\\*keylog*",
+        "**\\*master*secret*"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Common (all-profile) configuration files
+      { "source": "%APPDATA%\\Wireshark\\preferences", "dest": "apps/wireshark/preferences", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\cfilters", "dest": "apps/wireshark/cfilters", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\dfilters", "dest": "apps/wireshark/dfilters", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\dmacros", "dest": "apps/wireshark/dmacros", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\colorfilters", "dest": "apps/wireshark/colorfilters", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\dfilter_buttons", "dest": "apps/wireshark/dfilter_buttons", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\disabled_protos", "dest": "apps/wireshark/disabled_protos", "optional": true },
+      // Name-resolution / user-accessible tables
+      { "source": "%APPDATA%\\Wireshark\\hosts", "dest": "apps/wireshark/hosts", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\ethers", "dest": "apps/wireshark/ethers", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\services", "dest": "apps/wireshark/services", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\vlans", "dest": "apps/wireshark/vlans", "optional": true },
+      { "source": "%APPDATA%\\Wireshark\\manuf", "dest": "apps/wireshark/manuf", "optional": true },
+      // Named configuration profiles (filters, coloring rules, per-profile preferences)
+      { "source": "%APPDATA%\\Wireshark\\profiles", "dest": "apps/wireshark/profiles", "optional": true }
+    ],
+    "excludeGlobs": [
+      // GUI state churn (window geometry, recent-file lists)
+      "**\\recent",
+      "**\\recent_common",
+      // Binary / compiled plugins and capture interfaces (rebuilt per install)
+      "**\\plugins\\**",
+      "**\\extcap\\**",
+      // Captured packet data (large, not configuration)
+      "**\\*.pcap",
+      "**\\*.pcapng",
+      "**\\*.cap",
+      // Caches, logs, temp
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\Temp\\**",
+      // TLS/SSL decryption secrets and private keys (NEVER capture)
+      "**\\*.key",
+      "**\\*.pem",
+      "**\\*keylog*",
+      "**\\*master*secret*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\Wireshark\\*.key",
+      "%APPDATA%\\Wireshark\\*.pem",
+      "%APPDATA%\\Wireshark\\**\\*keylog*",
+      "%APPDATA%\\Wireshark\\**\\*master*secret*"
+    ],
+    "warning": "Wireshark can store TLS/SSL decryption material (RSA private keys, (Pre)-Master-Secret keylog files). These contain sensitive secrets and MUST NOT be auto-captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Wireshark's file-based configuration under %APPDATA%\\Wireshark: preferences, capture/display filters (cfilters, dfilters, dmacros, dfilter_buttons), coloring rules (colorfilters), disabled protocols, name-resolution tables (hosts, ethers, services, vlans, manuf), and named profiles\\. Excludes GUI-state churn (recent, recent_common), binary plugins/extcap, captured packet data (.pcap/.pcapng), and TLS decryption secrets (private keys, keylog files). Wireshark stores no settings in the registry. Confidence: high - personal config folder location and file inventory confirmed by official Wireshark User Guide (Appendix B.3/B.5)."
+}

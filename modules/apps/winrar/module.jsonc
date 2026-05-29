@@ -1,0 +1,67 @@
+{
+  // Config Module: WinRAR
+  // Provides verify/capture/restore configuration for WinRAR archive manager
+  // Settings live primarily in HKCU\Software\WinRAR; custom themes under %APPDATA%\WinRAR\Themes
+  // Excludes rarreg.key (paid license key)
+
+  "id": "apps.winrar",
+  "displayName": "WinRAR",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["RARLab.WinRAR"],
+    "exe": ["WinRAR.exe"],
+    "uninstallDisplayName": ["^WinRAR"],
+    "pathExists": [
+      "%ProgramFiles%\\WinRAR\\WinRAR.exe"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\WinRAR" }
+  ],
+
+  "restore": [
+    {
+      // Main settings: compression profiles, options, toolbar, file associations
+      "type": "registry-import",
+      "source": "./payload/apps/winrar/WinRAR.reg",
+      "target": "HKCU\\Software\\WinRAR",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Installed custom interface themes
+      "type": "copy",
+      "source": "./payload/apps/winrar/Themes",
+      "target": "%APPDATA%\\WinRAR\\Themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\WinRAR\\Themes", "dest": "apps/winrar/Themes", "optional": true }
+    ],
+    "registryKeys": [
+      // Compression profiles, general options, toolbar layout, association choices
+      { "key": "HKCU\\Software\\WinRAR", "dest": "apps/winrar/WinRAR.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\rarreg.key",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\WinRAR\\rarreg.key",
+      "%ProgramFiles%\\WinRAR\\rarreg.key"
+    ],
+    "warning": "rarreg.key is the paid WinRAR license key and MUST NOT be captured or auto-restored. Re-apply your purchased license after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures WinRAR settings from HKCU\\Software\\WinRAR (compression profiles, options, toolbar, file associations) plus custom interface themes under %APPDATA%\\WinRAR\\Themes. The rarreg.key license file is explicitly excluded. Confidence: high - registry location and themes folder confirmed by official WinRAR documentation."
+}

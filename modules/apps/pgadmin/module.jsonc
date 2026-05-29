@@ -1,0 +1,68 @@
+{
+  // Config Module: pgAdmin 4
+  // Provides verify/restore/capture configuration for pgAdmin 4 (PostgreSQL admin tool)
+  // Curated module - captures the SQLite config DB (server tree, preferences, SQL history)
+  // and desktop runtime config; excludes sessions, logs, storage, and OAuth credential caches
+
+  "id": "apps.pgadmin",
+  "displayName": "pgAdmin 4",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["PostgreSQL.pgAdmin"],
+    "exe": ["pgAdmin4.exe"],
+    "uninstallDisplayName": ["^pgAdmin 4"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\pgadmin\\pgadmin4.db" }
+  ],
+
+  "restore": [
+    {
+      // SQLite config DB: server definitions/tree, preferences, SQL query history.
+      // Also holds saved server passwords ENCRYPTED with the master password (which is
+      // never written to disk), so the blobs are inert without it.
+      "type": "copy",
+      "source": "./payload/apps/pgadmin/pgadmin4.db",
+      "target": "%APPDATA%\\pgadmin\\pgadmin4.db",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Desktop runtime settings (fixed port, port number, connection timeout, window geometry)
+      "type": "copy",
+      "source": "./payload/apps/pgadmin/runtime_config.json",
+      "target": "%APPDATA%\\pgadmin\\runtime_config.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\pgadmin\\pgadmin4.db", "dest": "apps/pgadmin/pgadmin4.db", "optional": true },
+      { "source": "%APPDATA%\\pgadmin\\runtime_config.json", "dest": "apps/pgadmin/runtime_config.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\sessions\\**",
+      "**\\azurecredentialcache\\**",
+      "**\\storage\\**",
+      "**\\pgadmin4.log",
+      "**\\*.log",
+      "**\\*.swp",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\pgadmin\\azurecredentialcache",
+      "%APPDATA%\\pgadmin\\sessions"
+    ],
+    "warning": "The Azure credential cache contains cached OAuth tokens and the sessions directory contains session databases; neither must be auto-restored. Note that pgadmin4.db may contain saved server passwords encrypted with the master password (never stored on disk); they are inert without it, but treat the DB as credential-adjacent.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the pgAdmin 4 desktop config DB at %APPDATA%\\pgadmin\\pgadmin4.db (server tree/definitions, preferences, SQL history) plus runtime_config.json. Excludes sessions, logs, the user storage area, and the Azure OAuth credential cache. Saved server passwords inside pgadmin4.db are encrypted with the in-memory-only master password, so re-enter it after restore. Confidence: high - data dir %APPDATA%\\pgadmin and SQLITE_PATH/SESSION_DB_PATH/STORAGE_DIR/AZURE_CREDENTIAL_CACHE_DIR layout confirmed by official pgAdmin desktop deployment docs and config.py."
+}

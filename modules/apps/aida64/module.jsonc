@@ -1,0 +1,176 @@
+{
+  // Config Module: AIDA64 Extreme
+  // Provides verify/restore/capture configuration for AIDA64 Extreme (system info / hardware monitoring)
+  // Settings span INI files plus an HKCU registry key.
+  //
+  // Storage layout (per official "Backing Up AIDA64 Settings" docs + Windows UAC virtualization):
+  //   - AIDA64 writes its INI/HIS files into the install folder when it has write access there
+  //     (default %ProgramFiles(x86)%\FinalWire\AIDA64 Extreme\, edition-dependent).
+  //   - When it lacks write permission to the install folder, Windows UAC file virtualization
+  //     redirects those INI writes into the per-user VirtualStore mirror:
+  //     %LOCALAPPDATA%\VirtualStore\Program Files (x86)\FinalWire\AIDA64 Extreme\
+  //     (this is the real per-user fallback; AIDA64 does NOT use a bare %LOCALAPPDATA%\FinalWire\AIDA64\ folder).
+  //   - Window positions, layouts and last-used states live under HKCU\Software\FinalWire\AIDA64.
+  // We capture the per-user VirtualStore copies and the HKCU key (the only restorable hive)
+  // and ALSO opportunistically capture the default install-dir copies (optional, may need admin
+  // and may not exist on per-user/virtualized setups). Restore targets the VirtualStore location,
+  // which is writable in user context and is where AIDA64 reads its INI back from when running
+  // unelevated; the install-dir copy is intentionally NOT a restore target because writing back
+  // into %ProgramFiles(x86)% requires elevation Endstate restore does not have.
+
+  "id": "apps.aida64",
+  "displayName": "AIDA64 Extreme",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["FinalWire.AIDA64.Extreme"],
+    "exe": ["aida64.exe"],
+    "uninstallDisplayName": ["^AIDA64 Extreme"],
+    "pathExists": [
+      "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.exe",
+      "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.ini"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\FinalWire\\AIDA64" }
+  ],
+
+  "restore": [
+    // INI / history files -> per-user VirtualStore mirror (writable without elevation; where
+    // AIDA64 reads its INI back from when it lacks write access to the install folder).
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.customvars.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.customvars.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.assetprofile.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.assetprofile.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.databasemgr.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.databasemgr.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.auditmgr.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.auditmgr.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.mondiag.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.mondiag.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.benchresults.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.benchresults.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.remotemon.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.remotemon.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.changemgr.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.changemgr.ini",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/aida64.sst.ini",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.sst.ini",
+      "backup": true,
+      "optional": true
+    },
+    // SensorPanel folder (decompressed gauge/image assets cache). The active layout itself lives
+    // inside aida64.ini; this folder is opportunistic and excludes log/tmp artifacts.
+    {
+      "type": "copy",
+      "source": "./payload/apps/aida64/SensorPanel",
+      "target": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\SensorPanel",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\*.tmp"]
+    },
+    // Window positions, layouts, last-used states.
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/aida64/FinalWire.reg",
+      "target": "HKCU\\Software\\FinalWire\\AIDA64",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Per-user VirtualStore mirror (primary restorable copy; populated when AIDA64 lacks
+      // write access to its install folder and Windows UAC virtualization redirects INI writes here).
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.ini", "dest": "apps/aida64/aida64.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.customvars.ini", "dest": "apps/aida64/aida64.customvars.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.assetprofile.ini", "dest": "apps/aida64/aida64.assetprofile.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.databasemgr.ini", "dest": "apps/aida64/aida64.databasemgr.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.auditmgr.ini", "dest": "apps/aida64/aida64.auditmgr.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.mondiag.ini", "dest": "apps/aida64/aida64.mondiag.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.benchresults.ini", "dest": "apps/aida64/aida64.benchresults.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.remotemon.ini", "dest": "apps/aida64/aida64.remotemon.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.changemgr.ini", "dest": "apps/aida64/aida64.changemgr.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\aida64.sst.ini", "dest": "apps/aida64/aida64.sst.ini", "optional": true },
+      { "source": "%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\SensorPanel", "dest": "apps/aida64/SensorPanel", "optional": true },
+
+      // Default install-dir copies (opportunistic; present when AIDA64 has write access there).
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.ini", "dest": "apps/aida64/installdir/aida64.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.customvars.ini", "dest": "apps/aida64/installdir/aida64.customvars.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.assetprofile.ini", "dest": "apps/aida64/installdir/aida64.assetprofile.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.databasemgr.ini", "dest": "apps/aida64/installdir/aida64.databasemgr.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.auditmgr.ini", "dest": "apps/aida64/installdir/aida64.auditmgr.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.mondiag.ini", "dest": "apps/aida64/installdir/aida64.mondiag.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.benchresults.ini", "dest": "apps/aida64/installdir/aida64.benchresults.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.remotemon.ini", "dest": "apps/aida64/installdir/aida64.remotemon.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.changemgr.ini", "dest": "apps/aida64/installdir/aida64.changemgr.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\aida64.sst.ini", "dest": "apps/aida64/installdir/aida64.sst.ini", "optional": true },
+      { "source": "%ProgramFiles(x86)%\\FinalWire\\AIDA64 Extreme\\SensorPanel", "dest": "apps/aida64/installdir/SensorPanel", "optional": true }
+    ],
+    "registryKeys": [
+      // Window positions, layouts, last-used states (and user preferences not held in the INI).
+      { "key": "HKCU\\Software\\FinalWire\\AIDA64", "dest": "apps/aida64/FinalWire.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // History/log/runtime artifacts that should not be carried across machines.
+      "**\\*.his",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Cache\\**",
+      "**\\Logs\\**"
+    ]
+  },
+
+  "notes": "Captures AIDA64 Extreme INI configuration (preferences, SensorPanel layout embedded in aida64.ini, custom variables, alerting, logging, external apps, benchmark/database/audit settings) from the per-user Windows VirtualStore mirror (%LOCALAPPDATA%\\VirtualStore\\Program Files (x86)\\FinalWire\\AIDA64 Extreme\\) plus the default install-dir copies (opportunistic, may need admin), and the HKCU\\Software\\FinalWire\\AIDA64 registry key (window layouts, last-used states). History (.his), logs and temp files are excluded. Restore targets the user-writable VirtualStore path where AIDA64 reads its INI back when running unelevated. No credentials are stored. Confidence: medium - the 10 INI file names and the HKCU registry key are confirmed by AIDA64's official 'Backing Up AIDA64 Settings' documentation; the per-user fallback is Windows UAC file virtualization (VirtualStore mirror of the install path), corroborated by AIDA64 forum reports that the INI lands in AppData\\Local when the install folder is not writable. The exact install-folder name ('AIDA64 Extreme' vs the generic 'AIDA64') is edition/version dependent."
+}

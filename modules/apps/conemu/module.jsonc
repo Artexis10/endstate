@@ -1,0 +1,68 @@
+{
+  // Config Module: ConEmu
+  // Provides verify/restore/capture configuration for ConEmu (Windows terminal host)
+  // Curated module - captures the ConEmu.xml settings file and the HKCU registry fallback
+
+  "id": "apps.conemu",
+  "displayName": "ConEmu",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Maximus5.ConEmu"],
+    "exe": ["ConEmu.exe", "ConEmu64.exe"],
+    "uninstallDisplayName": ["^ConEmu"],
+    "pathExists": ["%APPDATA%\\ConEmu.xml"]
+  },
+
+  "verify": [
+    // Settings may live in %APPDATA%\ConEmu.xml OR in the HKCU registry fallback.
+    // file-exists is the cheapest common case; registry fallback covered by capture.
+    { "type": "file-exists", "path": "%APPDATA%\\ConEmu.xml" }
+  ],
+
+  "restore": [
+    {
+      // Primary settings file. When ConEmu is installed to a write-protected
+      // location (the winget default, C:\Program Files\...), it stores settings here.
+      "type": "copy",
+      "source": "./payload/apps/conemu/ConEmu.xml",
+      "target": "%APPDATA%\\ConEmu.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Dotted variant (portable-style override that can also appear in %APPDATA%).
+      "type": "copy",
+      "source": "./payload/apps/conemu/.ConEmu.xml",
+      "target": "%APPDATA%\\.ConEmu.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Registry fallback: used when no ConEmu.xml exists. Default ".Vanilla" config.
+      "type": "registry-import",
+      "source": "./payload/apps/conemu/Vanilla.reg",
+      "target": "HKCU\\Software\\ConEmu\\.Vanilla",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\ConEmu.xml", "dest": "apps/conemu/ConEmu.xml", "optional": true },
+      { "source": "%APPDATA%\\.ConEmu.xml", "dest": "apps/conemu/.ConEmu.xml", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\ConEmu\\.Vanilla", "dest": "apps/conemu/Vanilla.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.bak",
+      "**\\ConEmu.xml.bak*"
+    ]
+  },
+
+  "notes": "Captures ConEmu's settings (tasks, hotkeys, colors, console fonts). ConEmu stores all settings either in %APPDATA%\\ConEmu.xml (default when installed to a write-protected location, e.g. the winget/Program Files install) or in the HKCU\\Software\\ConEmu\\.Vanilla registry key when no XML file exists; both are captured for portability. Backup/log files are excluded. The XML and registry settings contain no credentials. Confidence: high - storage paths confirmed by official ConEmu docs (conemu.github.io/en/ConEmuXml.html)."
+}

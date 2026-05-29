@@ -1,0 +1,137 @@
+{
+  // Config Module: eM Client
+  // Provides verify/restore/capture configuration for eM Client (desktop email/calendar)
+  // Curated module - captures portable settings .dat files (signatures live inside settings.dat), EXCLUDES mail database and credential stores
+
+  "id": "apps.em-client",
+  "displayName": "eM Client",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["eMClient.eMClient"],
+    "exe": ["MailClient.exe"],
+    "uninstallDisplayName": ["^eM Client"],
+    "pathExists": [
+      "%APPDATA%\\eM Client"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\eM Client\\settings.dat" }
+  ],
+
+  "restore": [
+    // Settings / preferences database (UI prefs, general options)
+    {
+      "type": "copy",
+      "source": "./payload/apps/em-client/settings.dat",
+      "target": "%APPDATA%\\eM Client\\settings.dat",
+      "backup": true,
+      "optional": true
+    },
+    // Mail rules / filters
+    {
+      "type": "copy",
+      "source": "./payload/apps/em-client/rules.dat",
+      "target": "%APPDATA%\\eM Client\\rules.dat",
+      "backup": true,
+      "optional": true
+    },
+    // Quick text templates (signatures are stored inside settings.dat, not a separate file)
+    {
+      "type": "copy",
+      "source": "./payload/apps/em-client/templates.dat",
+      "target": "%APPDATA%\\eM Client\\templates.dat",
+      "backup": true,
+      "optional": true
+    },
+    // Text snippets
+    {
+      "type": "copy",
+      "source": "./payload/apps/em-client/snippets.dat",
+      "target": "%APPDATA%\\eM Client\\snippets.dat",
+      "backup": true,
+      "optional": true
+    },
+    // Categories / tags
+    {
+      "type": "copy",
+      "source": "./payload/apps/em-client/categories.dat",
+      "target": "%APPDATA%\\eM Client\\categories.dat",
+      "backup": true,
+      "optional": true
+    },
+    // Widgets / sidebar layout
+    {
+      "type": "copy",
+      "source": "./payload/apps/em-client/widgets.dat",
+      "target": "%APPDATA%\\eM Client\\widgets.dat",
+      "backup": true,
+      "optional": true
+    },
+    // HKCU registry (autodiscover / minor per-user flags)
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/em-client/eMClient.reg",
+      "target": "HKCU\\Software\\eM Client",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\eM Client\\settings.dat", "dest": "apps/em-client/settings.dat", "optional": true },
+      { "source": "%APPDATA%\\eM Client\\rules.dat", "dest": "apps/em-client/rules.dat", "optional": true },
+      { "source": "%APPDATA%\\eM Client\\templates.dat", "dest": "apps/em-client/templates.dat", "optional": true },
+      { "source": "%APPDATA%\\eM Client\\snippets.dat", "dest": "apps/em-client/snippets.dat", "optional": true },
+      { "source": "%APPDATA%\\eM Client\\categories.dat", "dest": "apps/em-client/categories.dat", "optional": true },
+      { "source": "%APPDATA%\\eM Client\\widgets.dat", "dest": "apps/em-client/widgets.dat", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\eM Client", "dest": "apps/em-client/eMClient.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Mail/calendar/contact CONTENT databases - not settings, can be many GB
+      "**\\mail_data.dat*",
+      "**\\mail_index.dat*",
+      "**\\mail_fti.dat*",
+      "**\\contact_data.dat*",
+      "**\\contact_index.dat*",
+      "**\\event_data.dat*",
+      "**\\event_index.dat*",
+      "**\\task_data.dat*",
+      "**\\task_index.dat*",
+      "**\\attachments\\**",
+      // Credential / account stores (handled in sensitive block)
+      "**\\accounts.dat*",
+      "**\\main.dat*",
+      "**\\certificates.dat*",
+      "**\\privacy_list.dat*",
+      // SQLite WAL/SHM transient state and on-disk backups
+      "**\\*.dat-wal",
+      "**\\*.dat-shm",
+      "**\\*.dat-bak",
+      // Caches, logs, temp, indexes
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\logs\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\eM Client\\accounts.dat",
+      "%APPDATA%\\eM Client\\main.dat",
+      "%APPDATA%\\eM Client\\certificates.dat",
+      "%APPDATA%\\eM Client\\mail_data.dat"
+    ],
+    "warning": "eM Client stores email account configuration and saved account passwords in accounts.dat/main.dat, and the full mailbox (messages, attachments) in mail_data.dat. These contain credentials and personal data and MUST NOT be auto-restored. Re-add accounts and re-enter passwords manually after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures eM Client's portable settings databases (UI preferences incl. signatures in settings.dat, mail rules, templates, snippets, categories, widgets) from %APPDATA%\\eM Client plus the minor HKCU\\Software\\eM Client registry key. There is no separate signatures.dat - signatures live inside settings.dat. The mail/calendar/contact content databases (mail_data.dat etc.) are excluded as non-settings and potentially many GB, and account/password stores (accounts.dat, main.dat, certificates.dat) are excluded as sensitive - re-add accounts after restore. The .dat files are live SQLite databases; capture eM Client while it is closed for a consistent copy (WAL/SHM/bak siblings are excluded). Confidence: medium - data folder path (%APPDATA%\\eM Client) and HKCU\\Software\\eM Client key are confirmed by official docs and multiple forum sources; the per-concern .dat filenames (settings/rules/templates/snippets/categories/widgets and the sensitive accounts/main/certificates) are corroborated by independent forum folder listings, though individual files may vary by version."
+}

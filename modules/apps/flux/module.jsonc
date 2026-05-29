@@ -1,0 +1,40 @@
+{
+  // Config Module: f.lux
+  // Provides verify/capture/restore configuration for f.lux (screen color temperature)
+  // All settings stored in the Windows Registry under HKCU\Software\Michael Herf\flux
+
+  "id": "apps.flux",
+  "displayName": "f.lux",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["flux.flux"],
+    "exe": ["flux.exe"],
+    "uninstallDisplayName": ["^f\\.lux"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Michael Herf\\flux" }
+  ],
+
+  "restore": [
+    {
+      // Location, color-temperature schedule, day/night targets, display + app prefs
+      "type": "registry-import",
+      "source": "./payload/apps/flux/flux.reg",
+      "target": "HKCU\\Software\\Michael Herf\\flux",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      // The "Preferences" subkey (location, schedule, disabled apps, etc.) sits under this key
+      { "key": "HKCU\\Software\\Michael Herf\\flux", "dest": "apps/flux/flux.reg", "optional": true }
+    ]
+  },
+
+  "notes": "Captures all f.lux settings from HKCU\\Software\\Michael Herf\\flux (and its Preferences subkey): location/latitude-longitude, color-temperature schedule, day/night targets, and display preferences. No file-based config exists for the installed version. Confidence: medium - registry root HKCU\\Software\\Michael Herf\\flux confirmed by f.lux forum and community sources; exact value names not individually verified but the whole key is captured."
+}

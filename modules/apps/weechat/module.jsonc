@@ -1,0 +1,177 @@
+{
+  // Config Module: WeeChat
+  // Provides verify/restore/capture configuration for WeeChat (extensible terminal IRC client)
+  // Curated module - captures plaintext .conf files + scripts, EXCLUDES secured data (sec.conf)
+  //
+  // Path note: WeeChat is a Unix application; on Windows it runs under Cygwin/MSYS2/WSL where
+  // "~" resolves to the POSIX home. WeeChat >= 3.2 uses XDG layout (~/.config/weechat for
+  // *.conf, ~/.local/share/weechat for scripts/logs, ~/.cache/weechat for transient data).
+  // For compatibility a legacy single dir ~/.weechat is used if it exists. We capture all
+  // three roots via "~" expansion, which covers the common case where the POSIX home maps
+  // to the user profile. WEECHAT_HOME can override these.
+
+  "id": "apps.weechat",
+  "displayName": "WeeChat",
+  "sensitivity": "high",
+
+  "matches": {
+    "exe": ["weechat.exe", "weechat-headless.exe"],
+    "uninstallDisplayName": ["^WeeChat"],
+    "pathExists": [
+      "~/.config/weechat/weechat.conf",
+      "~/.weechat/weechat.conf"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "~/.config/weechat/weechat.conf" }
+  ],
+
+  "restore": [
+    // --- XDG config directory: plaintext *.conf files (WeeChat >= 3.2) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/config/weechat.conf",
+      "target": "~/.config/weechat/weechat.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/config/irc.conf",
+      "target": "~/.config/weechat/irc.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/config/plugins.conf",
+      "target": "~/.config/weechat/plugins.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/config/buflist.conf",
+      "target": "~/.config/weechat/buflist.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/config/trigger.conf",
+      "target": "~/.config/weechat/trigger.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/config/alias.conf",
+      "target": "~/.config/weechat/alias.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/config/logger.conf",
+      "target": "~/.config/weechat/logger.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/config/fset.conf",
+      "target": "~/.config/weechat/fset.conf",
+      "backup": true,
+      "optional": true
+    },
+    // --- XDG data directory: installed scripts (Python/Perl/etc) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/data/python",
+      "target": "~/.local/share/weechat/python",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/data/perl",
+      "target": "~/.local/share/weechat/perl",
+      "backup": true,
+      "optional": true
+    },
+    // --- Legacy single-directory layout (~/.weechat, WeeChat < 3.2) ---
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/legacy/weechat.conf",
+      "target": "~/.weechat/weechat.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/legacy/irc.conf",
+      "target": "~/.weechat/irc.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/weechat/legacy/plugins.conf",
+      "target": "~/.weechat/plugins.conf",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // --- XDG config directory: plaintext *.conf (WeeChat >= 3.2) ---
+      { "source": "~/.config/weechat/weechat.conf", "dest": "apps/weechat/config/weechat.conf", "optional": true },
+      { "source": "~/.config/weechat/irc.conf", "dest": "apps/weechat/config/irc.conf", "optional": true },
+      { "source": "~/.config/weechat/plugins.conf", "dest": "apps/weechat/config/plugins.conf", "optional": true },
+      { "source": "~/.config/weechat/buflist.conf", "dest": "apps/weechat/config/buflist.conf", "optional": true },
+      { "source": "~/.config/weechat/trigger.conf", "dest": "apps/weechat/config/trigger.conf", "optional": true },
+      { "source": "~/.config/weechat/alias.conf", "dest": "apps/weechat/config/alias.conf", "optional": true },
+      { "source": "~/.config/weechat/logger.conf", "dest": "apps/weechat/config/logger.conf", "optional": true },
+      { "source": "~/.config/weechat/fset.conf", "dest": "apps/weechat/config/fset.conf", "optional": true },
+
+      // --- XDG data directory: installed scripts ---
+      { "source": "~/.local/share/weechat/python", "dest": "apps/weechat/data/python", "optional": true },
+      { "source": "~/.local/share/weechat/perl", "dest": "apps/weechat/data/perl", "optional": true },
+
+      // --- Legacy single-directory layout (~/.weechat) ---
+      { "source": "~/.weechat/weechat.conf", "dest": "apps/weechat/legacy/weechat.conf", "optional": true },
+      { "source": "~/.weechat/irc.conf", "dest": "apps/weechat/legacy/irc.conf", "optional": true },
+      { "source": "~/.weechat/plugins.conf", "dest": "apps/weechat/legacy/plugins.conf", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Secured data store - encrypted passphrases, SASL/server passwords, relay TOTP secrets
+      "**/sec.conf",
+      // relay.conf may hold relay passwords / TOTP secrets in plaintext
+      "**/relay.conf",
+      // Logs, cache, runtime, crash logs, upgrade dumps
+      "**/logs/**",
+      "**/*.log",
+      "**/.cache/weechat/**",
+      "**/*.upgrade",
+      "**/script/plugins.xml.gz",
+      // TLS client certificates / private keys used for IRC SASL EXTERNAL
+      "**/*.pem",
+      "**/*.key"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.config/weechat/sec.conf",
+      "~/.weechat/sec.conf",
+      "~/.config/weechat/relay.conf",
+      "~/.weechat/relay.conf"
+    ],
+    "warning": "WeeChat's sec.conf holds the encrypted secured-data store (server/SASL passwords, relay TOTP secrets); irc.conf and relay.conf may also contain plaintext passwords if secured data is not used. TLS client certs/keys (*.pem, *.key) authenticate via SASL EXTERNAL. These MUST NOT be auto-restored - re-enter credentials after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures WeeChat's plaintext configuration (weechat.conf, irc.conf, plugins.conf, buflist/trigger/alias/logger/fset) plus installed Python/Perl scripts, from both the XDG layout (~/.config/weechat + ~/.local/share/weechat, WeeChat >= 3.2) and the legacy ~/.weechat directory. Excludes sec.conf (encrypted secured-data store), relay.conf (may hold relay passwords/TOTP), TLS certs/keys, logs, cache, and upgrade dumps. WeeChat is a Unix app run under Cygwin/MSYS2/WSL on Windows, so \"~\" resolves to the POSIX home; users with a custom WEECHAT_HOME must adjust. Confidence: high - config file locations confirmed by the official WeeChat user guide and the XDG base-dir specification; the Windows POSIX-home path resolution is the only soft point."
+}

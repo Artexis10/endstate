@@ -1,0 +1,90 @@
+{
+  // Config Module: draw.io Desktop
+  // Provides verify/restore/capture configuration for draw.io Desktop (JGraph electron build)
+  // Curated module - captures predefined config + custom shape libraries; excludes Chromium browser state
+
+  "id": "apps.drawio-desktop",
+  "displayName": "draw.io Desktop",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JGraph.Draw"],
+    "exe": ["draw.io.exe", "drawio.exe"],
+    "uninstallDisplayName": ["^draw\\.io"],
+    "pathExists": [
+      "%APPDATA%\\draw.io"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\draw.io" }
+  ],
+
+  "restore": [
+    {
+      // Predefined editor settings (custom fonts, default styles, library config)
+      "type": "merge-json",
+      "source": "./payload/apps/drawio-desktop/config.json",
+      "target": "%APPDATA%\\draw.io\\config.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom shape libraries (XML library files)
+      "type": "copy",
+      "source": "./payload/apps/drawio-desktop/shape_libraries",
+      "target": "%APPDATA%\\draw.io\\shape_libraries",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Alternate custom library folder name (older/SVG library drop location)
+      "type": "copy",
+      "source": "./payload/apps/drawio-desktop/libraries",
+      "target": "%APPDATA%\\draw.io\\libraries",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\draw.io\\config.json", "dest": "apps/drawio-desktop/config.json", "optional": true },
+      { "source": "%APPDATA%\\draw.io\\shape_libraries", "dest": "apps/drawio-desktop/shape_libraries", "optional": true },
+      { "source": "%APPDATA%\\draw.io\\libraries", "dest": "apps/drawio-desktop/libraries", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Chromium/Electron browser state - machine-tied, binary, holds session data (NOT portable settings)
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Local State",
+      "**\\Preferences",
+      "**\\Cookies*",
+      "**\\Network\\**",
+      // Caches
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\DawnGraphiteCache\\**",
+      "**\\DawnWebGPUCache\\**",
+      "**\\blob_storage\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\draw.io\\Local Storage",
+      "%APPDATA%\\draw.io\\Cookies",
+      "%APPDATA%\\draw.io\\Network"
+    ],
+    "warning": "draw.io Desktop's Chromium Local Storage and Cookies may contain session tokens for cloud storage integrations (Google Drive, OneDrive, GitHub). These are excluded from capture and MUST NOT be auto-restored - re-authenticate cloud connections after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures draw.io Desktop's predefined config.json (custom fonts, default styles, library references) and custom shape library folders (shape_libraries / libraries) under %APPDATA%\\draw.io. Interactive UI preferences (theme, grid, recent files) live in the Chromium Local Storage leveldb store, which is binary/machine-tied and intentionally excluded along with caches, cookies, and crash dumps. Confidence: medium - config.json path and %APPDATA%\\draw.io root confirmed by official FAQ and repo README, but the custom-library on-disk folder name varies between sources (shape_libraries vs libraries), so both are captured optionally."
+}

@@ -1,0 +1,56 @@
+{
+  // Config Module: Code::Blocks
+  // Provides verify/restore/capture configuration for the Code::Blocks C/C++ IDE
+  // Curated module - captures the single settings file + user project templates
+  // Code::Blocks is a wxWidgets app: it stores ALL settings in an XML .conf file,
+  // not the Windows Registry.
+
+  "id": "apps.code-blocks",
+  "displayName": "Code::Blocks",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["TheCodeBlocksTeam.CodeBlocks"],
+    "exe": ["codeblocks.exe"],
+    "uninstallDisplayName": ["^Code::Blocks"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\CodeBlocks\\default.conf" }
+  ],
+
+  "restore": [
+    {
+      // Single config file holds editor, compiler, key bindings, colour theme
+      "type": "copy",
+      "source": "./payload/apps/code-blocks/default.conf",
+      "target": "%APPDATA%\\CodeBlocks\\default.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom project templates (User templates wizard)
+      "type": "copy",
+      "source": "./payload/apps/code-blocks/UserTemplates",
+      "target": "%APPDATA%\\CodeBlocks\\UserTemplates",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\CodeBlocks\\default.conf", "dest": "apps/code-blocks/default.conf", "optional": true },
+      { "source": "%APPDATA%\\CodeBlocks\\UserTemplates", "dest": "apps/code-blocks/UserTemplates", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Autosave backups, crash recovery, and per-session leftovers
+      "**\\*.save",
+      "**\\*.bak",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures the single Code::Blocks settings file (%APPDATA%\\CodeBlocks\\default.conf - editor, compiler, key bindings, colour theme) plus custom project templates under UserTemplates\\. Code::Blocks stores nothing in the Windows Registry. Autosave/backup (.save/.bak), logs, and temp files are excluded. No credentials or tokens are involved. Confidence: high - default.conf location and UserTemplates folder confirmed by the official Code::Blocks wiki (FAQ-Settings) and multiple independent community/documentation sources."
+}

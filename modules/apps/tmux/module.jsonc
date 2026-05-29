@@ -1,0 +1,59 @@
+{
+  // Config Module: tmux
+  // Provides verify/capture/restore configuration for the tmux terminal multiplexer
+  // Capture-only seed: captures the hand-edited tmux.conf (both legacy and XDG locations)
+  // tmux on Windows runs under a WSL/MSYS2/Git-Bash HOME, so config resolves against ~ there
+
+  "id": "apps.tmux",
+  "displayName": "tmux",
+  "sensitivity": "low",
+
+  "matches": {
+    "exe": ["tmux", "tmux.exe"],
+    "pathExists": [
+      "~/.tmux.conf",
+      "~/.config/tmux/tmux.conf"
+    ]
+  },
+
+  "verify": [
+    // Either the legacy or the XDG config file is enough to confirm a configured tmux
+    { "type": "file-exists", "path": "~/.tmux.conf" }
+  ],
+
+  "restore": [
+    {
+      // Legacy single-file config: prefix, keybinds, status line, plugin declarations
+      "type": "copy",
+      "source": "./payload/apps/tmux/.tmux.conf",
+      "target": "~/.tmux.conf",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // XDG config file (tmux 3.1+): ~/.config/tmux/tmux.conf
+      "type": "copy",
+      "source": "./payload/apps/tmux/tmux.conf",
+      "target": "~/.config/tmux/tmux.conf",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Legacy home-directory config
+      { "source": "~/.tmux.conf", "dest": "apps/tmux/.tmux.conf", "optional": true },
+      // XDG config (tmux 3.1+) — ~/.config/tmux/tmux.conf
+      { "source": "~/.config/tmux/tmux.conf", "dest": "apps/tmux/tmux.conf", "optional": true }
+    ],
+    "excludeGlobs": [
+      // TPM and plugins are git checkouts re-fetched with prefix + I — not portable config
+      "**/.tmux/plugins/**",
+      "**/.config/tmux/plugins/**",
+      "**/*.log"
+    ]
+  },
+
+  "notes": "Captures the hand-edited tmux.conf from both the legacy ~/.tmux.conf and the XDG ~/.config/tmux/tmux.conf locations (prefix, keybindings, status line, plugin declarations). TPM and installed plugin directories are excluded — they are git checkouts re-fetched with prefix + I after restore. On Windows tmux runs under a WSL/MSYS2/Git-Bash HOME, so ~ resolves against that shell's home. Confidence: high - both config locations confirmed by official tmux behavior (3.1+ XDG support) and multiple independent sources."
+}

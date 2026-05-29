@@ -1,0 +1,82 @@
+{
+  // Config Module: Clink
+  // Provides verify/restore/capture configuration for Clink (Readline/autosuggest layer for cmd.exe)
+  // Curated module - captures the file-based profile (settings, inputrc, Lua scripts); excludes history and logs
+
+  "id": "apps.clink",
+  "displayName": "Clink",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["chrisant996.Clink"],
+    "exe": ["clink.exe"],
+    "uninstallDisplayName": ["^Clink\\b"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\clink"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\clink\\clink_settings" }
+  ],
+
+  "restore": [
+    {
+      // Clink settings (output of `clink set`); overridable via %CLINK_SETTINGS%
+      "type": "copy",
+      "source": "./payload/apps/clink/clink_settings",
+      "target": "%LOCALAPPDATA%\\clink\\clink_settings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Readline init file (key bindings, colored completions)
+      "type": "copy",
+      "source": "./payload/apps/clink/.inputrc",
+      "target": "%LOCALAPPDATA%\\clink\\.inputrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Optional startup script run when the first CMD prompt is shown
+      "type": "copy",
+      "source": "./payload/apps/clink/clink_start.cmd",
+      "target": "%LOCALAPPDATA%\\clink\\clink_start.cmd",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Whole profile directory (catches custom *.lua scripts and any extra config),
+      // history and logs excluded below
+      "type": "copy",
+      "source": "./payload/apps/clink/profile",
+      "target": "%LOCALAPPDATA%\\clink",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\clink_history",
+        "**\\clink_history*",
+        "**\\*.log",
+        "**\\clink.log"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\clink\\clink_settings", "dest": "apps/clink/clink_settings", "optional": true },
+      { "source": "%LOCALAPPDATA%\\clink\\.inputrc", "dest": "apps/clink/.inputrc", "optional": true },
+      { "source": "%LOCALAPPDATA%\\clink\\clink_start.cmd", "dest": "apps/clink/clink_start.cmd", "optional": true },
+      // Whole profile directory captures custom Lua scripts and any other config files
+      { "source": "%LOCALAPPDATA%\\clink", "dest": "apps/clink/profile", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\clink_history",
+      "**\\clink_history*",
+      "**\\clink.log",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures Clink's file-based profile under %LOCALAPPDATA%\\clink: clink_settings, .inputrc (Readline init), an optional clink_start.cmd, and any custom Lua scripts (whole profile dir). Command history (clink_history) and diagnostic logs (clink.log) are excluded. Clink stores no settings in the registry; the cmd.exe AutoRun hook is managed by `clink autorun` and is not captured. Confidence: high - profile directory location and file names confirmed by official Clink documentation (chrisant996.github.io/clink)."
+}

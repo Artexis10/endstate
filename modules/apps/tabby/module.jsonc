@@ -1,0 +1,60 @@
+{
+  // Config Module: Tabby
+  // Provides verify/restore/capture configuration for Tabby (cross-platform terminal)
+  // All settings live in a single YAML file: %APPDATA%\tabby\config.yaml
+
+  "id": "apps.tabby",
+  "displayName": "Tabby",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Eugeny.Tabby"],
+    "exe": ["Tabby.exe"],
+    "uninstallDisplayName": ["^Tabby"],
+    "pathExists": [
+      "%APPDATA%\\tabby\\config.yaml"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\tabby\\config.yaml" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/tabby/config.yaml",
+      "target": "%APPDATA%\\tabby\\config.yaml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single monolithic config: profiles, hotkeys, appearance, plugin list, vault blob
+      { "source": "%APPDATA%\\tabby\\config.yaml", "dest": "apps/tabby/config.yaml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Backup copy of the live config (regenerated automatically)
+      "**\\config.yaml.backup",
+      // Installed plugins are downloaded npm packages (large node_modules);
+      // the plugin list is already inside config.yaml and re-installs from Settings > Plugins
+      "**\\plugins\\**",
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\logs\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\tabby\\config.yaml"
+    ],
+    "warning": "Tabby stores everything in a single config.yaml, including the encrypted `vault` attribute (AES-256-CBC passwords and SSH private keys) and SSH/Telnet/Serial connection inventory (hostnames, usernames). With config encryption enabled, the entire config is moved inside the vault. Treat config.yaml as secret: it is captured for portability but the vault passphrase is required to decrypt secrets, and restoring it re-exposes saved server inventory.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Tabby's single config.yaml (%APPDATA%\\tabby\\config.yaml) holding profiles, hotkeys, appearance, and the installed-plugin list. Excludes config.yaml.backup, the downloaded plugins directory, caches, and logs. config.yaml may also contain the encrypted vault (saved SSH passwords/private keys) and server inventory, so the module is marked high-sensitivity and warn-only on restore. Confidence: high - config path and single-file YAML layout confirmed by official Eugeny/tabby wiki and multiple independent sources."
+}

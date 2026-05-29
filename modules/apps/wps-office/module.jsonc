@@ -1,0 +1,72 @@
+{
+  // Config Module: WPS Office
+  // Provides verify/restore/capture configuration for WPS Office (Kingsoft)
+  // Mixed: file config under %APPDATA%\Kingsoft\office6 + registry under HKCU\Software\Kingsoft\Office\6.0
+
+  "id": "apps.wps-office",
+  "displayName": "WPS Office",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Kingsoft.WPSOffice"],
+    "exe": ["wps.exe", "et.exe", "wpp.exe"],
+    "uninstallDisplayName": ["^WPS Office", "^Kingsoft"],
+    "pathExists": [
+      "%APPDATA%\\Kingsoft\\office6"
+    ]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Kingsoft\\Office\\6.0" }
+  ],
+
+  "restore": [
+    {
+      "type": "registry-import",
+      "source": "./payload/apps/wps-office/Office6.reg",
+      "target": "HKCU\\Software\\Kingsoft\\Office\\6.0",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wps-office/office6",
+      "target": "%APPDATA%\\Kingsoft\\office6",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\backup\\**", "**\\cloud\\**", "**\\*.log", "**\\temp\\**"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // File-based config (preferences, toolbars, dictionaries, templates); backup/cloud excluded below
+      { "source": "%APPDATA%\\Kingsoft\\office6", "dest": "apps/wps-office/office6", "optional": true }
+    ],
+    "registryKeys": [
+      // UI preferences, toolbar customization, plugin settings, common options
+      { "key": "HKCU\\Software\\Kingsoft\\Office\\6.0", "dest": "apps/wps-office/Office6.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Autosave/crash-recovery, WPS Cloud account state, login/session, logs and temp
+      "**\\backup\\**",
+      "**\\cloud\\**",
+      "**\\WPS Cloud Files\\**",
+      "**\\*.log",
+      "**\\temp\\**",
+      "**\\*.tmp",
+      "**\\*token*",
+      "**\\*login*"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Kingsoft\\WPS Cloud Files"
+    ],
+    "warning": "WPS Office account login/session state and WPS Cloud (file roaming) data are account-tied and may contain auth tokens. These are excluded from capture and MUST NOT be auto-restored; sign in again after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures WPS Office UI preferences and toolbars from both the registry (HKCU\\Software\\Kingsoft\\Office\\6.0) and file config under %APPDATA%\\Kingsoft\\office6, excluding the autosave/crash-recovery backup folder, WPS Cloud account state, login/session tokens, logs and temp. Account-tied cloud features are not portable and excluded. Confidence: medium - %APPDATA%\\Kingsoft\\office6 and HKCU\\Software\\Kingsoft\\Office\\6.0 are confirmed by multiple sources, but the exact in-folder config file set varies by version and some prefs are account-synced rather than local."
+}

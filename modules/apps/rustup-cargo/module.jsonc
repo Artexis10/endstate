@@ -1,0 +1,86 @@
+{
+  // Config Module: Rust (rustup / Cargo)
+  // Provides verify/restore/capture configuration for the Rust toolchain manager (rustup)
+  // and the Cargo package manager.
+  // Curated module - captures user config (Cargo config.toml, rustup settings.toml),
+  // explicitly excludes credential tokens and large/reproducible toolchain + registry data.
+
+  "id": "apps.rustup-cargo",
+  "displayName": "Rust (rustup / Cargo)",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Rustlang.Rustup"],
+    "exe": ["rustup.exe", "cargo.exe"],
+    "uninstallDisplayName": ["^Rustup", "^Rust\\b"],
+    "pathExists": [
+      "%USERPROFILE%\\.cargo\\bin\\cargo.exe",
+      "%USERPROFILE%\\.rustup\\settings.toml"
+    ]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "rustup" },
+    { "type": "command-exists", "command": "cargo" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/rustup-cargo/config.toml",
+      "target": "~/.cargo/config.toml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rustup-cargo/config",
+      "target": "~/.cargo/config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/rustup-cargo/settings.toml",
+      "target": "~/.rustup/settings.toml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Cargo configuration (registries, build target dir, aliases, source replacement, net/proxy)
+      { "source": "~/.cargo/config.toml", "dest": "apps/rustup-cargo/config.toml", "optional": true },
+      // Legacy Cargo config without .toml extension (pre-1.39); read in preference if present
+      { "source": "~/.cargo/config", "dest": "apps/rustup-cargo/config", "optional": true },
+      // rustup settings (default_toolchain, default profile, per-directory overrides)
+      { "source": "~/.rustup/settings.toml", "dest": "apps/rustup-cargo/settings.toml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Credential tokens for crates.io / alternative registries - NEVER capture
+      "**\\.cargo\\credentials.toml",
+      "**\\.cargo\\credentials",
+      // Large, reproducible, non-config data under CARGO_HOME
+      "**\\.cargo\\bin\\**",
+      "**\\.cargo\\registry\\**",
+      "**\\.cargo\\git\\**",
+      // Large, reproducible toolchain installs and download caches under RUSTUP_HOME
+      "**\\.rustup\\toolchains\\**",
+      "**\\.rustup\\downloads\\**",
+      "**\\.rustup\\update-hashes\\**",
+      "**\\.rustup\\tmp\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.cargo/credentials.toml",
+      "~/.cargo/credentials"
+    ],
+    "warning": "Cargo credentials.toml stores registry authentication tokens (crates.io and alternative registries). These MUST NOT be auto-restored. Re-run `cargo login` after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Cargo configuration (~/.cargo/config.toml, legacy ~/.cargo/config) and rustup settings (~/.rustup/settings.toml: default toolchain, profile, overrides). Registry credential tokens (~/.cargo/credentials.toml) are explicitly excluded; large reproducible data (installed toolchains, download caches, registry/git index, .cargo/bin) is excluded too - reinstall toolchains with `rustup toolchain install`. Confidence: high - Cargo config and credentials paths confirmed by The Cargo Book; rustup settings.toml path confirmed by The rustup Book."
+}

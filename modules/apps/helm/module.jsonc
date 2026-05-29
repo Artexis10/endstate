@@ -1,0 +1,59 @@
+{
+  // Config Module: Helm
+  // Provides verify/restore/capture configuration for the Helm CLI (Kubernetes package manager)
+  // Curated module - captures the chart repository list, excludes registry credentials and caches
+
+  "id": "apps.helm",
+  "displayName": "Helm",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Helm.Helm"],
+    "exe": ["helm.exe"],
+    "uninstallDisplayName": ["^Helm\\b"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "helm" }
+    // Note: repositories.yaml is optional - a fresh install has no added repos.
+    // Verify only checks Helm is installed, not that config exists.
+  ],
+
+  "restore": [
+    {
+      // Chart repository list (names + URLs). On Windows, Helm's config home
+      // defaults to %APPDATA%\helm (no HELM_CONFIG_HOME / XDG override).
+      "type": "copy",
+      "source": "./payload/apps/helm/repositories.yaml",
+      "target": "%APPDATA%\\helm\\repositories.yaml",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\helm\\repositories.yaml", "dest": "apps/helm/repositories.yaml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // OCI registry credentials (helm registry login) - auth tokens, never capture
+      "**\\registry\\config.json",
+      "**\\registry\\**",
+      // Repository index cache lives under %TEMP%\helm on Windows; data dir holds plugins/starters
+      "**\\repository\\**",
+      "**\\cache\\**",
+      "**\\plugins\\**",
+      "**\\starters\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%APPDATA%\\helm\\registry\\config.json"
+    ],
+    "warning": "Helm's registry/config.json stores OCI registry authentication tokens (helm registry login) and MUST NOT be auto-restored. repositories.yaml may also contain plaintext basic-auth credentials for private chart repos - re-add such repos with credentials after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Helm's chart repository list (repositories.yaml) from %APPDATA%\\helm, which holds repo names and URLs. Excludes the OCI registry credential store (registry\\config.json), repository index caches, and installed plugins/starters. Note repositories.yaml can contain plaintext basic-auth credentials for private repos. Confidence: high - Windows config path %APPDATA%\\helm and repositories.yaml location confirmed by official Helm docs (helm.sh/docs/helm/helm) and the helmpath package."
+}

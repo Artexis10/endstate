@@ -1,0 +1,77 @@
+{
+  // Config Module: Bitwig Studio
+  // Provides verify/restore/capture configuration for Bitwig Studio (modular DAW)
+  // Curated module - captures application preferences and controller scripts,
+  // excludes caches, indexes, collections, and license/activation blobs
+
+  "id": "apps.bitwig-studio",
+  "displayName": "Bitwig Studio",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Bitwig.BitwigStudio"],
+    "exe": ["BitwigStudio.exe", "Bitwig Studio.exe"],
+    "uninstallDisplayName": ["^Bitwig Studio"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Bitwig Studio\\prefs" }
+  ],
+
+  "restore": [
+    {
+      // Application preferences (dashboard/interface settings, audio + MIDI I/O config)
+      "type": "copy",
+      "source": "./payload/apps/bitwig-studio/prefs",
+      "target": "%LOCALAPPDATA%\\Bitwig Studio\\prefs",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\.activation*",
+        "**\\*.bwreg",
+        "**\\*.bwrequest"
+      ]
+    },
+    {
+      // User controller scripts (default "My Library" location under Documents)
+      "type": "copy",
+      "source": "./payload/apps/bitwig-studio/Controller Scripts",
+      "target": "%USERPROFILE%\\Documents\\Bitwig Studio\\Controller Scripts",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\Bitwig Studio\\prefs", "dest": "apps/bitwig-studio/prefs", "optional": true },
+      { "source": "%USERPROFILE%\\Documents\\Bitwig Studio\\Controller Scripts", "dest": "apps/bitwig-studio/Controller Scripts", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Caches, indexes, temp projects, and large sample/metadata stores
+      "**\\cache\\**",
+      "**\\Cache\\**",
+      "**\\index\\**",
+      "**\\temp-projects\\**",
+      "**\\library\\collections\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      // License / activation blobs (also flagged in sensitive)
+      "**\\.activation*",
+      "**\\*.bwreg",
+      "**\\*.bwrequest"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Bitwig Studio\\.activation-1-1",
+      "%LOCALAPPDATA%\\Bitwig Studio\\activation.bwreg",
+      "%LOCALAPPDATA%\\Bitwig Studio\\activation-request.bwrequest"
+    ],
+    "warning": "Bitwig Studio activation/license files (.activation-*, *.bwreg, *.bwrequest) are machine-bound license blobs and MUST NOT be captured or restored. Re-activate Bitwig with your account after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Bitwig Studio application preferences (%LOCALAPPDATA%\\Bitwig Studio\\prefs - dashboard/interface settings and audio/MIDI I/O config) and user controller scripts (%USERPROFILE%\\Documents\\Bitwig Studio\\Controller Scripts). Excludes caches, the search index, temp projects, sample collections (which can crash on a new machine), and machine-bound license/activation blobs. Project files and the large preset/sample library are intentionally not captured. Confidence: medium - prefs folder and Controller Scripts location confirmed by official Bitwig support docs and multiple community sources; exact internal layout of the prefs folder is not officially documented."
+}

@@ -1,0 +1,47 @@
+{
+  // Config Module: QuickLook
+  // Provides verify/restore/capture configuration for QuickLook (spacebar file preview)
+  // Installed (MSI/winget) mode stores XML .config files under %APPDATA%\pooi.moe\QuickLook
+
+  "id": "apps.quicklook",
+  "displayName": "QuickLook",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["QL-Win.QuickLook"],
+    "exe": ["QuickLook.exe"],
+    "uninstallDisplayName": ["^QuickLook"],
+    "pathExists": [
+      "%APPDATA%\\pooi.moe\\QuickLook"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\pooi.moe\\QuickLook\\QuickLook.config" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/quicklook/QuickLook",
+      "target": "%APPDATA%\\pooi.moe\\QuickLook",
+      "backup": true,
+      "optional": true,
+      "exclude": ["**\\*.log", "**\\Cache\\**"]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // XML .config files: main app config plus per-plugin configs (view prefs, hotkey, plugin settings)
+      { "source": "%APPDATA%\\pooi.moe\\QuickLook", "dest": "apps/quicklook/QuickLook", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures QuickLook XML configuration (QuickLook.config plus per-plugin .config files) from %APPDATA%\\pooi.moe\\QuickLook for the installed/winget (MSI) distribution. Portable and Microsoft Store distributions use different locations (UserData beside the exe, or a Packages LocalCache path) and are not covered. No credentials involved. Confidence: high - QuickLook OPTIONS.md states installed mode stores config under %APPDATA%\\pooi.moe\\QuickLook; corroborated by the project wiki."
+}

@@ -1,0 +1,76 @@
+{
+  // Config Module: ZBrush
+  // Provides verify/restore/capture configuration for Maxon ZBrush (digital sculpting)
+  // Curated module - captures the ZStartup customization tree (UI config + hotkeys),
+  // excludes quicksaves, logs, and caches. Not available via winget (manual / Maxon App install).
+
+  "id": "apps.zbrush",
+  "displayName": "ZBrush",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["ZBrush.exe"],
+    "uninstallDisplayName": ["^ZBrush", "^Maxon ZBrush"],
+    "pathExists": [
+      "%PUBLIC%\\Documents\\ZBrushData\\ZStartup"
+    ]
+  },
+
+  "verify": [
+    // ZBrush writes its customization tree to the shared Public Documents folder
+    // (legacy layout through 2026.0.1). Presence of the stored UI config is the
+    // cheapest signal that ZBrush has been run and customized.
+    { "type": "file-exists", "path": "%PUBLIC%\\Documents\\ZBrushData\\ZStartup\\CustomUserInterface4R8.cfg" }
+  ],
+
+  "restore": [
+    {
+      // Master stored UI / interface configuration (Preferences > Config > Store Config)
+      "type": "copy",
+      "source": "./payload/apps/zbrush/CustomUserInterface4R8.cfg",
+      "target": "%PUBLIC%\\Documents\\ZBrushData\\ZStartup\\CustomUserInterface4R8.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Startup hotkeys (Preferences > Hotkeys > Store)
+      "type": "copy",
+      "source": "./payload/apps/zbrush/StartupHotkeys.txt",
+      "target": "%PUBLIC%\\Documents\\ZBrushData\\ZStartup\\Hotkeys\\StartupHotkeys.txt",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Saved interface layouts (Preferences > Config > Save UI)
+      "type": "copy",
+      "source": "./payload/apps/zbrush/ConfigFiles",
+      "target": "%PUBLIC%\\Documents\\ZBrushData\\ZStartup\\ConfigFiles",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Master stored UI / interface configuration
+      { "source": "%PUBLIC%\\Documents\\ZBrushData\\ZStartup\\CustomUserInterface4R8.cfg", "dest": "apps/zbrush/CustomUserInterface4R8.cfg", "optional": true },
+      // Startup hotkeys map
+      { "source": "%PUBLIC%\\Documents\\ZBrushData\\ZStartup\\Hotkeys\\StartupHotkeys.txt", "dest": "apps/zbrush/StartupHotkeys.txt", "optional": true },
+      // Saved interface layout configs
+      { "source": "%PUBLIC%\\Documents\\ZBrushData\\ZStartup\\ConfigFiles", "dest": "apps/zbrush/ConfigFiles", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\QuickSave\\**",
+      "**\\Quicksaves\\**",
+      "**\\QuickSaves\\**",
+      "**\\Logs\\**",
+      "**\\log\\**",
+      "**\\Cache\\**",
+      "**\\*.log",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures ZBrush UI customization and hotkeys from the shared Public Documents ZStartup tree: CustomUserInterface4R8.cfg (stored interface), StartupHotkeys.txt (stored hotkeys), and the ConfigFiles directory (saved UI layouts). QuickSaves, logs, and caches are excluded. NOTE: in ZBrush 2026.1 and newer the customization tree moved to %APPDATA%\\Maxon\\ZBrush_<HashValue>\\ZStartup\\ where the hash is per-install and cannot be targeted by a static path, so only the legacy (<=2026.0.1, i.e. ZBrush 2024/2025/2022/4R8) Public Documents layout is captured. No license or credential data is stored in these files (licensing is handled by the Maxon App / account). Confidence: medium - legacy Public Documents paths and filenames confirmed by official Maxon docs (help.maxon.net Config/Hotkeys reference + support.maxon.net), but the 2026.1+ hash-folder relocation is not portably capturable."
+}

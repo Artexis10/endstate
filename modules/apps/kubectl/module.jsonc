@@ -1,0 +1,57 @@
+{
+  // Config Module: kubectl
+  // Provides verify/capture/restore configuration for the Kubernetes CLI
+  // INSTALL-ONLY (by delegation): kubectl's portable user state lives under
+  // ~/.kube/ — the kubeconfig (~/.kube/config, embeds credentials inline) and
+  // the credential-free kuberc preferences file (~/.kube/kuberc, aliases +
+  // command defaults). Both are owned by the dedicated `apps.kubeconfig` module
+  // (matched via the same Kubernetes.kubectl winget id + ~/.kube/config
+  // pathExists), so this module captures/restores nothing to avoid a duplicate,
+  // colliding capture of the same files. See notes + sensitive block.
+
+  "id": "apps.kubectl",
+  "displayName": "kubectl",
+  "sensitivity": "high",
+
+  "matches": {
+    "winget": ["Kubernetes.kubectl"],
+    "exe": ["kubectl.exe"],
+    "uninstallDisplayName": ["^Kubectl", "^kubectl"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "kubectl" }
+  ],
+
+  // INSTALL-ONLY (by delegation): kubectl's portable user state lives under
+  // %USERPROFILE%\.kube\. The kubeconfig (config) is the cluster/context/
+  // namespace map, but it routinely embeds credentials inline
+  // (client-certificate-data, client-key-data, token, password). The kuberc
+  // file is credential-free user preferences (aliases + command defaults).
+  // Both are already captured/restored by the dedicated `apps.kubeconfig`
+  // module, which matches the same Kubernetes.kubectl winget id and the
+  // %USERPROFILE%\.kube\config pathExists trigger. To avoid a duplicate,
+  // colliding capture of the same files this module captures/restores nothing.
+  // The remaining ~/.kube contents (cache/, http-cache) are discovery/schema
+  // caches that regenerate on demand.
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "excludeGlobs": [
+      "**\\.kube\\cache\\**",
+      "**\\.kube\\http-cache\\**"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.kube\\config",
+      "~/.kube/config"
+    ],
+    "warning": "The kubeconfig (~/.kube/config) routinely embeds credentials inline (client-certificate-data, client-key-data, bearer tokens, passwords) alongside cluster context and namespace settings. It MUST NOT be captured or auto-restored. Recreate cluster access on a fresh machine via your provider's CLI (e.g. az/gcloud/aws eks update-kubeconfig) or kubectl config set-context.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Install-only by delegation. kubectl's portable user state lives under %USERPROFILE%\\.kube\\: the kubeconfig (config) embeds credentials (client certs/keys, tokens, passwords) inline with the cluster/context/namespace map, and the kuberc file holds credential-free preferences (aliases + command defaults). Both are owned by the dedicated apps.kubeconfig module, which matches the same Kubernetes.kubectl winget id and the %USERPROFILE%\\.kube\\config pathExists trigger; capturing them here too would duplicate the same files, so this module captures and restores nothing. The discovery (~/.kube/cache) and schema (~/.kube/http-cache) caches regenerate automatically and are excluded. Confidence: high - default kubeconfig/kuberc paths, credential-bearing kubeconfig structure, and credential-free kuberc confirmed by official Kubernetes documentation; the kubeconfig module overlap confirmed by reading modules/apps/kubeconfig/module.jsonc."
+}

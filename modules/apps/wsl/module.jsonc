@@ -1,0 +1,52 @@
+{
+  // Config Module: WSL (Windows Subsystem for Linux)
+  // Provides verify/restore/capture configuration for WSL global tuning
+  // Captures the single Windows-side global config file: %USERPROFILE%\.wslconfig
+
+  "id": "apps.wsl",
+  "displayName": "WSL",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Microsoft.WSL"],
+    "exe": ["wsl.exe"],
+    "uninstallDisplayName": ["^Windows Subsystem for Linux"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "wsl" }
+    // Note: .wslconfig is optional - it does not exist by default and users
+    // create it only when tuning the WSL 2 VM. Verify only checks WSL is installed.
+  ],
+
+  "restore": [
+    {
+      // Global WSL 2 VM tuning ([wsl2]/[experimental] sections: memory,
+      // processors, swap, networkingMode, autoMemoryReclaim, etc.)
+      "type": "copy",
+      "source": "./payload/apps/wsl/.wslconfig",
+      "target": "%USERPROFILE%\\.wslconfig",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single high-value global config file, INI-style, lives at the user
+      // profile root. Confirmed by official Microsoft docs as the only
+      // Windows-side WSL config file (%UserProfile%\.wslconfig).
+      { "source": "%USERPROFILE%\\.wslconfig", "dest": "apps/wsl/.wslconfig", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Defensive: never sweep up the VM-backing virtual disks or crash dumps
+      // that WSL keeps near the profile/temp (swap.vhdx, ext4.vhdx, dumps).
+      "**\\*.vhdx",
+      "**\\swap.vhdx",
+      "**\\ext4.vhdx",
+      "**\\*.dmp"
+    ]
+  },
+
+  "notes": "Captures the single Windows-side WSL global config file %USERPROFILE%\\.wslconfig (the [wsl2]/[experimental] tuning: memory, processors, swap, networkingMode, autoMemoryReclaim, etc.). Per-distribution settings (/etc/wsl.conf) live inside the Linux distribution's ext4 filesystem and are not portably capturable from Windows, so they are out of scope. Virtual hard disks (ext4.vhdx, swap.vhdx) and crash dumps are excluded - they are large VM state, not configuration. Confidence: high - .wslconfig location confirmed by official Microsoft Learn docs (wsl-config, updated 2025-12)."
+}

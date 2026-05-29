@@ -1,0 +1,65 @@
+{
+  // Config Module: Yarn
+  // Provides verify/capture/restore configuration for the Yarn package manager
+  // Captures the global home .yarnrc.yml (Berry) / .yarnrc (classic).
+  // WARNING: Yarn stores auth tokens INLINE in .yarnrc.yml — see sensitive block.
+
+  "id": "apps.yarn",
+  "displayName": "Yarn",
+  "sensitivity": "medium",
+
+  "matches": {
+    "exe": ["yarn.cmd", "yarn.exe"],
+    "pathExists": [
+      "~/.yarnrc.yml",
+      "~/.yarnrc"
+    ]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "yarn" }
+  ],
+
+  "restore": [
+    {
+      // Yarn Berry global config: nodeLinker, plugins, registries, behavioral settings
+      "type": "copy",
+      "source": "./payload/apps/yarn/.yarnrc.yml",
+      "target": "~/.yarnrc.yml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Legacy Yarn Classic global config
+      "type": "copy",
+      "source": "./payload/apps/yarn/.yarnrc",
+      "target": "~/.yarnrc",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Yarn Berry global home config (nodeLinker, plugins, registries, etc.)
+      { "source": "~/.yarnrc.yml", "dest": "apps/yarn/.yarnrc.yml", "optional": true },
+      // Yarn Classic global home config (registry, init-license, etc.)
+      { "source": "~/.yarnrc", "dest": "apps/yarn/.yarnrc", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Auth credential files (classic auth flow) — NEVER capture
+      "**\\.yarn-integrity",
+      "**\\.npmrc"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "~/.yarnrc.yml"
+    ],
+    "warning": "Yarn Berry stores registry credentials INLINE in .yarnrc.yml (npmAuthToken, and per-registry npmRegistries auth). If your .yarnrc.yml contains literal tokens (rather than ${ENV_VAR} interpolation), remove or env-var-ize them before sharing the captured bundle. This file is restored with backup but should be reviewed for secrets.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Yarn's global home config: .yarnrc.yml (Berry: nodeLinker, plugins, registries, behavioral settings) and the legacy .yarnrc (classic). Yarn Berry keeps auth tokens INLINE in .yarnrc.yml with no separate credential file, so the file is flagged sensitive (warn-only) and should be reviewed for literal npmAuthToken/npmRegistries secrets before sharing — prefer ${ENV_VAR} interpolation. Confidence: medium - .yarnrc.yml / .yarnrc filenames and inline-token behavior confirmed by official Yarn docs; Windows is not packaged via winget (installed via Corepack/npm), so no winget matcher."
+}

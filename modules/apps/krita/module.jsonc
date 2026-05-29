@@ -1,0 +1,86 @@
+{
+  // Config Module: Krita
+  // Provides verify/restore/capture configuration for Krita (digital painting)
+  // Two distinct locations on Windows:
+  //   - Config files (preferences, shortcuts) live directly in %LOCALAPPDATA%\ as kritarc, kritashortcutsrc, etc.
+  //   - The user resource folder (brush presets, workspaces, brushes, palettes, ...) lives in %APPDATA%\krita\
+
+  "id": "apps.krita",
+  "displayName": "Krita",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["KDE.Krita"],
+    "exe": ["krita.exe"],
+    "uninstallDisplayName": ["^Krita\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\kritarc" }
+  ],
+
+  "restore": [
+    // Config files (preferences + custom keyboard shortcuts) live directly under %LOCALAPPDATA%
+    {
+      "type": "copy",
+      "source": "./payload/apps/krita/kritarc",
+      "target": "%LOCALAPPDATA%\\kritarc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/krita/kritashortcutsrc",
+      "target": "%LOCALAPPDATA%\\kritashortcutsrc",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/krita/kritadisplayrc",
+      "target": "%LOCALAPPDATA%\\kritadisplayrc",
+      "backup": true,
+      "optional": true
+    },
+    // User resource folder: brush presets, brushes, workspaces, palettes, gradients, patterns, bundles, etc.
+    {
+      "type": "copy",
+      "source": "./payload/apps/krita/krita",
+      "target": "%APPDATA%\\krita",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\resourcecache.sqlite",
+        "**\\resourcecache.sqlite-*",
+        "**\\*.sqlite.backup",
+        "**\\*.log"
+      ]
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Config files (directly under %LOCALAPPDATA%, not in a krita\ subfolder)
+      { "source": "%LOCALAPPDATA%\\kritarc", "dest": "apps/krita/kritarc", "optional": true },
+      { "source": "%LOCALAPPDATA%\\kritashortcutsrc", "dest": "apps/krita/kritashortcutsrc", "optional": true },
+      { "source": "%LOCALAPPDATA%\\kritadisplayrc", "dest": "apps/krita/kritadisplayrc", "optional": true },
+      // Full user resource folder (brush presets, workspaces, palettes, gradients, patterns, bundles, ...)
+      { "source": "%APPDATA%\\krita", "dest": "apps/krita/krita", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Regenerable resource cache database (rebuilt by Krita on startup; can be large)
+      "**\\resourcecache.sqlite",
+      "**\\resourcecache.sqlite-*",
+      "**\\*.sqlite.backup",
+      // Logs / temp / crash artifacts
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.tmp",
+      // Config backup file written when preferences are reset
+      "**\\kritarc.backup"
+    ]
+  },
+
+  "notes": "Captures Krita preferences (kritarc, kritashortcutsrc, kritadisplayrc) from %LOCALAPPDATA% and the full user resource folder (%APPDATA%\\krita: paintoppresets, brushes, workspaces, palettes, gradients, patterns, bundles). Excludes the regenerable resourcecache.sqlite database, logs, temp, and the kritarc.backup file. No credentials involved. Confidence: high - config and resource folder paths confirmed by official Krita manual (FAQ + Resource Management) and corroborated by Krita Artists community sources."
+}

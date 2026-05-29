@@ -1,0 +1,71 @@
+{
+  // Config Module: Cakewalk by BandLab / Cakewalk Sonar
+  // Provides verify/restore/capture configuration for the Cakewalk DAW
+  // Mixed module - captures the Cakewalk Core settings folder (INI/profiles) plus
+  // the HKCU application/key-binding registry hive. Capture-only: payload files
+  // are populated at the user's capture time.
+
+  "id": "apps.cakewalk-sonar",
+  "displayName": "Cakewalk by BandLab / Cakewalk Sonar",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["BandLab.Cakewalk"],
+    "exe": ["Cakewalk.exe", "SONAR.exe"],
+    "uninstallDisplayName": ["^Cakewalk by BandLab", "^Cakewalk Sonar", "^Cakewalk\\b"]
+  },
+
+  "verify": [
+    // Cakewalk stores all general app settings + key bindings under this HKCU key.
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Cakewalk Music Software" }
+  ],
+
+  "restore": [
+    {
+      // Cakewalk Core: Aud.ini (audio), Cakewalk.ini (general), TTSSeq.ini (MIDI),
+      // ctrlsurface*.dat (control surfaces). excludes logs/dumps/caches.
+      "type": "copy",
+      "source": "./payload/apps/cakewalk-sonar/Cakewalk Core",
+      "target": "%APPDATA%\\Cakewalk\\Cakewalk Core",
+      "backup": true,
+      "optional": true,
+      "exclude": [
+        "**\\*.log",
+        "**\\*.dmp",
+        "**\\Crash*\\**",
+        "**\\MiniDumps\\**",
+        "**\\Cache\\**",
+        "**\\*.tmp"
+      ]
+    },
+    {
+      // General application settings, key bindings, effects presets, color settings.
+      "type": "registry-import",
+      "source": "./payload/apps/cakewalk-sonar/CakewalkMusicSoftware.reg",
+      "target": "HKCU\\Software\\Cakewalk Music Software",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Roaming Cakewalk Core folder: Aud.ini, Cakewalk.ini, TTSSeq.ini,
+      // ctrlsurface.dat / ctrlsurface_UWP.dat, and Config Profiles (.ccp).
+      { "source": "%APPDATA%\\Cakewalk\\Cakewalk Core", "dest": "apps/cakewalk-sonar/Cakewalk Core", "optional": true }
+    ],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\Cakewalk Music Software", "dest": "apps/cakewalk-sonar/CakewalkMusicSoftware.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.dmp",
+      "**\\Crash*\\**",
+      "**\\MiniDumps\\**",
+      "**\\Cache\\**",
+      "**\\*.tmp"
+    ]
+  },
+
+  "notes": "Captures the Cakewalk Core settings folder under %APPDATA%\\Cakewalk\\Cakewalk Core (Aud.ini audio config, Cakewalk.ini general settings, TTSSeq.ini MIDI config, ctrlsurface*.dat control-surface config, and Config Profiles .ccp files) plus the HKCU\\Software\\Cakewalk Music Software registry hive, which holds general application settings, key bindings, effects presets and color settings. Logs, crash dumps and caches are excluded. No credentials are stored here; BandLab account sign-in is handled separately and is not captured. Confidence: high - file location and registry key confirmed by official Cakewalk documentation (backup/restore guide, INI_Files doc, and the Clean Install knowledge base article)."
+}

@@ -1,0 +1,80 @@
+{
+  // Config Module: MPC-BE (Media Player Classic - Black Edition)
+  // Provides verify/restore/capture configuration for MPC-BE
+  // Settings stored in Windows Registry under HKCU\Software\MPC-BE by default
+  // (an optional portable mpc-be64.ini next to the exe is NOT captured - it lives
+  //  beside the binary in Program Files, which is not portably addressable)
+
+  "id": "apps.mpc-be",
+  "displayName": "MPC-BE (Media Player Classic - Black Edition)",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["MPC-BE.MPC-BE"],
+    "exe": ["mpc-be64.exe", "mpc-be.exe"],
+    "uninstallDisplayName": ["^MPC-BE\\b"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\MPC-BE\\Settings" }
+  ],
+
+  "restore": [
+    {
+      // Main player preferences (renderer, audio/video, UI, Filters Priority,
+      // FullscreenRes, PnSPresets, Video subkeys)
+      "type": "registry-import",
+      "source": "./payload/apps/mpc-be/Settings.reg",
+      "target": "HKCU\\Software\\MPC-BE\\Settings",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Customized keyboard shortcuts / command bindings
+      "type": "registry-import",
+      "source": "./payload/apps/mpc-be/Commands2.reg",
+      "target": "HKCU\\Software\\MPC-BE\\Commands2",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // File-format associations / internal source-filter handling
+      "type": "registry-import",
+      "source": "./payload/apps/mpc-be/FileFormats.reg",
+      "target": "HKCU\\Software\\MPC-BE\\FileFormats",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Internal/external filter configuration
+      "type": "registry-import",
+      "source": "./payload/apps/mpc-be/Filters.reg",
+      "target": "HKCU\\Software\\MPC-BE\\Filters",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User pixel-shader configuration
+      "type": "registry-import",
+      "source": "./payload/apps/mpc-be/Shaders.reg",
+      "target": "HKCU\\Software\\MPC-BE\\Shaders",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      { "key": "HKCU\\Software\\MPC-BE\\Settings", "dest": "apps/mpc-be/Settings.reg", "optional": true },
+      { "key": "HKCU\\Software\\MPC-BE\\Commands2", "dest": "apps/mpc-be/Commands2.reg", "optional": true },
+      { "key": "HKCU\\Software\\MPC-BE\\FileFormats", "dest": "apps/mpc-be/FileFormats.reg", "optional": true },
+      { "key": "HKCU\\Software\\MPC-BE\\Filters", "dest": "apps/mpc-be/Filters.reg", "optional": true },
+      { "key": "HKCU\\Software\\MPC-BE\\Shaders", "dest": "apps/mpc-be/Shaders.reg", "optional": true }
+      // Deliberately NOT captured: RecentFiles, Favorites, Dialogs, Capture,
+      // DVB configuration - these are transient session/history/window state.
+    ]
+  },
+
+  "notes": "MPC-BE stores settings in the Windows Registry under HKCU\\Software\\MPC-BE by default. Captures Settings (renderer/audio/video/UI preferences), Commands2 (keyboard shortcuts), FileFormats (associations), Filters, and Shaders. Recent-files history, favorites, dialog/window state, capture, and DVB scan data are intentionally excluded as transient state. The optional portable mpc-be64.ini (beside the executable) is not captured because it lives in the install directory rather than a per-user, env-var-addressable path. Confidence: high - registry root HKCU\\Software\\MPC-BE and subkey structure confirmed by community .reg exports and the portablefreeware/VideoHelp documentation."
+}

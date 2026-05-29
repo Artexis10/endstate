@@ -1,0 +1,104 @@
+{
+  // Config Module: Mixxx
+  // Provides verify/restore/capture configuration for Mixxx (free DJ software)
+  // Settings live under %LOCALAPPDATA%\Mixxx (mixxx.cfg + XML configs + controllers)
+
+  "id": "apps.mixxx",
+  "displayName": "Mixxx",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Mixxx.Mixxx"],
+    "exe": ["mixxx.exe"],
+    "uninstallDisplayName": ["^Mixxx"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Mixxx\\mixxx.cfg" }
+  ],
+
+  "restore": [
+    {
+      // Main config: preferences, deck/skin settings, AutoDJ, effect routing
+      "type": "copy",
+      "source": "./payload/apps/mixxx/mixxx.cfg",
+      "target": "%LOCALAPPDATA%\\Mixxx\\mixxx.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Effect units configuration
+      "type": "copy",
+      "source": "./payload/apps/mixxx/effects.xml",
+      "target": "%LOCALAPPDATA%\\Mixxx\\effects.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Sound device configuration (Preferences > Sound Hardware)
+      "type": "copy",
+      "source": "./payload/apps/mixxx/soundconfig.xml",
+      "target": "%LOCALAPPDATA%\\Mixxx\\soundconfig.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Sample deck contents
+      "type": "copy",
+      "source": "./payload/apps/mixxx/samplers.xml",
+      "target": "%LOCALAPPDATA%\\Mixxx\\samplers.xml",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom keyboard mapping (overrides default on startup)
+      "type": "copy",
+      "source": "./payload/apps/mixxx/Custom.kbd.cfg",
+      "target": "%LOCALAPPDATA%\\Mixxx\\Custom.kbd.cfg",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User controller mappings (.xml + .js scripts)
+      "type": "copy",
+      "source": "./payload/apps/mixxx/controllers",
+      "target": "%LOCALAPPDATA%\\Mixxx\\controllers",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%LOCALAPPDATA%\\Mixxx\\mixxx.cfg", "dest": "apps/mixxx/mixxx.cfg", "optional": true },
+      { "source": "%LOCALAPPDATA%\\Mixxx\\effects.xml", "dest": "apps/mixxx/effects.xml", "optional": true },
+      { "source": "%LOCALAPPDATA%\\Mixxx\\soundconfig.xml", "dest": "apps/mixxx/soundconfig.xml", "optional": true },
+      { "source": "%LOCALAPPDATA%\\Mixxx\\samplers.xml", "dest": "apps/mixxx/samplers.xml", "optional": true },
+      { "source": "%LOCALAPPDATA%\\Mixxx\\Custom.kbd.cfg", "dest": "apps/mixxx/Custom.kbd.cfg", "optional": true },
+      { "source": "%LOCALAPPDATA%\\Mixxx\\controllers", "dest": "apps/mixxx/controllers", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Library database: large state DB with absolute track paths, cues, playlists (machine-specific)
+      "**\\mixxxdb.sqlite*",
+      // Waveform analysis cache
+      "**\\analysis\\**",
+      // Session logs
+      "**\\mixxx.log*",
+      // Broadcast profiles: streaming server credentials (see sensitive block)
+      "**\\broadcast_profiles\\**",
+      "**\\*.bcp.xml",
+      // macOS-only sandbox file-access tracking
+      "**\\sandbox.cfg"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%LOCALAPPDATA%\\Mixxx\\broadcast_profiles"
+    ],
+    "warning": "Mixxx broadcast profiles (*.bcp.xml under broadcast_profiles\\) hold live-streaming server settings and may contain plaintext credentials when OS-keychain storage is disabled. These MUST NOT be auto-restored; re-enter streaming credentials after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Mixxx user configuration from %LOCALAPPDATA%\\Mixxx: mixxx.cfg (preferences, deck/skin/AutoDJ/effect-routing), effects.xml, soundconfig.xml, samplers.xml, Custom.kbd.cfg, and the controllers\\ mapping directory. Excludes the mixxxdb.sqlite library database (large state DB with machine-specific absolute track paths), analysis\\ waveform cache, logs, and broadcast_profiles\\ (streaming credentials). Confidence: high - paths confirmed by the official Mixxx user manual (Settings Directory appendix) and the mixxxdj GitHub wiki."
+}

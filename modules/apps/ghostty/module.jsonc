@@ -1,0 +1,66 @@
+{
+  // Config Module: Ghostty
+  // Provides verify/capture/restore configuration for the Ghostty terminal emulator
+  // Ghostty has no native Windows build (macOS/Linux only); under Windows it runs via
+  // WSL/MSYS HOME, where config resolves to the XDG ~/.config/ghostty location
+
+  "id": "apps.ghostty",
+  "displayName": "Ghostty",
+  "sensitivity": "low",
+
+  "matches": {
+    "exe": ["ghostty.exe", "ghostty"],
+    "pathExists": [
+      "~/.config/ghostty/config",
+      "~/.config/ghostty/config.ghostty"
+    ]
+  },
+
+  "verify": [
+    // Either config filename (pre/post 1.2.3) confirms a configured Ghostty
+    { "type": "file-exists", "path": "~/.config/ghostty/config" }
+  ],
+
+  "restore": [
+    {
+      // Primary single-file config: fonts, theme, keybinds, window settings (pre-1.2.3 name)
+      "type": "copy",
+      "source": "./payload/apps/ghostty/config",
+      "target": "~/.config/ghostty/config",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // 1.2.3+ config filename
+      "type": "copy",
+      "source": "./payload/apps/ghostty/config.ghostty",
+      "target": "~/.config/ghostty/config.ghostty",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User-authored theme files kept alongside the config
+      "type": "copy",
+      "source": "./payload/apps/ghostty/themes",
+      "target": "~/.config/ghostty/themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      // Single text config (fonts, theme, keybinds, window) — pre-1.2.3 filename
+      { "source": "~/.config/ghostty/config", "dest": "apps/ghostty/config", "optional": true },
+      // 1.2.3+ filename
+      { "source": "~/.config/ghostty/config.ghostty", "dest": "apps/ghostty/config.ghostty", "optional": true },
+      // Optional user theme directory
+      { "source": "~/.config/ghostty/themes", "dest": "apps/ghostty/themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**/*.log"
+    ]
+  },
+
+  "notes": "Captures Ghostty's single text config file (fonts, theme, keybindings, window settings) plus an optional user themes/ directory from the XDG ~/.config/ghostty location. Ghostty stores no credentials and no Windows-registry settings. There is no native Windows build of Ghostty; on Windows it runs under a WSL/MSYS HOME where ~ resolves against that shell. Confidence: medium - XDG config path and config/config.ghostty filenames confirmed by official Ghostty docs, but Windows applicability depends on a WSL/MSYS HOME (no native Windows port)."
+}

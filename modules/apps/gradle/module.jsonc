@@ -1,0 +1,92 @@
+{
+  // Config Module: Gradle
+  // Provides verify/restore/capture configuration for the Gradle build tool
+  // Curated module - captures user-level build configuration from the Gradle User Home
+  // (~/.gradle), excludes all caches, daemon logs, downloaded JDKs and wrapper dists.
+
+  "id": "apps.gradle",
+  "displayName": "Gradle",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Gradle.Gradle"],
+    "exe": ["gradle.bat", "gradle.exe"],
+    "pathExists": ["%USERPROFILE%\\.gradle"]
+  },
+
+  "verify": [
+    { "type": "command-exists", "command": "gradle" }
+    // Note: ~/.gradle is created on first build; user-level config files are optional.
+    // Verify only checks that Gradle is installed, not that config exists.
+  ],
+
+  "restore": [
+    {
+      // User-level properties: JVM args, parallel/caching flags, daemon tuning.
+      // May also contain plaintext repository/signing credentials - see sensitive block.
+      "type": "copy",
+      "source": "./payload/apps/gradle/gradle.properties",
+      "target": "%USERPROFILE%\\.gradle\\gradle.properties",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Root global init script (Groovy DSL).
+      "type": "copy",
+      "source": "./payload/apps/gradle/init.gradle",
+      "target": "%USERPROFILE%\\.gradle\\init.gradle",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Root global init script (Kotlin DSL).
+      "type": "copy",
+      "source": "./payload/apps/gradle/init.gradle.kts",
+      "target": "%USERPROFILE%\\.gradle\\init.gradle.kts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Directory of global init scripts (*.init.gradle / *.init.gradle.kts).
+      "type": "copy",
+      "source": "./payload/apps/gradle/init.d",
+      "target": "%USERPROFILE%\\.gradle\\init.d",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%USERPROFILE%\\.gradle\\gradle.properties", "dest": "apps/gradle/gradle.properties", "optional": true },
+      { "source": "%USERPROFILE%\\.gradle\\init.gradle", "dest": "apps/gradle/init.gradle", "optional": true },
+      { "source": "%USERPROFILE%\\.gradle\\init.gradle.kts", "dest": "apps/gradle/init.gradle.kts", "optional": true },
+      { "source": "%USERPROFILE%\\.gradle\\init.d", "dest": "apps/gradle/init.d", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\caches\\**",
+      "**\\daemon\\**",
+      "**\\jdks\\**",
+      "**\\wrapper\\**",
+      "**\\notifications\\**",
+      "**\\native\\**",
+      "**\\.tmp\\**",
+      "**\\*.lock",
+      "**\\*.log",
+      "**\\*.bin"
+    ]
+  },
+
+  "sensitive": {
+    "files": [
+      "%USERPROFILE%\\.gradle\\gradle.properties",
+      "%USERPROFILE%\\.gradle\\init.gradle",
+      "%USERPROFILE%\\.gradle\\init.gradle.kts",
+      "%USERPROFILE%\\.gradle\\init.d"
+    ],
+    "warning": "The Gradle User Home is the conventional place to store plaintext repository credentials (e.g. repoUser/repoPassword) and signing-key passwords in gradle.properties, and init scripts may inject credentials. Review these files before auto-restore and prefer environment variables for secrets.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures user-level Gradle build configuration from the Gradle User Home (~/.gradle): gradle.properties (JVM args, parallel/caching/daemon tuning) and global init scripts (init.gradle, init.gradle.kts, init.d/). Excludes all transient data - caches, daemon registry/logs, downloaded JDKs, and wrapper distributions. gradle.properties and init scripts may contain plaintext repository/signing credentials, so they are flagged as sensitive (warn-only) and should be reviewed before restore. Honors GRADLE_USER_HOME override; default location is %USERPROFILE%\\.gradle. Confidence: high - locations confirmed by official Gradle docs (directory_layout, build_environment, init_scripts)."
+}

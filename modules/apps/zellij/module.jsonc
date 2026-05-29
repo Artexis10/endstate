@@ -1,0 +1,67 @@
+{
+  // Config Module: Zellij
+  // Provides verify/capture/restore configuration for the Zellij terminal multiplexer
+  // Windows config dir resolves (via the Rust dirs crate) to %APPDATA%\Zellij\config
+  // Captures config.kdl, layouts/, themes/; excludes caches and compiled plugins
+
+  "id": "apps.zellij",
+  "displayName": "Zellij",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["zellij.exe", "zellij"],
+    "uninstallDisplayName": ["^Zellij"],
+    "pathExists": [
+      "%APPDATA%\\Zellij\\config\\config.kdl"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Zellij\\config\\config.kdl" }
+  ],
+
+  "restore": [
+    {
+      // Main configuration: keybindings, options, default theme/layout
+      "type": "copy",
+      "source": "./payload/apps/zellij/config.kdl",
+      "target": "%APPDATA%\\Zellij\\config\\config.kdl",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom layouts (*.kdl)
+      "type": "copy",
+      "source": "./payload/apps/zellij/layouts",
+      "target": "%APPDATA%\\Zellij\\config\\layouts",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Custom themes (*.kdl)
+      "type": "copy",
+      "source": "./payload/apps/zellij/themes",
+      "target": "%APPDATA%\\Zellij\\config\\themes",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Zellij\\config\\config.kdl", "dest": "apps/zellij/config.kdl", "optional": true },
+      { "source": "%APPDATA%\\Zellij\\config\\layouts", "dest": "apps/zellij/layouts", "optional": true },
+      { "source": "%APPDATA%\\Zellij\\config\\themes", "dest": "apps/zellij/themes", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Compiled plugins and session/plugin caches are rebuildable, not config
+      "**\\*.wasm",
+      "**\\cache\\**",
+      "**\\plugin_cache\\**",
+      "**\\*.log"
+    ]
+  },
+
+  "notes": "Captures Zellij user config from %APPDATA%\\Zellij\\config: config.kdl (keybindings/options), custom layouts (layouts\\*.kdl), and themes (themes\\*.kdl). On Windows the Rust dirs crate resolves the config dir to %APPDATA%\\Zellij\\config; verify with `zellij setup --check`. Compiled WASM plugins and session/plugin caches (separate ZELLIJ_CACHE_DIR) are excluded. Not distributed via winget. Confidence: medium - Windows path %APPDATA%\\Zellij\\config confirmed by two Zellij GitHub issues (#4819, #4938); layouts/themes subfolder layout confirmed by official docs."
+}
