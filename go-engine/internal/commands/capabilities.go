@@ -174,5 +174,8 @@ func driversFor(goos string) []string {
 	if d, err := selectBackend(goos); err == nil && d != nil {
 		return []string{d.Name()}
 	}
+	if r, err := selectRealizer(goos); err == nil && r != nil {
+		return []string{r.Name()}
+	}
 	return []string{}
 }

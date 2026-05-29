@@ -177,6 +177,15 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		}
 	}
 
+	// Platform realizer path (whole-set, e.g. Nix on linux/darwin). When a
+	// realizer backend is available, take the whole-set apply path that fans one
+	// atomic generation switch into the per-item event stream. On Windows
+	// newRealizerFn returns ErrNoRealizer, so control falls through to the winget
+	// driver loop below, byte-identical to prior behavior.
+	if rz, rerr := newRealizerFn(); rerr == nil {
+		return runApplyRealizer(flags, mf, rz, emitter, runID, configModuleMap, restoreModulesAvailable)
+	}
+
 	d, derr := newDriverFn()
 	if derr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())

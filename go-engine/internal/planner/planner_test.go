@@ -5,6 +5,7 @@ package planner
 
 import (
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
@@ -455,9 +456,22 @@ func TestComputePlan_FallbackRef(t *testing.T) {
 }
 
 // TestComputePlan_WindowsRefPreferred verifies that when both "windows" and
-// another platform ref exist, "windows" is preferred.
+// "linux" refs exist, the host platform's ref is preferred.
 func TestComputePlan_WindowsRefPreferred(t *testing.T) {
-	drv := &testDriver{installed: map[string]bool{"Win.App": true}}
+	// Determine the expected ref and installed set based on the host platform.
+	// On Windows, refs["windows"] is preferred; on Linux, refs["linux"] is preferred.
+	// On other platforms the fallback to first-non-empty applies.
+	var expectedRef string
+	var installedSet map[string]bool
+	if runtime.GOOS == "windows" {
+		expectedRef = "Win.App"
+		installedSet = map[string]bool{"Win.App": true}
+	} else {
+		expectedRef = "linux-app"
+		installedSet = map[string]bool{"linux-app": true}
+	}
+
+	drv := &testDriver{installed: installedSet}
 
 	mf := &manifest.Manifest{
 		Apps: []manifest.App{
@@ -476,8 +490,8 @@ func TestComputePlan_WindowsRefPreferred(t *testing.T) {
 	if len(plan.Actions) != 1 {
 		t.Fatalf("expected 1 action, got %d", len(plan.Actions))
 	}
-	if plan.Actions[0].Ref != "Win.App" {
-		t.Errorf("expected ref=%q (windows preferred), got %q", "Win.App", plan.Actions[0].Ref)
+	if plan.Actions[0].Ref != expectedRef {
+		t.Errorf("expected ref=%q (host platform preferred), got %q", expectedRef, plan.Actions[0].Ref)
 	}
 }
 
@@ -615,12 +629,22 @@ func TestComputePlan_DualDriver(t *testing.T) {
 }
 
 // TestComputePlan_ManualEnvExpansion verifies that environment variables in
-// verifyPath are expanded correctly.
+// verifyPath are expanded correctly using the host platform's variable syntax.
 func TestComputePlan_ManualEnvExpansion(t *testing.T) {
 	tmpDir := t.TempDir()
 	os.WriteFile(tmpDir+"/expanded.exe", []byte("fake"), 0644)
 
 	t.Setenv("ENDSTATE_MANUAL_TEST_DIR", tmpDir)
+
+	// Use the host-appropriate env var syntax:
+	//   Windows: %VAR%\file  (config.ExpandEnvVars dispatches to ExpandWindowsEnvVars)
+	//   Linux/macOS: $VAR/file  (config.ExpandEnvVars dispatches to os.ExpandEnv)
+	var verifyPath string
+	if runtime.GOOS == "windows" {
+		verifyPath = `%ENDSTATE_MANUAL_TEST_DIR%\expanded.exe`
+	} else {
+		verifyPath = "$ENDSTATE_MANUAL_TEST_DIR/expanded.exe"
+	}
 
 	drv := &testDriver{installed: map[string]bool{}}
 
@@ -629,7 +653,7 @@ func TestComputePlan_ManualEnvExpansion(t *testing.T) {
 			{
 				ID: "env-manual",
 				Manual: &manifest.ManualApp{
-					VerifyPath: "%ENDSTATE_MANUAL_TEST_DIR%\\expanded.exe",
+					VerifyPath: verifyPath,
 				},
 			},
 		},

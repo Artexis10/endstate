@@ -12,7 +12,7 @@
     {
       "id": "adobe-lightroom",
       "manual": {
-        "verifyPath": "%MANUAL_TEST_DIR%\\lightroom.exe",
+        "verifyPath": "$MANUAL_TEST_DIR/lightroom.exe",
         "launch": "https://example.com/lightroom",
         "instructions": "Install via Adobe Creative Cloud."
       }

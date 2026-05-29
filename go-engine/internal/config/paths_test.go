@@ -149,10 +149,22 @@ func TestProfileDir_ReturnsNonEmpty(t *testing.T) {
 	if dir == "" {
 		t.Error("expected non-empty profile directory")
 	}
-	if !strings.Contains(dir, "Endstate") {
-		t.Errorf("expected profile dir to contain 'Endstate', got %q", dir)
-	}
-	if !strings.Contains(dir, "Profiles") {
-		t.Errorf("expected profile dir to contain 'Profiles', got %q", dir)
+	// Path conventions are host-specific: Windows uses Documents\Endstate\Profiles;
+	// Linux/macOS follow XDG (~/.local/share/endstate/profiles).
+	if runtime.GOOS == "windows" {
+		if !strings.Contains(dir, "Endstate") {
+			t.Errorf("expected profile dir to contain 'Endstate', got %q", dir)
+		}
+		if !strings.Contains(dir, "Profiles") {
+			t.Errorf("expected profile dir to contain 'Profiles', got %q", dir)
+		}
+	} else {
+		lower := strings.ToLower(dir)
+		if !strings.Contains(lower, "endstate") {
+			t.Errorf("expected profile dir to contain 'endstate', got %q", dir)
+		}
+		if !strings.Contains(lower, "profiles") {
+			t.Errorf("expected profile dir to contain 'profiles', got %q", dir)
+		}
 	}
 }

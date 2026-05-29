@@ -16,6 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
 // ---------------------------------------------------------------------------
@@ -111,9 +112,17 @@ func parseEvents(buf *bytes.Buffer) []map[string]interface{} {
 // withMockDriver replaces newDriverFn with one that returns md, calls f, then
 // restores the original factory.
 func withMockDriver(md *mockDriver, f func()) {
-	orig := newDriverFn
+	origDriver := newDriverFn
+	origRealizer := newRealizerFn
 	newDriverFn = func() (driver.Driver, error) { return md, nil }
-	defer func() { newDriverFn = orig }()
+	// Force the per-package driver path the way a no-realizer host (e.g. Windows)
+	// would: without this, the realizer fork in apply/verify/plan takes over on
+	// linux/darwin and these driver-path tests would exercise the wrong backend.
+	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	defer func() {
+		newDriverFn = origDriver
+		newRealizerFn = origRealizer
+	}()
 	f()
 }
 
@@ -741,8 +750,8 @@ func TestRunCapabilities_PlatformInfo(t *testing.T) {
 	result, _ := RunCapabilities()
 	data := result.(CapabilitiesData)
 
-	if data.Platform.OS != "windows" {
-		t.Errorf("expected platform.os=%q, got %q", "windows", data.Platform.OS)
+	if data.Platform.OS != runtime.GOOS {
+		t.Errorf("expected platform.os=%q, got %q", runtime.GOOS, data.Platform.OS)
 	}
 	if len(data.Platform.Drivers) == 0 {
 		t.Error("expected at least one driver in platform.drivers")
