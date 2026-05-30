@@ -40,6 +40,7 @@ type Generation struct {
 	AddedRefs     []string   `json:"addedRefs"`
 	Native        string     `json:"native,omitempty"` // backend-native anchor (nix generation number); "" if none
 	Partial       bool       `json:"partial"`          // true when a non-atomic backend committed a partial set
+	Rollback      bool       `json:"rollback,omitempty"` // true when this generation was produced by a rollback (AddedRefs is empty)
 }
 
 // Capabilities describes what a package backend can do. It is discovered at

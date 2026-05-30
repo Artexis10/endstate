@@ -26,6 +26,13 @@ const (
 	ErrInternalError          ErrorCode = "INTERNAL_ERROR"
 	ErrSchemaIncompatible     ErrorCode = "SCHEMA_INCOMPATIBLE"
 
+	// Provisioning-generation rollback codes (nix-native-rollback). The package
+	// `rollback` command surfaces these; they are distinct from install/restore
+	// codes because rollback is its own pipeline verb.
+	ErrRollbackUnsupported ErrorCode = "ROLLBACK_UNSUPPORTED"
+	ErrGenerationNotFound  ErrorCode = "GENERATION_NOT_FOUND"
+	ErrRollbackFailed      ErrorCode = "ROLLBACK_FAILED"
+
 	// Hosted-backup error codes. Mapped from substrate backend HTTP responses
 	// per docs/contracts/hosted-backup-contract.md and cli-json-contract.md.
 	ErrAuthRequired         ErrorCode = "AUTH_REQUIRED"
