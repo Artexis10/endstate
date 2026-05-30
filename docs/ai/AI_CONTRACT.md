@@ -173,7 +173,7 @@ Breaking changes bump the major version (once past 1.0). Signal them with:
 1. **Not enterprise configuration management** — this is a personal/small-team tool
 2. **No cross-platform parity yet** — Windows/winget is primary; Linux/macOS is future work
 3. **No package version pinning** — MVP does not compare or pin versions
-4. **No automatic rollback** — failed operations do not auto-rollback; manual `revert` exists for restore only
+4. **No automatic rollback** — failed operations do not auto-rollback. All rollback is explicit and opt-in: manual `revert` reverses a restore (configuration), and the manual, `--confirm`-gated `rollback` command reverts the package set to a prior provisioning generation on backends that support it (Nix). Neither runs automatically.
 5. **No GUI business logic** — GUI must not contain provisioning logic; CLI is source of truth
 6. **No GUI-driven installation of manual apps** — manual apps surface instructions only; the GUI never triggers installs for them
 

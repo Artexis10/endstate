@@ -12,6 +12,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
@@ -39,6 +40,23 @@ type fakeRealizer struct {
 	realizeCalls    int
 	lastPlanArgs    []realizer.Installable
 	lastRealizeArgs []realizer.Installable
+
+	// --- rollback (Phase 3) ---
+	caps            provision.Capabilities // reported via CapabilityReporter
+	rollbackErr     error                  // scripted Rollback return
+	rollbackCalls   int
+	lastRollbackArg int
+}
+
+// Capabilities satisfies provision.CapabilityReporter so the rollback command can
+// discover native-rollback eligibility. Zero value reports all-false.
+func (f *fakeRealizer) Capabilities() provision.Capabilities { return f.caps }
+
+// Rollback satisfies provision.Rollbacker, recording the requested native version.
+func (f *fakeRealizer) Rollback(to int) error {
+	f.rollbackCalls++
+	f.lastRollbackArg = to
+	return f.rollbackErr
 }
 
 func (f *fakeRealizer) Name() string { return "nix" }

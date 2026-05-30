@@ -35,6 +35,7 @@ Commands:
   validate-export Validate export completeness
   report          Retrieve run history
   generations     List provisioning generations
+  rollback        Roll back packages to a prior generation (native-rollback backends)
   doctor          Run diagnostics
   bootstrap       Bootstrap Endstate installation
   backup          Hosted Backup commands (login, logout, status, ...)
@@ -65,6 +66,8 @@ Per-command flags:
   --latest             Most recent run (report)
   --last <n>           Last N runs (report)
   --run-id <id>        Specific run ID (report)
+  --to <generation>    Target provisioning generation number (rollback; default: previous)
+  --confirm            Acknowledge a state-changing operation (rollback, backup/account delete)
 
 Subcommands:
   profile list         List discovered profiles
@@ -308,6 +311,8 @@ func commandUsage(cmd string) string {
 		return "Usage: endstate validate-export [--manifest <path>] [--export <path>] [--json] [--events jsonl]\n\nValidate export directory completeness.\n"
 	case "report":
 		return "Usage: endstate report [--latest] [--last <n>] [--run-id <id>] [--json]\n\nRetrieve run history.\n"
+	case "rollback":
+		return "Usage: endstate rollback [--to <generation>] [--confirm] [--dry-run] [--json] [--events jsonl]\n\nRoll back the installed package set to a prior provisioning generation. Available only on backends that advertise native rollback (e.g. Nix on Linux/macOS). With --to, targets that engine generation number (see 'endstate generations'); without it, rolls back to the previous version. Requires --confirm; use --dry-run to preview the target without changing anything.\n"
 	case "doctor":
 		return "Usage: endstate doctor [--json]\n\nRun system diagnostics.\n"
 	case "profile":
@@ -446,6 +451,14 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 	case "generations":
 		return commands.RunGenerations(commands.GenerationsFlags{
 			Events: p.events,
+		})
+
+	case "rollback":
+		return commands.RunRollback(commands.RollbackFlags{
+			To:      p.to,
+			Confirm: p.confirm,
+			DryRun:  p.dryRun,
+			Events:  p.events,
 		})
 
 	case "doctor":

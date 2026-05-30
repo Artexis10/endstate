@@ -96,6 +96,9 @@ When `success` is `false`, the `error` field contains:
 | `PERMISSION_DENIED` | Insufficient permissions |
 | `INTERNAL_ERROR` | Unexpected internal error |
 | `SCHEMA_INCOMPATIBLE` | Schema version mismatch |
+| `ROLLBACK_UNSUPPORTED` | The host's package backend does not advertise native rollback (e.g. winget on Windows; any host with no realizer). Additive in schema 1.x. |
+| `GENERATION_NOT_FOUND` | The `rollback --to <n>` target generation does not exist, or records no backend-native rollback anchor. Additive in schema 1.x. |
+| `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
 
 #### Hosted Backup error codes
 
@@ -475,7 +478,44 @@ Lists recorded Provisioning Generations, newest first. Read-only. Additive in sc
 }
 ```
 
-`backend` is `"nix"` or `"winget"`. `native` is the backend-native generation number (the Nix generation) or empty for non-atomic backends. `partial` is true when a non-atomic backend (winget) committed only a subset of the requested set. `addedRefs` lists only refs installed in that run (status `installed`); already-present refs appear in `items` but not `addedRefs`. A generation is recorded only when at least one package was installed in the run.
+`backend` is `"nix"` or `"winget"`. `native` is the backend-native generation number (the Nix generation) or empty for non-atomic backends. `partial` is true when a non-atomic backend (winget) committed only a subset of the requested set. `addedRefs` lists only refs installed in that run (status `installed`); already-present refs appear in `items` but not `addedRefs`. A generation is recorded only when at least one package was installed in the run. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`.
+
+## Command: `rollback`
+
+Reverts the installed package set to a prior Provisioning Generation. Available only on backends that advertise **native rollback** (the Nix realizer on Linux/macOS); other backends (winget on Windows) refuse with `ROLLBACK_UNSUPPORTED`. Additive in schema 1.x.
+
+The target is identified by **engine generation number** (as listed by `generations`), which the engine maps to the backend-native anchor (`native`) recorded in that generation — callers never reference a backend-native version directly. Package-stage only: rollback never touches configuration restore, `state/backups/`, or the revert journal (that is `revert`'s concern).
+
+### Request
+
+| Flag | Meaning |
+|------|---------|
+| `--to <n>` | Engine Provisioning Generation number to roll back to. Omitted ⇒ the immediately previous version. |
+| `--confirm` | Required to execute (rollback changes the installed set). Without it the command refuses. |
+| `--dry-run` | Resolve and report the target without changing state; does not require `--confirm`. |
+
+### Response
+
+```json
+{
+  "schemaVersion": "1.0",
+  "cliVersion": "0.1.0",
+  "command": "rollback",
+  "runId": "20241220-143052",
+  "timestampUtc": "2024-12-20T14:30:52Z",
+  "success": true,
+  "data": {
+    "dryRun": false,
+    "backend": "nix",
+    "targetGeneration": 2,
+    "fromNative": "5",
+    "toNative": "4",
+    "newGeneration": 4
+  }
+}
+```
+
+`targetGeneration` is the engine generation resolved from `--to` (omitted/0 when rolling back to the previous version). `fromNative`/`toNative` are the backend-native versions before and after (on `--dry-run`, `toNative` is the resolved target, or `"previous"`). `newGeneration` is the number of the new rollback-marked Provisioning Generation appended on success (omitted on `--dry-run`). On failure, raw backend text appears only in `error.detail`.
 
 ## Versioning Rules
 
