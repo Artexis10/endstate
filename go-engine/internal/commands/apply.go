@@ -364,6 +364,11 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		applyTotal := successCount + skippedCount + failedCount
 		emitter.EmitSummary("apply", applyTotal, successCount, skippedCount, failedCount)
 
+		// Record a Provisioning Generation for the install stage (best-effort,
+		// install-only). Written only when >=1 package was installed this run;
+		// Partial when any attempted install failed. Never touches restore state.
+		writeProvisioningGeneration(runID, d.Name(), finalActions, "", failedCount > 0)
+
 		// ----------------------------------------------------------------
 		// Phase 2b: Restore  (when --enable-restore and manifest has entries)
 		// ----------------------------------------------------------------

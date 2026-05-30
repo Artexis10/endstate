@@ -441,6 +441,42 @@ endstate report --run-id 20241220-143052 --json
 
 ---
 
+## Command: `generations`
+
+Lists recorded Provisioning Generations, newest first. Read-only. Additive in schema 1.x.
+
+### Response
+
+```json
+{
+  "schemaVersion": "1.0",
+  "cliVersion": "0.1.0",
+  "command": "generations",
+  "runId": "20241220-143052",
+  "timestampUtc": "2024-12-20T14:30:52Z",
+  "success": true,
+  "data": {
+    "generations": [
+      {
+        "schemaVersion": "1.0",
+        "number": 2,
+        "runId": "apply-20241220-143052",
+        "timestamp": "2024-12-20T14:30:52Z",
+        "backend": "nix",
+        "items": [
+          { "id": "ripgrep", "ref": "nixpkgs#ripgrep", "status": "installed" }
+        ],
+        "addedRefs": ["nixpkgs#ripgrep"],
+        "native": "2",
+        "partial": false
+      }
+    ]
+  }
+}
+```
+
+`backend` is `"nix"` or `"winget"`. `native` is the backend-native generation number (the Nix generation) or empty for non-atomic backends. `partial` is true when a non-atomic backend (winget) committed only a subset of the requested set. `addedRefs` lists only refs installed in that run (status `installed`); already-present refs appear in `items` but not `addedRefs`. A generation is recorded only when at least one package was installed in the run.
+
 ## Versioning Rules
 
 ### Semantic Versioning

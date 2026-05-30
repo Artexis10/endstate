@@ -227,6 +227,11 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				}
 				successCount++
 			}
+			// Record a Provisioning Generation: the atomic switch committed (full
+			// success advanced the profile generation). Install-only, best-effort.
+			if res.Advanced {
+				writeProvisioningGeneration(runID, driverName, actions, fmt.Sprintf("%d", res.ToGeneration), false)
+			}
 		}
 	}
 	// Already-present nix packages count as skipped in the apply phase.
