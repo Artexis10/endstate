@@ -107,12 +107,16 @@ func setOf(gen int, names ...string) realizer.Set {
 
 // --- ROLLBACK_UNSUPPORTED ----------------------------------------------------
 
-// TestRollback_NoRealizer_Unsupported: a host with no realizer (e.g. Windows)
-// refuses with ROLLBACK_UNSUPPORTED and changes nothing.
-func TestRollback_NoRealizer_Unsupported(t *testing.T) {
-	orig := newRealizerFn
+// TestRollback_NoBackend_Unsupported: a host with neither a realizer nor an
+// uninstall-capable driver refuses with ROLLBACK_UNSUPPORTED and changes
+// nothing. Both seams are overridden so the test is host-independent — on
+// Windows the real winget driver now implements driver.Uninstaller, so leaving
+// newDriverFn at its default would take the best-effort path instead.
+func TestRollback_NoBackend_Unsupported(t *testing.T) {
+	origR, origD := newRealizerFn, newDriverFn
 	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
-	defer func() { newRealizerFn = orig }()
+	newDriverFn = func() (driver.Driver, error) { return nil, ErrNoBackend }
+	defer func() { newRealizerFn, newDriverFn = origR, origD }()
 
 	_, env := RunRollback(RollbackFlags{Confirm: true})
 	if env == nil || env.Code != envelope.ErrRollbackUnsupported {
