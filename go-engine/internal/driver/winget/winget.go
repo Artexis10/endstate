@@ -64,15 +64,26 @@ func (w *WingetDriver) Name() string { return "winget" }
 //
 // If the winget binary is not found, Install returns (nil, ErrWingetNotAvailable).
 func (w *WingetDriver) Install(ref string) (*driver.InstallResult, error) {
-	cmd := w.ExecCommand(
-		"winget",
+	return w.install(ref, "")
+}
+
+// install is the shared winget-install implementation. When version is non-empty
+// it pins the install via `--version <version>` (the VersionedInstaller path);
+// otherwise it installs the latest, byte-identical to the historical Install
+// behavior.
+func (w *WingetDriver) install(ref, version string) (*driver.InstallResult, error) {
+	args := []string{
 		"install",
 		"--id", ref,
 		"--accept-source-agreements",
 		"--accept-package-agreements",
 		"-e",
 		"--silent",
-	)
+	}
+	if version != "" {
+		args = append(args, "--version", version)
+	}
+	cmd := w.ExecCommand("winget", args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -110,7 +121,7 @@ func (w *WingetDriver) Install(ref string) (*driver.InstallResult, error) {
 	case exitCode == 0:
 		return &driver.InstallResult{
 			Status:  driver.StatusInstalled,
-			Message: "Installed successfully",
+			Message: installedMessage(version),
 		}, nil
 
 	case exitCode == alreadyInstalledExitCodeSigned || exitCode == alreadyInstalledExitCodeUnsigned:
@@ -131,7 +142,24 @@ func (w *WingetDriver) Install(ref string) (*driver.InstallResult, error) {
 		return &driver.InstallResult{
 			Status:  driver.StatusFailed,
 			Reason:  reason,
-			Message: fmt.Sprintf("winget exited with code %d", exitCode),
+			Message: failedMessage(exitCode, version),
 		}, nil
 	}
+}
+
+// installedMessage and failedMessage keep the unpinned messages byte-identical
+// to the historical Install output, and append the requested version on the
+// pinned path so a failed pin surfaces which version was unavailable.
+func installedMessage(version string) string {
+	if version != "" {
+		return "Installed version " + version
+	}
+	return "Installed successfully"
+}
+
+func failedMessage(exitCode int, version string) string {
+	if version != "" {
+		return fmt.Sprintf("winget exited with code %d (requested version %s)", exitCode, version)
+	}
+	return fmt.Sprintf("winget exited with code %d", exitCode)
 }
