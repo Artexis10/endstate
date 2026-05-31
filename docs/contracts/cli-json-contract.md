@@ -482,9 +482,12 @@ Lists recorded Provisioning Generations, newest first. Read-only. Additive in sc
 
 ## Command: `rollback`
 
-Reverts the installed package set to a prior Provisioning Generation. Available only on backends that advertise **native rollback** (the Nix realizer on Linux/macOS); other backends (winget on Windows) refuse with `ROLLBACK_UNSUPPORTED`. Additive in schema 1.x.
+Reverts the installed package set to a prior Provisioning Generation. Two strategies, both keyed off the recorded generations and identified by **engine generation number** (as listed by `generations`): callers never reference a backend-native version directly. Additive in schema 1.x.
 
-The target is identified by **engine generation number** (as listed by `generations`), which the engine maps to the backend-native anchor (`native`) recorded in that generation — callers never reference a backend-native version directly. Package-stage only: rollback never touches configuration restore, `state/backups/`, or the revert journal (that is `revert`'s concern).
+- **Native** (the Nix realizer on Linux/macOS): an atomic rollback to the backend-native anchor (`native`) recorded in the target generation.
+- **Best-effort** (the winget driver on Windows): there is no native rollback, so the engine uninstalls the union of `addedRefs` of every generation recorded *after* the target. Per-package and non-atomic — it tolerates per-package failure (reporting `partial`), treats an already-absent package as removed, and **does not track package-manager-pulled transitive dependencies/co-installs** (which may remain — surfaced as a `warning`).
+
+A backend that can neither roll back natively nor uninstall refuses with `ROLLBACK_UNSUPPORTED`. Package-stage only: rollback never touches configuration restore, `state/backups/`, or the revert journal (that is `revert`'s concern).
 
 ### Request
 
@@ -516,6 +519,31 @@ The target is identified by **engine generation number** (as listed by `generati
 ```
 
 `targetGeneration` is the engine generation resolved from `--to` (omitted/0 when rolling back to the previous version). `fromNative`/`toNative` are the backend-native versions before and after (on `--dry-run`, `toNative` is the resolved target, or `"previous"`). `newGeneration` is the number of the new rollback-marked Provisioning Generation appended on success (omitted on `--dry-run`). On failure, raw backend text appears only in `error.detail`.
+
+### Response (best-effort / winget)
+
+```json
+{
+  "schemaVersion": "1.0",
+  "cliVersion": "0.1.0",
+  "command": "rollback",
+  "runId": "20241220-143052",
+  "timestampUtc": "2024-12-20T14:30:52Z",
+  "success": true,
+  "data": {
+    "dryRun": false,
+    "backend": "winget",
+    "targetGeneration": 1,
+    "removedRefs": ["Some.AppC", "Some.AppD"],
+    "failedRefs": ["Some.AppB"],
+    "partial": true,
+    "newGeneration": 4,
+    "warning": "Package-manager-pulled transitive dependencies and co-installs are not tracked and may remain installed."
+  }
+}
+```
+
+For the best-effort path, `removedRefs` lists the refs uninstalled (on `--dry-run`, the refs that *would* be uninstalled — an already-absent package counts as removed). `failedRefs` lists refs whose uninstall failed (for example, another installed package still depends on one); `partial` is `true` when any failed. `newGeneration` is the appended rollback-marked generation (it records `removedRefs` and carries an empty `addedRefs`; omitted on `--dry-run` and when nothing was removed). `warning` is the untracked-dependency caveat. When **every** targeted uninstall fails the command returns `ROLLBACK_FAILED`; a missing winget binary returns `WINGET_NOT_AVAILABLE`; an unknown `--to` returns `GENERATION_NOT_FOUND`. No new error codes are introduced.
 
 ## Versioning Rules
 

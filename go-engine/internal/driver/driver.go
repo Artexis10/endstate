@@ -66,6 +66,38 @@ type Driver interface {
 	Install(ref string) (*InstallResult, error)
 }
 
+// Status values for UninstallResult.
+const (
+	// StatusUninstalled means the package was uninstalled this call.
+	StatusUninstalled = "uninstalled"
+	// StatusAbsent means the package was already not installed (a successful
+	// no-op for rollback idempotency).
+	StatusAbsent = "absent"
+	// StatusFailed (defined above) is reused for an uninstall that failed.
+)
+
+// UninstallResult is returned by Uninstaller.Uninstall and carries the outcome
+// of a single package uninstall attempt.
+type UninstallResult struct {
+	// Status is one of StatusUninstalled, StatusAbsent, or StatusFailed.
+	Status string
+	// Message is a human-readable description of what happened.
+	Message string
+}
+
+// Uninstaller is an optional interface that drivers can implement to remove a
+// package. Callers type-assert their Driver to Uninstaller, exactly like
+// BatchDetector; a driver that does not implement it has no uninstall path (and
+// therefore no best-effort rollback). It is deliberately kept off the core
+// Driver interface so install and uninstall stay distinct capabilities.
+type Uninstaller interface {
+	// Uninstall removes the package identified by ref. It returns a non-nil
+	// error only for an infrastructure failure (e.g. the tool binary is
+	// missing); an already-absent package is reported as StatusAbsent, not an
+	// error, and a refused/failed uninstall is reported as StatusFailed.
+	Uninstall(ref string) (*UninstallResult, error)
+}
+
 // DetectResult holds the outcome of a batch detection check for a single ref.
 type DetectResult struct {
 	// Installed is true if the package is currently installed.
