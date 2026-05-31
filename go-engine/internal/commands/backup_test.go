@@ -32,9 +32,9 @@ func fakeBackend(t *testing.T) *httptest.Server {
 	srv := httptest.NewServer(mux)
 	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(oidc.Document{
-			Issuer:                            srv.URL,
-			JWKSURI:                           srv.URL + "/api/.well-known/jwks.json",
-			IDTokenSigningAlgValuesSupported:  []string{"EdDSA"},
+			Issuer:                           srv.URL,
+			JWKSURI:                          srv.URL + "/api/.well-known/jwks.json",
+			IDTokenSigningAlgValuesSupported: []string{"EdDSA"},
 			EndstateExtensions: oidc.EndstateExtensions{
 				AuthSignupEndpoint:        srv.URL + "/api/auth/signup",
 				AuthLoginEndpoint:         srv.URL + "/api/auth/login",
@@ -82,11 +82,15 @@ func fakeBackend(t *testing.T) *httptest.Server {
 	})
 	mux.HandleFunc("/api/account/me", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Endstate-API-Version", "2.0")
-		_ = json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"userId":             "user-1",
 			"email":              "user@example.com",
 			"subscriptionStatus": "active",
 			"createdAt":          "2026-05-02T00:00:00Z",
+			"lastBackupAt":       "2026-05-30T12:04:20Z",
+			"quotaUsedBytes":     272500,
+			"quotaTotalBytes":    1073741824,
+			"versionCount":       3,
 		})
 	})
 	mux.HandleFunc("/api/billing/checkout", func(w http.ResponseWriter, r *http.Request) {
@@ -182,6 +186,19 @@ func TestBackupStatus_SignedIn(t *testing.T) {
 	}
 	if res.SubscriptionStatus != "active" {
 		t.Errorf("subscription = %q, want active", res.SubscriptionStatus)
+	}
+	// #59: backup freshness + quota map through from /api/account/me.
+	if res.LastBackupAt != "2026-05-30T12:04:20Z" {
+		t.Errorf("lastBackupAt = %q, want 2026-05-30T12:04:20Z", res.LastBackupAt)
+	}
+	if res.QuotaUsedBytes != 272500 {
+		t.Errorf("quotaUsedBytes = %d, want 272500", res.QuotaUsedBytes)
+	}
+	if res.QuotaTotalBytes != 1073741824 {
+		t.Errorf("quotaTotalBytes = %d, want 1073741824", res.QuotaTotalBytes)
+	}
+	if res.VersionCount != 3 {
+		t.Errorf("versionCount = %d, want 3", res.VersionCount)
 	}
 }
 

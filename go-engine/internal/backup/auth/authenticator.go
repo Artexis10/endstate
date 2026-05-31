@@ -32,11 +32,11 @@ var stdBase64 = stdBase64Pkg.StdEncoding
 // the SessionStore (for in-memory + keychain persistence), and the
 // crypto package (for KDF / DEK wrap, currently STUBS).
 type Authenticator struct {
-	issuer       Issuer
-	oidc         *oidc.Client
-	httpc        *client.Client
-	session      *SessionStore
-	refreshLock  string // absolute path to the cross-process refresh lock file (F5)
+	issuer      Issuer
+	oidc        *oidc.Client
+	httpc       *client.Client
+	session     *SessionStore
+	refreshLock string // absolute path to the cross-process refresh lock file (F5)
 }
 
 // NewAuthenticator constructs an Authenticator. The supplied client.Client
@@ -111,7 +111,7 @@ type preHandshakeRequest struct {
 
 // preHandshakeResponse matches the contract §5 step-1 response shape.
 type preHandshakeResponse struct {
-	Salt      string          `json:"salt"`
+	Salt      string           `json:"salt"`
 	KDFParams crypto.KDFParams `json:"kdfParams"`
 }
 
@@ -438,8 +438,8 @@ func (a *Authenticator) Claim(ctx context.Context, claimToken string, body Claim
 
 // RecoverBody is the contract §6 POST /api/auth/recover body.
 type RecoverBody struct {
-	Email             string `json:"email"`
-	RecoveryKeyProof  string `json:"recoveryKeyProof"`
+	Email            string `json:"email"`
+	RecoveryKeyProof string `json:"recoveryKeyProof"`
 }
 
 // RecoverResponse mirrors the substrate response per contract §6 v2.0.
@@ -532,6 +532,12 @@ type MeResponse struct {
 	Email              string `json:"email"`
 	SubscriptionStatus string `json:"subscriptionStatus"`
 	CreatedAt          string `json:"createdAt"`
+	// Backup freshness + quota (issue #59). Populated by substrate; decode to
+	// zero values against an older substrate that doesn't send them yet.
+	LastBackupAt    string `json:"lastBackupAt"`
+	QuotaUsedBytes  int64  `json:"quotaUsedBytes"`
+	QuotaTotalBytes int64  `json:"quotaTotalBytes"`
+	VersionCount    int    `json:"versionCount"`
 }
 
 // Me fetches the current user's profile from the backend. Used by the
