@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.8.0](https://github.com/Artexis10/endstate/compare/v2.7.0...v2.8.0) (2026-05-31)
+
+
+### Features
+
+* **engine:** best-effort winget rollback (Phase 4) ([#63](https://github.com/Artexis10/endstate/issues/63)) ([d376b01](https://github.com/Artexis10/endstate/commit/d376b014dc327fd1a817d3882ee62429bbd4b699))
+* **engine:** engine-owned provisioning generation for both backends ([#58](https://github.com/Artexis10/endstate/issues/58)) ([3d2872d](https://github.com/Artexis10/endstate/commit/3d2872ddad01baba10fb7ba7ad04d38069df2f11))
+* **engine:** native Unix rollback via nix profile rollback (Phase 3) ([#60](https://github.com/Artexis10/endstate/issues/60)) ([e6cc5cb](https://github.com/Artexis10/endstate/commit/e6cc5cb0852ebe8720c4ce55cf99aaa02b04367d))
+
+
+### Bug Fixes
+
+* **capture:** enforce module secrets.files exclusion at capture time ([#56](https://github.com/Artexis10/endstate/issues/56)) ([b377fb7](https://github.com/Artexis10/endstate/commit/b377fb75b7a3dea703910f1fc3d567cf883a924e))
+
 ## [2.7.0](https://github.com/Artexis10/endstate/compare/v2.6.0...v2.7.0) (2026-05-29)
 
 
