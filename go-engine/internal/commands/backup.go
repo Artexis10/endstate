@@ -51,6 +51,10 @@ type BackupFlags struct {
 	// Name is the --name flag (push), the human-readable label for the backup.
 	Name string
 
+	// IfChanged is the --if-changed flag (push): skip the upload (mint no new
+	// version) when the candidate content matches the latest version's hash.
+	IfChanged bool
+
 	// To is the --to flag (pull), the directory the decrypted profile is
 	// written into.
 	To string

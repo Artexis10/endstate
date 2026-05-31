@@ -17,6 +17,9 @@ import (
 type PushResult struct {
 	BackupID  string `json:"backupId"`
 	VersionID string `json:"versionId"`
+	// Skipped is true when --if-changed found the content unchanged: no new
+	// version was created and versionId is the existing latest version.
+	Skipped bool `json:"skipped,omitempty"`
 }
 
 func runBackupPush(flags BackupFlags) (interface{}, *envelope.Error) {
@@ -30,12 +33,13 @@ func runBackupPush(flags BackupFlags) (interface{}, *envelope.Error) {
 	em := events.NewEmitter(envelope.BuildRunID("backup-push", time.Now().UTC()), flags.Events == "jsonl")
 
 	res, envErr := upload.PushVersion(context.Background(), upload.Dependencies{
-		Storage: st.Storage,
-		Session: st.Session,
-		Events:  em,
+		Storage:   st.Storage,
+		Session:   st.Session,
+		Events:    em,
+		IfChanged: flags.IfChanged,
 	}, flags.BackupID, flags.Profile, flags.Name)
 	if envErr != nil {
 		return nil, envErr
 	}
-	return &PushResult{BackupID: res.BackupID, VersionID: res.VersionID}, nil
+	return &PushResult{BackupID: res.BackupID, VersionID: res.VersionID, Skipped: res.Skipped}, nil
 }
