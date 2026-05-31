@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.9.0](https://github.com/Artexis10/endstate/compare/v2.8.0...v2.9.0) (2026-05-31)
+
+
+### Features
+
+* **engine:** converge to exact set via apply --prune (Phase 5) ([#65](https://github.com/Artexis10/endstate/issues/65)) ([15a809d](https://github.com/Artexis10/endstate/commit/15a809d1ba7e3897513473c9cf2e9197274e6cc8))
+* **engine:** Windows version capture + pinning (Phase 6) ([#68](https://github.com/Artexis10/endstate/issues/68)) ([189b285](https://github.com/Artexis10/endstate/commit/189b2855b2debe45e25fa318526e8e6dca002d98))
+
 ## [2.8.0](https://github.com/Artexis10/endstate/compare/v2.7.0...v2.8.0) (2026-05-31)
 
 
