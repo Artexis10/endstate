@@ -81,6 +81,38 @@ func presentInSet(set realizer.Set, ref string) bool {
 	return false
 }
 
+// computeDrift returns the element names in the current set that match no desired
+// ref — the installed-but-undeclared packages to prune. It compares on leaf
+// attributes (the inverse of presentInSet) so e.g. "nixpkgs#ripgrep" matches an
+// element named "ripgrep".
+func computeDrift(current realizer.Set, desired []realizer.Installable) []string {
+	want := map[string]bool{}
+	for _, d := range desired {
+		if leaf := leafAttr(d.Ref); leaf != "" {
+			want[leaf] = true
+		}
+	}
+	var drift []string
+	for name, el := range current.Elements {
+		if want[leafAttr(name)] || (el.AttrPath != "" && want[leafAttr(el.AttrPath)]) {
+			continue
+		}
+		drift = append(drift, name)
+	}
+	return drift
+}
+
+// requirePruner returns the realizer's optional Pruner capability, or a
+// CONVERGENCE_UNSUPPORTED envelope error when the backend cannot converge.
+func requirePruner(r realizer.Realizer) (realizer.Pruner, *envelope.Error) {
+	if p, ok := r.(realizer.Pruner); ok {
+		return p, nil
+	}
+	return nil, envelope.NewError(
+		envelope.ErrConvergenceUnsupported,
+		"this backend does not support convergence (--prune)")
+}
+
 // runApplyRealizer is the whole-set apply path for a realizer backend (Nix). It
 // computes one plan over the declared package set, performs ONE atomic
 // generation switch, and fans the single result back into the per-item event
@@ -168,6 +200,16 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	emitter.EmitSummary("plan", totalApps, presentCount, 0, toInstallCount)
 
 	if flags.DryRun {
+		// --prune --dry-run previews the prune set without mutating anything and
+		// without requiring --confirm.
+		var pruned []string
+		if flags.Prune {
+			if _, perr := requirePruner(r); perr != nil {
+				return nil, perr
+			}
+			cur, _ := r.Current()
+			pruned = computeDrift(cur, desired)
+		}
 		return &ApplyResult{
 			DryRun:                  true,
 			Manifest:                ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
@@ -175,6 +217,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			Actions:                 actions,
 			ConfigModuleMap:         configModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
+			Pruned:                  pruned,
 		}, nil
 	}
 
@@ -197,6 +240,11 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		}
 	}
 
+	// Track whether each mutating phase advanced a generation and to which
+	// number, so the single Provisioning Generation below records the converged
+	// set with the final advancing op's native generation.
+	installAdvanced := false
+	installGen := 0
 	if len(diff.ToAdd) > 0 {
 		for _, ins := range diff.ToAdd {
 			emitter.EmitItem(ins.Ref, driverName, "installing", "", fmt.Sprintf("Installing %s", ins.Ref), names[ins.ID])
@@ -227,13 +275,50 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				}
 				successCount++
 			}
-			// Record a Provisioning Generation: the atomic switch committed (full
-			// success advanced the profile generation). Install-only, best-effort.
 			if res.Advanced {
-				writeProvisioningGeneration(runID, driverName, actions, fmt.Sprintf("%d", res.ToGeneration), false)
+				installAdvanced = true
+				installGen = res.ToGeneration
 			}
 		}
 	}
+
+	// --- Phase 2c: Convergence (prune) ---
+	// After install, optionally remove installed-but-undeclared drift from the
+	// engine-managed set. Realizer-only and gated behind --confirm. Element names
+	// removed this run are recorded in the Provisioning Generation below.
+	var removed []string
+	pruneAdvanced := false
+	pruneGen := 0
+	if flags.Prune {
+		pruner, perr := requirePruner(r)
+		if perr != nil {
+			return nil, perr
+		}
+		if !flags.Confirm {
+			// Refuse the destructive prune; the install phase results stand.
+			return nil, envelope.NewError(
+				envelope.ErrInternalError,
+				"convergence (--prune) requires --confirm (it uninstalls undeclared packages)").
+				WithRemediation("Re-run with --prune --confirm, or use --prune --dry-run to preview.")
+		}
+		cur, _ := r.Current()
+		if drift := computeDrift(cur, desired); len(drift) > 0 {
+			pres, _ := pruner.Remove(drift)
+			if pres.Err != nil {
+				if isSystemic(pres.Err.Code) {
+					return nil, realizerEnvelopeError(pres.Err)
+				}
+				return nil, envelope.NewError(envelope.ErrInstallFailed, "Convergence (prune) failed.").
+					WithDetail(map[string]string{"subcode": pres.Err.Subcode, "stage": pres.Err.Stage, "raw": pres.Err.Raw})
+			}
+			removed = drift
+			if pres.Advanced {
+				pruneAdvanced = true
+				pruneGen = pres.ToGeneration
+			}
+		}
+	}
+
 	// Already-present nix packages count as skipped in the apply phase.
 	skippedCount += len(diff.Present)
 
@@ -266,6 +351,19 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	}
 	emitter.EmitSummary("verify", verifyPass+verifyFail, verifyPass, 0, verifyFail)
 
+	// Record one Provisioning Generation reflecting the converged set: refs added
+	// this run and refs removed (pruned) this run. Native = the final advancing
+	// op's generation (prune's if it advanced, else install's). Write only when a
+	// mutating phase advanced a generation; an atomic backend that did not advance
+	// (idempotent re-run / no-op convergence) records nothing.
+	if installAdvanced || pruneAdvanced {
+		finalGen := installGen
+		if pruneAdvanced {
+			finalGen = pruneGen
+		}
+		writeProvisioningGeneration(runID, driverName, actions, removed, fmt.Sprintf("%d", finalGen), failedCount > 0)
+	}
+
 	return &ApplyResult{
 		DryRun:                  false,
 		Manifest:                ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
@@ -273,5 +371,6 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		Actions:                 actions,
 		ConfigModuleMap:         configModuleMap,
 		RestoreModulesAvailable: restoreModulesAvailable,
+		Pruned:                  removed,
 	}, nil
 }

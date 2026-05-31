@@ -67,7 +67,7 @@ Per-command flags:
   --last <n>           Last N runs (report)
   --run-id <id>        Specific run ID (report)
   --to <generation>    Target provisioning generation number (rollback; default: previous)
-  --confirm            Acknowledge a state-changing operation (rollback, backup/account delete)
+  --confirm            Acknowledge a state-changing operation (apply --prune, rollback, backup/account delete)
 
 Subcommands:
   profile list         List discovered profiles
@@ -129,6 +129,7 @@ type parsedArgs struct {
 	versionID      string
 	to             string
 	confirm        bool
+	prune          bool // apply --prune: converge to the exact declared set
 	saveRecoveryTo string
 	overwrite      bool
 
@@ -180,6 +181,8 @@ func parseArgs(args []string) parsedArgs {
 			p.latest = true
 		case "--confirm":
 			p.confirm = true
+		case "--prune":
+			p.prune = true
 		case "--overwrite":
 			p.overwrite = true
 		case "--WithConfig":
@@ -294,7 +297,7 @@ func commandUsage(cmd string) string {
 	case "capabilities":
 		return "Usage: endstate capabilities [--json]\n\nReport CLI capabilities for GUI handshake.\n"
 	case "apply":
-		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--json] [--events jsonl]\n\nExecute provisioning plan.\n"
+		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--prune] [--confirm] [--json] [--events jsonl]\n\nExecute provisioning plan. With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). --prune requires --confirm to execute; use --prune --dry-run to preview what would be removed.\n"
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
@@ -411,6 +414,8 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Events:        p.events,
 			Export:        p.export,
 			RestoreFilter: p.restoreFilter,
+			Prune:         p.prune,
+			Confirm:       p.confirm,
 		})
 
 	case "verify":

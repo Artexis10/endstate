@@ -86,3 +86,16 @@ type Realizer interface {
 	// failure the prior generation is left intact.
 	Realize(toAdd []Installable) (Result, error)
 }
+
+// Pruner is an OPTIONAL realizer capability: whole-set convergence by removing
+// installed-but-undeclared elements ("drift") from the engine-managed set. It is
+// discovered by type-assertion on a Realizer (like the rollback capability), so
+// backends that cannot safely remove (e.g. shared-system package managers) simply
+// do not implement it and the engine refuses `apply --prune` with
+// CONVERGENCE_UNSUPPORTED. The Nix backend implements it via `nix profile remove`,
+// which advances a profile generation atomically.
+type Pruner interface {
+	// Remove uninstalls the named elements in one atomic operation. names are
+	// element names as they appear in Current().Elements. Remove(nil) is a no-op.
+	Remove(names []string) (Result, error)
+}

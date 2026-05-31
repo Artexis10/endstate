@@ -99,6 +99,7 @@ When `success` is `false`, the `error` field contains:
 | `ROLLBACK_UNSUPPORTED` | The host's package backend does not advertise native rollback (e.g. winget on Windows; any host with no realizer). Additive in schema 1.x. |
 | `GENERATION_NOT_FOUND` | The `rollback --to <n>` target generation does not exist, or records no backend-native rollback anchor. Additive in schema 1.x. |
 | `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
+| `CONVERGENCE_UNSUPPORTED` | `apply --prune` was requested on a backend that cannot safely remove installed-but-undeclared packages (the winget driver, or any host with no realizer). Nothing is removed. Additive in schema 1.x. |
 
 #### Hosted Backup error codes
 
@@ -332,6 +333,29 @@ endstate apply --manifest ./manifest.jsonc --dry-run --json
 ```
 
 **Note:** `eventsFile` is only included when `--events jsonl` is enabled. The engine persists events to `logs/<runId>.events.jsonl` in addition to streaming to stderr.
+
+### Convergence (`--prune`)
+
+`apply --prune` converges the engine-managed set to *exactly* the manifest: after the install phase it removes installed-but-undeclared packages ("drift") in one atomic generation switch. Convergence is realizer-only (Nix on Linux/macOS); the winget driver refuses with `CONVERGENCE_UNSUPPORTED`, changing nothing. Package-stage only: prune never touches configuration restore, `state/backups/`, or the revert journal.
+
+| Flag | Behavior |
+|------|----------|
+| `--prune` | After install, remove installed-but-undeclared packages. Destructive, so it requires `--confirm` (or `--dry-run`). |
+| `--confirm` | Required to execute the prune. Without it (and without `--dry-run`) the command refuses with `INTERNAL_ERROR` and removes nothing — the install-phase results stand. |
+| `--dry-run` | Preview only: the would-be-pruned set is reported in `data.pruned` without removing anything and without requiring `--confirm` (install and prune are both preview-only). |
+
+On a converging run the result carries a `pruned` field — the element names removed this run (omitted when empty):
+
+```json
+"data": {
+  "dryRun": false,
+  "summary": { "total": 1, "success": 0, "skipped": 1, "failed": 0 },
+  "actions": [ /* ... */ ],
+  "pruned": ["ripgrep"]
+}
+```
+
+The recorded Provisioning Generation reflects the converged set: `addedRefs` for packages installed this run and `removedRefs` for packages pruned this run, with `native` set to the final advancing generation. A no-op convergence (nothing added or removed) records no generation.
 
 ```json
 ```

@@ -8,23 +8,23 @@ package envelope
 type ErrorCode string
 
 const (
-	ErrManifestNotFound       ErrorCode = "MANIFEST_NOT_FOUND"
-	ErrManifestParseError     ErrorCode = "MANIFEST_PARSE_ERROR"
+	ErrManifestNotFound        ErrorCode = "MANIFEST_NOT_FOUND"
+	ErrManifestParseError      ErrorCode = "MANIFEST_PARSE_ERROR"
 	ErrManifestValidationError ErrorCode = "MANIFEST_VALIDATION_ERROR"
-	ErrManifestWriteFailed    ErrorCode = "MANIFEST_WRITE_FAILED"
-	ErrPlanNotFound           ErrorCode = "PLAN_NOT_FOUND"
-	ErrPlanParseError         ErrorCode = "PLAN_PARSE_ERROR"
-	ErrWingetNotAvailable     ErrorCode = "WINGET_NOT_AVAILABLE"
-	ErrRealizerUnavailable    ErrorCode = "REALIZER_UNAVAILABLE"
-	ErrEngineCLINotFound      ErrorCode = "ENGINE_CLI_NOT_FOUND"
-	ErrCaptureFailed          ErrorCode = "CAPTURE_FAILED"
-	ErrCaptureBlocked         ErrorCode = "CAPTURE_BLOCKED"
-	ErrInstallFailed          ErrorCode = "INSTALL_FAILED"
-	ErrRestoreFailed          ErrorCode = "RESTORE_FAILED"
-	ErrVerifyFailed           ErrorCode = "VERIFY_FAILED"
-	ErrPermissionDenied       ErrorCode = "PERMISSION_DENIED"
-	ErrInternalError          ErrorCode = "INTERNAL_ERROR"
-	ErrSchemaIncompatible     ErrorCode = "SCHEMA_INCOMPATIBLE"
+	ErrManifestWriteFailed     ErrorCode = "MANIFEST_WRITE_FAILED"
+	ErrPlanNotFound            ErrorCode = "PLAN_NOT_FOUND"
+	ErrPlanParseError          ErrorCode = "PLAN_PARSE_ERROR"
+	ErrWingetNotAvailable      ErrorCode = "WINGET_NOT_AVAILABLE"
+	ErrRealizerUnavailable     ErrorCode = "REALIZER_UNAVAILABLE"
+	ErrEngineCLINotFound       ErrorCode = "ENGINE_CLI_NOT_FOUND"
+	ErrCaptureFailed           ErrorCode = "CAPTURE_FAILED"
+	ErrCaptureBlocked          ErrorCode = "CAPTURE_BLOCKED"
+	ErrInstallFailed           ErrorCode = "INSTALL_FAILED"
+	ErrRestoreFailed           ErrorCode = "RESTORE_FAILED"
+	ErrVerifyFailed            ErrorCode = "VERIFY_FAILED"
+	ErrPermissionDenied        ErrorCode = "PERMISSION_DENIED"
+	ErrInternalError           ErrorCode = "INTERNAL_ERROR"
+	ErrSchemaIncompatible      ErrorCode = "SCHEMA_INCOMPATIBLE"
 
 	// Provisioning-generation rollback codes (nix-native-rollback). The package
 	// `rollback` command surfaces these; they are distinct from install/restore
@@ -32,6 +32,11 @@ const (
 	ErrRollbackUnsupported ErrorCode = "ROLLBACK_UNSUPPORTED"
 	ErrGenerationNotFound  ErrorCode = "GENERATION_NOT_FOUND"
 	ErrRollbackFailed      ErrorCode = "ROLLBACK_FAILED"
+
+	// Convergence (apply --prune) error code. Returned when a backend that does
+	// not support whole-set removal (e.g. the winget driver) is asked to prune
+	// installed-but-undeclared packages.
+	ErrConvergenceUnsupported ErrorCode = "CONVERGENCE_UNSUPPORTED"
 
 	// Hosted-backup error codes. Mapped from substrate backend HTTP responses
 	// per docs/contracts/hosted-backup-contract.md and cli-json-contract.md.
