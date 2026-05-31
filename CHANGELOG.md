@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.11.0](https://github.com/Artexis10/endstate/compare/v2.10.0...v2.11.0) (2026-05-31)
+
+
+### Features
+
+* **backup:** map lastBackupAt + quota into backup status ([#59](https://github.com/Artexis10/endstate/issues/59)) ([#72](https://github.com/Artexis10/endstate/issues/72)) ([84d1b3e](https://github.com/Artexis10/endstate/commit/84d1b3e2ebc2dfc44834d9ea593085b47e47c615))
+
 ## [2.10.0](https://github.com/Artexis10/endstate/compare/v2.9.0...v2.10.0) (2026-05-31)
 
 
