@@ -13,15 +13,18 @@ import (
 //
 // Field shape locked in the plan §"Envelope shapes (Question 6)":
 //
-//   {
-//     "signedIn":            bool,
-//     "email":               string?,
-//     "userId":              string?,
-//     "subscriptionStatus":  string?,
-//     "issuerUrl":           string,
-//     "lastBackupAt":        string?,
-//     "keychainError":       string?
-//   }
+//	{
+//	  "signedIn":            bool,
+//	  "email":               string?,
+//	  "userId":              string?,
+//	  "subscriptionStatus":  string?,
+//	  "issuerUrl":           string,
+//	  "lastBackupAt":        string?,
+//	  "quotaUsedBytes":      number?,
+//	  "quotaTotalBytes":     number?,
+//	  "versionCount":        number?,
+//	  "keychainError":       string?
+//	}
 //
 // Optional fields are present only when the user is signed in. issuerUrl
 // is always present so the GUI can show "you're configured to talk to <X>"
@@ -36,6 +39,9 @@ type StatusResult struct {
 	SubscriptionStatus string `json:"subscriptionStatus,omitempty"`
 	IssuerURL          string `json:"issuerUrl"`
 	LastBackupAt       string `json:"lastBackupAt,omitempty"`
+	QuotaUsedBytes     int64  `json:"quotaUsedBytes,omitempty"`
+	QuotaTotalBytes    int64  `json:"quotaTotalBytes,omitempty"`
+	VersionCount       int    `json:"versionCount,omitempty"`
 	KeychainError      string `json:"keychainError,omitempty"`
 }
 
@@ -67,5 +73,11 @@ func runBackupStatus(flags BackupFlags) (interface{}, *envelope.Error) {
 	res.Email = me.Email
 	res.UserID = me.UserID
 	res.SubscriptionStatus = me.SubscriptionStatus
+	// Backup freshness + quota (issue #59) for the GUI's last-sync indicator +
+	// quota meter. Absent against an older substrate → zero values → omitted.
+	res.LastBackupAt = me.LastBackupAt
+	res.QuotaUsedBytes = me.QuotaUsedBytes
+	res.QuotaTotalBytes = me.QuotaTotalBytes
+	res.VersionCount = me.VersionCount
 	return res, nil
 }
