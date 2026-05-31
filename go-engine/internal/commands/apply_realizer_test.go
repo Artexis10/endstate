@@ -46,6 +46,20 @@ type fakeRealizer struct {
 	rollbackErr     error                  // scripted Rollback return
 	rollbackCalls   int
 	lastRollbackArg int
+
+	// --- prune / convergence (Phase 5) ---
+	removeResult   realizer.Result // scripted Remove return
+	removeCalls    int
+	lastRemoveArgs []string
+}
+
+// Remove satisfies realizer.Pruner, recording the requested element names and
+// returning the scripted result. Its presence makes *fakeRealizer a Pruner, so
+// the convergence (--prune) path is exercised host-independently.
+func (f *fakeRealizer) Remove(names []string) (realizer.Result, error) {
+	f.removeCalls++
+	f.lastRemoveArgs = names
+	return f.removeResult, nil
 }
 
 // Capabilities satisfies provision.CapabilityReporter so the rollback command can

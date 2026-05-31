@@ -61,6 +61,13 @@ type ApplyFlags struct {
 	// RestoreFilter limits restore to entries matching specific module IDs
 	// (comma-separated).
 	RestoreFilter string
+	// Prune enables convergence: after install, remove installed-but-undeclared
+	// packages ("drift") from the engine-managed set. Realizer-only; the winget
+	// driver path refuses with CONVERGENCE_UNSUPPORTED.
+	Prune bool
+	// Confirm authorizes the destructive prune. Without it, --prune refuses
+	// (unless --dry-run, which only previews).
+	Confirm bool
 }
 
 // RestoreModuleRef identifies a config module available for restore, including
@@ -73,12 +80,15 @@ type RestoreModuleRef struct {
 // ApplyResult is the data payload for the apply command JSON envelope.
 // Shape matches docs/contracts/cli-json-contract.md section "Command: apply".
 type ApplyResult struct {
-	DryRun                  bool              `json:"dryRun"`
-	Manifest                ApplyManifestRef  `json:"manifest"`
-	Summary                 ApplySummary      `json:"summary"`
-	Actions                 []ApplyAction     `json:"actions"`
-	ConfigModuleMap         map[string]string `json:"configModuleMap,omitempty"`
+	DryRun                  bool               `json:"dryRun"`
+	Manifest                ApplyManifestRef   `json:"manifest"`
+	Summary                 ApplySummary       `json:"summary"`
+	Actions                 []ApplyAction      `json:"actions"`
+	ConfigModuleMap         map[string]string  `json:"configModuleMap,omitempty"`
 	RestoreModulesAvailable []RestoreModuleRef `json:"restoreModulesAvailable,omitempty"`
+	// Pruned lists the engine-managed element names removed by --prune
+	// convergence (or, on --dry-run, that would be removed). Omitted when empty.
+	Pruned []string `json:"pruned,omitempty"`
 }
 
 // ApplyManifestRef identifies the manifest used for the apply run.
@@ -98,13 +108,13 @@ type ApplySummary struct {
 
 // ApplyAction records the planned or executed action for a single app entry.
 type ApplyAction struct {
-	ID      string           `json:"id"`
-	Ref     *string          `json:"ref"`
-	Driver  string           `json:"driver"`
-	Name    string           `json:"name,omitempty"`
-	Status  string           `json:"status"`
-	Reason  string           `json:"reason,omitempty"`
-	Message string           `json:"message,omitempty"`
+	ID      string              `json:"id"`
+	Ref     *string             `json:"ref"`
+	Driver  string              `json:"driver"`
+	Name    string              `json:"name,omitempty"`
+	Status  string              `json:"status"`
+	Reason  string              `json:"reason,omitempty"`
+	Message string              `json:"message,omitempty"`
 	Manual  *manifest.ManualApp `json:"manual"`
 }
 
@@ -184,6 +194,16 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// driver loop below, byte-identical to prior behavior.
 	if rz, rerr := newRealizerFn(); rerr == nil {
 		return runApplyRealizer(flags, mf, rz, emitter, runID, configModuleMap, restoreModulesAvailable)
+	}
+
+	// Convergence (--prune) is realizer-only. The driver path (winget) operates on
+	// the shared system, where removing undeclared packages is unsafe, so refuse
+	// and change nothing.
+	if flags.Prune {
+		return nil, envelope.NewError(
+			envelope.ErrConvergenceUnsupported,
+			"convergence (--prune) is not supported on this backend").
+			WithRemediation("Run on a host with the Nix realizer (Linux/macOS) to use --prune.")
 	}
 
 	d, derr := newDriverFn()
@@ -367,7 +387,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		// Record a Provisioning Generation for the install stage (best-effort,
 		// install-only). Written only when >=1 package was installed this run;
 		// Partial when any attempted install failed. Never touches restore state.
-		writeProvisioningGeneration(runID, d.Name(), finalActions, "", failedCount > 0)
+		writeProvisioningGeneration(runID, d.Name(), finalActions, nil, "", failedCount > 0)
 
 		// ----------------------------------------------------------------
 		// Phase 2b: Restore  (when --enable-restore and manifest has entries)
@@ -496,7 +516,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	if flags.DryRun {
 		// Dry-run: no installs executed. Report plan state.
 		outSummary.Success = 0
-		outSummary.Skipped = presentCount  // already-present apps are effectively "skipped"
+		outSummary.Skipped = presentCount // already-present apps are effectively "skipped"
 		outSummary.Failed = 0
 	} else {
 		outSummary.Success = successCount
@@ -517,4 +537,3 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		RestoreModulesAvailable: restoreModulesAvailable,
 	}, nil
 }
-
