@@ -42,6 +42,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/backup"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/auth"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/crypto"
+	"github.com/Artexis10/endstate/go-engine/internal/backup/download"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/backup/storage"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -52,6 +53,9 @@ import (
 type PushResult struct {
 	BackupID  string
 	VersionID string
+	// Skipped is true when --if-changed found the content unchanged and no new
+	// version was created; VersionID then refers to the existing latest version.
+	Skipped bool
 }
 
 // Dependencies are the moving pieces a push operation needs. Construct
@@ -65,6 +69,10 @@ type Dependencies struct {
 	Concurrency int          // bounded parallelism for chunk PUTs; <1 → backup.Concurrency()
 	UploadRetry int          // retries on 5xx per chunk; <0 → 1
 	Now         func() time.Time
+	// IfChanged enables content-hash dedup: skip the upload (mint no new version)
+	// when the candidate's plaintext content matches the latest version's
+	// ContentSHA256. Best-effort — a failed/absent peek falls through to upload.
+	IfChanged bool
 }
 
 // PushVersion executes the upload pipeline. Inputs:
@@ -97,6 +105,26 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 	if terr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, "backup push: tar profile: "+terr.Error()).
 			WithRemediation("Verify --profile points at a readable file or directory.")
+	}
+
+	// Deterministic plaintext content fingerprint (tarProfile zeroes mod-times).
+	// Stored in the manifest and compared by --if-changed.
+	contentSum := sha256.Sum256(tarBytes)
+	contentSHA := hex.EncodeToString(contentSum[:])
+
+	// Content-hash dedup (--if-changed): if the latest version's plaintext content
+	// matches this candidate, skip the upload entirely — no new version is minted.
+	// Best-effort: a failed or absent peek falls through to a normal upload, so a
+	// transient hiccup never blocks a backup ("when in doubt, back up"). Versions
+	// written before ContentSHA256 existed have an empty value and never match.
+	if deps.IfChanged {
+		if latest, _ := download.LatestManifest(ctx, download.Dependencies{
+			Storage:    deps.Storage,
+			Session:    deps.Session,
+			HTTPClient: deps.HTTPClient,
+		}, resolvedBackupID); latest != nil && latest.ContentSHA256 == contentSHA {
+			return &PushResult{BackupID: resolvedBackupID, VersionID: latest.VersionID, Skipped: true}, nil
+		}
 	}
 
 	chunks := chunkBytes(tarBytes, crypto.ChunkPlainSize)
@@ -144,6 +172,7 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 		Chunks:          manifestChunks,
 		KDF:             crypto.DefaultKDFParams(),
 		WrappedDEK:      wrappedDEKB64,
+		ContentSHA256:   contentSHA,
 	}
 	mfJSON, mfErr := manifest.Marshal(mf)
 	if mfErr != nil {
@@ -487,7 +516,9 @@ func putOnce(ctx context.Context, hc *http.Client, it uploadItem) error {
 
 type putError struct{ status int }
 
-func (e *putError) Error() string { return fmt.Sprintf("upload: presigned PUT returned HTTP %d", e.status) }
+func (e *putError) Error() string {
+	return fmt.Sprintf("upload: presigned PUT returned HTTP %d", e.status)
+}
 
 func isRetryable(err error) bool {
 	var pe *putError

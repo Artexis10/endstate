@@ -29,15 +29,24 @@ type ChunkMeta struct {
 // `WrappedDEK` is base64-encoded; `KDF` lets the recipient verify the
 // envelope was produced under acceptable parameters before decrypting.
 type Manifest struct {
-	EnvelopeVersion int               `json:"envelopeVersion"`
-	VersionID       string            `json:"versionId"`
-	CreatedAt       string            `json:"createdAt"`
-	OriginalSize    int64             `json:"originalSize"`
-	ChunkSize       int64             `json:"chunkSize"`
-	ChunkCount      int               `json:"chunkCount"`
-	Chunks          []ChunkMeta       `json:"chunks"`
-	KDF             crypto.KDFParams  `json:"kdf"`
-	WrappedDEK      string            `json:"wrappedDEK"`
+	EnvelopeVersion int              `json:"envelopeVersion"`
+	VersionID       string           `json:"versionId"`
+	CreatedAt       string           `json:"createdAt"`
+	OriginalSize    int64            `json:"originalSize"`
+	ChunkSize       int64            `json:"chunkSize"`
+	ChunkCount      int              `json:"chunkCount"`
+	Chunks          []ChunkMeta      `json:"chunks"`
+	KDF             crypto.KDFParams `json:"kdf"`
+	WrappedDEK      string           `json:"wrappedDEK"`
+	// ContentSHA256 is the hex SHA-256 of the plaintext tar (with modification
+	// times zeroed — see upload.tarProfile), a deterministic fingerprint of the
+	// backed-up content. `backup push --if-changed` compares it against the
+	// latest version's value to skip re-uploading unchanged profiles. Encrypted
+	// blobs cannot be compared (random AES-GCM nonces differ every push), so this
+	// plaintext hash lives inside the encrypted manifest where only the engine
+	// (holding the DEK) can read it. Empty on manifests written before this field
+	// existed; such versions are always treated as changed.
+	ContentSHA256 string `json:"contentSha256,omitempty"`
 }
 
 // Marshal serialises the manifest to compact JSON ready for encryption.

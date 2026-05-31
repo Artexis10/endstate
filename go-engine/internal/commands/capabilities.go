@@ -17,13 +17,13 @@ import (
 // It matches the shape defined in docs/contracts/cli-json-contract.md and
 // docs/contracts/gui-integration-contract.md.
 type CapabilitiesData struct {
-	SupportedSchemaVersions SchemaVersionRange        `json:"supportedSchemaVersions"`
-	Commands                map[string]CommandInfo    `json:"commands"`
-	Features                FeaturesInfo              `json:"features"`
-	Platform                PlatformInfo              `json:"platform"`
-	GitCommit               *string                   `json:"gitCommit"`
-	GitDirty                bool                      `json:"gitDirty"`
-	BootstrapTimestamp      *string                   `json:"bootstrapTimestamp"`
+	SupportedSchemaVersions SchemaVersionRange     `json:"supportedSchemaVersions"`
+	Commands                map[string]CommandInfo `json:"commands"`
+	Features                FeaturesInfo           `json:"features"`
+	Platform                PlatformInfo           `json:"platform"`
+	GitCommit               *string                `json:"gitCommit"`
+	GitDirty                bool                   `json:"gitDirty"`
+	BootstrapTimestamp      *string                `json:"bootstrapTimestamp"`
 }
 
 // SchemaVersionRange expresses the inclusive range of JSON schema versions this
@@ -41,12 +41,12 @@ type CommandInfo struct {
 
 // FeaturesInfo is the features capability map returned in the capabilities response.
 type FeaturesInfo struct {
-	Streaming       bool                 `json:"streaming"`
-	ParallelInstall bool                 `json:"parallelInstall"`
-	ConfigModules   bool                 `json:"configModules"`
-	JSONOutput      bool                 `json:"jsonOutput"`
-	ManualApps      bool                 `json:"manualApps"`
-	HostedBackup    HostedBackupFeature  `json:"hostedBackup"`
+	Streaming       bool                `json:"streaming"`
+	ParallelInstall bool                `json:"parallelInstall"`
+	ConfigModules   bool                `json:"configModules"`
+	JSONOutput      bool                `json:"jsonOutput"`
+	ManualApps      bool                `json:"manualApps"`
+	HostedBackup    HostedBackupFeature `json:"hostedBackup"`
 }
 
 // HostedBackupFeature is the GUI-facing capability advertisement for the
@@ -131,7 +131,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"backup": {
 				Supported: true,
-				Flags:     []string{"--email", "--backup-id", "--version-id", "--profile", "--name", "--to", "--confirm", "--json", "--events"},
+				Flags:     []string{"--email", "--backup-id", "--version-id", "--profile", "--name", "--if-changed", "--to", "--confirm", "--json", "--events"},
 			},
 			"account": {
 				Supported: true,
@@ -151,7 +151,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				Audience:         backup.Audience(),
 			},
 		},
-		Platform: platformInfoFor(runtime.GOOS),
+		Platform:           platformInfoFor(runtime.GOOS),
 		GitCommit:          nil,
 		GitDirty:           false,
 		BootstrapTimestamp: nil,

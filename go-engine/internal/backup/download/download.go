@@ -191,6 +191,61 @@ func PullVersion(ctx context.Context, deps Dependencies, backupID, versionID, to
 	}, nil
 }
 
+// LatestManifest fetches and decrypts the manifest of the newest version of a
+// backup, for read-only inspection. It downloads only the manifest blob (not the
+// chunks) and emits no events. Used by `backup push --if-changed` to read the
+// latest version's ContentSHA256 for content-hash dedup. Returns (nil, nil) when
+// the backup has no versions yet.
+func LatestManifest(ctx context.Context, deps Dependencies, backupID string) (*manifest.Manifest, *envelope.Error) {
+	dek, lerr := deps.Session.LoadDEK()
+	if lerr != nil {
+		return nil, envelope.NewError(envelope.ErrAuthRequired,
+			"backup: no DEK in keychain — sign in first").
+			WithRemediation("Run `endstate backup login` to populate the session.")
+	}
+	defer wipe(dek)
+
+	versions, vErr := deps.Storage.ListVersions(ctx, backupID)
+	if vErr != nil {
+		return nil, vErr
+	}
+	if len(versions) == 0 {
+		return nil, nil
+	}
+	latest, sErr := manifest.SelectLatest(toManifestVersions(versions))
+	if sErr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup: select latest version: "+sErr.Error())
+	}
+
+	httpClient := deps.HTTPClient
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	urls, uErr := deps.Storage.DownloadURLs(ctx, backupID, latest.VersionID, []int{storage.ManifestChunkIndex})
+	if uErr != nil {
+		return nil, uErr
+	}
+	murl := storage.FindManifestURL(urls)
+	if murl == nil {
+		return nil, envelope.NewError(envelope.ErrBackendIncompatible,
+			"backup: substrate did not return a manifest URL").
+			WithRemediation("Update the engine; this typically means a substrate response shape changed.")
+	}
+	encManifest, gerr := getOnce(ctx, httpClient, murl.PresignedURL)
+	if gerr != nil {
+		return nil, envelope.NewError(envelope.ErrBackendUnreachable, "backup: download manifest: "+gerr.Error())
+	}
+	mfJSON, dmErr := crypto.DecryptManifest(encManifest, dek)
+	if dmErr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup: decrypt manifest: "+dmErr.Error())
+	}
+	mf, pErr := manifest.Unmarshal(mfJSON)
+	if pErr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup: parse manifest: "+pErr.Error())
+	}
+	return mf, nil
+}
+
 // toManifestVersions adapts storage.VersionInfo (from substrate) to the
 // manifest.Version shape SelectLatest expects. They have identical fields
 // today; the bridge keeps the manifest package free of storage's wire types.

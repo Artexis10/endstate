@@ -132,6 +132,7 @@ type parsedArgs struct {
 	prune          bool // apply --prune: converge to the exact declared set
 	saveRecoveryTo string
 	overwrite      bool
+	ifChanged      bool
 
 	// Positional args after command (used by profile / backup / account subcommands)
 	positionalArgs []string
@@ -185,6 +186,8 @@ func parseArgs(args []string) parsedArgs {
 			p.prune = true
 		case "--overwrite":
 			p.overwrite = true
+		case "--if-changed":
+			p.ifChanged = true
 		case "--WithConfig":
 			// GUI sends --WithConfig for capture; the Go engine includes
 			// config modules by default, so this is a no-op. Accept it
@@ -535,6 +538,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			VersionID:      p.versionID,
 			Profile:        p.profile,
 			Name:           p.name,
+			IfChanged:      p.ifChanged,
 			To:             p.to,
 			Confirm:        p.confirm,
 			SaveRecoveryTo: p.saveRecoveryTo,
