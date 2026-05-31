@@ -25,10 +25,10 @@ func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, r
 		switch a.Status {
 		case "installed":
 			ref := derefRef(a.Ref)
-			items = append(items, provision.ProvItem{ID: a.ID, Ref: ref, Status: "installed"})
+			items = append(items, provision.ProvItem{ID: a.ID, Ref: ref, Status: "installed", Version: a.Version})
 			added = append(added, ref)
 		case "present":
-			items = append(items, provision.ProvItem{ID: a.ID, Ref: derefRef(a.Ref), Status: "present"})
+			items = append(items, provision.ProvItem{ID: a.ID, Ref: derefRef(a.Ref), Status: "present", Version: a.Version})
 		}
 	}
 	if len(added) == 0 && len(removed) == 0 {

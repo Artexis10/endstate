@@ -360,6 +360,21 @@ The recorded Provisioning Generation reflects the converged set: `addedRefs` for
 ```json
 ```
 
+### Version capture and pinning (winget)
+
+On the winget backend, each Provisioning Generation item records the installed `version` of the package, captured from `winget list` (best-effort — empty when winget exposes none). The Nix realizer pins exact versions through its ref, so nix generations leave `version` empty.
+
+A manifest app MAY declare a `version` to **pin** the install:
+
+```jsonc
+{ "id": "vscode", "version": "1.89.0", "refs": { "windows": "Microsoft.VisualStudioCode" } }
+```
+
+- When `version` is declared, the winget backend installs that exact version (`winget install --version`). The recorded generation item carries the pinned `version`.
+- Pinning is **pin-on-install only**: a package already installed at a different version is left untouched (reported `present`); the engine never downgrades, upgrades, or reinstalls to match the declared version.
+- If the declared version is unavailable, that package fails as `INSTALL_FAILED` (the requested version appears in the message); no other version is installed in its place. Other packages in the run are unaffected.
+- Pinning applies only to backends that support versioned install (winget). The Nix realizer ignores `version` (it pins via its ref); this is not an error.
+
 ---
 
 ## Command: `verify`

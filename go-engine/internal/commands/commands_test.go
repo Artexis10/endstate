@@ -30,6 +30,14 @@ type mockDriver struct {
 	installed map[string]bool
 	// installErr, if non-nil, is returned by Install for every call.
 	installErr error
+	// versions maps ref -> installed version reported by DetectBatch (capture).
+	versions map[string]string
+
+	// --- version pinning (Phase 6) observation/scripting ---
+	installCalls         int                   // plain Install (latest) call count
+	installVersionCalls  int                   // InstallVersion (pinned) call count
+	lastInstallVersion   string                // version arg of the last InstallVersion call
+	installVersionResult *driver.InstallResult // scripted InstallVersion return (nil = default success)
 }
 
 func (m *mockDriver) Name() string { return "mock" }
@@ -45,7 +53,7 @@ func (m *mockDriver) DetectBatch(refs []string) (map[string]driver.DetectResult,
 	results := make(map[string]driver.DetectResult, len(refs))
 	for _, ref := range refs {
 		if m.installed[ref] {
-			results[ref] = driver.DetectResult{Installed: true, DisplayName: ref + " Display Name"}
+			results[ref] = driver.DetectResult{Installed: true, DisplayName: ref + " Display Name", Version: m.versions[ref]}
 		} else {
 			results[ref] = driver.DetectResult{Installed: false}
 		}
@@ -53,7 +61,27 @@ func (m *mockDriver) DetectBatch(refs []string) (map[string]driver.DetectResult,
 	return results, nil
 }
 
+// InstallVersion makes mockDriver a driver.VersionedInstaller. It records the
+// pinned version and returns the scripted result, or a default success that
+// reports the pinned version (mirroring the winget driver).
+func (m *mockDriver) InstallVersion(ref, version string) (*driver.InstallResult, error) {
+	m.installVersionCalls++
+	m.lastInstallVersion = version
+	if m.installErr != nil {
+		return nil, m.installErr
+	}
+	if m.installVersionResult != nil {
+		return m.installVersionResult, nil
+	}
+	if m.installed == nil {
+		m.installed = make(map[string]bool)
+	}
+	m.installed[ref] = true
+	return &driver.InstallResult{Status: driver.StatusInstalled, Message: "Installed version " + version}, nil
+}
+
 func (m *mockDriver) Install(ref string) (*driver.InstallResult, error) {
+	m.installCalls++
 	if m.installErr != nil {
 		return nil, m.installErr
 	}
@@ -133,7 +161,7 @@ func withMockDriver(md *mockDriver, f func()) {
 func TestRunVerify_AllPresent_ReturnsCorrectShape(t *testing.T) {
 	md := &mockDriver{installed: map[string]bool{
 		"Microsoft.VisualStudioCode": true,
-		"Git.Git":                   true,
+		"Git.Git":                    true,
 	}}
 
 	var result interface{}
@@ -230,7 +258,7 @@ func TestRunVerify_ManifestNotFound_ReturnsEnvelopeError(t *testing.T) {
 func TestRunVerify_EventOrdering(t *testing.T) {
 	md := &mockDriver{installed: map[string]bool{
 		"Microsoft.VisualStudioCode": true,
-		"Git.Git":                   true,
+		"Git.Git":                    true,
 	}}
 
 	emitter, buf := captureEmitter("test-verify-order")
@@ -302,7 +330,7 @@ func TestRunApply_DryRun_ReturnsDryRunTrue(t *testing.T) {
 func TestRunApply_AllPresent_SkipsInstall(t *testing.T) {
 	md := &mockDriver{installed: map[string]bool{
 		"Microsoft.VisualStudioCode": true,
-		"Git.Git":                   true,
+		"Git.Git":                    true,
 	}}
 
 	var result *ApplyResult
@@ -1082,7 +1110,7 @@ func TestRunApply_ManualApp_SummaryCount(t *testing.T) {
 func TestRunApply_RestoreModulesAvailable_DisplayNames(t *testing.T) {
 	md := &mockDriver{installed: map[string]bool{
 		"Microsoft.VisualStudioCode": true,
-		"Git.Git":                   true,
+		"Git.Git":                    true,
 	}}
 
 	catalog := map[string]*modules.Module{
@@ -1284,7 +1312,7 @@ func TestRunApply_ItemEvents_IncludeDisplayName(t *testing.T) {
 	md := &mockDriver{
 		installed: map[string]bool{
 			"Microsoft.VisualStudioCode": true,
-			"Git.Git":                   false,
+			"Git.Git":                    false,
 		},
 	}
 
@@ -1325,7 +1353,7 @@ func TestRunVerify_ItemEvents_IncludeDisplayName(t *testing.T) {
 	md := &mockDriver{
 		installed: map[string]bool{
 			"Microsoft.VisualStudioCode": true,
-			"Git.Git":                   false,
+			"Git.Git":                    false,
 		},
 	}
 

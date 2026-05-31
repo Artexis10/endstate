@@ -115,6 +115,7 @@ type ApplyAction struct {
 	Status  string              `json:"status"`
 	Reason  string              `json:"reason,omitempty"`
 	Message string              `json:"message,omitempty"`
+	Version string              `json:"version,omitempty"` // installed/pinned version (best-effort; winget path)
 	Manual  *manifest.ManualApp `json:"manual"`
 }
 
@@ -281,9 +282,11 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		// Winget app: detect via driver (use batch results if available).
 		var installed bool
 		var displayName string
+		var version string // best-effort installed version captured from the batch
 		if br, ok := batchResults[ref]; ok {
 			installed = br.Installed
 			displayName = br.DisplayName
+			version = br.Version
 		} else {
 			installed, displayName, _ = d.Detect(ref)
 		}
@@ -296,6 +299,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		action.Ref = stringPtr(ref)
 		action.Driver = d.Name()
 		action.Name = itemName
+		action.Version = version // captured installed version for present packages
 
 		if installed {
 			action.Status = "present"
@@ -355,7 +359,16 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 
 			emitter.EmitItem(entry.ref, d.Name(), "installing", "", fmt.Sprintf("Installing %s", entry.ref), entry.displayName)
 
-			result, installErr := d.Install(entry.ref)
+			// Honor a declared version (pin-on-install) when the driver supports
+			// versioned installation; otherwise install the latest, as before.
+			pinned := entry.app.Version != ""
+			var result *driver.InstallResult
+			var installErr error
+			if vi, ok := d.(driver.VersionedInstaller); ok && pinned {
+				result, installErr = vi.InstallVersion(entry.ref, entry.app.Version)
+			} else {
+				result, installErr = d.Install(entry.ref)
+			}
 			if installErr != nil {
 				// Infrastructure failure (e.g. winget not available).
 				finalActions[i].Status = driver.StatusFailed
@@ -370,6 +383,11 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 
 			switch result.Status {
 			case driver.StatusInstalled:
+				if pinned {
+					// The pinned version is now the committed version; record it
+					// (winget exposes no version on install for the unpinned path).
+					finalActions[i].Version = entry.app.Version
+				}
 				emitter.EmitItem(entry.ref, d.Name(), "installed", "", result.Message, entry.displayName)
 				successCount++
 			case driver.StatusPresent:

@@ -98,12 +98,30 @@ type Uninstaller interface {
 	Uninstall(ref string) (*UninstallResult, error)
 }
 
+// VersionedInstaller is an optional interface that drivers can implement to
+// install a specific version of a package (version pinning). Callers
+// type-assert their Driver to VersionedInstaller, exactly like BatchDetector /
+// Uninstaller; a driver that does not implement it has no pinning path and the
+// caller falls back to Install (latest). It is kept off the core Driver
+// interface so pinning stays an opt-in capability that not every backend needs.
+type VersionedInstaller interface {
+	// InstallVersion installs the exact given version of the package identified
+	// by ref. It follows Install's contract: a non-nil error signals an
+	// infrastructure problem (e.g. the tool binary is missing); an expected
+	// failure — including the requested version being unavailable — is encoded
+	// in InstallResult as StatusFailed/ReasonInstallFailed.
+	InstallVersion(ref, version string) (*InstallResult, error)
+}
+
 // DetectResult holds the outcome of a batch detection check for a single ref.
 type DetectResult struct {
 	// Installed is true if the package is currently installed.
 	Installed bool
 	// DisplayName is the human-readable name from the package manager output.
 	DisplayName string
+	// Version is the installed version reported by the package manager, or ""
+	// when the manager exposes none (best-effort capture).
+	Version string
 }
 
 // BatchDetector is an optional interface that drivers can implement to detect
