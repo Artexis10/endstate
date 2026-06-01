@@ -47,6 +47,11 @@
 - [x] 5.1 `cd go-engine && go test ./...` green on Linux
 - [x] 5.2 `GOOS=windows go build ./...` + `go vet ./...` clean
 - [x] 5.3 `npm run openspec:validate` (strict) passes
-- [ ] 5.4 (Maintainer, Windows) real-winget smoke: a drifted pinned app → `verify` reports
-      `version_drift`; `apply --repin --confirm` reinstalls the declared version (`--force` downgrades;
-      else fall back to uninstall+install); `--repin` without `--confirm` refuses
+- [x] 5.4 (Maintainer, Windows) real-winget smoke — done on winget v1.28.240 with `jqlang.jq`
+      (OLD 1.7.1 / NEW 1.8.1). Results: drifted pin → `verify` reports `version_drift` (clean
+      `version`/`expected`); `apply --repin --confirm` converges in BOTH directions — `--force`
+      **upgrades** 1.7.1→1.8.1 AND **downgrades** 1.8.1→1.7.1, so mechanism A holds and the
+      uninstall+install fallback is NOT needed; `--repin` without `--confirm` refuses (INTERNAL_ERROR),
+      drift left in place. Smoke also surfaced and fixed a snapshot version-parser bug (the winget
+      `Available` column was swallowed into the captured version, causing phantom `version_drift`) and
+      an off-by-one in the uninstall not-found exit code (0x8A150014, not 0x8A150015).

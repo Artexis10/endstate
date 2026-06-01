@@ -271,6 +271,7 @@ func parseWingetList(output []byte) ([]SnapshotApp, error) {
 
 	// Phase 1: Find the header row and record column positions.
 	var nameCol, idCol, versionCol, sourceCol int
+	versionEnd := -1 // right boundary of the Version column; -1 means end of line
 	headerFound := false
 	var headerLine string
 
@@ -288,10 +289,20 @@ func parseWingetList(output []byte) ([]SnapshotApp, error) {
 			idCol = idIdx
 			versionCol = versionIdx
 
-			// Source column is optional; find it if present.
+			// Columns after Version vary by winget invocation: `--source winget`
+			// drops the Source column, and an "Available" (pending-upgrade) column
+			// appears whenever any listed app has an upgrade. The Version value must
+			// be bounded at whichever column comes next (Available or Source),
+			// otherwise it swallows that trailing column's value (e.g. capturing
+			// "1.7.1   1.8.1" instead of "1.7.1"). Source, when present, is last.
 			sourceIdx := strings.Index(line, "Source")
 			if sourceIdx > versionIdx {
 				sourceCol = sourceIdx
+				versionEnd = sourceIdx
+			}
+			availableIdx := strings.Index(line, "Available")
+			if availableIdx > versionIdx && (versionEnd < 0 || availableIdx < versionEnd) {
+				versionEnd = availableIdx
 			}
 
 			headerFound = true
@@ -332,11 +343,13 @@ func parseWingetList(output []byte) ([]SnapshotApp, error) {
 		id := extractColumn(line, idCol, versionCol)
 
 		var version, source string
-		if sourceCol > 0 {
-			version = extractColumn(line, versionCol, sourceCol)
-			source = extractColumnToEnd(line, sourceCol)
+		if versionEnd >= 0 {
+			version = extractColumn(line, versionCol, versionEnd)
 		} else {
 			version = extractColumnToEnd(line, versionCol)
+		}
+		if sourceCol > 0 {
+			source = extractColumnToEnd(line, sourceCol)
 		}
 
 		// Skip entries with empty ID — they're not useful.

@@ -79,5 +79,20 @@ The realizer apply path never reads `App.Version`/`Repin` — nix is unaffected.
   dispatch is hermetic (mock asserts `ReinstallVersion` under `--repin --confirm`), but whether
   `winget install --version X --force` actually downgrades is **maintainer-verified on Windows**;
   documented fallback = uninstall + InstallVersion.
+
+  **RESOLVED (winget v1.28.240, jqlang.jq smoke):** `winget install --version X --force` converges in
+  BOTH directions — it upgrades (1.7.1→1.8.1) AND downgrades (1.8.1→1.7.1). Mechanism A is correct as
+  shipped; the uninstall+install fallback is NOT required. Two real-winget bugs were found and fixed
+  while validating the surrounding paths (both were invisible to the hermetic fixtures):
+  1. **Version-parser (`snapshot.parseWingetList`)** — real `winget list --source winget` emits no
+     `Source` column and inserts an `Available` (pending-upgrade) column whenever an upgrade exists.
+     The parser bounded the Version field at `Source`/EOL, so it swallowed the Available value
+     ("1.7.1   1.8.1"), producing **phantom `version_drift`** in `verify` and `apply --repin`. Fixed by
+     bounding Version at the next header column (Available or Source, whichever is first).
+  2. **Uninstall not-found exit code (`uninstall.go`)** — the real HRESULT is `0x8A150014`
+     (`-1978335212`), not the coded `0x8A150015` (`-1978335211`). Masked in practice by the output
+     substring (the primary signal), but the secondary exit-code anchor was off by one. Corrected.
+     (The already-installed code `-1978335189` is correct; only its comment hex `0x8A150019` was wrong —
+     it is `0x8A15002B`.)
 - **CI gotcha (Phase 4):** `RunApply`/`RunVerify` tests override BOTH `newDriverFn` AND
   `newRealizerFn` or windows-latest exercises the wrong backend.

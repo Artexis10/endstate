@@ -18,14 +18,15 @@ import (
 var _ driver.Uninstaller = (*WingetDriver)(nil)
 
 // noPackageFoundExitCode is winget's APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND
-// (HRESULT 0x8A15002B), returned by `winget uninstall` when no installed package
-// matches. As with the install codes, Windows may surface the signed or unsigned
-// 32-bit interpretation, and (also like the install codes) an HRESULT cannot
-// survive POSIX 8-bit exit-code truncation — so on non-Windows this path is
-// untested and the output-substring check below is the primary "absent" signal.
-// NOTE: confirm the exact value against a real winget on Windows.
-const noPackageFoundExitCodeSigned = -1978335211
-const noPackageFoundExitCodeUnsigned = 2316632085
+// (HRESULT 0x8A150014), returned by `winget uninstall` when no installed package
+// matches. Confirmed empirically against winget v1.28.240: `winget uninstall` of
+// a non-existent id exits -1978335212 (the signed 32-bit form). As with the
+// install codes, Windows may surface the signed or unsigned interpretation, and
+// an HRESULT cannot survive POSIX 8-bit exit-code truncation — so on non-Windows
+// this path is untested and the output-substring check below is the primary
+// "absent" signal.
+const noPackageFoundExitCodeSigned = -1978335212
+const noPackageFoundExitCodeUnsigned = 2316632084
 
 // noPackageFoundPattern matches winget output indicating nothing matched the
 // uninstall request. This is the cross-platform-reliable "absent" signal (the

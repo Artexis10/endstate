@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"strings"
 	"testing"
 )
 
@@ -135,6 +136,94 @@ Git                              Git.Git                           2.43.0       
 	}
 	if apps[1].ID != "Git.Git" {
 		t.Errorf("expected second app ID=%q, got %q", "Git.Git", apps[1].ID)
+	}
+}
+
+// layoutRow renders one winget-list row by left-padding each field to the
+// real column offsets observed from `winget list --source winget` on winget
+// v1.28: Name@0, Id@44, Version@89, Available@109. Passing available="" models
+// an app that is up to date (no upgrade in the Available column).
+func layoutRow(name, id, version, available string) string {
+	pad := func(s string, width int) string {
+		if len(s) >= width {
+			return s
+		}
+		return s + strings.Repeat(" ", width-len(s))
+	}
+	return pad(name, 44) + pad(id, 45) + pad(version, 20) + available
+}
+
+// TestTakeSnapshot_SourceWingetWithAvailableColumn is a regression guard for the
+// real `winget list --source winget` layout: it omits the Source column and
+// inserts an "Available" (upgrade) column when any listed app has an upgrade
+// pending. The Version column must be bounded at Available, not extended to end
+// of line — otherwise a pinned app's version is captured as "1.7.1   1.8.1",
+// producing phantom version_drift in verify and apply --repin.
+func TestTakeSnapshot_SourceWingetWithAvailableColumn(t *testing.T) {
+	header := layoutRow("Name", "Id", "Version", "Available")
+	sep := strings.Repeat("-", 120)
+	jq := layoutRow("jq", "jqlang.jq", "1.7.1", "1.8.1") // upgrade pending
+	git := layoutRow("Git", "Git.Git", "2.43.0", "")     // up to date
+	out := strings.Join([]string{header, sep, jq, git}, "\n") + "\n"
+
+	cleanup := withFakeExec([]byte(out), nil)
+	defer cleanup()
+
+	apps, err := TakeSnapshot()
+	if err != nil {
+		t.Fatalf("TakeSnapshot returned unexpected error: %v", err)
+	}
+	if len(apps) != 2 {
+		t.Fatalf("expected 2 apps, got %d: %+v", len(apps), apps)
+	}
+
+	if apps[0].ID != "jqlang.jq" {
+		t.Errorf("expected apps[0].ID=%q, got %q", "jqlang.jq", apps[0].ID)
+	}
+	if apps[0].Version != "1.7.1" {
+		t.Errorf("expected apps[0].Version=%q (Available column must not leak in), got %q", "1.7.1", apps[0].Version)
+	}
+	if apps[1].ID != "Git.Git" {
+		t.Errorf("expected apps[1].ID=%q, got %q", "Git.Git", apps[1].ID)
+	}
+	if apps[1].Version != "2.43.0" {
+		t.Errorf("expected apps[1].Version=%q, got %q", "2.43.0", apps[1].Version)
+	}
+}
+
+// TestTakeSnapshot_AvailableAndSourceColumns covers the multi-source list layout
+// (no --source filter) where BOTH Available and Source columns are present:
+// Version must be bounded at Available, and Source still captured.
+func TestTakeSnapshot_AvailableAndSourceColumns(t *testing.T) {
+	pad := func(s string, width int) string {
+		if len(s) >= width {
+			return s
+		}
+		return s + strings.Repeat(" ", width-len(s))
+	}
+	row := func(name, id, version, available, source string) string {
+		return pad(name, 44) + pad(id, 45) + pad(version, 20) + pad(available, 16) + source
+	}
+	header := row("Name", "Id", "Version", "Available", "Source")
+	sep := strings.Repeat("-", 130)
+	jq := row("jq", "jqlang.jq", "1.7.1", "1.8.1", "winget")
+	out := strings.Join([]string{header, sep, jq}, "\n") + "\n"
+
+	cleanup := withFakeExec([]byte(out), nil)
+	defer cleanup()
+
+	apps, err := TakeSnapshot()
+	if err != nil {
+		t.Fatalf("TakeSnapshot returned unexpected error: %v", err)
+	}
+	if len(apps) != 1 {
+		t.Fatalf("expected 1 app, got %d: %+v", len(apps), apps)
+	}
+	if apps[0].Version != "1.7.1" {
+		t.Errorf("expected Version=%q (Available must not leak in), got %q", "1.7.1", apps[0].Version)
+	}
+	if apps[0].Source != "winget" {
+		t.Errorf("expected Source=%q, got %q", "winget", apps[0].Source)
 	}
 }
 

@@ -95,9 +95,12 @@ type VerifyItem struct {
 //     an ItemEvent per app.
 //  3. Emit a SummaryEvent("verify", ...) and return the VerifyResult.
 //
-// Partial failures (missing apps) are encoded in the result data — they do NOT
-// produce a non-nil *envelope.Error; the caller sets success=false in the
-// envelope based on the fail count.
+// Partial failures (missing apps, version drift) are encoded in the result data
+// — they do NOT produce a non-nil *envelope.Error and do NOT flip the envelope's
+// top-level `success` flag. Per docs/contracts/cli-json-contract.md, `success`
+// reflects whether the command ran and produced a valid result (it is false only
+// for a non-nil *envelope.Error, e.g. infrastructure/command errors); per-item
+// outcomes live in summary.fail and each result's status/reason.
 func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	// Build a run-scoped emitter. Streaming is enabled only when --events jsonl
 	// was passed. The emitter is a no-op when disabled, so no guard is needed.

@@ -17,10 +17,12 @@ import (
 )
 
 // alreadyInstalledExitCode is the winget exit code that means the package is
-// already installed. The HRESULT is 0x8A150019. On Windows, ExitProcess() takes
-// a UINT (uint32), so Go's ExitCode() may return either the signed int32
-// interpretation (-1978335189) or the unsigned uint32 interpretation (2316632107)
-// depending on the Go version and platform. We check both.
+// already installed. The HRESULT is 0x8A15002B; confirmed empirically against
+// winget v1.28.240 (re-installing a pinned, already-present version exits
+// -1978335189). On Windows, ExitProcess() takes a UINT (uint32), so Go's
+// ExitCode() may return either the signed int32 interpretation (-1978335189) or
+// the unsigned uint32 interpretation (2316632107) depending on the Go version
+// and platform. We check both.
 const alreadyInstalledExitCodeSigned = -1978335189
 const alreadyInstalledExitCodeUnsigned = 2316632107
 
@@ -56,7 +58,7 @@ func (w *WingetDriver) Name() string { return "winget" }
 //
 // Exit code semantics:
 //   - 0                 → StatusInstalled
-//   - -1978335189 (0x8A150019) → StatusPresent / ReasonAlreadyInstalled
+//   - -1978335189 (0x8A15002B) → StatusPresent / ReasonAlreadyInstalled
 //   - other non-zero    → StatusFailed / ReasonInstallFailed
 //
 // If combined stdout+stderr contains cancellation keywords the reason is
