@@ -139,12 +139,12 @@ func TestInstall_Success(t *testing.T) {
 }
 
 func TestInstall_AlreadyInstalled(t *testing.T) {
-	// alreadyInstalledExitCode = -1978335189 (0x8A150019). On Windows,
+	// alreadyInstalledExitCode = -1978335189 (0x8A15002B). On Windows,
 	// os.Exit propagates the full 32-bit value and exec.ExitError.ExitCode()
 	// recovers it correctly via GetExitCodeProcess. This test is therefore
 	// Windows-only by design; the production target is Windows.
 	if runtime.GOOS != "windows" {
-		t.Skip("HRESULT exit code 0x8A150019 cannot survive POSIX 8-bit exit-code truncation; winget is Windows-only in production")
+		t.Skip("HRESULT exit code 0x8A15002B cannot survive POSIX 8-bit exit-code truncation; winget is Windows-only in production")
 	}
 	d := &WingetDriver{ExecCommand: fakeCommand(alreadyInstalledExitCodeSigned, "", "")}
 	result, err := d.Install("Git.Git")

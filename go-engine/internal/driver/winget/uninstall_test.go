@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -58,6 +59,29 @@ func TestUninstall_AbsentViaOutput(t *testing.T) {
 	}
 	if res.Status != driver.StatusAbsent {
 		t.Errorf("Status = %q, want %q (already-absent is a no-op)", res.Status, driver.StatusAbsent)
+	}
+}
+
+func TestUninstall_AbsentViaExitCode(t *testing.T) {
+	// Ground truth: real `winget uninstall` for a non-existent package returns
+	// HRESULT 0x8A150014 (APPINSTALLER_CLI_ERROR_NO_APPLICATIONS_FOUND, signed
+	// -1978335212), confirmed empirically against winget v1.28.240. With NO
+	// matching output substring, the exit code is the only "absent" signal — it
+	// must classify as a no-op (StatusAbsent), not a failure.
+	//
+	// Windows-only: the HRESULT cannot survive POSIX 8-bit exit-code truncation;
+	// winget is a Windows-only backend in production.
+	if runtime.GOOS != "windows" {
+		t.Skip("HRESULT exit code cannot survive POSIX 8-bit truncation; winget is Windows-only in production")
+	}
+	const realNotFoundExitCode = -1978335212 // 0x8A150014, confirmed on winget v1.28.240
+	d := &WingetDriver{ExecCommand: fakeUninstallCmd(realNotFoundExitCode, "", "", nil)}
+	res, err := d.Uninstall("Endstate.NoSuchApp.XYZ123")
+	if err != nil {
+		t.Fatalf("Uninstall returned unexpected error: %v", err)
+	}
+	if res.Status != driver.StatusAbsent {
+		t.Errorf("Status = %q, want %q (not-found exit code is a no-op for rollback idempotency)", res.Status, driver.StatusAbsent)
 	}
 }
 
