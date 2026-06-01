@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.12.0](https://github.com/Artexis10/endstate/compare/v2.11.0...v2.12.0) (2026-06-01)
+
+
+### Features
+
+* **engine:** version drift enforcement (Phase 7) ([#74](https://github.com/Artexis10/endstate/issues/74)) ([eed3cc0](https://github.com/Artexis10/endstate/commit/eed3cc0d8626a81302966565829ca7ca92b0de6a))
+
 ## [2.11.0](https://github.com/Artexis10/endstate/compare/v2.10.0...v2.11.0) (2026-05-31)
 
 
