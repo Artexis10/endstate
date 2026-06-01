@@ -38,6 +38,34 @@ type mockDriver struct {
 	installVersionCalls  int                   // InstallVersion (pinned) call count
 	lastInstallVersion   string                // version arg of the last InstallVersion call
 	installVersionResult *driver.InstallResult // scripted InstallVersion return (nil = default success)
+
+	// --- version convergence (Phase 7) observation/scripting ---
+	reinstallVersionCalls  int                   // ReinstallVersion (--repin) call count
+	lastReinstallVersion   string                // version arg of the last ReinstallVersion call
+	reinstallVersionResult *driver.InstallResult // scripted ReinstallVersion return (nil = default success)
+}
+
+// ReinstallVersion makes mockDriver satisfy the Phase-7 VersionedInstaller
+// convergence method, recording the requested version and returning the scripted
+// result (or a default success that reports the version).
+func (m *mockDriver) ReinstallVersion(ref, version string) (*driver.InstallResult, error) {
+	m.reinstallVersionCalls++
+	m.lastReinstallVersion = version
+	if m.installErr != nil {
+		return nil, m.installErr
+	}
+	if m.reinstallVersionResult != nil {
+		return m.reinstallVersionResult, nil
+	}
+	if m.installed == nil {
+		m.installed = make(map[string]bool)
+	}
+	m.installed[ref] = true
+	if m.versions == nil {
+		m.versions = make(map[string]string)
+	}
+	m.versions[ref] = version
+	return &driver.InstallResult{Status: driver.StatusInstalled, Message: "Installed version " + version}, nil
 }
 
 func (m *mockDriver) Name() string { return "mock" }

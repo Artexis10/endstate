@@ -371,9 +371,21 @@ A manifest app MAY declare a `version` to **pin** the install:
 ```
 
 - When `version` is declared, the winget backend installs that exact version (`winget install --version`). The recorded generation item carries the pinned `version`.
-- Pinning is **pin-on-install only**: a package already installed at a different version is left untouched (reported `present`); the engine never downgrades, upgrades, or reinstalls to match the declared version.
+- By default, pinning is **pin-on-install only**: a package already installed at a different version is left untouched (reported `present`). Use `--repin` (below) to converge a drifted version.
 - If the declared version is unavailable, that package fails as `INSTALL_FAILED` (the requested version appears in the message); no other version is installed in its place. Other packages in the run are unaffected.
 - Pinning applies only to backends that support versioned install (winget). The Nix realizer ignores `version` (it pins via its ref); this is not an error.
+
+### Version convergence (`--repin`)
+
+`apply --repin` reinstalls a declared `version` when the installed version has drifted from it (`winget install --version <v> --force`) — the enforcement counterpart of pinning. Winget-only; the Nix realizer ignores it.
+
+| Flag | Behavior |
+|------|----------|
+| `--repin` | Reinstall the declared version over an already-installed drifted one. Destructive (a reinstall / possible downgrade), so it requires `--confirm` (or `--dry-run`). |
+| `--confirm` | Required to execute the re-pin. Without it (and without `--dry-run`) the command refuses with `INTERNAL_ERROR` and reinstalls nothing — the install-phase results stand. |
+| `--dry-run` | Preview only: drifted apps are reported (as actions with reason `version_drift`) without reinstalling and without requiring `--confirm`. |
+
+A converged app is recorded `installed` at the declared version in the Provisioning Generation. Drift is evaluated only for apps that declare a `version`; default `apply` (no `--repin`) leaves a drifted version untouched.
 
 ---
 
@@ -433,6 +445,25 @@ endstate verify --manifest ./manifest.jsonc --json
 
 ```json
 ```
+
+### Version drift (winget)
+
+When a manifest app declares a `version` and the installed version (captured on the winget backend) differs, `verify` reports that item as a **failure** with reason **`version_drift`**, distinct from a missing package. The result item carries the installed `version` and the declared `expected` version:
+
+```json
+{
+  "type": "app",
+  "id": "vscode",
+  "ref": "Microsoft.VisualStudioCode",
+  "status": "fail",
+  "reason": "version_drift",
+  "version": "1.92.0",
+  "expected": "1.89.0",
+  "message": "installed 1.92.0, want 1.89.0"
+}
+```
+
+Drift is evaluated only for apps that declare a `version`; comparison is exact (whitespace-trimmed — older or newer both count as drift). When the backend exposes no installed version, no drift is flagged. The Nix realizer pins versions through its ref and does not report per-app version drift. `apply --repin --confirm` converges a drifted version (see the `apply` command).
 
 ---
 

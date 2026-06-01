@@ -68,6 +68,10 @@ type ApplyFlags struct {
 	// Confirm authorizes the destructive prune. Without it, --prune refuses
 	// (unless --dry-run, which only previews).
 	Confirm bool
+	// Repin enables version convergence: reinstall a declared App.Version over an
+	// already-installed drifted version. Winget-only; requires --confirm (unless
+	// --dry-run). The realizer path ignores it (Nix pins via its ref).
+	Repin bool
 }
 
 // RestoreModuleRef identifies a config module available for restore, including
@@ -221,6 +225,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		isManual    bool
 		action      ApplyAction
 		displayName string
+		repin       bool // --repin: installed-but-drifted from the declared version
 	}
 
 	// Batch-detect all winget apps in one call for performance.
@@ -301,10 +306,21 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		action.Name = itemName
 		action.Version = version // captured installed version for present packages
 
+		repin := false
 		if installed {
 			action.Status = "present"
-			action.Reason = driver.ReasonAlreadyInstalled
-			emitter.EmitItem(ref, d.Name(), "present", driver.ReasonAlreadyInstalled, "Already installed", itemName)
+			if flags.Repin && app.Version != "" && version != "" &&
+				strings.TrimSpace(version) != strings.TrimSpace(app.Version) {
+				// Declared version has drifted from the installed one: mark for
+				// re-pin convergence (reinstalled in the apply loop, --confirm-gated).
+				repin = true
+				action.Reason = driver.ReasonVersionDrift
+				action.Message = fmt.Sprintf("Version drift: installed %s, want %s", version, app.Version)
+				emitter.EmitItem(ref, d.Name(), "present", driver.ReasonVersionDrift, action.Message, itemName)
+			} else {
+				action.Reason = driver.ReasonAlreadyInstalled
+				emitter.EmitItem(ref, d.Name(), "present", driver.ReasonAlreadyInstalled, "Already installed", itemName)
+			}
 			presentCount++
 		} else {
 			action.Status = "to_install"
@@ -313,7 +329,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 			toInstallCount++
 		}
 
-		planEntries = append(planEntries, appPlan{app: app, ref: ref, action: action, displayName: itemName})
+		planEntries = append(planEntries, appPlan{app: app, ref: ref, action: action, displayName: itemName, repin: repin})
 	}
 
 	totalApps := len(planEntries)
@@ -347,6 +363,38 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 					finalActions[i].Reason = "manual_required"
 					emitter.EmitItem(entry.app.ID, "manual", "skipped", "manual_required", finalActions[i].Message, entry.app.DisplayName)
 					skippedCount++
+				}
+				continue
+			}
+
+			// Version convergence (--repin): a present app whose installed version
+			// drifted from its declared App.Version. Reinstall the declared version
+			// (force), gated by --confirm; without confirmation the drifted app is
+			// left present and the run refuses after the apply phase.
+			if entry.repin {
+				vi, ok := d.(driver.VersionedInstaller)
+				if !flags.Confirm || !ok {
+					skippedCount++
+					continue
+				}
+				emitter.EmitItem(entry.ref, d.Name(), "installing", "", fmt.Sprintf("Re-pinning %s to %s", entry.ref, entry.app.Version), entry.displayName)
+				result, rerr := vi.ReinstallVersion(entry.ref, entry.app.Version)
+				if rerr != nil {
+					finalActions[i].Status = driver.StatusFailed
+					finalActions[i].Reason = driver.ReasonInstallFailed
+					emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonInstallFailed, rerr.Error(), entry.displayName)
+					failedCount++
+					continue
+				}
+				if result.Status == driver.StatusInstalled {
+					finalActions[i].Status, finalActions[i].Reason = "installed", ""
+					finalActions[i].Version = entry.app.Version // converged version is now committed
+					emitter.EmitItem(entry.ref, d.Name(), "installed", "", result.Message, entry.displayName)
+					successCount++
+				} else {
+					finalActions[i].Status, finalActions[i].Reason = result.Status, result.Reason
+					emitter.EmitItem(entry.ref, d.Name(), result.Status, result.Reason, result.Message, entry.displayName)
+					failedCount++
 				}
 				continue
 			}
@@ -406,6 +454,17 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		// install-only). Written only when >=1 package was installed this run;
 		// Partial when any attempted install failed. Never touches restore state.
 		writeProvisioningGeneration(runID, d.Name(), finalActions, nil, "", failedCount > 0)
+
+		// Version convergence (--repin) is destructive (reinstall / possible
+		// downgrade), so it requires --confirm. Refuse without it — the install
+		// phase above stands; only the drifted re-pins were withheld. (--dry-run
+		// previews and never reaches here.)
+		if flags.Repin && !flags.Confirm {
+			return nil, envelope.NewError(
+				envelope.ErrInternalError,
+				"version convergence (--repin) requires --confirm (it reinstalls drifted packages)").
+				WithRemediation("Re-run with --repin --confirm, or use --repin --dry-run to preview.")
+		}
 
 		// ----------------------------------------------------------------
 		// Phase 2b: Restore  (when --enable-restore and manifest has entries)

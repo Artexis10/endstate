@@ -130,6 +130,7 @@ type parsedArgs struct {
 	to             string
 	confirm        bool
 	prune          bool // apply --prune: converge to the exact declared set
+	repin          bool // apply --repin: reinstall a drifted declared App.Version
 	saveRecoveryTo string
 	overwrite      bool
 	ifChanged      bool
@@ -184,6 +185,8 @@ func parseArgs(args []string) parsedArgs {
 			p.confirm = true
 		case "--prune":
 			p.prune = true
+		case "--repin":
+			p.repin = true
 		case "--overwrite":
 			p.overwrite = true
 		case "--if-changed":
@@ -300,7 +303,7 @@ func commandUsage(cmd string) string {
 	case "capabilities":
 		return "Usage: endstate capabilities [--json]\n\nReport CLI capabilities for GUI handshake.\n"
 	case "apply":
-		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--prune] [--confirm] [--json] [--events jsonl]\n\nExecute provisioning plan. With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). --prune requires --confirm to execute; use --prune --dry-run to preview what would be removed.\n"
+		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--prune] [--repin] [--confirm] [--json] [--events jsonl]\n\nExecute provisioning plan. With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (winget only). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change.\n"
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
@@ -419,6 +422,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			RestoreFilter: p.restoreFilter,
 			Prune:         p.prune,
 			Confirm:       p.confirm,
+			Repin:         p.repin,
 		})
 
 	case "verify":

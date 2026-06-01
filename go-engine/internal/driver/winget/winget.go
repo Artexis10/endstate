@@ -64,14 +64,16 @@ func (w *WingetDriver) Name() string { return "winget" }
 //
 // If the winget binary is not found, Install returns (nil, ErrWingetNotAvailable).
 func (w *WingetDriver) Install(ref string) (*driver.InstallResult, error) {
-	return w.install(ref, "")
+	return w.install(ref, "", false)
 }
 
 // install is the shared winget-install implementation. When version is non-empty
-// it pins the install via `--version <version>` (the VersionedInstaller path);
-// otherwise it installs the latest, byte-identical to the historical Install
-// behavior.
-func (w *WingetDriver) install(ref, version string) (*driver.InstallResult, error) {
+// it pins the install via `--version <version>` (the VersionedInstaller path).
+// When force is true it adds `--force` so an already-installed different version
+// is reinstalled to the requested one (the `apply --repin` convergence path).
+// With version="" and force=false it installs the latest, byte-identical to the
+// historical Install behavior.
+func (w *WingetDriver) install(ref, version string, force bool) (*driver.InstallResult, error) {
 	args := []string{
 		"install",
 		"--id", ref,
@@ -82,6 +84,9 @@ func (w *WingetDriver) install(ref, version string) (*driver.InstallResult, erro
 	}
 	if version != "" {
 		args = append(args, "--version", version)
+	}
+	if force {
+		args = append(args, "--force")
 	}
 	cmd := w.ExecCommand("winget", args...)
 

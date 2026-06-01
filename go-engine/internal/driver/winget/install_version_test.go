@@ -104,6 +104,33 @@ func TestInstall_Unpinned_NoVersionFlag(t *testing.T) {
 	}
 }
 
+// ReinstallVersion passes BOTH --version and --force so an installed-but-drifted
+// package is changed to the declared version (the apply --repin path).
+func TestReinstallVersion_PassesVersionAndForce(t *testing.T) {
+	var got []string
+	d := &WingetDriver{ExecCommand: capturingCommand(0, &got)}
+
+	res, err := d.ReinstallVersion("Vendor.App", "1.2.0")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !hasFlagValue(got, "--version", "1.2.0") {
+		t.Fatalf("expected --version 1.2.0 in args: %v", got)
+	}
+	forced := false
+	for _, a := range got {
+		if a == "--force" {
+			forced = true
+		}
+	}
+	if !forced {
+		t.Fatalf("ReinstallVersion must pass --force: %v", got)
+	}
+	if res.Status != driver.StatusInstalled {
+		t.Fatalf("Status = %q, want installed", res.Status)
+	}
+}
+
 // DetectBatch propagates the snapshot's parsed Version column into
 // DetectResult.Version (capture), keyed case-insensitively by winget Id.
 func TestDetectBatch_CapturesVersion(t *testing.T) {

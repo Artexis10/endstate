@@ -17,5 +17,14 @@ var _ driver.VersionedInstaller = (*WingetDriver)(nil)
 // HRESULT), so it surfaces as StatusFailed/ReasonInstallFailed — the pin is
 // never silently satisfied by a different version.
 func (w *WingetDriver) InstallVersion(ref, version string) (*driver.InstallResult, error) {
-	return w.install(ref, version)
+	return w.install(ref, version, false)
+}
+
+// ReinstallVersion force-reinstalls an exact version over an already-installed
+// (drifted) one via `winget install --version <version> --force`. It is the
+// convergence step of `apply --repin`: without --force, winget reports an
+// installed-but-different package as already installed and won't switch versions.
+// Same exit-code classification as InstallVersion.
+func (w *WingetDriver) ReinstallVersion(ref, version string) (*driver.InstallResult, error) {
+	return w.install(ref, version, true)
 }
