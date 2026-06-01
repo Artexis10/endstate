@@ -58,7 +58,7 @@ func (w *WingetDriver) Name() string { return "winget" }
 //
 // Exit code semantics:
 //   - 0                 → StatusInstalled
-//   - -1978335189 (0x8A150019) → StatusPresent / ReasonAlreadyInstalled
+//   - -1978335189 (0x8A15002B) → StatusPresent / ReasonAlreadyInstalled
 //   - other non-zero    → StatusFailed / ReasonInstallFailed
 //
 // If combined stdout+stderr contains cancellation keywords the reason is
