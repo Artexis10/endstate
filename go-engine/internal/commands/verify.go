@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
@@ -76,6 +77,11 @@ type VerifyItem struct {
 	Status  string `json:"status"`
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
+	// Version is the installed version (winget; best-effort). Expected is the
+	// version declared by the manifest. Both are set when a version is declared,
+	// so a consumer can render a version_drift mismatch.
+	Version  string `json:"version,omitempty"`
+	Expected string `json:"expected,omitempty"`
 }
 
 // RunVerify executes the verify command with the provided flags.
@@ -182,10 +188,12 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		// Use batch results if available; fall back to per-ref Detect.
 		var installed bool
 		var displayName string
+		var installedVersion string // best-effort; only the batch path exposes it
 		var detectErr error
 		if br, ok := batchResults[ref]; ok {
 			installed = br.Installed
 			displayName = br.DisplayName
+			installedVersion = br.Version
 		} else {
 			installed, displayName, detectErr = d.Detect(ref)
 		}
@@ -207,8 +215,20 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Message = detectErr.Error()
 			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, itemName)
 			failCount++
+		} else if got, want := strings.TrimSpace(installedVersion), strings.TrimSpace(app.Version); installed && want != "" && got != "" && got != want {
+			// Installed, but at a version different from the one the manifest
+			// declares: version drift (a failure distinct from "missing"). Only
+			// evaluated when a version is declared and the backend exposed one.
+			item.Status = "fail"
+			item.Reason = driver.ReasonVersionDrift
+			item.Version = got
+			item.Expected = want
+			item.Message = fmt.Sprintf("installed %s, want %s", got, want)
+			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonVersionDrift, item.Message, itemName)
+			failCount++
 		} else if installed {
 			item.Status = "pass"
+			item.Version = strings.TrimSpace(installedVersion)
 			emitter.EmitItem(ref, d.Name(), "present", "", "Verified installed", itemName)
 			passCount++
 		} else {

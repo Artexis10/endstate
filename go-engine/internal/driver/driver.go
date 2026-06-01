@@ -33,6 +33,10 @@ const (
 	ReasonMissing = "missing"
 	// ReasonFiltered means the package was excluded by a filter/policy.
 	ReasonFiltered = "filtered"
+	// ReasonVersionDrift means the package is installed but at a version that
+	// differs from the one declared by the manifest (a verify failure distinct
+	// from "missing"). Only evaluated for apps that declare a version.
+	ReasonVersionDrift = "version_drift"
 )
 
 // InstallResult is returned by Driver.Install and carries the outcome of a
@@ -111,6 +115,12 @@ type VersionedInstaller interface {
 	// failure — including the requested version being unavailable — is encoded
 	// in InstallResult as StatusFailed/ReasonInstallFailed.
 	InstallVersion(ref, version string) (*InstallResult, error)
+	// ReinstallVersion force-reinstalls the exact given version over an already-
+	// installed (drifted) one — the convergence step of `apply --repin`. It is
+	// InstallVersion plus a force flag, so a package installed at a different
+	// version is changed to the declared version rather than reported as already
+	// installed. Same failure contract as InstallVersion.
+	ReinstallVersion(ref, version string) (*InstallResult, error)
 }
 
 // DetectResult holds the outcome of a batch detection check for a single ref.
