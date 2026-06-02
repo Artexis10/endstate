@@ -46,7 +46,7 @@ type CaptureResult struct {
 	ConfigModules        []CaptureModuleResult `json:"configModules"`
 	ConfigModuleMap      map[string]string     `json:"configModuleMap"`
 	OutputPath           string                `json:"outputPath"`
-	OutputFormat         string                `json:"outputFormat"`       // "zip" or "jsonc"
+	OutputFormat         string                `json:"outputFormat"` // "zip" or "jsonc"
 	ConfigsIncluded      []string              `json:"configsIncluded"`
 	ConfigsSkipped       []string              `json:"configsSkipped"`
 	ConfigsCaptureErrors []string              `json:"configsCaptureErrors"`
@@ -139,10 +139,11 @@ type cleanApp struct {
 
 // captureManifestOutput is the manifest structure written to disk.
 type captureManifestOutput struct {
-	Version  int         `json:"version"`
-	Name     string      `json:"name,omitempty"`
-	Captured string      `json:"captured,omitempty"`
-	Apps     interface{} `json:"apps"`
+	Version     int                         `json:"version"`
+	Name        string                      `json:"name,omitempty"`
+	Captured    string                      `json:"captured,omitempty"`
+	Apps        interface{}                 `json:"apps"`
+	HomeManager *manifest.HomeManagerConfig `json:"homeManager,omitempty"`
 }
 
 // RunCapture executes the capture command with the provided flags.
