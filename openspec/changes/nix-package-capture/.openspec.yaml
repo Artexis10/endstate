@@ -1,0 +1,10 @@
+id: nix-package-capture
+title: "Nix Package Capture: close the apply↔capture loop on the realizer"
+status: implementing
+spec: nix-package-capture
+created: "2026-06-02"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

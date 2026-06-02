@@ -163,6 +163,13 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("capture")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
 
+	// --- 0. Realizer path (whole-set, e.g. Nix on linux/darwin) ---
+	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
+	// the winget capture path below, byte-identical to prior behavior.
+	if rz, rerr := newRealizerFn(); rerr == nil {
+		return runCaptureRealizer(flags, rz, emitter)
+	}
+
 	// --- 1. Emit phase event (first event per event-contract.md) ---
 	emitter.EmitPhase("capture")
 
