@@ -10,15 +10,17 @@ import (
 )
 
 // writeProvisioningGeneration records a Provisioning Generation for an apply, but
-// only when the committed package set changed — i.e. at least one ref was
-// installed OR removed (pruned) this run. Idempotent re-runs (nothing added or
-// removed) write no generation. It is best-effort: a write error never fails the
-// apply, mirroring run-history persistence.
+// only when something was committed — i.e. at least one ref was installed OR
+// removed (pruned) this run, OR a home-manager config was activated. Idempotent
+// re-runs (nothing added, removed, or activated) write no generation. It is
+// best-effort: a write error never fails the apply, mirroring run-history
+// persistence.
 //
-// Separation of concerns: this records package facts only (the installed,
-// already-present, and pruned refs). It never touches the config backup directory
-// (state/backups/) or the restore revert journal.
-func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, removed []string, native string, partial bool) {
+// Separation of concerns: this records package facts plus the engine-owned
+// home-manager config reference (a flakeref + generation number — still install/
+// provisioning facts, not config file contents). It never touches the config
+// backup directory (state/backups/) or the restore revert journal.
+func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, removed []string, native string, partial bool, home *provision.HomeGenRef) {
 	items := make([]provision.ProvItem, 0, len(actions))
 	added := make([]string, 0)
 	for _, a := range actions {
@@ -31,8 +33,8 @@ func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, r
 			items = append(items, provision.ProvItem{ID: a.ID, Ref: derefRef(a.Ref), Status: "present", Version: a.Version})
 		}
 	}
-	if len(added) == 0 && len(removed) == 0 {
-		return // nothing added or removed → no new generation
+	if len(added) == 0 && len(removed) == 0 && home == nil {
+		return // nothing added, removed, or activated → no new generation
 	}
 	_ = provision.Write(&provision.Generation{
 		RunID:       runID,
@@ -43,6 +45,7 @@ func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, r
 		RemovedRefs: removed,
 		Native:      native,
 		Partial:     partial,
+		HomeManager: home,
 	})
 }
 

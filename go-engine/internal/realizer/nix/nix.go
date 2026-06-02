@@ -35,12 +35,21 @@ type Backend struct {
 	// Pin is the base flakeref a bare attribute is expanded against (e.g.
 	// "nixpkgs" or a rev-pinned "github:NixOS/nixpkgs/<rev>").
 	Pin string
+	// HomePin is the pinned home-manager flakeref the engine runs the
+	// home-manager CLI from (`nix run <HomePin> -- switch`), so the user never
+	// installs home-manager. Overridable via ENDSTATE_HOME_MANAGER_PIN; mirrors
+	// Pin/ENDSTATE_NIXPKGS_PIN.
+	HomePin string
 	// Run executes nix; defaults to the real exec runner.
 	Run Runner
 	// genFn overrides generation reading; nil means read the profile symlink.
 	// Tests (in-package) set this to drive Realize's atomicity detection
 	// hermetically without a real generation switch.
 	genFn func() int
+	// homeGenFn overrides home-manager generation reading; nil means read the
+	// home-manager profile symlink. Tests set it so ActivateHome's success path
+	// is exercised hermetically without a real home-manager switch.
+	homeGenFn func() int
 }
 
 // gen returns the active generation number, via genFn when set (tests) else by
@@ -55,7 +64,7 @@ func (b *Backend) gen() int {
 // New returns a Backend with the default Endstate-managed profile, pin, and a
 // real exec runner.
 func New() *Backend {
-	return &Backend{Profile: DefaultProfile(), Pin: defaultPin(), Run: defaultRunner}
+	return &Backend{Profile: DefaultProfile(), Pin: defaultPin(), HomePin: defaultHomePin(), Run: defaultRunner}
 }
 
 // Name satisfies realizer.Realizer.
@@ -87,6 +96,40 @@ func defaultPin() string {
 	return "nixpkgs"
 }
 
+// defaultHomePin returns the pinned home-manager flakeref the engine runs the
+// home-manager CLI from, overridable via ENDSTATE_HOME_MANAGER_PIN (mirrors
+// ENDSTATE_NIXPKGS_PIN). The default tracks the home-manager flake's default
+// branch; a production deployment pins a rev or release branch
+// ("github:nix-community/home-manager/<rev|release>") for full reproducibility.
+// This pin only selects the home-manager CLI binary — the user's flake supplies
+// its own home-manager library and nixpkgs.
+func defaultHomePin() string {
+	if p := os.Getenv("ENDSTATE_HOME_MANAGER_PIN"); p != "" {
+		return p
+	}
+	return "github:nix-community/home-manager"
+}
+
+// nixArgs returns the full nix argv with the experimental features the
+// flake/nix-command verbs require. They are inserted BEFORE the first bare `--`
+// separator so a `nix run <pin> -- <prog args>` invocation passes the flag to
+// nix rather than to the downstream program (e.g. home-manager, which would
+// reject it). When there is no bare `--` (the `nix profile` verbs) the flag is
+// appended at the end, exactly as before.
+func nixArgs(args []string) []string {
+	feat := []string{"--extra-experimental-features", "nix-command flakes"}
+	for i, a := range args {
+		if a == "--" {
+			out := make([]string, 0, len(args)+len(feat))
+			out = append(out, args[:i]...)
+			out = append(out, feat...)
+			out = append(out, args[i:]...)
+			return out
+		}
+	}
+	return append(append([]string{}, args...), feat...)
+}
+
 // nixBin resolves the nix binary: ENDSTATE_NIX_BIN, else PATH, else the
 // Determinate default install location.
 func nixBin() string {
@@ -102,9 +145,7 @@ func nixBin() string {
 // defaultRunner runs the real nix CLI, forcing the experimental features the
 // `nix profile`/flake commands require (harmless if already enabled).
 func defaultRunner(args ...string) ([]byte, []byte, int, error) {
-	full := append([]string{}, args...)
-	full = append(full, "--extra-experimental-features", "nix-command flakes")
-	cmd := exec.Command(nixBin(), full...)
+	cmd := exec.Command(nixBin(), nixArgs(args)...)
 	var out, errb bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errb

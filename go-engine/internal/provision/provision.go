@@ -42,6 +42,20 @@ type Generation struct {
 	Partial       bool       `json:"partial"`          // true when a non-atomic backend committed a partial set
 	Rollback      bool       `json:"rollback,omitempty"`    // true when this generation was produced by a rollback (AddedRefs is empty)
 	RemovedRefs   []string   `json:"removedRefs,omitempty"` // refs uninstalled by a best-effort (winget) rollback; empty for native/apply generations
+
+	// HomeManager records a home-manager configuration activated by this apply's
+	// config stage (realizer-only, opt-in via --enable-restore). nil when no
+	// config was activated. Config is recorded alongside packages so it is part of
+	// the same audit trail; it stays a pointer so package-only generations omit it.
+	HomeManager *HomeGenRef `json:"homeManager,omitempty"`
+}
+
+// HomeGenRef records a home-manager configuration the engine activated: the
+// flakeref applied and the resulting home-manager generation number. It is the
+// config analogue of the package Native anchor.
+type HomeGenRef struct {
+	Flake      string `json:"flake"`
+	Generation int    `json:"generation"`
 }
 
 // Capabilities describes what a package backend can do. It is discovered at

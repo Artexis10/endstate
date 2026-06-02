@@ -46,6 +46,39 @@ func TestWriteTo_AssignsMonotonicNumbersAndDefaultsSchema(t *testing.T) {
 	}
 }
 
+// TestWriteTo_RecordsHomeManager verifies the optional HomeManager config record
+// (the home-manager flakeref + its resulting generation number) round-trips
+// through write/read, so an activated config joins the same audit trail as
+// packages.
+func TestWriteTo_RecordsHomeManager(t *testing.T) {
+	dir := t.TempDir()
+	g := &Generation{
+		RunID:       "apply-hm",
+		Backend:     "nix",
+		HomeManager: &HomeGenRef{Flake: "/home/me/dotfiles#hugo", Generation: 7},
+	}
+	if err := WriteTo(dir, g); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	gens, err := ListFrom(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gens) != 1 {
+		t.Fatalf("len = %d, want 1", len(gens))
+	}
+	hm := gens[0].HomeManager
+	if hm == nil {
+		t.Fatal("HomeManager = nil after round-trip, want non-nil")
+	}
+	if hm.Flake != "/home/me/dotfiles#hugo" {
+		t.Errorf("HomeManager.Flake = %q, want %q", hm.Flake, "/home/me/dotfiles#hugo")
+	}
+	if hm.Generation != 7 {
+		t.Errorf("HomeManager.Generation = %d, want 7", hm.Generation)
+	}
+}
+
 func TestListFrom_NewestFirstAndIgnoresNonRecords(t *testing.T) {
 	dir := t.TempDir()
 	for i := 0; i < 3; i++ {

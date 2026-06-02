@@ -515,6 +515,47 @@ func TestLoadManifestIncludes_MergesRestoreAndVerify(t *testing.T) {
 	}
 }
 
+// TestLoadManifest_HomeManager verifies the homeManager.flake field round-trips
+// through JSONC load (comments + the nested object), and that an absent block
+// yields a nil HomeManager (so the config stage is a strict no-op by default).
+func TestLoadManifest_HomeManager(t *testing.T) {
+	dir := t.TempDir()
+
+	withHM := filepath.Join(dir, "with-hm.jsonc")
+	withHMContent := `{
+  "version": 1,
+  "name": "hm-test",
+  "apps": [],
+  // power-user home-manager flakeref escape hatch
+  "homeManager": { "flake": "/home/me/dotfiles#hugo" }
+}`
+	if err := os.WriteFile(withHM, []byte(withHMContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManifest(withHM)
+	if err != nil {
+		t.Fatalf("unexpected error loading manifest with homeManager: %v", err)
+	}
+	if m.HomeManager == nil {
+		t.Fatal("HomeManager = nil, want non-nil for a manifest declaring homeManager.flake")
+	}
+	if m.HomeManager.Flake != "/home/me/dotfiles#hugo" {
+		t.Errorf("HomeManager.Flake = %q, want %q", m.HomeManager.Flake, "/home/me/dotfiles#hugo")
+	}
+
+	without := filepath.Join(dir, "without-hm.jsonc")
+	if err := os.WriteFile(without, []byte(`{ "version": 1, "name": "no-hm", "apps": [] }`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := LoadManifest(without)
+	if err != nil {
+		t.Fatalf("unexpected error loading manifest without homeManager: %v", err)
+	}
+	if m2.HomeManager != nil {
+		t.Errorf("HomeManager = %+v, want nil when the block is absent", m2.HomeManager)
+	}
+}
+
 func TestLoadManifestIncludes_ParentAppsBeforeChild(t *testing.T) {
 	// Pester: "Should contain local app from root manifest" +
 	//         "Should contain apps from included base-apps.jsonc"

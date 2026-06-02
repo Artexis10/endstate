@@ -453,7 +453,8 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		// Record a Provisioning Generation for the install stage (best-effort,
 		// install-only). Written only when >=1 package was installed this run;
 		// Partial when any attempted install failed. Never touches restore state.
-		writeProvisioningGeneration(runID, d.Name(), finalActions, nil, "", failedCount > 0)
+		// Driver (winget) path: home-manager is realizer-only, so no config record.
+		writeProvisioningGeneration(runID, d.Name(), finalActions, nil, "", failedCount > 0, nil)
 
 		// Version convergence (--repin) is destructive (reinstall / possible
 		// downgrade), so it requires --confirm. Refuse without it — the install
