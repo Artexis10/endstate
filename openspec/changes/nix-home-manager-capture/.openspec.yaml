@@ -1,0 +1,10 @@
+id: nix-home-manager-capture
+title: "Home-manager config capture: close the config apply↔capture loop"
+status: implementing
+spec: nix-home-manager-capture
+created: "2026-06-02"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

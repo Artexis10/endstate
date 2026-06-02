@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
@@ -48,6 +49,31 @@ type capturedManifestFile struct {
 		Refs    map[string]string `json:"refs"`
 		Version string            `json:"version"`
 	} `json:"apps"`
+	HomeManager *struct {
+		Flake string `json:"flake"`
+	} `json:"homeManager"`
+}
+
+// withFakeGenerations replaces listGenerationsFn (the provisioning-history read
+// used to recover the activated home-manager flake) with one returning the given
+// generations and error, calls f, then restores the original. Generations are
+// newest-first, matching provision.List.
+func withFakeGenerations(gens []*provision.Generation, err error, f func()) {
+	orig := listGenerationsFn
+	listGenerationsFn = func() ([]*provision.Generation, error) { return gens, err }
+	defer func() { listGenerationsFn = orig }()
+	f()
+}
+
+// hmGen builds a provisioning generation that activated the given home-manager
+// flake (genNum is the home-manager generation number, irrelevant to capture).
+func hmGen(flake string, genNum int) *provision.Generation {
+	return &provision.Generation{HomeManager: &provision.HomeGenRef{Flake: flake, Generation: genNum}}
+}
+
+// pkgGen builds a package-only provisioning generation (no home-manager config).
+func pkgGen() *provision.Generation {
+	return &provision.Generation{}
 }
 
 func readCapturedManifest(t *testing.T, path string) capturedManifestFile {
@@ -297,5 +323,129 @@ func TestRunCapture_NoRealizer_UsesWingetPath(t *testing.T) {
 	}
 	if !foundWin {
 		t.Errorf("expected winget path (windows refs) when no realizer, got %+v", mf.Apps)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Home-manager config capture (engine-provisioned flake passthrough)
+// ---------------------------------------------------------------------------
+
+// The activated home-manager flake is recovered from provisioning history and
+// emitted into the manifest alongside the captured packages.
+func TestRunCaptureRealizer_EmitsHomeManagerFlakeFromHistory(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "hm.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+
+	withFakeGenerations([]*provision.Generation{hmGen("/home/me/dots#hugo", 3)}, nil, func() {
+		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
+			t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+		}
+	})
+
+	mf := readCapturedManifest(t, out)
+	if mf.HomeManager == nil {
+		t.Fatalf("expected homeManager block, got none")
+	}
+	if mf.HomeManager.Flake != "/home/me/dots#hugo" {
+		t.Errorf("homeManager.flake = %q, want /home/me/dots#hugo", mf.HomeManager.Flake)
+	}
+	if len(mf.Apps) != 1 {
+		t.Errorf("packages should still be captured: apps = %d, want 1", len(mf.Apps))
+	}
+}
+
+// When a later generation activated no config (HomeManager=nil), capture uses the
+// most-recent generation that DID — the config still in effect — not "latest".
+func TestRunCaptureRealizer_HomeManager_MostRecentNonNil(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "hm2.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("jq")}
+
+	// newest-first: newest is package-only, older activated the flake.
+	gens := []*provision.Generation{pkgGen(), hmGen("github:me/dots#box", 2)}
+	withFakeGenerations(gens, nil, func() {
+		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
+			t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+		}
+	})
+
+	mf := readCapturedManifest(t, out)
+	if mf.HomeManager == nil || mf.HomeManager.Flake != "github:me/dots#box" {
+		t.Fatalf("expected the most-recent activated flake github:me/dots#box, got %+v", mf.HomeManager)
+	}
+}
+
+// No generation activated a config → the homeManager field is omitted entirely.
+func TestRunCaptureRealizer_NoHomeManagerHistory_OmitsField(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "hm3.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+
+	withFakeGenerations([]*provision.Generation{pkgGen()}, nil, func() {
+		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
+			t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+		}
+	})
+
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	if strings.Contains(string(data), "homeManager") {
+		t.Errorf("expected no homeManager field, got:\n%s", data)
+	}
+	if mf := readCapturedManifest(t, out); mf.HomeManager != nil {
+		t.Errorf("expected nil homeManager, got %+v", mf.HomeManager)
+	}
+}
+
+// A provisioning-history read error must not fail capture: the package manifest
+// is still written and the homeManager field is simply omitted (best-effort).
+func TestRunCaptureRealizer_GenerationsError_OmitsAndSucceeds(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "hm4.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep", "jq")}
+
+	withFakeGenerations(nil, errors.New("state dir unreadable"), func() {
+		raw, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter())
+		if eerr != nil {
+			t.Fatalf("history read error must not fail capture: %+v", eerr)
+		}
+		res := raw.(*CaptureResult)
+		if res.Counts.Included != 2 {
+			t.Errorf("packages still captured: Included = %d, want 2", res.Counts.Included)
+		}
+	})
+
+	mf := readCapturedManifest(t, out)
+	if mf.HomeManager != nil {
+		t.Errorf("expected nil homeManager on history error, got %+v", mf.HomeManager)
+	}
+	if len(mf.Apps) != 2 {
+		t.Errorf("apps = %d, want 2", len(mf.Apps))
+	}
+}
+
+// On --update with no config in history, an existing manifest's homeManager block
+// is preserved rather than dropped.
+func TestRunCaptureRealizer_Update_PreservesExistingHomeManager(t *testing.T) {
+	tmp := t.TempDir()
+	existing := filepath.Join(tmp, "existing.jsonc")
+	existingJSON := fmt.Sprintf(
+		`{"version":1,"name":"box","apps":[{"id":"ripgrep","refs":{"%s":"ripgrep"}}],"homeManager":{"flake":"github:me/dots#hugo"}}`,
+		runtime.GOOS,
+	)
+	if err := os.WriteFile(existing, []byte(existingJSON), 0644); err != nil {
+		t.Fatalf("write existing manifest: %v", err)
+	}
+	out := filepath.Join(tmp, "merged.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep", "jq")}
+
+	withFakeGenerations([]*provision.Generation{pkgGen()}, nil, func() {
+		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out, Update: true, Manifest: existing}, fr, noopEmitter()); eerr != nil {
+			t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+		}
+	})
+
+	mf := readCapturedManifest(t, out)
+	if mf.HomeManager == nil || mf.HomeManager.Flake != "github:me/dots#hugo" {
+		t.Fatalf("expected preserved homeManager github:me/dots#hugo, got %+v", mf.HomeManager)
 	}
 }

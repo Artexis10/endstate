@@ -14,8 +14,15 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
+
+// listGenerationsFn reads the provisioning generations (newest-first). It
+// defaults to provision.List and is replaced in tests to make home-manager
+// flake recovery hermetic.
+var listGenerationsFn = provision.List
 
 // runCaptureRealizer is the capture path for a realizer backend (Nix on
 // linux/darwin). It reads the installed set via Current() and emits each element
@@ -114,10 +121,11 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 	}
 
 	outManifest := captureManifestOutput{
-		Version:  1,
-		Name:     manifestName,
-		Captured: time.Now().UTC().Format(time.RFC3339),
-		Apps:     outputApps,
+		Version:     1,
+		Name:        manifestName,
+		Captured:    time.Now().UTC().Format(time.RFC3339),
+		Apps:        outputApps,
+		HomeManager: recoverHomeManager(flags),
 	}
 
 	// --- 7. Write manifest as pretty-printed JSON (same as the winget path) ---
@@ -187,4 +195,29 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 			Path: absPath,
 		},
 	}, nil
+}
+
+// recoverHomeManager returns the home-manager configuration to record in the
+// captured manifest, or nil if none is known. The flake is recovered from the
+// engine's own provisioning history (home-manager does not persist the source
+// flakeref in a live install): the most-recent generation whose HomeManager is
+// set — provision.List is newest-first, and a later package-only apply records
+// HomeManager=nil, so the first match is the config still in effect. The read is
+// best-effort: an error or empty history simply yields nil (the field is
+// omitted; package capture is unaffected). On --update with no flake in history,
+// an existing manifest's homeManager block is preserved rather than dropped.
+func recoverHomeManager(flags CaptureFlags) *manifest.HomeManagerConfig {
+	if gens, err := listGenerationsFn(); err == nil {
+		for _, g := range gens {
+			if g.HomeManager != nil && g.HomeManager.Flake != "" {
+				return &manifest.HomeManagerConfig{Flake: g.HomeManager.Flake}
+			}
+		}
+	}
+	if flags.Update && flags.Manifest != "" {
+		if mf, loadErr := loadManifest(flags.Manifest); loadErr == nil && mf.HomeManager != nil {
+			return mf.HomeManager
+		}
+	}
+	return nil
 }
