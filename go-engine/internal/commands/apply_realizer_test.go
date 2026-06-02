@@ -54,8 +54,8 @@ type fakeRealizer struct {
 	lastRemoveArgs []string
 
 	// --- home-manager activation (config stage) ---
-	homeGenNum      int    // scripted ActivateHome generation
-	homeErr         error  // scripted ActivateHome error
+	homeGenNum      int   // scripted ActivateHome generation
+	homeErr         error // scripted ActivateHome error
 	activateCalls   int
 	lastActivateArg string
 }
@@ -520,6 +520,49 @@ func TestRunApplyRealizer_HomeManager_ActivatesAndRecords(t *testing.T) {
 	hm := gens[0].HomeManager
 	if hm == nil || hm.Flake != "/home/me/dotfiles#hugo" || hm.Generation != 5 {
 		t.Fatalf("generation HomeManager = %+v, want flake=/home/me/dotfiles#hugo gen=5", hm)
+	}
+}
+
+// TestRunApplyRealizer_HomeManager_Config_RecordsDeclaredConfig: a homeManager.config
+// apply records the user's DECLARED config path in the generation (so capture can
+// round-trip it), alongside the engine-generated flake that was actually activated.
+func TestRunApplyRealizer_HomeManager_Config_RecordsDeclaredConfig(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	cfg := filepath.Join(t.TempDir(), "home.nix")
+	if err := os.WriteFile(cfg, []byte("{ home.stateVersion = \"24.05\"; }\n"), 0o644); err != nil {
+		t.Fatalf("write home.nix: %v", err)
+	}
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Config: cfg}
+
+	ins := realizer.Installable{ID: "ripgrep", Ref: hostRef(app)}
+	fr := &fakeRealizer{
+		planDiff: realizer.Diff{ToAdd: []realizer.Installable{ins}},
+		realizeResult: realizer.Result{
+			Advanced: true, FromGeneration: 1, ToGeneration: 2,
+			After: realizer.Set{Generation: 2, Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}}},
+		},
+		homeGenNum: 7,
+	}
+
+	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hmcfg", nil, nil); eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	gens, _ := provision.List()
+	if len(gens) != 1 {
+		t.Fatalf("want 1 generation, got %d", len(gens))
+	}
+	hm := gens[0].HomeManager
+	if hm == nil {
+		t.Fatalf("generation HomeManager is nil")
+	}
+	if hm.Config != cfg {
+		t.Errorf("HomeManager.Config = %q, want the declared config %q", hm.Config, cfg)
+	}
+	if hm.Flake == "" {
+		t.Error("HomeManager.Flake should record the generated (activated) flake, got empty")
 	}
 }
 

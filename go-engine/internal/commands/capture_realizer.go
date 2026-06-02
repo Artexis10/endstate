@@ -209,7 +209,16 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 func recoverHomeManager(flags CaptureFlags) *manifest.HomeManagerConfig {
 	if gens, err := listGenerationsFn(); err == nil {
 		for _, g := range gens {
-			if g.HomeManager != nil && g.HomeManager.Flake != "" {
+			if g.HomeManager == nil {
+				continue
+			}
+			// Prefer the user's declared config (a config apply records the
+			// machine-local generated flake in Flake but the portable home.nix in
+			// Config); fall back to a directly-declared flake.
+			if g.HomeManager.Config != "" {
+				return &manifest.HomeManagerConfig{Config: g.HomeManager.Config}
+			}
+			if g.HomeManager.Flake != "" {
 				return &manifest.HomeManagerConfig{Flake: g.HomeManager.Flake}
 			}
 		}

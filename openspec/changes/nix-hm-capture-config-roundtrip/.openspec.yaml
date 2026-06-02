@@ -1,0 +1,10 @@
+id: nix-hm-capture-config-roundtrip
+title: "Capture preserves the declared home-manager input (config round-trips)"
+status: implementing
+spec: nix-home-manager-capture
+created: "2026-06-02"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md
