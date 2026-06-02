@@ -398,7 +398,9 @@ When the manifest declares a `homeManager` block and `apply` runs with `--enable
 ```
 
 - `homeManager.flake` is a home-manager flakeref (e.g. `/home/me/dotfiles#hugo` or `github:me/dotfiles#hugo`) — a power-user escape hatch. The engine activates whatever flakeref it is given; engine-generated inputs may produce this flakeref in a later release without changing the stage.
-- `homeManager.config` is a path (resolved relative to the manifest) to a `home.nix` the engine **wraps in a generated flake** before activating it through this same stage — so the user supplies only their configuration, never the flake, inputs, pinning, identity, or activation wiring. `config` and `flake` are **mutually exclusive** (exactly one home-manager input); a manifest declaring both fails to load with a clear validation error.
+- `homeManager.config` is a path (resolved relative to the manifest) to a `home.nix` the engine **wraps in a generated flake** before activating it through this same stage — so the user supplies only their configuration, never the flake, inputs, pinning, identity, or activation wiring.
+- `homeManager.settings` is a **declarative, Endstate-native config block** the engine compiles into a `home.nix` (then wrapped exactly like `homeManager.config`) — so the user declares configuration in Endstate's own format and never writes Nix at all. See *Declarative catalog* below.
+- `settings`, `config`, and `flake` are **mutually exclusive** (exactly one home-manager input); a manifest declaring more than one fails to load with a clear validation error.
 - **Engine-owned and gated.** The engine itself runs the activation (`nix run <pinned home-manager> -- switch --flake <ref> -b endstate-backup`); the user does not install or run home-manager. The home-manager version is pinned by the engine (overridable via `ENDSTATE_HOME_MANAGER_PIN`, mirroring `ENDSTATE_NIXPKGS_PIN`). The stage runs **only** when both `--enable-restore` is set and `homeManager.flake` is non-empty; otherwise apply is byte-identical to a package-only apply.
 - **Backup-on-clobber.** `-b endstate-backup` makes home-manager move any pre-existing file it would replace to `<file>.endstate-backup` instead of failing (honors *backup-before-overwrite*).
 - **Recorded.** A successful activation is recorded in the Provisioning Generation under `homeManager` (the activated flakeref and the resulting home-manager generation number). A config-only apply (no package changed) still records a generation.
@@ -420,7 +422,30 @@ When the manifest uses `homeManager.config`, the engine generates the surroundin
 - **Recorded under the generated flakeref.** A successful activation records the generated `<dir>#<name>` flakeref (and the resulting home-manager generation) in the Provisioning Generation, exactly as a direct `homeManager.flake` is recorded.
 - **`--dry-run` reveals without activating.** On `--dry-run` the engine still generates the inspectable flake and reports it in the apply result (`homeManager.generated: true`, `homeManager.activated: false`), but activates nothing.
 
-The apply result carries a `homeManager` object when the config stage runs: `{ "flake": "<flakeref>", "generated": <bool>, "activated": <bool> }` — `generated` is `true` for a `homeManager.config` wrapper (false for a direct `homeManager.flake`), and `activated` is `false` on `--dry-run`. (Optional, omitted when no config stage runs; additive in schema 1.x.)
+The apply result carries a `homeManager` object when the config stage runs: `{ "flake": "<flakeref>", "generated": <bool>, "activated": <bool> }` — `generated` is `true` for an engine-generated input (`homeManager.settings` or `homeManager.config`) and `false` for a direct `homeManager.flake`; `activated` is `false` on `--dry-run`. (Optional, omitted when no config stage runs; additive in schema 1.x.)
+
+#### Declarative catalog (the `homeManager.settings` input)
+
+When the manifest uses `homeManager.settings`, the engine compiles the declaration into a `home.nix` and then wraps + activates it exactly like `homeManager.config` above (same generated flake, pinning, identity, recording, inspectability, and `--dry-run` reveal). The user declares configuration in Endstate's own format and never writes Nix.
+
+```jsonc
+{
+  "homeManager": {
+    "settings": {
+      "git":      { "userName": "Hugo", "userEmail": "h@x.com", "defaultBranch": "main" },  // curated
+      "shell":    { "aliases": { "ll": "ls -la" }, "sessionVariables": { "EDITOR": "nvim" } },
+      "direnv":   { "enable": true },
+      "starship": { "enable": true },
+      "programs": { "bat": { "enable": true } },          // raw home-manager passthrough
+      "files":    { "~/.config/foo/bar.conf": "./payload/bar.conf" }  // any file, text or binary
+    }
+  }
+}
+```
+
+- **Hybrid schema.** A curated set of Endstate-native concepts (v1: `git`, `shell`, `direnv`, `starship`) is mapped by the engine to the correct home-manager options; an embedded `programs` object is forwarded to home-manager **verbatim**. The curated layer insulates the declaration from home-manager option renames (e.g. `git.userName` is emitted via the stable `programs.git.extraConfig`). An **unknown key inside a curated concept** (a typo) fails to load with a clear error; the raw `programs` block stays permissive, and any mistake there surfaces as a classified activation error with raw Nix in `error.detail`.
+- **A raw `programs` entry may not collide with a curated concept** (e.g. raw `programs.git` alongside curated `git`) — that fails to generate with a clear error rather than producing a double definition.
+- **`files` places arbitrary files (text or binary).** Each `target → source` (source resolved relative to the manifest) is **staged into the generated flake directory** (binary-safe; kept inside the flake tree so pure evaluation can read it) and placed via home-manager's `home.file`. This matches the breadth of the Windows module catalog. **Place/restore only**; capturing files back into `settings` is a separate, deferred capability.
 
 > **Rollback of an activated home-manager configuration is not yet supported** (a documented follow-on). home-manager keeps its own numbered generations; re-activating a prior one ships separately.
 
