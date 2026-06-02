@@ -2,24 +2,9 @@
 
 ## Purpose
 
-Defines how CLI and schema versions are sourced at runtime and injected into the JSON envelope. Replaces hardcoded version strings with file-based version reads, establishing `VERSION` and `SCHEMA_VERSION` as the single sources of truth.
+Defines how CLI and schema versions are sourced at runtime and injected into the JSON envelope. Replaces hardcoded version strings: `cliVersion` comes from the compile-time ldflags version (falling back to the `.release-please-manifest.json` value), and `schemaVersion` comes from the `SCHEMA_VERSION` file.
 
 ## Requirements
-
-### Requirement: VERSION file is the source of truth for cliVersion
-
-The engine SHALL read `cliVersion` from the `VERSION` file at the repo root, never from a hardcoded string.
-
-#### Scenario: cliVersion populated from VERSION file
-
-- **GIVEN** a `VERSION` file at the repo root containing a valid semver string (e.g., `0.1.0`)
-- **WHEN** any command is run with `--json`
-- **THEN** the JSON envelope `cliVersion` field matches the contents of `VERSION` exactly
-
-#### Scenario: VERSION file format
-
-- **GIVEN** the `VERSION` file at the repo root
-- **THEN** it contains exactly one line matching `^\d+\.\d+\.\d+$` with no trailing newline
 
 ### Requirement: SCHEMA_VERSION file is the source of truth for schemaVersion
 
@@ -38,13 +23,17 @@ The engine SHALL read `schemaVersion` from the `SCHEMA_VERSION` file at the repo
 
 ### Requirement: No hardcoded version strings in envelope construction
 
-The engine SHALL NOT contain hardcoded `cliVersion` or `schemaVersion` values in any code path that constructs the JSON envelope or capture bundle metadata.
+The engine SHALL NOT contain hardcoded `cliVersion` or `schemaVersion` values in any code path that
+constructs the JSON envelope or capture bundle metadata.
 
 #### Scenario: Grep for hardcoded versions
 
 - **WHEN** the codebase is searched for hardcoded version assignment to envelope fields
-- **THEN** all `cliVersion` / `endstateVersion` values trace back to a `VERSION` file read via `config.ReadVersion` (`go-engine/internal/config/version.go`)
-- **AND** all `schemaVersion` values trace back to a `SCHEMA_VERSION` file read via `config.ReadSchemaVersion`
+- **THEN** all `cliVersion` / `endstateVersion` values trace back to `config.ReadVersion`
+  (`go-engine/internal/config/version.go`), which returns the ldflags-embedded version or the
+  `.release-please-manifest.json` value
+- **AND** all `schemaVersion` values trace back to a `SCHEMA_VERSION` file read via
+  `config.ReadSchemaVersion`
 
 ### Requirement: Capture bundle metadata uses shared version functions
 
@@ -52,9 +41,9 @@ The capture bundle metadata constructor SHALL use `config.ReadVersion` and `conf
 
 #### Scenario: Capture metadata version matches envelope version
 
-- **GIVEN** `VERSION` contains `0.1.0` and `SCHEMA_VERSION` contains `1.0`
+- **GIVEN** `config.ReadVersion` resolves to `2.12.1` and `SCHEMA_VERSION` contains `1.0`
 - **WHEN** a capture bundle metadata object is created
-- **THEN** `endstateVersion` equals `0.1.0`
+- **THEN** `endstateVersion` equals `2.12.1`
 - **AND** `schemaVersion` equals `1.0`
 
 ### Requirement: Capabilities supportedSchemaVersions derived from file
@@ -68,37 +57,38 @@ The `supportedSchemaVersions` object in capabilities data SHALL derive its `min`
 - **THEN** `supportedSchemaVersions.min` equals `1.0`
 - **AND** `supportedSchemaVersions.max` equals `1.0`
 
-### Requirement: Schema major bump forces CLI major bump
+### Requirement: Release-please manifest is the source of truth for cliVersion
 
-The bump automation SHALL enforce that a schema major version bump also bumps the CLI major version.
+The engine SHALL derive `cliVersion` from the release-please version manifest
+(`.release-please-manifest.json`) or, in a released build, from the version embedded at compile time
+via ldflags (which the release workflow derives from the git tag) — never from a hardcoded string and
+never from a separate `VERSION` file.
 
-#### Scenario: schema-major bump coupling
+#### Scenario: cliVersion from embedded ldflags version
 
-- **GIVEN** `VERSION` contains `0.1.0` and `SCHEMA_VERSION` contains `1.0`
-- **WHEN** `bump-version.ps1 -Bump schema-major` is run
-- **THEN** `SCHEMA_VERSION` becomes `2.0`
-- **AND** `VERSION` becomes `1.0.0` (major bumped)
+- **GIVEN** an engine binary built with the version embedded via ldflags (e.g. `2.12.1`)
+- **WHEN** any command is run with `--json`
+- **THEN** the JSON envelope `cliVersion` field equals the embedded version
 
-#### Scenario: schema-minor bump does not touch CLI version
+#### Scenario: cliVersion falls back to the release-please manifest
 
-- **GIVEN** `VERSION` contains `0.1.0` and `SCHEMA_VERSION` contains `1.0`
-- **WHEN** `bump-version.ps1 -Bump schema-minor` is run
-- **THEN** `SCHEMA_VERSION` becomes `1.1`
-- **AND** `VERSION` remains `0.1.0`
+- **GIVEN** an engine invocation with no ldflags-embedded version (e.g. `go run`)
+- **AND** a `.release-please-manifest.json` at the repo root whose root package (`.`) is a valid
+  semver string
+- **WHEN** any command is run with `--json`
+- **THEN** the JSON envelope `cliVersion` field equals that manifest version
 
-#### Scenario: CLI bump does not touch schema version
+#### Scenario: cliVersion fallback when no version source is available
 
-- **GIVEN** `VERSION` contains `0.1.0` and `SCHEMA_VERSION` contains `1.0`
-- **WHEN** `bump-version.ps1 -Bump patch` is run
-- **THEN** `VERSION` becomes `0.1.1`
-- **AND** `SCHEMA_VERSION` remains `1.0`
+- **GIVEN** no embedded version and no readable `.release-please-manifest.json`
+- **WHEN** any command is run with `--json`
+- **THEN** the JSON envelope `cliVersion` field is the documented fallback (`0.0.0-dev`)
 
 ## Implementation References
 
-- `VERSION` — repo root, plain text
+- `.release-please-manifest.json` — repo root; CLI version source of truth (release-please)
 - `SCHEMA_VERSION` — repo root, plain text
-- `scripts/bump-version.ps1` — version bump automation
-- `go-engine/internal/config/version.go` — `ReadVersion` and `ReadSchemaVersion` functions
+- `go-engine/internal/config/version.go` — `ReadVersion` (ldflags → manifest) and `ReadSchemaVersion`
 - `go-engine/internal/envelope/envelope.go` — envelope construction
 - `go-engine/internal/bundle/` — capture bundle metadata
 - `docs/SEMVER_SYSTEM.md` — full design specification
