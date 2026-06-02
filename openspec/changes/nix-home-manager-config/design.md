@@ -76,3 +76,25 @@ text confined to `error.detail`. No Windows path, no default-apply change.
 - Hermetic: inject the runner; assert the stage fires only with the flag + manifest field, passes
   the right argv, records the generation field, and no-ops otherwise. `GOOS=windows` build/vet clean
   (realizer path is non-Windows; winget path untouched). `go test ./...`; openspec strict.
+
+## Smoke verdict (resolved — real Determinate Nix 3.21.0)
+
+The home-manager unknown is resolved by a real-nix smoke on a throwaway `$HOME`. Findings:
+
+- **Activation:** `nix run github:nix-community/home-manager -- switch --flake <ref> -b endstate-backup`
+  activates cleanly (exit 0); the engine path (`apply --enable-restore`) reflects the flake in the managed
+  file, moves a clobbered file to `<file>.endstate-backup`, and records the config. Without the flag the
+  config is untouched (default apply byte-identical).
+- **Generation-number source:** the home-manager **nix-profile symlink**
+  `$XDG_STATE_HOME/nix/profiles/home-manager -> home-manager-<N>-link` — read identically to the package
+  generation (no second nix invocation). The pin default is `github:nix-community/home-manager` (overridable
+  via `ENDSTATE_HOME_MANAGER_PIN`).
+- **Classification:** switch output is **plain text** (not nix internal-json), so classification anchors the
+  raw stderr through the existing anchor table; the engine runner must place the experimental-features flag
+  **before** the `nix run` `--` separator (the `nixArgs` fix), or it would be passed to home-manager.
+- **Rollback → fast-follow (confirmed).** Mechanism is feasible — re-running a prior generation's
+  `<store-path>/activate` (store path + id from `home-manager generations` / the `-<N>-link` symlink) exits
+  0 — but it creates a NEW forward generation mirroring the old content rather than moving the pointer back
+  (unlike `nix profile rollback --to`). That is a distinct mechanism from the package `Rollbacker`, so
+  home-manager rollback ships as its own change with its own tests; this orchestration core de-risks it but
+  does not include it.

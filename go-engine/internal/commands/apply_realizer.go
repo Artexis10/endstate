@@ -11,6 +11,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
@@ -351,17 +352,57 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	}
 	emitter.EmitSummary("verify", verifyPass+verifyFail, verifyPass, 0, verifyFail)
 
-	// Record one Provisioning Generation reflecting the converged set: refs added
-	// this run and refs removed (pruned) this run. Native = the final advancing
-	// op's generation (prune's if it advanced, else install's). Write only when a
-	// mutating phase advanced a generation; an atomic backend that did not advance
-	// (idempotent re-run / no-op convergence) records nothing.
-	if installAdvanced || pruneAdvanced {
-		finalGen := installGen
-		if pruneAdvanced {
-			finalGen = pruneGen
+	// --- Phase 4: Config (home-manager) ---
+	// Realizer-only config stage, gated by --enable-restore AND a declared
+	// homeManager.flake. The engine owns the home-manager invocation (the user
+	// installs nothing). A backend without home-manager support simply does not
+	// implement HomeActivator and this stage no-ops; the winget/driver path never
+	// reaches here. On failure the stage mirrors the prune precedent: a systemic
+	// failure becomes a top-level envelope error, anything else INSTALL_FAILED with
+	// raw text confined to error.detail (the moat).
+	var homeRef *provision.HomeGenRef
+	if flags.EnableRestore && mf.HomeManager != nil && mf.HomeManager.Flake != "" {
+		if activator, ok := r.(realizer.HomeActivator); ok {
+			flake := mf.HomeManager.Flake
+			emitter.EmitPhase("config")
+			emitter.EmitItem(flake, driverName, "configuring", "", "Activating home-manager configuration", "home-manager")
+			hmGen, herr := activator.ActivateHome(flake)
+			if herr != nil {
+				rerr, ok := herr.(*realizer.Error)
+				if !ok || rerr == nil {
+					rerr = &realizer.Error{Code: envelope.ErrInstallFailed, Raw: herr.Error()}
+				}
+				emitter.EmitItem(flake, driverName, "failed", "install_failed", "Home-manager configuration activation failed", "home-manager")
+				emitter.EmitSummary("config", 1, 0, 0, 1)
+				if isSystemic(rerr.Code) {
+					return nil, realizerEnvelopeError(rerr)
+				}
+				return nil, envelope.NewError(envelope.ErrInstallFailed, "Home-manager configuration activation failed.").
+					WithDetail(map[string]string{"subcode": rerr.Subcode, "stage": rerr.Stage, "raw": rerr.Raw})
+			}
+			homeRef = &provision.HomeGenRef{Flake: flake, Generation: hmGen}
+			emitter.EmitItem(flake, driverName, "configured", "", fmt.Sprintf("Activated home-manager generation %d", hmGen), "home-manager")
+			emitter.EmitSummary("config", 1, 1, 0, 0)
 		}
-		writeProvisioningGeneration(runID, driverName, actions, removed, fmt.Sprintf("%d", finalGen), failedCount > 0)
+	}
+
+	// Record one Provisioning Generation reflecting the converged set: refs added
+	// this run, refs removed (pruned) this run, and any home-manager config
+	// activated this run. Native = the final advancing package op's generation
+	// (prune's if it advanced, else install's), empty for a config-only apply.
+	// Write when a mutating package phase advanced a generation OR a config was
+	// activated; an idempotent re-run (no install, no prune, no config) records
+	// nothing.
+	if installAdvanced || pruneAdvanced || homeRef != nil {
+		native := ""
+		if installAdvanced || pruneAdvanced {
+			finalGen := installGen
+			if pruneAdvanced {
+				finalGen = pruneGen
+			}
+			native = fmt.Sprintf("%d", finalGen)
+		}
+		writeProvisioningGeneration(runID, driverName, actions, removed, native, failedCount > 0, homeRef)
 	}
 
 	return &ApplyResult{

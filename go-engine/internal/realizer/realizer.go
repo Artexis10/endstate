@@ -99,3 +99,17 @@ type Pruner interface {
 	// element names as they appear in Current().Elements. Remove(nil) is a no-op.
 	Remove(names []string) (Result, error)
 }
+
+// HomeActivator is an OPTIONAL realizer capability: activating a declared
+// home-manager configuration as the config stage of apply. Like Pruner it is
+// discovered by type-assertion on a Realizer, so only a backend that owns a
+// home-manager lifecycle (the Nix realizer) implements it; other backends (the
+// winget driver path) simply do not, and the config stage no-ops. The engine
+// owns the invocation (an engine-owned `home-manager switch`), so the user never
+// installs home-manager.
+type HomeActivator interface {
+	// ActivateHome activates the home-manager configuration named by the given
+	// flakeref and returns the resulting home-manager generation number. On
+	// failure it returns a classified *Error (raw backend text in Error.Raw only).
+	ActivateHome(flake string) (generation int, err error)
+}

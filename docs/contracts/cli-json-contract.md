@@ -387,6 +387,25 @@ A manifest app MAY declare a `version` to **pin** the install:
 
 A converged app is recorded `installed` at the declared version in the Provisioning Generation. Drift is evaluated only for apps that declare a `version`; default `apply` (no `--repin`) leaves a drifted version untouched.
 
+### Configuration stage (home-manager, realizer-only)
+
+When the manifest declares a `homeManager` block and `apply` runs with `--enable-restore` on the Nix realizer, `apply` activates a [home-manager](https://github.com/nix-community/home-manager) configuration as a **configuration stage** after the package phases. This is the realizer's config story (the winget driver path uses the restore-module layer instead).
+
+```jsonc
+{
+  "homeManager": { "flake": "/home/me/dotfiles#hugo" }  // a home-manager flakeref
+}
+```
+
+- `homeManager.flake` is a home-manager flakeref (e.g. `/home/me/dotfiles#hugo` or `github:me/dotfiles#hugo`) — a power-user escape hatch. The engine activates whatever flakeref it is given; engine-generated inputs may produce this flakeref in a later release without changing the stage.
+- **Engine-owned and gated.** The engine itself runs the activation (`nix run <pinned home-manager> -- switch --flake <ref> -b endstate-backup`); the user does not install or run home-manager. The home-manager version is pinned by the engine (overridable via `ENDSTATE_HOME_MANAGER_PIN`, mirroring `ENDSTATE_NIXPKGS_PIN`). The stage runs **only** when both `--enable-restore` is set and `homeManager.flake` is non-empty; otherwise apply is byte-identical to a package-only apply.
+- **Backup-on-clobber.** `-b endstate-backup` makes home-manager move any pre-existing file it would replace to `<file>.endstate-backup` instead of failing (honors *backup-before-overwrite*).
+- **Recorded.** A successful activation is recorded in the Provisioning Generation under `homeManager` (the activated flakeref and the resulting home-manager generation number). A config-only apply (no package changed) still records a generation.
+- **Realizer-only.** The winget/driver path never activates home-manager (a declared `homeManager` block is ignored there).
+- **Errors (the moat).** A systemic failure (daemon unavailable → `REALIZER_UNAVAILABLE`, permission → `PERMISSION_DENIED`) surfaces as a top-level envelope error; any other activation failure surfaces as `INSTALL_FAILED`. Raw home-manager / Nix output appears only in `error.detail`, never in `error.message`.
+
+> **Rollback of an activated home-manager configuration is not yet supported** (a documented follow-on). home-manager keeps its own numbered generations; re-activating a prior one ships separately.
+
 ---
 
 ## Command: `verify`
@@ -548,7 +567,7 @@ Lists recorded Provisioning Generations, newest first. Read-only. Additive in sc
 }
 ```
 
-`backend` is `"nix"` or `"winget"`. `native` is the backend-native generation number (the Nix generation) or empty for non-atomic backends. `partial` is true when a non-atomic backend (winget) committed only a subset of the requested set. `addedRefs` lists only refs installed in that run (status `installed`); already-present refs appear in `items` but not `addedRefs`. A generation is recorded only when at least one package was installed in the run. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`.
+`backend` is `"nix"` or `"winget"`. `native` is the backend-native generation number (the Nix generation) or empty for non-atomic backends. `partial` is true when a non-atomic backend (winget) committed only a subset of the requested set. `addedRefs` lists only refs installed in that run (status `installed`); already-present refs appear in `items` but not `addedRefs`. A generation is recorded when at least one package was installed in the run **or** a home-manager configuration was activated by the config stage. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`. `homeManager` (optional, omitted when absent; additive in schema 1.x) records a home-manager configuration activated by `apply --enable-restore`: `{ "flake": "<flakeref>", "generation": <hm generation number> }`.
 
 ## Command: `rollback`
 

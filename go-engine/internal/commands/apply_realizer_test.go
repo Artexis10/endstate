@@ -51,6 +51,21 @@ type fakeRealizer struct {
 	removeResult   realizer.Result // scripted Remove return
 	removeCalls    int
 	lastRemoveArgs []string
+
+	// --- home-manager activation (config stage) ---
+	homeGenNum      int    // scripted ActivateHome generation
+	homeErr         error  // scripted ActivateHome error
+	activateCalls   int
+	lastActivateArg string
+}
+
+// ActivateHome satisfies realizer.HomeActivator, recording the requested flake
+// and returning the scripted generation/error. Its presence makes *fakeRealizer a
+// HomeActivator, so the config stage is exercised host-independently.
+func (f *fakeRealizer) ActivateHome(flake string) (int, error) {
+	f.activateCalls++
+	f.lastActivateArg = flake
+	return f.homeGenNum, f.homeErr
 }
 
 // Remove satisfies realizer.Pruner, recording the requested element names and
@@ -456,5 +471,224 @@ func TestRunApplyRealizer_DryRun_ViaPackageVar(t *testing.T) {
 	}
 	if fr.realizeCalls != 0 {
 		t.Errorf("Realize called %d times in dry-run via RunApply, want 0", fr.realizeCalls)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// home-manager config stage (gated by --enable-restore + homeManager.flake)
+// ---------------------------------------------------------------------------
+
+// TestRunApplyRealizer_HomeManager_ActivatesAndRecords: with --enable-restore
+// and a declared homeManager.flake, the config stage activates the config with
+// the right flake and records it (flakeref + hm generation) in the Provisioning
+// Generation, alongside the package install.
+func TestRunApplyRealizer_HomeManager_ActivatesAndRecords(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Flake: "/home/me/dotfiles#hugo"}
+
+	ins := realizer.Installable{ID: "ripgrep", Ref: hostRef(app)}
+	fr := &fakeRealizer{
+		planDiff: realizer.Diff{ToAdd: []realizer.Installable{ins}},
+		realizeResult: realizer.Result{
+			Advanced: true, FromGeneration: 1, ToGeneration: 2,
+			After: realizer.Set{Generation: 2, Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}}},
+		},
+		homeGenNum: 5,
+	}
+
+	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
+	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm1", nil, nil)
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	if _, ok := raw.(*ApplyResult); !ok {
+		t.Fatalf("expected *ApplyResult, got %T", raw)
+	}
+	if fr.activateCalls != 1 {
+		t.Errorf("ActivateHome called %d times, want 1", fr.activateCalls)
+	}
+	if fr.lastActivateArg != "/home/me/dotfiles#hugo" {
+		t.Errorf("ActivateHome flake = %q, want the manifest flake", fr.lastActivateArg)
+	}
+	gens, _ := provision.List()
+	if len(gens) != 1 {
+		t.Fatalf("want 1 generation, got %d", len(gens))
+	}
+	hm := gens[0].HomeManager
+	if hm == nil || hm.Flake != "/home/me/dotfiles#hugo" || hm.Generation != 5 {
+		t.Fatalf("generation HomeManager = %+v, want flake=/home/me/dotfiles#hugo gen=5", hm)
+	}
+}
+
+// TestRunApplyRealizer_HomeManager_NoFlag_NoActivation: a declared flake without
+// --enable-restore does NOT activate (the config gate).
+func TestRunApplyRealizer_HomeManager_NoFlag_NoActivation(t *testing.T) {
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Flake: "/dot#me"}
+	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
+
+	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: false}
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm2", nil, nil); eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	if fr.activateCalls != 0 {
+		t.Errorf("ActivateHome called %d times without --enable-restore, want 0", fr.activateCalls)
+	}
+}
+
+// TestRunApplyRealizer_HomeManager_NoField_NoActivation: --enable-restore with no
+// homeManager field does NOT activate (default apply unchanged).
+func TestRunApplyRealizer_HomeManager_NoField_NoActivation(t *testing.T) {
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app) // no HomeManager
+	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
+
+	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm3", nil, nil); eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	if fr.activateCalls != 0 {
+		t.Errorf("ActivateHome called %d times with no homeManager field, want 0", fr.activateCalls)
+	}
+}
+
+// TestRunApplyRealizer_HomeManager_EmptyFlake_NoActivation: a homeManager block
+// with an empty flake does NOT activate.
+func TestRunApplyRealizer_HomeManager_EmptyFlake_NoActivation(t *testing.T) {
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Flake: ""}
+	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
+
+	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm4", nil, nil); eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	if fr.activateCalls != 0 {
+		t.Errorf("ActivateHome called %d times with empty flake, want 0", fr.activateCalls)
+	}
+}
+
+// TestRunApplyRealizer_HomeManager_SystemicError: a systemic activation failure
+// surfaces a top-level envelope error (nil data), raw text confined to detail.
+func TestRunApplyRealizer_HomeManager_SystemicError(t *testing.T) {
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Flake: "/dot#me"}
+	rawText := "error: cannot connect to socket"
+	fr := &fakeRealizer{
+		planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}},
+		homeErr:  &realizer.Error{Code: envelope.ErrRealizerUnavailable, Subcode: "daemon", Stage: "spawn", Raw: rawText},
+	}
+
+	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
+	data, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm5", nil, nil)
+	if eerr == nil {
+		t.Fatal("expected envelope error for systemic activation failure, got nil")
+	}
+	if data != nil {
+		t.Errorf("expected nil data on systemic error, got %T", data)
+	}
+	if eerr.Code != envelope.ErrRealizerUnavailable {
+		t.Errorf("code = %q, want REALIZER_UNAVAILABLE", eerr.Code)
+	}
+	if strings.Contains(eerr.Message, rawText) {
+		t.Errorf("raw text leaked into envelope Message: %q", eerr.Message)
+	}
+}
+
+// TestRunApplyRealizer_HomeManager_ActivationFailed: a non-systemic activation
+// failure surfaces INSTALL_FAILED with raw text confined to detail (the moat),
+// mirroring the prune-failure precedent.
+func TestRunApplyRealizer_HomeManager_ActivationFailed(t *testing.T) {
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Flake: "/dot#bad"}
+	rawText := "error: flake does not provide attribute 'homeConfigurations.bad'"
+	fr := &fakeRealizer{
+		planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}},
+		homeErr:  &realizer.Error{Code: envelope.ErrInstallFailed, Subcode: "eval", Stage: "eval", Raw: rawText},
+	}
+
+	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
+	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm6", nil, nil)
+	if eerr == nil {
+		t.Fatal("expected envelope error for activation failure, got nil")
+	}
+	if eerr.Code != envelope.ErrInstallFailed {
+		t.Errorf("code = %q, want INSTALL_FAILED", eerr.Code)
+	}
+	if strings.Contains(eerr.Message, rawText) {
+		t.Errorf("raw text leaked into envelope Message: %q", eerr.Message)
+	}
+	detail, ok := eerr.Detail.(map[string]string)
+	if !ok || detail["raw"] != rawText {
+		t.Errorf("raw text not confined to detail: %+v", eerr.Detail)
+	}
+}
+
+// TestRunApplyRealizer_HomeManager_ConfigOnlyRecordsGeneration: when no package
+// changed (all present) but a config was activated, a generation is STILL
+// recorded (the write-gate counts an activation as "something happened").
+func TestRunApplyRealizer_HomeManager_ConfigOnlyRecordsGeneration(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Flake: "/dot#me"}
+	fr := &fakeRealizer{
+		planDiff:   realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}},
+		homeGenNum: 3,
+	}
+
+	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm7", nil, nil); eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	if fr.activateCalls != 1 {
+		t.Fatalf("ActivateHome called %d times, want 1", fr.activateCalls)
+	}
+	gens, _ := provision.List()
+	if len(gens) != 1 {
+		t.Fatalf("config-only activation must still record a generation, got %d", len(gens))
+	}
+	if gens[0].HomeManager == nil || gens[0].HomeManager.Generation != 3 {
+		t.Fatalf("generation HomeManager = %+v, want gen=3", gens[0].HomeManager)
+	}
+	if len(gens[0].AddedRefs) != 0 || len(gens[0].RemovedRefs) != 0 {
+		t.Errorf("config-only generation must record no package changes: added=%v removed=%v", gens[0].AddedRefs, gens[0].RemovedRefs)
+	}
+}
+
+// TestRunApply_WingetPath_NeverActivatesHome: on the driver (winget) path a
+// declared homeManager.flake is ignored — no activation, no recorded config.
+func TestRunApply_WingetPath_NeverActivatesHome(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	md := &mockDriver{installed: map[string]bool{}}
+	tmpDir := t.TempDir()
+	manifestPath := tmpDir + "/m.jsonc"
+	manifestContent := `{
+		"name": "winget-hm-test",
+		"apps": [ { "id": "a", "refs": { "windows": "Vendor.A" } } ],
+		"homeManager": { "flake": "/home/me/dotfiles#hugo" }
+	}`
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var eerr *envelope.Error
+	withMockDriver(md, func() {
+		_, eerr = RunApply(ApplyFlags{Manifest: manifestPath, EnableRestore: true})
+	})
+	if eerr != nil {
+		t.Fatalf("winget path with homeManager set must not error: %v", eerr)
+	}
+	gens, _ := provision.List()
+	for _, g := range gens {
+		if g.HomeManager != nil {
+			t.Fatalf("winget path recorded a home-manager config: %+v", g.HomeManager)
+		}
 	}
 }

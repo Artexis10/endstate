@@ -25,7 +25,7 @@ func TestWriteProvisioningGeneration_RecordsInstalledOnly(t *testing.T) {
 		{ID: "jq", Ref: stringPtr("nixpkgs#jq"), Status: "present"},
 		{ID: "bad", Ref: stringPtr("nixpkgs#bad"), Status: "failed"},
 	}
-	writeProvisioningGeneration("apply-x", "nix", actions, nil, "7", false)
+	writeProvisioningGeneration("apply-x", "nix", actions, nil, "7", false, nil)
 
 	gens, err := provision.List()
 	if err != nil {
@@ -50,7 +50,7 @@ func TestWriteProvisioningGeneration_NoInstallsNoGeneration(t *testing.T) {
 	t.Setenv("ENDSTATE_ROOT", t.TempDir())
 
 	actions := []ApplyAction{{ID: "jq", Ref: stringPtr("nixpkgs#jq"), Status: "present"}}
-	writeProvisioningGeneration("apply-x", "nix", actions, nil, "", false)
+	writeProvisioningGeneration("apply-x", "nix", actions, nil, "", false, nil)
 
 	gens, _ := provision.List()
 	if len(gens) != 0 {
@@ -65,7 +65,7 @@ func TestWriteProvisioningGeneration_WingetPartialSubset(t *testing.T) {
 		{ID: "a", Ref: stringPtr("A.A"), Status: "installed"},
 		{ID: "b", Ref: stringPtr("B.B"), Status: "failed"},
 	}
-	writeProvisioningGeneration("apply-x", "winget", actions, nil, "", true)
+	writeProvisioningGeneration("apply-x", "winget", actions, nil, "", true, nil)
 
 	gens, _ := provision.List()
 	if len(gens) != 1 {

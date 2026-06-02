@@ -18,6 +18,21 @@ type Manifest struct {
 	Verify         []VerifyEntry  `json:"verify,omitempty"`
 	ConfigModules  []string       `json:"configModules,omitempty"`
 	ExcludeConfigs []string       `json:"excludeConfigs,omitempty"`
+
+	// HomeManager declares a home-manager configuration the Nix realizer activates
+	// as a config stage of apply (opt-in via --enable-restore). Absent ⇒ no config
+	// stage (default apply unchanged). Realizer-only; the winget path ignores it.
+	HomeManager *HomeManagerConfig `json:"homeManager,omitempty"`
+}
+
+// HomeManagerConfig is the manifest input to the home-manager config stage. Flake
+// is a home-manager flakeref (e.g. "/home/me/dotfiles#hugo" or
+// "github:me/dotfiles#hugo") that the engine activates with an engine-owned,
+// pinned home-manager — a permanent power-user escape hatch. The orchestrator is
+// input-agnostic, so engine-generated inputs (a home.nix wrapper, a programs.*
+// catalog) layer on later by producing a flakeref this same stage consumes.
+type HomeManagerConfig struct {
+	Flake string `json:"flake"`
 }
 
 // App represents a single application entry in the manifest. The Refs map
