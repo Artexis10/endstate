@@ -109,7 +109,7 @@ var getDisplayNameMapFn = snapshot.GetDisplayNameMap
 
 // resolveRepoRootFn returns the repo root path. It defaults to
 // config.ResolveRepoRoot and can be replaced in tests to avoid filesystem
-// dependency on a VERSION file.
+// dependency on the repo-root marker (.release-please-manifest.json).
 var resolveRepoRootFn = config.ResolveRepoRoot
 
 // resolveProfileDirFn returns the profiles directory path. It defaults to

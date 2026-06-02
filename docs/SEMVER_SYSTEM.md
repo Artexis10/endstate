@@ -1,16 +1,27 @@
 # Endstate Semver System
 
+> **Current model (2026-06).** The engine CLI version is owned by **release-please**: the source of
+> truth is `.release-please-manifest.json` (and the `v*` git tag), embedded into released binaries via
+> ldflags and read at runtime by `config.ReadVersion` (dev builds fall back to the manifest). The
+> legacy root `VERSION` file and `scripts/bump-version.ps1` have been **retired** (see issue #54) —
+> bump the CLI version via conventional commits, not by hand. `SCHEMA_VERSION` is still a manual root
+> file (read by the release ldflags and the GUI build). The sections below describe the original
+> file-based design and are kept for historical context; where they reference `VERSION` or
+> `bump-version.ps1`, the release-please flow above supersedes them.
+
 ## 1. Version Topology
 
 Three independent version tracks, two repos.
 
 | Version | Scope | Format | Source of Truth | Current |
 |---------|-------|--------|-----------------|---------|
-| Engine CLI | `endstate` repo | `MAJOR.MINOR.PATCH` | `VERSION` (root) | `0.1.0` |
+| Engine CLI | `endstate` repo | `MAJOR.MINOR.PATCH` | `.release-please-manifest.json` + `v*` git tag | `2.12.1` |
 | JSON Schema | `endstate` repo | `MAJOR.MINOR` | `SCHEMA_VERSION` (root) | `1.0` |
-| GUI | `endstate-gui` repo | `MAJOR.MINOR.PATCH` | `package.json` | `0.1.0` |
+| GUI | `endstate-gui` repo | `MAJOR.MINOR.PATCH` | `package.json` (release-please) | — |
 
-**Coupling rule:** A schema major bump forces a CLI major bump. GUI tracks its own version independently but declares a compatible schema range.
+**Coupling rule:** A schema major bump is a breaking engine change and SHALL land with a
+major (`feat!`/`fix!`) conventional commit so release-please bumps the CLI major in lockstep. GUI
+tracks its own version independently but declares a compatible schema range.
 
 ---
 
