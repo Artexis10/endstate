@@ -38,8 +38,8 @@ type Generation struct {
 	Backend       string     `json:"backend"` // "nix" | "winget"
 	Items         []ProvItem `json:"items"`
 	AddedRefs     []string   `json:"addedRefs"`
-	Native        string     `json:"native,omitempty"` // backend-native anchor (nix generation number); "" if none
-	Partial       bool       `json:"partial"`          // true when a non-atomic backend committed a partial set
+	Native        string     `json:"native,omitempty"`      // backend-native anchor (nix generation number); "" if none
+	Partial       bool       `json:"partial"`               // true when a non-atomic backend committed a partial set
 	Rollback      bool       `json:"rollback,omitempty"`    // true when this generation was produced by a rollback (AddedRefs is empty)
 	RemovedRefs   []string   `json:"removedRefs,omitempty"` // refs uninstalled by a best-effort (winget) rollback; empty for native/apply generations
 
@@ -54,7 +54,13 @@ type Generation struct {
 // flakeref applied and the resulting home-manager generation number. It is the
 // config analogue of the package Native anchor.
 type HomeGenRef struct {
-	Flake      string `json:"flake"`
+	Flake string `json:"flake"`
+	// Config is the user's originally-declared homeManager.config (a path to a
+	// home.nix) when the activated flake was engine-generated from it; empty for a
+	// directly-declared homeManager.flake. Flake records what was actually
+	// activated (the generated, machine-local flakeref in the config case);
+	// Config records what the user declared, so capture can round-trip it.
+	Config     string `json:"config,omitempty"`
 	Generation int    `json:"generation"`
 }
 

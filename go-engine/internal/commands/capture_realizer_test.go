@@ -50,7 +50,8 @@ type capturedManifestFile struct {
 		Version string            `json:"version"`
 	} `json:"apps"`
 	HomeManager *struct {
-		Flake string `json:"flake"`
+		Flake  string `json:"flake"`
+		Config string `json:"config"`
 	} `json:"homeManager"`
 }
 
@@ -74,6 +75,13 @@ func hmGen(flake string, genNum int) *provision.Generation {
 // pkgGen builds a package-only provisioning generation (no home-manager config).
 func pkgGen() *provision.Generation {
 	return &provision.Generation{}
+}
+
+// hmGenConfig builds a generation from a homeManager.config apply: it records the
+// user's declared config path AND the engine-generated (machine-local) flake the
+// engine actually activated.
+func hmGenConfig(config, generatedFlake string, genNum int) *provision.Generation {
+	return &provision.Generation{HomeManager: &provision.HomeGenRef{Config: config, Flake: generatedFlake, Generation: genNum}}
 }
 
 func readCapturedManifest(t *testing.T, path string) capturedManifestFile {
@@ -447,5 +455,51 @@ func TestRunCaptureRealizer_Update_PreservesExistingHomeManager(t *testing.T) {
 	mf := readCapturedManifest(t, out)
 	if mf.HomeManager == nil || mf.HomeManager.Flake != "github:me/dots#hugo" {
 		t.Fatalf("expected preserved homeManager github:me/dots#hugo, got %+v", mf.HomeManager)
+	}
+}
+
+// A config-declared apply records both the user's config path and the engine-
+// generated (machine-local) flake. Capture must emit the declared config path,
+// NOT the generated flake — otherwise the manifest can't round-trip elsewhere.
+func TestRunCaptureRealizer_EmitsConfigOverGeneratedFlake(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "hmcfg.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+
+	gen := hmGenConfig("./home.nix", "/home/me/.local/state/endstate/state/home-manager/me#me", 4)
+	withFakeGenerations([]*provision.Generation{gen}, nil, func() {
+		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
+			t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+		}
+	})
+
+	mf := readCapturedManifest(t, out)
+	if mf.HomeManager == nil {
+		t.Fatalf("expected homeManager block, got none")
+	}
+	if mf.HomeManager.Config != "./home.nix" {
+		t.Errorf("homeManager.config = %q, want ./home.nix", mf.HomeManager.Config)
+	}
+	if mf.HomeManager.Flake != "" {
+		t.Errorf("must NOT emit the generated flake for a config apply, got flake=%q", mf.HomeManager.Flake)
+	}
+}
+
+// A flake-declared apply still captures as homeManager.flake (no regression).
+func TestRunCaptureRealizer_FlakeDeclared_StillEmitsFlake(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "hmflake.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+
+	withFakeGenerations([]*provision.Generation{hmGen("github:me/dots#hugo", 2)}, nil, func() {
+		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
+			t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+		}
+	})
+
+	mf := readCapturedManifest(t, out)
+	if mf.HomeManager == nil || mf.HomeManager.Flake != "github:me/dots#hugo" {
+		t.Fatalf("expected homeManager.flake github:me/dots#hugo, got %+v", mf.HomeManager)
+	}
+	if mf.HomeManager.Config != "" {
+		t.Errorf("flake apply must not emit a config, got config=%q", mf.HomeManager.Config)
 	}
 }
