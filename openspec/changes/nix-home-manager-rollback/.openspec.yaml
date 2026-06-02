@@ -1,0 +1,10 @@
+id: nix-home-manager-rollback
+title: "Home-manager config rollback: revert the config to a prior Provisioning Generation"
+status: implementing
+spec: nix-home-manager-rollback
+created: "2026-06-02"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

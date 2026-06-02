@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -30,6 +31,11 @@ type RollbackFlags struct {
 	// DryRun previews the resolved target without changing any state and without
 	// requiring Confirm.
 	DryRun bool
+	// EnableRestore opts rollback into ALSO reverting the home-manager config
+	// recorded in the target generation (realizer backends only), symmetric with
+	// `apply --enable-restore`. Without it, rollback is package-only. Config
+	// rollback requires an explicit --to <generation>.
+	EnableRestore bool
 	// Events controls streaming event output. Accepted for parity; rollback does
 	// not stream a per-item sequence (it is a single whole-set operation).
 	Events string
@@ -51,6 +57,22 @@ type RollbackResult struct {
 	FailedRefs  []string `json:"failedRefs,omitempty"`  // refs whose uninstall failed
 	Partial     bool     `json:"partial,omitempty"`     // true when any targeted uninstall failed
 	Warning     string   `json:"warning,omitempty"`     // best-effort caveat (untracked dependencies)
+
+	// HomeManager carries the opt-in (--enable-restore) home-manager config
+	// rollback outcome; nil when no config stage ran.
+	HomeManager *RollbackHomeResult `json:"homeManager,omitempty"`
+}
+
+// RollbackHomeResult is the home-manager config-rollback portion of a rollback.
+// On --dry-run it reports the target (recorded) generation that would be
+// re-activated; on a real run it also reports the new (forward) generation.
+type RollbackHomeResult struct {
+	TargetGeneration int    `json:"targetGeneration"`          // recorded home-manager generation being reverted to
+	NewGeneration    int    `json:"newGeneration,omitempty"`   // new forward generation after re-activation (0 on dry-run)
+	Flake            string `json:"flake,omitempty"`           // the config that was/would be re-activated
+	Config           string `json:"config,omitempty"`          // the user's declared home.nix, when the recorded config was engine-generated
+	Reactivated      bool   `json:"reactivated"`               // true when the config was actually re-activated
+	ViaFallback      bool   `json:"viaFallback,omitempty"`     // true when re-activated from the recorded flake because the snapshot was unavailable
 }
 
 // RunRollback reverts the installed package set to a prior Provisioning
@@ -95,8 +117,10 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 	}
 
 	// Resolve the native target version from the engine generation number.
-	target := -1   // backend-native version; -1 == previous
-	targetGen := 0 // engine generation number; 0 == unspecified (previous)
+	target := -1                               // backend-native version; -1 == previous
+	targetGen := 0                             // engine generation number; 0 == unspecified (previous)
+	hasPackageTarget := true                   // false for a config-only target generation (no native anchor)
+	var targetGeneration *provision.Generation // the resolved generation (config rollback reads its HomeManager ref)
 	if to := strings.TrimSpace(flags.To); to != "" {
 		n, err := strconv.Atoi(to)
 		if err != nil || n <= 0 {
@@ -108,14 +132,48 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 		if gerr != nil {
 			return nil, gerr
 		}
-		native, nerr := strconv.Atoi(gen.Native)
-		if gen.Native == "" || nerr != nil {
-			return nil, envelope.NewError(envelope.ErrGenerationNotFound,
-				fmt.Sprintf("Generation %d has no native rollback anchor.", n)).
-				WithRemediation("Only generations committed by a native-rollback backend can be rolled back to.")
-		}
-		target = native
 		targetGen = n
+		targetGeneration = gen
+		// A config-only generation (a config apply that installed/pruned nothing)
+		// records no native anchor; that is not an error when --enable-restore will
+		// roll its config back. The "nothing to roll back" rejection is deferred
+		// until config eligibility is known.
+		if native, nerr := strconv.Atoi(gen.Native); gen.Native != "" && nerr == nil {
+			target = native
+		} else {
+			hasPackageTarget = false
+		}
+	}
+
+	// Config rollback eligibility, validated BEFORE any mutation (--enable-restore
+	// opts rollback into ALSO reverting the home-manager config recorded in the
+	// target generation; it is realizer-only and requires an explicit --to so there
+	// is a recorded config to revert to).
+	var homeRef *provision.HomeGenRef
+	if flags.EnableRestore {
+		if targetGeneration == nil {
+			return nil, envelope.NewError(envelope.ErrGenerationNotFound,
+				"Home-manager config rollback requires an explicit target generation.").
+				WithRemediation("Re-run with --to <generation> (see 'endstate generations'); bare rollback is package-only.")
+		}
+		homeRef = targetGeneration.HomeManager
+		if homeRef != nil {
+			if _, ok := r.(realizer.HomeRollbacker); !ok {
+				return nil, envelope.NewError(envelope.ErrRollbackUnsupported,
+					fmt.Sprintf("The %s backend does not support home-manager config rollback.", r.Name())).
+					WithRemediation("Config rollback requires a backend that can re-activate a home-manager configuration (e.g. Nix).")
+			}
+		}
+	}
+
+	// Nothing to roll back: a target generation with no native anchor AND no
+	// eligible config rollback. Preserves the package-only "no native anchor"
+	// rejection while letting a config-only generation be reverted under
+	// --enable-restore.
+	if !hasPackageTarget && homeRef == nil {
+		return nil, envelope.NewError(envelope.ErrGenerationNotFound,
+			fmt.Sprintf("Generation %d has no native rollback anchor.", targetGen)).
+			WithRemediation("Only generations committed by a native-rollback backend can be rolled back to.")
 	}
 
 	// Best-effort current native version for reporting.
@@ -124,19 +182,30 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 		fromNative = strconv.Itoa(cur.Generation)
 	}
 
-	toNative := "previous"
-	if target > 0 {
-		toNative = strconv.Itoa(target)
+	toNative := ""
+	if hasPackageTarget {
+		toNative = "previous"
+		if target > 0 {
+			toNative = strconv.Itoa(target)
+		}
 	}
 
 	if flags.DryRun {
-		return &RollbackResult{
+		res := &RollbackResult{
 			DryRun:           true,
 			Backend:          r.Name(),
 			TargetGeneration: targetGen,
 			FromNative:       fromNative,
 			ToNative:         toNative,
-		}, nil
+		}
+		if flags.EnableRestore && homeRef != nil {
+			res.HomeManager = &RollbackHomeResult{
+				TargetGeneration: homeRef.Generation,
+				Flake:            homeRef.Flake,
+				Config:           homeRef.Config,
+			}
+		}
+		return res, nil
 	}
 
 	if !flags.Confirm {
@@ -145,23 +214,116 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 			WithRemediation("Re-run with --confirm, or use --dry-run to preview the target.")
 	}
 
-	if err := rb.Rollback(target); err != nil {
-		return nil, rollbackError(err)
+	// Packages first (mirrors apply's package-then-config ordering). Skipped for a
+	// config-only target generation, which has no native package anchor.
+	if hasPackageTarget {
+		if err := rb.Rollback(target); err != nil {
+			return nil, rollbackError(err)
+		}
+	}
+
+	// Config (opt-in): re-activate the home-manager config recorded in the target
+	// generation. Mints a new forward home-manager generation (append-only).
+	var homeResult *RollbackHomeResult
+	var newHomeRef *provision.HomeGenRef
+	if flags.EnableRestore && homeRef != nil {
+		newGen, viaFallback, herr := rollbackHomeConfig(r, homeRef)
+		if herr != nil {
+			return nil, herr
+		}
+		newHomeRef = &provision.HomeGenRef{Flake: homeRef.Flake, Config: homeRef.Config, Generation: newGen}
+		homeResult = &RollbackHomeResult{
+			TargetGeneration: homeRef.Generation,
+			NewGeneration:    newGen,
+			Flake:            homeRef.Flake,
+			Config:           homeRef.Config,
+			Reactivated:      true,
+			ViaFallback:      viaFallback,
+		}
 	}
 
 	// Success: append a new Provisioning Generation snapshotting the now-active
-	// set so the append-only history keeps "newest == active" truthful.
+	// set (and any reverted config) so the append-only history keeps
+	// "newest == active" truthful. A config-only rollback records no native anchor
+	// (packages were untouched), so a later package rollback treats it correctly.
 	cur, _ := r.Current()
-	newGen := appendRollbackGeneration(buildRunID("rollback"), r.Name(), cur)
+	native := ""
+	if hasPackageTarget {
+		native = strconv.Itoa(cur.Generation)
+	}
+	newGen := appendRollbackGeneration(buildRunID("rollback"), r.Name(), cur, native, newHomeRef)
 
 	return &RollbackResult{
 		DryRun:           false,
 		Backend:          r.Name(),
 		TargetGeneration: targetGen,
 		FromNative:       fromNative,
-		ToNative:         strconv.Itoa(cur.Generation),
+		ToNative:         native,
 		NewGeneration:    newGen,
+		HomeManager:      homeResult,
 	}, nil
+}
+
+// rollbackHomeConfig re-activates the home-manager config recorded by the target
+// generation via the realizer's HomeRollbacker, returning the new (forward)
+// home-manager generation. When the recorded generation's snapshot is no longer
+// available it falls back to re-activating a directly-referenced flake (faithful
+// for a pinned flake); for an engine-generated wrapper (Config set) the state-dir
+// flake now holds the LATEST config, not the target's, so it refuses rather than
+// activate the wrong config (non-destructive). The caller has already confirmed r
+// is a HomeRollbacker. viaFallback reports whether the fallback path ran.
+func rollbackHomeConfig(r realizer.Realizer, homeRef *provision.HomeGenRef) (newGen int, viaFallback bool, eerr *envelope.Error) {
+	hr := r.(realizer.HomeRollbacker)
+	gen, herr := hr.RollbackHome(homeRef.Generation)
+	if herr == nil {
+		return gen, false, nil
+	}
+	if !errors.Is(herr, realizer.ErrHomeSnapshotMissing) {
+		return 0, false, homeRollbackError(herr)
+	}
+
+	// Snapshot garbage-collected. Fall back only when faithful.
+	if homeRef.Config != "" || homeRef.Flake == "" {
+		// Engine-generated wrapper (or nothing to fall back to): the state-dir flake
+		// holds the latest config, not the target's — refuse rather than mislead.
+		return 0, false, envelope.NewError(envelope.ErrRollbackFailed,
+			"The home-manager configuration snapshot for the target generation is unavailable (garbage-collected).").
+			WithRemediation("Re-apply the desired home.nix with 'endstate apply --enable-restore'.")
+	}
+	activator, ok := r.(realizer.HomeActivator)
+	if !ok {
+		return 0, false, envelope.NewError(envelope.ErrRollbackFailed,
+			"The home-manager configuration snapshot is unavailable and cannot be re-activated.").
+			WithRemediation("Re-apply the desired configuration with 'endstate apply --enable-restore'.")
+	}
+	gen, aerr := activator.ActivateHome(homeRef.Flake)
+	if aerr != nil {
+		return 0, false, homeRollbackError(aerr)
+	}
+	return gen, true, nil
+}
+
+// homeRollbackError maps a home-manager config-rollback failure to an envelope
+// error, mirroring rollbackError: systemic classes reuse the realizer envelope
+// error; otherwise the (already-classified) code is surfaced with raw backend
+// text confined to error.detail (the moat). A generic INSTALL_FAILED from the
+// fallback ActivateHome is remapped to ROLLBACK_FAILED so the error names the verb.
+func homeRollbackError(err error) *envelope.Error {
+	rerr, ok := err.(*realizer.Error)
+	if !ok {
+		return envelope.NewError(envelope.ErrRollbackFailed, "Home-manager configuration rollback failed.").
+			WithDetail(map[string]string{"raw": err.Error()})
+	}
+	if isSystemic(rerr.Code) {
+		return realizerEnvelopeError(rerr)
+	}
+	code := rerr.Code
+	if code == envelope.ErrInstallFailed {
+		code = envelope.ErrRollbackFailed
+	}
+	return envelope.NewError(code, "Home-manager configuration rollback failed.").
+		WithDetail(map[string]string{"subcode": rerr.Subcode, "stage": rerr.Stage, "raw": rerr.Raw}).
+		WithRemediation("Run 'endstate generations' to inspect available rollback targets.")
 }
 
 // nativeRollbackCapable reports whether r advertises native rollback. A backend
@@ -193,13 +355,17 @@ func findGeneration(n int) (*provision.Generation, *envelope.Error) {
 
 // appendRollbackGeneration writes a new Provisioning Generation snapshotting the
 // now-active package set after a successful rollback. AddedRefs is empty (nothing
-// was newly installed) and Rollback is true. It is best-effort: a write error
-// never fails the rollback, mirroring run-history persistence. Returns the
-// assigned generation number, or 0 on write failure.
+// was newly installed) and Rollback is true. When home is non-nil it also records
+// the home-manager config re-activated by the rollback (a flakeref + generation
+// number — still a provisioning fact, not config file contents), so the
+// append-only history's newest record reflects the active config too. It is
+// best-effort: a write error never fails the rollback, mirroring run-history
+// persistence. Returns the assigned generation number, or 0 on write failure.
 //
-// Separation of concerns: this records package facts only — it never touches the
-// config backup directory or the restore revert journal.
-func appendRollbackGeneration(runID, backend string, set realizer.Set) int {
+// Separation of concerns: this records package facts plus the engine-owned
+// home-manager config reference — it never touches the config backup directory or
+// the restore revert journal.
+func appendRollbackGeneration(runID, backend string, set realizer.Set, native string, home *provision.HomeGenRef) int {
 	items := make([]provision.ProvItem, 0, len(set.Elements))
 	for name, e := range set.Elements {
 		ref := e.AttrPath
@@ -209,13 +375,14 @@ func appendRollbackGeneration(runID, backend string, set realizer.Set) int {
 		items = append(items, provision.ProvItem{ID: name, Ref: ref, Status: "present"})
 	}
 	g := &provision.Generation{
-		RunID:     runID,
-		Timestamp: time.Now().UTC().Format(time.RFC3339),
-		Backend:   backend,
-		Items:     items,
-		AddedRefs: []string{},
-		Native:    strconv.Itoa(set.Generation),
-		Rollback:  true,
+		RunID:       runID,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Backend:     backend,
+		Items:       items,
+		AddedRefs:   []string{},
+		Native:      native,
+		Rollback:    true,
+		HomeManager: home,
 	}
 	if err := provision.Write(g); err != nil {
 		return 0

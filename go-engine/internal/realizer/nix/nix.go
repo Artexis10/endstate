@@ -28,6 +28,12 @@ import (
 // a nil error. It is an injection point so tests stay hermetic.
 type Runner func(args ...string) (stdout, stderr []byte, exitCode int, err error)
 
+// ScriptRunner executes a store-path script (e.g. a home-manager generation's
+// `activate`) and follows the same exit/err convention as Runner. It is a
+// SEPARATE seam from Runner because `activate` is a store-path executable, not a
+// `nix` subcommand, so it is invoked directly rather than through `nix`.
+type ScriptRunner func(path string, args ...string) (stdout, stderr []byte, exitCode int, err error)
+
 // Backend implements realizer.Realizer over the Nix CLI.
 type Backend struct {
 	// Profile is the Endstate-managed nix profile path.
@@ -42,6 +48,10 @@ type Backend struct {
 	HomePin string
 	// Run executes nix; defaults to the real exec runner.
 	Run Runner
+	// runScript executes a store-path script (a home-manager generation's
+	// `activate`) for RollbackHome; nil means the real exec runner. Tests inject a
+	// stub so the re-activation path is exercised hermetically.
+	runScript ScriptRunner
 	// genFn overrides generation reading; nil means read the profile symlink.
 	// Tests (in-package) set this to drive Realize's atomicity detection
 	// hermetically without a real generation switch.
@@ -160,6 +170,34 @@ func defaultRunner(args ...string) ([]byte, []byte, int, error) {
 	}
 	// Spawn failure (binary missing, not executable, etc.).
 	return out.Bytes(), errb.Bytes(), -1, runErr
+}
+
+// defaultScriptRunner runs a store-path script directly (e.g. a home-manager
+// generation's `activate`), inheriting the engine's environment, and follows the
+// same exit/err convention as defaultRunner.
+func defaultScriptRunner(path string, args ...string) ([]byte, []byte, int, error) {
+	cmd := exec.Command(path, args...)
+	var out, errb bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &errb
+	runErr := cmd.Run()
+	if runErr == nil {
+		return out.Bytes(), errb.Bytes(), 0, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(runErr, &exitErr) {
+		return out.Bytes(), errb.Bytes(), exitErr.ExitCode(), nil
+	}
+	return out.Bytes(), errb.Bytes(), -1, runErr
+}
+
+// execScript runs a store-path script via runScript when set (tests) else the
+// real exec runner.
+func (b *Backend) execScript(path string, args ...string) ([]byte, []byte, int, error) {
+	if b.runScript != nil {
+		return b.runScript(path, args...)
+	}
+	return defaultScriptRunner(path, args...)
 }
 
 // ResolveInstallable expands a manifest ref into a concrete nix installable. A

@@ -58,6 +58,22 @@ type fakeRealizer struct {
 	homeErr         error // scripted ActivateHome error
 	activateCalls   int
 	lastActivateArg string
+
+	// --- home-manager config rollback ---
+	homeRollbackGen     int   // scripted RollbackHome (new forward) generation
+	homeRollbackErr     error // scripted RollbackHome error
+	homeRollbackCalls   int
+	lastHomeRollbackArg int
+}
+
+// RollbackHome satisfies realizer.HomeRollbacker, recording the requested
+// home-manager generation and returning the scripted new generation/error. Its
+// presence makes *fakeRealizer a HomeRollbacker, so the config-rollback path is
+// exercised host-independently.
+func (f *fakeRealizer) RollbackHome(generation int) (int, error) {
+	f.homeRollbackCalls++
+	f.lastHomeRollbackArg = generation
+	return f.homeRollbackGen, f.homeRollbackErr
 }
 
 // ActivateHome satisfies realizer.HomeActivator, recording the requested flake

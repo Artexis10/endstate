@@ -621,3 +621,372 @@ func TestRollback_Driver_MissingBinary_WingetUnavailable(t *testing.T) {
 		}
 	})
 }
+
+// ---------------------------------------------------------------------------
+// Home-manager config rollback (--enable-restore), realizer (Nix) path
+// ---------------------------------------------------------------------------
+
+// pkgOnlyRollbacker advertises native PACKAGE rollback but does NOT implement
+// realizer.HomeRollbacker (nor HomeActivator) — used to verify config rollback is
+// refused on a backend that cannot re-activate a home-manager configuration.
+type pkgOnlyRollbacker struct {
+	rollbackCalls int
+	cur           realizer.Set
+}
+
+func (*pkgOnlyRollbacker) Name() string                              { return "nix" }
+func (p *pkgOnlyRollbacker) Current() (realizer.Set, error)          { return p.cur, nil }
+func (*pkgOnlyRollbacker) Plan([]realizer.Installable) (realizer.Diff, error) {
+	return realizer.Diff{}, nil
+}
+func (*pkgOnlyRollbacker) Realize([]realizer.Installable) (realizer.Result, error) {
+	return realizer.Result{}, nil
+}
+func (p *pkgOnlyRollbacker) Rollback(int) error                      { p.rollbackCalls++; return nil }
+func (*pkgOnlyRollbacker) Capabilities() provision.Capabilities {
+	return provision.Capabilities{NativeRollback: true}
+}
+
+// withRealizerOnly forces the realizer dispatch path with an arbitrary realizer.
+func withRealizerOnly(r realizer.Realizer, f func()) {
+	orig := newRealizerFn
+	newRealizerFn = func() (realizer.Realizer, error) { return r, nil }
+	defer func() { newRealizerFn = orig }()
+	f()
+}
+
+// seedNixHomeGen writes a nix Provisioning Generation (native anchor "4") with the
+// given home-manager ref (nil for a package-only generation).
+func seedNixHomeGen(t *testing.T, home *provision.HomeGenRef) {
+	t.Helper()
+	if err := provision.Write(&provision.Generation{
+		Backend:     "nix",
+		Native:      "4",
+		Items:       []provision.ProvItem{{ID: "jq", Ref: "nixpkgs#jq", Status: "installed"}},
+		AddedRefs:   []string{"nixpkgs#jq"},
+		HomeManager: home,
+	}); err != nil {
+		t.Fatalf("seed generation: %v", err)
+	}
+}
+
+// TestRollback_EnableRestore_RevertsConfigAndRecordsIt: `rollback --to N
+// --enable-restore` rolls back packages AND re-activates the config recorded in
+// generation N, then appends a rollback generation recording the new config gen.
+func TestRollback_EnableRestore_RevertsConfigAndRecordsIt(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, &provision.HomeGenRef{Flake: "/dot#me", Generation: 7})
+
+	fr := capableRealizer(setOf(4, "jq"))
+	fr.homeRollbackGen = 12
+	var result *RollbackResult
+	withFakeRealizer(fr, func() {
+		raw, env := RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 1 {
+		t.Errorf("package Rollback called %d times, want 1", fr.rollbackCalls)
+	}
+	if fr.homeRollbackCalls != 1 || fr.lastHomeRollbackArg != 7 {
+		t.Errorf("want RollbackHome(7) once, got calls=%d arg=%d", fr.homeRollbackCalls, fr.lastHomeRollbackArg)
+	}
+	if result.HomeManager == nil {
+		t.Fatal("result.HomeManager is nil, want config rollback recorded")
+	}
+	if result.HomeManager.TargetGeneration != 7 || result.HomeManager.NewGeneration != 12 || !result.HomeManager.Reactivated {
+		t.Errorf("HomeManager = %+v, want target=7 new=12 reactivated=true", result.HomeManager)
+	}
+	gens, _ := provision.List()
+	newest := gens[0]
+	if newest.HomeManager == nil || newest.HomeManager.Generation != 12 || newest.HomeManager.Flake != "/dot#me" {
+		t.Errorf("appended generation home ref = %+v, want {flake:/dot#me, generation:12}", newest.HomeManager)
+	}
+	if !newest.Rollback {
+		t.Error("appended generation should be marked rollback")
+	}
+}
+
+// TestRollback_NoEnableRestore_PackageOnly: without --enable-restore, a generation
+// with a recorded config still rolls back PACKAGES ONLY (backward-compatible).
+func TestRollback_NoEnableRestore_PackageOnly(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, &provision.HomeGenRef{Flake: "/dot#me", Generation: 7})
+
+	fr := capableRealizer(setOf(4, "jq"))
+	var result *RollbackResult
+	withFakeRealizer(fr, func() {
+		raw, env := RunRollback(RollbackFlags{To: "1", Confirm: true}) // no EnableRestore
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 1 {
+		t.Errorf("package Rollback called %d times, want 1", fr.rollbackCalls)
+	}
+	if fr.homeRollbackCalls != 0 {
+		t.Errorf("RollbackHome called %d times without --enable-restore, want 0", fr.homeRollbackCalls)
+	}
+	if result.HomeManager != nil {
+		t.Errorf("HomeManager should be nil without --enable-restore, got %+v", result.HomeManager)
+	}
+}
+
+// TestRollback_EnableRestore_NoRecordedConfig_PackageOnly: --enable-restore on a
+// generation that recorded no config rolls back packages only (non-destructive
+// no-op for config), without error.
+func TestRollback_EnableRestore_NoRecordedConfig_PackageOnly(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, nil) // no home-manager ref
+
+	fr := capableRealizer(setOf(4, "jq"))
+	var result *RollbackResult
+	withFakeRealizer(fr, func() {
+		raw, env := RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 1 {
+		t.Errorf("package Rollback called %d times, want 1", fr.rollbackCalls)
+	}
+	if fr.homeRollbackCalls != 0 {
+		t.Errorf("RollbackHome called %d times for a config-less generation, want 0", fr.homeRollbackCalls)
+	}
+	if result.HomeManager != nil {
+		t.Errorf("HomeManager should be nil when the target recorded no config, got %+v", result.HomeManager)
+	}
+}
+
+// TestRollback_EnableRestore_NonHomeRollbacker_Unsupported: --enable-restore with a
+// recorded config but a backend that cannot re-activate config → ROLLBACK_UNSUPPORTED
+// with NOTHING mutated (validated before the package rollback).
+func TestRollback_EnableRestore_NonHomeRollbacker_Unsupported(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, &provision.HomeGenRef{Flake: "/dot#me", Generation: 7})
+
+	p := &pkgOnlyRollbacker{cur: setOf(4, "jq")}
+	withRealizerOnly(p, func() {
+		_, env := RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+		if env == nil || env.Code != envelope.ErrRollbackUnsupported {
+			t.Fatalf("want ROLLBACK_UNSUPPORTED, got %+v", env)
+		}
+	})
+	if p.rollbackCalls != 0 {
+		t.Errorf("package Rollback called %d times, want 0 (refuse before mutating)", p.rollbackCalls)
+	}
+	if gens, _ := provision.List(); len(gens) != 1 {
+		t.Errorf("no generation should be appended on refusal; want 1 (seed), got %d", len(gens))
+	}
+}
+
+// TestRollback_EnableRestore_RequiresTo: --enable-restore without --to is refused
+// (config rollback needs an explicit target generation), nothing mutated.
+func TestRollback_EnableRestore_RequiresTo(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	fr := capableRealizer(setOf(4, "jq"))
+	withFakeRealizer(fr, func() {
+		_, env := RunRollback(RollbackFlags{EnableRestore: true, Confirm: true}) // no To
+		if env == nil {
+			t.Fatal("expected refusal, got nil")
+		}
+		if !strings.Contains(env.Message, "--to") && !strings.Contains(strFromRemediation(env), "--to") {
+			t.Errorf("refusal should mention --to, got message=%q", env.Message)
+		}
+	})
+	if fr.rollbackCalls != 0 || fr.homeRollbackCalls != 0 {
+		t.Errorf("nothing should be mutated; got rollback=%d homeRollback=%d", fr.rollbackCalls, fr.homeRollbackCalls)
+	}
+}
+
+// TestRollback_EnableRestore_DryRun_PreviewsConfigNoMutation: --dry-run with
+// --enable-restore previews the config target and activates/rolls nothing.
+func TestRollback_EnableRestore_DryRun_PreviewsConfigNoMutation(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, &provision.HomeGenRef{Flake: "/dot#me", Generation: 7})
+
+	fr := capableRealizer(setOf(5, "jq"))
+	var result *RollbackResult
+	withFakeRealizer(fr, func() {
+		raw, env := RunRollback(RollbackFlags{To: "1", EnableRestore: true, DryRun: true}) // no confirm
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if !result.DryRun {
+		t.Error("result.DryRun = false, want true")
+	}
+	if result.HomeManager == nil || result.HomeManager.TargetGeneration != 7 || result.HomeManager.Reactivated {
+		t.Errorf("dry-run HomeManager = %+v, want target=7 reactivated=false", result.HomeManager)
+	}
+	if fr.rollbackCalls != 0 || fr.homeRollbackCalls != 0 {
+		t.Errorf("dry-run must not mutate; got rollback=%d homeRollback=%d", fr.rollbackCalls, fr.homeRollbackCalls)
+	}
+	if gens, _ := provision.List(); len(gens) != 1 {
+		t.Errorf("dry-run must not append a generation; want 1 (seed), got %d", len(gens))
+	}
+}
+
+// TestRollback_EnableRestore_ConfigSystemicError_RawInDetailOnly: a systemic config
+// rollback failure surfaces its code with raw text confined to Detail.
+func TestRollback_EnableRestore_ConfigSystemicError_RawInDetailOnly(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, &provision.HomeGenRef{Flake: "/dot#me", Generation: 7})
+
+	raw := "error: cannot connect to socket at '/nix/var/nix/daemon-socket/socket'"
+	fr := capableRealizer(setOf(4, "jq"))
+	fr.homeRollbackErr = &realizer.Error{Code: envelope.ErrRealizerUnavailable, Subcode: "daemon", Stage: "spawn", Raw: raw}
+
+	var env *envelope.Error
+	withFakeRealizer(fr, func() {
+		_, env = RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+	})
+	if env == nil || env.Code != envelope.ErrRealizerUnavailable {
+		t.Fatalf("want REALIZER_UNAVAILABLE, got %+v", env)
+	}
+	if strings.Contains(env.Message, raw) {
+		t.Errorf("raw text leaked into Message: %q", env.Message)
+	}
+	dm, ok := env.Detail.(map[string]string)
+	if !ok || dm["raw"] != raw {
+		t.Errorf("raw text not confined to Detail: %+v", env.Detail)
+	}
+}
+
+// TestRollback_EnableRestore_ConfigFailed_RawInDetailOnly: a non-systemic config
+// rollback failure surfaces ROLLBACK_FAILED with raw confined to Detail.
+func TestRollback_EnableRestore_ConfigFailed_RawInDetailOnly(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, &provision.HomeGenRef{Flake: "/dot#me", Generation: 7})
+
+	raw := "error: activation script failed"
+	fr := capableRealizer(setOf(4, "jq"))
+	fr.homeRollbackErr = &realizer.Error{Code: envelope.ErrRollbackFailed, Stage: "rollback", Raw: raw}
+
+	var env *envelope.Error
+	withFakeRealizer(fr, func() {
+		_, env = RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+	})
+	if env == nil || env.Code != envelope.ErrRollbackFailed {
+		t.Fatalf("want ROLLBACK_FAILED, got %+v", env)
+	}
+	if strings.Contains(env.Message, raw) {
+		t.Errorf("raw text leaked into Message: %q", env.Message)
+	}
+	dm, ok := env.Detail.(map[string]string)
+	if !ok || dm["raw"] != raw {
+		t.Errorf("raw text not confined to Detail: %+v", env.Detail)
+	}
+}
+
+// TestRollback_EnableRestore_GcdSnapshot_DirectFlake_FallsBack: when the recorded
+// snapshot is gone and the generation recorded a DIRECT flake, the engine falls
+// back to re-activating that flake via ActivateHome.
+func TestRollback_EnableRestore_GcdSnapshot_DirectFlake_FallsBack(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, &provision.HomeGenRef{Flake: "/dot#me", Generation: 7}) // direct flake, no Config
+
+	fr := capableRealizer(setOf(4, "jq"))
+	fr.homeRollbackErr = realizer.ErrHomeSnapshotMissing
+	fr.homeGenNum = 20 // ActivateHome (fallback) returns the new gen
+	var result *RollbackResult
+	withFakeRealizer(fr, func() {
+		raw, env := RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.activateCalls != 1 || fr.lastActivateArg != "/dot#me" {
+		t.Errorf("want ActivateHome(/dot#me) fallback once, got calls=%d arg=%q", fr.activateCalls, fr.lastActivateArg)
+	}
+	if result.HomeManager == nil || result.HomeManager.NewGeneration != 20 || !result.HomeManager.ViaFallback {
+		t.Errorf("HomeManager = %+v, want new=20 viaFallback=true", result.HomeManager)
+	}
+	gens, _ := provision.List()
+	if gens[0].HomeManager == nil || gens[0].HomeManager.Generation != 20 {
+		t.Errorf("appended home ref = %+v, want generation 20", gens[0].HomeManager)
+	}
+}
+
+// TestRollback_EnableRestore_GcdSnapshot_Wrapper_Refuses: when the recorded snapshot
+// is gone and the generation recorded an engine-generated wrapper (Config set), the
+// engine refuses (the state-dir flake holds the latest config, not gen N's) without
+// re-activating anything.
+func TestRollback_EnableRestore_GcdSnapshot_Wrapper_Refuses(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedNixHomeGen(t, &provision.HomeGenRef{Flake: "/state/home-manager/me#me", Config: "./home.nix", Generation: 7})
+
+	fr := capableRealizer(setOf(4, "jq"))
+	fr.homeRollbackErr = realizer.ErrHomeSnapshotMissing
+	var env *envelope.Error
+	withFakeRealizer(fr, func() {
+		_, env = RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+	})
+	if env == nil || env.Code != envelope.ErrRollbackFailed {
+		t.Fatalf("want ROLLBACK_FAILED, got %+v", env)
+	}
+	if fr.activateCalls != 0 {
+		t.Errorf("must NOT re-activate the (overwritten) wrapper flake; activateCalls=%d", fr.activateCalls)
+	}
+}
+
+// TestRollback_EnableRestore_ConfigOnlyGeneration_NoPackageRollback: a config-only
+// target generation (a config apply that installed/pruned nothing, so no native
+// anchor) is still revertable under --enable-restore: the config is re-activated
+// and the package rollback is skipped (there is no anchor), without error.
+func TestRollback_EnableRestore_ConfigOnlyGeneration_NoPackageRollback(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{
+		Backend:     "nix",
+		Native:      "", // config-only apply: nothing installed/pruned, so no native anchor
+		HomeManager: &provision.HomeGenRef{Flake: "/dot#me", Generation: 7},
+	}); err != nil {
+		t.Fatalf("seed generation: %v", err)
+	}
+
+	fr := capableRealizer(setOf(0))
+	fr.homeRollbackGen = 12
+	var result *RollbackResult
+	withFakeRealizer(fr, func() {
+		raw, env := RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 0 {
+		t.Errorf("package Rollback called %d times for a config-only target, want 0", fr.rollbackCalls)
+	}
+	if fr.homeRollbackCalls != 1 || fr.lastHomeRollbackArg != 7 {
+		t.Errorf("want RollbackHome(7) once, got calls=%d arg=%d", fr.homeRollbackCalls, fr.lastHomeRollbackArg)
+	}
+	if result.HomeManager == nil || result.HomeManager.NewGeneration != 12 || !result.HomeManager.Reactivated {
+		t.Errorf("HomeManager = %+v, want new=12 reactivated=true", result.HomeManager)
+	}
+	// The appended config-only rollback generation records NO native anchor, so a
+	// later package rollback does not misinterpret it as having one.
+	gens, _ := provision.List()
+	if gens[0].Native != "" {
+		t.Errorf("config-only rollback generation Native = %q, want empty", gens[0].Native)
+	}
+}
+
+// strFromRemediation extracts an envelope error's remediation text for assertions.
+func strFromRemediation(e *envelope.Error) string {
+	if e == nil {
+		return ""
+	}
+	return e.Remediation
+}
