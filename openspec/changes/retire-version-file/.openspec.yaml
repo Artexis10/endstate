@@ -1,0 +1,10 @@
+id: retire-version-file
+title: "Retire the legacy VERSION file (manifest is the source of truth)"
+status: implementing
+spec: version-envelope-injection
+created: "2026-06-02"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

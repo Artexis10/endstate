@@ -214,7 +214,9 @@ func checkStateDir() DoctorCheck {
 	}
 }
 
-// checkEngineVersion reads the engine version from the VERSION file.
+// checkEngineVersion reports the engine version. It comes from the version
+// embedded at compile time via ldflags, falling back to the release-please
+// manifest (.release-please-manifest.json) — see config.ReadVersion.
 func checkEngineVersion() DoctorCheck {
 	version := config.ReadVersion(config.ResolveRepoRoot())
 	return DoctorCheck{
