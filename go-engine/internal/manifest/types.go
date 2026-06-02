@@ -25,14 +25,24 @@ type Manifest struct {
 	HomeManager *HomeManagerConfig `json:"homeManager,omitempty"`
 }
 
-// HomeManagerConfig is the manifest input to the home-manager config stage. Flake
-// is a home-manager flakeref (e.g. "/home/me/dotfiles#hugo" or
+// HomeManagerConfig is the manifest input to the home-manager config stage.
+//
+// Flake is a home-manager flakeref (e.g. "/home/me/dotfiles#hugo" or
 // "github:me/dotfiles#hugo") that the engine activates with an engine-owned,
-// pinned home-manager — a permanent power-user escape hatch. The orchestrator is
-// input-agnostic, so engine-generated inputs (a home.nix wrapper, a programs.*
-// catalog) layer on later by producing a flakeref this same stage consumes.
+// pinned home-manager — a permanent power-user escape hatch.
+//
+// Config is a path (resolved relative to the manifest) to a home.nix the engine
+// wraps in a generated, pinned, identity-injected flake before activating it via
+// the same stage — so the user supplies only their configuration, not the flake
+// plumbing. The orchestrator is input-agnostic: Config is the first engine-
+// generated input that produces a flakeref this stage consumes; a programs.*
+// catalog layers on later the same way.
+//
+// Flake and Config are mutually exclusive (exactly one home-manager input);
+// LoadManifest rejects a manifest that sets both.
 type HomeManagerConfig struct {
-	Flake string `json:"flake"`
+	Flake  string `json:"flake,omitempty"`
+	Config string `json:"config,omitempty"`
 }
 
 // App represents a single application entry in the manifest. The Refs map

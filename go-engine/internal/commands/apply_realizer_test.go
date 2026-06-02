@@ -5,6 +5,7 @@ package commands
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -690,5 +691,161 @@ func TestRunApply_WingetPath_NeverActivatesHome(t *testing.T) {
 		if g.HomeManager != nil {
 			t.Fatalf("winget path recorded a home-manager config: %+v", g.HomeManager)
 		}
+	}
+}
+
+// writeHomeNix writes a tiny home.nix beside a (notional) manifest and returns the
+// manifest path whose dir holds it, so the config-file input resolves relative to
+// the manifest exactly as in production.
+func writeHomeNix(t *testing.T) (manifestPath, configRel string) {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "home.nix"), []byte("{ ... }:\n{\n  programs.git.userName = \"smoke\";\n}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, "machine.jsonc"), "home.nix"
+}
+
+// TestRunApplyRealizer_HomeManagerConfig_GeneratesAndActivates: with
+// --enable-restore and a homeManager.config (a path to a home.nix), the config
+// stage GENERATES a wrapper flake, activates the GENERATED flakeref (not the raw
+// config path) via the existing ActivateHome, writes an inspectable flake to the
+// state dir, and records the generated flakeref in the Provisioning Generation.
+func TestRunApplyRealizer_HomeManagerConfig_GeneratesAndActivates(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	manifestPath, cfgRel := writeHomeNix(t)
+
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Config: cfgRel}
+
+	ins := realizer.Installable{ID: "ripgrep", Ref: hostRef(app)}
+	fr := &fakeRealizer{
+		planDiff: realizer.Diff{ToAdd: []realizer.Installable{ins}},
+		realizeResult: realizer.Result{
+			Advanced: true, FromGeneration: 1, ToGeneration: 2,
+			After: realizer.Set{Generation: 2, Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}}},
+		},
+		homeGenNum: 9,
+	}
+
+	flags := ApplyFlags{Manifest: manifestPath, EnableRestore: true}
+	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cfg1", nil, nil)
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	res, ok := raw.(*ApplyResult)
+	if !ok {
+		t.Fatalf("expected *ApplyResult, got %T", raw)
+	}
+	if fr.activateCalls != 1 {
+		t.Fatalf("ActivateHome calls = %d, want 1", fr.activateCalls)
+	}
+
+	// ActivateHome received the GENERATED flakeref (<stateDir>/home-manager/<name>#<name>),
+	// NOT the raw home.nix path.
+	if !strings.Contains(fr.lastActivateArg, filepath.FromSlash("home-manager")) || !strings.Contains(fr.lastActivateArg, "#") {
+		t.Fatalf("ActivateHome arg = %q, want a generated <dir>#<name> flakeref", fr.lastActivateArg)
+	}
+	if strings.HasSuffix(fr.lastActivateArg, "home.nix") {
+		t.Fatalf("ActivateHome got the raw config path, want a generated flakeref: %q", fr.lastActivateArg)
+	}
+
+	// The generated flake is on disk: flake.nix + a copy of the user's home.nix.
+	dir := strings.SplitN(fr.lastActivateArg, "#", 2)[0]
+	if _, err := os.Stat(filepath.Join(dir, "flake.nix")); err != nil {
+		t.Fatalf("generated flake.nix not written: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "home.nix")); err != nil {
+		t.Fatalf("user home.nix not copied into the generated flake dir: %v", err)
+	}
+
+	// Recorded under the generated flakeref.
+	gens, _ := provision.List()
+	if len(gens) != 1 || gens[0].HomeManager == nil ||
+		gens[0].HomeManager.Flake != fr.lastActivateArg || gens[0].HomeManager.Generation != 9 {
+		t.Fatalf("generation HomeManager = %+v, want flake=%q gen=9", gens, fr.lastActivateArg)
+	}
+
+	// The result surfaces the generated, activated flake.
+	if res.HomeManager == nil || !res.HomeManager.Generated || !res.HomeManager.Activated ||
+		res.HomeManager.Flake != fr.lastActivateArg {
+		t.Fatalf("result HomeManager = %+v, want generated+activated with the flakeref", res.HomeManager)
+	}
+}
+
+// TestRunApplyRealizer_HomeManagerConfig_DryRunRevealsNoActivate: --dry-run with a
+// homeManager.config GENERATES the inspectable flake and REVEALS its path, but
+// activates nothing.
+func TestRunApplyRealizer_HomeManagerConfig_DryRunRevealsNoActivate(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	manifestPath, cfgRel := writeHomeNix(t)
+
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Config: cfgRel}
+	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
+
+	flags := ApplyFlags{Manifest: manifestPath, EnableRestore: true, DryRun: true}
+	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cfg2", nil, nil)
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	res := raw.(*ApplyResult)
+	if !res.DryRun {
+		t.Fatal("expected a dry-run result")
+	}
+	if fr.activateCalls != 0 {
+		t.Fatalf("dry-run must NOT activate; ActivateHome calls = %d", fr.activateCalls)
+	}
+	if res.HomeManager == nil || res.HomeManager.Activated {
+		t.Fatalf("dry-run result HomeManager = %+v, want revealed but not activated", res.HomeManager)
+	}
+	if !res.HomeManager.Generated || res.HomeManager.Flake == "" {
+		t.Fatalf("dry-run must reveal the generated flake: %+v", res.HomeManager)
+	}
+	// The generated flake exists on disk so the user can inspect it even on dry-run.
+	dir := strings.SplitN(res.HomeManager.Flake, "#", 2)[0]
+	if _, err := os.Stat(filepath.Join(dir, "flake.nix")); err != nil {
+		t.Fatalf("dry-run did not write the inspectable flake: %v", err)
+	}
+}
+
+// TestRunApply_WingetPath_ConfigNeverGenerates: on the driver (winget) path a
+// declared homeManager.config is ignored — the engine never generates a flake and
+// records no config.
+func TestRunApply_WingetPath_ConfigNeverGenerates(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ENDSTATE_ROOT", root)
+	md := &mockDriver{installed: map[string]bool{}}
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, "home.nix"), []byte("{ ... }: {}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(tmpDir, "m.jsonc")
+	manifestContent := `{
+		"name": "winget-hm-cfg-test",
+		"apps": [ { "id": "a", "refs": { "windows": "Vendor.A" } } ],
+		"homeManager": { "config": "home.nix" }
+	}`
+	if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	var eerr *envelope.Error
+	withMockDriver(md, func() {
+		_, eerr = RunApply(ApplyFlags{Manifest: manifestPath, EnableRestore: true})
+	})
+	if eerr != nil {
+		t.Fatalf("winget path with homeManager.config must not error: %v", eerr)
+	}
+	gens, _ := provision.List()
+	for _, g := range gens {
+		if g.HomeManager != nil {
+			t.Fatalf("winget path recorded a home-manager config: %+v", g.HomeManager)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "state", "home-manager")); !os.IsNotExist(err) {
+		t.Fatalf("winget path generated a home-manager flake dir (err=%v); it must never generate", err)
 	}
 }

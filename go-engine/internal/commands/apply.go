@@ -93,6 +93,23 @@ type ApplyResult struct {
 	// Pruned lists the engine-managed element names removed by --prune
 	// convergence (or, on --dry-run, that would be removed). Omitted when empty.
 	Pruned []string `json:"pruned,omitempty"`
+	// HomeManager reports the home-manager configuration stage (realizer-only,
+	// --enable-restore). It carries the flakeref the engine activated (or, on
+	// --dry-run, WOULD activate) and whether that flakeref was engine-generated
+	// from a homeManager.config (vs a direct homeManager.flake). Omitted when no
+	// config stage ran.
+	HomeManager *ApplyHomeManager `json:"homeManager,omitempty"`
+}
+
+// ApplyHomeManager surfaces the home-manager configuration stage in the apply
+// result. For a homeManager.config input, Flake is the engine-generated,
+// inspectable wrapper flakeref (`<dir>#<name>`) and Generated is true; for a
+// direct homeManager.flake it is that flakeref and Generated is false. Activated
+// is false on --dry-run (revealed but not activated).
+type ApplyHomeManager struct {
+	Flake     string `json:"flake"`
+	Generated bool   `json:"generated"`
+	Activated bool   `json:"activated"`
 }
 
 // ApplyManifestRef identifies the manifest used for the apply run.

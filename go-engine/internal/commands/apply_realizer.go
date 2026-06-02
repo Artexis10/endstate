@@ -5,6 +5,7 @@ package commands
 
 import (
 	"fmt"
+	"path/filepath"
 	"runtime"
 	"strings"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
+	"github.com/Artexis10/endstate/go-engine/internal/state"
 )
 
 // realizerEntry is one planned manifest app on the realizer path.
@@ -114,6 +117,41 @@ func requirePruner(r realizer.Realizer) (realizer.Pruner, *envelope.Error) {
 		"this backend does not support convergence (--prune)")
 }
 
+// resolveHomeFlake resolves the home-manager flakeref the config stage activates
+// this apply. A direct homeManager.flake is returned unchanged (#81); a
+// homeManager.config (a path to a home.nix, resolved relative to the manifest) is
+// wrapped into an engine-generated, pinned, identity-injected flake written to the
+// state dir — and that generated <dir>#<name> flakeref is returned (generated=true)
+// for the EXISTING ActivateHome to consume. config XOR flake is enforced at load.
+//
+// It returns an empty flakeref (nil error) when no config stage applies (no
+// --enable-restore, or no home-manager input). A generation failure surfaces as
+// INSTALL_FAILED with raw text confined to error.detail (the moat), mirroring an
+// activation failure.
+func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, generated bool, eerr *envelope.Error) {
+	if !flags.EnableRestore || mf.HomeManager == nil {
+		return "", false, nil
+	}
+	switch {
+	case mf.HomeManager.Config != "":
+		cfgPath := mf.HomeManager.Config
+		if !filepath.IsAbs(cfgPath) {
+			cfgPath = filepath.Join(filepath.Dir(flags.Manifest), cfgPath)
+		}
+		ref, gerr := nix.GenerateHomeFlake(state.StateDir(), cfgPath)
+		if gerr != nil {
+			return "", false, envelope.NewError(
+				envelope.ErrInstallFailed, "Failed to generate the home-manager configuration flake.").
+				WithDetail(map[string]string{"raw": gerr.Error()}).
+				WithRemediation("Check that homeManager.config points to a readable home.nix.")
+		}
+		return ref, true, nil
+	case mf.HomeManager.Flake != "":
+		return mf.HomeManager.Flake, false, nil
+	}
+	return "", false, nil
+}
+
 // runApplyRealizer is the whole-set apply path for a realizer backend (Nix). It
 // computes one plan over the declared package set, performs ONE atomic
 // generation switch, and fans the single result back into the per-item event
@@ -211,6 +249,22 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			cur, _ := r.Current()
 			pruned = computeDrift(cur, desired)
 		}
+
+		// Config stage preview (home-manager, realizer-only): generate the
+		// inspectable flake and REVEAL what would activate; activate nothing.
+		var hmPreview *ApplyHomeManager
+		if _, ok := r.(realizer.HomeActivator); ok {
+			flake, generated, herr := resolveHomeFlake(flags, mf)
+			if herr != nil {
+				return nil, herr
+			}
+			if flake != "" {
+				emitter.EmitPhase("config")
+				emitter.EmitItem(flake, driverName, "would_configure", "dry_run", "Would activate home-manager configuration", "home-manager")
+				hmPreview = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: false}
+			}
+		}
+
 		return &ApplyResult{
 			DryRun:                  true,
 			Manifest:                ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
@@ -219,6 +273,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			ConfigModuleMap:         configModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
 			Pruned:                  pruned,
+			HomeManager:             hmPreview,
 		}, nil
 	}
 
@@ -354,23 +409,31 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 
 	// --- Phase 4: Config (home-manager) ---
 	// Realizer-only config stage, gated by --enable-restore AND a declared
-	// homeManager.flake. The engine owns the home-manager invocation (the user
-	// installs nothing). A backend without home-manager support simply does not
-	// implement HomeActivator and this stage no-ops; the winget/driver path never
-	// reaches here. On failure the stage mirrors the prune precedent: a systemic
-	// failure becomes a top-level envelope error, anything else INSTALL_FAILED with
-	// raw text confined to error.detail (the moat).
+	// home-manager input — either a direct homeManager.flake (#81) or a
+	// homeManager.config the engine wraps into a generated flake (resolveHomeFlake).
+	// The engine owns the home-manager invocation (the user installs nothing). A
+	// backend without home-manager support simply does not implement HomeActivator
+	// and this stage no-ops; the winget/driver path never reaches here. On failure
+	// the stage mirrors the prune precedent: a systemic failure becomes a top-level
+	// envelope error, anything else INSTALL_FAILED with raw text confined to
+	// error.detail (the moat).
 	var homeRef *provision.HomeGenRef
-	if flags.EnableRestore && mf.HomeManager != nil && mf.HomeManager.Flake != "" {
-		if activator, ok := r.(realizer.HomeActivator); ok {
-			flake := mf.HomeManager.Flake
+	var homeResult *ApplyHomeManager
+	if activator, ok := r.(realizer.HomeActivator); ok {
+		// resolveHomeFlake returns "" unless --enable-restore and a home-manager
+		// input are set; for homeManager.config it generates the wrapper flake here.
+		flake, generated, herr := resolveHomeFlake(flags, mf)
+		if herr != nil {
+			return nil, herr
+		}
+		if flake != "" {
 			emitter.EmitPhase("config")
 			emitter.EmitItem(flake, driverName, "configuring", "", "Activating home-manager configuration", "home-manager")
-			hmGen, herr := activator.ActivateHome(flake)
-			if herr != nil {
-				rerr, ok := herr.(*realizer.Error)
+			hmGen, aerr := activator.ActivateHome(flake)
+			if aerr != nil {
+				rerr, ok := aerr.(*realizer.Error)
 				if !ok || rerr == nil {
-					rerr = &realizer.Error{Code: envelope.ErrInstallFailed, Raw: herr.Error()}
+					rerr = &realizer.Error{Code: envelope.ErrInstallFailed, Raw: aerr.Error()}
 				}
 				emitter.EmitItem(flake, driverName, "failed", "install_failed", "Home-manager configuration activation failed", "home-manager")
 				emitter.EmitSummary("config", 1, 0, 0, 1)
@@ -381,6 +444,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 					WithDetail(map[string]string{"subcode": rerr.Subcode, "stage": rerr.Stage, "raw": rerr.Raw})
 			}
 			homeRef = &provision.HomeGenRef{Flake: flake, Generation: hmGen}
+			homeResult = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: true}
 			emitter.EmitItem(flake, driverName, "configured", "", fmt.Sprintf("Activated home-manager generation %d", hmGen), "home-manager")
 			emitter.EmitSummary("config", 1, 1, 0, 0)
 		}
@@ -413,5 +477,6 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		ConfigModuleMap:         configModuleMap,
 		RestoreModulesAvailable: restoreModulesAvailable,
 		Pruned:                  removed,
+		HomeManager:             homeResult,
 	}, nil
 }
