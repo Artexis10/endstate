@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
 
@@ -23,13 +24,20 @@ import (
 
 // withMockSnapshot replaces takeSnapshotFn (which defaults to WingetExport)
 // with one that returns the given apps and error, calls f, then restores the
-// original.
+// original. It also forces the no-realizer path so RunCapture's realizer fork
+// does not divert these winget-path tests to the Nix realizer on linux/darwin
+// (mirrors withMockDriver); restored on exit.
 func withMockSnapshot(apps []snapshot.SnapshotApp, err error, f func()) {
 	orig := takeSnapshotFn
 	takeSnapshotFn = func() ([]snapshot.SnapshotApp, error) {
 		return apps, err
 	}
-	defer func() { takeSnapshotFn = orig }()
+	origRealizer := newRealizerFn
+	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	defer func() {
+		takeSnapshotFn = orig
+		newRealizerFn = origRealizer
+	}()
 	f()
 }
 
@@ -113,7 +121,14 @@ func withMockSnapshotSequence(calls []snapshotCall, f func()) {
 		callIdx++
 		return calls[idx].apps, calls[idx].err
 	}
-	defer func() { takeSnapshotFn = orig }()
+	// Force the no-realizer path (see withMockSnapshot) so the capture fork does
+	// not divert these winget-path tests to the Nix realizer on linux/darwin.
+	origRealizer := newRealizerFn
+	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	defer func() {
+		takeSnapshotFn = orig
+		newRealizerFn = origRealizer
+	}()
 	f()
 }
 
@@ -1654,6 +1669,12 @@ func TestRunCapture_NormalCapture_NoRetry(t *testing.T) {
 		return sampleApps(), nil
 	}
 	defer func() { takeSnapshotFn = orig }()
+
+	// Force the no-realizer path so the capture fork does not divert this
+	// winget-path test to the Nix realizer on linux/darwin.
+	origRealizer := newRealizerFn
+	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	defer func() { newRealizerFn = origRealizer }()
 
 	withRetryDelay(0, func() {
 		noopDisplayNames(func() {
