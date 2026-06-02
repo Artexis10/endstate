@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.12.1](https://github.com/Artexis10/endstate/compare/v2.12.0...v2.12.1) (2026-06-01)
+
+
+### Bug Fixes
+
+* **engine:** correct winget version-column parse + uninstall not-found exit code ([#76](https://github.com/Artexis10/endstate/issues/76)) ([48b5249](https://github.com/Artexis10/endstate/commit/48b5249487eafb69961a81a6e293db45c0c78dd3))
+
 ## [2.12.0](https://github.com/Artexis10/endstate/compare/v2.11.0...v2.12.0) (2026-06-01)
 
 
