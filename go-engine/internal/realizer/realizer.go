@@ -11,7 +11,17 @@
 // generation result back into the existing per-item event stream.
 package realizer
 
-import "github.com/Artexis10/endstate/go-engine/internal/envelope"
+import (
+	"errors"
+
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+)
+
+// ErrHomeSnapshotMissing is returned by HomeRollbacker.RollbackHome when the
+// target generation's built home-manager snapshot is no longer available (for
+// example, garbage-collected from the Nix store), so the caller can fall back to
+// re-activating the recorded configuration source instead of failing outright.
+var ErrHomeSnapshotMissing = errors.New("home-manager generation snapshot is unavailable")
 
 // Installable is one resolved package to realize: the manifest App.ID plus the
 // concrete reference passed to the backend (e.g. a pinned nixpkgs flake
@@ -112,4 +122,22 @@ type HomeActivator interface {
 	// flakeref and returns the resulting home-manager generation number. On
 	// failure it returns a classified *Error (raw backend text in Error.Raw only).
 	ActivateHome(flake string) (generation int, err error)
+}
+
+// HomeRollbacker is an OPTIONAL realizer capability: reverting the home-manager
+// configuration to a prior provisioning generation by re-activating the
+// home-manager generation that generation recorded. Like Pruner/HomeActivator it
+// is discovered by type-assertion on a Realizer, so only a backend that owns a
+// home-manager lifecycle (the Nix realizer) implements it. The backend has no
+// arbitrary version pointer-move, so re-activation mints a NEW forward
+// home-manager generation that reproduces the recorded config — append-only,
+// matching native package rollback ("newest == active").
+type HomeRollbacker interface {
+	// RollbackHome reverts the home-manager configuration by re-activating the
+	// snapshot of the given home-manager generation number and returns the
+	// resulting (new, forward) generation number. It returns ErrHomeSnapshotMissing
+	// when that snapshot is no longer available (so the caller can fall back to the
+	// recorded configuration source), or a classified *Error on activation failure
+	// (raw backend text in Error.Raw only).
+	RollbackHome(generation int) (newGen int, err error)
 }

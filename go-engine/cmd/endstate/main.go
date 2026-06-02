@@ -51,7 +51,7 @@ Per-command flags:
   --manifest <path>    Path to manifest file (apply, verify, plan, capture, restore)
                        Alias: --profile <path> (apply, verify, plan)
   --dry-run            Preview changes without applying them (apply, restore)
-  --enable-restore     Enable restore operations during apply (opt-in)
+  --enable-restore     Enable restore operations during apply, and home-manager config rollback (opt-in)
   --out <path>         Output file path (capture)
   --name <name>        Manifest name (capture)
   --profile <name>     Profile name for output (capture)
@@ -321,7 +321,7 @@ func commandUsage(cmd string) string {
 	case "report":
 		return "Usage: endstate report [--latest] [--last <n>] [--run-id <id>] [--json]\n\nRetrieve run history.\n"
 	case "rollback":
-		return "Usage: endstate rollback [--to <generation>] [--confirm] [--dry-run] [--json] [--events jsonl]\n\nRoll back the installed package set to a prior provisioning generation. Available only on backends that advertise native rollback (e.g. Nix on Linux/macOS). With --to, targets that engine generation number (see 'endstate generations'); without it, rolls back to the previous version. Requires --confirm; use --dry-run to preview the target without changing anything.\n"
+		return "Usage: endstate rollback [--to <generation>] [--enable-restore] [--confirm] [--dry-run] [--json] [--events jsonl]\n\nRoll back the installed package set to a prior provisioning generation. Available only on backends that advertise native rollback (e.g. Nix on Linux/macOS). With --to, targets that engine generation number (see 'endstate generations'); without it, rolls back to the previous version. With --enable-restore (and --to), ALSO reverts the home-manager configuration recorded in that generation (symmetric with 'apply --enable-restore'). Requires --confirm; use --dry-run to preview the target without changing anything.\n"
 	case "doctor":
 		return "Usage: endstate doctor [--json]\n\nRun system diagnostics.\n"
 	case "profile":
@@ -467,10 +467,11 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 
 	case "rollback":
 		return commands.RunRollback(commands.RollbackFlags{
-			To:      p.to,
-			Confirm: p.confirm,
-			DryRun:  p.dryRun,
-			Events:  p.events,
+			To:            p.to,
+			Confirm:       p.confirm,
+			DryRun:        p.dryRun,
+			EnableRestore: p.enableRestore,
+			Events:        p.events,
 		})
 
 	case "doctor":
