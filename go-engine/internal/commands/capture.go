@@ -126,15 +126,17 @@ var loadModuleCatalogFn = func(repoRoot string) (map[string]*modules.Module, err
 // capturedApp is an internal representation of a captured application entry
 // before it is written to the output manifest.
 type capturedApp struct {
-	ID   string            `json:"id"`
-	Refs map[string]string `json:"refs"`
-	Name string            `json:"_name,omitempty"`
+	ID      string            `json:"id"`
+	Refs    map[string]string `json:"refs"`
+	Version string            `json:"version,omitempty"`
+	Name    string            `json:"_name,omitempty"`
 }
 
 // cleanApp is the sanitized version of capturedApp without underscore-prefixed fields.
 type cleanApp struct {
-	ID   string            `json:"id"`
-	Refs map[string]string `json:"refs"`
+	ID      string            `json:"id"`
+	Refs    map[string]string `json:"refs"`
+	Version string            `json:"version,omitempty"`
 }
 
 // captureManifestOutput is the manifest structure written to disk.

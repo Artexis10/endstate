@@ -17,6 +17,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
 )
 
 // listGenerationsFn reads the provisioning generations (newest-first). It
@@ -63,10 +64,12 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 	for _, name := range names {
 		el := cur.Elements[name]
 		ref := el.Name // bare attr -> apply's ResolveInstallable expands against the pin
+		ver := nix.StorePathVersion(el.Name, el.StorePaths)
 		captured = append(captured, capturedApp{
-			ID:   name,
-			Refs: map[string]string{goos: ref},
-			Name: name,
+			ID:      name,
+			Refs:    map[string]string{goos: ref},
+			Name:    name,
+			Version: ver,
 		})
 		emitter.EmitItem(ref, driverName, "captured", "", fmt.Sprintf("Captured %s", name), name)
 	}
@@ -102,7 +105,7 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 	if flags.Sanitize {
 		sorted := make([]cleanApp, len(captured))
 		for i, app := range captured {
-			sorted[i] = cleanApp{ID: app.ID, Refs: app.Refs}
+			sorted[i] = cleanApp{ID: app.ID, Refs: app.Refs, Version: app.Version}
 		}
 		sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
 		outputApps = sorted

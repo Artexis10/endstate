@@ -204,6 +204,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		return nil, envelope.NewError(envelope.ErrInternalError, "Failed to plan the package set.")
 	}
 
+	// Read the current set once so we can extract installed versions for
+	// already-present packages (best-effort; ignored on error).
+	curSet, _ := r.Current()
+
 	present := map[string]bool{} // app.ID -> already present
 	for _, ins := range diff.Present {
 		present[ins.ID] = true
@@ -234,6 +238,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			a := ApplyAction{ID: e.app.ID, Ref: stringPtr(ref), Driver: driverName, Name: e.name}
 			if present[e.app.ID] {
 				a.Status, a.Reason = "present", "already_installed"
+				// Best-effort: parse the installed version from the current set.
+				if el, ok := curSet.Elements[e.app.ID]; ok {
+					a.Version = nix.StorePathVersion(el.Name, el.StorePaths)
+				}
 				emitter.EmitItem(ref, driverName, "present", "already_installed", "Already installed", e.name)
 				presentCount++
 			} else {
@@ -339,6 +347,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				emitter.EmitItem(ins.Ref, driverName, "installed", "", "Installed", names[ins.ID])
 				if i, ok := idx[ins.ID]; ok {
 					actions[i].Status, actions[i].Reason = "installed", ""
+					// Best-effort: parse the installed version from the post-realize set.
+					if el, ok := res.After.Elements[ins.ID]; ok {
+						actions[i].Version = nix.StorePathVersion(el.Name, el.StorePaths)
+					}
 				}
 				successCount++
 			}
