@@ -118,21 +118,32 @@ func requirePruner(r realizer.Realizer) (realizer.Pruner, *envelope.Error) {
 }
 
 // resolveHomeFlake resolves the home-manager flakeref the config stage activates
-// this apply. A direct homeManager.flake is returned unchanged (#81); a
-// homeManager.config (a path to a home.nix, resolved relative to the manifest) is
-// wrapped into an engine-generated, pinned, identity-injected flake written to the
-// state dir — and that generated <dir>#<name> flakeref is returned (generated=true)
-// for the EXISTING ActivateHome to consume. config XOR flake is enforced at load.
+// this apply. There are three mutually-exclusive inputs (enforced at load):
+//   - homeManager.settings — a declarative Endstate catalog the engine compiles
+//     into a home.nix, then wraps into a generated flake (generated=true);
+//   - homeManager.config — a path to a home.nix the engine wraps (generated=true);
+//   - homeManager.flake — a direct flakeref returned unchanged (#81; generated=false).
 //
-// It returns an empty flakeref (nil error) when no config stage applies (no
-// --enable-restore, or no home-manager input). A generation failure surfaces as
-// INSTALL_FAILED with raw text confined to error.detail (the moat), mirroring an
-// activation failure.
+// Both generated inputs reuse the wrapper's GenerateHomeFlake* and the EXISTING
+// ActivateHome — no new activation/recording path. File/config paths are resolved
+// relative to the manifest dir. It returns an empty flakeref (nil error) when no
+// config stage applies (no --enable-restore, or no home-manager input). A
+// generation failure surfaces as INSTALL_FAILED with raw text confined to
+// error.detail (the moat), mirroring an activation failure.
 func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, generated bool, eerr *envelope.Error) {
 	if !flags.EnableRestore || mf.HomeManager == nil {
 		return "", false, nil
 	}
 	switch {
+	case mf.HomeManager.Settings != nil:
+		ref, gerr := nix.GenerateHomeFlakeFromSettings(state.StateDir(), mf.HomeManager.Settings, filepath.Dir(flags.Manifest))
+		if gerr != nil {
+			return "", false, envelope.NewError(
+				envelope.ErrInstallFailed, "Failed to generate the home-manager configuration from settings.").
+				WithDetail(map[string]string{"raw": gerr.Error()}).
+				WithRemediation("Check homeManager.settings: curated keys, the raw programs block, and file sources.")
+		}
+		return ref, true, nil
 	case mf.HomeManager.Config != "":
 		cfgPath := mf.HomeManager.Config
 		if !filepath.IsAbs(cfgPath) {

@@ -140,24 +140,49 @@ func renderHomeFlake(s HomeFlakeSpec) string {
 // Nix writes there on activation is left in place (within-machine reproducibility
 // without the engine owning a lock).
 func GenerateHomeFlake(stateDir, configPath string) (string, error) {
+	body, err := os.ReadFile(configPath)
+	if err != nil {
+		return "", fmt.Errorf("read home-manager config %q: %w", configPath, err)
+	}
+	// Copy the user's config in (pure-eval forbids an absolute path module ref).
+	return writeHomeFlake(stateDir, body, nil)
+}
+
+// writeHomeFlake writes a self-contained, inspectable flake to
+// <stateDir>/home-manager/<name>/ — flake.nix, the home.nix content, and any extra
+// files to stage (relative path within the flake dir → content) — and returns the
+// <dir>#<name> flakeref. It is the shared core of GenerateHomeFlake (config-file
+// input) and GenerateHomeFlakeFromSettings (declarative catalog). <name> (and the
+// state subdir) is the current username, matching the injected home.username.
+//
+// The directory PERSISTS and is regenerated each run, so it stays discoverable,
+// readable, and ejectable; any flake.lock Nix writes there on activation is left
+// in place (within-machine reproducibility without the engine owning a lock).
+func writeHomeFlake(stateDir string, homeNix []byte, staged map[string][]byte) (string, error) {
 	ident, err := homeIdentityFn()
 	if err != nil {
 		return "", err
 	}
 	name := ident.Username
 
-	body, err := os.ReadFile(configPath)
-	if err != nil {
-		return "", fmt.Errorf("read home-manager config %q: %w", configPath, err)
-	}
-
 	dir := filepath.Join(stateDir, "home-manager", name)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create generated flake dir %q: %w", dir, err)
 	}
-	// Copy the user's config in (pure-eval forbids an absolute path module ref).
-	if err := os.WriteFile(filepath.Join(dir, "home.nix"), body, 0o644); err != nil {
-		return "", fmt.Errorf("copy home-manager config into %q: %w", dir, err)
+	if err := os.WriteFile(filepath.Join(dir, "home.nix"), homeNix, 0o644); err != nil {
+		return "", fmt.Errorf("write generated home.nix in %q: %w", dir, err)
+	}
+	// Stage any extra files (e.g. catalog `files`) beside the flake, binary-safe;
+	// they are referenced relatively (./<rel>) so they stay inside the flake tree
+	// (pure-eval-safe).
+	for rel, content := range staged {
+		dest := filepath.Join(dir, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return "", fmt.Errorf("create staged dir for %q: %w", rel, err)
+		}
+		if err := os.WriteFile(dest, content, 0o644); err != nil {
+			return "", fmt.Errorf("stage file %q: %w", rel, err)
+		}
 	}
 
 	spec := HomeFlakeSpec{

@@ -5,6 +5,11 @@
 // profile validation for the Endstate engine.
 package manifest
 
+import (
+	"bytes"
+	"encoding/json"
+)
+
 // Manifest represents a fully-loaded Endstate provisioning manifest. The
 // Version field is declared as interface{} so the validator can distinguish
 // between a missing field, a wrong type, and the correct numeric 1.
@@ -38,11 +43,71 @@ type Manifest struct {
 // generated input that produces a flakeref this stage consumes; a programs.*
 // catalog layers on later the same way.
 //
-// Flake and Config are mutually exclusive (exactly one home-manager input);
-// LoadManifest rejects a manifest that sets both.
+// Settings is the declarative, Endstate-native catalog input (see
+// HomeManagerSettings): the user declares config in Endstate's own format and the
+// engine compiles the home.nix Config would otherwise be, flowing through the same
+// generated-flake activation.
+//
+// Flake, Config, and Settings are mutually exclusive (exactly one home-manager
+// input); LoadManifest rejects a manifest that sets more than one.
 type HomeManagerConfig struct {
-	Flake  string `json:"flake,omitempty"`
-	Config string `json:"config,omitempty"`
+	Flake    string               `json:"flake,omitempty"`
+	Config   string               `json:"config,omitempty"`
+	Settings *HomeManagerSettings `json:"settings,omitempty"`
+}
+
+// HomeManagerSettings is the declarative home-manager catalog input. It is a
+// HYBRID — curated, engine-mapped concepts (Git, Shell, Direnv, Starship) that the
+// engine translates to the correct home-manager options, plus a raw Programs
+// passthrough forwarded to home-manager verbatim — together with a Files map for
+// placing arbitrary files (text or binary) via home-manager.
+//
+// Unknown keys WITHIN a curated concept are rejected at load (see UnmarshalJSON):
+// a typo like git.usrName must fail loudly, not silently drop. Programs and Files
+// stay permissive (any home-manager program / any file target).
+type HomeManagerSettings struct {
+	Git      *GitSettings      `json:"git,omitempty"`
+	Shell    *ShellSettings    `json:"shell,omitempty"`
+	Direnv   *ProgramToggle    `json:"direnv,omitempty"`
+	Starship *ProgramToggle    `json:"starship,omitempty"`
+	Programs map[string]any    `json:"programs,omitempty"` // raw home-manager passthrough
+	Files    map[string]string `json:"files,omitempty"`    // target path -> source path (relative to manifest)
+}
+
+// UnmarshalJSON decodes the settings block with unknown-field rejection so a
+// mistyped curated key fails to load. DisallowUnknownFields applies recursively to
+// the typed curated structs (Git/Shell/ProgramToggle); the Programs/Files maps are
+// unaffected (maps have no "unknown fields"), keeping the raw passthrough open.
+func (s *HomeManagerSettings) UnmarshalJSON(data []byte) error {
+	type alias HomeManagerSettings // shed the custom method to avoid recursion
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var a alias
+	if err := dec.Decode(&a); err != nil {
+		return err
+	}
+	*s = HomeManagerSettings(a)
+	return nil
+}
+
+// GitSettings are the curated git concepts the engine maps to home-manager's
+// stable programs.git.extraConfig (which insulates the user from option renames).
+type GitSettings struct {
+	UserName      string `json:"userName,omitempty"`
+	UserEmail     string `json:"userEmail,omitempty"`
+	DefaultBranch string `json:"defaultBranch,omitempty"`
+}
+
+// ShellSettings are shell-agnostic curated concepts mapped to home.shellAliases /
+// home.sessionVariables.
+type ShellSettings struct {
+	Aliases          map[string]string `json:"aliases,omitempty"`
+	SessionVariables map[string]string `json:"sessionVariables,omitempty"`
+}
+
+// ProgramToggle is a curated enable flag for a single home-manager program.
+type ProgramToggle struct {
+	Enable bool `json:"enable,omitempty"`
 }
 
 // App represents a single application entry in the manifest. The Refs map

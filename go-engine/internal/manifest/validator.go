@@ -140,13 +140,26 @@ func ValidateManifestApps(m *Manifest) []ValidationError {
 			})
 		}
 	}
-	// home-manager: config (a home.nix the engine wraps) and flake (a direct
-	// flakeref) are mutually exclusive — exactly one home-manager input.
-	if m.HomeManager != nil && m.HomeManager.Config != "" && m.HomeManager.Flake != "" {
-		errs = append(errs, ValidationError{
-			Code:    "HOMEMANAGER_INPUT_CONFLICT",
-			Message: `homeManager: "config" and "flake" are mutually exclusive — set exactly one`,
-		})
+	// home-manager: the three inputs — settings (a declarative catalog the engine
+	// compiles), config (a home.nix the engine wraps), and flake (a direct
+	// flakeref) — are mutually exclusive; exactly one home-manager input.
+	if m.HomeManager != nil {
+		n := 0
+		if m.HomeManager.Settings != nil {
+			n++
+		}
+		if m.HomeManager.Config != "" {
+			n++
+		}
+		if m.HomeManager.Flake != "" {
+			n++
+		}
+		if n > 1 {
+			errs = append(errs, ValidationError{
+				Code:    "HOMEMANAGER_INPUT_CONFLICT",
+				Message: `homeManager: "settings", "config", and "flake" are mutually exclusive — set exactly one`,
+			})
+		}
 	}
 	return errs
 }
