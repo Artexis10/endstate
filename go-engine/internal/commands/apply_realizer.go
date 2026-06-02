@@ -457,8 +457,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			homeRef = &provision.HomeGenRef{Flake: flake, Generation: hmGen}
 			if generated {
 				// flake is the engine-generated, machine-local wrapper; record the
-				// user's declared homeManager.config so capture can round-trip it.
+				// user's declared input (config path OR catalog settings) so capture
+				// can round-trip it. Exactly one of Config/Settings is set.
 				homeRef.Config = mf.HomeManager.Config
+				homeRef.Settings = mf.HomeManager.Settings
 			}
 			homeResult = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: true}
 			emitter.EmitItem(flake, driverName, "configured", "", fmt.Sprintf("Activated home-manager generation %d", hmGen), "home-manager")

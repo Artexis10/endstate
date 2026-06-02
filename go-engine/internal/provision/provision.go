@@ -13,6 +13,8 @@
 // enforces the import constraint.
 package provision
 
+import "github.com/Artexis10/endstate/go-engine/internal/manifest"
+
 // SchemaVersion is the schema version of the Generation record. It is owned by
 // the provisioning layer and is independent of the manifest and envelope schema
 // versions, so the record format can migrate on its own cadence.
@@ -60,8 +62,14 @@ type HomeGenRef struct {
 	// directly-declared homeManager.flake. Flake records what was actually
 	// activated (the generated, machine-local flakeref in the config case);
 	// Config records what the user declared, so capture can round-trip it.
-	Config     string `json:"config,omitempty"`
-	Generation int    `json:"generation"`
+	Config string `json:"config,omitempty"`
+	// Settings is the user's declared homeManager.settings catalog when the
+	// activated flake was engine-compiled from it (the catalog tier); nil for a
+	// flake- or config-declared home-manager input. Like Config, it records what
+	// the user declared so capture can round-trip a settings-applied machine back
+	// to its catalog. In practice exactly one of Config/Settings is set.
+	Settings   *manifest.HomeManagerSettings `json:"settings,omitempty"`
+	Generation int                           `json:"generation"`
 }
 
 // Capabilities describes what a package backend can do. It is discovered at

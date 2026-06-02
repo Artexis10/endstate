@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
 func TestWriteTo_AssignsMonotonicNumbersAndDefaultsSchema(t *testing.T) {
@@ -137,6 +139,56 @@ func TestDir_ResolvesUnderStateDirNeverHardcoded(t *testing.T) {
 
 // TestPackageStaysInstallOnly enforces the separation-of-concerns invariant in
 // code: the provision package must never import the config/restore layer.
+// TestWriteTo_RecordsHomeManagerSettings verifies that HomeGenRef.Settings
+// (the user's declared homeManager.settings catalog) round-trips through
+// write/read so capture can recover it for the captured manifest.
+func TestWriteTo_RecordsHomeManagerSettings(t *testing.T) {
+	dir := t.TempDir()
+	settings := &manifest.HomeManagerSettings{
+		Git: &manifest.GitSettings{UserName: "Hugo", UserEmail: "h@example.com"},
+	}
+	g := &Generation{
+		RunID:   "apply-settings",
+		Backend: "nix",
+		HomeManager: &HomeGenRef{
+			Flake:    "/tmp/endstate/state/home-manager/flake#me",
+			Settings: settings,
+			Generation: 3,
+		},
+	}
+	if err := WriteTo(dir, g); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	gens, err := ListFrom(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gens) != 1 {
+		t.Fatalf("len = %d, want 1", len(gens))
+	}
+	hm := gens[0].HomeManager
+	if hm == nil {
+		t.Fatal("HomeManager = nil after round-trip, want non-nil")
+	}
+	if hm.Settings == nil {
+		t.Fatal("HomeManager.Settings = nil after round-trip, want non-nil")
+	}
+	if hm.Settings.Git == nil || hm.Settings.Git.UserName != "Hugo" {
+		t.Errorf("HomeManager.Settings.Git.UserName = %q, want Hugo", func() string {
+			if hm.Settings.Git != nil {
+				return hm.Settings.Git.UserName
+			}
+			return "<nil>"
+		}())
+	}
+	if hm.Settings.Git.UserEmail != "h@example.com" {
+		t.Errorf("HomeManager.Settings.Git.UserEmail = %q, want h@example.com", hm.Settings.Git.UserEmail)
+	}
+	if hm.Generation != 3 {
+		t.Errorf("HomeManager.Generation = %d, want 3", hm.Generation)
+	}
+}
+
 func TestPackageStaysInstallOnly(t *testing.T) {
 	fset := token.NewFileSet()
 	files, err := filepath.Glob("*.go")
