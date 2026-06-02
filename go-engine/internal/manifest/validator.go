@@ -127,8 +127,9 @@ func ValidateProfile(path string) *ValidationResult {
 	return res
 }
 
-// ValidateManifestApps checks app-level constraints on a parsed manifest.
-// Returns validation errors for apps with manual blocks missing verifyPath.
+// ValidateManifestApps checks app-level and home-manager constraints on a parsed
+// manifest. Returns validation errors for apps with manual blocks missing
+// verifyPath, and for a homeManager block that declares both inputs.
 func ValidateManifestApps(m *Manifest) []ValidationError {
 	var errs []ValidationError
 	for _, app := range m.Apps {
@@ -138,6 +139,14 @@ func ValidateManifestApps(m *Manifest) []ValidationError {
 				Message: fmt.Sprintf(`app %q: "manual.verifyPath" is required when "manual" is present`, app.ID),
 			})
 		}
+	}
+	// home-manager: config (a home.nix the engine wraps) and flake (a direct
+	// flakeref) are mutually exclusive — exactly one home-manager input.
+	if m.HomeManager != nil && m.HomeManager.Config != "" && m.HomeManager.Flake != "" {
+		errs = append(errs, ValidationError{
+			Code:    "HOMEMANAGER_INPUT_CONFLICT",
+			Message: `homeManager: "config" and "flake" are mutually exclusive — set exactly one`,
+		})
 	}
 	return errs
 }

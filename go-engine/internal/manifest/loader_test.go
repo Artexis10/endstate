@@ -556,6 +556,75 @@ func TestLoadManifest_HomeManager(t *testing.T) {
 	}
 }
 
+// TestLoadManifest_HomeManagerConfig verifies the homeManager.config field (a
+// path to a home.nix the engine wraps into a flake) round-trips through JSONC
+// load, and that an absent config yields "" (so the wrapper is opt-in).
+func TestLoadManifest_HomeManagerConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	withCfg := filepath.Join(dir, "with-cfg.jsonc")
+	withCfgContent := `{
+  "version": 1,
+  "name": "hm-cfg-test",
+  "apps": [],
+  // the engine generates the surrounding flake around this home.nix
+  "homeManager": { "config": "./home.nix" }
+}`
+	if err := os.WriteFile(withCfg, []byte(withCfgContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManifest(withCfg)
+	if err != nil {
+		t.Fatalf("unexpected error loading manifest with homeManager.config: %v", err)
+	}
+	if m.HomeManager == nil {
+		t.Fatal("HomeManager = nil, want non-nil for a manifest declaring homeManager.config")
+	}
+	if m.HomeManager.Config != "./home.nix" {
+		t.Errorf("HomeManager.Config = %q, want %q", m.HomeManager.Config, "./home.nix")
+	}
+	if m.HomeManager.Flake != "" {
+		t.Errorf("HomeManager.Flake = %q, want empty when only config is set", m.HomeManager.Flake)
+	}
+
+	// A flake-only block must leave Config empty (config is opt-in).
+	flakeOnly := filepath.Join(dir, "flake-only.jsonc")
+	if err := os.WriteFile(flakeOnly, []byte(`{ "version": 1, "name": "f", "apps": [], "homeManager": { "flake": "/d#me" } }`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m2, err := LoadManifest(flakeOnly)
+	if err != nil {
+		t.Fatalf("unexpected error loading flake-only manifest: %v", err)
+	}
+	if m2.HomeManager == nil || m2.HomeManager.Config != "" {
+		t.Errorf("HomeManager.Config = %+v, want empty for a flake-only block", m2.HomeManager)
+	}
+}
+
+// TestLoadManifest_HomeManagerConfigFlakeMutuallyExclusive verifies a manifest
+// that sets BOTH homeManager.config and homeManager.flake fails to load with a
+// clear error — exactly one home-manager input is allowed.
+func TestLoadManifest_HomeManagerConfigFlakeMutuallyExclusive(t *testing.T) {
+	dir := t.TempDir()
+	both := filepath.Join(dir, "both.jsonc")
+	bothContent := `{
+  "version": 1,
+  "name": "hm-both",
+  "apps": [],
+  "homeManager": { "config": "./home.nix", "flake": "/home/me/dotfiles#hugo" }
+}`
+	if err := os.WriteFile(both, []byte(bothContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadManifest(both)
+	if err == nil {
+		t.Fatal("expected an error loading a manifest that sets both homeManager.config and homeManager.flake, got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "mutually exclusive") {
+		t.Errorf("error %q does not explain the mutual exclusion of config and flake", err.Error())
+	}
+}
+
 func TestLoadManifestIncludes_ParentAppsBeforeChild(t *testing.T) {
 	// Pester: "Should contain local app from root manifest" +
 	//         "Should contain apps from included base-apps.jsonc"

@@ -398,11 +398,29 @@ When the manifest declares a `homeManager` block and `apply` runs with `--enable
 ```
 
 - `homeManager.flake` is a home-manager flakeref (e.g. `/home/me/dotfiles#hugo` or `github:me/dotfiles#hugo`) — a power-user escape hatch. The engine activates whatever flakeref it is given; engine-generated inputs may produce this flakeref in a later release without changing the stage.
+- `homeManager.config` is a path (resolved relative to the manifest) to a `home.nix` the engine **wraps in a generated flake** before activating it through this same stage — so the user supplies only their configuration, never the flake, inputs, pinning, identity, or activation wiring. `config` and `flake` are **mutually exclusive** (exactly one home-manager input); a manifest declaring both fails to load with a clear validation error.
 - **Engine-owned and gated.** The engine itself runs the activation (`nix run <pinned home-manager> -- switch --flake <ref> -b endstate-backup`); the user does not install or run home-manager. The home-manager version is pinned by the engine (overridable via `ENDSTATE_HOME_MANAGER_PIN`, mirroring `ENDSTATE_NIXPKGS_PIN`). The stage runs **only** when both `--enable-restore` is set and `homeManager.flake` is non-empty; otherwise apply is byte-identical to a package-only apply.
 - **Backup-on-clobber.** `-b endstate-backup` makes home-manager move any pre-existing file it would replace to `<file>.endstate-backup` instead of failing (honors *backup-before-overwrite*).
 - **Recorded.** A successful activation is recorded in the Provisioning Generation under `homeManager` (the activated flakeref and the resulting home-manager generation number). A config-only apply (no package changed) still records a generation.
 - **Realizer-only.** The winget/driver path never activates home-manager (a declared `homeManager` block is ignored there).
 - **Errors (the moat).** A systemic failure (daemon unavailable → `REALIZER_UNAVAILABLE`, permission → `PERMISSION_DENIED`) surfaces as a top-level envelope error; any other activation failure surfaces as `INSTALL_FAILED`. Raw home-manager / Nix output appears only in `error.detail`, never in `error.message`.
+
+#### Generated flake (the `homeManager.config` wrapper)
+
+When the manifest uses `homeManager.config`, the engine generates the surrounding flake itself and feeds the resulting flakeref to the **same** activation (no new activation path, classification, backup, or recording):
+
+```jsonc
+{
+  "homeManager": { "config": "./home.nix" }  // a path to a home-manager config file
+}
+```
+
+- **Engine-generated and pinned.** The engine renders a `flake.nix` that pins `nixpkgs` (`ENDSTATE_NIXPKGS_PIN`) and `home-manager` (`ENDSTATE_HOME_MANAGER_PIN`, with `nixpkgs` following), pins `pkgs` to the host system, and injects the machine identity — `home.username`, `home.homeDirectory`, and `home.stateVersion` (the last overridable via `ENDSTATE_HM_STATE_VERSION`) — so the user's `home.nix` never hardcodes machine-specific values.
+- **Inspectable + ejectable.** The generated flake is written in plain, commented form to a stable engine-state location (`state/home-manager/<name>/`, where `<name>` is the current user). The user's `home.nix` is **copied in** beside the generated `flake.nix` and referenced as `./home.nix` (a flake evaluates in pure mode, which forbids an absolute path outside the flake tree), so the directory is a self-contained flake a power user can take over and run by hand (`nix run home-manager -- switch --flake <that dir>`). It persists after the run for inspection; the user's `home.nix` is the source of truth and the flake is regenerated each apply.
+- **Recorded under the generated flakeref.** A successful activation records the generated `<dir>#<name>` flakeref (and the resulting home-manager generation) in the Provisioning Generation, exactly as a direct `homeManager.flake` is recorded.
+- **`--dry-run` reveals without activating.** On `--dry-run` the engine still generates the inspectable flake and reports it in the apply result (`homeManager.generated: true`, `homeManager.activated: false`), but activates nothing.
+
+The apply result carries a `homeManager` object when the config stage runs: `{ "flake": "<flakeref>", "generated": <bool>, "activated": <bool> }` — `generated` is `true` for a `homeManager.config` wrapper (false for a direct `homeManager.flake`), and `activated` is `false` on `--dry-run`. (Optional, omitted when no config stage runs; additive in schema 1.x.)
 
 > **Rollback of an activated home-manager configuration is not yet supported** (a documented follow-on). home-manager keeps its own numbered generations; re-activating a prior one ships separately.
 
