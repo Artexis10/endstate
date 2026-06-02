@@ -16,6 +16,15 @@ import (
 // the apply path can discover home-manager config support by type-assertion.
 var _ realizer.HomeActivator = (*Backend)(nil)
 
+// compile-time assertion: the Nix backend implements realizer.HomeGenerationReader,
+// so the verify path can discover home-manager generation reading by type-assertion.
+var _ realizer.HomeGenerationReader = (*Backend)(nil)
+
+// ActiveHomeGeneration returns the active home-manager generation number by
+// delegating to homeGen(), which reads the profile symlink (or the injected
+// homeGenFn in tests). Returns 0 when no home-manager generation is active.
+func (b *Backend) ActiveHomeGeneration() int { return b.homeGen() }
+
 // ActivateHome activates a declared home-manager configuration as the realizer's
 // config stage of apply. The engine owns the invocation — it runs the
 // home-manager CLI via `nix run <HomePin> -- switch --flake <flake> -b

@@ -4,9 +4,13 @@
 package commands
 
 import (
+	"fmt"
 	"runtime"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
@@ -362,5 +366,287 @@ func TestRunPlanRealizer_ActionDriver(t *testing.T) {
 	}
 	if pr.Actions[0].Driver != "nix" {
 		t.Errorf("action Driver = %q, want nix", pr.Actions[0].Driver)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// home-manager verify tests (HomeGenerationReader seam)
+// ---------------------------------------------------------------------------
+
+// seedHMGeneration writes a Provisioning Generation recording a home-manager
+// config with the given generation number. The test must set ENDSTATE_ROOT.
+func seedHMGeneration(t *testing.T, hmGen int) {
+	t.Helper()
+	if err := provision.Write(&provision.Generation{
+		Backend: "nix",
+		HomeManager: &provision.HomeGenRef{
+			Flake:      "/dot#me",
+			Generation: hmGen,
+		},
+	}); err != nil {
+		t.Fatalf("seedHMGeneration: provision.Write: %v", err)
+	}
+}
+
+// hmManifest builds a Manifest with one nix app and a homeManager block.
+func hmManifest(app manifest.App) *manifest.Manifest {
+	mf := nixManifest(app)
+	mf.HomeManager = &manifest.HomeManagerConfig{Flake: "/dot#me"}
+	return mf
+}
+
+// TestRunVerifyRealizer_HomeManager_Pass: declared hm, active==recorded → one
+// home-manager item with status "pass"; counts in summary.
+func TestRunVerifyRealizer_HomeManager_Pass(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedHMGeneration(t, 5)
+
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := hmManifest(app)
+
+	fr := &fakeRealizer{
+		currentSet: realizer.Set{
+			Generation: 3,
+			Elements:   map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
+		},
+		activeHomeGen: 5, // matches recorded
+	}
+
+	flags := VerifyFlags{Manifest: "hm-pass"}
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	vr := raw.(*VerifyResult)
+
+	// Find the home-manager item.
+	var hmItem *VerifyItem
+	for i := range vr.Results {
+		if vr.Results[i].Type == "home-manager" {
+			hmItem = &vr.Results[i]
+			break
+		}
+	}
+	if hmItem == nil {
+		t.Fatal("expected a home-manager result item, got none")
+	}
+	if hmItem.Status != "pass" {
+		t.Errorf("home-manager item Status = %q, want pass", hmItem.Status)
+	}
+	if hmItem.ID != "home-manager" {
+		t.Errorf("home-manager item ID = %q, want home-manager", hmItem.ID)
+	}
+	// The pass item must be counted.
+	if vr.Summary.Pass != 2 { // ripgrep + hm
+		t.Errorf("Summary.Pass = %d, want 2", vr.Summary.Pass)
+	}
+	if vr.Summary.Fail != 0 {
+		t.Errorf("Summary.Fail = %d, want 0", vr.Summary.Fail)
+	}
+}
+
+// TestRunVerifyRealizer_HomeManager_ConfigDrift: active != recorded → fail
+// config_drift, Version and Expected set to active/recorded gen numbers.
+func TestRunVerifyRealizer_HomeManager_ConfigDrift(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedHMGeneration(t, 5)
+
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := hmManifest(app)
+
+	fr := &fakeRealizer{
+		currentSet: realizer.Set{
+			Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
+		},
+		activeHomeGen: 7, // differs from recorded (5)
+	}
+
+	flags := VerifyFlags{Manifest: "hm-drift"}
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	vr := raw.(*VerifyResult)
+
+	var hmItem *VerifyItem
+	for i := range vr.Results {
+		if vr.Results[i].Type == "home-manager" {
+			hmItem = &vr.Results[i]
+			break
+		}
+	}
+	if hmItem == nil {
+		t.Fatal("expected a home-manager result item, got none")
+	}
+	if hmItem.Status != "fail" {
+		t.Errorf("Status = %q, want fail", hmItem.Status)
+	}
+	if hmItem.Reason != driver.ReasonConfigDrift {
+		t.Errorf("Reason = %q, want config_drift", hmItem.Reason)
+	}
+	if hmItem.Version != fmt.Sprintf("%d", 7) {
+		t.Errorf("Version (active) = %q, want 7", hmItem.Version)
+	}
+	if hmItem.Expected != fmt.Sprintf("%d", 5) {
+		t.Errorf("Expected (recorded) = %q, want 5", hmItem.Expected)
+	}
+	if vr.Summary.Fail != 1 {
+		t.Errorf("Summary.Fail = %d, want 1 (hm drift)", vr.Summary.Fail)
+	}
+}
+
+// TestRunVerifyRealizer_HomeManager_Missing: active==0 → fail missing.
+func TestRunVerifyRealizer_HomeManager_Missing(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedHMGeneration(t, 5)
+
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := hmManifest(app)
+
+	fr := &fakeRealizer{
+		currentSet: realizer.Set{
+			Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
+		},
+		activeHomeGen: 0, // nothing active
+	}
+
+	flags := VerifyFlags{Manifest: "hm-missing"}
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	vr := raw.(*VerifyResult)
+
+	var hmItem *VerifyItem
+	for i := range vr.Results {
+		if vr.Results[i].Type == "home-manager" {
+			hmItem = &vr.Results[i]
+			break
+		}
+	}
+	if hmItem == nil {
+		t.Fatal("expected a home-manager result item, got none")
+	}
+	if hmItem.Status != "fail" {
+		t.Errorf("Status = %q, want fail", hmItem.Status)
+	}
+	if hmItem.Reason != driver.ReasonMissing {
+		t.Errorf("Reason = %q, want missing", hmItem.Reason)
+	}
+}
+
+// TestRunVerifyRealizer_HomeManager_NoRecordedGen_Missing: no history at all,
+// active==0 → fail missing.
+func TestRunVerifyRealizer_HomeManager_NoRecordedGen_Missing(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	// No generations written — empty history.
+
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := hmManifest(app)
+
+	fr := &fakeRealizer{
+		currentSet:    realizer.Set{Elements: map[string]realizer.Element{}},
+		activeHomeGen: 0,
+	}
+
+	flags := VerifyFlags{Manifest: "hm-no-history"}
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	vr := raw.(*VerifyResult)
+
+	var hmItem *VerifyItem
+	for i := range vr.Results {
+		if vr.Results[i].Type == "home-manager" {
+			hmItem = &vr.Results[i]
+			break
+		}
+	}
+	if hmItem == nil {
+		t.Fatal("expected a home-manager result item, got none")
+	}
+	if hmItem.Status != "fail" {
+		t.Errorf("Status = %q, want fail", hmItem.Status)
+	}
+	if hmItem.Reason != driver.ReasonMissing {
+		t.Errorf("Reason = %q, want missing", hmItem.Reason)
+	}
+}
+
+// TestRunVerifyRealizer_NoHomeManager_NoHmItem: manifest without homeManager →
+// no home-manager item, existing package verify unaffected.
+func TestRunVerifyRealizer_NoHomeManager_NoHmItem(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app) // no HomeManager field
+
+	fr := &fakeRealizer{
+		currentSet: realizer.Set{
+			Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
+		},
+		activeHomeGen: 3,
+	}
+
+	flags := VerifyFlags{Manifest: "no-hm-field"}
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	vr := raw.(*VerifyResult)
+
+	for _, item := range vr.Results {
+		if item.Type == "home-manager" {
+			t.Errorf("unexpected home-manager item in results when manifest has no homeManager block")
+		}
+	}
+	if vr.Summary.Total != 1 {
+		t.Errorf("Summary.Total = %d, want 1 (only ripgrep)", vr.Summary.Total)
+	}
+	if vr.Summary.Pass != 1 {
+		t.Errorf("Summary.Pass = %d, want 1", vr.Summary.Pass)
+	}
+}
+
+// minimalRealizer implements only realizer.Realizer — NOT HomeGenerationReader —
+// so the verify path must skip the hm check when using it.
+type minimalRealizer struct {
+	currentSet realizer.Set
+}
+
+func (m *minimalRealizer) Name() string                                           { return "minimal" }
+func (m *minimalRealizer) Current() (realizer.Set, error)                         { return m.currentSet, nil }
+func (m *minimalRealizer) Plan([]realizer.Installable) (realizer.Diff, error)     { return realizer.Diff{}, nil }
+func (m *minimalRealizer) Realize([]realizer.Installable) (realizer.Result, error) {
+	return realizer.Result{}, nil
+}
+
+// TestRunVerifyRealizer_NoHomeGenerationReader_Skips: realizer does not implement
+// HomeGenerationReader → no home-manager item even when manifest declares hm.
+func TestRunVerifyRealizer_NoHomeGenerationReader_Skips(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedHMGeneration(t, 5)
+
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := hmManifest(app)
+
+	mr := &minimalRealizer{
+		currentSet: realizer.Set{
+			Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep", AttrPath: "ripgrep"}},
+		},
+	}
+
+	flags := VerifyFlags{Manifest: "no-hgr"}
+	raw, eerr := runVerifyRealizer(flags, mf, mr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+	vr := raw.(*VerifyResult)
+
+	for _, item := range vr.Results {
+		if item.Type == "home-manager" {
+			t.Errorf("unexpected home-manager item: backend does not implement HomeGenerationReader")
+		}
 	}
 }

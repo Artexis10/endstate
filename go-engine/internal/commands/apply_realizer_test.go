@@ -64,6 +64,9 @@ type fakeRealizer struct {
 	homeRollbackErr     error // scripted RollbackHome error
 	homeRollbackCalls   int
 	lastHomeRollbackArg int
+
+	// --- home-manager generation reading (verify) ---
+	activeHomeGen int // scripted ActiveHomeGeneration return value
 }
 
 // RollbackHome satisfies realizer.HomeRollbacker, recording the requested
@@ -75,6 +78,12 @@ func (f *fakeRealizer) RollbackHome(generation int) (int, error) {
 	f.lastHomeRollbackArg = generation
 	return f.homeRollbackGen, f.homeRollbackErr
 }
+
+// ActiveHomeGeneration satisfies realizer.HomeGenerationReader, returning the
+// scripted activeHomeGen value. Its presence makes *fakeRealizer a
+// HomeGenerationReader, so the verify home-manager check is exercised
+// host-independently.
+func (f *fakeRealizer) ActiveHomeGeneration() int { return f.activeHomeGen }
 
 // ActivateHome satisfies realizer.HomeActivator, recording the requested flake
 // and returning the scripted generation/error. Its presence makes *fakeRealizer a
