@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
@@ -53,8 +54,9 @@ type capturedManifestFile struct {
 		Version string            `json:"version"`
 	} `json:"apps"`
 	HomeManager *struct {
-		Flake  string `json:"flake"`
-		Config string `json:"config"`
+		Flake    string          `json:"flake"`
+		Config   string          `json:"config"`
+		Settings json.RawMessage `json:"settings"`
 	} `json:"homeManager"`
 }
 
@@ -85,6 +87,13 @@ func pkgGen() *provision.Generation {
 // engine actually activated.
 func hmGenConfig(config, generatedFlake string, genNum int) *provision.Generation {
 	return &provision.Generation{HomeManager: &provision.HomeGenRef{Config: config, Flake: generatedFlake, Generation: genNum}}
+}
+
+// hmGenSettings builds a generation from a homeManager.settings (catalog) apply:
+// it records the user's declared catalog settings AND the engine-compiled
+// (machine-local) flake the engine actually activated.
+func hmGenSettings(settings *manifest.HomeManagerSettings, generatedFlake string, genNum int) *provision.Generation {
+	return &provision.Generation{HomeManager: &provision.HomeGenRef{Settings: settings, Flake: generatedFlake, Generation: genNum}}
 }
 
 func readCapturedManifest(t *testing.T, path string) capturedManifestFile {

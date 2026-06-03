@@ -215,9 +215,13 @@ func recoverHomeManager(flags CaptureFlags) *manifest.HomeManagerConfig {
 			if g.HomeManager == nil {
 				continue
 			}
-			// Prefer the user's declared config (a config apply records the
-			// machine-local generated flake in Flake but the portable home.nix in
-			// Config); fall back to a directly-declared flake.
+			// Prefer the user's declared catalog settings, then the declared config
+			// path (a config/settings apply records the machine-local generated flake
+			// in Flake but the portable input in Settings/Config); fall back to a
+			// directly-declared flake.
+			if g.HomeManager.Settings != nil {
+				return &manifest.HomeManagerConfig{Settings: g.HomeManager.Settings}
+			}
 			if g.HomeManager.Config != "" {
 				return &manifest.HomeManagerConfig{Config: g.HomeManager.Config}
 			}

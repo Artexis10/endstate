@@ -1,0 +1,10 @@
+id: nix-home-manager-catalog-capture
+title: "Capture records the engine-provisioned home-manager catalog settings"
+status: implementing
+spec: nix-home-manager-catalog-capture
+created: "2026-06-02"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md
