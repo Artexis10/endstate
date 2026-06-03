@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.14.0](https://github.com/Artexis10/endstate/compare/v2.13.0...v2.14.0) (2026-06-03)
+
+
+### Features
+
+* **capture:** parse nix store-path versions and record them in capture and apply ([#95](https://github.com/Artexis10/endstate/issues/95)) ([1b11fdd](https://github.com/Artexis10/endstate/commit/1b11fdd9fbefb2bd3534394e405ef54c8aba2e73))
+* **engine:** home-manager catalog capture (machine -&gt; homeManager.settings) ([#96](https://github.com/Artexis10/endstate/issues/96)) ([05c4867](https://github.com/Artexis10/endstate/commit/05c486703e6699144148264a652ff1bb73fd8aef))
+* **engine:** home-manager config capture (close the config apply↔capture loop) ([#86](https://github.com/Artexis10/endstate/issues/86)) ([4b00d18](https://github.com/Artexis10/endstate/commit/4b00d1831f539a1816b0c15fdfb9e8b2cd80cac3))
+* **engine:** home-manager config rollback (rollback --enable-restore) ([#93](https://github.com/Artexis10/endstate/issues/93)) ([82c6f8e](https://github.com/Artexis10/endstate/commit/82c6f8e945e533e5d8275882ca0136d5927d7aba))
+* **engine:** home-manager config-file wrapper (homeManager.config) ([#87](https://github.com/Artexis10/endstate/issues/87)) ([86913fa](https://github.com/Artexis10/endstate/commit/86913fa440304477d2b6f7c66a199cf53d2cb6f4))
+* **engine:** home-manager programs catalog (homeManager.settings — zero-Nix tier) ([#91](https://github.com/Artexis10/endstate/issues/91)) ([849d6fe](https://github.com/Artexis10/endstate/commit/849d6fe6134b13d371b4251768f0a417d0161111))
+* **verify:** add home-manager config generation check to realizer verify path ([#97](https://github.com/Artexis10/endstate/issues/97)) ([b231b7f](https://github.com/Artexis10/endstate/commit/b231b7f616ffdb1856ca5ee23c3575b817579ce1))
+
+
+### Bug Fixes
+
+* **engine:** capture the declared home-manager input, not the generated flake ([#89](https://github.com/Artexis10/endstate/issues/89)) ([2ef97fa](https://github.com/Artexis10/endstate/commit/2ef97fa8f006621014e103afb77b9d3006881143))
+
 ## [2.13.0](https://github.com/Artexis10/endstate/compare/v2.12.1...v2.13.0) (2026-06-02)
 
 
