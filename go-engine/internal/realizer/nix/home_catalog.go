@@ -22,6 +22,11 @@ var curatedPrograms = map[string]bool{
 	"git":      true,
 	"direnv":   true,
 	"starship": true,
+	"fzf":      true,
+	"zoxide":   true,
+	"bat":      true,
+	"tmux":     true,
+	"ssh":      true,
 }
 
 // GenerateHomeFlakeFromSettings compiles a declarative catalog (settings) into a
@@ -91,6 +96,39 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 	}
 	if s.Starship != nil {
 		stmts = append(stmts, "programs.starship.enable = "+nixValue(s.Starship.Enable)+";")
+	}
+	if s.Fzf != nil {
+		stmts = append(stmts, "programs.fzf.enable = "+nixValue(s.Fzf.Enable)+";")
+	}
+	if s.Zoxide != nil {
+		stmts = append(stmts, "programs.zoxide.enable = "+nixValue(s.Zoxide.Enable)+";")
+	}
+
+	// bat → enable + the STABLE programs.bat.config attrset (key→value forwarded
+	// verbatim, sorted for determinism).
+	if s.Bat != nil {
+		stmts = append(stmts, "programs.bat.enable = "+nixValue(s.Bat.Enable)+";")
+		if len(s.Bat.Config) > 0 {
+			stmts = append(stmts, "programs.bat.config = "+nixValue(stringMapToAny(s.Bat.Config))+";")
+		}
+	}
+
+	// tmux → enable + the STABLE programs.tmux.extraConfig (raw tmux.conf string —
+	// insulates the user from home-manager tmux option renames).
+	if s.Tmux != nil {
+		stmts = append(stmts, "programs.tmux.enable = "+nixValue(s.Tmux.Enable)+";")
+		if s.Tmux.ExtraConfig != "" {
+			stmts = append(stmts, "programs.tmux.extraConfig = "+nixValue(s.Tmux.ExtraConfig)+";")
+		}
+	}
+
+	// ssh → enable + the STABLE programs.ssh.extraConfig (raw ssh config string —
+	// insulates the user from home-manager ssh option renames).
+	if s.SSH != nil {
+		stmts = append(stmts, "programs.ssh.enable = "+nixValue(s.SSH.Enable)+";")
+		if s.SSH.ExtraConfig != "" {
+			stmts = append(stmts, "programs.ssh.extraConfig = "+nixValue(s.SSH.ExtraConfig)+";")
+		}
 	}
 
 	// raw programs passthrough, verbatim, sorted for determinism.

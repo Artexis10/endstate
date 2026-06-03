@@ -1,0 +1,7 @@
+# Minimal starship prompt config staged by the home-manager catalog example.
+# Placed at ~/.config/starship.toml via homeManager.settings.files.
+add_newline = false
+
+[character]
+success_symbol = "[➜](bold green)"
+error_symbol = "[➜](bold red)"
