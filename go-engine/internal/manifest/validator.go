@@ -160,6 +160,68 @@ func ValidateManifestApps(m *Manifest) []ValidationError {
 				Message: `homeManager: "settings", "config", and "flake" are mutually exclusive — set exactly one`,
 			})
 		}
+		errs = append(errs, validateHomeManagerSecrets(m.HomeManager)...)
+	}
+	return errs
+}
+
+// validateHomeManagerSecrets checks the Phase-1 documented-boundary secrets list.
+// Secrets compose with the engine-generated modes (settings/config) but are
+// rejected alongside a pure flake input (the user's external flake owns its own
+// secrets — the engine generates nothing to inject reference sinks into). Each
+// entry must name exactly one reference (path XOR env), a non-empty unique name,
+// and a supported backend ("" defaults to / is equivalent to "boundary").
+func validateHomeManagerSecrets(hm *HomeManagerConfig) []ValidationError {
+	if len(hm.Secrets) == 0 {
+		return nil
+	}
+	var errs []ValidationError
+	if hm.Flake != "" {
+		errs = append(errs, ValidationError{
+			Code:    "HOMEMANAGER_SECRETS_FLAKE_UNSUPPORTED",
+			Message: `homeManager.secrets is not supported with "flake" — an external flake owns its own secrets; use "settings" or "config"`,
+		})
+	}
+	seen := make(map[string]bool, len(hm.Secrets))
+	for _, s := range hm.Secrets {
+		if s.Name == "" {
+			errs = append(errs, ValidationError{
+				Code:    "HOMEMANAGER_SECRET_EMPTY_NAME",
+				Message: `homeManager.secrets: each entry requires a non-empty "name"`,
+			})
+		} else if seen[s.Name] {
+			errs = append(errs, ValidationError{
+				Code:    "HOMEMANAGER_SECRET_DUPLICATE_NAME",
+				Message: fmt.Sprintf("homeManager.secrets: duplicate secret name %q", s.Name),
+			})
+		}
+		seen[s.Name] = true
+
+		// Phase 1 is PATH-ONLY. An env-exposed secret is deferred: in the
+		// documented-boundary model the engine never holds a secret's value, so it
+		// cannot meaningfully set an env var — that needs its own design (a future
+		// phase). Reject env now with a clear message rather than emit dead config.
+		hasPath := s.Path != ""
+		hasEnv := s.Env != ""
+		switch {
+		case hasEnv:
+			errs = append(errs, ValidationError{
+				Code:    "HOMEMANAGER_SECRET_ENV_UNSUPPORTED",
+				Message: fmt.Sprintf("homeManager.secrets[%q]: env-exposed secrets are not yet supported; declare the secret as a \"path\" reference", s.Name),
+			})
+		case !hasPath:
+			errs = append(errs, ValidationError{
+				Code:    "HOMEMANAGER_SECRET_MISSING_REF",
+				Message: fmt.Sprintf("homeManager.secrets[%q]: requires a \"path\" reference", s.Name),
+			})
+		}
+
+		if s.Backend != "" && s.Backend != "boundary" {
+			errs = append(errs, ValidationError{
+				Code:    "HOMEMANAGER_SECRET_UNSUPPORTED_BACKEND",
+				Message: fmt.Sprintf("homeManager.secrets[%q]: unsupported backend %q (Phase 1 supports only \"boundary\")", s.Name, s.Backend),
+			})
+		}
 	}
 	return errs
 }

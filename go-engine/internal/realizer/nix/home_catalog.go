@@ -37,12 +37,12 @@ var curatedPrograms = map[string]bool{
 // home.nix, stages any declared files beside it, and reuses the wrapper's flake
 // generation — returning the <dir>#<name> flakeref the existing ActivateHome
 // consumes. File sources are resolved relative to manifestDir.
-func GenerateHomeFlakeFromSettings(stateDir string, s *manifest.HomeManagerSettings, manifestDir string) (string, error) {
+func GenerateHomeFlakeFromSettings(stateDir string, s *manifest.HomeManagerSettings, manifestDir string, secrets []manifest.HomeManagerSecret) (string, error) {
 	homeNix, staged, err := CompileHomeNix(s, manifestDir)
 	if err != nil {
 		return "", err
 	}
-	return writeHomeFlake(stateDir, homeNix, staged)
+	return writeHomeFlake(stateDir, homeNix, staged, secrets)
 }
 
 // CompileHomeNix renders a home-manager module (home.nix) from the declared

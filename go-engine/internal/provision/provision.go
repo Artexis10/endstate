@@ -68,8 +68,13 @@ type HomeGenRef struct {
 	// flake- or config-declared home-manager input. Like Config, it records what
 	// the user declared so capture can round-trip a settings-applied machine back
 	// to its catalog. In practice exactly one of Config/Settings is set.
-	Settings   *manifest.HomeManagerSettings `json:"settings,omitempty"`
-	Generation int                           `json:"generation"`
+	Settings *manifest.HomeManagerSettings `json:"settings,omitempty"`
+	// Secrets is the user's declared Phase-1 documented-boundary secret REFERENCES
+	// (homeManager.secrets) activated by this apply. It carries references only —
+	// path / env / backend — never secret material, so capture can round-trip the
+	// references without the engine ever holding or persisting the secret itself.
+	Secrets    []manifest.HomeManagerSecret `json:"secrets,omitempty"`
+	Generation int                          `json:"generation"`
 }
 
 // Capabilities describes what a package backend can do. It is discovered at

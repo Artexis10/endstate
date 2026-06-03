@@ -1,0 +1,10 @@
+id: nix-home-manager-secrets
+title: "Home-manager secrets — Phase-1 documented boundary (referenced, never embedded)"
+status: implementing
+spec: nix-home-manager-secrets-boundary
+created: "2026-06-03"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

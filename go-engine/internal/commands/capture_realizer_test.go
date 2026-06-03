@@ -57,6 +57,12 @@ type capturedManifestFile struct {
 		Flake    string          `json:"flake"`
 		Config   string          `json:"config"`
 		Settings json.RawMessage `json:"settings"`
+		Secrets  []struct {
+			Name    string `json:"name"`
+			Path    string `json:"path"`
+			Env     string `json:"env"`
+			Backend string `json:"backend"`
+		} `json:"secrets"`
 	} `json:"homeManager"`
 }
 
@@ -514,6 +520,88 @@ func TestRunCaptureRealizer_FlakeDeclared_StillEmitsFlake(t *testing.T) {
 	}
 	if mf.HomeManager.Config != "" {
 		t.Errorf("flake apply must not emit a config, got config=%q", mf.HomeManager.Config)
+	}
+}
+
+// hmGenSettingsSecrets builds a generation from a settings apply that ALSO
+// declared Phase-1 documented-boundary secret references.
+func hmGenSettingsSecrets(settings *manifest.HomeManagerSettings, secrets []manifest.HomeManagerSecret, generatedFlake string, genNum int) *provision.Generation {
+	return &provision.Generation{HomeManager: &provision.HomeGenRef{Settings: settings, Secrets: secrets, Generation: genNum, Flake: generatedFlake}}
+}
+
+// Capture carries the secret REFERENCE verbatim alongside the recovered settings
+// (secrets compose with the generated modes).
+func TestRunCaptureRealizer_CarriesSecretReference(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "hmsec.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+
+	secrets := []manifest.HomeManagerSecret{
+		{Name: "~/.npmrc", Path: "/run/secrets/npmrc"},
+		{Name: "~/.config/tok", Path: "/run/secrets/tok", Backend: "boundary"},
+	}
+	gen := hmGenSettingsSecrets(
+		&manifest.HomeManagerSettings{Git: &manifest.GitSettings{UserName: "Hugo"}},
+		secrets,
+		"/home/me/.local/state/endstate/state/home-manager/me#me", 7)
+	withFakeGenerations([]*provision.Generation{gen}, nil, func() {
+		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
+			t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+		}
+	})
+
+	mf := readCapturedManifest(t, out)
+	if mf.HomeManager == nil || len(mf.HomeManager.Secrets) != 2 {
+		t.Fatalf("expected 2 captured secret references, got %+v", mf.HomeManager)
+	}
+	if mf.HomeManager.Secrets[0].Path != "/run/secrets/npmrc" || mf.HomeManager.Secrets[0].Name != "~/.npmrc" {
+		t.Errorf("path secret not carried verbatim: %+v", mf.HomeManager.Secrets[0])
+	}
+	if mf.HomeManager.Secrets[1].Path != "/run/secrets/tok" || mf.HomeManager.Secrets[1].Backend != "boundary" {
+		t.Errorf("second path secret not carried verbatim: %+v", mf.HomeManager.Secrets[1])
+	}
+	// The generated, machine-local flake must NOT be emitted (settings/secrets are
+	// the portable input).
+	if mf.HomeManager.Flake != "" {
+		t.Errorf("must not emit the generated flake, got %q", mf.HomeManager.Flake)
+	}
+}
+
+// The captured manifest from a secrets-bearing machine contains the REFERENCE,
+// never the material: a sentinel placed at the secret's content location must be
+// absent from the entire captured manifest file.
+func TestRunCaptureRealizer_SecretMaterialNeverCaptured(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "hmsec2.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+
+	const sentinel = "CAPTURE-LEAK-SENTINEL-91baf2"
+	secretFile := filepath.Join(t.TempDir(), "material")
+	if err := os.WriteFile(secretFile, []byte(sentinel), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	secrets := []manifest.HomeManagerSecret{{Name: "~/.secret", Path: secretFile}}
+	gen := hmGenSettingsSecrets(
+		&manifest.HomeManagerSettings{Git: &manifest.GitSettings{UserName: "Hugo"}},
+		secrets, "/gen/flake#me", 1)
+	withFakeGenerations([]*provision.Generation{gen}, nil, func() {
+		if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter()); eerr != nil {
+			t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+		}
+	})
+
+	raw, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), sentinel) {
+		t.Fatal("CAPTURE LEAK: secret material (sentinel) found in the captured manifest")
+	}
+	// The reference (the path) must still be present. Check the UNMARSHALED field
+	// rather than raw JSON bytes: a Windows temp path C:\... is JSON-escaped to
+	// "C:\\..." on disk, so a raw-substring check would spuriously fail on Windows.
+	mf := readCapturedManifest(t, out)
+	if mf.HomeManager == nil || len(mf.HomeManager.Secrets) != 1 || mf.HomeManager.Secrets[0].Path != secretFile {
+		t.Errorf("captured manifest must reference the secret path %q, got %+v", secretFile, mf.HomeManager)
 	}
 }
 

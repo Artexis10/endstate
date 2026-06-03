@@ -218,12 +218,14 @@ func recoverHomeManager(flags CaptureFlags) *manifest.HomeManagerConfig {
 			// Prefer the user's declared catalog settings, then the declared config
 			// path (a config/settings apply records the machine-local generated flake
 			// in Flake but the portable input in Settings/Config); fall back to a
-			// directly-declared flake.
+			// directly-declared flake. Secrets compose with the generated modes, so
+			// their REFERENCES (path/env/backend — never material) ride along; capture
+			// is reference-only by construction (HomeGenRef.Secrets holds no material).
 			if g.HomeManager.Settings != nil {
-				return &manifest.HomeManagerConfig{Settings: g.HomeManager.Settings}
+				return &manifest.HomeManagerConfig{Settings: g.HomeManager.Settings, Secrets: g.HomeManager.Secrets}
 			}
 			if g.HomeManager.Config != "" {
-				return &manifest.HomeManagerConfig{Config: g.HomeManager.Config}
+				return &manifest.HomeManagerConfig{Config: g.HomeManager.Config, Secrets: g.HomeManager.Secrets}
 			}
 			if g.HomeManager.Flake != "" {
 				return &manifest.HomeManagerConfig{Flake: g.HomeManager.Flake}

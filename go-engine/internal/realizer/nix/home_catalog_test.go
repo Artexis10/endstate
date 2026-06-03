@@ -307,7 +307,7 @@ func TestGenerateHomeFlakeFromSettings_WritesSelfContainedFlake(t *testing.T) {
 	}
 
 	stateDir := t.TempDir()
-	ref, err := GenerateHomeFlakeFromSettings(stateDir, s, manDir)
+	ref, err := GenerateHomeFlakeFromSettings(stateDir, s, manDir, nil)
 	if err != nil {
 		t.Fatalf("GenerateHomeFlakeFromSettings: %v", err)
 	}
