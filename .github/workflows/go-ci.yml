@@ -7,9 +7,39 @@ on:
     branches: [main]
 
 jobs:
+  # Windows is the primary shipping target; this job keeps the stable "Go Tests"
+  # check name (don't rename it — branch protection may require it).
   test:
     name: Go Tests
     runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+          cache-dependency-path: go-engine/go.sum
+
+      - name: Vet
+        run: cd go-engine && go vet ./...
+
+      - name: Test
+        run: cd go-engine && go test ./...
+
+  # macOS + Linux exercise the Nix realizer / home-manager code paths
+  # (GOOS=darwin/linux) that the Windows job cross-compiles but never runs.
+  # Hermetic suite only — no real Nix. fail-fast:false so one OS failing still
+  # reports the others.
+  test-unix:
+    name: Go Tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout repository
