@@ -1,0 +1,59 @@
+name: Nix Integration Smoke
+
+# Non-blocking: this workflow has a distinct name ("Nix Integration Smoke")
+# so it is NOT the required "Go Tests" check. It does not block merges.
+#
+# Triggers:
+#   - workflow_dispatch: manual one-off runs (always available)
+#   - pull_request: on PRs touching the engine, realizer, or smoke script
+#     (path-filtered to keep it cheap on unrelated changes)
+#   - schedule: weekly Sunday run to catch upstream Nix / home-manager drift
+on:
+  workflow_dispatch:
+
+  pull_request:
+    branches: [main]
+    paths:
+      - 'go-engine/internal/realizer/**'
+      - 'go-engine/internal/commands/apply_realizer*.go'
+      - 'go-engine/internal/manifest/types.go'
+      - 'scripts/smoke/hm-realnix-smoke.sh'
+      - '.github/workflows/nix-integration.yml'
+
+  schedule:
+    # Weekly on Sunday at 04:00 UTC — keeps cost low, catches upstream drift.
+    - cron: '0 4 * * 0'
+
+jobs:
+  nix-integration-smoke:
+    name: Nix Integration Smoke (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+
+    # Non-blocking: flakiness in upstream Nix / home-manager must not gate
+    # merges. Remove once the job is stable and promoted to a required check.
+    continue-on-error: true
+
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Install Nix (Determinate Systems — flakes enabled by default)
+        uses: DeterminateSystems/nix-installer-action@main
+
+      - name: Enable Nix binary cache (magic-nix-cache)
+        uses: DeterminateSystems/magic-nix-cache-action@main
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+          cache-dependency-path: go-engine/go.sum
+
+      - name: Run home-manager real-Nix smoke
+        run: bash scripts/smoke/hm-realnix-smoke.sh
