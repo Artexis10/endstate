@@ -1,0 +1,58 @@
+{
+  // Endstate-native home-manager catalog (homeManager.settings): declare your
+  // config in Endstate's own format — the engine compiles the home.nix, wraps it
+  // in a generated flake, and activates it. Apply with:
+  //   endstate apply --manifest manifests/examples/home-manager-settings.jsonc --enable-restore
+  // (the config stage is opt-in via --enable-restore; the winget path ignores it.)
+  "version": 1,
+  "name": "home-manager-settings",
+  "apps": [],
+
+  "homeManager": {
+    "settings": {
+      // Curated concepts — each maps to a STABLE home-manager option, so the
+      // declaration keeps working across home-manager option renames.
+      "git": {
+        "userName": "Ada Lovelace",
+        "userEmail": "ada@example.com",
+        "defaultBranch": "main"
+      },
+      "shell": {
+        "aliases": { "ll": "ls -la", "gs": "git status" },
+        "sessionVariables": { "EDITOR": "nvim" }
+      },
+      "direnv": { "enable": true },
+      "starship": { "enable": true },
+
+      // Broadened curated concepts.
+      "fzf": { "enable": true },
+      "zoxide": { "enable": true },
+      "bat": {
+        "enable": true,
+        "config": { "theme": "TwoDark", "italic-text": "always" }
+      },
+      "tmux": {
+        "enable": true,
+        // Raw tmux.conf — the stable surface (programs.tmux.extraConfig).
+        "extraConfig": "set -g mouse on\nset -g history-limit 50000"
+      },
+      "ssh": {
+        "enable": true,
+        // Raw ssh config — the stable surface (programs.ssh.extraConfig).
+        "extraConfig": "Host *\n  ServerAliveInterval 60\n  ServerAliveCountMax 3"
+      },
+
+      // Raw home-manager passthrough — forwarded verbatim. Use this for any
+      // program NOT in the curated set above (a curated name here would conflict).
+      "programs": {
+        "htop": { "enable": true, "settings": { "show_program_path": false } }
+      },
+
+      // Arbitrary files placed via home-manager (source resolved relative to this
+      // manifest). Target path → source path.
+      "files": {
+        "~/.config/starship.toml": "./hm-settings-assets/starship.toml"
+      }
+    }
+  }
+}

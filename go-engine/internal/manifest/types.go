@@ -70,6 +70,11 @@ type HomeManagerSettings struct {
 	Shell    *ShellSettings    `json:"shell,omitempty"`
 	Direnv   *ProgramToggle    `json:"direnv,omitempty"`
 	Starship *ProgramToggle    `json:"starship,omitempty"`
+	Fzf      *ProgramToggle    `json:"fzf,omitempty"`
+	Zoxide   *ProgramToggle    `json:"zoxide,omitempty"`
+	Bat      *BatSettings      `json:"bat,omitempty"`
+	Tmux     *TmuxSettings     `json:"tmux,omitempty"`
+	SSH      *SSHSettings      `json:"ssh,omitempty"`
 	Programs map[string]any    `json:"programs,omitempty"` // raw home-manager passthrough
 	Files    map[string]string `json:"files,omitempty"`    // target path -> source path (relative to manifest)
 }
@@ -105,9 +110,34 @@ type ShellSettings struct {
 	SessionVariables map[string]string `json:"sessionVariables,omitempty"`
 }
 
-// ProgramToggle is a curated enable flag for a single home-manager program.
+// ProgramToggle is a curated enable flag for a single home-manager program
+// (mapped to programs.<name>.enable — e.g. direnv, starship, fzf, zoxide).
 type ProgramToggle struct {
 	Enable bool `json:"enable,omitempty"`
+}
+
+// BatSettings are the curated bat concepts mapped to home-manager's
+// programs.bat.enable plus programs.bat.config (a stable key→value attrset of
+// bat config entries forwarded verbatim).
+type BatSettings struct {
+	Enable bool              `json:"enable,omitempty"`
+	Config map[string]string `json:"config,omitempty"`
+}
+
+// TmuxSettings are the curated tmux concepts mapped to programs.tmux.enable plus
+// programs.tmux.extraConfig — the raw tmux.conf string, which is the stable surface
+// that insulates the user from home-manager tmux option renames.
+type TmuxSettings struct {
+	Enable      bool   `json:"enable,omitempty"`
+	ExtraConfig string `json:"extraConfig,omitempty"`
+}
+
+// SSHSettings are the curated ssh concepts mapped to programs.ssh.enable plus
+// programs.ssh.extraConfig — the raw ssh config string, the stable surface that
+// insulates the user from home-manager ssh option renames.
+type SSHSettings struct {
+	Enable      bool   `json:"enable,omitempty"`
+	ExtraConfig string `json:"extraConfig,omitempty"`
 }
 
 // App represents a single application entry in the manifest. The Refs map

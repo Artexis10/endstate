@@ -56,7 +56,7 @@ func TestCompileHomeNix_CuratedAndRaw(t *testing.T) {
 		Git:      &manifest.GitSettings{UserName: "Hugo", UserEmail: "h@x.com", DefaultBranch: "main"},
 		Shell:    &manifest.ShellSettings{Aliases: map[string]string{"ll": "ls -la"}, SessionVariables: map[string]string{"EDITOR": "nvim"}},
 		Direnv:   &manifest.ProgramToggle{Enable: true},
-		Programs: map[string]any{"bat": map[string]any{"enable": true}},
+		Programs: map[string]any{"htop": map[string]any{"enable": true}}, // non-curated raw passthrough
 	}
 	home, staged, err := CompileHomeNix(s, t.TempDir())
 	if err != nil {
@@ -76,7 +76,7 @@ func TestCompileHomeNix_CuratedAndRaw(t *testing.T) {
 		"home.sessionVariables",
 		`"EDITOR" = "nvim";`,
 		"programs.direnv.enable = true;",
-		"programs.bat = ", // raw passthrough, verbatim program name
+		"programs.htop = ", // raw passthrough, verbatim program name
 		`"enable" = true`,
 	} {
 		if !strings.Contains(out, w) {
@@ -89,10 +89,76 @@ func TestCompileHomeNix_CuratedAndRaw(t *testing.T) {
 	}
 }
 
+// TestCompileHomeNix_BroadenedCurated: the broadened curated concepts (fzf, zoxide,
+// bat, tmux, ssh) render the expected stable home-manager statements.
+func TestCompileHomeNix_BroadenedCurated(t *testing.T) {
+	s := &manifest.HomeManagerSettings{
+		Fzf:    &manifest.ProgramToggle{Enable: true},
+		Zoxide: &manifest.ProgramToggle{Enable: true},
+		Bat:    &manifest.BatSettings{Enable: true, Config: map[string]string{"theme": "TwoDark", "italic-text": "always"}},
+		Tmux:   &manifest.TmuxSettings{Enable: true, ExtraConfig: "set -g mouse on"},
+		SSH:    &manifest.SSHSettings{Enable: true, ExtraConfig: "Host *\n  ServerAliveInterval 60"},
+	}
+	home, _, err := CompileHomeNix(s, t.TempDir())
+	if err != nil {
+		t.Fatalf("CompileHomeNix: %v", err)
+	}
+	out := string(home)
+	for _, w := range []string{
+		"programs.fzf.enable = true;",
+		"programs.zoxide.enable = true;",
+		"programs.bat.enable = true;",
+		"programs.bat.config = ",
+		`"theme" = "TwoDark"`,
+		`"italic-text" = "always"`,
+		"programs.tmux.enable = true;",
+		`programs.tmux.extraConfig = "set -g mouse on";`,
+		"programs.ssh.enable = true;",
+		`programs.ssh.extraConfig = "Host *\n  ServerAliveInterval 60";`,
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("compiled home.nix missing %q\n---\n%s", w, out)
+		}
+	}
+}
+
+// TestCompileHomeNix_BroadenedToggleDisabled: a broadened toggle with enable=false
+// still renders an explicit statement (so the user can pin "off").
+func TestCompileHomeNix_BroadenedToggleDisabled(t *testing.T) {
+	s := &manifest.HomeManagerSettings{Fzf: &manifest.ProgramToggle{Enable: false}}
+	home, _, err := CompileHomeNix(s, t.TempDir())
+	if err != nil {
+		t.Fatalf("CompileHomeNix: %v", err)
+	}
+	if !strings.Contains(string(home), "programs.fzf.enable = false;") {
+		t.Errorf("compiled home.nix missing explicit fzf disable:\n%s", home)
+	}
+}
+
+// TestCompileHomeNix_BroadenedRawOverlapErrors: a raw programs key colliding with a
+// broadened curated concept (e.g. raw programs.fzf + curated fzf) is a clear error.
+func TestCompileHomeNix_BroadenedRawOverlapErrors(t *testing.T) {
+	for _, name := range []string{"fzf", "zoxide", "bat", "tmux", "ssh"} {
+		t.Run(name, func(t *testing.T) {
+			s := &manifest.HomeManagerSettings{
+				Fzf:      &manifest.ProgramToggle{Enable: true},
+				Zoxide:   &manifest.ProgramToggle{Enable: true},
+				Bat:      &manifest.BatSettings{Enable: true},
+				Tmux:     &manifest.TmuxSettings{Enable: true},
+				SSH:      &manifest.SSHSettings{Enable: true},
+				Programs: map[string]any{name: map[string]any{"enable": true}},
+			}
+			if _, _, err := CompileHomeNix(s, t.TempDir()); err == nil {
+				t.Fatalf("expected an error for raw programs.%s overlapping curated %s, got nil", name, name)
+			}
+		})
+	}
+}
+
 // TestCompileHomeNix_Deterministic: identical settings → identical output.
 func TestCompileHomeNix_Deterministic(t *testing.T) {
 	s := &manifest.HomeManagerSettings{
-		Programs: map[string]any{"bat": map[string]any{"enable": true}, "fzf": map[string]any{"enable": true}},
+		Programs: map[string]any{"htop": map[string]any{"enable": true}, "lsd": map[string]any{"enable": true}},
 	}
 	d := t.TempDir()
 	a, _, err := CompileHomeNix(s, d)

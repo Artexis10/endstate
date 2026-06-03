@@ -90,6 +90,79 @@ func TestLoadManifest_HomeManagerSettings_RejectsUnknownCuratedKey(t *testing.T)
 	}
 }
 
+// TestLoadManifest_HomeManagerSettings_BroadenedCurated verifies the broadened
+// curated catalog concepts (fzf, zoxide, bat, tmux, ssh) round-trip through JSONC
+// load with their typed fields retained.
+func TestLoadManifest_HomeManagerSettings_BroadenedCurated(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "m.jsonc")
+	content := `{
+  "version": 1,
+  "name": "hm-broaden",
+  "apps": [],
+  "homeManager": {
+    "settings": {
+      "fzf": { "enable": true },
+      "zoxide": { "enable": true },
+      "bat": { "enable": true, "config": { "theme": "TwoDark" } },
+      "tmux": { "enable": true, "extraConfig": "set -g mouse on" },
+      "ssh": { "enable": true, "extraConfig": "Host *\n  ServerAliveInterval 60" }
+    }
+  }
+}`
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManifest(p)
+	if err != nil {
+		t.Fatalf("unexpected error loading broadened catalog: %v", err)
+	}
+	if m.HomeManager == nil || m.HomeManager.Settings == nil {
+		t.Fatal("HomeManager.Settings = nil, want non-nil")
+	}
+	s := m.HomeManager.Settings
+	if s.Fzf == nil || !s.Fzf.Enable {
+		t.Errorf("fzf = %+v, want enable=true", s.Fzf)
+	}
+	if s.Zoxide == nil || !s.Zoxide.Enable {
+		t.Errorf("zoxide = %+v, want enable=true", s.Zoxide)
+	}
+	if s.Bat == nil || !s.Bat.Enable || s.Bat.Config["theme"] != "TwoDark" {
+		t.Errorf("bat = %+v, want enable=true + theme=TwoDark", s.Bat)
+	}
+	if s.Tmux == nil || !s.Tmux.Enable || s.Tmux.ExtraConfig != "set -g mouse on" {
+		t.Errorf("tmux = %+v, want enable=true + extraConfig", s.Tmux)
+	}
+	if s.SSH == nil || !s.SSH.Enable || !strings.Contains(s.SSH.ExtraConfig, "ServerAliveInterval") {
+		t.Errorf("ssh = %+v, want enable=true + extraConfig", s.SSH)
+	}
+}
+
+// TestLoadManifest_HomeManagerSettings_RejectsUnknownBroadenedKey verifies a typo'd
+// sub-key on a broadened curated concept (e.g. bat.confgi) fails to load rather than
+// being silently dropped.
+func TestLoadManifest_HomeManagerSettings_RejectsUnknownBroadenedKey(t *testing.T) {
+	cases := map[string]string{
+		"bat-typo":  `"bat": { "confgi": { "theme": "x" } }`,
+		"tmux-typo": `"tmux": { "extraConfigg": "x" }`,
+		"ssh-typo":  `"ssh": { "extarConfig": "x" }`,
+		"fzf-typo":  `"fzf": { "enabel": true }`,
+	}
+	for name, block := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := filepath.Join(dir, "m.jsonc")
+			content := `{ "version": 1, "name": "typo", "apps": [], "homeManager": { "settings": { ` + block + ` } } }`
+			if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadManifest(p); err == nil {
+				t.Fatalf("%s: expected an error for an unknown sub-key, got nil", name)
+			}
+		})
+	}
+}
+
 // TestLoadManifest_HomeManagerInputsMutuallyExclusive verifies settings / config /
 // flake are mutually exclusive — any pair fails to load with a clear error.
 func TestLoadManifest_HomeManagerInputsMutuallyExclusive(t *testing.T) {

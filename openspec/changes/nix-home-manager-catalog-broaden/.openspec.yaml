@@ -1,0 +1,10 @@
+id: nix-home-manager-catalog-broaden
+title: "Broaden the curated home-manager catalog (fzf, zoxide, bat, tmux, ssh)"
+status: implementing
+spec: nix-home-manager-catalog
+created: "2026-06-03"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md
