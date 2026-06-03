@@ -1,0 +1,10 @@
+id: macos-brew-driver
+title: "Scope a macOS Homebrew driver (design only)"
+status: exploring
+spec: macos-brew-driver
+created: "2026-06-03"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md
