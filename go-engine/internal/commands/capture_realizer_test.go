@@ -26,14 +26,17 @@ import (
 // bare attr (its map key, as `nix profile list` reports a nixpkgs install) while
 // AttrPath carries a realistic, system-qualified path that DIFFERS from Name —
 // so a test asserting the emitted ref equals Name proves we emit the portable
-// bare attr, not the arch-baked AttrPath.
+// bare attr, not the arch-baked AttrPath. The store path uses a valid 32-char
+// base32 hash and encodes version "1.0.0" so version-capture tests can assert
+// the parsed version.
 func nixSet(names ...string) realizer.Set {
 	els := map[string]realizer.Element{}
 	for _, n := range names {
 		els[n] = realizer.Element{
-			Name:       n,
-			AttrPath:   "legacyPackages.x86_64-linux." + n,
-			StorePaths: []string{"/nix/store/0000000000000000000000000000-" + n + "-1.0.0"},
+			Name:     n,
+			AttrPath: "legacyPackages.x86_64-linux." + n,
+			// 32-char base32 hash (all zeros is valid base32) + name + version.
+			StorePaths: []string{"/nix/store/00000000000000000000000000000000-" + n + "-1.0.0"},
 		}
 	}
 	return realizer.Set{Generation: 1, Elements: els}
@@ -156,8 +159,9 @@ func TestRunCaptureRealizer_EmitsBareAttrHostKeyedRefs(t *testing.T) {
 		if len(a.Refs) != 1 {
 			t.Errorf("app %q: expected exactly the host ref, got %+v", a.ID, a.Refs)
 		}
-		if a.Version != "" {
-			t.Errorf("app %q: version = %q, want empty (out of scope)", a.ID, a.Version)
+		// Version is now populated from the store path ("1.0.0" in the nixSet fixture).
+		if a.Version != "1.0.0" {
+			t.Errorf("app %q: version = %q, want 1.0.0 (parsed from store path)", a.ID, a.Version)
 		}
 	}
 }
@@ -501,5 +505,85 @@ func TestRunCaptureRealizer_FlakeDeclared_StillEmitsFlake(t *testing.T) {
 	}
 	if mf.HomeManager.Config != "" {
 		t.Errorf("flake apply must not emit a config, got config=%q", mf.HomeManager.Config)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Version capture (store-path parsing)
+// ---------------------------------------------------------------------------
+
+// nixSetWithVersion builds a realizer.Set where each element has a store path
+// encoding a specific version, for version-capture assertions.
+func nixSetWithVersion(name, version string) realizer.Set {
+	return realizer.Set{
+		Generation: 1,
+		Elements: map[string]realizer.Element{
+			name: {
+				Name:     name,
+				AttrPath: "legacyPackages.x86_64-linux." + name,
+				StorePaths: []string{
+					"/nix/store/2rwsbbpn5p76jf35rv7cb9qlhpxnp83p-" + name + "-" + version,
+				},
+			},
+		},
+	}
+}
+
+// nixSetNoStorePaths builds a realizer.Set where the element has no store paths,
+// simulating the case where store-path version parsing yields "".
+func nixSetNoStorePaths(name string) realizer.Set {
+	return realizer.Set{
+		Generation: 1,
+		Elements: map[string]realizer.Element{
+			name: {
+				Name:       name,
+				AttrPath:   "legacyPackages.x86_64-linux." + name,
+				StorePaths: []string{},
+			},
+		},
+	}
+}
+
+// Version is parsed from the store path and emitted into the captured manifest
+// App.Version field.
+func TestRunCaptureRealizer_Version_PopulatedFromStorePath(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "ver.jsonc")
+	fr := &fakeRealizer{currentSet: nixSetWithVersion("ripgrep", "14.1.0")}
+
+	_, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+	}
+
+	mf := readCapturedManifest(t, out)
+	if len(mf.Apps) != 1 {
+		t.Fatalf("expected 1 app, got %d", len(mf.Apps))
+	}
+	if mf.Apps[0].Version != "14.1.0" {
+		t.Errorf("app version = %q, want 14.1.0", mf.Apps[0].Version)
+	}
+}
+
+// When the element has no store paths, the captured App.Version is empty and
+// the run does NOT fail.
+func TestRunCaptureRealizer_Version_EmptyWhenNoStorePaths(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "nover.jsonc")
+	fr := &fakeRealizer{currentSet: nixSetNoStorePaths("ripgrep")}
+
+	raw, eerr := runCaptureRealizer(CaptureFlags{Out: out}, fr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+	}
+	res := raw.(*CaptureResult)
+	if res.Counts.Included != 1 {
+		t.Errorf("Counts.Included = %d, want 1", res.Counts.Included)
+	}
+
+	mf := readCapturedManifest(t, out)
+	if len(mf.Apps) != 1 {
+		t.Fatalf("expected 1 app, got %d", len(mf.Apps))
+	}
+	if mf.Apps[0].Version != "" {
+		t.Errorf("app version = %q, want empty when no store paths", mf.Apps[0].Version)
 	}
 }

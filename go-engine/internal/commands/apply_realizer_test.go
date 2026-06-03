@@ -917,3 +917,176 @@ func TestRunApply_WingetPath_ConfigNeverGenerates(t *testing.T) {
 		t.Fatalf("winget path generated a home-manager flake dir (err=%v); it must never generate", err)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// Version capture: store-path version → ProvItem.Version
+// ---------------------------------------------------------------------------
+
+// nixElementWithStorePath builds a realizer.Element whose store path encodes
+// the given version, so the parser can extract it.
+func nixElementWithStorePath(name, version string) realizer.Element {
+	return realizer.Element{
+		Name:     name,
+		AttrPath: "legacyPackages.x86_64-linux." + name,
+		// 32-char lowercase base32 hash + name + version.
+		StorePaths: []string{
+			"/nix/store/2rwsbbpn5p76jf35rv7cb9qlhpxnp83p-" + name + "-" + version,
+		},
+	}
+}
+
+// TestRunApplyRealizer_VersionCapture_PresentPackage: when one package is
+// present and another is installed, the generation records versions for both.
+func TestRunApplyRealizer_VersionCapture_PresentPackage(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	appPresent := nixApp("ripgrep", "nixpkgs#ripgrep")
+	appNew := nixApp("jq", "nixpkgs#jq")
+	mf := nixManifest(appPresent, appNew)
+
+	insPresent := realizer.Installable{ID: "ripgrep", Ref: hostRef(appPresent)}
+	insNew := realizer.Installable{ID: "jq", Ref: hostRef(appNew)}
+
+	currentElements := map[string]realizer.Element{
+		"ripgrep": nixElementWithStorePath("ripgrep", "14.1.0"),
+	}
+	afterElements := map[string]realizer.Element{
+		"ripgrep": nixElementWithStorePath("ripgrep", "14.1.0"),
+		"jq":      nixElementWithStorePath("jq", "1.8.1"),
+	}
+	fr := &fakeRealizer{
+		currentSet: realizer.Set{Generation: 1, Elements: currentElements},
+		planDiff: realizer.Diff{
+			Present: []realizer.Installable{insPresent},
+			ToAdd:   []realizer.Installable{insNew},
+		},
+		realizeResult: realizer.Result{
+			Advanced:       true,
+			FromGeneration: 1,
+			ToGeneration:   2,
+			After:          realizer.Set{Generation: 2, Elements: afterElements},
+		},
+	}
+
+	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
+	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver1", nil, nil)
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+
+	gens, _ := provision.List()
+	if len(gens) != 1 {
+		t.Fatalf("want 1 generation, got %d", len(gens))
+	}
+	for _, item := range gens[0].Items {
+		switch item.ID {
+		case "ripgrep":
+			if item.Version != "14.1.0" {
+				t.Errorf("present ripgrep ProvItem.Version = %q, want 14.1.0", item.Version)
+			}
+		case "jq":
+			if item.Version != "1.8.1" {
+				t.Errorf("installed jq ProvItem.Version = %q, want 1.8.1", item.Version)
+			}
+		}
+	}
+}
+
+// TestRunApplyRealizer_VersionCapture_InstalledPackage: a newly-installed
+// package gets its store-path version recorded in the Provisioning Generation.
+func TestRunApplyRealizer_VersionCapture_InstalledPackage(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+
+	ins := realizer.Installable{ID: "ripgrep", Ref: hostRef(app)}
+	afterSet := realizer.Set{
+		Generation: 2,
+		Elements: map[string]realizer.Element{
+			"ripgrep": nixElementWithStorePath("ripgrep", "14.1.0"),
+		},
+	}
+	fr := &fakeRealizer{
+		currentSet: realizer.Set{Generation: 1, Elements: map[string]realizer.Element{}},
+		planDiff:   realizer.Diff{ToAdd: []realizer.Installable{ins}},
+		realizeResult: realizer.Result{
+			Advanced:       true,
+			FromGeneration: 1,
+			ToGeneration:   2,
+			After:          afterSet,
+		},
+	}
+
+	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
+	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver2", nil, nil)
+	if eerr != nil {
+		t.Fatalf("unexpected envelope error: %v", eerr)
+	}
+
+	gens, _ := provision.List()
+	if len(gens) != 1 {
+		t.Fatalf("want 1 generation, got %d", len(gens))
+	}
+	var item *provision.ProvItem
+	for i := range gens[0].Items {
+		if gens[0].Items[i].ID == "ripgrep" {
+			item = &gens[0].Items[i]
+			break
+		}
+	}
+	if item == nil {
+		t.Fatal("no ripgrep item in generation")
+	}
+	if item.Version != "14.1.0" {
+		t.Errorf("ProvItem.Version = %q, want 14.1.0", item.Version)
+	}
+}
+
+// TestRunApplyRealizer_VersionCapture_EmptyStorePaths: an element with no store
+// paths records an empty version, and the run does NOT fail.
+func TestRunApplyRealizer_VersionCapture_EmptyStorePaths(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	app := nixApp("ripgrep", "nixpkgs#ripgrep")
+	mf := nixManifest(app)
+
+	ins := realizer.Installable{ID: "ripgrep", Ref: hostRef(app)}
+	afterSet := realizer.Set{
+		Generation: 2,
+		Elements: map[string]realizer.Element{
+			"ripgrep": {Name: "ripgrep", AttrPath: "legacyPackages.x86_64-linux.ripgrep", StorePaths: []string{}},
+		},
+	}
+	fr := &fakeRealizer{
+		currentSet: realizer.Set{Generation: 1, Elements: map[string]realizer.Element{}},
+		planDiff:   realizer.Diff{ToAdd: []realizer.Installable{ins}},
+		realizeResult: realizer.Result{
+			Advanced:       true,
+			FromGeneration: 1,
+			ToGeneration:   2,
+			After:          afterSet,
+		},
+	}
+
+	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
+	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver3", nil, nil)
+	if eerr != nil {
+		t.Fatalf("empty store paths must not fail apply: %v", eerr)
+	}
+
+	gens, _ := provision.List()
+	if len(gens) != 1 {
+		t.Fatalf("want 1 generation, got %d", len(gens))
+	}
+	var item *provision.ProvItem
+	for i := range gens[0].Items {
+		if gens[0].Items[i].ID == "ripgrep" {
+			item = &gens[0].Items[i]
+			break
+		}
+	}
+	if item == nil {
+		t.Fatal("no ripgrep item in generation")
+	}
+	if item.Version != "" {
+		t.Errorf("ProvItem.Version = %q, want empty when no store paths", item.Version)
+	}
+}

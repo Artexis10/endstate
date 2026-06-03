@@ -1,0 +1,10 @@
+id: nix-package-version-capture
+title: "Nix Package Version Capture: parse store-path versions and record them"
+status: implementing
+spec: nix-package-version-capture
+created: "2026-06-02"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md
