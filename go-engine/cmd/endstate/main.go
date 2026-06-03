@@ -80,6 +80,7 @@ Subcommands:
   backup subscribe     Start a Hosted Backup subscription checkout (returns checkoutUrl)
   backup browser-session Mint a short-lived /account portal handoff token (returns sessionToken + accountUrl)
   backup push          Encrypt and upload a profile (--profile required)
+  backup estimate      Report the upload size a push of a profile would use (--profile required)
   backup pull          Download and restore a profile (--backup-id, --to required)
   backup list          List backups
   backup versions      List versions of a backup (--backup-id required)
