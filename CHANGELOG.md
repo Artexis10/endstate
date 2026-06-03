@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.15.0](https://github.com/Artexis10/endstate/compare/v2.14.0...v2.15.0) (2026-06-03)
+
+
+### Features
+
+* **engine:** broaden home-manager curated catalog (fzf, zoxide, bat, tmux, ssh) ([#100](https://github.com/Artexis10/endstate/issues/100)) ([9287985](https://github.com/Artexis10/endstate/commit/9287985a285c10e7a76ce690348c0af7c8ca7c73))
+
 ## [2.14.0](https://github.com/Artexis10/endstate/compare/v2.13.0...v2.14.0) (2026-06-03)
 
 
