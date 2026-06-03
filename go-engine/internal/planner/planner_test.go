@@ -458,27 +458,26 @@ func TestComputePlan_FallbackRef(t *testing.T) {
 // TestComputePlan_WindowsRefPreferred verifies that when both "windows" and
 // "linux" refs exist, the host platform's ref is preferred.
 func TestComputePlan_WindowsRefPreferred(t *testing.T) {
-	// Determine the expected ref and installed set based on the host platform.
-	// On Windows, refs["windows"] is preferred; on Linux, refs["linux"] is preferred.
-	// On other platforms the fallback to first-non-empty applies.
-	var expectedRef string
-	var installedSet map[string]bool
-	if runtime.GOOS == "windows" {
-		expectedRef = "Win.App"
-		installedSet = map[string]bool{"Win.App": true}
-	} else {
-		expectedRef = "linux-app"
-		installedSet = map[string]bool{"linux-app": true}
+	// The host platform's ref is preferred when present. Give every CI-matrix
+	// host (Windows, Linux, macOS) a ref so the assertion is meaningful on each
+	// without depending on the non-deterministic first-non-empty fallback (which
+	// is what made this fail on the darwin runner — it had no "darwin" ref).
+	refsByOS := map[string]string{
+		"windows": "Win.App",
+		"linux":   "linux-app",
+		"darwin":  "mac-app",
 	}
+	expectedRef, ok := refsByOS[runtime.GOOS]
+	if !ok {
+		t.Skipf("no ref configured for host platform %q", runtime.GOOS)
+	}
+	installedSet := map[string]bool{expectedRef: true}
 
 	drv := &testDriver{installed: installedSet}
 
 	mf := &manifest.Manifest{
 		Apps: []manifest.App{
-			{ID: "multi", Refs: map[string]string{
-				"windows": "Win.App",
-				"linux":   "linux-app",
-			}},
+			{ID: "multi", Refs: refsByOS},
 		},
 	}
 
