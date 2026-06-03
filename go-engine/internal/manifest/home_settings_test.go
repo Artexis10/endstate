@@ -163,6 +163,74 @@ func TestLoadManifest_HomeManagerSettings_RejectsUnknownBroadenedKey(t *testing.
 	}
 }
 
+// TestLoadManifest_HomeManagerSettings_MoreCurated verifies the additional curated
+// catalog concepts (eza, gh, lazygit, neovim) round-trip through JSONC load with
+// their typed fields retained.
+func TestLoadManifest_HomeManagerSettings_MoreCurated(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "m.jsonc")
+	content := `{
+  "version": 1,
+  "name": "hm-more",
+  "apps": [],
+  "homeManager": {
+    "settings": {
+      "eza": { "enable": true, "extraOptions": ["--git", "--icons"] },
+      "gh": { "enable": true, "settings": { "editor": "nvim" } },
+      "lazygit": { "enable": true, "settings": { "gui": { "theme": { "activeBorderColor": ["blue", "bold"] } } } },
+      "neovim": { "enable": true, "extraConfig": "set number\nset relativenumber" }
+    }
+  }
+}`
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManifest(p)
+	if err != nil {
+		t.Fatalf("unexpected error loading more curated catalog: %v", err)
+	}
+	if m.HomeManager == nil || m.HomeManager.Settings == nil {
+		t.Fatal("HomeManager.Settings = nil, want non-nil")
+	}
+	s := m.HomeManager.Settings
+	if s.Eza == nil || !s.Eza.Enable || len(s.Eza.ExtraOptions) != 2 || s.Eza.ExtraOptions[0] != "--git" {
+		t.Errorf("eza = %+v, want enable=true + extraOptions=[--git --icons]", s.Eza)
+	}
+	if s.Gh == nil || !s.Gh.Enable || s.Gh.Settings["editor"] != "nvim" {
+		t.Errorf("gh = %+v, want enable=true + settings.editor=nvim", s.Gh)
+	}
+	if s.Lazygit == nil || !s.Lazygit.Enable || s.Lazygit.Settings["gui"] == nil {
+		t.Errorf("lazygit = %+v, want enable=true + settings.gui non-nil", s.Lazygit)
+	}
+	if s.Neovim == nil || !s.Neovim.Enable || !strings.Contains(s.Neovim.ExtraConfig, "set number") {
+		t.Errorf("neovim = %+v, want enable=true + extraConfig with 'set number'", s.Neovim)
+	}
+}
+
+// TestLoadManifest_HomeManagerSettings_RejectsUnknownMoreCuratedKey verifies a typo'd
+// sub-key on the more-curated concepts fails to load rather than being silently dropped.
+func TestLoadManifest_HomeManagerSettings_RejectsUnknownMoreCuratedKey(t *testing.T) {
+	cases := map[string]string{
+		"eza-typo":     `"eza": { "enabel": true }`,
+		"gh-typo":      `"gh": { "settigns": {} }`,
+		"lazygit-typo": `"lazygit": { "settigns": {} }`,
+		"neovim-typo":  `"neovim": { "extraCfg": "x" }`,
+	}
+	for name, block := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := filepath.Join(dir, "m.jsonc")
+			content := `{ "version": 1, "name": "typo", "apps": [], "homeManager": { "settings": { ` + block + ` } } }`
+			if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadManifest(p); err == nil {
+				t.Fatalf("%s: expected an error for an unknown sub-key, got nil", name)
+			}
+		})
+	}
+}
+
 // TestLoadManifest_HomeManagerInputsMutuallyExclusive verifies settings / config /
 // flake are mutually exclusive — any pair fails to load with a clear error.
 func TestLoadManifest_HomeManagerInputsMutuallyExclusive(t *testing.T) {

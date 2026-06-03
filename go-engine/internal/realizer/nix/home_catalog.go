@@ -27,6 +27,10 @@ var curatedPrograms = map[string]bool{
 	"bat":      true,
 	"tmux":     true,
 	"ssh":      true,
+	"eza":      true,
+	"gh":       true,
+	"lazygit":  true,
+	"neovim":   true,
 }
 
 // GenerateHomeFlakeFromSettings compiles a declarative catalog (settings) into a
@@ -128,6 +132,42 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 		stmts = append(stmts, "programs.ssh.enable = "+nixValue(s.SSH.Enable)+";")
 		if s.SSH.ExtraConfig != "" {
 			stmts = append(stmts, "programs.ssh.extraConfig = "+nixValue(s.SSH.ExtraConfig)+";")
+		}
+	}
+
+	// eza → enable + the STABLE programs.eza.extraOptions ([]string of CLI flags —
+	// insulates the user from home-manager eza option renames).
+	if s.Eza != nil {
+		stmts = append(stmts, "programs.eza.enable = "+nixValue(s.Eza.Enable)+";")
+		if len(s.Eza.ExtraOptions) > 0 {
+			stmts = append(stmts, "programs.eza.extraOptions = "+nixValue(stringSliceToAny(s.Eza.ExtraOptions))+";")
+		}
+	}
+
+	// gh → enable + the STABLE programs.gh.settings (raw attrset forwarded verbatim —
+	// gh's own config key namespace, insulates from home-manager option renames).
+	if s.Gh != nil {
+		stmts = append(stmts, "programs.gh.enable = "+nixValue(s.Gh.Enable)+";")
+		if len(s.Gh.Settings) > 0 {
+			stmts = append(stmts, "programs.gh.settings = "+nixValue(s.Gh.Settings)+";")
+		}
+	}
+
+	// lazygit → enable + the STABLE programs.lazygit.settings (raw attrset forwarded
+	// verbatim — lazygit's own config structure, insulates from option renames).
+	if s.Lazygit != nil {
+		stmts = append(stmts, "programs.lazygit.enable = "+nixValue(s.Lazygit.Enable)+";")
+		if len(s.Lazygit.Settings) > 0 {
+			stmts = append(stmts, "programs.lazygit.settings = "+nixValue(s.Lazygit.Settings)+";")
+		}
+	}
+
+	// neovim → enable + the STABLE programs.neovim.extraConfig (raw vimscript/lua string —
+	// insulates the user from home-manager neovim option renames).
+	if s.Neovim != nil {
+		stmts = append(stmts, "programs.neovim.enable = "+nixValue(s.Neovim.Enable)+";")
+		if s.Neovim.ExtraConfig != "" {
+			stmts = append(stmts, "programs.neovim.extraConfig = "+nixValue(s.Neovim.ExtraConfig)+";")
 		}
 	}
 
@@ -240,6 +280,15 @@ func stringMapToAny(m map[string]string) map[string]any {
 	out := make(map[string]any, len(m))
 	for k, v := range m {
 		out[k] = v
+	}
+	return out
+}
+
+// stringSliceToAny lifts a []string to []any for nixValue (renders as a Nix list).
+func stringSliceToAny(s []string) []any {
+	out := make([]any, len(s))
+	for i, v := range s {
+		out[i] = v
 	}
 	return out
 }

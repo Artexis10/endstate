@@ -155,6 +155,57 @@ func TestCompileHomeNix_BroadenedRawOverlapErrors(t *testing.T) {
 	}
 }
 
+// TestCompileHomeNix_MoreCurated: the additional curated concepts (eza, gh, lazygit,
+// neovim) render the expected stable home-manager statements.
+func TestCompileHomeNix_MoreCurated(t *testing.T) {
+	s := &manifest.HomeManagerSettings{
+		Eza:     &manifest.EzaSettings{Enable: true, ExtraOptions: []string{"--git", "--icons"}},
+		Gh:      &manifest.GhSettings{Enable: true, Settings: map[string]any{"editor": "nvim"}},
+		Lazygit: &manifest.LazygitSettings{Enable: true, Settings: map[string]any{"gui": map[string]any{"theme": "catppuccin"}}},
+		Neovim:  &manifest.NeovimSettings{Enable: true, ExtraConfig: "set number\nset relativenumber"},
+	}
+	home, _, err := CompileHomeNix(s, t.TempDir())
+	if err != nil {
+		t.Fatalf("CompileHomeNix: %v", err)
+	}
+	out := string(home)
+	for _, w := range []string{
+		"programs.eza.enable = true;",
+		`programs.eza.extraOptions = [ "--git" "--icons" ];`,
+		"programs.gh.enable = true;",
+		`programs.gh.settings = `,
+		`"editor" = "nvim"`,
+		"programs.lazygit.enable = true;",
+		`programs.lazygit.settings = `,
+		`"gui"`,
+		"programs.neovim.enable = true;",
+		`programs.neovim.extraConfig = "set number\nset relativenumber";`,
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("compiled home.nix missing %q\n---\n%s", w, out)
+		}
+	}
+}
+
+// TestCompileHomeNix_MoreCuratedRawOverlapErrors: a raw programs key colliding with a
+// more-curated concept (eza, gh, lazygit, neovim) is a clear error.
+func TestCompileHomeNix_MoreCuratedRawOverlapErrors(t *testing.T) {
+	for _, name := range []string{"eza", "gh", "lazygit", "neovim"} {
+		t.Run(name, func(t *testing.T) {
+			s := &manifest.HomeManagerSettings{
+				Eza:      &manifest.EzaSettings{Enable: true},
+				Gh:       &manifest.GhSettings{Enable: true},
+				Lazygit:  &manifest.LazygitSettings{Enable: true},
+				Neovim:   &manifest.NeovimSettings{Enable: true},
+				Programs: map[string]any{name: map[string]any{"enable": true}},
+			}
+			if _, _, err := CompileHomeNix(s, t.TempDir()); err == nil {
+				t.Fatalf("expected an error for raw programs.%s overlapping curated %s, got nil", name, name)
+			}
+		})
+	}
+}
+
 // TestCompileHomeNix_Deterministic: identical settings → identical output.
 func TestCompileHomeNix_Deterministic(t *testing.T) {
 	s := &manifest.HomeManagerSettings{

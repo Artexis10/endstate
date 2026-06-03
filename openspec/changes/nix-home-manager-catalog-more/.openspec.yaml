@@ -1,0 +1,10 @@
+id: nix-home-manager-catalog-more
+title: "Extend the curated home-manager catalog (eza, gh, lazygit, neovim)"
+status: implementing
+spec: nix-home-manager-catalog
+created: "2026-06-03"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

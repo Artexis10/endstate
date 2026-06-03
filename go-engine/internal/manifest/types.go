@@ -75,6 +75,10 @@ type HomeManagerSettings struct {
 	Bat      *BatSettings      `json:"bat,omitempty"`
 	Tmux     *TmuxSettings     `json:"tmux,omitempty"`
 	SSH      *SSHSettings      `json:"ssh,omitempty"`
+	Eza      *EzaSettings      `json:"eza,omitempty"`
+	Gh       *GhSettings       `json:"gh,omitempty"`
+	Lazygit  *LazygitSettings  `json:"lazygit,omitempty"`
+	Neovim   *NeovimSettings   `json:"neovim,omitempty"`
 	Programs map[string]any    `json:"programs,omitempty"` // raw home-manager passthrough
 	Files    map[string]string `json:"files,omitempty"`    // target path -> source path (relative to manifest)
 }
@@ -136,6 +140,39 @@ type TmuxSettings struct {
 // programs.ssh.extraConfig — the raw ssh config string, the stable surface that
 // insulates the user from home-manager ssh option renames.
 type SSHSettings struct {
+	Enable      bool   `json:"enable,omitempty"`
+	ExtraConfig string `json:"extraConfig,omitempty"`
+}
+
+// EzaSettings are the curated eza concepts mapped to programs.eza.enable plus
+// programs.eza.extraOptions — a slice of raw eza CLI flags (e.g. ["--git","--icons"]),
+// the stable surface that insulates the user from home-manager eza option renames.
+type EzaSettings struct {
+	Enable       bool     `json:"enable,omitempty"`
+	ExtraOptions []string `json:"extraOptions,omitempty"`
+}
+
+// GhSettings are the curated gh (GitHub CLI) concepts mapped to programs.gh.enable plus
+// programs.gh.settings — a raw attrset forwarded verbatim to the gh config, the stable
+// surface (gh's own config key namespace) that insulates the user from option renames.
+type GhSettings struct {
+	Enable   bool           `json:"enable,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
+}
+
+// LazygitSettings are the curated lazygit concepts mapped to programs.lazygit.enable
+// plus programs.lazygit.settings — a raw attrset forwarded verbatim to the lazygit
+// config, the stable surface (lazygit's own config structure) that insulates the user
+// from home-manager option renames.
+type LazygitSettings struct {
+	Enable   bool           `json:"enable,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
+}
+
+// NeovimSettings are the curated neovim concepts mapped to programs.neovim.enable plus
+// programs.neovim.extraConfig — the raw vimscript/lua string, the stable surface that
+// insulates the user from home-manager neovim option renames.
+type NeovimSettings struct {
 	Enable      bool   `json:"enable,omitempty"`
 	ExtraConfig string `json:"extraConfig,omitempty"`
 }

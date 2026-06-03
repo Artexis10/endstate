@@ -42,6 +42,18 @@
         "extraConfig": "Host *\n  ServerAliveInterval 60\n  ServerAliveCountMax 3"
       },
 
+      // More curated concepts — extended catalog.
+      "eza": {
+        "enable": true,
+        // Extra CLI flags forwarded verbatim via programs.eza.extraOptions.
+        "extraOptions": ["--git", "--icons", "--group-directories-first"]
+      },
+      "neovim": {
+        "enable": true,
+        // Raw vimscript/lua — the stable surface (programs.neovim.extraConfig).
+        "extraConfig": "set number\nset relativenumber\nset expandtab\nset tabstop=2"
+      },
+
       // Raw home-manager passthrough — forwarded verbatim. Use this for any
       // program NOT in the curated set above (a curated name here would conflict).
       "programs": {
