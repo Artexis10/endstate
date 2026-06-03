@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.16.0](https://github.com/Artexis10/endstate/compare/v2.15.0...v2.16.0) (2026-06-03)
+
+
+### Features
+
+* **backup:** add `backup estimate` to size a push without uploading ([#105](https://github.com/Artexis10/endstate/issues/105)) ([d79c21b](https://github.com/Artexis10/endstate/commit/d79c21b1927d62014918791b7ebdd8cfdf8df739))
+* **engine:** extend home-manager curated catalog (eza, gh, lazygit, neovim) ([#106](https://github.com/Artexis10/endstate/issues/106)) ([15f4626](https://github.com/Artexis10/endstate/commit/15f462642a92401d3ee92dd5f4ea5a5573962447))
+
 ## [2.15.0](https://github.com/Artexis10/endstate/compare/v2.14.0...v2.15.0) (2026-06-03)
 
 
