@@ -1,0 +1,10 @@
+id: nix-home-manager-secrets-scope
+title: "Scope home-manager secrets management (design only)"
+status: exploring
+spec: nix-home-manager-secrets
+created: "2026-06-03"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md
