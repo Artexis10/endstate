@@ -6,7 +6,9 @@ package commands
 import (
 	"fmt"
 	"runtime"
+	"strconv"
 
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -79,6 +81,21 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 		}
 	}
 
+	// Home-manager config check: only when the manifest declares a homeManager
+	// block AND the realizer implements HomeGenerationReader. Realizers that do
+	// not implement the interface (e.g. stubs, non-Nix backends) skip silently.
+	if mf.HomeManager != nil {
+		if hgr, ok := r.(realizer.HomeGenerationReader); ok {
+			item := checkHomeManagerGeneration(hgr, emitter)
+			if item.Status == "pass" {
+				pass++
+			} else {
+				fail++
+			}
+			results = append(results, item)
+		}
+	}
+
 	total := pass + fail
 	emitter.EmitSummary("verify", total, pass, 0, fail)
 	return &VerifyResult{
@@ -86,6 +103,61 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 		Summary:  VerifySummary{Total: total, Pass: pass, Fail: fail},
 		Results:  results,
 	}, nil
+}
+
+// checkHomeManagerGeneration reads the active home-manager generation via hgr
+// and compares it to the most-recently recorded generation in the provisioning
+// history. It returns a VerifyItem of type "home-manager" with:
+//   - status "pass" when active == recorded
+//   - status "fail", reason "config_drift" when active > 0 and active != recorded
+//   - status "fail", reason "missing" when active == 0
+//
+// It also emits a streaming item event via emitter. The listGenerationsFn seam
+// (shared with capture_realizer.go) is used so tests can inject a fake history.
+func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter interface {
+	EmitItem(id, driver, status, reason, message, name string)
+}) VerifyItem {
+	item := VerifyItem{
+		Type: "home-manager",
+		ID:   "home-manager",
+	}
+
+	active := hgr.ActiveHomeGeneration()
+
+	// Find the most-recent provisioning generation that recorded a home-manager
+	// config (package-only applies record HomeManager=nil, so skip those).
+	// Mirrors recoverHomeManager in capture_realizer.go.
+	recorded := 0
+	if gens, err := listGenerationsFn(); err == nil {
+		for _, g := range gens {
+			if g.HomeManager != nil {
+				recorded = g.HomeManager.Generation
+				break
+			}
+		}
+	}
+
+	switch {
+	case active == 0:
+		item.Status = "fail"
+		item.Reason = driver.ReasonMissing
+		item.Message = "No active home-manager generation — home-manager config was never applied or has been removed"
+		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonMissing, item.Message, "home-manager")
+	case active != recorded:
+		item.Status = "fail"
+		item.Reason = driver.ReasonConfigDrift
+		item.Version = strconv.Itoa(active)
+		item.Expected = strconv.Itoa(recorded)
+		item.Message = fmt.Sprintf("home-manager generation %d is active, want %d (recorded)", active, recorded)
+		emitter.EmitItem("home-manager", "nix", "failed", driver.ReasonConfigDrift, item.Message, "home-manager")
+	default:
+		item.Status = "pass"
+		item.Version = strconv.Itoa(active)
+		item.Message = fmt.Sprintf("home-manager generation %d matches recorded", active)
+		emitter.EmitItem("home-manager", "nix", "present", "", item.Message, "home-manager")
+	}
+
+	return item
 }
 
 // runPlanRealizer is the plan (read-only preview) path for a realizer backend.

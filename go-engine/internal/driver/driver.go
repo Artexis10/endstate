@@ -37,6 +37,11 @@ const (
 	// differs from the one declared by the manifest (a verify failure distinct
 	// from "missing"). Only evaluated for apps that declare a version.
 	ReasonVersionDrift = "version_drift"
+	// ReasonConfigDrift means the active home-manager generation differs from the
+	// most-recently recorded one: the configuration has drifted from the declared
+	// state. Only evaluated on the realizer path when the manifest declares a
+	// home-manager input.
+	ReasonConfigDrift = "config_drift"
 )
 
 // InstallResult is returned by Driver.Install and carries the outcome of a

@@ -1,0 +1,10 @@
+id: nix-home-manager-verify
+title: "Home-manager config verification: verify presence and drift against recorded generation"
+status: implementing
+spec: nix-home-manager-verify
+created: "2026-06-02"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

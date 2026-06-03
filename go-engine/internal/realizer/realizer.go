@@ -124,6 +124,18 @@ type HomeActivator interface {
 	ActivateHome(flake string) (generation int, err error)
 }
 
+// HomeGenerationReader is an OPTIONAL realizer capability: reading the active
+// home-manager generation number from the system. Discovered by type-assertion
+// on a Realizer, like Pruner / HomeActivator / HomeRollbacker, so only a backend
+// that owns the home-manager profile (the Nix realizer) implements it; other
+// backends simply do not, and the verify home-manager check is silently skipped.
+type HomeGenerationReader interface {
+	// ActiveHomeGeneration returns the current active home-manager generation
+	// number, or 0 when no home-manager generation is active (profile symlink
+	// absent or unreadable).
+	ActiveHomeGeneration() int
+}
+
 // HomeRollbacker is an OPTIONAL realizer capability: reverting the home-manager
 // configuration to a prior provisioning generation by re-activating the
 // home-manager generation that generation recorded. Like Pruner/HomeActivator it
