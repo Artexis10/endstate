@@ -127,62 +127,19 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 		}
 	}
 
-	chunks := chunkBytes(tarBytes, crypto.ChunkPlainSize)
-	chunkCount := len(chunks)
-
 	deps.Events.EmitPhase("backup-push")
 
-	encrypted := make([][]byte, chunkCount)
-	chunkMeta := make([]storage.ChunkMetaWire, chunkCount)
-	manifestChunks := make([]manifest.ChunkMeta, chunkCount)
-
-	for i, plain := range chunks {
-		blob, eerr := crypto.EncryptChunk(plain, uint32(i), dek)
-		if eerr != nil {
-			return nil, envelope.NewError(envelope.ErrInternalError, fmt.Sprintf("backup push: encrypt chunk %d: %s", i, eerr.Error()))
-		}
-		sum := sha256.Sum256(blob)
-		hexSum := hex.EncodeToString(sum[:])
-		encrypted[i] = blob
-		chunkMeta[i] = storage.ChunkMetaWire{Index: uint32(i), EncryptedSize: int64(len(blob)), SHA256: hexSum}
-		manifestChunks[i] = manifest.ChunkMeta{Index: uint32(i), EncryptedSize: int64(len(blob)), SHA256: hexSum}
+	// Bundle the profile (tar already done above for the --if-changed hash):
+	// chunk → encrypt → manifest → encrypt manifest. Shared with `backup
+	// estimate` via buildBundle so the two can never disagree on size.
+	bundle, bErr := buildBundle(deps, dek, tarBytes, contentSHA)
+	if bErr != nil {
+		return nil, bErr
 	}
-
-	now := deps.now().UTC().Format(time.RFC3339Nano)
-	versionID := newUUID()
-
-	// The manifest's `wrappedDEK` field is the masterKey-wrapped DEK
-	// substrate stored at signup (contract §3). We cache it in the
-	// keychain at login/signup/recover-finalize so push can read it
-	// without re-deriving the masterKey on every call.
-	wrappedDEKB64, werr := deps.Session.LoadWrappedDEK()
-	if werr != nil {
-		return nil, envelope.NewError(envelope.ErrAuthRequired,
-			"backup push: no wrappedDEK in keychain — sign in first").
-			WithRemediation("Run `endstate backup login` (or `endstate backup signup`) to populate the session.")
-	}
-
-	mf := &manifest.Manifest{
-		EnvelopeVersion: crypto.EnvelopeVersion,
-		VersionID:       versionID,
-		CreatedAt:       now,
-		OriginalSize:    int64(len(tarBytes)),
-		ChunkSize:       crypto.ChunkPlainSize,
-		ChunkCount:      chunkCount,
-		Chunks:          manifestChunks,
-		KDF:             crypto.DefaultKDFParams(),
-		WrappedDEK:      wrappedDEKB64,
-		ContentSHA256:   contentSHA,
-	}
-	mfJSON, mfErr := manifest.Marshal(mf)
-	if mfErr != nil {
-		return nil, envelope.NewError(envelope.ErrInternalError, "backup push: marshal manifest: "+mfErr.Error())
-	}
-
-	encManifest, emErr := crypto.EncryptManifest(mfJSON, dek)
-	if emErr != nil {
-		return nil, envelope.NewError(envelope.ErrInternalError, "backup push: encrypt manifest: "+emErr.Error())
-	}
+	chunkCount := bundle.chunkCount
+	encrypted := bundle.encrypted
+	encManifest := bundle.encManifest
+	chunkMeta := bundle.chunkMeta
 
 	resp, cvErr := deps.Storage.CreateVersion(ctx, resolvedBackupID, encManifest, chunkMeta)
 	if cvErr != nil {
@@ -232,6 +189,125 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 	deps.Events.EmitSummary("backup-push", chunkCount+1, successCount, 0, 0)
 
 	return &PushResult{BackupID: resolvedBackupID, VersionID: resp.VersionID}, nil
+}
+
+// encBundle is the fully client-side, encrypted result of bundling a profile —
+// the encrypted chunks plus the encrypted manifest — i.e. the exact set of
+// bytes a push uploads. Both PushVersion and EstimateSize build it through this
+// single path so a size estimate can never drift from a real push.
+type encBundle struct {
+	encrypted   [][]byte
+	encManifest []byte
+	chunkMeta   []storage.ChunkMetaWire
+	chunkCount  int
+}
+
+// buildBundle runs the encrypt pipeline (4 MiB chunks → AES-256-GCM → manifest
+// → encrypted manifest) over an already-tarred profile. No network I/O. The DEK
+// is the caller's; the wrappedDEK is read from the session.
+func buildBundle(deps Dependencies, dek, tarBytes []byte, contentSHA string) (*encBundle, *envelope.Error) {
+	chunks := chunkBytes(tarBytes, crypto.ChunkPlainSize)
+	chunkCount := len(chunks)
+
+	encrypted := make([][]byte, chunkCount)
+	chunkMeta := make([]storage.ChunkMetaWire, chunkCount)
+	manifestChunks := make([]manifest.ChunkMeta, chunkCount)
+
+	for i, plain := range chunks {
+		blob, eerr := crypto.EncryptChunk(plain, uint32(i), dek)
+		if eerr != nil {
+			return nil, envelope.NewError(envelope.ErrInternalError, fmt.Sprintf("backup: encrypt chunk %d: %s", i, eerr.Error()))
+		}
+		sum := sha256.Sum256(blob)
+		hexSum := hex.EncodeToString(sum[:])
+		encrypted[i] = blob
+		chunkMeta[i] = storage.ChunkMetaWire{Index: uint32(i), EncryptedSize: int64(len(blob)), SHA256: hexSum}
+		manifestChunks[i] = manifest.ChunkMeta{Index: uint32(i), EncryptedSize: int64(len(blob)), SHA256: hexSum}
+	}
+
+	// The manifest's `wrappedDEK` is the masterKey-wrapped DEK substrate stored
+	// at signup (contract §3), cached in the keychain at login/signup/recover.
+	wrappedDEKB64, werr := deps.Session.LoadWrappedDEK()
+	if werr != nil {
+		return nil, envelope.NewError(envelope.ErrAuthRequired,
+			"backup: no wrappedDEK in keychain — sign in first").
+			WithRemediation("Run `endstate backup login` (or `endstate backup signup`) to populate the session.")
+	}
+
+	mf := &manifest.Manifest{
+		EnvelopeVersion: crypto.EnvelopeVersion,
+		VersionID:       newUUID(),
+		CreatedAt:       deps.now().UTC().Format(time.RFC3339Nano),
+		OriginalSize:    int64(len(tarBytes)),
+		ChunkSize:       crypto.ChunkPlainSize,
+		ChunkCount:      chunkCount,
+		Chunks:          manifestChunks,
+		KDF:             crypto.DefaultKDFParams(),
+		WrappedDEK:      wrappedDEKB64,
+		ContentSHA256:   contentSHA,
+	}
+	mfJSON, mfErr := manifest.Marshal(mf)
+	if mfErr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup: marshal manifest: "+mfErr.Error())
+	}
+	encManifest, emErr := crypto.EncryptManifest(mfJSON, dek)
+	if emErr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup: encrypt manifest: "+emErr.Error())
+	}
+
+	return &encBundle{encrypted: encrypted, encManifest: encManifest, chunkMeta: chunkMeta, chunkCount: chunkCount}, nil
+}
+
+// SizeEstimate is the result of EstimateSize: the byte counts a push of the
+// same profile would produce, with no network I/O.
+type SizeEstimate struct {
+	EstimatedUploadBytes int64
+	PlaintextBytes       int64
+	ChunkCount           int
+}
+
+// EstimateSize computes the exact number of bytes a `backup push` of
+// profilePath would upload (encrypted chunks + encrypted manifest) WITHOUT any
+// network call. It runs the identical client-side bundling path push uses (via
+// buildBundle), so the estimate can't drift from a real push. Requires a
+// signed-in session — the DEK is needed to produce true ciphertext sizes.
+func EstimateSize(deps Dependencies, profilePath string) (*SizeEstimate, *envelope.Error) {
+	if strings.TrimSpace(profilePath) == "" {
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup estimate: profile path is empty")
+	}
+
+	dek, err := deps.Session.LoadDEK()
+	if err != nil {
+		return nil, envelope.NewError(envelope.ErrAuthRequired,
+			"backup estimate: no DEK in keychain — sign in first").
+			WithRemediation("Run `endstate backup login` (or `endstate backup signup`) to populate the session.")
+	}
+	defer wipe(dek)
+
+	tarBytes, terr := tarProfile(profilePath)
+	if terr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, "backup estimate: tar profile: "+terr.Error()).
+			WithRemediation("Verify --profile points at a readable file or directory.")
+	}
+	contentSum := sha256.Sum256(tarBytes)
+	contentSHA := hex.EncodeToString(contentSum[:])
+
+	bundle, bErr := buildBundle(deps, dek, tarBytes, contentSHA)
+	if bErr != nil {
+		return nil, bErr
+	}
+
+	var total int64
+	for _, blob := range bundle.encrypted {
+		total += int64(len(blob))
+	}
+	total += int64(len(bundle.encManifest))
+
+	return &SizeEstimate{
+		EstimatedUploadBytes: total,
+		PlaintextBytes:       int64(len(tarBytes)),
+		ChunkCount:           bundle.chunkCount,
+	}, nil
 }
 
 // resolveBackupID picks a backup id to write a version against. If the
