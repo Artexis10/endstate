@@ -215,7 +215,26 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// newRealizerFn returns ErrNoRealizer, so control falls through to the winget
 	// driver loop below, byte-identical to prior behavior.
 	if rz, rerr := newRealizerFn(); rerr == nil {
-		return runApplyRealizer(flags, mf, rz, emitter, runID, configModuleMap, restoreModulesAvailable)
+		// Two-lane split AT THE REALIZER GATE (not selectBackend, which returns
+		// ErrNoBackend on darwin). Partition AFTER SynthesizeAppsFromModules so
+		// synthesized manual apps land in the realizer (rest) lane. The realizer
+		// receives a shallow manifest copy carrying ONLY restApps — it never sees
+		// a brew/`cask:` ref. The brew driver is resolved additively (nil on a
+		// non-darwin host → the brew lane visibly skips each brew app).
+		brewApps, restApps := partitionBrewLane(mf.Apps)
+		// Resolve the brew driver ONLY when at least one app routes to brew, so a
+		// no-brew manifest never even touches newBrewDriverFn (the realizer-only
+		// path stays byte-identical to today). A non-darwin host returns
+		// ErrNoBrewDriver, leaving brewDrv nil → the lane visibly skips brew apps.
+		var brewDrv driver.Driver
+		if len(brewApps) > 0 {
+			if d, berr := newBrewDriverFn(); berr == nil {
+				brewDrv = d
+			}
+		}
+		rzMf := *mf
+		rzMf.Apps = restApps
+		return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, restoreModulesAvailable, brewApps, brewDrv)
 	}
 
 	// Convergence (--prune) is realizer-only. The driver path (winget) operates on

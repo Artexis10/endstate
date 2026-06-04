@@ -76,7 +76,7 @@ func TestRunApplyRealizer_PruneConfirm_RemovesDrift(t *testing.T) {
 	}
 	flags := ApplyFlags{Manifest: "m.jsonc", Prune: true, Confirm: true}
 
-	raw, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "prune-1", nil, nil)
+	raw, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "prune-1", nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -123,7 +123,7 @@ func TestRunApplyRealizer_PruneConfirm_NoDrift_NoGeneration(t *testing.T) {
 	}
 	flags := ApplyFlags{Manifest: "m.jsonc", Prune: true, Confirm: true}
 
-	if _, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "noop", nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "noop", nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
 	if fr.removeCalls != 0 {
@@ -145,7 +145,7 @@ func TestRunApplyRealizer_PruneDryRun_PreviewsWithoutRemoving(t *testing.T) {
 	}
 	flags := ApplyFlags{Manifest: "m.jsonc", Prune: true, DryRun: true} // no Confirm
 
-	raw, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "prune-dry", nil, nil)
+	raw, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "prune-dry", nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -175,7 +175,7 @@ func TestRunApplyRealizer_PruneWithoutConfirm_Refuses(t *testing.T) {
 	}
 	flags := ApplyFlags{Manifest: "m.jsonc", Prune: true} // Confirm:false, DryRun:false
 
-	_, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "prune-noconfirm", nil, nil)
+	_, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "prune-noconfirm", nil, nil, nil, nil)
 	if eerr == nil {
 		t.Fatal("expected an envelope error refusing --prune without --confirm, got nil")
 	}
@@ -197,7 +197,7 @@ func TestRunApplyRealizer_NoPrune_NeverRemoves(t *testing.T) {
 	}
 	flags := ApplyFlags{Manifest: "m.jsonc"} // no Prune
 
-	if _, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "noprune", nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(flags, jqManifest(), fr, noopEmitter(), "noprune", nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
 	if fr.removeCalls != 0 {
@@ -216,7 +216,7 @@ func TestRunApplyRealizer_NonPruner_Unsupported(t *testing.T) {
 	}
 	flags := ApplyFlags{Manifest: "m.jsonc", Prune: true, Confirm: true}
 
-	_, eerr := runApplyRealizer(flags, jqManifest(), stub, noopEmitter(), "nonpruner", nil, nil)
+	_, eerr := runApplyRealizer(flags, jqManifest(), stub, noopEmitter(), "nonpruner", nil, nil, nil, nil)
 	if eerr == nil {
 		t.Fatal("expected CONVERGENCE_UNSUPPORTED for a non-Pruner realizer, got nil")
 	}

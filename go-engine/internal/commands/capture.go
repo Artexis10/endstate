@@ -128,6 +128,7 @@ var loadModuleCatalogFn = func(repoRoot string) (map[string]*modules.Module, err
 type capturedApp struct {
 	ID      string            `json:"id"`
 	Refs    map[string]string `json:"refs"`
+	Driver  string            `json:"driver,omitempty"`
 	Version string            `json:"version,omitempty"`
 	Name    string            `json:"_name,omitempty"`
 }
@@ -136,6 +137,7 @@ type capturedApp struct {
 type cleanApp struct {
 	ID      string            `json:"id"`
 	Refs    map[string]string `json:"refs"`
+	Driver  string            `json:"driver,omitempty"`
 	Version string            `json:"version,omitempty"`
 }
 

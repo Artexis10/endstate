@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -21,7 +22,7 @@ import (
 // the current generation once and reports each host package present/missing,
 // preserving the per-item event stream. Verify is read-only (verification-first
 // invariant) and does not touch configs.
-func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter) (interface{}, *envelope.Error) {
+func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, brewApps []manifest.App, brewDrv driver.Driver) (interface{}, *envelope.Error) {
 	driverName := r.Name()
 	emitter.EmitPhase("verify")
 
@@ -96,6 +97,16 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 		}
 	}
 
+	// Brew presence lane — interleaved into THIS verify phase, folded into the
+	// single verify summary (one summary per phase). A brew app present via
+	// `brew list` passes; missing fails; an advisory version mismatch is surfaced
+	// as version_drift (best-effort, like winget). When brewDrv is nil (non-darwin
+	// host) each brew app is a visible fail/missing rather than silently dropped.
+	brewResults, brewPass, brewFail := verifyBrewLane(brewApps, brewDrv, emitter)
+	results = append(results, brewResults...)
+	pass += brewPass
+	fail += brewFail
+
 	total := pass + fail
 	emitter.EmitSummary("verify", total, pass, 0, fail)
 	return &VerifyResult{
@@ -103,6 +114,73 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 		Summary:  VerifySummary{Total: total, Pass: pass, Fail: fail},
 		Results:  results,
 	}, nil
+}
+
+// verifyBrewLane checks the presence (and advisory version) of each brew app via
+// the brew driver, emitting per-item events into the caller's already-open
+// verify phase and returning the verify items + (pass, fail) to fold into the
+// single verify summary. A nil drv (non-darwin host) reports each brew app
+// missing (a visible fail) rather than silently dropping it.
+func verifyBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter) (items []VerifyItem, pass, fail int) {
+	if len(brewApps) == 0 {
+		return nil, 0, 0
+	}
+	if brewDrv == nil {
+		for _, app := range brewApps {
+			ref := app.Refs["darwin"]
+			name := brewItemName(app, ref)
+			item := VerifyItem{Type: "app", ID: app.ID, Ref: ref, Name: name,
+				Status: "fail", Reason: driver.ReasonMissing, Message: "brew driver unavailable on this host"}
+			emitter.EmitItem(brewEventID(app.ID, ref), "brew", "failed", driver.ReasonMissing, item.Message, name)
+			items = append(items, item)
+			fail++
+		}
+		return items, pass, fail
+	}
+
+	refs := make([]string, 0, len(brewApps))
+	for _, app := range brewApps {
+		if ref := app.Refs["darwin"]; ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	batch := brewDetectBatch(brewDrv, refs)
+
+	for _, app := range brewApps {
+		ref := app.Refs["darwin"]
+		res := batch[ref]
+		name := brewItemName(app, ref)
+		if res.DisplayName != "" {
+			name = res.DisplayName
+		}
+		item := VerifyItem{Type: "app", ID: app.ID, Ref: ref, Name: name}
+		switch {
+		case res.Installed && app.Version != "" && res.Version != "" &&
+			strings.TrimSpace(res.Version) != strings.TrimSpace(app.Version):
+			// Advisory version drift — brew's pin is weak, so this is informational
+			// (apply never downgrades a present package), but verify surfaces it.
+			item.Status = "fail"
+			item.Reason = driver.ReasonVersionDrift
+			item.Version = strings.TrimSpace(res.Version)
+			item.Expected = strings.TrimSpace(app.Version)
+			item.Message = fmt.Sprintf("installed %s, want %s (advisory; brew pinning is weak)", res.Version, app.Version)
+			emitter.EmitItem(ref, "brew", "failed", driver.ReasonVersionDrift, item.Message, name)
+			fail++
+		case res.Installed:
+			item.Status = "pass"
+			item.Version = strings.TrimSpace(res.Version)
+			emitter.EmitItem(ref, "brew", "present", "", "Verified installed", name)
+			pass++
+		default:
+			item.Status = "fail"
+			item.Reason = driver.ReasonMissing
+			item.Message = "Missing - not installed"
+			emitter.EmitItem(ref, "brew", "failed", driver.ReasonMissing, item.Message, name)
+			fail++
+		}
+		items = append(items, item)
+	}
+	return items, pass, fail
 }
 
 // checkHomeManagerGeneration reads the active home-manager generation via hgr
@@ -162,7 +240,7 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 
 // runPlanRealizer is the plan (read-only preview) path for a realizer backend.
 // It computes one whole-set diff and reports it as planner actions.
-func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter) (interface{}, *envelope.Error) {
+func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, brewApps []manifest.App, brewDrv driver.Driver) (interface{}, *envelope.Error) {
 	driverName := r.Name()
 	emitter.EmitPhase("plan")
 
@@ -198,6 +276,15 @@ func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer
 		toInstall++
 	}
 
+	// Brew plan lane — interleaved into THIS plan phase, folded into the single
+	// plan summary. A present brew app is a no-op (none); a missing one is an
+	// install. A nil drv (non-darwin host) reports each brew app as a missing
+	// install (visible) rather than silently dropping it.
+	brewActions, brewPresent, brewToInstall := planBrewLane(brewApps, brewDrv, emitter)
+	actions = append(actions, brewActions...)
+	present += brewPresent
+	toInstall += brewToInstall
+
 	total := present + toInstall
 	emitter.EmitSummary("plan", total, present, 0, toInstall)
 	return &PlanResult{
@@ -205,4 +292,45 @@ func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer
 		Plan:     planner.PlanSummary{Total: total, ToInstall: toInstall, AlreadyPresent: present},
 		Actions:  actions,
 	}, nil
+}
+
+// planBrewLane reports the planned action (none|install) for each brew app via
+// the brew driver's presence detection, emitting per-item events into the
+// caller's already-open plan phase and returning the planner actions +
+// (present, toInstall) to fold into the single plan summary. A nil drv (non-
+// darwin host) reports each brew app as a missing install.
+func planBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter) (actions []planner.PlanAction, present, toInstall int) {
+	if len(brewApps) == 0 {
+		return nil, 0, 0
+	}
+
+	detect := map[string]driver.DetectResult{}
+	if brewDrv != nil {
+		refs := make([]string, 0, len(brewApps))
+		for _, app := range brewApps {
+			if ref := app.Refs["darwin"]; ref != "" {
+				refs = append(refs, ref)
+			}
+		}
+		detect = brewDetectBatch(brewDrv, refs)
+	}
+
+	for _, app := range brewApps {
+		ref := app.Refs["darwin"]
+		res := detect[ref]
+		name := brewItemName(app, ref)
+		if res.DisplayName != "" {
+			name = res.DisplayName
+		}
+		if brewDrv != nil && res.Installed {
+			actions = append(actions, planner.PlanAction{Type: "app", ID: app.ID, Ref: ref, Driver: "brew", CurrentStatus: "present", PlannedAction: "none", DisplayName: name})
+			emitter.EmitItem(ref, "brew", "present", "", "none", name)
+			present++
+		} else {
+			actions = append(actions, planner.PlanAction{Type: "app", ID: app.ID, Ref: ref, Driver: "brew", CurrentStatus: "missing", PlannedAction: "install", DisplayName: name})
+			emitter.EmitItem(brewEventID(app.ID, ref), "brew", "missing", "", "install", name)
+			toInstall++
+		}
+	}
+	return actions, present, toInstall
 }

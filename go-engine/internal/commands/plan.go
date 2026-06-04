@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
@@ -50,7 +51,16 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
 	// the winget driver plan below, byte-identical to prior behavior.
 	if rz, rerr := newRealizerFn(); rerr == nil {
-		return runPlanRealizer(flags, mf, rz, emitter)
+		brewApps, restApps := partitionBrewLane(mf.Apps)
+		var brewDrv driver.Driver
+		if len(brewApps) > 0 {
+			if d, berr := newBrewDriverFn(); berr == nil {
+				brewDrv = d
+			}
+		}
+		rzMf := *mf
+		rzMf.Apps = restApps
+		return runPlanRealizer(flags, &rzMf, rz, emitter, brewApps, brewDrv)
 	}
 
 	// --- 2. Create driver and compute plan ---

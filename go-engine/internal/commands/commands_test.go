@@ -170,14 +170,19 @@ func parseEvents(buf *bytes.Buffer) []map[string]interface{} {
 func withMockDriver(md *mockDriver, f func()) {
 	origDriver := newDriverFn
 	origRealizer := newRealizerFn
+	origBrew := newBrewDriverFn
 	newDriverFn = func() (driver.Driver, error) { return md, nil }
 	// Force the per-package driver path the way a no-realizer host (e.g. Windows)
 	// would: without this, the realizer fork in apply/verify/plan takes over on
 	// linux/darwin and these driver-path tests would exercise the wrong backend.
 	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	// On Windows the brew driver is unavailable; mirror that so a winget-path test
+	// can never resolve a real brew driver (the winget loop ignores brew anyway).
+	newBrewDriverFn = func() (driver.Driver, error) { return nil, ErrNoBrewDriver }
 	defer func() {
 		newDriverFn = origDriver
 		newRealizerFn = origRealizer
+		newBrewDriverFn = origBrew
 	}()
 	f()
 }

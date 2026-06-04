@@ -38,6 +38,18 @@ var newRealizerFn func() (realizer.Realizer, error) = func() (realizer.Realizer,
 	return selectRealizer(runtime.GOOS)
 }
 
+// newBrewDriverFn is the factory for the host's Homebrew driver (darwin only).
+// It defaults to selectBrewDriver(runtime.GOOS) and can be replaced in tests. It
+// is ADDITIVE to newRealizerFn (the realizer remains the darwin default; the
+// brew driver runs the explicit driver:"brew" lane alongside it in the same
+// apply/capture/verify/plan run). It returns ErrNoBrewDriver on every non-darwin
+// host, where a driver:"brew" app is surfaced as a visible skip. The realizer
+// path tests default this to a fail-if-called fake (see commands_test.go) so an
+// unrelated realizer test never spawns a real brew process.
+var newBrewDriverFn func() (driver.Driver, error) = func() (driver.Driver, error) {
+	return selectBrewDriver(runtime.GOOS)
+}
+
 // VerifyFlags holds the parsed CLI flags for the verify command.
 type VerifyFlags struct {
 	// Manifest is the path to the .jsonc manifest file.
@@ -126,7 +138,16 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
 	// the winget driver detect loop below, byte-identical to prior behavior.
 	if rz, rerr := newRealizerFn(); rerr == nil {
-		return runVerifyRealizer(flags, mf, rz, emitter)
+		brewApps, restApps := partitionBrewLane(mf.Apps)
+		var brewDrv driver.Driver
+		if len(brewApps) > 0 {
+			if d, berr := newBrewDriverFn(); berr == nil {
+				brewDrv = d
+			}
+		}
+		rzMf := *mf
+		rzMf.Apps = restApps
+		return runVerifyRealizer(flags, &rzMf, rz, emitter, brewApps, brewDrv)
 	}
 
 	// --- 2. Create driver (platform-selected backend) ---
