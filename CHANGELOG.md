@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.17.0](https://github.com/Artexis10/endstate/compare/v2.16.0...v2.17.0) (2026-06-04)
+
+
+### Features
+
+* **capture:** defense-in-depth bloat guard — baseline excludes + oversized-installer skip ([#110](https://github.com/Artexis10/endstate/issues/110)) ([695f768](https://github.com/Artexis10/endstate/commit/695f768f1e142f6d2891d0e8d8c0f00ea17c21f3))
+* **engine:** brew driver package (macOS Homebrew adapter, hermetic) ([#113](https://github.com/Artexis10/endstate/issues/113)) ([d03615e](https://github.com/Artexis10/endstate/commit/d03615e3cb4a1d940e5ad644957f6b0bce40ff30))
+* **engine:** home-manager secrets — documented boundary (referenced, never embedded) ([#112](https://github.com/Artexis10/endstate/issues/112)) ([889670f](https://github.com/Artexis10/endstate/commit/889670f27abd5a95573ece0f9d78ad36b2edee36))
+
 ## [2.16.0](https://github.com/Artexis10/endstate/compare/v2.15.0...v2.16.0) (2026-06-03)
 
 
