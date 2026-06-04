@@ -77,6 +77,12 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, in
 			return collected, secretsExcluded, fmt.Errorf("missing required file: %s (module: %s)", sourcePath, module.ID)
 		}
 
+		// Defense-in-depth: skip an oversized installer/executable even if the
+		// module explicitly declared it (a config file is never a 10 MiB binary).
+		if !info.IsDir() && isOversizedInstaller(sourcePath, info.Size()) {
+			continue
+		}
+
 		// Ensure destination directory exists.
 		destDir := filepath.Dir(destPath)
 		if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -185,6 +191,62 @@ func matchesExcludeGlobs(path string, excludeGlobs []string) bool {
 	return false
 }
 
+// captureBloatDirs are directory names (matched case-insensitively, any depth)
+// that are never legitimate config — downloaded-update/installer staging,
+// caches, and crash dumps. Every module inherits these as a defense-in-depth
+// baseline (on top of its own excludeGlobs) so a single misconfigured module
+// can't silently bloat the backup and burn the user's quota (cf. the PowerToys
+// `Updates/` installer leak that made a capture ~283× larger than it should be).
+var captureBloatDirs = map[string]bool{
+	"updates":       true,
+	"installer":     true,
+	"setup":         true,
+	"cache":         true,
+	"gpucache":      true,
+	"code cache":    true,
+	"shadercache":   true,
+	"crashpad":      true,
+	"crash reports": true,
+	"temp":          true,
+	"logs":          true,
+}
+
+// captureBloatBinaryExts are installer/executable extensions that are never
+// config. Files with these extensions are skipped above captureBloatBinaryMaxBytes.
+var captureBloatBinaryExts = map[string]bool{
+	".exe":  true,
+	".msi":  true,
+	".msix": true,
+	".appx": true,
+	".dmg":  true,
+	".pkg":  true,
+}
+
+// captureBloatBinaryMaxBytes is the size over which an installer/executable is
+// treated as bloat and skipped. A small bundled helper binary still rides along.
+const captureBloatBinaryMaxBytes = 10 * 1024 * 1024 // 10 MiB
+
+// isBloatDirSegment reports whether any segment of relPath is a known bloat
+// directory (case-insensitive). relPath is relative to the captured source root,
+// so only dirs WITHIN a recursively-captured subtree are matched — never a
+// coincidentally-named ancestor of the source itself.
+func isBloatDirSegment(relPath string) bool {
+	for _, seg := range strings.Split(filepath.ToSlash(relPath), "/") {
+		if captureBloatDirs[strings.ToLower(seg)] {
+			return true
+		}
+	}
+	return false
+}
+
+// isOversizedInstaller reports whether path is an installer/executable larger
+// than captureBloatBinaryMaxBytes — defense-in-depth against a bloated binary
+// that escapes the directory baseline (e.g. a stray installer in an app root).
+func isOversizedInstaller(path string, size int64) bool {
+	return captureBloatBinaryExts[strings.ToLower(filepath.Ext(path))] &&
+		size > captureBloatBinaryMaxBytes
+}
+
 // copyFile copies a single file from src to dst.
 func copyFile(src, dst string) error {
 	in, err := os.Open(src)
@@ -244,6 +306,19 @@ func copyDir(src, dst string, excludeGlobs, secretsFiles []string) (int, error) 
 		if err != nil {
 			return err
 		}
+
+		// Defense-in-depth: never bundle known bloat dirs (caches, update/installer
+		// staging, crash dumps) or oversized installers, regardless of module config.
+		if isBloatDirSegment(relPath) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !info.IsDir() && isOversizedInstaller(path, info.Size()) {
+			return nil
+		}
+
 		destPath := filepath.Join(dst, relPath)
 
 		if info.IsDir() {
