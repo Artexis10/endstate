@@ -133,10 +133,9 @@ func (l *brewLane) applyBrew() (installed, skipped, failed int) {
 	if l.drv == nil {
 		return 0, len(l.apps), 0 // each unavailable-host app counts as skipped
 	}
-	for i, app := range l.apps {
+	for i := range l.apps {
 		ref := l.refs[i]
 		name := l.names[i]
-		_ = app
 		if l.installed[i] {
 			skipped++
 			continue

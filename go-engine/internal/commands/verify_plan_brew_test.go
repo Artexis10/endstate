@@ -147,6 +147,65 @@ func TestRunPlan_BrewLane_PresentReported(t *testing.T) {
 	}
 }
 
+// TestRunPlan_BrewLane_NonDarwinHost_VisibleSkip: when the brew driver is
+// unavailable (non-darwin host, ErrNoBrewDriver), a driver:"brew" app must be
+// surfaced in the PLAN as a visible skip — mirroring apply's nil-drv arm — NOT
+// reported as a "will install". This is the plan↔apply parity guarantee: plan
+// must predict what apply does (apply skips it with "brew driver unavailable on
+// this host"), so plan must not promise an install that apply won't perform.
+func TestRunPlan_BrewLane_NonDarwinHost_VisibleSkip(t *testing.T) {
+	manifestJSON := replaceGOOS(`{
+  "version": 1, "name": "brew-plan-skip",
+  "apps": [
+    { "id": "ripgrep", "displayName": "ripgrep", "refs": { "GOOS": "nixpkgs#ripgrep" } },
+    { "id": "hello", "displayName": "hello", "driver": "brew", "refs": { "darwin": "hello" } }
+  ]
+}`)
+	mfPath := writeTempManifest(t, manifestJSON)
+
+	fr := &fakeRealizer{planDiff: realizer.Diff{ToAdd: []realizer.Installable{{ID: "ripgrep", Ref: "nixpkgs#ripgrep"}}}}
+
+	var result interface{}
+	// brew factory returns ErrNoBrewDriver (the non-darwin host posture).
+	withVerifyPlanRealizerAndBrew(fr, func() (driver.Driver, error) { return nil, ErrNoBrewDriver }, func() {
+		r, e := RunPlan(PlanFlags{Manifest: mfPath})
+		if e != nil {
+			t.Fatalf("RunPlan error: %v", e)
+		}
+		result = r
+	})
+
+	pr := result.(*PlanResult)
+	// The brew app must be a visible skip, NOT an install.
+	if hasPlanAction(pr.Actions, "hello", "brew", "install") {
+		t.Errorf("non-darwin host: brew app must NOT be planned as install, got %+v", pr.Actions)
+	}
+	if !hasPlanAction(pr.Actions, "hello", "brew", "skip") {
+		t.Errorf("non-darwin host: expected hello as a visible skip in plan, got %+v", pr.Actions)
+	}
+	// Parity with apply's wording.
+	var brewAction *planner.PlanAction
+	for i := range pr.Actions {
+		if pr.Actions[i].ID == "hello" {
+			brewAction = &pr.Actions[i]
+		}
+	}
+	if brewAction == nil {
+		t.Fatalf("hello brew action absent from plan: %+v", pr.Actions)
+	}
+	if brewAction.CurrentStatus != "skipped" {
+		t.Errorf("brew skip CurrentStatus = %q, want %q", brewAction.CurrentStatus, "skipped")
+	}
+	// It must count as neither present nor toInstall (the brew app is filtered out
+	// of the convergence counts on a host that cannot run brew).
+	if pr.Plan.ToInstall != 1 {
+		t.Errorf("plan.toInstall = %d, want 1 (only the nix ripgrep; the brew app is skipped, not installed)", pr.Plan.ToInstall)
+	}
+	if pr.Plan.AlreadyPresent != 0 {
+		t.Errorf("plan.alreadyPresent = %d, want 0 (the brew skip is neither present nor toInstall)", pr.Plan.AlreadyPresent)
+	}
+}
+
 // hasVerifyItem reports whether results contains an item with the given id and
 // status.
 func hasVerifyItem(results []VerifyItem, id, status string) bool {

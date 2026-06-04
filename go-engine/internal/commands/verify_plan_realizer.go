@@ -304,16 +304,30 @@ func planBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *event
 		return nil, 0, 0
 	}
 
-	detect := map[string]driver.DetectResult{}
-	if brewDrv != nil {
-		refs := make([]string, 0, len(brewApps))
+	// Non-darwin host (brew driver unavailable): every brew app is a visible skip,
+	// counted as NEITHER present NOR toInstall — mirroring apply_brew.go planBrew's
+	// nil-drv arm so PLAN PREDICTS APPLY (apply skips these with the same wording
+	// instead of installing them). Reporting "missing"/"install" here would promise
+	// an install that apply never performs.
+	if brewDrv == nil {
 		for _, app := range brewApps {
-			if ref := app.Refs["darwin"]; ref != "" {
-				refs = append(refs, ref)
-			}
+			ref := app.Refs["darwin"]
+			name := brewItemName(app, ref)
+			actions = append(actions, planner.PlanAction{Type: "app", ID: app.ID, Ref: ref, Driver: "brew",
+				CurrentStatus: "skipped", PlannedAction: "skip", DisplayName: name})
+			emitter.EmitItem(brewEventID(app.ID, ref), "brew", "skipped", "filtered", "brew driver unavailable on this host", name)
 		}
-		detect = brewDetectBatch(brewDrv, refs)
+		return actions, 0, 0
 	}
+
+	// brewDrv is non-nil here (the nil case returned above).
+	refs := make([]string, 0, len(brewApps))
+	for _, app := range brewApps {
+		if ref := app.Refs["darwin"]; ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	detect := brewDetectBatch(brewDrv, refs)
 
 	for _, app := range brewApps {
 		ref := app.Refs["darwin"]
@@ -322,7 +336,7 @@ func planBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *event
 		if res.DisplayName != "" {
 			name = res.DisplayName
 		}
-		if brewDrv != nil && res.Installed {
+		if res.Installed {
 			actions = append(actions, planner.PlanAction{Type: "app", ID: app.ID, Ref: ref, Driver: "brew", CurrentStatus: "present", PlannedAction: "none", DisplayName: name})
 			emitter.EmitItem(ref, "brew", "present", "", "none", name)
 			present++

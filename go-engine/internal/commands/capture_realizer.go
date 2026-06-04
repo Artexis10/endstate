@@ -127,6 +127,11 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 		if loadErr != nil {
 			return nil, loadErr
 		}
+		// KNOWN PRE-EXISTING LIMITATION (LOW): --update dedups by host ref, not by
+		// app id. An app whose id is unchanged but whose host ref changed is treated
+		// as a new entry (and a renamed app keeps the old entry). This predates the
+		// brew two-lane work and is intentionally left unchanged here; revisit if
+		// ref churn causes duplicate/stale merged entries.
 		existingRefs := make(map[string]bool)
 		for _, app := range existingMf.Apps {
 			if ref, ok := app.Refs[goos]; ok {
