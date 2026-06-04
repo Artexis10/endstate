@@ -50,6 +50,14 @@ var newBrewDriverFn func() (driver.Driver, error) = func() (driver.Driver, error
 	return selectBrewDriver(runtime.GOOS)
 }
 
+// newApplyEmitterFn is the factory RunApply uses to construct its event emitter.
+// It defaults to a pure pass-through to events.NewEmitter (stdout, the production
+// behavior) and is a test-only seam: a test overrides it to capture the apply
+// run's JSONL stream into a buffer with a deterministic runId, so the gate's
+// no-brew path can be byte-compared against a realizer-only baseline. Production
+// behavior is unchanged.
+var newApplyEmitterFn func(runID string, jsonl bool) *events.Emitter = events.NewEmitter
+
 // VerifyFlags holds the parsed CLI flags for the verify command.
 type VerifyFlags struct {
 	// Manifest is the path to the .jsonc manifest file.

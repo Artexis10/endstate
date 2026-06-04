@@ -25,12 +25,12 @@ import (
 // ---------------------------------------------------------------------------
 
 type fakeBrewDriver struct {
-	installed    map[string]bool        // ref -> currently present
-	versions     map[string]string      // ref -> version reported by DetectBatch
-	installErr   error                  // returned by Install for every call (infra failure)
-	installFails map[string]bool        // ref -> Install reports StatusFailed
-	installCalls []string               // refs passed to Install, in order
-	detectCalls  int                    // DetectBatch call count
+	installed    map[string]bool   // ref -> currently present
+	versions     map[string]string // ref -> version reported by DetectBatch
+	installErr   error             // returned by Install for every call (infra failure)
+	installFails map[string]bool   // ref -> Install reports StatusFailed
+	installCalls []string          // refs passed to Install, in order
+	detectCalls  int               // DetectBatch call count
 }
 
 func (f *fakeBrewDriver) Name() string { return "brew" }
@@ -147,17 +147,19 @@ const realizerOnlyManifestJSON = `{
 }`
 
 // TestRunApply_NoBrewLane_ByteIdenticalToRealizerOnly proves the two-lane wiring
-// is a no-op when no app routes to brew: newBrewDriverFn is NEVER called, EXACTLY
-// ONE provisioning generation (Backend:"nix") is written, and both the
-// ApplyResult and the FULL JSONL event stream byte-match a realizer-only baseline.
+// is a no-op when no app routes to brew. The COMPARISON side drives the REAL
+// RunApply(...) gate in apply.go — partition + shallow-copy + newBrewLane(nil,…)
+// — capturing its full JSONL event stream via the newApplyEmitterFn seam, and
+// byte-compares it (timestamps normalized) against a realizer-only baseline
+// produced by calling runApplyRealizer directly with nil brew. The gate side
+// also installs panicBrewDriverFn so any brew-driver resolution fails the test,
+// proving the no-brew gate never touches the factory. If the gate's no-brew path
+// altered the stream (e.g. by passing a bogus brewApps into the lane), this test
+// fails.
 func TestRunApply_NoBrewLane_ByteIdenticalToRealizerOnly(t *testing.T) {
 	// Replace GOOS placeholder so the nix app resolves on the test host.
 	manifestJSON := replaceGOOS(realizerOnlyManifestJSON)
 	mfPath := writeTempManifest(t, manifestJSON)
-
-	// Isolate provisioning state into a throwaway ENDSTATE_ROOT.
-	stateRoot := t.TempDir()
-	t.Setenv("ENDSTATE_ROOT", stateRoot)
 
 	newFakeRealizer := func() *fakeRealizer {
 		return &fakeRealizer{
@@ -172,7 +174,17 @@ func TestRunApply_NoBrewLane_ByteIdenticalToRealizerOnly(t *testing.T) {
 		}
 	}
 
-	// --- Baseline run: realizer-only (brew factory fails → no brew lane) ---
+	// Disable the module catalog / app synthesis on BOTH sides so mf.Apps and the
+	// (nil) configModuleMap/restoreModulesAvailable are identical: the comparison
+	// is then apples-to-apples (RunApply skips the whole catalog block when the
+	// repo root is empty, exactly as the direct baseline does).
+	origRepoRoot := resolveRepoRootFn
+	resolveRepoRootFn = func() string { return "" }
+	defer func() { resolveRepoRootFn = origRepoRoot }()
+
+	// --- Baseline run: realizer-only, runApplyRealizer DIRECTLY with nil brew ---
+	baseRoot := t.TempDir()
+	t.Setenv("ENDSTATE_ROOT", baseRoot)
 	var baseBuf bytes.Buffer
 	baseEmitter := events.NewEmitterWithWriter("apply-fixed", true, &baseBuf)
 	frBase := newFakeRealizer()
@@ -180,43 +192,51 @@ func TestRunApply_NoBrewLane_ByteIdenticalToRealizerOnly(t *testing.T) {
 	if eerr != nil {
 		t.Fatalf("loadManifest: %v", eerr)
 	}
-	// Drive runApplyRealizer directly with NO brew apps (the realizer-only shape).
 	baseResult, baseErr := runApplyRealizer(ApplyFlags{Manifest: mfPath}, mfBase, frBase, baseEmitter, "apply-fixed", nil, nil, nil, nil)
 	if baseErr != nil {
 		t.Fatalf("baseline apply error: %v", baseErr)
 	}
 
-	// --- Two-lane run via the gate: same manifest, brew factory MUST NOT be called ---
+	// --- Two-lane run via the REAL RunApply gate ---
+	// Fresh state root so the baseline's provisioning generation doesn't collide.
+	laneRoot := t.TempDir()
+	t.Setenv("ENDSTATE_ROOT", laneRoot)
 	var laneBuf bytes.Buffer
-	laneEmitter := events.NewEmitterWithWriter("apply-fixed", true, &laneBuf)
+	// The emitter seam forces a deterministic runId AND captures the stream into
+	// laneBuf — the only volatile field left is the per-event timestamp.
+	origEmitter := newApplyEmitterFn
+	newApplyEmitterFn = func(_ string, _ bool) *events.Emitter {
+		return events.NewEmitterWithWriter("apply-fixed", true, &laneBuf)
+	}
+	defer func() { newApplyEmitterFn = origEmitter }()
+
 	frLane := newFakeRealizer()
-	mfLane, _ := loadManifest(mfPath)
-	brewApps, restApps := partitionBrewLane(mfLane.Apps)
-	if len(brewApps) != 0 {
-		t.Fatalf("expected no brew apps, got %+v", brewApps)
-	}
-	rzMf := *mfLane
-	rzMf.Apps = restApps
-	// No brew apps, so the lane no-ops and runApplyRealizer is driven with nil
-	// brewApps/brewDrv — exactly what the gate passes for a no-brew manifest.
-	laneResult, laneErr := runApplyRealizer(ApplyFlags{Manifest: mfPath}, &rzMf, frLane, laneEmitter, "apply-fixed", nil, nil, nil, nil)
-	if laneErr != nil {
-		t.Fatalf("two-lane apply error: %v", laneErr)
-	}
+	var laneResult interface{}
+	// panicBrewDriverFn fails the test if the gate ever resolves the brew factory.
+	withRealizerAndBrew(frLane, panicBrewDriverFn(t), func() {
+		r, e := RunApply(ApplyFlags{Manifest: mfPath, Events: "jsonl"})
+		if e != nil {
+			t.Fatalf("two-lane RunApply error: %v", e)
+		}
+		laneResult = r
+	})
 
 	// --- Assert ApplyResult equality (unmarshaled JSON, OS-robust) ---
 	if !jsonEqual(t, baseResult, laneResult) {
-		t.Errorf("ApplyResult differs between realizer-only and two-lane paths")
+		bb, _ := json.Marshal(baseResult)
+		lb, _ := json.Marshal(laneResult)
+		t.Errorf("ApplyResult differs between realizer-only baseline and the RunApply gate.\n--- baseline ---\n%s\n--- gate ---\n%s", bb, lb)
 	}
 
 	// --- Assert the FULL JSONL event stream matches (timestamps normalized) ---
 	// runId is fixed ("apply-fixed") in both emitters; only per-event timestamps
 	// are volatile, so strip them before the byte comparison. Everything else —
-	// phase order, every item event, every summary — must be identical.
+	// phase order, every item event, every summary — must be identical. The gate
+	// emitting an extra/altered event for a no-brew manifest fails this assertion.
 	base := normalizeEventStream(t, &baseBuf)
 	lane := normalizeEventStream(t, &laneBuf)
 	if base != lane {
-		t.Errorf("event stream differs (timestamps normalized).\n--- baseline ---\n%s\n--- two-lane ---\n%s", base, lane)
+		t.Errorf("event stream differs (timestamps normalized).\n--- baseline ---\n%s\n--- two-lane gate ---\n%s", base, lane)
 	}
 }
 
@@ -498,4 +518,3 @@ func hasAction(actions []ApplyAction, id, drv, status string) bool {
 	}
 	return false
 }
-

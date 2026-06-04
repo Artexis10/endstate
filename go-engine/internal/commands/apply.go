@@ -12,7 +12,6 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
-	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
@@ -162,7 +161,7 @@ type ApplyAction struct {
 // EnableRestore is accepted but logs a no-op notice; restore is Phase 2 work.
 func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("apply")
-	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
+	emitter := newApplyEmitterFn(runID, flags.Events == "jsonl")
 
 	// EnableRestore is handled after the install phase (before verify).
 
