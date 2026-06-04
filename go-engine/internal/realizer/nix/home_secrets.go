@@ -17,14 +17,18 @@ import (
 //
 // THE STRUCTURAL KEYSTONE: this function NEVER reads, embeds, or stages secret
 // material. Unlike the catalog `files` map (which os.ReadFile's source content at
-// compile time in CompileHomeNix), a secret entry's path/env is emitted as a Nix
+// compile time in CompileHomeNix), a secret entry's path is emitted as a Nix
 // path/string REFERENCE only — there is no code path from a HomeManagerSecret to
 // file content. No-embed is therefore true BY CONSTRUCTION:
-//   - path → home.file.<homeRelTarget(name)>.source = config.lib.file.mkOutOfStoreSymlink <path>;
+//   - path-only → home.file.<homeRelTarget(name)>.source = config.lib.file.mkOutOfStoreSymlink <path>;
+//   - env+path  → home.sessionVariables.<env> = "<path>";  (the *_FILE
+//     path-reference convention — the session variable holds the FILE PATH, never
+//     the secret value; the consumer reads the file).
 //
-// Phase 1 is PATH-ONLY; env-exposed secrets are rejected at load (see the
-// validator) — in the boundary model the engine never holds a secret's value, so
-// it cannot meaningfully set an env var. That is deferred to its own design.
+// Both shapes reference a file PATH the user provisions out-of-band; neither ever
+// holds the secret value. The env name is emitted as a BARE Nix attribute, which is
+// safe because the load-time validator requires it to match a strict identifier
+// pattern (blocking Nix-attr injection before any emission).
 //
 // The path is wired via `config.lib.file.mkOutOfStoreSymlink`, which symlinks to
 // the user-provisioned path at ACTIVATION time — it does NOT read or import the
@@ -46,6 +50,15 @@ func compileSecretsModule(secrets []manifest.HomeManagerSecret) (string, bool) {
 	var stmts []string
 	for _, s := range sorted {
 		switch {
+		case s.Env != "":
+			// An env+path entry → home.sessionVariables.<Env> = "<path>"; referencing
+			// the FILE PATH, never the value (the *_FILE path-reference convention).
+			// The env name is emitted as a BARE Nix attribute, which is safe ONLY
+			// because the load-time validator (validateHomeManagerSecrets) requires it
+			// to match ^[A-Za-z_][A-Za-z0-9_]*$ — that check BLOCKS Nix-attr injection
+			// before any emission. The path is nixString-escaped and never ReadFile'd,
+			// so the no-embed guarantee holds (same as the path-only case below).
+			stmts = append(stmts, "home.sessionVariables."+s.Env+" = "+nixString(s.Path)+";")
 		case s.Path != "":
 			// A path entry → home.file.<homeRelTarget>.source references the path via
 			// mkOutOfStoreSymlink, which symlinks to the user-provisioned path at
