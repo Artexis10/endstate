@@ -47,9 +47,32 @@ func TestLoadManifest_HomeManagerSecrets_PathUnmarshals(t *testing.T) {
 	}
 }
 
-// TestLoadManifest_HomeManagerSecrets_RejectsEnv: env-exposed secrets are deferred
-// in Phase 1 (path-only) — declaring one fails to load with a clear message.
-func TestLoadManifest_HomeManagerSecrets_RejectsEnv(t *testing.T) {
+// TestLoadManifest_HomeManagerSecrets_AcceptsEnvWithPath: Phase 2 — an env entry
+// that ALSO carries a path is valid. The engine emits a sessionVariable referencing
+// the FILE PATH (the *_FILE path-reference convention), never the value.
+func TestLoadManifest_HomeManagerSecrets_AcceptsEnvWithPath(t *testing.T) {
+	p := writeSecretsManifest(t, `{
+  "version": 1, "name": "secrets", "apps": [],
+  "homeManager": { "settings": { "git": { "userName": "Hugo" } },
+    "secrets": [ { "name": "token", "env": "API_TOKEN", "path": "/run/secrets/api" } ] }
+}`)
+	m, err := LoadManifest(p)
+	if err != nil {
+		t.Fatalf("env+path secret must load (Phase 2 path-reference), got %v", err)
+	}
+	if m.HomeManager == nil || len(m.HomeManager.Secrets) != 1 {
+		t.Fatalf("HomeManager.Secrets = %+v, want one entry", m.HomeManager)
+	}
+	s := m.HomeManager.Secrets[0]
+	if s.Env != "API_TOKEN" || s.Path != "/run/secrets/api" {
+		t.Errorf("secret = %+v, want env=API_TOKEN path=/run/secrets/api", s)
+	}
+}
+
+// TestLoadManifest_HomeManagerSecrets_RejectsEnvWithoutPath: an env entry MUST also
+// declare a path (the engine references the file path, never the value) — env alone
+// fails to load with a message directing the user to declare the file via "path".
+func TestLoadManifest_HomeManagerSecrets_RejectsEnvWithoutPath(t *testing.T) {
 	p := writeSecretsManifest(t, `{
   "version": 1, "name": "secrets", "apps": [],
   "homeManager": { "settings": { "git": { "userName": "Hugo" } },
@@ -57,23 +80,42 @@ func TestLoadManifest_HomeManagerSecrets_RejectsEnv(t *testing.T) {
 }`)
 	_, err := LoadManifest(p)
 	if err == nil {
-		t.Fatal("expected an error for an env secret (Phase 1 is path-only), got nil")
+		t.Fatal("expected an error for an env secret without a path, got nil")
 	}
-	if !strings.Contains(err.Error(), "not yet supported") {
-		t.Errorf("error = %q, want it to mention env is not yet supported", err)
+	if !strings.Contains(err.Error(), "path") {
+		t.Errorf("error = %q, want it to direct the user to declare a \"path\"", err)
 	}
 }
 
-// TestLoadManifest_HomeManagerSecrets_RejectsBothPathAndEnv: a single entry must
-// declare exactly one of path/env, never both.
-func TestLoadManifest_HomeManagerSecrets_RejectsBothPathAndEnv(t *testing.T) {
+// TestLoadManifest_HomeManagerSecrets_RejectsInvalidEnvName: an env name that is not
+// a valid shell/Nix identifier is rejected at load (this also blocks Nix-attr
+// injection via a crafted name before any emission).
+func TestLoadManifest_HomeManagerSecrets_RejectsInvalidEnvName(t *testing.T) {
+	p := writeSecretsManifest(t, `{
+  "version": 1, "name": "secrets", "apps": [],
+  "homeManager": { "settings": { "git": { "userName": "Hugo" } },
+    "secrets": [ { "name": "token", "env": "x = \"evil\"; y", "path": "/run/x" } ] }
+}`)
+	_, err := LoadManifest(p)
+	if err == nil {
+		t.Fatal("expected an error for an invalid env name, got nil")
+	}
+	if !strings.Contains(err.Error(), "env") {
+		t.Errorf("error = %q, want it to mention the invalid env name", err)
+	}
+}
+
+// TestLoadManifest_HomeManagerSecrets_AcceptsBothPathAndEnv: Phase 2 — declaring
+// both path and env is the env-exposed-secret shape (env names the variable; path
+// names the file referenced). It is valid.
+func TestLoadManifest_HomeManagerSecrets_AcceptsBothPathAndEnv(t *testing.T) {
 	p := writeSecretsManifest(t, `{
   "version": 1, "name": "secrets", "apps": [],
   "homeManager": { "settings": { "git": { "userName": "Hugo" } },
     "secrets": [ { "name": "x", "path": "/run/x", "env": "X" } ] }
 }`)
-	if _, err := LoadManifest(p); err == nil {
-		t.Fatal("expected an error for both path and env, got nil")
+	if _, err := LoadManifest(p); err != nil {
+		t.Fatalf("an entry with both path and env must load (Phase 2), got %v", err)
 	}
 }
 

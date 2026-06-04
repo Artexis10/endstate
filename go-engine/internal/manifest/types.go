@@ -65,21 +65,26 @@ type HomeManagerConfig struct {
 	Secrets  []HomeManagerSecret  `json:"secrets,omitempty"`
 }
 
-// HomeManagerSecret is a single Phase-1 documented-boundary secret reference. The
-// engine NEVER reads, embeds, or stores the secret material: it emits only a Nix
-// REFERENCE to where the secret is expected to land at activation time (a file
-// path the user provisions out-of-band, or an environment variable name). The
-// user owns provisioning the actual material; the engine documents the boundary.
+// HomeManagerSecret is a single documented-boundary secret reference. The engine
+// NEVER reads, embeds, or stores the secret material: it emits only a Nix REFERENCE
+// to where the secret is expected to land at activation time (a file path the user
+// provisions out-of-band). The user owns provisioning the actual material; the
+// engine documents the boundary.
 //
-// Exactly one of Path / Env is set per entry (LoadManifest rejects both or
-// neither):
-//   - Path → home.file.<homeRelTarget(Name)>.source references the path (the
+// A secret ALWAYS references a file via Path; it MAY additionally expose that file's
+// PATH through an environment variable via Env (the *_FILE path-reference
+// convention — the variable holds the FILE PATH, never the secret value). The two
+// shapes (LoadManifest rejects env-without-path and an invalid env name):
+//   - Path only   → home.file.<homeRelTarget(Name)>.source references the path (the
 //     secret file the user places there out-of-band).
-//   - Env  → home.sessionVariables.<Name> references the value the user supplies.
+//   - Path + Env  → home.sessionVariables.<Env> = "<Path>"; — references the file
+//     PATH, never the value (no-embed by construction). Env must be a valid
+//     identifier (^[A-Za-z_][A-Za-z0-9_]*$); the load-time check blocks Nix-attr
+//     injection because Env is emitted as a bare attribute.
 //
 // Backend selects the secret-management strategy and MUST be named explicitly; it
-// defaults to "boundary" (the only supported Phase-1 backend). An unsupported
-// backend is rejected at load rather than silently degrading to embedding.
+// defaults to "boundary" (the only supported backend). An unsupported backend is
+// rejected at load rather than silently degrading to embedding.
 type HomeManagerSecret struct {
 	Name    string `json:"name"`
 	Path    string `json:"path,omitempty"`

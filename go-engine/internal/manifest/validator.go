@@ -7,8 +7,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 )
+
+// envNamePattern restricts a secret's env-variable name to a valid shell/Nix
+// identifier. Because the compiler emits an env secret as a BARE Nix attribute
+// (home.sessionVariables.<Env> = …), this load-time check is also the guard that
+// blocks Nix-attr injection via a crafted name (e.g. `x = "evil"; y`).
+const envNamePattern = "^[A-Za-z_][A-Za-z0-9_]*$"
+
+var envNameRe = regexp.MustCompile(envNamePattern)
 
 // ValidationResult is returned by ValidateProfile and mirrors the shape of
 // Test-ProfileManifest in engine/manifest.ps1.
@@ -205,12 +214,16 @@ func validateBrewApp(app App) []ValidationError {
 	return errs
 }
 
-// validateHomeManagerSecrets checks the Phase-1 documented-boundary secrets list.
-// Secrets compose with the engine-generated modes (settings/config) but are
-// rejected alongside a pure flake input (the user's external flake owns its own
-// secrets — the engine generates nothing to inject reference sinks into). Each
-// entry must name exactly one reference (path XOR env), a non-empty unique name,
-// and a supported backend ("" defaults to / is equivalent to "boundary").
+// validateHomeManagerSecrets checks the documented-boundary secrets list. Secrets
+// compose with the engine-generated modes (settings/config) but are rejected
+// alongside a pure flake input (the user's external flake owns its own secrets —
+// the engine generates nothing to inject reference sinks into). Each entry requires
+// a "path" reference (the file the user provisions out-of-band) and a non-empty
+// unique name; it MAY also carry an "env" var name, in which case the engine emits
+// a sessionVariable referencing that PATH (never the value — the *_FILE
+// path-reference convention). An "env" without a "path" is rejected, as is an env
+// name that is not a valid identifier (which would otherwise allow Nix-attr
+// injection). The backend ("" defaults to / is equivalent to "boundary").
 func validateHomeManagerSecrets(hm *HomeManagerConfig) []ValidationError {
 	if len(hm.Secrets) == 0 {
 		return nil
@@ -237,22 +250,32 @@ func validateHomeManagerSecrets(hm *HomeManagerConfig) []ValidationError {
 		}
 		seen[s.Name] = true
 
-		// Phase 1 is PATH-ONLY. An env-exposed secret is deferred: in the
-		// documented-boundary model the engine never holds a secret's value, so it
-		// cannot meaningfully set an env var — that needs its own design (a future
-		// phase). Reject env now with a clear message rather than emit dead config.
+		// A secret always references a file PATH (the user provisions it out-of-band).
+		// It MAY additionally carry an "env" var name: the engine then emits
+		// home.sessionVariables.<env> = "<path>"; — referencing the path, never the
+		// value (the *_FILE path-reference convention). So: path-only ✓, env+path ✓,
+		// env-only ✗ (no file to reference), neither ✗. The env name must be a valid
+		// identifier (the env-requires-path check runs FIRST so the loader surfaces it
+		// before the name check; the name check also blocks Nix-attr injection because
+		// the compiler emits env as a bare attribute).
 		hasPath := s.Path != ""
 		hasEnv := s.Env != ""
 		switch {
-		case hasEnv:
+		case hasEnv && !hasPath:
 			errs = append(errs, ValidationError{
-				Code:    "HOMEMANAGER_SECRET_ENV_UNSUPPORTED",
-				Message: fmt.Sprintf("homeManager.secrets[%q]: env-exposed secrets are not yet supported; declare the secret as a \"path\" reference", s.Name),
+				Code:    "HOMEMANAGER_SECRET_ENV_REQUIRES_PATH",
+				Message: fmt.Sprintf("homeManager.secrets[%q]: an \"env\" secret must also declare the file via \"path\" (the engine references the file path, never the value)", s.Name),
 			})
-		case !hasPath:
+		case !hasPath && !hasEnv:
 			errs = append(errs, ValidationError{
 				Code:    "HOMEMANAGER_SECRET_MISSING_REF",
-				Message: fmt.Sprintf("homeManager.secrets[%q]: requires a \"path\" reference", s.Name),
+				Message: fmt.Sprintf("homeManager.secrets[%q]: requires a \"path\" reference (optionally with \"env\")", s.Name),
+			})
+		}
+		if hasEnv && !envNameRe.MatchString(s.Env) {
+			errs = append(errs, ValidationError{
+				Code:    "HOMEMANAGER_SECRET_INVALID_ENV_NAME",
+				Message: fmt.Sprintf("homeManager.secrets[%q]: invalid env name %q (must match %s)", s.Name, s.Env, envNamePattern),
 			})
 		}
 
