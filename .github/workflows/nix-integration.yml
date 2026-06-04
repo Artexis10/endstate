@@ -17,7 +17,10 @@ on:
       - 'go-engine/internal/realizer/**'
       - 'go-engine/internal/commands/apply_realizer*.go'
       - 'go-engine/internal/manifest/types.go'
+      - 'go-engine/internal/driver/brew/**'
+      - 'go-engine/internal/commands/apply_brew*.go'
       - 'scripts/smoke/hm-realnix-smoke.sh'
+      - 'scripts/smoke/brew-realbrew-smoke.sh'
       - '.github/workflows/nix-integration.yml'
 
   schedule:
@@ -57,3 +60,11 @@ jobs:
 
       - name: Run home-manager real-Nix smoke
         run: bash scripts/smoke/hm-realnix-smoke.sh
+
+      # Brew driver lane smoke — macOS only (the GH macOS runner ships Homebrew).
+      # The script's `command -v brew` guard makes it a no-op on ubuntu, but we
+      # gate the step on runner.os too so the linux leg does not even spawn it.
+      # Same non-blocking posture as the job (continue-on-error inherited).
+      - name: Run brew driver real-Homebrew smoke (macOS)
+        if: runner.os == 'macOS'
+        run: bash scripts/smoke/brew-realbrew-smoke.sh
