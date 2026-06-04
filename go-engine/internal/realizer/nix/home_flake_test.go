@@ -84,7 +84,7 @@ func TestGenerateHomeFlake_WritesSelfContainedFlakeAndReturnsRef(t *testing.T) {
 	}
 
 	stateDir := t.TempDir()
-	ref, err := GenerateHomeFlake(stateDir, srcCfg)
+	ref, err := GenerateHomeFlake(stateDir, srcCfg, nil)
 	if err != nil {
 		t.Fatalf("GenerateHomeFlake: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestGenerateHomeFlake_MissingConfigErrors(t *testing.T) {
 	}
 	defer func() { homeIdentityFn = orig }()
 
-	if _, err := GenerateHomeFlake(t.TempDir(), filepath.Join(t.TempDir(), "nope.nix")); err == nil {
+	if _, err := GenerateHomeFlake(t.TempDir(), filepath.Join(t.TempDir(), "nope.nix"), nil); err == nil {
 		t.Fatal("expected an error for a missing config path, got nil")
 	}
 }

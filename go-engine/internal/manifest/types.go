@@ -50,10 +50,41 @@ type Manifest struct {
 //
 // Flake, Config, and Settings are mutually exclusive (exactly one home-manager
 // input); LoadManifest rejects a manifest that sets more than one.
+//
+// Secrets is a SIBLING of those three, not part of their mutual exclusivity: it
+// composes with the engine-generated modes (settings/config) by appending
+// reference-only sinks to the generated home configuration. The framing invariant
+// is "referenced, never embedded" — the engine never holds secret material (see
+// HomeManagerSecret). Secrets combined with a pure flake input is rejected at load
+// (the user's external flake owns its own secrets; the engine generates nothing to
+// inject into).
 type HomeManagerConfig struct {
 	Flake    string               `json:"flake,omitempty"`
 	Config   string               `json:"config,omitempty"`
 	Settings *HomeManagerSettings `json:"settings,omitempty"`
+	Secrets  []HomeManagerSecret  `json:"secrets,omitempty"`
+}
+
+// HomeManagerSecret is a single Phase-1 documented-boundary secret reference. The
+// engine NEVER reads, embeds, or stores the secret material: it emits only a Nix
+// REFERENCE to where the secret is expected to land at activation time (a file
+// path the user provisions out-of-band, or an environment variable name). The
+// user owns provisioning the actual material; the engine documents the boundary.
+//
+// Exactly one of Path / Env is set per entry (LoadManifest rejects both or
+// neither):
+//   - Path → home.file.<homeRelTarget(Name)>.source references the path (the
+//     secret file the user places there out-of-band).
+//   - Env  → home.sessionVariables.<Name> references the value the user supplies.
+//
+// Backend selects the secret-management strategy and MUST be named explicitly; it
+// defaults to "boundary" (the only supported Phase-1 backend). An unsupported
+// backend is rejected at load rather than silently degrading to embedding.
+type HomeManagerSecret struct {
+	Name    string `json:"name"`
+	Path    string `json:"path,omitempty"`
+	Env     string `json:"env,omitempty"`
+	Backend string `json:"backend,omitempty"`
 }
 
 // HomeManagerSettings is the declarative home-manager catalog input. It is a

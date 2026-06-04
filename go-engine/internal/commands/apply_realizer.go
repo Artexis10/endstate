@@ -136,7 +136,7 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 	}
 	switch {
 	case mf.HomeManager.Settings != nil:
-		ref, gerr := nix.GenerateHomeFlakeFromSettings(state.StateDir(), mf.HomeManager.Settings, filepath.Dir(flags.Manifest))
+		ref, gerr := nix.GenerateHomeFlakeFromSettings(state.StateDir(), mf.HomeManager.Settings, filepath.Dir(flags.Manifest), mf.HomeManager.Secrets)
 		if gerr != nil {
 			return "", false, envelope.NewError(
 				envelope.ErrInstallFailed, "Failed to generate the home-manager configuration from settings.").
@@ -149,7 +149,7 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 		if !filepath.IsAbs(cfgPath) {
 			cfgPath = filepath.Join(filepath.Dir(flags.Manifest), cfgPath)
 		}
-		ref, gerr := nix.GenerateHomeFlake(state.StateDir(), cfgPath)
+		ref, gerr := nix.GenerateHomeFlake(state.StateDir(), cfgPath, mf.HomeManager.Secrets)
 		if gerr != nil {
 			return "", false, envelope.NewError(
 				envelope.ErrInstallFailed, "Failed to generate the home-manager configuration flake.").
@@ -473,6 +473,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				// can round-trip it. Exactly one of Config/Settings is set.
 				homeRef.Config = mf.HomeManager.Config
 				homeRef.Settings = mf.HomeManager.Settings
+				// Phase-1 documented-boundary secret REFERENCES compose with the
+				// generated modes; record them (references only, never material) so
+				// capture round-trips them alongside config/settings.
+				homeRef.Secrets = mf.HomeManager.Secrets
 			}
 			homeResult = &ApplyHomeManager{Flake: flake, Generated: generated, Activated: true}
 			emitter.EmitItem(flake, driverName, "configured", "", fmt.Sprintf("Activated home-manager generation %d", hmGen), "home-manager")
