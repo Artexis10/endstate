@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.18.0](https://github.com/Artexis10/endstate/compare/v2.17.0...v2.18.0) (2026-06-04)
+
+
+### Features
+
+* **backup:** push --name creates a distinct backup when no --backup-id ([#118](https://github.com/Artexis10/endstate/issues/118)) ([f65a4e1](https://github.com/Artexis10/endstate/commit/f65a4e1ff4655e4ac9d5ed45cef82d64aca75750))
+* **engine:** home-manager env-exposed secrets (*_FILE path-reference) ([#115](https://github.com/Artexis10/endstate/issues/115)) ([e587636](https://github.com/Artexis10/endstate/commit/e5876369c86f0d9a77d6ae9eded1bccd864d90a2))
+* **engine:** two-lane darwin apply wiring for the brew driver ([#117](https://github.com/Artexis10/endstate/issues/117)) ([f6a884e](https://github.com/Artexis10/endstate/commit/f6a884e5d00df0a20e80cf06b3088b81bc743a54))
+
 ## [2.17.0](https://github.com/Artexis10/endstate/compare/v2.16.0...v2.17.0) (2026-06-04)
 
 
