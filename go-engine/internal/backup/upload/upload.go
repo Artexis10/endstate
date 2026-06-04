@@ -77,9 +77,10 @@ type Dependencies struct {
 
 // PushVersion executes the upload pipeline. Inputs:
 //   - profilePath: a file or directory on disk to back up
-//   - backupID: existing backup id; if empty, the engine looks up the user's
-//     first backup and creates a new one named `name` if none exists
-//   - name: human-readable label used iff a fresh backup is created
+//   - backupID: existing backup id to add a version to; used verbatim when set
+//   - name: when backupID is empty, a non-empty name CREATES a new backup with
+//     that label (one backup per profile). Empty backupID + empty name keeps the
+//     legacy convenience: append to the first existing backup, else create "default".
 //
 // Returns the new versionId on success. Streaming progress is emitted on
 // deps.Events when --events jsonl is active.
@@ -96,7 +97,7 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 	}
 	defer wipe(dek)
 
-	resolvedBackupID, envErr := resolveBackupID(ctx, deps, backupID, name)
+	resolvedBackupID, envErr := resolveBackupID(ctx, deps.Storage, backupID, name)
 	if envErr != nil {
 		return nil, envErr
 	}
@@ -310,26 +311,41 @@ func EstimateSize(deps Dependencies, profilePath string) (*SizeEstimate, *envelo
 	}, nil
 }
 
-// resolveBackupID picks a backup id to write a version against. If the
-// caller specified one, it is used verbatim. Otherwise the user's
-// existing backups are listed: if there's at least one, the first is
-// used; otherwise a new backup is created with `name` (default: "default").
-func resolveBackupID(ctx context.Context, deps Dependencies, backupID, name string) (string, *envelope.Error) {
+// backupResolverStore is the minimal storage surface resolveBackupID needs.
+// Satisfied by *storage.Client; lets the resolution logic be unit-tested with
+// a fake instead of a live backend.
+type backupResolverStore interface {
+	ListBackups(ctx context.Context) ([]storage.Backup, *envelope.Error)
+	CreateBackup(ctx context.Context, name string) (string, *envelope.Error)
+}
+
+// resolveBackupID picks a backup id to write a version against:
+//   - an explicit backupID is used verbatim;
+//   - otherwise a non-empty name creates a NEW backup labeled `name` — so the
+//     GUI's per-profile model gets one backup per profile, addressed by id on
+//     later pushes. (Previously a named push fell through to "append to the
+//     first existing backup", silently ignoring --name once any backup existed.)
+//   - a push with neither id nor name keeps the legacy convenience: append to
+//     the user's first backup, or create a "default" backup if they have none.
+func resolveBackupID(ctx context.Context, store backupResolverStore, backupID, name string) (string, *envelope.Error) {
 	if strings.TrimSpace(backupID) != "" {
 		return backupID, nil
 	}
-	backups, err := deps.Storage.ListBackups(ctx)
+	if createName := strings.TrimSpace(name); createName != "" {
+		id, cerr := store.CreateBackup(ctx, createName)
+		if cerr != nil {
+			return "", cerr
+		}
+		return id, nil
+	}
+	backups, err := store.ListBackups(ctx)
 	if err != nil {
 		return "", err
 	}
 	if len(backups) > 0 {
 		return backups[0].ID, nil
 	}
-	createName := strings.TrimSpace(name)
-	if createName == "" {
-		createName = "default"
-	}
-	id, cerr := deps.Storage.CreateBackup(ctx, createName)
+	id, cerr := store.CreateBackup(ctx, "default")
 	if cerr != nil {
 		return "", cerr
 	}
