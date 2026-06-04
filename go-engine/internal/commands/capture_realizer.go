@@ -12,6 +12,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/driver/brew"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -24,6 +25,19 @@ import (
 // defaults to provision.List and is replaced in tests to make home-manager
 // flake recovery hermetic.
 var listGenerationsFn = provision.List
+
+// captureGOOSFn reports the host OS for the capture lane. It defaults to
+// runtime.GOOS and is replaced in tests so the brew capture lane (darwin-only)
+// can be exercised on any host.
+var captureGOOSFn = func() string { return runtime.GOOS }
+
+// brewEnumerator is the capture-lane capability the brew driver implements
+// (EnumerateInstalled). The realizer capture path type-asserts the resolved
+// brew driver to this interface; a driver that does not implement it (or an
+// unavailable brew) yields no brew apps.
+type brewEnumerator interface {
+	EnumerateInstalled() ([]brew.InstalledApp, error)
+}
 
 // runCaptureRealizer is the capture path for a realizer backend (Nix on
 // linux/darwin). It reads the installed set via Current() and emits each element
@@ -59,8 +73,9 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 	}
 	sort.Strings(names)
 
-	goos := runtime.GOOS
+	goos := captureGOOSFn()
 	captured := make([]capturedApp, 0, len(names))
+	capturedIDs := make(map[string]bool, len(names))
 	for _, name := range names {
 		el := cur.Elements[name]
 		ref := el.Name // bare attr -> apply's ResolveInstallable expands against the pin
@@ -71,7 +86,39 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 			Name:    name,
 			Version: ver,
 		})
+		capturedIDs[name] = true
 		emitter.EmitItem(ref, driverName, "captured", "", fmt.Sprintf("Captured %s", name), name)
+	}
+
+	// --- 3b. Brew capture lane (darwin-only) ---
+	// Enumerate installed brew formulae + casks and emit them as driver:"brew"
+	// apps (casks as cask: refs under the darwin key), deduped by ID against the
+	// realizer-captured set (a colliding ID keeps the realizer entry). The brew
+	// driver is resolved additively; a non-darwin host or an unavailable/non-
+	// enumerating brew yields no brew apps (the realizer set stands unchanged).
+	if captureGOOSFn() == "darwin" {
+		if d, berr := newBrewDriverFn(); berr == nil {
+			if be, ok := d.(brewEnumerator); ok {
+				if brewApps, eerr := be.EnumerateInstalled(); eerr == nil {
+					for _, ba := range brewApps {
+						if capturedIDs[ba.Name] {
+							continue // realizer already captured this ID; do not duplicate
+						}
+						captured = append(captured, capturedApp{
+							ID:      ba.Name,
+							Refs:    map[string]string{"darwin": ba.Ref},
+							Driver:  "brew",
+							Name:    ba.Name,
+							Version: ba.Version,
+						})
+						capturedIDs[ba.Name] = true
+						emitter.EmitItem(ba.Ref, "brew", "captured", "", fmt.Sprintf("Captured %s", ba.Name), ba.Name)
+					}
+				}
+				// An enumeration error is best-effort: brew capture is skipped, the
+				// realizer-captured set stands (package capture is unaffected).
+			}
+		}
 	}
 
 	// --- 4. If --update and --manifest: merge with existing manifest (host-keyed) ---
@@ -80,6 +127,11 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 		if loadErr != nil {
 			return nil, loadErr
 		}
+		// KNOWN PRE-EXISTING LIMITATION (LOW): --update dedups by host ref, not by
+		// app id. An app whose id is unchanged but whose host ref changed is treated
+		// as a new entry (and a renamed app keeps the old entry). This predates the
+		// brew two-lane work and is intentionally left unchanged here; revisit if
+		// ref churn causes duplicate/stale merged entries.
 		existingRefs := make(map[string]bool)
 		for _, app := range existingMf.Apps {
 			if ref, ok := app.Refs[goos]; ok {
@@ -88,7 +140,9 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 		}
 		merged := make([]capturedApp, 0, len(existingMf.Apps)+len(captured))
 		for _, app := range existingMf.Apps {
-			merged = append(merged, capturedApp{ID: app.ID, Refs: app.Refs})
+			// Preserve the existing app's driver (e.g. "brew") on re-read so a
+			// previously-captured brew app round-trips through --update unchanged.
+			merged = append(merged, capturedApp{ID: app.ID, Refs: app.Refs, Driver: app.Driver, Version: app.Version})
 		}
 		for _, app := range captured {
 			if !existingRefs[app.Refs[goos]] {
@@ -105,7 +159,7 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 	if flags.Sanitize {
 		sorted := make([]cleanApp, len(captured))
 		for i, app := range captured {
-			sorted[i] = cleanApp{ID: app.ID, Refs: app.Refs, Version: app.Version}
+			sorted[i] = cleanApp{ID: app.ID, Refs: app.Refs, Driver: app.Driver, Version: app.Version}
 		}
 		sort.Slice(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
 		outputApps = sorted

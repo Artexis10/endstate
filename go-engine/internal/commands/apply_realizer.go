@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -169,8 +170,16 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 // stream so the event contract is preserved. Package install ONLY — config and
 // verify stages keep their own concerns. Raw backend text is confined to
 // error.detail.
-func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, restoreModulesAvailable []RestoreModuleRef) (interface{}, *envelope.Error) {
+func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, restoreModulesAvailable []RestoreModuleRef, brewApps []manifest.App, brewDrv driver.Driver) (interface{}, *envelope.Error) {
 	driverName := r.Name()
+
+	// Brew lane (driver:"brew" apps) runs interleaved INSIDE the realizer's
+	// plan/apply/verify phases — one event stream, one summary per phase. Counts
+	// from each brew phase merge into the matching realizer EmitSummary below.
+	// brewActions are appended to the realizer actions and recorded in a SEPARATE
+	// Backend:"brew" provisioning generation (after the nix one). nil/empty
+	// brewApps ⇒ the lane no-ops.
+	brew := newBrewLane(brewDrv, emitter, brewApps)
 
 	// --- Phase 1: Plan ---
 	emitter.EmitPhase("plan")
@@ -254,8 +263,11 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		}
 	}
 
-	totalApps := len(actions)
-	emitter.EmitSummary("plan", totalApps, presentCount, 0, toInstallCount)
+	// Interleave the brew plan items into THIS plan phase, then fold the brew
+	// counts into the single plan summary (one summary per phase).
+	brewPresent, brewToInstall := brew.planBrew()
+	totalApps := len(actions) + len(brew.brewActions())
+	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, 0, toInstallCount+brewToInstall)
 
 	if flags.DryRun {
 		// --prune --dry-run previews the prune set without mutating anything and
@@ -284,11 +296,13 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			}
 		}
 
+		// Append the brew plan actions; brew present apps add to the skipped count.
+		dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
 		return &ApplyResult{
 			DryRun:                  true,
 			Manifest:                ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
-			Summary:                 ApplySummary{Total: totalApps, Skipped: presentCount},
-			Actions:                 actions,
+			Summary:                 ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent},
+			Actions:                 dryActions,
 			ConfigModuleMap:         configModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
 			Pruned:                  pruned,
@@ -401,6 +415,15 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	// Already-present nix packages count as skipped in the apply phase.
 	skippedCount += len(diff.Present)
 
+	// Brew install lane — runs AFTER the nix generation committed, interleaving
+	// its install items into THIS apply phase. A brew failure is per-item and
+	// never rolls back or aborts the nix generation. Counts fold into the single
+	// apply summary.
+	brewInstalled, brewSkipped, brewFailed := brew.applyBrew()
+	successCount += brewInstalled
+	skippedCount += brewSkipped
+	failedCount += brewFailed
+
 	emitter.EmitSummary("apply", successCount+skippedCount+failedCount, successCount, skippedCount, failedCount)
 
 	// --- Phase 3: Verify (read current generation) ---
@@ -428,6 +451,12 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			}
 		}
 	}
+	// Brew verify lane — re-detect presence, interleaved into THIS verify phase.
+	brewPass, brewVerifyFail, brewVerifySkip := brew.verifyBrew()
+	verifyPass += brewPass
+	verifyFail += brewVerifyFail
+	_ = brewVerifySkip // unavailable-host skips are not pass/fail; tracked in apply skipped
+
 	emitter.EmitSummary("verify", verifyPass+verifyFail, verifyPass, 0, verifyFail)
 
 	// --- Phase 4: Config (home-manager) ---
@@ -500,8 +529,20 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			}
 			native = fmt.Sprintf("%d", finalGen)
 		}
+		// The nix generation records ONLY the realizer actions — brew items are
+		// recorded in their own Backend:"brew" generation below, never merged here.
 		writeProvisioningGeneration(runID, driverName, actions, removed, native, failedCount > 0, homeRef)
 	}
+
+	// Brew writes a SEPARATE generation (Backend:"brew") AFTER the nix one. It is
+	// best-effort and append-only; writeProvisioningGeneration no-ops when nothing
+	// was installed (so a no-brew apply records exactly ONE nix generation — the
+	// non-regression guarantee). brewFailed>0 marks it Partial.
+	brewActions := brew.brewActions()
+	writeProvisioningGeneration(runID, "brew", brewActions, nil, "", brewFailed > 0, nil)
+
+	// Append the brew actions to the realizer actions for the result envelope.
+	actions = append(actions, brewActions...)
 
 	return &ApplyResult{
 		DryRun:                  false,

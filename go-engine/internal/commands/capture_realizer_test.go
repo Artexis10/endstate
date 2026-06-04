@@ -181,6 +181,33 @@ func TestRunCaptureRealizer_EmitsBareAttrHostKeyedRefs(t *testing.T) {
 	}
 }
 
+// TestRunCaptureRealizer_BrewLaneInertByDefaultOnDarwin locks the hermeticity the
+// macOS CI taught us: even when the host reports darwin, the realizer-capture path
+// must NOT spawn the real Homebrew driver. The brew capture lane resolves via
+// newBrewDriverFn, which TestMain pins to the fail fake by default; a test that
+// genuinely exercises brew uses withCaptureRealizerAndBrew. Without the pin this
+// returned the runner's ~47 preinstalled formulae and broke every count assertion.
+func TestRunCaptureRealizer_BrewLaneInertByDefaultOnDarwin(t *testing.T) {
+	origGOOS := captureGOOSFn
+	captureGOOSFn = func() string { return "darwin" }
+	defer func() { captureGOOSFn = origGOOS }()
+
+	out := filepath.Join(t.TempDir(), "nix-capture.jsonc")
+	fr := &fakeRealizer{currentSet: nixSet("ripgrep", "jq")}
+
+	raw, eerr := runCaptureRealizer(CaptureFlags{Out: out, Name: "darwinbox"}, fr, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("runCaptureRealizer returned envelope error: %+v", eerr)
+	}
+	res := raw.(*CaptureResult)
+	if res.Counts.Included != 2 {
+		t.Fatalf("brew lane must be inert by default on darwin: Included = %d, want 2 (realizer apps only)", res.Counts.Included)
+	}
+	if mf := readCapturedManifest(t, out); len(mf.Apps) != 2 {
+		t.Fatalf("manifest apps = %d, want 2 (no real-brew enumeration)", len(mf.Apps))
+	}
+}
+
 // An empty realizer set produces a valid manifest with an empty apps array (not
 // null) and no error.
 func TestRunCaptureRealizer_EmptyProfile_WritesValidEmptyManifest(t *testing.T) {

@@ -38,7 +38,7 @@ func TestRunVerifyRealizer_PresentAndMissing(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "verify-test"}
-	raw, envelopeErr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	raw, envelopeErr := runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 
 	if envelopeErr != nil {
 		t.Fatalf("runVerifyRealizer returned envelope error: %v", envelopeErr)
@@ -95,7 +95,7 @@ func TestRunVerifyRealizer_AllPresent(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "verify-all-present"}
-	raw, envelopeErr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	raw, envelopeErr := runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 
 	if envelopeErr != nil {
 		t.Fatalf("runVerifyRealizer returned envelope error: %v", envelopeErr)
@@ -125,7 +125,7 @@ func TestRunVerifyRealizer_CurrentOnlyCalledOnce(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "verify-once"}
-	_, _ = runVerifyRealizer(flags, mf, fr, noopEmitter())
+	_, _ = runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 
 	if fr.currentCalls != 1 {
 		t.Errorf("Current() called %d times, want exactly 1", fr.currentCalls)
@@ -154,7 +154,7 @@ func TestRunVerifyRealizer_SkipsAppsWithNoHostRef(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "verify-skip-windows"}
-	raw, envelopeErr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	raw, envelopeErr := runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 
 	if envelopeErr != nil {
 		t.Fatalf("runVerifyRealizer returned envelope error: %v", envelopeErr)
@@ -193,7 +193,7 @@ func TestRunPlanRealizer_PresentAndToAdd(t *testing.T) {
 	}
 
 	flags := PlanFlags{Manifest: "plan-test"}
-	raw, envelopeErr := runPlanRealizer(flags, mf, fr, noopEmitter())
+	raw, envelopeErr := runPlanRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 
 	if envelopeErr != nil {
 		t.Fatalf("runPlanRealizer returned envelope error: %v", envelopeErr)
@@ -250,7 +250,7 @@ func TestRunPlanRealizer_AllPresent(t *testing.T) {
 	}
 
 	flags := PlanFlags{Manifest: "plan-all-present"}
-	raw, _ := runPlanRealizer(flags, mf, fr, noopEmitter())
+	raw, _ := runPlanRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 	pr := raw.(*PlanResult)
 
 	if pr.Plan.AlreadyPresent != 2 {
@@ -279,7 +279,7 @@ func TestRunPlanRealizer_AllToAdd(t *testing.T) {
 	}
 
 	flags := PlanFlags{Manifest: "plan-all-toadd"}
-	raw, _ := runPlanRealizer(flags, mf, fr, noopEmitter())
+	raw, _ := runPlanRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 	pr := raw.(*PlanResult)
 
 	if pr.Plan.ToInstall != 2 {
@@ -303,7 +303,7 @@ func TestRunPlanRealizer_PlanOnlyCalledOnce(t *testing.T) {
 	}
 
 	flags := PlanFlags{Manifest: "plan-calls"}
-	_, _ = runPlanRealizer(flags, mf, fr, noopEmitter())
+	_, _ = runPlanRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 
 	if fr.planCalls != 1 {
 		t.Errorf("Plan() called %d times, want 1", fr.planCalls)
@@ -330,7 +330,7 @@ func TestRunPlanRealizer_SkipsAppsWithNoHostRef(t *testing.T) {
 	}
 
 	flags := PlanFlags{Manifest: "plan-skip-windows"}
-	_, envelopeErr := runPlanRealizer(flags, mf, fr, noopEmitter())
+	_, envelopeErr := runPlanRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 
 	if envelopeErr != nil {
 		t.Fatalf("runPlanRealizer returned envelope error: %v", envelopeErr)
@@ -358,7 +358,7 @@ func TestRunPlanRealizer_ActionDriver(t *testing.T) {
 	}
 
 	flags := PlanFlags{Manifest: "plan-driver"}
-	raw, _ := runPlanRealizer(flags, mf, fr, noopEmitter())
+	raw, _ := runPlanRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 	pr := raw.(*PlanResult)
 
 	if len(pr.Actions) != 1 {
@@ -413,7 +413,7 @@ func TestRunVerifyRealizer_HomeManager_Pass(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "hm-pass"}
-	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -462,7 +462,7 @@ func TestRunVerifyRealizer_HomeManager_ConfigDrift(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "hm-drift"}
-	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -511,7 +511,7 @@ func TestRunVerifyRealizer_HomeManager_Missing(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "hm-missing"}
-	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -550,7 +550,7 @@ func TestRunVerifyRealizer_HomeManager_NoRecordedGen_Missing(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "hm-no-history"}
-	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -590,7 +590,7 @@ func TestRunVerifyRealizer_NoHomeManager_NoHmItem(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "no-hm-field"}
-	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter())
+	raw, eerr := runVerifyRealizer(flags, mf, fr, noopEmitter(), nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -638,7 +638,7 @@ func TestRunVerifyRealizer_NoHomeGenerationReader_Skips(t *testing.T) {
 	}
 
 	flags := VerifyFlags{Manifest: "no-hgr"}
-	raw, eerr := runVerifyRealizer(flags, mf, mr, noopEmitter())
+	raw, eerr := runVerifyRealizer(flags, mf, mr, noopEmitter(), nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}

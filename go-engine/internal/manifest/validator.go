@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 )
 
 // envNamePattern restricts a secret's env-variable name to a valid shell/Nix
@@ -148,6 +149,7 @@ func ValidateManifestApps(m *Manifest) []ValidationError {
 				Message: fmt.Sprintf(`app %q: "manual.verifyPath" is required when "manual" is present`, app.ID),
 			})
 		}
+		errs = append(errs, validateBrewApp(app)...)
 	}
 	// home-manager: the three inputs — settings (a declarative catalog the engine
 	// compiles), config (a home.nix the engine wraps), and flake (a direct
@@ -170,6 +172,44 @@ func ValidateManifestApps(m *Manifest) []ValidationError {
 			})
 		}
 		errs = append(errs, validateHomeManagerSecrets(m.HomeManager)...)
+	}
+	return errs
+}
+
+// brewCaskPrefix marks a darwin ref as a Homebrew Cask (a GUI app). It mirrors
+// the brew driver's caskPrefix; kept local so the manifest package has no
+// dependency on the driver package.
+const brewCaskPrefix = "cask:"
+
+// validateBrewApp enforces the brew driver routing rules (host-independent, so a
+// manifest authored on any OS is rejected the same way):
+//
+//   - a darwin ref marked as a Cask (cask: prefix) WITHOUT driver:"brew" →
+//     CASK_REF_REQUIRES_BREW_DRIVER. The Nix realizer must never receive a cask
+//     ref; declaring the brew driver is the only valid home for one.
+//   - driver:"brew" WITHOUT a darwin ref → BREW_DRIVER_REQUIRES_DARWIN_REF. The
+//     brew driver only installs on darwin, so a brew app needs a darwin package
+//     to install (a bare formula ref or a cask: ref).
+//
+// Driver matching is case-insensitive (EqualFold), matching the apply-lane
+// partition. The windows-brew-ref conflict check is deferred (out of scope).
+func validateBrewApp(app App) []ValidationError {
+	var errs []ValidationError
+	isBrew := strings.EqualFold(app.Driver, "brew")
+	darwinRef := app.Refs["darwin"]
+	isCask := strings.HasPrefix(strings.ToLower(strings.TrimSpace(darwinRef)), brewCaskPrefix)
+
+	if isCask && !isBrew {
+		errs = append(errs, ValidationError{
+			Code:    "CASK_REF_REQUIRES_BREW_DRIVER",
+			Message: fmt.Sprintf(`app %q: a "cask:" darwin ref requires driver:"brew" (the Nix realizer cannot install a Cask)`, app.ID),
+		})
+	}
+	if isBrew && darwinRef == "" {
+		errs = append(errs, ValidationError{
+			Code:    "BREW_DRIVER_REQUIRES_DARWIN_REF",
+			Message: fmt.Sprintf(`app %q: driver:"brew" requires a "darwin" ref (a formula name or a "cask:" ref); brew only installs on macOS`, app.ID),
+		})
 	}
 	return errs
 }
