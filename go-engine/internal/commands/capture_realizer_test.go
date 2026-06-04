@@ -538,6 +538,7 @@ func TestRunCaptureRealizer_CarriesSecretReference(t *testing.T) {
 	secrets := []manifest.HomeManagerSecret{
 		{Name: "~/.npmrc", Path: "/run/secrets/npmrc"},
 		{Name: "~/.config/tok", Path: "/run/secrets/tok", Backend: "boundary"},
+		{Name: "token", Env: "API_TOKEN", Path: "/run/secrets/api"},
 	}
 	gen := hmGenSettingsSecrets(
 		&manifest.HomeManagerSettings{Git: &manifest.GitSettings{UserName: "Hugo"}},
@@ -550,14 +551,19 @@ func TestRunCaptureRealizer_CarriesSecretReference(t *testing.T) {
 	})
 
 	mf := readCapturedManifest(t, out)
-	if mf.HomeManager == nil || len(mf.HomeManager.Secrets) != 2 {
-		t.Fatalf("expected 2 captured secret references, got %+v", mf.HomeManager)
+	if mf.HomeManager == nil || len(mf.HomeManager.Secrets) != 3 {
+		t.Fatalf("expected 3 captured secret references, got %+v", mf.HomeManager)
 	}
 	if mf.HomeManager.Secrets[0].Path != "/run/secrets/npmrc" || mf.HomeManager.Secrets[0].Name != "~/.npmrc" {
 		t.Errorf("path secret not carried verbatim: %+v", mf.HomeManager.Secrets[0])
 	}
 	if mf.HomeManager.Secrets[1].Path != "/run/secrets/tok" || mf.HomeManager.Secrets[1].Backend != "boundary" {
 		t.Errorf("second path secret not carried verbatim: %+v", mf.HomeManager.Secrets[1])
+	}
+	// The env+path secret round-trips verbatim — both Env and Path are carried so a
+	// re-apply re-emits the same sessionVariable path-reference.
+	if mf.HomeManager.Secrets[2].Env != "API_TOKEN" || mf.HomeManager.Secrets[2].Path != "/run/secrets/api" {
+		t.Errorf("env+path secret not carried verbatim: %+v", mf.HomeManager.Secrets[2])
 	}
 	// The generated, machine-local flake must NOT be emitted (settings/secrets are
 	// the portable input).
