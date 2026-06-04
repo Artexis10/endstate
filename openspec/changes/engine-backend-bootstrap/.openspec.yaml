@@ -1,0 +1,10 @@
+id: engine-backend-bootstrap
+title: "Scope engine-installed backends — invisible Nix/Homebrew bootstrap (design only)"
+status: exploring
+spec: engine-backend-bootstrap
+created: "2026-06-04"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md
