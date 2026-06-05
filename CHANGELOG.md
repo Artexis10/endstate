@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.19.0](https://github.com/Artexis10/endstate/compare/v2.18.0...v2.19.0) (2026-06-05)
+
+
+### Features
+
+* **backup:** mutable backup labels (rename) + device-label create default ([#124](https://github.com/Artexis10/endstate/issues/124)) ([f1fbd53](https://github.com/Artexis10/endstate/commit/f1fbd5310793db76db49be01cdee8419187e205a))
+* **engine:** best-effort brew rollback composed with the native rollback ([#121](https://github.com/Artexis10/endstate/issues/121)) ([acbf025](https://github.com/Artexis10/endstate/commit/acbf0259c39bfb00c4a2c4f897ca6e22ab019a3b))
+
 ## [2.18.0](https://github.com/Artexis10/endstate/compare/v2.17.0...v2.18.0) (2026-06-04)
 
 
