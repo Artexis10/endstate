@@ -37,13 +37,13 @@ type Generation struct {
 	Number        int        `json:"number"`
 	RunID         string     `json:"runId"`
 	Timestamp     string     `json:"timestamp,omitempty"`
-	Backend       string     `json:"backend"` // "nix" | "winget"
+	Backend       string     `json:"backend"` // "nix" | "winget" | "brew"
 	Items         []ProvItem `json:"items"`
 	AddedRefs     []string   `json:"addedRefs"`
 	Native        string     `json:"native,omitempty"`      // backend-native anchor (nix generation number); "" if none
 	Partial       bool       `json:"partial"`               // true when a non-atomic backend committed a partial set
 	Rollback      bool       `json:"rollback,omitempty"`    // true when this generation was produced by a rollback (AddedRefs is empty)
-	RemovedRefs   []string   `json:"removedRefs,omitempty"` // refs uninstalled by a best-effort (winget) rollback; empty for native/apply generations
+	RemovedRefs   []string   `json:"removedRefs,omitempty"` // refs uninstalled by a best-effort (winget/brew) rollback; empty for native/apply generations
 
 	// HomeManager records a home-manager configuration activated by this apply's
 	// config stage (realizer-only, opt-in via --enable-restore). nil when no
