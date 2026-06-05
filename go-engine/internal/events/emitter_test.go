@@ -80,6 +80,47 @@ func assertBaseFields(t *testing.T, ev map[string]interface{}, wantRunID, wantEv
 }
 
 // ---------------------------------------------------------------------------
+// Consent event
+// ---------------------------------------------------------------------------
+
+func TestEmitConsent(t *testing.T) {
+	runID := "apply-20250101-120000-TEST"
+	em, buf := captureEmitter(runID)
+	em.EmitConsent([]string{"brew", "nix"}, "Endstate needs to set up its tools.",
+		[]string{"brew-cmd", "nix-cmd"})
+
+	line := lastLine(buf)
+	if line == "" {
+		t.Fatal("no output written")
+	}
+	ev := parseEvent(t, line)
+	assertBaseFields(t, ev, runID, "consent")
+
+	backends, ok := ev["backends"].([]interface{})
+	if !ok || len(backends) != 2 || backends[0] != "brew" || backends[1] != "nix" {
+		t.Errorf("backends = %v, want [brew nix]", ev["backends"])
+	}
+	if ev["message"] != "Endstate needs to set up its tools." {
+		t.Errorf("message = %v", ev["message"])
+	}
+	details, ok := ev["details"].([]interface{})
+	if !ok || len(details) != 2 {
+		t.Errorf("details = %v, want 2 entries", ev["details"])
+	}
+}
+
+// A disabled emitter writes nothing for consent (no-op guard), like every other
+// Emit* method.
+func TestEmitConsentDisabledIsNoOp(t *testing.T) {
+	buf := &bytes.Buffer{}
+	em := NewEmitterWithWriter("run", false, buf)
+	em.EmitConsent([]string{"brew"}, "msg", nil)
+	if buf.Len() != 0 {
+		t.Fatalf("disabled emitter wrote %q, want nothing", buf.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Phase event
 // ---------------------------------------------------------------------------
 

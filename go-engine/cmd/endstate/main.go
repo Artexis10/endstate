@@ -124,17 +124,19 @@ type parsedArgs struct {
 	runID  string
 
 	// Backup / account flags
-	email          string
-	token          string
-	backupID       string
-	versionID      string
-	to             string
-	confirm        bool
-	prune          bool // apply --prune: converge to the exact declared set
-	repin          bool // apply --repin: reinstall a drifted declared App.Version
-	saveRecoveryTo string
-	overwrite      bool
-	ifChanged      bool
+	email             string
+	token             string
+	backupID          string
+	versionID         string
+	to                string
+	confirm           bool
+	prune             bool // apply --prune: converge to the exact declared set
+	repin             bool // apply --repin: reinstall a drifted declared App.Version
+	bootstrapBackends bool // apply --bootstrap-backends: install an absent backend (consented)
+	noBootstrap       bool // apply --no-bootstrap: skip an absent backend rather than install
+	saveRecoveryTo    string
+	overwrite         bool
+	ifChanged         bool
 
 	// Positional args after command (used by profile / backup / account subcommands)
 	positionalArgs []string
@@ -188,6 +190,10 @@ func parseArgs(args []string) parsedArgs {
 			p.prune = true
 		case "--repin":
 			p.repin = true
+		case "--bootstrap-backends":
+			p.bootstrapBackends = true
+		case "--no-bootstrap":
+			p.noBootstrap = true
 		case "--overwrite":
 			p.overwrite = true
 		case "--if-changed":
@@ -304,7 +310,7 @@ func commandUsage(cmd string) string {
 	case "capabilities":
 		return "Usage: endstate capabilities [--json]\n\nReport CLI capabilities for GUI handshake.\n"
 	case "apply":
-		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--prune] [--repin] [--confirm] [--json] [--events jsonl]\n\nExecute provisioning plan. With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (winget only). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change.\n"
+		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (winget only). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. On macOS/Linux, when a needed package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
@@ -415,15 +421,17 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 
 	case "apply":
 		return commands.RunApply(commands.ApplyFlags{
-			Manifest:      p.manifest,
-			DryRun:        p.dryRun,
-			EnableRestore: p.enableRestore,
-			Events:        p.events,
-			Export:        p.export,
-			RestoreFilter: p.restoreFilter,
-			Prune:         p.prune,
-			Confirm:       p.confirm,
-			Repin:         p.repin,
+			Manifest:          p.manifest,
+			DryRun:            p.dryRun,
+			EnableRestore:     p.enableRestore,
+			Events:            p.events,
+			Export:            p.export,
+			RestoreFilter:     p.restoreFilter,
+			Prune:             p.prune,
+			Confirm:           p.confirm,
+			Repin:             p.repin,
+			BootstrapBackends: p.bootstrapBackends,
+			NoBootstrap:       p.noBootstrap,
 		})
 
 	case "verify":

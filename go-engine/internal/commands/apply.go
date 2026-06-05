@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -71,6 +72,14 @@ type ApplyFlags struct {
 	// already-installed drifted version. Winget-only; requires --confirm (unless
 	// --dry-run). The realizer path ignores it (Nix pins via its ref).
 	Repin bool
+	// BootstrapBackends (--bootstrap-backends) authorizes the engine to install an
+	// absent package backend (the Nix realizer / Homebrew driver) on macOS/Linux
+	// via its official installer. Consent for the backend-bootstrap pre-step.
+	BootstrapBackends bool
+	// NoBootstrap (--no-bootstrap) forces the backend-bootstrap pre-step to skip an
+	// absent backend's lane rather than install it. Takes precedence over
+	// BootstrapBackends.
+	NoBootstrap bool
 }
 
 // RestoreModuleRef identifies a config module available for restore, including
@@ -227,8 +236,20 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		// ErrNoBrewDriver, leaving brewDrv nil → the lane visibly skips brew apps.
 		var brewDrv driver.Driver
 		if len(brewApps) > 0 {
-			if d, berr := newBrewDriverFn(); berr == nil {
-				brewDrv = d
+			// Backend-bootstrap pre-step IN FRONT of the brew factory gate: apply is
+			// mutating, so an absent+consented brew backend is installed via its
+			// official installer and verified before use. Absent+declined (or a
+			// non-darwin host) leaves brewDrv nil → the existing visible-skip path
+			// (apply_brew.go), so a present brew backend or a no-brew manifest stays
+			// byte-identical to today.
+			avail, berr := bootstrapBackendsFn([]bootstrap.Backend{bootstrap.BackendBrew}, true, bootstrapConsent(flags), emitter)
+			if berr != nil {
+				return nil, berr
+			}
+			if avail[bootstrap.BackendBrew] {
+				if d, derr := newBrewDriverFn(); derr == nil {
+					brewDrv = d
+				}
 			}
 		}
 		rzMf := *mf

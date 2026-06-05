@@ -133,6 +133,22 @@ func (e *Emitter) EmitArtifact(phase, kind, path string) {
 	})
 }
 
+// EmitConsent emits a consent-request event for one or more absent backends the
+// run needs to bootstrap. message is the plain-language, product-neutral ask;
+// details are the exact installer commands (the inspectable "what will run").
+// One event covers the combined backend set so the GUI renders a single dialog.
+func (e *Emitter) EmitConsent(backends []string, message string, details []string) {
+	if !e.enabled {
+		return
+	}
+	e.emit(ConsentEvent{
+		BaseEvent: e.base("consent"),
+		Backends:  backends,
+		Message:   message,
+		Details:   details,
+	})
+}
+
 // BackupChunkProgress carries the per-chunk fields emitted as a
 // `backup-chunk` event. Pass into EmitBackupChunk so future fields can be
 // added without breaking call sites.

@@ -62,6 +62,28 @@ type ArtifactEvent struct {
 	Path  string `json:"path"`
 }
 
+// ConsentEvent requests the user's consent to bootstrap one or more absent
+// package backends (the engine installs its own backend when it is missing on
+// macOS/Linux). It is a non-breaking addition under the event-contract
+// extensibility rules (new event type, no version bump).
+//
+// One event covers the COMBINED set of backends a run needs and lacks, so the
+// GUI renders a single plain-language dialog. The Message is product-neutral
+// (it never names "Nix"/"Homebrew") to keep the concepts invisible; the Details
+// carry the exact, inspectable installer commands for anyone who looks. Backends
+// are the internal lane identifiers the GUI maps back to the run.
+type ConsentEvent struct {
+	BaseEvent
+	// Backends are the internal identifiers of the absent backends needing
+	// consent (e.g. "brew", "nix"). Structured metadata, not user-facing copy.
+	Backends []string `json:"backends"`
+	// Message is the plain-language, product-neutral consent ask.
+	Message string `json:"message"`
+	// Details are the exact installer commands the privileged step would run,
+	// one per backend, surfaced as the inspectable "what will run" affordance.
+	Details []string `json:"details,omitempty"`
+}
+
 // BackupChunkEvent tracks per-chunk progress of a hosted-backup push or pull.
 //
 // Status values:
