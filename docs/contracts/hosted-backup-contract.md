@@ -343,6 +343,7 @@ All endpoints rate-limited at the substrate edge. Rate limits documented per-end
 
 - `GET /api/backups` → list user's backups: `{ backups: [{ id, name, latestVersionId, versionCount, totalSize, updatedAt }] }`
 - `POST /api/backups` → create a new backup: `{ name }` → `{ backupId }`
+- `PATCH /api/backups/:backupId` → update a backup's mutable metadata (partial body; today `{ name }`) → `{ id, name, updatedAt }`. The id is immutable identity; only the label changes. Future metadata fields extend the body additively. Same read-access gating as DELETE (see below).
 - `DELETE /api/backups/:backupId` → permanently delete a backup and all its versions
 - `GET /api/backups/:backupId/versions` → list versions: `{ versions: [{ versionId, createdAt, size, manifestSha256 }] }`
 - `POST /api/backups/:backupId/versions` → create a new version: `{ encryptedManifest, chunkMetadata: [{ index, encryptedSize, sha256 }] }` → `{ versionId, uploadUrls: [{ chunkIndex, presignedUrl, expiresAt }] }`
@@ -500,7 +501,7 @@ Subscription state is authoritative on the substrate backend. The JWT carries `s
 
 ### Delete operations are NOT subscription-gated
 
-`DELETE /api/backups/:backupId` and `DELETE /api/backups/:backupId/versions/:versionId` are exempt from the write-block rule above. A signed-in user may delete their own backups in any non-`none` state.
+`DELETE /api/backups/:backupId` and `DELETE /api/backups/:backupId/versions/:versionId` are exempt from the write-block rule above. A signed-in user may delete their own backups in any non-`none` state. `PATCH /api/backups/:backupId` (rename) is exempt on the same basis — managing an existing backup's label is allowed in any non-`none` state, and rename is strictly less destructive than delete.
 
 This is a deliberate kindness exception. Three reasons:
 

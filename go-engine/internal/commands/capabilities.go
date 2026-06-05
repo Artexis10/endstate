@@ -58,6 +58,10 @@ type HostedBackupFeature struct {
 	MinSchemaVersion string `json:"minSchemaVersion"`
 	IssuerURL        string `json:"issuerUrl"`
 	Audience         string `json:"audience"`
+	// Rename advertises that the engine supports `backup rename` (mutable
+	// backup labels via PATCH). The GUI gates its rename affordance on this
+	// so it stays hidden against an older engine.
+	Rename bool `json:"rename"`
 }
 
 // PlatformInfo describes the host operating system and available package manager
@@ -149,6 +153,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				MinSchemaVersion: "1.0",
 				IssuerURL:        backup.IssuerURL(),
 				Audience:         backup.Audience(),
+				Rename:           true,
 			},
 		},
 		Platform:           platformInfoFor(runtime.GOOS),

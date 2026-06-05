@@ -121,6 +121,32 @@ func (c *Client) DeleteBackup(ctx context.Context, backupID string) *envelope.Er
 	}, nil)
 }
 
+// UpdatedBackup is the response of PATCH /api/backups/:id.
+type UpdatedBackup struct {
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	UpdatedAt string `json:"updatedAt"`
+}
+
+// UpdateBackup changes a backup's mutable metadata (today only its display
+// name) via PATCH. The backend id is the durable identity and is unchanged;
+// only the label moves.
+func (c *Client) UpdateBackup(ctx context.Context, backupID, name string) (UpdatedBackup, *envelope.Error) {
+	type req struct {
+		Name string `json:"name"`
+	}
+	var out UpdatedBackup
+	if err := c.httpc.Do(ctx, client.Request{
+		Method:   "PATCH",
+		URL:      c.url(ctx, "/" + backupID),
+		Body:     req{Name: name},
+		ReadOnly: false,
+	}, &out); err != nil {
+		return UpdatedBackup{}, err
+	}
+	return out, nil
+}
+
 // VersionInfo is one row of GET /api/backups/:id/versions.
 type VersionInfo struct {
 	VersionID      string `json:"versionId"`

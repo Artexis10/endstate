@@ -99,11 +99,13 @@ func RunBackup(flags BackupFlags) (interface{}, *envelope.Error) {
 		return runBackupEstimate(flags)
 	case "":
 		return nil, envelope.NewError(envelope.ErrInternalError,
-			"backup requires a subcommand (signup, claim, login, logout, status, subscribe, browser-session, push, estimate, pull, list, versions, delete, delete-version, recover)")
+			"backup requires a subcommand (signup, claim, login, logout, status, subscribe, browser-session, push, estimate, pull, list, versions, rename, delete, delete-version, recover)")
 	case "list":
 		return runBackupList(flags)
 	case "versions":
 		return runBackupVersions(flags)
+	case "rename":
+		return runBackupRename(flags)
 	case "delete":
 		return runBackupDelete(flags)
 	case "delete-version":

@@ -5,6 +5,7 @@ package upload
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/backup/storage"
@@ -45,7 +46,7 @@ func TestResolveBackupID_NamedPushWithExistingBackupsCreatesNew(t *testing.T) {
 		newID:   "created-gaming",
 	}
 
-	id, err := resolveBackupID(context.Background(), store, "", "gaming-rig")
+	id, err := resolveBackupID(context.Background(), store, "", "gaming-rig", "MACHINE-X")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -64,7 +65,7 @@ func TestResolveBackupID_NamedPushWithExistingBackupsCreatesNew(t *testing.T) {
 func TestResolveBackupID_ExplicitIDUsedVerbatim(t *testing.T) {
 	store := &fakeResolverStore{backups: []storage.Backup{{ID: "existing-1"}}}
 
-	id, err := resolveBackupID(context.Background(), store, "b-123", "ignored-name")
+	id, err := resolveBackupID(context.Background(), store, "b-123", "ignored-name", "MACHINE-X")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -80,7 +81,7 @@ func TestResolveBackupID_ExplicitIDUsedVerbatim(t *testing.T) {
 func TestResolveBackupID_NoNameNoIDAppendsToFirst(t *testing.T) {
 	store := &fakeResolverStore{backups: []storage.Backup{{ID: "first"}, {ID: "second"}}}
 
-	id, err := resolveBackupID(context.Background(), store, "", "")
+	id, err := resolveBackupID(context.Background(), store, "", "", "MACHINE-X")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -92,18 +93,40 @@ func TestResolveBackupID_NoNameNoIDAppendsToFirst(t *testing.T) {
 	}
 }
 
-// No id, no name, no existing backups: create a "default" backup.
-func TestResolveBackupID_NoNameNoIDNoBackupsCreatesDefault(t *testing.T) {
+// No id, no name, no existing backups: create a backup labeled with the
+// injected default (the device label), not the literal "default".
+func TestResolveBackupID_NoNameNoIDNoBackupsCreatesDeviceLabeled(t *testing.T) {
 	store := &fakeResolverStore{backups: nil, newID: "created-default"}
 
-	id, err := resolveBackupID(context.Background(), store, "", "")
+	id, err := resolveBackupID(context.Background(), store, "", "", "DESKTOP-HUGO")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if id != "created-default" {
 		t.Fatalf("expected created default id, got %q", id)
 	}
-	if store.lastCreated != "default" {
-		t.Fatalf("expected default label, got %q", store.lastCreated)
+	if store.lastCreated != "DESKTOP-HUGO" {
+		t.Fatalf("expected the device label as the create name, got %q", store.lastCreated)
+	}
+}
+
+// deviceLabelFrom trims a present host name and falls back to "default" on
+// empty/error — so a missing host name never fails a push.
+func TestDeviceLabelFrom(t *testing.T) {
+	cases := []struct {
+		host string
+		err  error
+		want string
+	}{
+		{"HUGO-DESKTOP", nil, "HUGO-DESKTOP"},
+		{"  Work-Laptop  ", nil, "Work-Laptop"},
+		{"", nil, "default"},
+		{"   ", nil, "default"},
+		{"ignored", errors.New("hostname unavailable"), "default"},
+	}
+	for _, c := range cases {
+		if got := deviceLabelFrom(c.host, c.err); got != c.want {
+			t.Fatalf("deviceLabelFrom(%q, %v) = %q, want %q", c.host, c.err, got, c.want)
+		}
 	}
 }
