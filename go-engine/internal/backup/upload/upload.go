@@ -97,7 +97,7 @@ func PushVersion(ctx context.Context, deps Dependencies, backupID, profilePath, 
 	}
 	defer wipe(dek)
 
-	resolvedBackupID, envErr := resolveBackupID(ctx, deps.Storage, backupID, name)
+	resolvedBackupID, envErr := resolveBackupID(ctx, deps.Storage, backupID, name, deviceLabel())
 	if envErr != nil {
 		return nil, envErr
 	}
@@ -326,8 +326,9 @@ type backupResolverStore interface {
 //     later pushes. (Previously a named push fell through to "append to the
 //     first existing backup", silently ignoring --name once any backup existed.)
 //   - a push with neither id nor name keeps the legacy convenience: append to
-//     the user's first backup, or create a "default" backup if they have none.
-func resolveBackupID(ctx context.Context, store backupResolverStore, backupID, name string) (string, *envelope.Error) {
+//     the user's first backup, or create a backup labeled defaultName (the
+//     device label — see deviceLabel) if they have none.
+func resolveBackupID(ctx context.Context, store backupResolverStore, backupID, name, defaultName string) (string, *envelope.Error) {
 	if strings.TrimSpace(backupID) != "" {
 		return backupID, nil
 	}
@@ -345,11 +346,33 @@ func resolveBackupID(ctx context.Context, store backupResolverStore, backupID, n
 	if len(backups) > 0 {
 		return backups[0].ID, nil
 	}
-	id, cerr := store.CreateBackup(ctx, "default")
+	id, cerr := store.CreateBackup(ctx, defaultName)
 	if cerr != nil {
 		return "", cerr
 	}
 	return id, nil
+}
+
+// deviceLabel returns a human label for this machine's default backup — the
+// OS host name (COMPUTERNAME on Windows), trimmed. Falls back to "default"
+// when the host name is empty or unavailable. The backup's identity is its
+// backend id; this is only the display label, so a missing name is non-fatal
+// and must never fail a push.
+func deviceLabel() string {
+	host, err := os.Hostname()
+	return deviceLabelFrom(host, err)
+}
+
+// deviceLabelFrom is the pure core of deviceLabel, split out so the
+// trim/fallback logic is unit-testable without depending on the host's name.
+func deviceLabelFrom(host string, err error) string {
+	if err != nil {
+		return "default"
+	}
+	if h := strings.TrimSpace(host); h != "" {
+		return h
+	}
+	return "default"
 }
 
 // tarProfile returns the tar archive of the profile's contents. If
