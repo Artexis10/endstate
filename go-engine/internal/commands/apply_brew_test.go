@@ -31,6 +31,11 @@ type fakeBrewDriver struct {
 	installFails map[string]bool   // ref -> Install reports StatusFailed
 	installCalls []string          // refs passed to Install, in order
 	detectCalls  int               // DetectBatch call count
+
+	// --- uninstall (rollback lane) ---
+	uninstallResults map[string]*driver.UninstallResult // ref -> outcome (default: uninstalled)
+	uninstallErr     error                              // infrastructure error (e.g. brew missing)
+	uninstallCalls   []string                           // refs passed to Uninstall, in order
 }
 
 func (f *fakeBrewDriver) Name() string { return "brew" }
@@ -64,6 +69,23 @@ func (f *fakeBrewDriver) Install(ref string) (*driver.InstallResult, error) {
 	}
 	f.installed[ref] = true
 	return &driver.InstallResult{Status: driver.StatusInstalled, Message: "Installed successfully"}, nil
+}
+
+// Uninstall satisfies driver.Uninstaller, recording each ref and returning the
+// scripted per-ref outcome (default: uninstalled). It makes *fakeBrewDriver an
+// Uninstaller so the best-effort brew rollback lane is exercised host-independently.
+func (f *fakeBrewDriver) Uninstall(ref string) (*driver.UninstallResult, error) {
+	f.uninstallCalls = append(f.uninstallCalls, ref)
+	if f.uninstallErr != nil {
+		return nil, f.uninstallErr
+	}
+	if r, ok := f.uninstallResults[ref]; ok {
+		return r, nil
+	}
+	if f.installed != nil {
+		delete(f.installed, ref)
+	}
+	return &driver.UninstallResult{Status: driver.StatusUninstalled}, nil
 }
 
 // panicBrewDriverFn is a newBrewDriverFn that fails the test if it is ever

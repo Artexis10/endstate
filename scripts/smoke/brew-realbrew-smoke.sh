@@ -43,6 +43,10 @@ fi
 # privileges / network that a runner may lack; the formula leg is STRICT.
 FORMULA="hello"
 CASK="cask:gnu-typist" # tiny; cask leg is warn-only regardless of outcome
+# A second tiny formula, installed in a LATER generation, so the rollback phase
+# (below) has a generation to roll back PAST. Its install is best-effort: if it
+# does not take, the rollback phase is skipped with a warning.
+FORMULA2="tree"
 
 # ---------------------------------------------------------------------------
 # Temp dirs — isolated HOME and ENDSTATE_ROOT; cleaned on exit.
@@ -59,14 +63,16 @@ mkdir -p "${SMOKE_HOME}" "${SMOKE_STATE}" "${SMOKE_BIN}"
 
 cleanup() {
   echo
-  echo "==> [brew-smoke] cleanup: uninstalling ${FORMULA} and removing ${TMP_ROOT}"
+  echo "==> [brew-smoke] cleanup: uninstalling ${FORMULA}/${FORMULA2} and removing ${TMP_ROOT}"
   brew uninstall --formula "${FORMULA}" >/dev/null 2>&1 || true
+  brew uninstall --formula "${FORMULA2}" >/dev/null 2>&1 || true
   rm -rf "${TMP_ROOT}"
 }
 trap cleanup EXIT
 
-# Ensure a clean starting point (the formula must not be pre-installed).
+# Ensure a clean starting point (neither formula may be pre-installed).
 brew uninstall --formula "${FORMULA}" >/dev/null 2>&1 || true
+brew uninstall --formula "${FORMULA2}" >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # Phase 1: Build the engine binary
@@ -163,6 +169,68 @@ if grep -q '"driver": *"brew"' "${CAPTURE_OUT}" && grep -q "\"darwin\": *\"${FOR
   echo "    PASS: captured manifest round-trips ${FORMULA} as a driver:brew app"
 else
   fail "Captured manifest does not contain the brew-driver ${FORMULA} app — capture round-trip failed."
+fi
+
+# ---------------------------------------------------------------------------
+# Phase 5: best-effort brew rollback composed with the native (Nix) rollback.
+#
+# The macOS runner has BOTH brew and Nix, so RunRollback takes the realizer path
+# and the brew uninstall lane runs alongside it. Generations (fresh
+# ENDSTATE_ROOT): apply (Phase 3) wrote brew generation 1 (${FORMULA}); this
+# apply writes brew generation 2 (${FORMULA2}). `rollback --to 1 --confirm`
+# uninstalls generation 2's additions (${FORMULA2}) and leaves generation 1
+# (${FORMULA}) intact.
+#
+# The second install is BEST-EFFORT: if ${FORMULA2} does not install, the
+# rollback assertion is skipped with a warning rather than failing the smoke.
+# ---------------------------------------------------------------------------
+
+phase "Installing a second formula (${FORMULA2}) in a later generation"
+
+ROLLBACK_MANIFEST="${TMP_ROOT}/manifest-rollback.jsonc"
+cat > "${ROLLBACK_MANIFEST}" << MANIFEST2
+{
+  "version": 1,
+  "name": "brew-smoke-rollback",
+  "apps": [
+    { "id": "${FORMULA}", "displayName": "${FORMULA}", "driver": "brew", "refs": { "darwin": "${FORMULA}" } },
+    { "id": "${FORMULA2}", "displayName": "${FORMULA2}", "driver": "brew", "refs": { "darwin": "${FORMULA2}" } }
+  ]
+}
+MANIFEST2
+
+"${ENGINE_BIN}" apply --manifest "${ROLLBACK_MANIFEST}" --json >/dev/null 2>&1 || true
+
+if ! brew list --formula "${FORMULA2}" >/dev/null 2>&1; then
+  echo "    WARN: ${FORMULA2} did not install; skipping the rollback assertion (best-effort)."
+else
+  phase "Running: endstate rollback --to 1 --confirm --json (brew lane composed with native)"
+
+  ROLLBACK_OUT="${TMP_ROOT}/rollback-out.json"
+  "${ENGINE_BIN}" rollback --to 1 --confirm --json 2>&1 | tee "${ROLLBACK_OUT}" || {
+    echo "    --- rollback output ---"; cat "${ROLLBACK_OUT}"; echo "    --- end ---"
+    fail "endstate rollback exited non-zero."
+  }
+
+  # STRICT: the later formula must be uninstalled; the target-generation formula must remain.
+  if brew list --formula "${FORMULA2}" >/dev/null 2>&1; then
+    fail "${FORMULA2} is still installed after 'rollback --to 1' — the brew rollback lane did not uninstall it."
+  fi
+  echo "    PASS: ${FORMULA2} was uninstalled by rollback"
+
+  if brew list --formula "${FORMULA}" >/dev/null 2>&1; then
+    echo "    PASS: ${FORMULA} (generation 1) survived the rollback"
+  else
+    fail "${FORMULA} was uninstalled by 'rollback --to 1' — generation 1 should have survived."
+  fi
+
+  # The rollback envelope should report the removed ref.
+  if grep -q "\"${FORMULA2}\"" "${ROLLBACK_OUT}"; then
+    echo "    PASS: rollback output reports ${FORMULA2} among the removed refs"
+  else
+    echo "    --- rollback output ---"; cat "${ROLLBACK_OUT}"; echo "    --- end ---"
+    fail "rollback output does not report ${FORMULA2} as a removed ref."
+  fi
 fi
 
 # ---------------------------------------------------------------------------

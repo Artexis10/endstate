@@ -166,11 +166,23 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 		}
 	}
 
-	// Nothing to roll back: a target generation with no native anchor AND no
-	// eligible config rollback. Preserves the package-only "no native anchor"
-	// rejection while letting a config-only generation be reverted under
-	// --enable-restore.
-	if !hasPackageTarget && homeRef == nil {
+	// Brew best-effort lane (composed with the native rollback): when an explicit
+	// --to target is given, uninstall the brew apps installed AFTER it — recorded in
+	// their own backend:"brew" generations, which the native nix rollback never
+	// touches. Bare rollback (no --to) stays native-package-only: the nix "previous"
+	// anchor is generation-relative and cannot be reconciled with interleaved brew
+	// generations without an explicit boundary. Computed read-only here so it informs
+	// the dry-run preview, the nothing-to-roll-back check, and the uninstall below.
+	var brewRemoveRefs []string
+	if strings.TrimSpace(flags.To) != "" {
+		brewRemoveRefs = brewRollbackRefs(targetGen)
+	}
+
+	// Nothing to roll back: a target generation with no native anchor, no eligible
+	// config rollback, AND no brew refs to uninstall. Preserves the package-only "no
+	// native anchor" rejection while letting a config-only generation be reverted
+	// under --enable-restore and a brew-only target uninstall its later brew refs.
+	if !hasPackageTarget && homeRef == nil && len(brewRemoveRefs) == 0 {
 		return nil, envelope.NewError(envelope.ErrGenerationNotFound,
 			fmt.Sprintf("Generation %d has no native rollback anchor.", targetGen)).
 			WithRemediation("Only generations committed by a native-rollback backend can be rolled back to.")
@@ -204,6 +216,10 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 				Flake:            homeRef.Flake,
 				Config:           homeRef.Config,
 			}
+		}
+		if len(brewRemoveRefs) > 0 {
+			res.RemovedRefs = brewRemoveRefs // would-uninstall preview
+			res.Warning = untrackedDepsWarning
 		}
 		return res, nil
 	}
@@ -251,9 +267,20 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 	if hasPackageTarget {
 		native = strconv.Itoa(cur.Generation)
 	}
-	newGen := appendRollbackGeneration(buildRunID("rollback"), r.Name(), cur, native, newHomeRef)
+	// Append the native rollback generation only when the native lane actually
+	// rolled back packages or re-activated config. A brew-only rollback (no native
+	// anchor, no config) records ONLY its backend:"brew" generation below, never an
+	// empty backend:"nix" one.
+	newGen := 0
+	if hasPackageTarget || newHomeRef != nil {
+		newGen = appendRollbackGeneration(buildRunID("rollback"), r.Name(), cur, native, newHomeRef)
+	}
 
-	return &RollbackResult{
+	// Brew best-effort uninstall lane, composed with the native rollback. Runs AFTER
+	// the native package + config rollback; per-package and failure-tolerant — a brew
+	// failure never unwinds the (already committed) native rollback. Records a
+	// separate backend:"brew" rollback generation.
+	res := &RollbackResult{
 		DryRun:           false,
 		Backend:          r.Name(),
 		TargetGeneration: targetGen,
@@ -261,7 +288,78 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 		ToNative:         native,
 		NewGeneration:    newGen,
 		HomeManager:      homeResult,
-	}, nil
+	}
+	if len(brewRemoveRefs) > 0 {
+		removed, failed := runBrewRollbackLane(brewRemoveRefs)
+		res.RemovedRefs = removed
+		res.FailedRefs = failed
+		res.Partial = len(failed) > 0
+		res.Warning = untrackedDepsWarning
+	}
+	return res, nil
+}
+
+// brewRollbackRefs returns the de-duplicated union of the AddedRefs of every
+// backend:"brew" Provisioning Generation numbered greater than targetGen — the
+// brew packages a best-effort rollback to targetGen must uninstall. nix and winget
+// generations are ignored (the native lane owns those). Order follows provision.List.
+func brewRollbackRefs(targetGen int) []string {
+	gens, err := provision.List()
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var refs []string
+	for _, g := range gens {
+		if g.Backend != "brew" || g.Number <= targetGen {
+			continue
+		}
+		for _, ref := range g.AddedRefs {
+			if ref != "" && !seen[ref] {
+				seen[ref] = true
+				refs = append(refs, ref)
+			}
+		}
+	}
+	return refs
+}
+
+// runBrewRollbackLane uninstalls the given brew refs best-effort via the host's
+// brew driver and records a backend:"brew" rollback generation. It mirrors
+// runDriverRollback's per-ref, failure-tolerant loop, scoped to brew and composed
+// into the native rollback. Because the native rollback has ALREADY committed when
+// this runs, an unavailable brew driver or a per-ref infrastructure error is
+// tolerated (the refs are reported failed) rather than aborting — the native
+// rollback cannot be unwound. Cask uninstalls are non-destructive (the brew driver
+// never passes --zap). A generation is recorded only when at least one ref was
+// actually removed (an all-failed lane records none, matching the winget path's
+// "nothing removed → no generation").
+func runBrewRollbackLane(refs []string) (removed, failed []string) {
+	d, derr := newBrewDriverFn()
+	if derr != nil {
+		return nil, refs
+	}
+	un, ok := d.(driver.Uninstaller)
+	if !ok {
+		return nil, refs
+	}
+	for _, ref := range refs {
+		res, uerr := un.Uninstall(ref)
+		if uerr != nil || res == nil {
+			failed = append(failed, ref)
+			continue
+		}
+		switch res.Status {
+		case driver.StatusUninstalled, driver.StatusAbsent:
+			removed = append(removed, ref)
+		default:
+			failed = append(failed, ref)
+		}
+	}
+	if len(removed) > 0 {
+		appendRollbackGenerationRemoved(buildRunID("rollback"), "brew", removed, len(failed) > 0)
+	}
+	return removed, failed
 }
 
 // rollbackHomeConfig re-activates the home-manager config recorded by the target
