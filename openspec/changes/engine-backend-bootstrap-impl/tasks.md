@@ -41,16 +41,20 @@
 > maintainer-gated follow-up (protected area). The event type is a contract-sanctioned non-breaking
 > addition (no version bump); it is implemented in code but not yet listed in the contract doc.
 
-## PR 2 — Nix instance + declined-lane restructuring (subsequent PR)
+## PR 2 — Nix instance + declined-lane restructuring
 
-- [ ] 2.1 Wire the **realizer** lane through `ensureBackendsForRun([BackendNix], …)` ahead of the
-      `newRealizerFn()` gate in apply/verify/plan/capture.
-- [ ] 2.2 Extract a standalone brew-only apply path (`runApplyBrewOnly`) so a declined/unavailable Nix
-      with a consented brew lane still installs brew apps; Nix-only-and-declined → "lane skipped",
-      never a crash. Keep `runApplyRealizer`'s present-Nix path byte-identical.
-- [ ] 2.3 Add the **Nix footprint** requirement to the delta spec (multi-user daemon + macOS APFS
-      store volume + root; **no silent uninstall**; Windows exempt) + the combined-consent-over-both
-      scenario.
+- [x] 2.1 Wire the **realizer** lane through the bootstrap pre-step on **apply** with ONE combined
+      consent over the needed set (`neededBackends`: Nix when restApps or a config stage; brew when
+      brew apps). Route on `nixNeeded && avail[Nix]`. (Read-only commands verify/plan/capture keep
+      today's behavior — they never install, and surface REALIZER_UNAVAILABLE when Nix is absent; a
+      graceful read-only skip is a deferred follow-up, NOT a regression.)
+- [x] 2.2 New `runApplyBrewOnly` (apply_brew_only.go) + `configStageApplies`: a declined/unavailable
+      Nix with a consented brew lane still installs brew apps (realizer-lane apps → visible skip,
+      manual apps still evaluated); Nix-only-and-declined → all skipped, no crash, no generation. Keep
+      `runApplyRealizer`'s present-Nix path byte-identical (all existing brew tests have a nix app →
+      still routed to runApplyRealizer).
+- [x] 2.3 Add the **Nix footprint + no-silent-uninstall + Windows-exempt** requirement to the delta
+      spec, with the declined-Nix-but-consented-brew scenario.
 
 ## PR 3 — brew-default-for-apps routing flip (subsequent PR)
 

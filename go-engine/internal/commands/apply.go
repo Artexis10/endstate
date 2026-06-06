@@ -227,34 +227,52 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		// ErrNoBackend on darwin). Partition AFTER SynthesizeAppsFromModules so
 		// synthesized manual apps land in the realizer (rest) lane. The realizer
 		// receives a shallow manifest copy carrying ONLY restApps — it never sees
-		// a brew/`cask:` ref. The brew driver is resolved additively (nil on a
-		// non-darwin host → the brew lane visibly skips each brew app).
+		// a brew/`cask:` ref.
 		brewApps, restApps := partitionBrewLane(mf.Apps)
-		// Resolve the brew driver ONLY when at least one app routes to brew, so a
-		// no-brew manifest never even touches newBrewDriverFn (the realizer-only
-		// path stays byte-identical to today). A non-darwin host returns
-		// ErrNoBrewDriver, leaving brewDrv nil → the lane visibly skips brew apps.
+
+		// Backend-bootstrap pre-step IN FRONT of the factory gate, with ONE combined
+		// consent over every backend this run needs and lacks. The realizer (Nix) is
+		// needed when there is realizer-lane work (restApps) or a home-manager config
+		// stage; brew is needed when an app routes to the brew lane. apply is mutating,
+		// so an absent+consented backend is installed via its official installer and
+		// verified before use. A backend not bootstrappable on the host (brew off
+		// darwin, anything on Windows) is filtered out by the pre-step and resolves via
+		// the existing factory gate (which no-ops it) unchanged.
+		nixNeeded := len(restApps) > 0 || configStageApplies(flags, mf)
+		brewNeeded := len(brewApps) > 0
+		needed := make([]bootstrap.Backend, 0, 2)
+		if nixNeeded {
+			needed = append(needed, bootstrap.BackendNix)
+		}
+		if brewNeeded {
+			needed = append(needed, bootstrap.BackendBrew)
+		}
+		avail, berr := bootstrapBackendsFn(needed, true, bootstrapConsent(flags), emitter)
+		if berr != nil {
+			return nil, berr
+		}
+
+		// Brew driver resolves only when brew is needed AND available; absent+declined
+		// (or a non-darwin host) leaves brewDrv nil → the existing visible-skip path.
 		var brewDrv driver.Driver
-		if len(brewApps) > 0 {
-			// Backend-bootstrap pre-step IN FRONT of the brew factory gate: apply is
-			// mutating, so an absent+consented brew backend is installed via its
-			// official installer and verified before use. Absent+declined (or a
-			// non-darwin host) leaves brewDrv nil → the existing visible-skip path
-			// (apply_brew.go), so a present brew backend or a no-brew manifest stays
-			// byte-identical to today.
-			avail, berr := bootstrapBackendsFn([]bootstrap.Backend{bootstrap.BackendBrew}, true, bootstrapConsent(flags), emitter)
-			if berr != nil {
-				return nil, berr
-			}
-			if avail[bootstrap.BackendBrew] {
-				if d, derr := newBrewDriverFn(); derr == nil {
-					brewDrv = d
-				}
+		if brewNeeded && avail[bootstrap.BackendBrew] {
+			if d, derr := newBrewDriverFn(); derr == nil {
+				brewDrv = d
 			}
 		}
-		rzMf := *mf
-		rzMf.Apps = restApps
-		return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, restoreModulesAvailable, brewApps, brewDrv)
+
+		// Route on realizer availability. When Nix is needed AND available, the
+		// whole-set realizer path runs (byte-identical to today; brew interleaves).
+		// When Nix is NOT needed, or is needed but unavailable (declined/failed), the
+		// realizer lane is skipped and the brew lane runs standalone — so a declined
+		// Nix with a consented brew still installs the brew apps, and the run never
+		// aborts with a half-done apply.
+		if nixNeeded && avail[bootstrap.BackendNix] {
+			rzMf := *mf
+			rzMf.Apps = restApps
+			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, restoreModulesAvailable, brewApps, brewDrv)
+		}
+		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, restoreModulesAvailable)
 	}
 
 	// Convergence (--prune) is realizer-only. The driver path (winget) operates on

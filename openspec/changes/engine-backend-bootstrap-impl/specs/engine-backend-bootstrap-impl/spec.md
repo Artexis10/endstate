@@ -115,3 +115,41 @@ the plain-language portion of the consent.
 - **THEN** the engine SHALL emit one consent-request event covering the combined set of absent
   backends, with a plain-language message and an inspectable details field
 - **AND** it SHALL default to skipping the lane with a clear message rather than installing silently
+
+### Requirement: The Nix backend bootstrap accounts for its heavier footprint and is never silently removed
+
+The engine SHALL treat bootstrapping the Nix realizer as a heavier, privileged system change than the
+Homebrew bootstrap: a multi-user installation with a background daemon and, on macOS, a dedicated store
+volume, installed by the official Determinate installer. When the Nix realizer is needed by a run but is
+unavailable — the user declined the bootstrap, or it failed verification — the engine SHALL skip the
+realizer lane with a clear message and SHALL still run any other available lane (for example, an
+already-consented Homebrew lane), rather than aborting the run or leaving a half-done apply. The engine
+SHALL NOT silently uninstall a backend it installed; removing a backend SHALL be a separate, explicit,
+user-owned action. On Windows the engine SHALL NOT attempt a backend bootstrap, because the platform
+package backend ships with the operating system.
+
+#### Scenario: Nix is bootstrapped as a multi-user system change
+
+- **WHEN** the engine bootstraps Nix on macOS or Linux after consent
+- **THEN** it SHALL use the multi-user installation (background daemon, and on macOS the dedicated store
+  volume) provided by the official Determinate installer
+
+#### Scenario: Declined Nix skips the realizer lane but a consented brew lane still runs
+
+- **WHEN** an `apply` needs both the Nix realizer and the Homebrew driver, the user consents, Homebrew
+  installs and verifies, but Nix is unavailable (declined or failed)
+- **THEN** the engine SHALL skip the realizer-lane apps with a clear message
+- **AND** it SHALL still install the brew-routed apps through Homebrew
+- **AND** the run SHALL NOT return a top-level error solely because the realizer lane was skipped
+
+#### Scenario: The engine does not silently remove a backend it installed
+
+- **WHEN** a backend was bootstrapped by the engine
+- **THEN** the engine SHALL NOT silently uninstall it as part of any later run
+- **AND** removing the backend SHALL require a separate, explicit, user-owned action
+
+#### Scenario: Windows needs no backend bootstrap
+
+- **WHEN** a run executes on Windows
+- **THEN** the engine SHALL NOT attempt to bootstrap a package backend
+- **AND** it SHALL use the operating-system-provided backend directly

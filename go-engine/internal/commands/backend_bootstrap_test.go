@@ -7,10 +7,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
@@ -261,7 +263,8 @@ func TestRunApply_BrewLane_DeclinedBootstrap_SkipsBrewContinuesRun(t *testing.T)
 
 	var result interface{}
 	var eerr *envelope.Error
-	withBootstrapAvail(map[bootstrap.Backend]bool{bootstrap.BackendBrew: false}, func() {
+	// Nix available (realizer lane runs), brew declined (lane skipped).
+	withBootstrapAvail(map[bootstrap.Backend]bool{bootstrap.BackendNix: true, bootstrap.BackendBrew: false}, func() {
 		// panicBrewDriverFn fails the test if the gate resolves the brew factory.
 		withRealizerAndBrew(fr, panicBrewDriverFn(t), func() {
 			r, e := RunApply(ApplyFlags{Manifest: mfPath, Events: "jsonl", NoBootstrap: true})
@@ -281,6 +284,160 @@ func TestRunApply_BrewLane_DeclinedBootstrap_SkipsBrewContinuesRun(t *testing.T)
 	gens, _ := provision.List()
 	if len(gens) != 1 || gens[0].Backend != "nix" {
 		t.Fatalf("declined brew → exactly one nix generation, got %+v", gens)
+	}
+}
+
+// TestRunApply_NixDeclined_BrewOnlyPath proves the PR2 declined-Nix restructuring:
+// when Nix is needed but unavailable and brew is available, the realizer-lane app
+// is a visible skip, the brew app STILL installs via the standalone brew-only path,
+// the run does not error, and exactly ONE (brew) provisioning generation is written
+// (no nix generation).
+func TestRunApply_NixDeclined_BrewOnlyPath(t *testing.T) {
+	manifestJSON := replaceGOOS(`{
+  "version": 1, "name": "nix-declined-brew-ok",
+  "apps": [
+    { "id": "ripgrep", "displayName": "ripgrep", "refs": { "GOOS": "nixpkgs#ripgrep" } },
+    { "id": "hello", "displayName": "hello", "driver": "brew", "refs": { "darwin": "hello" } }
+  ]
+}`)
+	mfPath := writeTempManifest(t, manifestJSON)
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+
+	fr := &fakeRealizer{} // never used: Nix is unavailable, brew-only path runs
+	fb := &fakeBrewDriver{installed: map[string]bool{}}
+
+	var result interface{}
+	var eerr *envelope.Error
+	withBootstrapAvail(map[bootstrap.Backend]bool{bootstrap.BackendNix: false, bootstrap.BackendBrew: true}, func() {
+		withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
+			r, e := RunApply(ApplyFlags{Manifest: mfPath, Events: "jsonl", BootstrapBackends: true})
+			result, eerr = r, e
+		})
+	})
+	if eerr != nil {
+		t.Fatalf("declined Nix must not error the run: %v", eerr)
+	}
+	ar := result.(*ApplyResult)
+	if !hasAction(ar.Actions, "ripgrep", "nix", "skipped") {
+		t.Errorf("Nix-ref app must be a visible skip when Nix is unavailable, got %+v", ar.Actions)
+	}
+	if !hasAction(ar.Actions, "hello", "brew", "installed") {
+		t.Errorf("brew app must still install on the brew-only path, got %+v", ar.Actions)
+	}
+	if len(fb.installCalls) != 1 || fb.installCalls[0] != "hello" {
+		t.Errorf("brew Install calls = %v, want [hello]", fb.installCalls)
+	}
+	gens, _ := provision.List()
+	if len(gens) != 1 || gens[0].Backend != "brew" {
+		t.Fatalf("declined Nix + brew install → exactly one brew generation, got %+v", gens)
+	}
+}
+
+// TestRunApply_NixOnlyDeclined_NoCrashAllSkipped proves a Nix-only manifest with
+// Nix declined does not crash: the app is skipped, no generation is written, and
+// the run returns a (successful) result rather than a top-level error.
+func TestRunApply_NixOnlyDeclined_NoCrashAllSkipped(t *testing.T) {
+	manifestJSON := replaceGOOS(`{
+  "version": 1, "name": "nix-only-declined",
+  "apps": [ { "id": "ripgrep", "displayName": "ripgrep", "refs": { "GOOS": "nixpkgs#ripgrep" } } ]
+}`)
+	mfPath := writeTempManifest(t, manifestJSON)
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+
+	fr := &fakeRealizer{}
+	var result interface{}
+	var eerr *envelope.Error
+	withBootstrapAvail(map[bootstrap.Backend]bool{bootstrap.BackendNix: false}, func() {
+		// No brew app → the brew factory must never resolve.
+		withRealizerAndBrew(fr, panicBrewDriverFn(t), func() {
+			r, e := RunApply(ApplyFlags{Manifest: mfPath, Events: "jsonl", NoBootstrap: true})
+			result, eerr = r, e
+		})
+	})
+	if eerr != nil {
+		t.Fatalf("Nix-only declined must not crash: %v", eerr)
+	}
+	ar := result.(*ApplyResult)
+	if !hasAction(ar.Actions, "ripgrep", "nix", "skipped") {
+		t.Errorf("the only app must be skipped, got %+v", ar.Actions)
+	}
+	gens, _ := provision.List()
+	if len(gens) != 0 {
+		t.Fatalf("nothing installed → no provisioning generation, got %+v", gens)
+	}
+}
+
+// TestRunApply_CombinedConsent_OneProbeForBothBackends proves the apply gate makes
+// a SINGLE bootstrap pre-step call carrying the combined needed set (one consent),
+// not one call per backend.
+func TestRunApply_CombinedConsent_OneProbeForBothBackends(t *testing.T) {
+	manifestJSON := replaceGOOS(`{
+  "version": 1, "name": "combined",
+  "apps": [
+    { "id": "ripgrep", "displayName": "ripgrep", "refs": { "GOOS": "nixpkgs#ripgrep" } },
+    { "id": "hello", "displayName": "hello", "driver": "brew", "refs": { "darwin": "hello" } }
+  ]
+}`)
+	mfPath := writeTempManifest(t, manifestJSON)
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+
+	fr := &fakeRealizer{
+		planDiff:      realizer.Diff{ToAdd: []realizer.Installable{{ID: "ripgrep", Ref: "nixpkgs#ripgrep"}}},
+		realizeResult: realizer.Result{Advanced: true, ToGeneration: 1, After: realizer.Set{Elements: map[string]realizer.Element{}}},
+		currentSet:    realizer.Set{Elements: map[string]realizer.Element{"ripgrep": {Name: "ripgrep"}}},
+	}
+	fb := &fakeBrewDriver{installed: map[string]bool{}}
+
+	var calls int
+	var captured []bootstrap.Backend
+	orig := bootstrapBackendsFn
+	bootstrapBackendsFn = func(needed []bootstrap.Backend, _ bool, _ Consent, _ *events.Emitter) (map[bootstrap.Backend]bool, *envelope.Error) {
+		calls++
+		captured = needed
+		return map[bootstrap.Backend]bool{bootstrap.BackendNix: true, bootstrap.BackendBrew: true}, nil
+	}
+	defer func() { bootstrapBackendsFn = orig }()
+
+	withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
+		if _, e := RunApply(ApplyFlags{Manifest: mfPath, Events: "jsonl", BootstrapBackends: true}); e != nil {
+			t.Fatalf("RunApply error: %v", e)
+		}
+	})
+	if calls != 1 {
+		t.Fatalf("bootstrap pre-step called %d times, want exactly 1 (combined consent)", calls)
+	}
+	has := map[bootstrap.Backend]bool{}
+	for _, b := range captured {
+		has[b] = true
+	}
+	if !has[bootstrap.BackendNix] || !has[bootstrap.BackendBrew] {
+		t.Fatalf("combined needed set = %v, want both nix and brew", captured)
+	}
+}
+
+// TestRealEnsureBackends_CombinedConsentOneEventBothBackends validates the real
+// pre-step emits a SINGLE consent event covering both absent backends. Guarded to
+// darwin because brew is not bootstrappable off darwin (bootstrappableOn filters it).
+func TestRealEnsureBackends_CombinedConsentOneEventBothBackends(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("brew is bootstrappable only on darwin; combined-set path needs darwin")
+	}
+	bs := &bootstrap.Bootstrapper{
+		Detect:  func(b bootstrap.Backend) (bool, error) { return false, nil }, // both absent
+		Install: func(b bootstrap.Backend) error { return nil },
+		Verify:  func(b bootstrap.Backend) (bool, error) { return true, nil },
+	}
+	em, buf := captureBootstrapEmitter()
+	withBootstrapper(bs, func() {
+		_, _ = realEnsureBackends([]bootstrap.Backend{bootstrap.BackendNix, bootstrap.BackendBrew}, true, Consent{}, em)
+	})
+	ev := consentLines(t, buf)
+	if len(ev) != 1 {
+		t.Fatalf("combined consent must emit exactly one event, got %d", len(ev))
+	}
+	backends, _ := ev[0]["backends"].([]interface{})
+	if len(backends) != 2 {
+		t.Fatalf("combined consent event backends = %v, want both", ev[0]["backends"])
 	}
 }
 
