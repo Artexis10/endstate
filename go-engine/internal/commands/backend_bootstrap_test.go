@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -38,11 +37,25 @@ func fakeBootstrapper(present bool, installErr error, verifyOK bool) (*bootstrap
 	return bs, &calls
 }
 
-// withBootstrapper overrides the newBootstrapperFn seam for the duration of f.
+// withBootstrapper overrides the newBootstrapperFn seam for the duration of f and
+// pins the bootstrap GOOS to a Unix host (linux), so the nix-backend branch tests
+// run identically on every CI OS — including the Windows runner, where nix is not
+// bootstrappable and realEnsureBackends would otherwise short-circuit.
 func withBootstrapper(bs *bootstrap.Bootstrapper, f func()) {
-	orig := newBootstrapperFn
+	withBootstrapperOn("linux", bs, f)
+}
+
+// withBootstrapperOn is withBootstrapper with an explicit pinned host OS (e.g.
+// "darwin" to exercise the brew-bootstrappable path).
+func withBootstrapperOn(goos string, bs *bootstrap.Bootstrapper, f func()) {
+	origBs := newBootstrapperFn
+	origGOOS := bootstrapGOOSFn
 	newBootstrapperFn = func() *bootstrap.Bootstrapper { return bs }
-	defer func() { newBootstrapperFn = orig }()
+	bootstrapGOOSFn = func() string { return goos }
+	defer func() {
+		newBootstrapperFn = origBs
+		bootstrapGOOSFn = origGOOS
+	}()
 	f()
 }
 
@@ -416,19 +429,16 @@ func TestRunApply_CombinedConsent_OneProbeForBothBackends(t *testing.T) {
 }
 
 // TestRealEnsureBackends_CombinedConsentOneEventBothBackends validates the real
-// pre-step emits a SINGLE consent event covering both absent backends. Guarded to
-// darwin because brew is not bootstrappable off darwin (bootstrappableOn filters it).
+// pre-step emits a SINGLE consent event covering both absent backends. It pins the
+// host to darwin (both nix and brew bootstrappable) so it runs on every CI OS.
 func TestRealEnsureBackends_CombinedConsentOneEventBothBackends(t *testing.T) {
-	if runtime.GOOS != "darwin" {
-		t.Skip("brew is bootstrappable only on darwin; combined-set path needs darwin")
-	}
 	bs := &bootstrap.Bootstrapper{
 		Detect:  func(b bootstrap.Backend) (bool, error) { return false, nil }, // both absent
 		Install: func(b bootstrap.Backend) error { return nil },
 		Verify:  func(b bootstrap.Backend) (bool, error) { return true, nil },
 	}
 	em, buf := captureBootstrapEmitter()
-	withBootstrapper(bs, func() {
+	withBootstrapperOn("darwin", bs, func() {
 		_, _ = realEnsureBackends([]bootstrap.Backend{bootstrap.BackendNix, bootstrap.BackendBrew}, true, Consent{}, em)
 	})
 	ev := consentLines(t, buf)

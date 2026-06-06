@@ -44,6 +44,14 @@ var bootstrapBackendsFn = realEnsureBackends
 // exercised hermetically (the real installer is never shelled in `go test`).
 var newBootstrapperFn = bootstrap.New
 
+// bootstrapGOOSFn reports the host OS used to decide which backends are
+// bootstrappable (brew → darwin, nix → linux/darwin, none on Windows). It
+// defaults to runtime.GOOS and is a test seam (mirroring captureGOOSFn) so the
+// realEnsureBackends branch tests run host-independently on every CI OS — without
+// it, those tests short-circuit on a Windows runner where no backend is
+// bootstrappable.
+var bootstrapGOOSFn = func() string { return runtime.GOOS }
+
 // realEnsureBackends is the production pre-step. For each needed backend that is
 // bootstrappable on the host OS it runs detect → (consent → install → verify):
 //   - present → available (no prompt, no install);
@@ -58,7 +66,7 @@ var newBootstrapperFn = bootstrap.New
 // backend on Windows) is simply absent from the returned map, so its lane falls
 // back to the existing factory gate (which no-ops it) unchanged.
 func realEnsureBackends(needed []bootstrap.Backend, mutating bool, consent Consent, emitter *events.Emitter) (map[bootstrap.Backend]bool, *envelope.Error) {
-	goos := runtime.GOOS
+	goos := bootstrapGOOSFn()
 	available := map[bootstrap.Backend]bool{}
 
 	relevant := make([]bootstrap.Backend, 0, len(needed))
