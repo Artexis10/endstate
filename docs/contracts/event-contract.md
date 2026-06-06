@@ -46,7 +46,7 @@ Every event **MUST** include:
 | `version` | integer | Event schema version (always `1` for this contract) |
 | `runId` | string | Run identifier (e.g., `"apply-20250101-120000-MACHINE"`) |
 | `timestamp` | string | RFC3339 UTC timestamp (informational; NDJSON line order is authoritative) |
-| `event` | string | Event type: `"phase"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"` |
+| `event` | string | Event type: `"phase"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"` |
 
 ### Event Types
 
@@ -297,6 +297,43 @@ Tracks per-chunk progress of a hosted-backup push or pull (added in engine v2.3.
 **Consumer notes:**
 - The GUI MUST handle missing `attempt` / `maxAttempts` gracefully (treat as a generic retry indicator) so a GUI built against this event can still consume events from an older engine that doesn't yet emit them
 - `current` is omitted from the manifest chunk (chunkIndex == -1); the GUI should render "manifest" rather than a chunk number
+
+---
+
+#### 8. Consent Event
+
+Requests the user's consent to bootstrap one or more absent package backends — on macOS/Linux the engine installs its own package backend (the Nix realizer / Homebrew driver) when it is missing. Non-breaking addition (new event type, no version bump required per extensibility rules).
+
+One event covers the **combined** set of backends a run needs and lacks, so the GUI renders a single plain-language consent dialog. The `message` is product-neutral (it never names "Nix"/"Homebrew") to keep the backend concepts invisible; the `details` carry the exact, inspectable installer commands for anyone who looks.
+
+```json
+{
+  "version": 1,
+  "runId": "apply-20260606-120000-MACHINE",
+  "timestamp": "2026-06-06T12:00:01.000Z",
+  "event": "consent",
+  "backends": ["brew", "nix"],
+  "message": "Endstate needs to set up the tools it uses to install and configure your software. You may be asked for your administrator password, and a background helper and a dedicated storage area may be created. See the details for the exact commands that will run.",
+  "details": [
+    "/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"",
+    "curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm"
+  ]
+}
+```
+
+**Fields:**
+- `backends` (array of string, required): Internal identifiers of the absent backends needing consent (e.g. `"brew"`, `"nix"`). Structured metadata the GUI maps back to the run — not user-facing copy.
+- `message` (string, required): The plain-language, product-neutral consent ask. Names no backend product.
+- `details` (array of string, optional): The exact installer commands the privileged step would run, one per backend — the inspectable "what will run" affordance. Omitted when empty.
+
+**Guarantees:**
+- At most ONE consent event per run, covering the combined set of absent needed backends (combined consent).
+- Emitted only by the mutating `apply` command, and only when a needed backend is absent and consent has not yet been given. A present/working backend never emits it; `--bootstrap-backends` installs without emitting a request; `--no-bootstrap` skips without emitting a request.
+- The engine never installs a backend without explicit consent; absent a consent decision it defaults to skipping that backend's lane and continuing the run.
+
+**Consumer notes:**
+- The GUI renders `message` as the dialog body and may reveal `details` behind a "show details" affordance; on the user's affirmative it re-invokes the engine with `--bootstrap-backends`.
+- A consumer built against an older engine that does not emit `consent` is unaffected (forward compatibility — unknown event types are ignored).
 
 ---
 

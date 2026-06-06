@@ -84,11 +84,13 @@ does not remove user data.
 ### Requirement: Per-app driver selection routes brew versus nix on darwin
 
 On macOS, where both the Nix realizer and the brew driver are available, the engine SHALL route each
-manifest app to a backend using the per-app `driver` field: an app declaring the brew driver SHALL be
-provisioned through Homebrew, and every other app together with all home-manager configuration SHALL
-be provisioned through the Nix realizer, which remains the default. The engine SHALL run both backends
-in the same `apply`, `capture`, `verify`, and `plan` invocation rather than letting one backend
-exclude the other.
+manifest app to a backend: an app declaring the brew driver — or whose `darwin` reference is a Homebrew
+Cask (the `cask:` prefix) — SHALL be provisioned through Homebrew, and every other app together with all
+home-manager configuration SHALL be provisioned through the Nix realizer, which remains the default. The
+engine SHALL run both backends in the same `apply`, `capture`, `verify`, and `plan` invocation rather
+than letting one backend exclude the other. The Cask auto-routing default (a `cask:` reference routes to
+brew without `driver: "brew"`) is owned by the `engine-backend-bootstrap-impl` capability; this
+requirement composes with it.
 
 #### Scenario: A brew-driver app and a default app coexist in one apply
 
@@ -105,12 +107,13 @@ exclude the other.
 - **AND** the behavior of a manifest that declares no brew-driver apps SHALL be unchanged from the
   realizer-only path
 
-#### Scenario: A Cask reference without the brew driver is rejected
+#### Scenario: A Cask reference without the brew driver auto-routes to brew
 
-- **WHEN** a manifest declares an app whose `darwin` reference marks it as a Cask but does not route it
-  to the brew driver
-- **THEN** the engine SHALL reject the manifest at load with a clear error
-- **AND** it SHALL NOT attempt to install the Cask through the Nix realizer
+- **WHEN** a manifest declares an app whose `darwin` reference marks it as a Cask but does not declare
+  the brew driver
+- **THEN** the engine SHALL route that app to the brew lane by default (the `cask:` prefix is the
+  routing signal) rather than rejecting the manifest at load
+- **AND** it SHALL NOT pass the Cask reference to the Nix realizer
 
 ### Requirement: Brew verifies presence and best-effort version
 
