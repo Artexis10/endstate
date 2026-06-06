@@ -1,0 +1,10 @@
+id: engine-backend-bootstrap-impl
+title: "Implement engine-installed backends — invisible Nix/Homebrew bootstrap"
+status: implementing
+spec: engine-backend-bootstrap-impl
+created: "2026-06-06"
+author: Hugo Ander Kivi
+artifacts:
+  - proposal.md
+  - design.md
+  - tasks.md

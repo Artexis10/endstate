@@ -142,6 +142,24 @@ func TestPartitionBrewLane_SplitsAndPreservesOrder(t *testing.T) {
 	}
 }
 
+func TestPartitionBrewLane_CaskRefAutoRoutesToBrew(t *testing.T) {
+	apps := []manifest.App{
+		{ID: "ripgrep", Refs: map[string]string{"darwin": "nixpkgs#ripgrep"}},
+		// Cask ref, NO driver:"brew" → must still route to the brew lane.
+		{ID: "chrome", Refs: map[string]string{"darwin": "cask:google-chrome"}},
+		// Case-insensitive prefix.
+		{ID: "slack", Refs: map[string]string{"darwin": "Cask:slack"}},
+		{ID: "jq", Refs: map[string]string{"darwin": "jq"}},
+	}
+	brewApps, restApps := partitionBrewLane(apps)
+	if len(brewApps) != 2 || brewApps[0].ID != "chrome" || brewApps[1].ID != "slack" {
+		t.Fatalf("brew lane = %+v, want [chrome slack] (cask: auto-routes)", brewApps)
+	}
+	if len(restApps) != 2 || restApps[0].ID != "ripgrep" || restApps[1].ID != "jq" {
+		t.Fatalf("rest lane = %+v, want [ripgrep jq] (nix refs stay)", restApps)
+	}
+}
+
 func TestPartitionBrewLane_NoBrew(t *testing.T) {
 	apps := []manifest.App{{ID: "ripgrep", Refs: map[string]string{"darwin": "ripgrep"}}}
 	brewApps, restApps := partitionBrewLane(apps)

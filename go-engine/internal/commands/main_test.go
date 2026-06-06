@@ -6,7 +6,24 @@ package commands
 import (
 	"os"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 )
+
+// presentBootstrapFn is the default backend-bootstrap pre-step fake: it reports
+// every needed backend as present/available, so the real detect/install/verify
+// path never runs under `go test` and the factory gate (newRealizerFn /
+// newBrewDriverFn) still decides resolution exactly as before this change. Tests
+// that exercise decline/skip/install wiring override bootstrapBackendsFn locally.
+func presentBootstrapFn(needed []bootstrap.Backend, _ bool, _ Consent, _ *events.Emitter) (map[bootstrap.Backend]bool, *envelope.Error) {
+	avail := make(map[bootstrap.Backend]bool, len(needed))
+	for _, b := range needed {
+		avail[b] = true
+	}
+	return avail, nil
+}
 
 // TestMain keeps the commands package tests hermetic. Several tests drive a
 // successful apply, which records a Provisioning Generation under the resolved
@@ -33,6 +50,12 @@ func TestMain(m *testing.M) {
 	// host-independent WITHOUT touching captureGOOSFn, which also keys the emitted
 	// host ref (a.Refs[runtime.GOOS]) and must stay the real host OS.
 	newBrewDriverFn = failBrewDriverFn
+
+	// Default the backend-bootstrap pre-step to a present/available no-op so the
+	// real installer is never shelled in tests and existing command tests stay
+	// byte-identical (the factory gate still decides resolution). Tests that
+	// exercise the bootstrap wiring override bootstrapBackendsFn locally.
+	bootstrapBackendsFn = presentBootstrapFn
 
 	code := m.Run()
 	cleanup()
