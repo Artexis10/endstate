@@ -4,7 +4,6 @@
 package manifest
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -18,10 +17,11 @@ func findCode(errs []ValidationError, code string) bool {
 	return false
 }
 
-// TestValidateManifestApps_CaskRefWithoutBrewDriver: a darwin ref marked as a
-// Cask (cask: prefix) without driver:"brew" is rejected — the Nix realizer must
-// never see a cask ref. Host-independent (validation runs on all OSes).
-func TestValidateManifestApps_CaskRefWithoutBrewDriver(t *testing.T) {
+// TestValidateManifestApps_CaskRefWithoutBrewDriver_AutoRoutes: a darwin ref
+// marked as a Cask (cask: prefix) without driver:"brew" is now VALID — the cask:
+// prefix routes the app to the brew lane by default (brew-default-for-apps), so
+// the realizer-protection invariant is upheld by routing, not a rejection.
+func TestValidateManifestApps_CaskRefWithoutBrewDriver_AutoRoutes(t *testing.T) {
 	m := &Manifest{
 		Version: 1,
 		Apps: []App{
@@ -29,8 +29,11 @@ func TestValidateManifestApps_CaskRefWithoutBrewDriver(t *testing.T) {
 		},
 	}
 	errs := ValidateManifestApps(m)
-	if !findCode(errs, "CASK_REF_REQUIRES_BREW_DRIVER") {
-		t.Fatalf("expected CASK_REF_REQUIRES_BREW_DRIVER, got %+v", errs)
+	if findCode(errs, "CASK_REF_REQUIRES_BREW_DRIVER") {
+		t.Fatalf("a cask: ref without driver:brew must now auto-route (no rejection), got %+v", errs)
+	}
+	if len(errs) != 0 {
+		t.Fatalf("a cask: ref without driver:brew must validate cleanly, got %+v", errs)
 	}
 }
 
@@ -112,19 +115,16 @@ func TestValidateManifestApps_NoBrewNoCask_Unchanged(t *testing.T) {
 	}
 }
 
-// TestLoadManifest_CaskRefWithoutBrewDriver_FailsLoad: the cask validation
-// surfaces through the loader (host-independent) with a clear message.
-func TestLoadManifest_CaskRefWithoutBrewDriver_FailsLoad(t *testing.T) {
+// TestLoadManifest_CaskRefWithoutBrewDriver_LoadsAndAutoRoutes: a cask: ref
+// without driver:"brew" now LOADS cleanly through the loader — it auto-routes to
+// the brew lane (brew-default-for-apps) instead of being rejected.
+func TestLoadManifest_CaskRefWithoutBrewDriver_LoadsAndAutoRoutes(t *testing.T) {
 	p := writeSecretsManifest(t, `{
-  "version": 1, "name": "cask-noload", "apps": [
+  "version": 1, "name": "cask-autoroute", "apps": [
     { "id": "chrome", "refs": { "darwin": "cask:google-chrome" } }
   ]
 }`)
-	_, err := LoadManifest(p)
-	if err == nil {
-		t.Fatal("expected a load error for a cask ref without driver:brew, got nil")
-	}
-	if !strings.Contains(err.Error(), "brew") {
-		t.Errorf("error = %q, want it to mention the brew driver requirement", err)
+	if _, err := LoadManifest(p); err != nil {
+		t.Fatalf("a cask: ref without driver:brew must now load (auto-route), got error: %v", err)
 	}
 }

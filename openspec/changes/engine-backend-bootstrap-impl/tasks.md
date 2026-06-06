@@ -56,12 +56,17 @@
 - [x] 2.3 Add the **Nix footprint + no-silent-uninstall + Windows-exempt** requirement to the delta
       spec, with the declined-Nix-but-consented-brew scenario.
 
-## PR 3 — brew-default-for-apps routing flip (subsequent PR)
+## PR 3 — brew-default-for-apps routing flip
 
-- [ ] 3.1 Flip `partitionBrewLane` default routing on darwin (define precisely which app shapes route
-      to brew by default); table tests. Coordinate with `macos-brew-driver`'s per-app driver-selection
-      requirement.
-- [ ] 3.2 Add the routing requirement to the delta spec.
+- [x] 3.1 Flip routing: a `cask:` darwin ref auto-routes to the brew lane WITHOUT requiring
+      `driver: "brew"` (the cask: prefix is the unambiguous GUI-app signal). `partitionBrewLane` routes
+      on `driver:"brew"` OR `isCaskRef(refs["darwin"])`; the manifest validator no longer rejects a
+      cask: ref without driver:brew (the realizer-never-sees-cask invariant is now upheld by routing).
+      Bare darwin refs without a driver stay on the realizer (default lane unchanged). Table tests +
+      inverted validator tests.
+- [x] 3.2 Add the Cask-auto-routing requirement to the delta spec. It SUPERSEDES `macos-brew-driver`'s
+      "A Cask reference without the brew driver is rejected" scenario — reconciled into
+      `macos-brew-driver` when that change graduates (maintainer-coordinated).
 
 ## Non-tasks (out of scope for this change)
 

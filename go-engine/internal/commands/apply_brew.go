@@ -12,20 +12,31 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
-// partitionBrewLane splits a synthesized app set into the brew lane (apps that
-// declare driver:"brew", case-insensitively) and the rest (everything the Nix
-// realizer owns). Order is preserved within each lane so the event stream and
-// recorded actions stay deterministic. The realizer is always handed restApps —
-// it NEVER sees a brew/`cask:` ref.
+// partitionBrewLane splits a synthesized app set into the brew lane and the rest
+// (everything the Nix realizer owns). An app routes to the brew lane when it
+// declares driver:"brew" (case-insensitively) OR its darwin ref is a Homebrew
+// Cask (cask: prefix) — the cask: prefix is an unambiguous "this is a GUI app"
+// signal, so a Cask routes to brew BY DEFAULT without the user also declaring
+// driver:"brew" (brew-default-for-apps). Order is preserved within each lane so
+// the event stream and recorded actions stay deterministic. The realizer is
+// always handed restApps — it NEVER sees a brew/`cask:` ref; this routing (not a
+// manifest rejection) is what upholds that invariant.
 func partitionBrewLane(apps []manifest.App) (brewApps, restApps []manifest.App) {
 	for _, app := range apps {
-		if strings.EqualFold(app.Driver, "brew") {
+		if strings.EqualFold(app.Driver, "brew") || isCaskRef(app.Refs["darwin"]) {
 			brewApps = append(brewApps, app)
 		} else {
 			restApps = append(restApps, app)
 		}
 	}
 	return brewApps, restApps
+}
+
+// isCaskRef reports whether a darwin ref is a Homebrew Cask (cask: prefix). It
+// mirrors the brew driver's caskPrefix and the manifest validator's
+// brewCaskPrefix; kept local so the routing has no cross-package dependency.
+func isCaskRef(darwinRef string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(darwinRef)), "cask:")
 }
 
 // brewLane is the interleaved, best-effort brew install lane that runs ALONGSIDE
