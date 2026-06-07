@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.20.0](https://github.com/Artexis10/endstate/compare/v2.19.0...v2.20.0) (2026-06-06)
+
+
+### Features
+
+* **bootstrap:** engine-installed backend bootstrap — Nix/Homebrew zero-prerequisites keystone ([#125](https://github.com/Artexis10/endstate/issues/125)) ([59f5dba](https://github.com/Artexis10/endstate/commit/59f5dba853c0dabcf3ef98386cc5b5225d3dcdbe))
+
 ## [2.19.0](https://github.com/Artexis10/endstate/compare/v2.18.0...v2.19.0) (2026-06-05)
 
 
