@@ -4,6 +4,14 @@
 > `cd go-engine && go test ./...` + `go vet ./...` + `GOOS=windows go build ./...` +
 > `openspec validate --all --strict --no-interactive`.
 
+> CLOSED 2026-06-11: shipped as #125; the consent event was documented in the contract and the Cask
+> auto-routing reconciled into `macos-brew-driver` by #127. At closure the delta graduates as the
+> `engine-backend-bootstrap` main spec (the `-impl` suffix is an artifact of the change pairing, not a
+> capability name); the Cask auto-routing requirement (PR 3 / task 3.2) was rehomed into the
+> `macos-brew-apply-wiring` spec via the `macos-brew-driver` change's closing delta, per the
+> supersession note in 3.2. N.x non-tasks stay unchecked; N.1/N.2 plus the graceful read-only lane
+> skip (task 2.1 note) are recorded as deferred scope in docs/roadmap/roadmap.md.
+
 ## PR 1 — shared contract package + Homebrew instance
 
 - [x] 1.1 New `go-engine/internal/bootstrap/` package: `Backend` (`BackendBrew`/`BackendNix`),

@@ -3,6 +3,13 @@
 > `design.md`; "open" items are the decisions the human makes on review before any implementation
 > proposal is opened.
 
+> CLOSED 2026-06-11: all §2 decisions were ratified 2026-06-03 and confirmed by the shipped
+> implementation (`engine-backend-bootstrap-impl`, #125; contract follow-ups #127). This change's
+> sketched delta spec is superseded by the impl change's delta, which graduates into the
+> `engine-backend-bootstrap` main spec — so this change archives without a spec sync (--skip-specs).
+> §4 non-tasks stay unchecked; the assisted-uninstall open decision (2.4/4.5) is recorded as deferred
+> scope in docs/roadmap/roadmap.md.
+
 ## 1. Scoping & comparison (done — captured in design.md)
 
 - [x] 1.1 Frame the problem: Windows gets its backend (winget) for free; macOS/Linux do not, and a
@@ -30,34 +37,30 @@
 
 ## 2. Decisions (open — the human ratifies)
 
-- [ ] 2.1 **Decide phase/sequencing.** Bootstrap ships **with** the brew increment (true "zero
-      prerequisites" on day one) or as a **fast-follow** once the brew lanes are proven (§ Open Q1; mirrors
-      brew Open Q7).
-- [ ] 2.2 **Decide one-consent vs per-backend** on a Mac needing both Nix (config) and Homebrew (apps)
-      (§ Open Q2).
-- [ ] 2.3 **Decide the non-interactive default** (no TTY): skip-the-lane-with-message vs fail-loudly;
-      confirm `--bootstrap-backends` / `--no-bootstrap` flag shape (§ Open Q3).
-- [ ] 2.4 **Decide the uninstall posture.** Never silently uninstall a backend the engine installed;
-      confirm whether the engine ever offers an *assisted* uninstall (pointing at the official
-      uninstaller) or stays entirely hands-off (§ Open Q4).
-- [ ] 2.5 **Decide the Nix install flavor.** Confirm the **Determinate** multi-user installer (matches
-      CI, flake-enabled) over upstream/single-user; decide whether a single-user/no-daemon option is ever
-      offered (§ Open Q5).
-- [ ] 2.6 **Decide consent disclosure depth** — how much of the daemon/APFS-volume footprint the
-      plain-language consent must disclose to stay honest without overwhelming the audience (§ Open Q6).
+- [x] 2.1 **Decide phase/sequencing.** RATIFIED: fast-follow — the bootstrap shipped as its own arc
+      (#125) after the brew lanes were proven (#117/#121).
+- [x] 2.2 **Decide one-consent vs per-backend.** RATIFIED: one combined consent over the needed set.
+- [x] 2.3 **Decide the non-interactive default.** RATIFIED: skip-the-lane-with-message;
+      `--bootstrap-backends` / `--no-bootstrap` flag shape shipped as designed.
+- [x] 2.4 **Decide the uninstall posture.** RATIFIED: never silently uninstall; the engine stays
+      hands-off today — an *assisted* uninstall remains an open deferred decision (see roadmap).
+- [x] 2.5 **Decide the Nix install flavor.** RATIFIED: the Determinate multi-user installer; no
+      single-user/no-daemon option offered.
+- [x] 2.6 **Decide consent disclosure depth.** RATIFIED: plain-language message (no product names)
+      plus an inspectable details field carrying the exact installer commands.
 
 ## 3. Spec hardening (open — before implementation)
 
-- [ ] 3.1 **Spec the consent contract** as testable requirements (present → no-op/no-prompt; absent →
-      one consent before install; declined → skip lane + continue; never silent).
-- [ ] 3.2 **Spec the verify gate** (post-install verification probe gates use; verify-fail → backend
-      unavailable, not half-used).
-- [ ] 3.3 **Spec official-installer-only** (Determinate / upstream `install.sh`; orchestrated, not
-      vendored; inspectable privileged step).
-- [ ] 3.4 **Spec the Nix footprint + no-silent-uninstall** (multi-user daemon + macOS volume; the engine
-      does not silently remove a backend it installed; Windows exempt).
-- [ ] 3.5 Graduate the ratified subset of `specs/engine-backend-bootstrap/spec.md` into an
-      implementation proposal (separate, non-design-only change), coordinated with the brew §8 graduation.
+- [x] 3.1 **Spec the consent contract** — graduated via the impl change's delta ("A missing backend is
+      bootstrapped only with explicit consent").
+- [x] 3.2 **Spec the verify gate** — graduated via the impl delta ("A bootstrapped backend is verified
+      working before use").
+- [x] 3.3 **Spec official-installer-only** — graduated via the impl delta ("The engine orchestrates the
+      official installer, never a vendored fork").
+- [x] 3.4 **Spec the Nix footprint + no-silent-uninstall** — graduated via the impl delta ("...heavier
+      footprint and is never silently removed", Windows-exempt scenario included).
+- [x] 3.5 Graduate into an implementation proposal — shipped as `engine-backend-bootstrap-impl` (#125),
+      coordinated with the brew §8 graduation as planned.
 
 ## 4. Non-tasks (explicitly out of scope here)
 
