@@ -180,6 +180,44 @@ Make installation self-healing and diagnosable.
 
 ---
 
+## 6. Linux / macOS Platform Arc — COMPLETE (2026-06)
+
+**Status:** Shipped and closed out. Endstate provisions Linux and macOS through the Nix realizer
+(packages + home-manager configuration: catalog, capture, verify, rollback, boundary secrets) with a
+per-app Homebrew driver lane on macOS (formulae + Casks, two-lane apply, best-effort rollback, Cask
+auto-routing) and a consent-gated engine-installed backend bootstrap (Nix / Homebrew, official
+installers only). CI covers hermetic tests on windows/macos/ubuntu plus real-Nix (macOS + Linux) and
+real-Homebrew (macOS) integration smokes. Specs: `nix-package-backend`,
+`platform-backend-selection`, `nix-home-manager-*`, `macos-brew-apply-wiring`,
+`macos-brew-best-effort-rollback`, `engine-backend-bootstrap`. See `docs/COMPATIBILITY.md` for the
+platform support matrix.
+
+### Deferred scope (consciously not shipped — the durable record)
+
+- **Managed secrets backend** (agenix, later sops-nix on demonstrated need): the typed managed tier
+  beyond boundary + env `*_FILE` — ciphertext capture handling (path-only vs bundled safe-at-rest
+  ciphertext), key-bootstrap UX (fail-fast warn on a missing user-owned identity), and the macOS
+  age-identity-path default. The boundary model ships today; capture redaction is specced in
+  `nix-home-manager-secrets-boundary`.
+- **Assisted backend uninstall**: the engine never silently uninstalls a backend it installed;
+  whether it ever *assists* (pointing at the official uninstaller) versus staying entirely hands-off
+  remains an open decision.
+- **Interactive CLI stdin consent prompt** for the backend bootstrap: today consent is flag-driven
+  (`--bootstrap-backends` / `--no-bootstrap`) plus a streamed consent-request event for the GUI (the
+  primary audience); a TTY prompt was deliberately not built.
+- **Graceful read-only lane skip**: read-only commands (verify/plan/capture) never install a backend
+  and surface `REALIZER_UNAVAILABLE` when Nix is absent; downgrading that to a graceful per-lane skip
+  is a possible follow-up, not a regression.
+- **Brew version strictness**: brew pins stay advisory (verify reports drift; apply never
+  downgrades/reinstalls to chase a pin). Precise pinning was rejected given Homebrew's weak
+  version-selection model.
+- **Linuxbrew**: explicit non-goal — brew is the macOS driver only.
+- **Real install-path CI**: the GH macOS runner has Homebrew (and CI-Nix) preinstalled, so the
+  bootstrap *install* path (absent → consent → install) is only exercisable on a clean real machine,
+  not in the existing smokes.
+
+---
+
 ## Guiding Principles
 
 - Contracts > convenience

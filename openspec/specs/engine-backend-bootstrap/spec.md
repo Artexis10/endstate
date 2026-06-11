@@ -1,5 +1,8 @@
-## ADDED Requirements
+# engine-backend-bootstrap Specification
 
+## Purpose
+Defines the engine-installed backend bootstrap on macOS/Linux: consent-gated installation of an absent Nix or Homebrew backend via the official installer, verified before use, never silently removed.
+## Requirements
 ### Requirement: A missing backend is bootstrapped only with explicit consent
 
 The engine SHALL bootstrap a package backend a run needs (the Nix realizer or the Homebrew driver)
@@ -9,8 +12,8 @@ When a run needs more than one absent backend, the engine SHALL request consent 
 combined set rather than once per backend. The engine SHALL NOT install a backend silently or without
 consent. When the user declines, the engine SHALL skip that backend's lane with a clear message and
 SHALL still run the rest of the apply. Installation SHALL be attempted only during the mutating
-`apply` command; read-only commands SHALL detect the backend and use it or skip its lane without
-attempting an install.
+`apply` command; a read-only command SHALL NOT attempt an install and SHALL NOT request consent,
+surfacing the absent backend's unavailability instead.
 
 #### Scenario: Backend already present — no prompt, no install
 
@@ -154,29 +157,3 @@ package backend ships with the operating system.
 - **THEN** the engine SHALL NOT attempt to bootstrap a package backend
 - **AND** it SHALL use the operating-system-provided backend directly
 
-### Requirement: A Cask reference routes to the brew lane by default
-
-The engine SHALL route an app whose `darwin` reference is a Homebrew Cask (the `cask:` prefix,
-case-insensitive) to the brew lane by default on macOS, without the user also declaring
-`driver: "brew"`. The engine SHALL NOT reject a manifest solely because a `cask:` darwin reference
-omits `driver: "brew"`. The Nix realizer SHALL never receive a `cask:` reference, and the engine SHALL
-uphold that invariant by routing the Cask to the brew lane rather than by rejecting the manifest. The
-engine SHALL still route an app that declares `driver: "brew"` to the brew lane regardless of its
-reference shape, and SHALL continue to route a bare (non-Cask) darwin reference without `driver: "brew"`
-to the Nix realizer (the default lane), so a manifest that declares no Cask and no brew driver behaves
-identically to the realizer-only path. This routing supersedes the `macos-brew-driver` scenario that
-rejected a Cask reference lacking `driver: "brew"`, reconciled into that change's spec when it graduates.
-
-#### Scenario: A Cask reference without the brew driver auto-routes to brew
-
-- **WHEN** a manifest declares an app whose `darwin` reference is a `cask:` Cask and does not declare
-  `driver: "brew"`
-- **THEN** the engine SHALL accept the manifest
-- **AND** it SHALL provision that app through the brew lane
-- **AND** it SHALL NOT pass the `cask:` reference to the Nix realizer
-
-#### Scenario: A bare darwin reference without a driver stays on the realizer
-
-- **WHEN** a manifest declares an app with a bare (non-`cask:`) `darwin` reference and no `driver`
-- **THEN** the engine SHALL route it to the Nix realizer (the default lane)
-- **AND** the behavior SHALL be unchanged from before the Cask auto-routing

@@ -23,6 +23,7 @@ Navigation index for Endstate engine documentation.
 
 ## Reference
 
+- [Compatibility](COMPATIBILITY.md) — Platform support matrix (Windows / Linux / macOS) and version compatibility
 - [Warp](warp.md) — Quick reference and architecture overview
 - [Catalog Layout](catalog-layout.md) — Module catalog structure
 - [Config Portability Model](config-portability-model-b.md) — Portability design model
