@@ -1,6 +1,11 @@
 name: Release
 
-# Builds endstate.exe + .sha256 and attaches them to the GitHub Release.
+# Builds the platform binaries + .sha256 checksums and attaches them to the
+# GitHub Release:
+#   - publish-artifacts        (windows-latest): endstate.exe
+#   - publish-unix-artifacts   (ubuntu-latest):  endstate-{linux,darwin}-{amd64,arm64}
+# All artifacts share the same ldflags version-embedding scheme (version from
+# the release tag, schemaVersion from SCHEMA_VERSION).
 #
 # Trigger model: `release: published` fires naturally when release-please
 # cuts a release, because release-please.yml now mints its token from the
@@ -82,3 +87,84 @@ jobs:
             exit 1
           }
           Write-Host "Verified: endstate.exe and endstate.exe.sha256 are present on release $tag"
+
+  publish-unix-artifacts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.22'
+          cache-dependency-path: go-engine/go.sum
+
+      - name: Build endstate-${{ matrix.goos }}-${{ matrix.goarch }}
+        env:
+          TAG: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          version="${TAG#v}"
+          schemaVersion="$(tr -d '[:space:]' < SCHEMA_VERSION)"
+          artifact="endstate-${GOOS}-${GOARCH}"
+          cd go-engine
+          go build \
+            -ldflags "-X github.com/Artexis10/endstate/go-engine/internal/config.version=$version -X github.com/Artexis10/endstate/go-engine/internal/config.schemaVersion=$schemaVersion" \
+            -o "../$artifact" \
+            ./cmd/endstate
+
+      - name: Generate SHA256 checksum
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          artifact="endstate-${GOOS}-${GOARCH}"
+          sha256sum "$artifact" | cut -d ' ' -f 1 | tr -d '\n' > "$artifact.sha256"
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+          files: |
+            endstate-${{ matrix.goos }}-${{ matrix.goarch }}
+            endstate-${{ matrix.goos }}-${{ matrix.goarch }}.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify release assets are present
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          artifact="endstate-${GOOS}-${GOARCH}"
+          names="$(gh release view "$TAG" --json assets --jq '.assets[].name')"
+          missing=()
+          if ! grep -qx "$artifact" <<< "$names"; then missing+=("$artifact"); fi
+          if ! grep -qx "$artifact.sha256" <<< "$names"; then missing+=("$artifact.sha256"); fi
+          if [ "${#missing[@]}" -gt 0 ]; then
+            echo "Missing release assets: ${missing[*]}" >&2
+            exit 1
+          fi
+          echo "Verified: $artifact and $artifact.sha256 are present on release $TAG"
