@@ -21,6 +21,13 @@ CI: hermetic Go tests run on windows/macos/ubuntu; real-Nix integration smokes r
 Linux; a real-Homebrew smoke runs on macOS. Deferred platform scope is recorded in
 [the roadmap](roadmap/roadmap.md) §6.
 
+Distribution: GitHub Releases ship `endstate.exe` for Windows plus per-platform Unix binaries
+(`endstate-linux-amd64`, `endstate-linux-arm64`, `endstate-darwin-amd64`, `endstate-darwin-arm64`),
+each with a `.sha256` checksum. `endstate bootstrap` self-installs the running binary on all three
+platforms: on Windows it installs to `%LOCALAPPDATA%\Endstate\bin` with a `.cmd` shim and a PATH
+entry; on Linux/macOS it installs to `${XDG_DATA_HOME:-$HOME/.local/share}/endstate/bin` and creates
+a `$HOME/.local/bin/endstate` symlink (no shell PATH is edited).
+
 ## Engine CLI <-> Schema Version
 
 | CLI Version | Schema Version | Notes |
