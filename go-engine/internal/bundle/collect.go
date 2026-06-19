@@ -8,12 +8,14 @@
 package bundle
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
@@ -154,6 +156,127 @@ func CollectRegistryKeys(module *modules.Module, stagingDir string) ([]string, e
 	}
 
 	return collected, nil
+}
+
+// CapturedRegistryValue is a single named value captured at value-level (its
+// key, name, REG_* type, and string-form data) — the value-scoped analogue of a
+// whole-key .reg export. Used to snapshot Windows OS-settings preferences.
+type CapturedRegistryValue struct {
+	Key       string `json:"key"`
+	ValueName string `json:"valueName"`
+	ValueType string `json:"valueType,omitempty"`
+	Data      string `json:"data,omitempty"`
+	// Existed reports whether the value was present at capture time.
+	Existed bool `json:"existed"`
+}
+
+// CollectRegistryValues reads the specific named values declared in
+// module.Capture.RegistryValues — value-level, NOT a whole-key export — and
+// writes them as a single JSON snapshot (registry-values.json) under
+// configs/<module>/. This is the capture half of the value-level Windows
+// OS-settings tier; it never reads or rewrites co-resident unrelated values.
+// Returns the list of relative paths (under stagingDir) that were written.
+// On non-Windows platforms this is a no-op that returns nil.
+func CollectRegistryValues(module *modules.Module, stagingDir string) ([]string, error) {
+	if runtime.GOOS != "windows" {
+		return nil, nil
+	}
+	if module.Capture == nil || len(module.Capture.RegistryValues) == 0 {
+		return nil, nil
+	}
+
+	moduleDirName := module.ID
+	if strings.HasPrefix(moduleDirName, "apps.") {
+		moduleDirName = moduleDirName[5:]
+	}
+
+	var captured []CapturedRegistryValue
+	for _, ve := range module.Capture.RegistryValues {
+		valType, data, ok := readRegistryNamedValue(ve.Key, ve.ValueName)
+		if !ok {
+			if ve.Optional {
+				captured = append(captured, CapturedRegistryValue{
+					Key:       ve.Key,
+					ValueName: ve.ValueName,
+					Existed:   false,
+				})
+				continue
+			}
+			return nil, fmt.Errorf("registry value not found: %s\\%s (module: %s)", ve.Key, ve.ValueName, module.ID)
+		}
+		captured = append(captured, CapturedRegistryValue{
+			Key:       ve.Key,
+			ValueName: ve.ValueName,
+			ValueType: valType,
+			Data:      data,
+			Existed:   true,
+		})
+	}
+
+	if len(captured) == 0 {
+		return nil, nil
+	}
+
+	destPath := filepath.Join(stagingDir, "configs", moduleDirName, "registry-values.json")
+	relativePath := filepath.ToSlash(filepath.Join("configs", moduleDirName, "registry-values.json"))
+	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create directory %s: %w", filepath.Dir(destPath), err)
+	}
+	data, err := json.MarshalIndent(captured, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal captured registry values: %w", err)
+	}
+	if err := os.WriteFile(destPath, data, 0644); err != nil {
+		return nil, fmt.Errorf("failed to write %s: %w", destPath, err)
+	}
+
+	return []string{relativePath}, nil
+}
+
+// readRegistryNamedValue reads a single named value via `reg query <key> /v
+// <name>` and returns its REG_* type string and string-form data. ok is false
+// when the key or value is missing. Output format from reg.exe is:
+//
+//	    <ValueName>    <REG_TYPE>    <data>
+//
+// (whitespace-separated, with the data being the remainder of the line).
+func readRegistryNamedValue(key, valueName string) (regType, data string, ok bool) {
+	out, err := exec.Command("reg", "query", key, "/v", valueName).Output()
+	if err != nil {
+		return "", "", false
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		// Locate the REG_* token; everything before it is the (possibly
+		// space-containing) value name, everything after is the data.
+		for i, f := range fields {
+			if strings.HasPrefix(f, "REG_") {
+				if i == 0 {
+					break // no name before the type — not a value line
+				}
+				name := strings.Join(fields[:i], " ")
+				if !strings.EqualFold(name, valueName) {
+					break
+				}
+				regType = f
+				if i+1 < len(fields) {
+					data = strings.Join(fields[i+1:], " ")
+				}
+				// Normalize DWORD hex (0x...) to decimal for round-trip parity
+				// with registry-set's stored decimal form.
+				if regType == "REG_DWORD" {
+					if n, perr := strconv.ParseUint(strings.TrimPrefix(strings.ToLower(strings.TrimSpace(data)), "0x"), 16, 64); perr == nil {
+						data = strconv.FormatUint(n, 10)
+					}
+				}
+				return regType, data, true
+			}
+		}
+	}
+	return "", "", false
 }
 
 // matchesExcludeGlobs checks if a path matches any of the exclude glob patterns.

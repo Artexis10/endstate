@@ -17,6 +17,9 @@ import (
 )
 
 // RestoreAction describes a single restore operation to execute.
+//
+// For the value-level registry-set restore type, Source/Target are unused; the
+// operation is fully described by Key, ValueName, ValueType, and Data.
 type RestoreAction struct {
 	Type       string   `json:"type"`
 	Source     string   `json:"source"`
@@ -28,6 +31,13 @@ type RestoreAction struct {
 	Exclude    []string `json:"exclude,omitempty"`
 	ID         string   `json:"id"`
 	FromModule string   `json:"fromModule,omitempty"`
+
+	// registry-set fields (value-level Windows OS-settings ops). Key is an HKCU
+	// key path; ValueName/ValueType/Data describe the single named value to set.
+	Key       string `json:"key,omitempty"`
+	ValueName string `json:"valueName,omitempty"`
+	ValueType string `json:"valueType,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 // RestoreResult records the outcome of a single restore action.
@@ -155,6 +165,9 @@ func generateID(action RestoreAction) string {
 	if t == "delete-glob" {
 		return fmt.Sprintf("delete-glob:%s/%s", filepath.ToSlash(action.Target), action.Pattern)
 	}
+	if t == "registry-set" {
+		return fmt.Sprintf("registry-set:%s\\%s", action.Key, action.ValueName)
+	}
 	return fmt.Sprintf("%s:%s->%s", t, filepath.ToSlash(action.Source), filepath.ToSlash(action.Target))
 }
 
@@ -241,6 +254,29 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 			if result.Target == "" {
 				result.Target = entry.Target
 			}
+			emitRestoreItemEvent(emitter, entry, *result)
+			results = append(results, *result)
+			continue
+		}
+
+		// registry-set: value-level Windows OS-settings op. Key/ValueName/
+		// ValueType/Data describe a single named value; there is no file source
+		// or target path, so dispatch early to bypass file resolution.
+		if entry.Type == "registry-set" {
+			result, err := RestoreRegistrySet(entry, opts)
+			if err != nil {
+				r := RestoreResult{
+					ID:          id,
+					Target:      registrySetTarget(entry),
+					Status:      "failed",
+					Error:       err.Error(),
+					RestoreType: "registry-set",
+				}
+				emitRestoreItemEvent(emitter, entry, r)
+				results = append(results, r)
+				continue
+			}
+			result.ID = id
 			emitRestoreItemEvent(emitter, entry, *result)
 			results = append(results, *result)
 			continue

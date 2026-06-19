@@ -19,3 +19,15 @@ func CheckRegistryKeyExists(entry manifest.VerifyEntry) VerifyResult {
 		Message: "Registry checks only supported on Windows",
 	}
 }
+
+// CheckRegistryValueEquals is a stub for non-Windows platforms. Registry
+// value-data verification is only supported on Windows.
+func CheckRegistryValueEquals(entry manifest.VerifyEntry) VerifyResult {
+	return VerifyResult{
+		Type:      entry.Type,
+		Path:      entry.Path,
+		ValueName: entry.ValueName,
+		Pass:      false,
+		Message:   "Registry checks only supported on Windows",
+	}
+}

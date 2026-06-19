@@ -1,0 +1,48 @@
+{
+  // Config Module: Windows Explorer — Show File Extensions & Hidden Files
+  // Value-level Windows OS-settings tier (not a per-app module).
+  // Surfaces file extensions and hidden files by setting two HKCU DWORDs under
+  // the Explorer\Advanced key. Fully reversible.
+
+  "id": "windows-settings.explorer",
+  "displayName": "Windows Explorer (Show Extensions & Hidden Files)",
+  "sensitivity": "low",
+
+  "matches": {
+    "pathExists": ["%WINDIR%\\explorer.exe"]
+  },
+
+  "capture": {
+    "files": [],
+    "registryValues": [
+      { "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "HideFileExt", "optional": true },
+      { "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "Hidden", "optional": true }
+    ]
+  },
+
+  "restore": [
+    {
+      "type": "registry-set",
+      "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "valueName": "HideFileExt",
+      "valueType": "REG_DWORD",
+      "data": "0",
+      "reason": "Show file extensions in Explorer"
+    },
+    {
+      "type": "registry-set",
+      "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "valueName": "Hidden",
+      "valueType": "REG_DWORD",
+      "data": "1",
+      "reason": "Show hidden files and folders in Explorer"
+    }
+  ],
+
+  "verify": [
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "HideFileExt", "valueType": "REG_DWORD", "data": "0" },
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "Hidden", "valueType": "REG_DWORD", "data": "1" }
+  ],
+
+  "notes": "Explorer view prefs live under HKCU\\...\\Explorer\\Advanced: HideFileExt=0 shows extensions, Hidden=1 shows hidden files. Both REG_DWORD. Value-level (registry-set) so co-resident Advanced values (TaskbarAl, ShowSuperHidden, etc.) are never clobbered. HKCU-only; fully reversible. Note: a running Explorer may need a restart/refresh to reflect the change."
+}

@@ -169,9 +169,12 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 			restoreType = "copy"
 		}
 		var id string
-		if restoreType == "delete-glob" {
+		switch restoreType {
+		case "delete-glob":
 			id = fmt.Sprintf("delete-glob:%s/%s", filepath.ToSlash(e.Target), e.Pattern)
-		} else {
+		case "registry-set":
+			id = fmt.Sprintf("registry-set:%s\\%s", e.Key, e.ValueName)
+		default:
 			id = fmt.Sprintf("%s:%s->%s", restoreType, filepath.ToSlash(e.Source), filepath.ToSlash(e.Target))
 		}
 
@@ -186,6 +189,10 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 			Exclude:    e.Exclude,
 			ID:         id,
 			FromModule: e.FromModule,
+			Key:        e.Key,
+			ValueName:  e.ValueName,
+			ValueType:  e.ValueType,
+			Data:       e.Data,
 		}
 
 		// Apply filter: if filter is set, skip entries that don't match.

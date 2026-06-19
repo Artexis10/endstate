@@ -1,0 +1,38 @@
+{
+  // Config Module: Windows Taskbar — Left Alignment
+  // Value-level Windows OS-settings tier (not a per-app module).
+  // Sets the Windows 11 taskbar to left alignment via a single HKCU DWORD
+  // (TaskbarAl=0) under the Explorer\Advanced key. Fully reversible.
+
+  "id": "windows-settings.taskbar",
+  "displayName": "Windows Taskbar (Left Alignment)",
+  "sensitivity": "low",
+
+  "matches": {
+    "pathExists": ["%WINDIR%\\explorer.exe"]
+  },
+
+  "capture": {
+    "files": [],
+    "registryValues": [
+      { "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "TaskbarAl", "optional": true }
+    ]
+  },
+
+  "restore": [
+    {
+      "type": "registry-set",
+      "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced",
+      "valueName": "TaskbarAl",
+      "valueType": "REG_DWORD",
+      "data": "0",
+      "reason": "Align the Windows 11 taskbar to the left (0=left, 1=center)"
+    }
+  ],
+
+  "verify": [
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "TaskbarAl", "valueType": "REG_DWORD", "data": "0" }
+  ],
+
+  "notes": "Windows 11 taskbar alignment is HKCU\\...\\Explorer\\Advanced\\TaskbarAl (REG_DWORD): 0=left, 1=center (default). The value may be absent on a default install; restore creates it. Value-level (registry-set) so it never clobbers co-resident Advanced values. HKCU-only; fully reversible — revert deletes the value when it was absent before, otherwise restores the prior data."
+}

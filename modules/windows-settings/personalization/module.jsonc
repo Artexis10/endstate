@@ -1,0 +1,51 @@
+{
+  // Config Module: Windows Personalization — Dark Mode
+  // Value-level Windows OS-settings tier (not a per-app module).
+  // Enables dark mode for apps and the system UI by setting two HKCU DWORDs.
+  // Fully reversible: capture records the prior value; restore backs it up
+  // before overwriting; verify asserts the exact value data.
+
+  "id": "windows-settings.personalization",
+  "displayName": "Windows Personalization (Dark Mode)",
+  "sensitivity": "low",
+
+  "matches": {
+    // OS-settings modules always apply on Windows; key off a path that is
+    // guaranteed present rather than an installed app.
+    "pathExists": ["%WINDIR%\\explorer.exe"]
+  },
+
+  "capture": {
+    "files": [],
+    "registryValues": [
+      { "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "valueName": "AppsUseLightTheme", "optional": true },
+      { "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "valueName": "SystemUsesLightTheme", "optional": true }
+    ]
+  },
+
+  "restore": [
+    {
+      "type": "registry-set",
+      "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+      "valueName": "AppsUseLightTheme",
+      "valueType": "REG_DWORD",
+      "data": "0",
+      "reason": "Enable dark mode for apps"
+    },
+    {
+      "type": "registry-set",
+      "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
+      "valueName": "SystemUsesLightTheme",
+      "valueType": "REG_DWORD",
+      "data": "0",
+      "reason": "Enable dark mode for the system UI (taskbar, Start)"
+    }
+  ],
+
+  "verify": [
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "valueName": "AppsUseLightTheme", "valueType": "REG_DWORD", "data": "0" },
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "valueName": "SystemUsesLightTheme", "valueType": "REG_DWORD", "data": "0" }
+  ],
+
+  "notes": "Dark mode is controlled by HKCU\\...\\Themes\\Personalize: AppsUseLightTheme=0 (dark apps) and SystemUsesLightTheme=0 (dark system UI). Both are REG_DWORD. Value-level (registry-set), so co-resident values under the same key (e.g. ColorPrevalence, EnableTransparency) are never touched. HKCU-only; fully reversible."
+}

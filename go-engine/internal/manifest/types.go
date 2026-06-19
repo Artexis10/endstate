@@ -234,6 +234,9 @@ type ManualApp struct {
 }
 
 // RestoreEntry describes a single configuration restore operation.
+//
+// For the value-level registry-set restore type, Source/Target are unused; the
+// operation is fully described by Key, ValueName, ValueType, and Data.
 type RestoreEntry struct {
 	Type       string   `json:"type"`
 	Source     string   `json:"source"`
@@ -244,12 +247,24 @@ type RestoreEntry struct {
 	Optional   bool     `json:"optional,omitempty"`
 	Exclude    []string `json:"exclude,omitempty"`
 	FromModule string   `json:"fromModule,omitempty"`
+
+	// registry-set fields (value-level Windows OS-settings ops). Key is an HKCU
+	// key path; ValueName/ValueType/Data describe the single named value to set.
+	Key       string `json:"key,omitempty"`
+	ValueName string `json:"valueName,omitempty"`
+	ValueType string `json:"valueType,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
 
 // VerifyEntry describes a single state assertion.
+//
+// For the value-level registry-value-equals verify type, ValueType/Data carry
+// the expected named-value type and data to compare against.
 type VerifyEntry struct {
 	Type      string `json:"type"`
 	Command   string `json:"command,omitempty"`
 	Path      string `json:"path,omitempty"`
 	ValueName string `json:"valueName,omitempty"`
+	ValueType string `json:"valueType,omitempty"`
+	Data      string `json:"data,omitempty"`
 }
