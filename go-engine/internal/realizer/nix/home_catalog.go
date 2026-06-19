@@ -15,22 +15,217 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
+// fieldKind classifies the type of a curated concept's optional second field (the
+// one beyond the bare `.enable` toggle), so a single generic emit loop can render
+// every uniform concept from the curatedTable below.
+type fieldKind int
+
+const (
+	kindNone      fieldKind = iota // no second field (bare .enable toggle, e.g. fzf)
+	kindString                     // raw string → StableField = "..."   (e.g. tmux.extraConfig)
+	kindStringMap                  // map[string]string → attrset        (e.g. bat.config)
+	kindAnyMap                     // map[string]any → nested attrset     (e.g. gh.settings)
+	kindStringSlice                // []string → Nix list                 (e.g. eza.extraOptions)
+)
+
+// curatedProgram is one row of the data-driven catalog: a concept name (== the
+// home-manager `programs.<Name>` it owns), the STABLE second-field option the engine
+// targets (insulating the user from per-feature option renames), that field's kind,
+// and a getter that pulls (present, enable, secondField) off the settings struct.
+// Concepts whose shape is genuinely non-uniform (git's nested user/init, shell's
+// home.* mapping) are handled bespoke in CompileHomeNix and are NOT table rows.
+type curatedProgram struct {
+	Name        string    // home-manager programs.<Name>; also the curated/raw-overlap key
+	StableField string    // the rename-proof second option (e.g. "extraConfig", "settings"); "" ⇒ none
+	Kind        fieldKind // how to render the second field's value
+	get         func(s *manifest.HomeManagerSettings) (present, enable bool, second any)
+}
+
+// curatedTable is the single source of truth for every uniform curated concept.
+// Emission order here is the emission order in the generated home.nix (deterministic).
+// To add a program: add a typed field + struct in manifest/types.go and one row here.
+var curatedTable = []curatedProgram{
+	{"direnv", "", kindNone, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Direnv == nil {
+			return false, false, nil
+		}
+		return true, s.Direnv.Enable, nil
+	}},
+	{"starship", "", kindNone, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Starship == nil {
+			return false, false, nil
+		}
+		return true, s.Starship.Enable, nil
+	}},
+	{"fzf", "", kindNone, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Fzf == nil {
+			return false, false, nil
+		}
+		return true, s.Fzf.Enable, nil
+	}},
+	{"zoxide", "", kindNone, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Zoxide == nil {
+			return false, false, nil
+		}
+		return true, s.Zoxide.Enable, nil
+	}},
+	{"bat", "config", kindStringMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Bat == nil {
+			return false, false, nil
+		}
+		return true, s.Bat.Enable, s.Bat.Config
+	}},
+	{"tmux", "extraConfig", kindString, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Tmux == nil {
+			return false, false, nil
+		}
+		return true, s.Tmux.Enable, s.Tmux.ExtraConfig
+	}},
+	{"ssh", "extraConfig", kindString, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.SSH == nil {
+			return false, false, nil
+		}
+		return true, s.SSH.Enable, s.SSH.ExtraConfig
+	}},
+	{"eza", "extraOptions", kindStringSlice, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Eza == nil {
+			return false, false, nil
+		}
+		return true, s.Eza.Enable, s.Eza.ExtraOptions
+	}},
+	{"gh", "settings", kindAnyMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Gh == nil {
+			return false, false, nil
+		}
+		return true, s.Gh.Enable, s.Gh.Settings
+	}},
+	{"lazygit", "settings", kindAnyMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Lazygit == nil {
+			return false, false, nil
+		}
+		return true, s.Lazygit.Enable, s.Lazygit.Settings
+	}},
+	{"neovim", "extraConfig", kindString, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Neovim == nil {
+			return false, false, nil
+		}
+		return true, s.Neovim.Enable, s.Neovim.ExtraConfig
+	}},
+	// Dotfiles/CLI tier.
+	{"ripgrep", "arguments", kindStringSlice, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Ripgrep == nil {
+			return false, false, nil
+		}
+		return true, s.Ripgrep.Enable, s.Ripgrep.Arguments
+	}},
+	{"fd", "extraOptions", kindStringSlice, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Fd == nil {
+			return false, false, nil
+		}
+		return true, s.Fd.Enable, s.Fd.ExtraOptions
+	}},
+	{"zsh", "initContent", kindString, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Zsh == nil {
+			return false, false, nil
+		}
+		return true, s.Zsh.Enable, s.Zsh.InitContent
+	}},
+	{"bash", "initExtra", kindString, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Bash == nil {
+			return false, false, nil
+		}
+		return true, s.Bash.Enable, s.Bash.InitExtra
+	}},
+	{"helix", "settings", kindAnyMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Helix == nil {
+			return false, false, nil
+		}
+		return true, s.Helix.Enable, s.Helix.Settings
+	}},
+	{"kitty", "settings", kindAnyMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Kitty == nil {
+			return false, false, nil
+		}
+		return true, s.Kitty.Enable, s.Kitty.Settings
+	}},
+	{"alacritty", "settings", kindAnyMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Alacritty == nil {
+			return false, false, nil
+		}
+		return true, s.Alacritty.Enable, s.Alacritty.Settings
+	}},
+	{"wezterm", "extraConfig", kindString, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Wezterm == nil {
+			return false, false, nil
+		}
+		return true, s.Wezterm.Enable, s.Wezterm.ExtraConfig
+	}},
+	{"jujutsu", "settings", kindAnyMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Jujutsu == nil {
+			return false, false, nil
+		}
+		return true, s.Jujutsu.Enable, s.Jujutsu.Settings
+	}},
+	{"atuin", "settings", kindAnyMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Atuin == nil {
+			return false, false, nil
+		}
+		return true, s.Atuin.Enable, s.Atuin.Settings
+	}},
+	{"yazi", "settings", kindAnyMap, func(s *manifest.HomeManagerSettings) (bool, bool, any) {
+		if s.Yazi == nil {
+			return false, false, nil
+		}
+		return true, s.Yazi.Enable, s.Yazi.Settings
+	}},
+}
+
 // curatedPrograms maps each curated concept that owns a home-manager `programs.*`
-// entry to that program name, so a raw `programs` passthrough cannot also target
-// it (a double definition Nix would reject).
-var curatedPrograms = map[string]bool{
-	"git":      true,
-	"direnv":   true,
-	"starship": true,
-	"fzf":      true,
-	"zoxide":   true,
-	"bat":      true,
-	"tmux":     true,
-	"ssh":      true,
-	"eza":      true,
-	"gh":       true,
-	"lazygit":  true,
-	"neovim":   true,
+// entry to that program name, so a raw `programs` passthrough cannot also target it
+// (a double definition Nix would reject). Derived from curatedTable plus the bespoke
+// program-owning concept `git` (shell maps to home.*, not a programs.* entry).
+var curatedPrograms = buildCuratedPrograms()
+
+func buildCuratedPrograms() map[string]bool {
+	m := map[string]bool{"git": true}
+	for _, c := range curatedTable {
+		m[c.Name] = true
+	}
+	return m
+}
+
+// secondFieldEmpty reports whether a curated concept's optional second field carries
+// no value (so the engine omits the second statement and emits only `.enable`).
+func secondFieldEmpty(kind fieldKind, v any) bool {
+	switch kind {
+	case kindNone:
+		return true
+	case kindString:
+		return v.(string) == ""
+	case kindStringMap:
+		return len(v.(map[string]string)) == 0
+	case kindAnyMap:
+		return len(v.(map[string]any)) == 0
+	case kindStringSlice:
+		return len(v.([]string)) == 0
+	}
+	return true
+}
+
+// renderSecondField renders a curated concept's second-field value as a Nix expression
+// (mirrors the per-kind handling the per-concept blocks used before the table existed).
+func renderSecondField(kind fieldKind, v any) string {
+	switch kind {
+	case kindString:
+		return nixValue(v.(string))
+	case kindStringMap:
+		return nixValue(stringMapToAny(v.(map[string]string)))
+	case kindAnyMap:
+		return nixValue(v.(map[string]any))
+	case kindStringSlice:
+		return nixValue(stringSliceToAny(v.([]string)))
+	}
+	return ""
 }
 
 // GenerateHomeFlakeFromSettings compiles a declarative catalog (settings) into a
@@ -85,7 +280,8 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 		}
 	}
 
-	// shell → shell-agnostic home.* options.
+	// shell → shell-agnostic home.* options (bespoke: maps to home.*, not a
+	// programs.<name> entry, so it is not a curatedTable row).
 	if s.Shell != nil {
 		if len(s.Shell.Aliases) > 0 {
 			stmts = append(stmts, "home.shellAliases = "+nixValue(stringMapToAny(s.Shell.Aliases))+";")
@@ -95,79 +291,19 @@ func CompileHomeNix(s *manifest.HomeManagerSettings, manifestDir string) ([]byte
 		}
 	}
 
-	if s.Direnv != nil {
-		stmts = append(stmts, "programs.direnv.enable = "+nixValue(s.Direnv.Enable)+";")
-	}
-	if s.Starship != nil {
-		stmts = append(stmts, "programs.starship.enable = "+nixValue(s.Starship.Enable)+";")
-	}
-	if s.Fzf != nil {
-		stmts = append(stmts, "programs.fzf.enable = "+nixValue(s.Fzf.Enable)+";")
-	}
-	if s.Zoxide != nil {
-		stmts = append(stmts, "programs.zoxide.enable = "+nixValue(s.Zoxide.Enable)+";")
-	}
-
-	// bat → enable + the STABLE programs.bat.config attrset (key→value forwarded
-	// verbatim, sorted for determinism).
-	if s.Bat != nil {
-		stmts = append(stmts, "programs.bat.enable = "+nixValue(s.Bat.Enable)+";")
-		if len(s.Bat.Config) > 0 {
-			stmts = append(stmts, "programs.bat.config = "+nixValue(stringMapToAny(s.Bat.Config))+";")
+	// Every uniform curated concept: emit `programs.<name>.enable` (explicit even when
+	// false, so the user can pin a program off) and, when the optional second field
+	// carries a value, the STABLE second option it maps to (insulating the user from
+	// home-manager per-feature option renames). Driven entirely by curatedTable —
+	// adding a program is one struct + one table row, no new emit branch.
+	for _, c := range curatedTable {
+		present, enable, second := c.get(s)
+		if !present {
+			continue
 		}
-	}
-
-	// tmux → enable + the STABLE programs.tmux.extraConfig (raw tmux.conf string —
-	// insulates the user from home-manager tmux option renames).
-	if s.Tmux != nil {
-		stmts = append(stmts, "programs.tmux.enable = "+nixValue(s.Tmux.Enable)+";")
-		if s.Tmux.ExtraConfig != "" {
-			stmts = append(stmts, "programs.tmux.extraConfig = "+nixValue(s.Tmux.ExtraConfig)+";")
-		}
-	}
-
-	// ssh → enable + the STABLE programs.ssh.extraConfig (raw ssh config string —
-	// insulates the user from home-manager ssh option renames).
-	if s.SSH != nil {
-		stmts = append(stmts, "programs.ssh.enable = "+nixValue(s.SSH.Enable)+";")
-		if s.SSH.ExtraConfig != "" {
-			stmts = append(stmts, "programs.ssh.extraConfig = "+nixValue(s.SSH.ExtraConfig)+";")
-		}
-	}
-
-	// eza → enable + the STABLE programs.eza.extraOptions ([]string of CLI flags —
-	// insulates the user from home-manager eza option renames).
-	if s.Eza != nil {
-		stmts = append(stmts, "programs.eza.enable = "+nixValue(s.Eza.Enable)+";")
-		if len(s.Eza.ExtraOptions) > 0 {
-			stmts = append(stmts, "programs.eza.extraOptions = "+nixValue(stringSliceToAny(s.Eza.ExtraOptions))+";")
-		}
-	}
-
-	// gh → enable + the STABLE programs.gh.settings (raw attrset forwarded verbatim —
-	// gh's own config key namespace, insulates from home-manager option renames).
-	if s.Gh != nil {
-		stmts = append(stmts, "programs.gh.enable = "+nixValue(s.Gh.Enable)+";")
-		if len(s.Gh.Settings) > 0 {
-			stmts = append(stmts, "programs.gh.settings = "+nixValue(s.Gh.Settings)+";")
-		}
-	}
-
-	// lazygit → enable + the STABLE programs.lazygit.settings (raw attrset forwarded
-	// verbatim — lazygit's own config structure, insulates from option renames).
-	if s.Lazygit != nil {
-		stmts = append(stmts, "programs.lazygit.enable = "+nixValue(s.Lazygit.Enable)+";")
-		if len(s.Lazygit.Settings) > 0 {
-			stmts = append(stmts, "programs.lazygit.settings = "+nixValue(s.Lazygit.Settings)+";")
-		}
-	}
-
-	// neovim → enable + the STABLE programs.neovim.extraConfig (raw vimscript/lua string —
-	// insulates the user from home-manager neovim option renames).
-	if s.Neovim != nil {
-		stmts = append(stmts, "programs.neovim.enable = "+nixValue(s.Neovim.Enable)+";")
-		if s.Neovim.ExtraConfig != "" {
-			stmts = append(stmts, "programs.neovim.extraConfig = "+nixValue(s.Neovim.ExtraConfig)+";")
+		stmts = append(stmts, "programs."+c.Name+".enable = "+nixValue(enable)+";")
+		if c.StableField != "" && !secondFieldEmpty(c.Kind, second) {
+			stmts = append(stmts, "programs."+c.Name+"."+c.StableField+" = "+renderSecondField(c.Kind, second)+";")
 		}
 	}
 

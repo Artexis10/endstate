@@ -115,6 +115,21 @@ type HomeManagerSettings struct {
 	Gh       *GhSettings       `json:"gh,omitempty"`
 	Lazygit  *LazygitSettings  `json:"lazygit,omitempty"`
 	Neovim   *NeovimSettings   `json:"neovim,omitempty"`
+
+	// Dotfiles/CLI tier — each maps to a stable home-manager programs.<name> surface
+	// (see home_catalog.go curatedTable). Same DisallowUnknownFields typo-rejection.
+	Ripgrep   *RipgrepSettings   `json:"ripgrep,omitempty"`
+	Fd        *FdSettings        `json:"fd,omitempty"`
+	Zsh       *ZshSettings       `json:"zsh,omitempty"`
+	Bash      *BashSettings      `json:"bash,omitempty"`
+	Helix     *HelixSettings     `json:"helix,omitempty"`
+	Kitty     *KittySettings     `json:"kitty,omitempty"`
+	Alacritty *AlacrittySettings `json:"alacritty,omitempty"`
+	Wezterm   *WeztermSettings   `json:"wezterm,omitempty"`
+	Jujutsu   *JujutsuSettings   `json:"jujutsu,omitempty"`
+	Atuin     *AtuinSettings     `json:"atuin,omitempty"`
+	Yazi      *YaziSettings      `json:"yazi,omitempty"`
+
 	Programs map[string]any    `json:"programs,omitempty"` // raw home-manager passthrough
 	Files    map[string]string `json:"files,omitempty"`    // target path -> source path (relative to manifest)
 }
@@ -211,6 +226,85 @@ type LazygitSettings struct {
 type NeovimSettings struct {
 	Enable      bool   `json:"enable,omitempty"`
 	ExtraConfig string `json:"extraConfig,omitempty"`
+}
+
+// RipgrepSettings → programs.ripgrep.enable + programs.ripgrep.arguments, a []string of
+// raw ripgrep CLI flags (e.g. ["--smart-case","--hidden"]) home-manager writes to the
+// ripgreprc. The flag namespace is ripgrep's own — stable across home-manager renames.
+type RipgrepSettings struct {
+	Enable    bool     `json:"enable,omitempty"`
+	Arguments []string `json:"arguments,omitempty"`
+}
+
+// FdSettings → programs.fd.enable + programs.fd.extraOptions, a []string of raw fd CLI
+// flags (e.g. ["--hidden","--no-ignore"]). fd's own flag namespace — stable surface.
+type FdSettings struct {
+	Enable       bool     `json:"enable,omitempty"`
+	ExtraOptions []string `json:"extraOptions,omitempty"`
+}
+
+// ZshSettings → programs.zsh.enable + programs.zsh.initContent, the raw .zshrc body.
+// initContent is the consolidated, stable init surface (the older initExtra/initExtraFirst
+// options fold into it), insulating the user from home-manager zsh option renames.
+type ZshSettings struct {
+	Enable      bool   `json:"enable,omitempty"`
+	InitContent string `json:"initContent,omitempty"`
+}
+
+// BashSettings → programs.bash.enable + programs.bash.initExtra, the raw .bashrc body —
+// the long-stable bash init surface that insulates the user from home-manager renames.
+type BashSettings struct {
+	Enable    bool   `json:"enable,omitempty"`
+	InitExtra string `json:"initExtra,omitempty"`
+}
+
+// HelixSettings → programs.helix.enable + programs.helix.settings, a raw attrset forwarded
+// verbatim to helix's config.toml — helix's own config namespace, the stable surface.
+type HelixSettings struct {
+	Enable   bool           `json:"enable,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
+}
+
+// KittySettings → programs.kitty.enable + programs.kitty.settings, a raw attrset forwarded
+// verbatim to kitty.conf — kitty's own config-key namespace, the stable surface.
+type KittySettings struct {
+	Enable   bool           `json:"enable,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
+}
+
+// AlacrittySettings → programs.alacritty.enable + programs.alacritty.settings, a raw attrset
+// forwarded verbatim to alacritty.toml — alacritty's own config structure, the stable surface.
+type AlacrittySettings struct {
+	Enable   bool           `json:"enable,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
+}
+
+// WeztermSettings → programs.wezterm.enable + programs.wezterm.extraConfig, the raw Lua
+// config string — the stable surface that insulates the user from home-manager renames.
+type WeztermSettings struct {
+	Enable      bool   `json:"enable,omitempty"`
+	ExtraConfig string `json:"extraConfig,omitempty"`
+}
+
+// JujutsuSettings → programs.jujutsu.enable + programs.jujutsu.settings, a raw attrset
+// forwarded verbatim to jj's config.toml — jujutsu's own config namespace, the stable surface.
+type JujutsuSettings struct {
+	Enable   bool           `json:"enable,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
+}
+
+// AtuinSettings → programs.atuin.enable + programs.atuin.settings, a raw attrset forwarded
+// verbatim to atuin's config.toml — atuin's own config namespace, the stable surface.
+type AtuinSettings struct {
+	Enable   bool           `json:"enable,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
+}
+
+// YaziSettings → programs.yazi.enable + programs.yazi.settings, a raw attrset forwarded
+// verbatim to yazi's yazi.toml — yazi's own config namespace, the stable surface.
+type YaziSettings struct {
+	Enable   bool           `json:"enable,omitempty"`
+	Settings map[string]any `json:"settings,omitempty"`
 }
 
 // App represents a single application entry in the manifest. The Refs map
