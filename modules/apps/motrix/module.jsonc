@@ -1,0 +1,61 @@
+{
+  // Config Module: Motrix
+  // Provides verify/capture configuration for Motrix (Electron-based download manager)
+  // Capture-only module - no shipped payload; restore[] is empty
+
+  "id": "apps.motrix",
+  "displayName": "Motrix",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["agalwood.Motrix"],
+    "exe": ["Motrix.exe"],
+    "uninstallDisplayName": ["^Motrix\\b"]
+  },
+
+  "verify": [
+    // preferences.json is written on first launch; confirms the app has run at least once
+    { "type": "file-exists", "path": "%APPDATA%\\Motrix\\preferences.json" }
+  ],
+
+  // Capture-only: no payload is shipped with this module, so restore is empty.
+  // Run a capture pass first to populate payload/apps/motrix/ before restoring.
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Primary user preferences (download directory, concurrency, UI language, proxy, appearance)
+      { "source": "%APPDATA%\\Motrix\\preferences.json", "dest": "apps/motrix/preferences.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Application log files - large, runtime-only
+      "**\\logs\\**",
+      "**\\*.log",
+      // Electron session / GPU cache - binary, machine-specific
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Code Cache\\**",
+      "**\\Session Storage\\**",
+      "**\\Local Storage\\**",
+      "**\\IndexedDB\\**",
+      "**\\blob_storage\\**",
+      // Download session / resume state - runtime, machine-specific
+      "**\\*.session",
+      "**\\*.aria2",
+      // Crash reports
+      "**\\Crashpad\\**",
+      "**\\crash-dumps\\**",
+      // Lock files
+      "**\\*.lock",
+      "**\\SingletonLock"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "warning": "Motrix relays downloads through aria2c; if a proxy with credentials or tracker auth tokens are embedded in preferences.json, review the file before sharing. No standalone credential store is written to %APPDATA%\\Motrix\\.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Motrix user preferences (preferences.json) from %APPDATA%\\Motrix\\. Excludes Electron runtime caches, logs, session/resume state, and crash reports. Confidence: high - Motrix uses electron-store which defaults to app.getPath('userData') = %APPDATA%\\Motrix\\ on Windows."
+}

@@ -1,0 +1,67 @@
+{
+  // Config Module: Serato DJ
+  // Provides verify/capture configuration for Serato DJ Pro (DJ software)
+  // Capture-only module - no shipped payload; restore is empty by design
+
+  "id": "apps.serato-dj",
+  "displayName": "Serato DJ",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Serato.SeratoDJPro"],
+    "exe": ["Serato DJ Pro.exe", "SeratoDJPro.exe"],
+    "uninstallDisplayName": ["^Serato DJ Pro"]
+  },
+
+  "verify": [
+    // Serato writes its primary settings folder here after first launch
+    { "type": "file-exists", "path": "%APPDATA%\\Serato\\Serato DJ Pro\\settings.xml" }
+  ],
+
+  // Capture-only: no payload shipped, restore is intentionally empty
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Application preferences and settings
+      { "source": "%APPDATA%\\Serato\\Serato DJ Pro", "dest": "apps/serato-dj/Serato DJ Pro", "optional": true },
+
+      // _Serato_ folder under Music: crates, cue points, waveform data, smart crates
+      // NOTE: This folder can be very large if waveform overview data is present;
+      // cache sub-folders are excluded via excludeGlobs below.
+      { "source": "%USERPROFILE%\\Music\\_Serato_", "dest": "apps/serato-dj/_Serato_", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Waveform cache (large binary blobs, rebuilt on analysis)
+      "**\\_Serato_\\PlugIns\\**",
+      "**\\_Serato_\\BPMCache\\**",
+      "**\\_Serato_\\Waveforms\\**",
+      "**\\_Serato_\\Soundswitch\\**",
+      // Crash and diagnostic logs
+      "**\\Logs\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      "**\\*.dmp",
+      // Temporary and lock files
+      "**\\*.tmp",
+      "**\\*.lock",
+      // Serato DJ scratch/temp recordings
+      "**\\Recording\\**",
+      "**\\Recordings\\**"
+    ]
+  },
+
+  "secrets": {
+    // Serato license tokens and activation data must never be auto-restored;
+    // they are machine-bound and restoring them on a different machine breaks activation.
+    "files": [
+      "%APPDATA%\\Serato\\Serato DJ Pro\\license*",
+      "%APPDATA%\\Serato\\Serato DJ Pro\\activation*",
+      "%APPDATA%\\Serato\\Serato DJ Pro\\*.lic"
+    ],
+    "warning": "Serato DJ Pro license and activation files are machine-bound and MUST NOT be captured or restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Serato DJ Pro application settings (%APPDATA%\\Serato\\Serato DJ Pro) and the _Serato_ library metadata folder (%USERPROFILE%\\Music\\_Serato_) including crates, cue points, and smart crates. Waveform/BPM cache excluded (large, rebuilt on analysis). License files blocked from restore (machine-bound). Confidence: medium — folder layout confirmed from Serato documentation; exact settings.xml name may vary by minor version."
+}

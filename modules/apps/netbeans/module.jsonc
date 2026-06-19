@@ -1,0 +1,67 @@
+{
+  // Config Module: Apache NetBeans
+  // Provides verify/capture configuration for Apache NetBeans IDE
+  // Capture-only module - no shipped payload; restore array is empty.
+  // NetBeans stores per-user config under %APPDATA%\NetBeans\<version>\config
+  // which contains: editor options, keymaps, window layouts, code templates,
+  // formatting settings, themes, and user-defined build targets.
+
+  "id": "apps.netbeans",
+  "displayName": "Apache NetBeans",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Apache.NetBeans"],
+    "exe": ["netbeans64.exe", "netbeans.exe"],
+    "uninstallDisplayName": ["^Apache NetBeans"]
+  },
+
+  "verify": [
+    // NetBeans writes this file on first launch; its presence confirms a configured install.
+    { "type": "file-exists", "path": "%APPDATA%\\NetBeans" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Full config tree under the versioned folder; wildcard matches the active version.
+      {
+        "source": "%APPDATA%\\NetBeans",
+        "dest": "apps/netbeans/NetBeans",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // Caches and index data - large and fully regenerable
+      "**\\var\\cache\\**",
+      "**\\var\\log\\**",
+      "**\\var\\run\\**",
+      "**\\index\\**",
+      // Lock and temp files left by a running IDE
+      "**\\*.lock",
+      "**\\*.lck",
+      "**\\*.tmp",
+      // Per-session and crash-report artifacts
+      "**\\*.log",
+      "**\\crash\\**",
+      // Local history and recent-files tracking (machine-specific)
+      "**\\localhistory\\**",
+      "**\\recent-file-list\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // NetBeans can persist VCS (Git/SVN/Mercurial) credentials and proxy
+      // passwords inside the keyring/security store within the config tree.
+      "%APPDATA%\\NetBeans\\*\\config\\Preferences\\org\\netbeans\\modules\\keyring",
+      "%APPDATA%\\NetBeans\\*\\config\\Preferences\\org\\netbeans\\modules\\subversion",
+      "%APPDATA%\\NetBeans\\*\\config\\Preferences\\org\\netbeans\\modules\\git"
+    ],
+    "warning": "NetBeans keyring and VCS credential stores may contain passwords and access tokens. These MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Apache NetBeans IDE user settings from %APPDATA%\\NetBeans\\<version>\\config (editor options, keymaps, window layouts, code templates, formatting, themes). Version folder matched with wildcard. Caches (var/cache, index), logs, lock files, crash reports, and local history are excluded. VCS credential stores (keyring, subversion, git preference nodes) are flagged as secrets. Confidence: medium - config root path confirmed by NetBeans wiki and community sources; internal subfolder layout inferred from NetBeans Platform Filesystem API conventions."
+}

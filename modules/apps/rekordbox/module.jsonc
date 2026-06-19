@@ -1,0 +1,75 @@
+{
+  // Config Module: rekordbox
+  // Provides verify/capture configuration for rekordbox (DJ library and performance software by AlphaTheta/Pioneer DJ)
+  // Settings live under %APPDATA%\Pioneer\rekordbox
+  // Capture-only module — no shipped payload; restore[] is intentionally empty.
+
+  "id": "apps.rekordbox",
+  "displayName": "rekordbox",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["AlphaTheta.rekordbox"],
+    "exe": ["rekordbox.exe"],
+    "uninstallDisplayName": ["^rekordbox"]
+  },
+
+  "verify": [
+    // Confirm the user settings file has been created by a first run
+    { "type": "file-exists", "path": "%APPDATA%\\Pioneer\\rekordbox\\options.xml" }
+  ],
+
+  // Capture-only: no payload shipped, so restore list is empty.
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Main user preferences (UI layout, audio device, deck settings, mixer, performance pads)
+      { "source": "%APPDATA%\\Pioneer\\rekordbox\\options.xml", "dest": "apps/rekordbox/options.xml", "optional": true },
+      // Shortcut/hotkey mappings
+      { "source": "%APPDATA%\\Pioneer\\rekordbox\\shortcut.xml", "dest": "apps/rekordbox/shortcut.xml", "optional": true },
+      // DJ controller/MIDI device mappings stored as XML per device
+      { "source": "%APPDATA%\\Pioneer\\rekordbox\\device", "dest": "apps/rekordbox/device", "optional": true },
+      // Hot cue / memory cue colors and related UI state
+      { "source": "%APPDATA%\\Pioneer\\rekordbox\\setting.xml", "dest": "apps/rekordbox/setting.xml", "optional": true },
+      // Custom MyTag label definitions
+      { "source": "%APPDATA%\\Pioneer\\rekordbox\\MyTag", "dest": "apps/rekordbox/MyTag", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Application logs
+      "**\\logs\\**",
+      "**\\log\\**",
+      "**\\*.log",
+      // Cache and waveform analysis data (rebuilt automatically)
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\Waveform\\**",
+      "**\\waveform\\**",
+      "**\\Artwork\\**",
+      "**\\artwork\\**",
+      // Temporary and lock files
+      "**\\*.tmp",
+      "**\\*.lock",
+      "**\\Temp\\**",
+      // Crash/dump reports
+      "**\\CrashReport\\**",
+      "**\\crash_report\\**",
+      // rekordbox library database (large, machine-specific absolute paths — re-import on new machine)
+      "**\\master.db",
+      "**\\master.db-*",
+      "**\\*.db",
+      "**\\*.db-shm",
+      "**\\*.db-wal"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\Pioneer\\rekordbox\\license"
+    ],
+    "warning": "Any license or activation data stored under %APPDATA%\\Pioneer\\rekordbox\\license MUST NOT be auto-restored; license entitlements are account-bound and re-activated via the AlphaTheta account portal after install.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures rekordbox user preferences from %APPDATA%\\Pioneer\\rekordbox: options.xml (UI/audio/deck/mixer settings), shortcut.xml (hotkeys), device\\ (controller/MIDI mappings), setting.xml (cue colors/UI state), and MyTag\\ (custom label definitions). Excludes the master.db library database (large, contains machine-specific absolute track paths — must be re-imported), waveform/artwork caches, logs, and any license blobs. Confidence: medium — paths inferred from known rekordbox Windows data layout and community-documented backup procedures; options.xml and device\\ mappings are the highest-value portable artifacts."
+}

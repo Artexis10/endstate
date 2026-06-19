@@ -1,0 +1,51 @@
+{
+  // Config Module: Waveform
+  // Provides verify/restore/capture configuration for Tracktion Waveform (DAW)
+  // Capture-only module - no shipped payload; restore array is empty
+
+  "id": "apps.waveform",
+  "displayName": "Waveform",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Tracktion.Waveform"],
+    "exe": ["Waveform.exe"],
+    "uninstallDisplayName": ["^Waveform\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Tracktion\\Waveform" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      {
+        "source": "%APPDATA%\\Tracktion\\Waveform",
+        "dest": "apps/waveform/Waveform",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\CachedFiles\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.lock",
+      "**\\CrashReports\\**",
+      "**\\Temp\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\Tracktion\\Waveform\\licence.dat",
+      "%APPDATA%\\Tracktion\\Waveform\\*.lic"
+    ],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Waveform DAW preferences and project templates from %APPDATA%\\Tracktion\\Waveform. License files excluded from auto-restore. Confidence: medium (path inferred from vendor convention; no first-party confirmation)."
+}

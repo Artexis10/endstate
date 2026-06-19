@@ -1,0 +1,68 @@
+{
+  // Config Module: RedisInsight
+  // Provides verify/capture configuration for RedisInsight (Redis GUI client by Redis Ltd.)
+  // CAPTURE-ONLY: no shipped payload; restore array is empty by design.
+  // The primary data store (redisinsight.db) is a SQLite file that holds connection
+  // definitions, Redis AUTH passwords, TLS certificates, and cloud API keys — it is
+  // machine-tied and credential-bearing and MUST NOT be auto-restored.
+
+  "id": "apps.redisinsight",
+  "displayName": "RedisInsight",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Redis.RedisInsight"],
+    "exe": ["RedisInsight.exe"],
+    "uninstallDisplayName": ["^RedisInsight"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\RedisInsight\\redisinsight.db" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // RedisInsight stores all application data (connections, settings, workbench history)
+      // in a single SQLite database. Only the database file itself lives here; the rest
+      // of the directory is Electron runtime state and logs.
+      // NOTE: redisinsight.db is listed to make it discoverable during capture audits,
+      // but the secrets block below marks it warn-only so it is never blindly restored.
+      { "source": "%APPDATA%\\RedisInsight\\redisinsight.db", "dest": "apps/redisinsight/redisinsight.db", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Electron / Chromium runtime caches
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\DawnGraphiteCache\\**",
+      "**\\DawnWebGPUCache\\**",
+      // Crash reporting and diagnostics
+      "**\\Crashpad\\**",
+      "**\\crash-reports\\**",
+      // Logs
+      "**\\logs\\**",
+      "**\\*.log",
+      // Session / local storage (Electron window state, not user config)
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Network\\**",
+      "**\\blob_storage\\**",
+      // Lock files and temp artifacts
+      "**\\*.lock",
+      "**\\*.tmp"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\RedisInsight\\redisinsight.db"
+    ],
+    "warning": "redisinsight.db is a SQLite database that stores Redis connection definitions including AUTH passwords, TLS private keys, and Redis Cloud API credentials. It MUST NOT be auto-restored; re-create connections on the target machine after install.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Capture-only module for RedisInsight. Settings and connections live in a single SQLite file (%APPDATA%\\RedisInsight\\redisinsight.db); no separate portable config file exists. The database is credential-bearing (AUTH passwords, TLS keys, cloud API tokens) and blocked from auto-restore. Confidence: medium — path confirmed via RedisInsight v2 docs; SQLite-only storage model means there is nothing safe to ship as a payload."
+}

@@ -1,0 +1,52 @@
+{
+  // Config Module: Cobian Reflector
+  // Backup scheduler / task runner — captures task definitions and app preferences only.
+  // No winget package ID exists; matched by executable name and uninstall display name.
+
+  "id": "apps.cobian-reflector",
+  "displayName": "Cobian Reflector",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["Reflector.exe", "CobianReflector.exe"],
+    "uninstallDisplayName": ["^Cobian Reflector"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\CobianSoft\\Cobian Reflector" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      {
+        "source": "%APPDATA%\\CobianSoft\\Cobian Reflector",
+        "dest": "apps/cobian-reflector/Cobian Reflector",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\Logs\\**",
+      "**\\Log\\**",
+      "**\\*.log",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.tmp",
+      "**\\*.lock",
+      "**\\*.bak"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\CobianSoft\\Cobian Reflector\\*.xml",
+      "%APPDATA%\\CobianSoft\\Cobian Reflector\\*.ini"
+    ],
+    "warning": "Cobian Reflector task definition files (XML/INI) may embed destination credentials (FTP passwords, remote-path auth tokens). Review captured files before restoring on a new machine; do not auto-restore without inspection.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Cobian Reflector task definitions and preferences from %APPDATA%\\CobianSoft\\Cobian Reflector. Logs and temp files excluded. Task XML files may contain plaintext destination credentials — restorer set to warn-only. Confidence: medium — config path confirmed by community sources; no official docs available."
+}

@@ -1,0 +1,40 @@
+{
+  // Config Module: OpenSCAD
+  // Programmable solid 3D CAD modeller - captures settings and user libraries
+
+  "id": "apps.openscad",
+  "displayName": "OpenSCAD",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["OpenSCAD.OpenSCAD"],
+    "exe": ["openscad.exe"],
+    "uninstallDisplayName": ["^OpenSCAD"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\OpenSCAD\\openscad.json" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\OpenSCAD\\openscad.json", "dest": "apps/openscad/openscad.json", "optional": true },
+      { "source": "%APPDATA%\\OpenSCAD\\libraries", "dest": "apps/openscad/libraries", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\cache\\**",
+      "**\\*.log",
+      "**\\tmp\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures OpenSCAD application settings (openscad.json) and user-managed libraries under %APPDATA%\\OpenSCAD. Capture-only; no shipped payload. Confidence: medium — settings filename inferred from known OpenSCAD Windows config layout."
+}

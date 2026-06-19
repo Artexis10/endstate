@@ -1,0 +1,52 @@
+{
+  // Config Module: RealVNC Viewer
+  // All user preferences live in the Windows registry under HKCU\Software\RealVNC\vncviewer
+  // configType: registry (HKCU-only)
+  // Capture-only module — no shipped payload; restore[] is empty until a capture is taken
+
+  "id": "apps.realvnc-viewer",
+  "displayName": "RealVNC Viewer",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["RealVNC.VNCViewer"],
+    "exe": ["vncviewer.exe"],
+    "uninstallDisplayName": ["^VNC Viewer", "^RealVNC Viewer"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\RealVNC\\vncviewer" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      {
+        "key": "HKCU\\Software\\RealVNC\\vncviewer",
+        "dest": "apps/realvnc-viewer/vncviewer.reg",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // Cached session thumbnails and any transient lock files
+      "**\\Cache\\**",
+      "**\\*.lock",
+      "**\\*.log"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // Saved per-connection passwords are stored encrypted in the registry alongside connection
+      // entries — they must not be auto-restored because the encryption key is machine-bound
+      "HKCU\\Software\\RealVNC\\vncviewer\\*\\Password",
+      "HKCU\\Software\\RealVNC\\vncviewer\\*\\EncryptedPassword"
+    ],
+    "warning": "RealVNC Viewer stores per-connection saved passwords as encrypted registry values (Password / EncryptedPassword). The encryption is machine-bound; restoring these values on a different machine renders them unusable or, in some VNC implementations, silently insecure. Do not auto-restore saved credentials — reconnect and re-save passwords after a rebuild.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures RealVNC Viewer preferences from HKCU\\Software\\RealVNC\\vncviewer (connection book entries, UI/display options, protocol tweaks). Saved per-connection passwords are documented in secrets and excluded from restore. HKCU-only capture; sensitivity medium because the connection book may reference internal hostnames. Confidence: medium — registry path confirmed from public RealVNC documentation and community reports."
+}

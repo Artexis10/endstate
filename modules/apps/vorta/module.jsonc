@@ -1,0 +1,64 @@
+{
+  // Config Module: Vorta
+  // GUI frontend for BorgBackup. Settings live in a single SQLite database at
+  // %LOCALAPPDATA%\Vorta\settings.db (Windows). The same database inseparably
+  // stores repository passphrases alongside general preferences (theme, schedule
+  // display, notification settings), so the DB is listed under secrets with
+  // warn-only to prevent accidental auto-restore of credential material.
+  // This module is capture-only; no payload is shipped.
+
+  "id": "apps.vorta",
+  "displayName": "Vorta",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["BorgBase.Vorta"],
+    "exe": ["vorta.exe"],
+    "uninstallDisplayName": ["^Vorta\\b"]
+  },
+
+  "verify": [
+    // Vorta creates settings.db under %LOCALAPPDATA%\Vorta on first launch.
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Vorta\\settings.db" }
+  ],
+
+  // Capture-only: no payload shipped, so restore is intentionally empty.
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // settings.db holds all user preferences. It also embeds repository
+      // passphrases; see the secrets block. Marked optional so capture
+      // does not fail on machines where Vorta has never been launched.
+      {
+        "source": "%LOCALAPPDATA%\\Vorta\\settings.db",
+        "dest": "apps/vorta/settings.db",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // SQLite write-ahead log and shared-memory sidecar files — transient,
+      // not meaningful outside an active Vorta session.
+      "**\\*.db-wal",
+      "**\\*.db-shm",
+      // Lock files
+      "**\\*.lock",
+      // Log output
+      "**\\*.log",
+      "**\\logs\\**",
+      // Any cache directories Vorta or its Qt runtime may write
+      "**\\Cache\\**",
+      "**\\cache\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%LOCALAPPDATA%\\Vorta\\settings.db"
+    ],
+    "warning": "Vorta's settings.db stores BorgBackup repository passphrases (and SSH key references) alongside general UI preferences in a single SQLite database. It MUST NOT be auto-restored because doing so would silently transplant live credential material. Re-add repositories and enter passphrases manually after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Capture-only. Vorta stores all settings in %LOCALAPPDATA%\\Vorta\\settings.db (SQLite); the file also embeds Borg repository passphrases so it is flagged warn-only under secrets. No payload is shipped. Confidence: medium — Windows data path inferred from Vorta Qt/Python conventions; verify on a live install."
+}

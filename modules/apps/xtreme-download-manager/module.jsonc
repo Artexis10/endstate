@@ -1,0 +1,51 @@
+{
+  // Config Module: Xtreme Download Manager
+  // Download manager - captures settings and blocklist; capture-only (no shipped payload)
+
+  "id": "apps.xtreme-download-manager",
+  "displayName": "Xtreme Download Manager",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["subhra74.XtremeDownloadManager"],
+    "exe": ["xdm-app.exe"],
+    "uninstallDisplayName": ["^Xtreme Download Manager"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\XDM\\config.txt" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Main application settings (bandwidth limits, download folders, UI preferences)
+      { "source": "%LOCALAPPDATA%\\XDM\\config.txt", "dest": "apps/xtreme-download-manager/config.txt", "optional": true },
+      // User-maintained blocklist of sites/patterns to skip or block
+      { "source": "%LOCALAPPDATA%\\XDM\\blocklist.ini", "dest": "apps/xtreme-download-manager/blocklist.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Download queue state and incomplete transfer control files (runtime, not config)
+      "**\\XDM\\Downloads\\**",
+      "**\\XDM\\temp\\**",
+      "**\\XDM\\*.lock",
+      // Log files
+      "**\\XDM\\logs\\**",
+      "**\\XDM\\*.log",
+      // Crash reports and telemetry
+      "**\\XDM\\crash\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%LOCALAPPDATA%\\XDM\\cookies.db",
+      "%LOCALAPPDATA%\\XDM\\credentials.dat"
+    ],
+    "warning": "XDM may persist browser-injected cookies and saved credentials for authenticated downloads. These files MUST NOT be auto-restored as they contain session tokens or passwords.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures XDM settings (config.txt) and site blocklist (blocklist.ini) from %LOCALAPPDATA%\\XDM\\. Excludes download queue, temp files, logs, and any credential/cookie stores. Capture-only; no payload shipped. Confidence: medium - paths inferred from XDM 8.x default install layout on Windows."
+}

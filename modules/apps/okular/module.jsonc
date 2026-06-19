@@ -1,0 +1,44 @@
+{
+  // Config Module: Okular
+  // KDE universal document viewer — captures preferences and UI state
+  // Config stored as KDE rc file (INI-style) under %APPDATA%
+
+  "id": "apps.okular",
+  "displayName": "Okular",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["KDE.Okular"],
+    "exe": ["okular.exe"],
+    "uninstallDisplayName": ["^Okular"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\okularrc" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Main preferences: viewer defaults, annotation tools, accessibility settings
+      { "source": "%APPDATA%\\okularrc", "dest": "apps/okular/okularrc", "optional": true },
+      // UI state: toolbar layout, window geometry, recently used documents panel
+      { "source": "%APPDATA%\\okular_staterc", "dest": "apps/okular/okular_staterc", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\cache\\**",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Okular viewer preferences (okularrc) and UI state (okular_staterc) using KDE rc file format. No credentials or sensitive data involved. Recently-used document paths in state file may not transfer meaningfully across machines. Confidence: medium — KDE Windows rc file layout inferred from KDE framework conventions."
+}

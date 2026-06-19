@@ -1,0 +1,59 @@
+{
+  // Config Module: Snipaste
+  // Provides verify/restore/capture configuration for Snipaste (screenshot and paste tool)
+  // Capture-only module - no shipped payload; restore is empty until user captures first
+
+  "id": "apps.snipaste",
+  "displayName": "Snipaste",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Snipaste.Snipaste"],
+    "exe": ["Snipaste.exe"],
+    "uninstallDisplayName": ["^Snipaste"]
+  },
+
+  "verify": [
+    // Cheapest assertion that works for both the winget (classic) and Store installs.
+    // The winget build registers Snipaste.exe on PATH; Store build also exposes the exe via AppX alias.
+    { "type": "command-exists", "command": "Snipaste.exe" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Classic (non-Store) install: config.ini lives beside Snipaste.exe in the install folder.
+      // Most users place the portable/classic install under %LOCALAPPDATA% or %APPDATA%.
+      // The Store edition stores config.ini under the app's LocalState directory.
+      // We capture both common paths; both are optional so missing paths are silently skipped.
+      {
+        "source": "%LOCALAPPDATA%\\Snipaste\\config.ini",
+        "dest": "apps/snipaste/config.ini",
+        "optional": true
+      },
+      {
+        "source": "%APPDATA%\\Snipaste\\config.ini",
+        "dest": "apps/snipaste/config.ini",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\logs\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.tmp"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "warning": "Snipaste config.ini does not store credentials or tokens; no secret paths identified. If a future version introduces license key storage in config.ini, review before restoring.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Snipaste preferences (hotkeys, screenshot behavior, UI settings) from config.ini. Classic installs place config.ini beside the exe (commonly under %LOCALAPPDATA%\\Snipaste\\ or %APPDATA%\\Snipaste\\); Store edition uses LocalState. Both optional paths are captured. No credentials or sensitive data in scope. Confidence: medium - config.ini location varies by install type (portable vs installed vs Store); user may need to adjust paths for non-standard install locations."
+}

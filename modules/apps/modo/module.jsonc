@@ -1,0 +1,76 @@
+{
+  // Config Module: The Foundry Modo
+  // Provides verify/capture configuration for Modo (3D modeling, sculpting, and rendering suite)
+  // Capture-only module — no shipped payload; restore: [] intentional.
+  // Modo stores per-version config under %LOCALAPPDATA%\Luxology as versioned .CFG files,
+  // kit installations, and saved UI layouts. The version suffix in filenames (e.g. modo16.CFG)
+  // means paths are captured at the parent directory level with glob exclusions for caches.
+
+  "id": "apps.modo",
+  "displayName": "Modo",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["modo.exe", "modo_cl.exe"],
+    "uninstallDisplayName": ["^Modo\\b", "^The Foundry Modo", "^Foundry Modo"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Luxology" }
+  ],
+
+  // Capture-only: restore is empty by design — no payload is shipped with this module.
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Per-version .CFG preference files (e.g. modo16.CFG, modo17.CFG) and supporting config
+      { "source": "%LOCALAPPDATA%\\Luxology", "dest": "apps/modo/Luxology", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Disk cache and GL shader cache (large, fully regenerated on launch)
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\gl_cache\\**",
+      "**\\GLCache\\**",
+      // Crash reports and minidumps
+      "**\\Crashes\\**",
+      "**\\crashes\\**",
+      "**\\*.dmp",
+      // Temporary files and lock files
+      "**\\*.tmp",
+      "**\\*.lock",
+      "**\\Temp\\**",
+      "**\\temp\\**",
+      // Log files
+      "**\\*.log",
+      "**\\Logs\\**",
+      "**\\logs\\**",
+      // Undo history (session-local, can be very large)
+      "**\\undo\\**",
+      "**\\Undo\\**",
+      // Autosave scene files
+      "**\\autosave\\**",
+      "**\\AutoSave\\**",
+      // Thumbnail / preview caches
+      "**\\Thumbnails\\**",
+      "**\\thumbnails\\**"
+    ]
+  },
+
+  "secrets": {
+    // Modo license binding is handled by the Foundry Licensing Service (FLS), not by files
+    // inside %LOCALAPPDATA%\Luxology. If a local .lic or license blob is ever written here
+    // it must NOT be auto-restored (machine- and account-specific).
+    "files": [
+      "%LOCALAPPDATA%\\Luxology\\*.lic",
+      "%LOCALAPPDATA%\\Luxology\\license\\**",
+      "%LOCALAPPDATA%\\Luxology\\**\\*.lic"
+    ],
+    "warning": "Modo license binding is handled by the Foundry Licensing Service (FLS), not files under %LOCALAPPDATA%\\Luxology. Any local .lic or license blob is machine-/account-specific and must NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Modo per-version preference files (modoNN.CFG), kit installations, and saved UI layouts from %LOCALAPPDATA%\\Luxology. No winget ID — Modo installs via the Foundry Hub or direct installer. Disk/GL caches, crash dumps, temp files, undo history, autosaves, and thumbnail caches excluded. License blobs marked warn-only in secrets. Confidence: medium — folder confirmed by community sources and Foundry documentation; exact sub-paths vary by Modo version."
+}

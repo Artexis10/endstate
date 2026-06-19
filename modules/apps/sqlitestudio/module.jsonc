@@ -1,0 +1,71 @@
+{
+  // Config Module: SQLiteStudio
+  // Provides verify/capture configuration for SQLiteStudio (free, open-source SQLite manager)
+  // Capture-only module — no shipped payload; restore[] is empty by design.
+  // SQLiteStudio stores all user settings in a single SQLite database at
+  // %USERPROFILE%\.config\SQLiteStudio\SQLiteStudio.db (Windows default).
+  // No credentials or auth tokens are stored in that database.
+
+  "id": "apps.sqlitestudio",
+  "displayName": "SQLiteStudio",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["SQLiteStudio.SQLiteStudio"],
+    "exe": ["SQLiteStudio.exe"],
+    "uninstallDisplayName": ["^SQLiteStudio"]
+  },
+
+  "verify": [
+    // Cheapest assertion: the SQLiteStudio config directory exists after first launch
+    { "type": "file-exists", "path": "%APPDATA%\\SQLiteStudio" }
+  ],
+
+  // Capture-only: no payload is shipped, so restore is intentionally empty.
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // SQLiteStudio (Qt app) stores its settings DB + cfg under %APPDATA%\SQLiteStudio on
+      // Windows; older/portable builds may use the XDG-style ~/.config path. Both captured
+      // (optional) so whichever exists is grabbed; non-existent sources are harmless no-ops.
+      {
+        "source": "%APPDATA%\\SQLiteStudio",
+        "dest": "apps/sqlitestudio/SQLiteStudio",
+        "optional": true
+      },
+      {
+        "source": "%USERPROFILE%\\.config\\SQLiteStudio",
+        "dest": "apps/sqlitestudio/config-SQLiteStudio",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // Lock files created while SQLiteStudio is running
+      "**\\*.db-wal",
+      "**\\*.db-shm",
+      "**\\*.db-journal",
+      "**\\*.lock",
+      // Crash / debug logs
+      "**\\*.log",
+      "**\\logs\\**",
+      // Temporary or backup files
+      "**\\*.tmp",
+      "**\\*.bak"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // SQLiteStudio does not natively store credentials, but users sometimes open
+      // encrypted SQLCipher databases and the recent-files list inside SQLiteStudio.db
+      // may record their paths. The .db file itself is non-portable (absolute paths,
+      // machine-local plugin state) so auto-restore is inappropriate.
+      "%USERPROFILE%\\.config\\SQLiteStudio\\SQLiteStudio.db"
+    ],
+    "warning": "SQLiteStudio.db may contain absolute paths to user database files recorded as recent items. It is machine-local and MUST NOT be auto-restored; users should re-open their databases on the new machine.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures SQLiteStudio settings from %USERPROFILE%\\.config\\SQLiteStudio\\. The config store is a SQLite database (SQLiteStudio.db); an optional INI companion file (SQLiteStudio.cfg) is also captured when present. No credentials are stored, but the recent-files list embeds absolute local paths making the .db non-portable — restore is warn-only. Confidence: medium (config path confirmed via SQLiteStudio documentation and community reports; exact schema may vary across the 3.x build series)."
+}

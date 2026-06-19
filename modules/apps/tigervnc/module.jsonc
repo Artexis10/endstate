@@ -1,0 +1,51 @@
+{
+  // Config Module: TigerVNC
+  // VNC viewer/server — all user preferences stored in the Windows registry under HKCU\Software\TigerVNC\vncviewer
+  // configType: registry (HKCU-only)
+  // Capture-only module — no shipped payload; restore[] is empty until a capture is taken
+
+  "id": "apps.tigervnc",
+  "displayName": "TigerVNC",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["TigerVNC.TigerVNC"],
+    "exe": ["vncviewer.exe", "winvnc4.exe"],
+    "uninstallDisplayName": ["^TigerVNC"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\TigerVNC\\vncviewer" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      {
+        "key": "HKCU\\Software\\TigerVNC\\vncviewer",
+        "dest": "apps/tigervnc/vncviewer.reg",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // Transient lock files and any cached state
+      "**\\Cache\\**",
+      "**\\*.lock",
+      "**\\*.log"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // TigerVNC can store saved per-server passwords as obfuscated registry values;
+      // the obfuscation is not machine-bound but passwords should not be auto-restored
+      "HKCU\\Software\\TigerVNC\\vncviewer\\Password"
+    ],
+    "warning": "TigerVNC Viewer may store a saved VNC password as an obfuscated value under HKCU\\Software\\TigerVNC\\vncviewer\\Password. While TigerVNC uses a fixed XOR obfuscation key (not machine-bound), auto-restoring saved passwords is inadvisable — re-enter the password after a rebuild.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures TigerVNC Viewer preferences from HKCU\\Software\\TigerVNC\\vncviewer (connection defaults, display/encoding options, UI behaviour). Saved VNC password is documented in secrets and excluded from auto-restore. HKCU-only capture. Confidence: medium — registry path inferred from TigerVNC source and community reports; no official backup documentation exists."
+}

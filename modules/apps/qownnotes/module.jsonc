@@ -1,0 +1,50 @@
+{
+  // Config Module: QOwnNotes
+  // Provides verify/capture configuration for QOwnNotes (plain-text note-taking with Nextcloud sync)
+  // Capture-only module — no shipped payload; restore entries intentionally empty.
+  // Settings live at %APPDATA%\PBE\QOwnNotes\QOwnNotes.ini (Qt INI format).
+
+  "id": "apps.qownnotes",
+  "displayName": "QOwnNotes",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["PBE.QOwnNotes"],
+    "exe": ["QOwnNotes.exe"],
+    "uninstallDisplayName": ["^QOwnNotes"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\PBE\\QOwnNotes\\QOwnNotes.ini" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Primary settings file: editor preferences, themes, shortcuts, Nextcloud connection params
+      { "source": "%APPDATA%\\PBE\\QOwnNotes\\QOwnNotes.ini", "dest": "apps/qownnotes/QOwnNotes.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\logs\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\crash-reports\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // QOwnNotes.ini may embed Nextcloud server URL, username, and encrypted password.
+      // The INI is captured above because it also holds non-credential preferences;
+      // it MUST NOT be auto-restored on a new machine without manual review.
+      "%APPDATA%\\PBE\\QOwnNotes\\QOwnNotes.ini"
+    ],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures QOwnNotes user preferences from %APPDATA%\\PBE\\QOwnNotes\\QOwnNotes.ini (Qt INI). The same file may contain Nextcloud credentials; marked warn-only in secrets to prevent silent restore. Confidence: high — path confirmed from QOwnNotes Qt platform docs and community reports."
+}

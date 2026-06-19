@@ -1,0 +1,66 @@
+{
+  // Config Module: ocenaudio
+  // Provides verify/capture configuration for ocenaudio (cross-platform audio editor)
+  // Capture-only module — no shipped payload; restore array is empty
+
+  "id": "apps.ocenaudio",
+  "displayName": "ocenaudio",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Ocenaudio.Ocenaudio"],
+    "exe": ["ocenaudio.exe"],
+    "uninstallDisplayName": ["^ocenaudio"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\ocenaudio\\ocenaudio.conf" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Main preferences file
+      { "source": "%APPDATA%\\ocenaudio\\ocenaudio.conf", "dest": "apps/ocenaudio/ocenaudio.conf", "optional": true },
+      // Keyboard shortcuts
+      { "source": "%APPDATA%\\ocenaudio\\shortcuts.xml", "dest": "apps/ocenaudio/shortcuts.xml", "optional": true },
+      // VST plug-in list (user-installed plugins, not the binaries themselves)
+      { "source": "%APPDATA%\\ocenaudio\\plugins.xml", "dest": "apps/ocenaudio/plugins.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\Temp\\**",
+      "**\\*.lock",
+      "**\\recent*"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures ocenaudio preferences, keyboard shortcuts, and plugin list from %APPDATA%\\ocenaudio\\. Config filenames inferred from common Qt/cross-platform audio editor conventions — verify against an installed instance. No credentials or sensitive data expected.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%APPDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Cache/**",
+      "**/cache/**",
+      "**/Temp/**",
+      "**/recent*"
+    ]
+  }
+}

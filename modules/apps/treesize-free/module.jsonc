@@ -1,0 +1,41 @@
+{
+  // Config Module: TreeSize Free
+  // Disk space analyzer by JAM Software — all settings live in HKCU\Software\JAM Software\TreeSize Free
+  // Capture-only: no shipped payload; restore array is empty
+
+  "id": "apps.treesize-free",
+  "displayName": "TreeSize Free",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["JAMSoftware.TreeSize.Free"],
+    "exe": ["TreeSizeFree.exe"],
+    "uninstallDisplayName": ["^TreeSize Free"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\JAM Software\\TreeSize Free" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      {
+        "key": "HKCU\\Software\\JAM Software\\TreeSize Free",
+        "dest": "apps/treesize-free/TreeSizeFree.reg",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": []
+  },
+
+  "secrets": {
+    "files": [],
+    "warning": "TreeSize Free is freeware and stores no license keys or credentials. No values in this registry key require suppression.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures UI preferences, column layout, scan options, and window state stored in HKCU\\Software\\JAM Software\\TreeSize Free. Freeware — no credentials or license data. Confidence: medium — registry path confirmed by convention; key presence depends on app having been launched at least once."
+}

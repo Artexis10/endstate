@@ -1,0 +1,48 @@
+{
+  // Config Module: OpenShot
+  // Provides verify/restore/capture configuration for OpenShot (video editor)
+  // Capture-only module - captures application preferences; no shipped payload
+
+  "id": "apps.openshot",
+  "displayName": "OpenShot",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["OpenShot.OpenShot"],
+    "exe": ["openshot-qt.exe"],
+    "uninstallDisplayName": ["^OpenShot"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.openshot_qt\\openshot.settings" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      {
+        "source": "%USERPROFILE%\\.openshot_qt\\openshot.settings",
+        "dest": "apps/openshot/openshot.settings",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\Temp\\**",
+      "**\\tmp\\**",
+      "**\\crash\\**",
+      "**\\*.tmp"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures OpenShot user preferences (openshot.settings) from %USERPROFILE%\\.openshot_qt\\. No credentials or license data stored in settings file; sensitivity is none. Confidence: high - settings path confirmed by OpenShot source (openshot-qt repo, classes/app.py)."
+}

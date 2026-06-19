@@ -1,0 +1,42 @@
+{
+  // Config Module: mGBA
+  // GBA/GBC/GB emulator - captures preferences (config.ini) only
+  // Capture-only: no payload shipped; restore[] is empty by design
+
+  "id": "apps.mgba",
+  "displayName": "mGBA",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["mgba-emu.mgba"],
+    "exe": ["mGBA.exe"],
+    "uninstallDisplayName": ["^mGBA"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\mGBA\\config.ini" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\mGBA\\config.ini", "dest": "apps/mgba/config.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\saves\\**",
+      "**\\states\\**",
+      "**\\screenshots\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures mGBA preferences (config.ini) at %APPDATA%\\mGBA\\. Saves, savestates, and screenshots excluded (user data, not config). Confidence: high — config.ini is the sole persistent preference file."
+}

@@ -1,0 +1,57 @@
+{
+  // Config Module: minikube
+  // Provides verify/restore/capture configuration for minikube (local Kubernetes cluster tool)
+  // Capture-only module - no shipped payload; config.json holds cluster driver prefs and feature flags only
+
+  "id": "apps.minikube",
+  "displayName": "minikube",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Kubernetes.minikube"],
+    "exe": ["minikube.exe"],
+    "uninstallDisplayName": ["^minikube"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%USERPROFILE%\\.minikube\\config\\config.json" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Primary user config: driver preference, CPU/memory defaults, feature flags, addons
+      { "source": "%USERPROFILE%\\.minikube\\config\\config.json", "dest": "apps/minikube/config.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Cluster-specific machine state and VM images - not portable
+      "**\\.minikube\\machines\\**",
+      // Internal profile state (kubeconfig, certs, keys) - not portable and may contain secrets
+      "**\\.minikube\\profiles\\**",
+      // Downloaded ISO and container runtime cache - large, rebuilds automatically
+      "**\\.minikube\\cache\\**",
+      // PKI / TLS certificates and private keys - never capture
+      "**\\.minikube\\certs\\**",
+      // Addon manifests are version-pinned to the cluster, not portable
+      "**\\.minikube\\addons\\**",
+      // Logs
+      "**\\.minikube\\logs\\**",
+      "**\\*.log",
+      // Lock files
+      "**\\*.lock"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%USERPROFILE%\\.minikube\\certs",
+      "%USERPROFILE%\\.minikube\\profiles",
+      "%USERPROFILE%\\.minikube\\machines"
+    ],
+    "warning": "The certs/ directory holds TLS CA and node private keys. The profiles/ and machines/ directories hold per-cluster kubeconfig entries and VM credentials. These MUST NOT be captured or auto-restored. Regenerate cluster credentials by running `minikube start` on the target machine.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures minikube's global config file (%USERPROFILE%\\.minikube\\config\\config.json) which stores driver preference, CPU/memory defaults, and addon feature flags. Cluster state, TLS certs, PKI keys, VM images, and kubeconfig entries are explicitly excluded and never captured. Confidence: high - config path and directory layout confirmed by minikube official documentation."
+}

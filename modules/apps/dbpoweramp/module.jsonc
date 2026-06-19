@@ -1,0 +1,57 @@
+{
+  // Config Module: dBpoweramp
+  // Provides verify/capture configuration for dBpoweramp (audio converter / CD ripper)
+  // Capture-only — no shipped payload; restore array is empty pending a captured snapshot.
+  //
+  // Settings storage:
+  //   - All user preferences, codec profiles, encoder settings, and ripping configurations
+  //     live under HKCU\Software\Illustrate\dBpoweramp.
+  //   - dBpoweramp does not use a conventional %APPDATA% config folder for its core settings;
+  //     the registry hive is the canonical location.
+  // Only HKCU is captured (never HKLM/HKCR/HKU/HKCC) — user-writable without elevation.
+
+  "id": "apps.dbpoweramp",
+  "displayName": "dBpoweramp",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["dBpoweramp.exe", "dBpowerampC.exe"],
+    "uninstallDisplayName": ["^dBpoweramp"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Illustrate\\dBpoweramp" }
+  ],
+
+  // Capture-only: no payload is shipped, so restore is intentionally empty.
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      // Encoder/decoder profiles, codec settings, ripping options, UI preferences.
+      { "key": "HKCU\\Software\\Illustrate\\dBpoweramp", "dest": "apps/dbpoweramp/Illustrate.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.lock"
+    ]
+  },
+
+  "secrets": {
+    // dBpoweramp may store AccurateRip / PerfectTUNES account tokens or CD lookup
+    // service credentials as registry values under this key. The entire reg export is
+    // treated as warn-only: it is captured for reference but MUST NOT be auto-restored
+    // because it may contain per-machine activation or license data that breaks on a
+    // different machine.
+    "files": [],
+    "warning": "The dBpoweramp registry export (HKCU\\Software\\Illustrate\\dBpoweramp) may contain AccurateRip/PerfectTUNES account tokens, CD-lookup credentials, or per-machine activation/license data. Captured for reference but MUST NOT be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures dBpoweramp encoder/decoder profiles, codec settings, CD ripping options, and UI preferences from HKCU\\Software\\Illustrate\\dBpoweramp (the sole canonical settings location; no %APPDATA% config folder). No winget package ID known — installed manually via the Illustrate website. The registry export may include activation or per-machine license values; restore is warn-only. Confidence: medium."
+}
