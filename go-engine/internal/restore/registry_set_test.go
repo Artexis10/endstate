@@ -257,3 +257,40 @@ func TestRestoreRegistrySet_HexDataIdempotent(t *testing.T) {
 		t.Errorf("expected 0x1 to be idempotent with stored 1, got %q", result.Status)
 	}
 }
+
+// REG_SZ string values (used by the mouse/keyboard windows-settings modules)
+// must round-trip: write, read back exact string, then idempotently skip.
+func TestRestoreRegistrySet_StringValueRoundTrip(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("registry operations require Windows")
+	}
+	cleanupScratchKey(t)
+	defer cleanupScratchKey(t)
+
+	backupDir := t.TempDir()
+	entry := RestoreAction{
+		Type:      "registry-set",
+		Key:       scratchKey,
+		ValueName: "StringPref",
+		ValueType: "REG_SZ",
+		Data:      "0",
+	}
+
+	result, err := RestoreRegistrySet(entry, RestoreOptions{BackupDir: backupDir})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "restored" {
+		t.Fatalf("expected status=restored, got %q (err=%q)", result.Status, result.Error)
+	}
+
+	rt, data, ok := regQueryValue(t, scratchKey, "StringPref")
+	if !ok || rt != "REG_SZ" || data != "0" {
+		t.Errorf("expected REG_SZ \"0\", got type=%q data=%q ok=%v", rt, data, ok)
+	}
+
+	// Re-apply identical desired state → idempotent skip (string compare).
+	if r, _ := RestoreRegistrySet(entry, RestoreOptions{BackupDir: backupDir}); r.Status != "skipped_up_to_date" {
+		t.Errorf("expected idempotent skip on re-apply, got %q", r.Status)
+	}
+}

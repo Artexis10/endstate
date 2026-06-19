@@ -41,9 +41,9 @@ For idempotency and verify, DWORD data is compared numerically so `"0x1"` and `"
 ### Revert: restore-or-delete
 The prior-value sidecar carries `existed`. Revert restores the exact prior type+data when `existed=true`, and deletes the value when `existed=false` (the value was created by the restore).
 
-## Restore-safety-contract wording — PENDING USER APPROVAL
+## Restore-safety-contract wording — APPROVED & APPLIED
 
-`docs/contracts/restore-safety-contract.md` is a **protected, decision-gated** file. This change does **NOT** edit it. The proposed addition is captured here verbatim for explicit approval before the contract is touched:
+`docs/contracts/restore-safety-contract.md` is a **protected, decision-gated** file. The exception below was explicitly approved by the maintainer and HAS BEEN APPLIED to the contract: a new "Value-level `registry-set`" subsection under Engine Contract plus a carve-out note on INV-RESTORE-SAFETY-4. The applied wording:
 
 > ### Value-level registry-set: backup-and-overwrite (exception to the default-skip rule)
 >

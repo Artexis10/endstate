@@ -1,0 +1,36 @@
+{
+  // Config Module: Windows Mouse — Disable Pointer Acceleration
+  // Value-level Windows OS-settings tier. REG_SZ values under HKCU\Control Panel\Mouse.
+  // Fully reversible.
+
+  "id": "windows-settings.mouse",
+  "displayName": "Windows Mouse (Disable Pointer Acceleration)",
+  "sensitivity": "low",
+
+  "matches": {
+    "pathExists": ["%WINDIR%\\explorer.exe"]
+  },
+
+  "capture": {
+    "files": [],
+    "registryValues": [
+      { "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseSpeed", "optional": true },
+      { "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold1", "optional": true },
+      { "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold2", "optional": true }
+    ]
+  },
+
+  "restore": [
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseSpeed", "valueType": "REG_SZ", "data": "0", "reason": "Disable pointer acceleration (Enhance pointer precision off)" },
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold1", "valueType": "REG_SZ", "data": "0", "reason": "Acceleration threshold 1 off" },
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold2", "valueType": "REG_SZ", "data": "0", "reason": "Acceleration threshold 2 off" }
+  ],
+
+  "verify": [
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseSpeed", "valueType": "REG_SZ", "data": "0" },
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold1", "valueType": "REG_SZ", "data": "0" },
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Mouse", "valueName": "MouseThreshold2", "valueType": "REG_SZ", "data": "0" }
+  ],
+
+  "notes": "Disables Windows mouse pointer acceleration ('Enhance pointer precision') by setting MouseSpeed/MouseThreshold1/MouseThreshold2 to 0 under HKCU\\Control Panel\\Mouse. These are REG_SZ string values. A 1:1 input preference common among gamers and designers. HKCU-only; fully reversible (prior values backed up). Takes effect on next sign-in or SystemParametersInfo refresh."
+}
