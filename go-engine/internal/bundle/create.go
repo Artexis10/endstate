@@ -85,7 +85,14 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 			// Don't skip the whole module — file collection may have succeeded.
 		}
 
+		regValuesCollected, regValErr := CollectRegistryValues(mod, stagingDir)
+		if regValErr != nil {
+			captureWarnings = append(captureWarnings, fmt.Sprintf("module %s registry values: %v", mod.ID, regValErr))
+			// Don't skip the whole module — other collection may have succeeded.
+		}
+
 		collected := append(fileCollected, regCollected...)
+		collected = append(collected, regValuesCollected...)
 
 		if len(collected) > 0 {
 			included = append(included, moduleDirName)
@@ -130,6 +137,12 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 					Backup:   r.Backup,
 					Optional: r.Optional,
 					Exclude:  r.Exclude,
+					// Value-level registry-set fields have no payload source to
+					// rewrite; carry them through verbatim so the bundle round-trips.
+					Key:       r.Key,
+					ValueName: r.ValueName,
+					ValueType: r.ValueType,
+					Data:      r.Data,
 				}
 				rewrittenRestore = append(rewrittenRestore, entry)
 			}

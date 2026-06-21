@@ -621,7 +621,14 @@ func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors [
 			// Don't mark the whole module as errored — file collection may have succeeded.
 		}
 
+		regValuesCollected, regValErr := bundle.CollectRegistryValues(mod, stagingDir)
+		if regValErr != nil {
+			captureErrors = append(captureErrors, fmt.Sprintf("module %s registry values: %v", mod.ID, regValErr))
+			// Don't mark the whole module as errored — other collection may have succeeded.
+		}
+
 		collected := append(fileCollected, regCollected...)
+		collected = append(collected, regValuesCollected...)
 
 		if len(collected) > 0 {
 			includedSet[dirName] = true

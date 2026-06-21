@@ -36,6 +36,33 @@ Each restore entry supports an `onConflict` field:
 
 When `onConflict` is not specified, the engine treats it as `skip`.
 
+### Value-level `registry-set`: backup-and-overwrite (exception to default-skip)
+
+The file-based restore strategies default to **skip**: when a target already
+exists it is left untouched unless the action opts into overwrite. The
+value-level `registry-set` strategy (Windows OS-settings tier) is an explicit,
+documented **exception**: its default is **backup-and-overwrite**.
+
+A `registry-set` action targets exactly one named value under an HKCU key.
+Because a single OS-preference value has no merge or partial-update semantics,
+"skip an existing value" would make the declared desired state unreachable.
+Instead, `registry-set`:
+
+1. Records the prior value — its `REG_*` type and data, or the fact that it was
+   absent — to `state/backups/<runID>/` **before** any write. This backup is
+   mandatory and unconditional (it is not gated on a `backup: true` flag).
+2. Skips the write only when the named value already equals the desired
+   type+data (idempotency); in that case no backup is written because nothing
+   changes.
+3. Otherwise creates the key if missing and writes the desired value.
+
+Reversibility is guaranteed by construction: `revert` restores the exact prior
+value, or **deletes** the value when it was absent before the write. The scope
+is HKCU-only and Windows-only; non-HKCU targets and unsupported value types are
+rejected before any registry access. `registry-set` performs no uninstall,
+debloat, service, or scheduled-task changes — it is a reversible single-value
+write.
+
 ### Restore Result Per Entry
 
 Each restore entry emits a result with:
@@ -231,6 +258,8 @@ After any non-dry-run restore, the revert action is immediately available. If jo
 ### INV-RESTORE-SAFETY-4: Default is Skip
 
 If no `onConflict` is specified and no user override is active, existing files are skipped. This is the engine default, not just a GUI behavior.
+
+**Exception:** the value-level `registry-set` strategy defaults to backup-and-overwrite (see "Value-level `registry-set`" above). It is reversible by construction — a mandatory pre-write backup of the single prior value, with restore-or-delete on revert — and never alters file-restore behavior.
 
 ### INV-RESTORE-SAFETY-5: Advanced Never Required
 

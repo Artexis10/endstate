@@ -37,6 +37,8 @@ func RunVerify(entries []manifest.VerifyEntry) []VerifyResult {
 			r = CheckCommandExists(entry)
 		case "registry-key-exists":
 			r = CheckRegistryKeyExists(entry)
+		case "registry-value-equals":
+			r = CheckRegistryValueEquals(entry)
 		default:
 			r = VerifyResult{
 				Type:    entry.Type,

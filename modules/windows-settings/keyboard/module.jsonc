@@ -1,0 +1,33 @@
+{
+  // Config Module: Windows Keyboard — Fast Key Repeat
+  // Value-level Windows OS-settings tier. REG_SZ values under HKCU\Control Panel\Keyboard.
+  // Fully reversible.
+
+  "id": "windows-settings.keyboard",
+  "displayName": "Windows Keyboard (Fast Key Repeat)",
+  "sensitivity": "low",
+
+  "matches": {
+    "pathExists": ["%WINDIR%\\explorer.exe"]
+  },
+
+  "capture": {
+    "files": [],
+    "registryValues": [
+      { "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay", "optional": true },
+      { "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed", "optional": true }
+    ]
+  },
+
+  "restore": [
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay", "valueType": "REG_SZ", "data": "0", "reason": "Shortest repeat delay (0 = ~250ms)" },
+    { "type": "registry-set", "key": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed", "valueType": "REG_SZ", "data": "31", "reason": "Fastest repeat rate (31 = ~30 chars/sec)" }
+  ],
+
+  "verify": [
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardDelay", "valueType": "REG_SZ", "data": "0" },
+    { "type": "registry-value-equals", "path": "HKCU\\Control Panel\\Keyboard", "valueName": "KeyboardSpeed", "valueType": "REG_SZ", "data": "31" }
+  ],
+
+  "notes": "Sets the keyboard repeat to the fastest profile: KeyboardDelay=0 (shortest delay before repeat) and KeyboardSpeed=31 (fastest repeat rate) under HKCU\\Control Panel\\Keyboard. Both REG_SZ. A power-user typing preference. HKCU-only; fully reversible (prior values backed up). Applies on next sign-in or SystemParametersInfo refresh."
+}

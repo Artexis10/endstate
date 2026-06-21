@@ -238,3 +238,72 @@ func TestExpandConfigModules_InlineEntriesUntagged(t *testing.T) {
 		t.Errorf("module entry: expected FromModule=%q, got %q", "apps.git", mf.Restore[1].FromModule)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// ExpandConfigModules — value-level registry-set / registry-value-equals fields
+// ---------------------------------------------------------------------------
+
+// TestExpandConfigModules_CarriesRegistrySetFields verifies that the
+// value-level registry fields (Key/ValueName/ValueType/Data) flow from a
+// module's RestoreDef/VerifyDef into the expanded manifest entries. Without
+// this wiring a windows-settings module would expand to an inert registry-set.
+func TestExpandConfigModules_CarriesRegistrySetFields(t *testing.T) {
+	catalog := map[string]*Module{
+		"windows-settings.personalization": {
+			ID:          "windows-settings.personalization",
+			DisplayName: "Dark Mode",
+			Matches:     MatchCriteria{PathExists: []string{"%WINDIR%\\explorer.exe"}},
+			Restore: []RestoreDef{
+				{
+					Type:      "registry-set",
+					Key:       `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`,
+					ValueName: "AppsUseLightTheme",
+					ValueType: "REG_DWORD",
+					Data:      "0",
+				},
+			},
+			Verify: []VerifyDef{
+				{
+					Type:      "registry-value-equals",
+					Path:      `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`,
+					ValueName: "AppsUseLightTheme",
+					ValueType: "REG_DWORD",
+					Data:      "0",
+				},
+			},
+		},
+	}
+
+	mf := &manifest.Manifest{
+		ConfigModules: []string{"windows-settings.personalization"},
+	}
+
+	if err := ExpandConfigModules(mf, catalog); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(mf.Restore) != 1 {
+		t.Fatalf("expected 1 restore entry, got %d", len(mf.Restore))
+	}
+	r := mf.Restore[0]
+	if r.Type != "registry-set" {
+		t.Errorf("restore type: expected registry-set, got %q", r.Type)
+	}
+	if r.Key != `HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize` {
+		t.Errorf("restore Key not carried: got %q", r.Key)
+	}
+	if r.ValueName != "AppsUseLightTheme" || r.ValueType != "REG_DWORD" || r.Data != "0" {
+		t.Errorf("restore value fields not carried: name=%q type=%q data=%q", r.ValueName, r.ValueType, r.Data)
+	}
+
+	if len(mf.Verify) != 1 {
+		t.Fatalf("expected 1 verify entry, got %d", len(mf.Verify))
+	}
+	v := mf.Verify[0]
+	if v.Type != "registry-value-equals" {
+		t.Errorf("verify type: expected registry-value-equals, got %q", v.Type)
+	}
+	if v.ValueName != "AppsUseLightTheme" || v.ValueType != "REG_DWORD" || v.Data != "0" {
+		t.Errorf("verify value fields not carried: name=%q type=%q data=%q", v.ValueName, v.ValueType, v.Data)
+	}
+}

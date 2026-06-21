@@ -57,6 +57,29 @@ func RunRevert(journal *Journal, backupDir string) ([]RevertResult, error) {
 					continue
 				}
 
+				// Registry-set: read the prior-value sidecar and restore the
+				// exact prior type+data, or delete the value if it was absent
+				// before the write.
+				if entry.RestoreType == "registry-set" {
+					backup, rerr := readRegistrySetBackup(entry.BackupPath)
+					if rerr != nil {
+						return nil, fmt.Errorf("cannot read registry-set backup %s: %w", entry.BackupPath, rerr)
+					}
+					if rerr := revertRegistrySet(backup); rerr != nil {
+						return nil, fmt.Errorf("cannot revert registry-set from %s: %w", entry.BackupPath, rerr)
+					}
+					action := "reverted"
+					if !backup.Existed {
+						action = "deleted"
+					}
+					results = append(results, RevertResult{
+						Target:     entry.TargetPath,
+						Action:     action,
+						BackupUsed: entry.BackupPath,
+					})
+					continue
+				}
+
 				// File-based restore: copy backup back to target path.
 				targetDir := filepath.Dir(entry.TargetPath)
 				if err := os.MkdirAll(targetDir, 0755); err != nil {

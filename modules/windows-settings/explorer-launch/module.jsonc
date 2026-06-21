@@ -1,0 +1,30 @@
+{
+  // Config Module: Windows Explorer — Open to This PC
+  // Value-level Windows OS-settings tier. Single REG_DWORD under Explorer\Advanced.
+  // Fully reversible (absent value is created, then deleted on revert).
+
+  "id": "windows-settings.explorer-launch",
+  "displayName": "Windows Explorer (Open to This PC)",
+  "sensitivity": "low",
+
+  "matches": {
+    "pathExists": ["%WINDIR%\\explorer.exe"]
+  },
+
+  "capture": {
+    "files": [],
+    "registryValues": [
+      { "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "LaunchTo", "optional": true }
+    ]
+  },
+
+  "restore": [
+    { "type": "registry-set", "key": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "LaunchTo", "valueType": "REG_DWORD", "data": "1", "reason": "Open File Explorer to This PC instead of Quick Access" }
+  ],
+
+  "verify": [
+    { "type": "registry-value-equals", "path": "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\Advanced", "valueName": "LaunchTo", "valueType": "REG_DWORD", "data": "1" }
+  ],
+
+  "notes": "Sets Explorer\\Advanced\\LaunchTo=1 (REG_DWORD) so File Explorer opens to 'This PC' rather than Quick Access (2). Often absent on a fresh install, so registry-set creates it and revert deletes it. Value-level so co-resident Advanced values are untouched. HKCU-only; fully reversible."
+}

@@ -48,6 +48,10 @@ func ExpandConfigModules(m *manifest.Manifest, catalog map[string]*Module) error
 				Optional:   r.Optional,
 				Exclude:    r.Exclude,
 				FromModule: moduleID,
+				Key:        r.Key,
+				ValueName:  r.ValueName,
+				ValueType:  r.ValueType,
+				Data:       r.Data,
 			}
 			m.Restore = append(m.Restore, entry)
 		}
@@ -59,6 +63,8 @@ func ExpandConfigModules(m *manifest.Manifest, catalog map[string]*Module) error
 				Command:   v.Command,
 				Path:      v.Path,
 				ValueName: v.ValueName,
+				ValueType: v.ValueType,
+				Data:      v.Data,
 			}
 			m.Verify = append(m.Verify, entry)
 		}
