@@ -1,0 +1,57 @@
+{
+  // Config Module: Apache Maven
+  // Provides verify/restore/capture configuration for Apache Maven (Java build tool)
+  // Capture-only module - settings.xml may contain server credentials; no shipped payload
+
+  "id": "apps.maven",
+  "displayName": "Apache Maven",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Apache.Maven"],
+    "exe": ["mvn.cmd", "mvn"],
+    "uninstallDisplayName": ["^Apache Maven"]
+  },
+
+  "verify": [
+    // settings.xml is the canonical user-level config file Maven reads unconditionally when present
+    { "type": "file-exists", "path": "%USERPROFILE%\\.m2\\settings.xml" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // User-level settings: mirrors, proxies, server auth references, active profiles.
+      // NOTE: may contain plaintext passwords for <server> blocks - review before sharing.
+      { "source": "%USERPROFILE%\\.m2\\settings.xml", "dest": "apps/maven/settings.xml", "optional": true },
+
+      // settings-security.xml holds the master password used to decrypt server passwords.
+      // Captured for completeness but treated as a secret (see secrets block below).
+      { "source": "%USERPROFILE%\\.m2\\settings-security.xml", "dest": "apps/maven/settings-security.xml", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Local repository - build artifact cache, never portable
+      "**\\.m2\\repository\\**",
+      // Wrapper download cache
+      "**\\.m2\\wrapper\\**",
+      // Extension / plugin resolution index
+      "**\\.m2\\*.lock",
+      // Build extension and indexer state
+      "**\\.m2\\extensions.xml",
+      // Temporary download files
+      "**\\.m2\\**\\*.tmp",
+      "**\\.m2\\**\\*.part"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%USERPROFILE%\\.m2\\settings-security.xml"
+    ],
+    "warning": "settings-security.xml contains the Maven master password used to decrypt server credentials stored in settings.xml. MUST NOT be auto-restored. Re-create with `mvn --encrypt-master-password` after restore. Also review settings.xml for plaintext <password> entries inside <server> blocks before sharing.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures %USERPROFILE%\\.m2\\settings.xml (mirrors, proxies, profiles, server auth references) and settings-security.xml (master password encryption key). The local repository (~/.m2/repository) is excluded as a build cache. settings-security.xml is flagged as a secret and must not be auto-restored. Medium sensitivity because settings.xml server blocks commonly reference or inline credentials. Confidence: high - default user settings paths are documented by the official Maven Settings Reference."
+}

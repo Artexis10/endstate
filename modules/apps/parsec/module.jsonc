@@ -1,0 +1,54 @@
+{
+  // Config Module: Parsec
+  // Provides verify/restore/capture configuration for Parsec (cloud gaming / remote desktop client)
+  // Curated module - captures config.txt (user preferences); excludes session tokens, logs, and crash data
+  // configType: file
+
+  "id": "apps.parsec",
+  "displayName": "Parsec",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Parsec.Parsec"],
+    "exe": ["parsecd.exe"],
+    "uninstallDisplayName": ["^Parsec"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Parsec\\config.txt" }
+  ],
+
+  // Capture-only: no shipped payload; restore array is empty
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Primary user settings: resolution, codec, display mode, decoder preferences, etc.
+      { "source": "%APPDATA%\\Parsec\\config.txt", "dest": "apps/parsec/config.txt", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Session authentication state and API tokens - install-bound, never portable
+      "**\\*.token",
+      "**\\auth*",
+      // Runtime logs and diagnostics
+      "**\\*.log",
+      "**\\logs\\**",
+      // Crash reports and minidumps
+      "**\\crash\\**",
+      "**\\*.dmp",
+      // Lock files and transient state
+      "**\\*.lock",
+      "**\\*.pid"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\Parsec\\auth"
+    ],
+    "warning": "Parsec stores session authentication tokens in %APPDATA%\\Parsec\\auth (or similarly named token files). These are session-bound credentials for the Parsec cloud service and must never be restored on another machine. Re-authenticate through the Parsec client after a rebuild.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Parsec user preferences (config.txt) from %APPDATA%\\Parsec - display, codec, decoder, and streaming settings. Session tokens and auth state are excluded via secrets block. Confidence: medium - config.txt path known from community documentation; exact auth token filename may vary by client version."
+}

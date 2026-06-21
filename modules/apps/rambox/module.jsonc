@@ -1,0 +1,68 @@
+{
+  // Config Module: Rambox
+  // Provides verify/capture configuration for Rambox (unified messaging workspace)
+  // Capture-only — no shipped payload; restore[] is empty until user captures their own config.
+  // Rambox is Electron-based: %APPDATA%\Rambox contains both the portable config.json
+  // and Chromium browser state (Local Storage, Cookies) that holds per-service auth tokens.
+  // Only config.json is captured; all Chromium/session data is excluded and blocked.
+
+  "id": "apps.rambox",
+  "displayName": "Rambox",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Rambox.Rambox"],
+    "exe": ["Rambox.exe"],
+    "uninstallDisplayName": ["^Rambox"]
+  },
+
+  "verify": [
+    // config.json is created on first launch and holds workspace + UI preferences
+    { "type": "file-exists", "path": "%APPDATA%\\Rambox\\config.json" }
+  ],
+
+  // Capture-only pattern: restore is empty until the user seeds their own payload
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Main settings file: workspace layout, app ordering, UI preferences, theme
+      { "source": "%APPDATA%\\Rambox\\config.json", "dest": "apps/rambox/config.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Chromium/Electron browser state — machine-tied, binary, contains session tokens
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Local State",
+      "**\\Preferences",
+      "**\\Cookies*",
+      "**\\Network\\**",
+      // GPU / code caches
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\DawnGraphiteCache\\**",
+      "**\\DawnWebGPUCache\\**",
+      "**\\blob_storage\\**",
+      // Logs, crash reports, lock files
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\Rambox\\Local Storage",
+      "%APPDATA%\\Rambox\\Session Storage",
+      "%APPDATA%\\Rambox\\Cookies",
+      "%APPDATA%\\Rambox\\Network"
+    ],
+    "warning": "Rambox's Chromium Local Storage and Cookies contain per-service session tokens and auth credentials for all integrated messaging apps (Slack, Gmail, WhatsApp, etc.). These MUST NOT be auto-restored — re-authenticate each service after restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Rambox's config.json (workspace layout, app list, UI/theme preferences) from %APPDATA%\\Rambox. All Chromium browser state (Local Storage, Cookies, Session Storage) is excluded — it holds per-service auth tokens and is not portable. Confidence: medium — config.json path inferred from standard Electron userData layout and community reports; exact schema may vary between Rambox CE and Pro editions."
+}

@@ -1,0 +1,52 @@
+{
+  // Config Module: Moonlight
+  // Provides verify/capture configuration for Moonlight Game Streaming client
+  // All settings stored in the Windows Registry under HKCU\Software\Moonlight Game Streaming Project\Moonlight
+
+  "id": "apps.moonlight",
+  "displayName": "Moonlight",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["MoonlightGameStreamingProject.Moonlight"],
+    "exe": ["Moonlight.exe"],
+    "uninstallDisplayName": ["^Moonlight Game Streaming"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\Moonlight Game Streaming Project\\Moonlight" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      // All user preferences: resolution, frame rate, bitrate, codec, host list, input config
+      {
+        "key": "HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight",
+        "dest": "apps/moonlight/Moonlight.reg",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\Logs\\**",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\*.tmp"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // Paired-host certificates and keys are machine-bound and must not be auto-restored
+      "%LOCALAPPDATA%\\Moonlight Game Streaming Project\\Moonlight\\*.p12",
+      "%LOCALAPPDATA%\\Moonlight Game Streaming Project\\Moonlight\\*.pem",
+      "%LOCALAPPDATA%\\Moonlight Game Streaming Project\\Moonlight\\*.key"
+    ],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Capture-only. Captures Moonlight streaming preferences (resolution, bitrate, codec, frame rate, host list, input settings) from HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight. Paired-host certificate/key material is blocked from auto-restore as it is machine-bound. Confidence: medium — registry path confirmed via community sources; exact value layout not individually verified."
+}

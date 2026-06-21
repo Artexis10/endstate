@@ -1,0 +1,44 @@
+{
+  // Config Module: MeshLab
+  // Provides verify/capture configuration for MeshLab (open-source 3D mesh processing)
+  // Capture-only module - settings live exclusively in HKCU\Software\VCG\MeshLab
+
+  "id": "apps.meshlab",
+  "displayName": "MeshLab",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["CNR-ISTI-VCLab.MeshLab"],
+    "exe": ["meshlab.exe"],
+    "uninstallDisplayName": ["^MeshLab"]
+  },
+
+  "verify": [
+    { "type": "registry-key-exists", "path": "HKCU:\\Software\\VCG\\MeshLab" }
+  ],
+
+  // Capture-only: no shipped payload, restore is empty.
+  "restore": [],
+
+  "capture": {
+    "files": [],
+    "registryKeys": [
+      // All MeshLab user preferences (UI layout, rendering options, recent files, plugin settings).
+      { "key": "HKCU\\Software\\VCG\\MeshLab", "dest": "apps/meshlab/MeshLab.reg", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Cache\\**",
+      "**\\Logs\\**"
+    ]
+  },
+
+  "secrets": {
+    // No known credential or license-key paths for MeshLab; block is present as a safeguard.
+    "files": [],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures MeshLab preferences from HKCU\\Software\\VCG\\MeshLab (UI layout, rendering options, plugin settings). Capture-only; no payload shipped. Confidence: medium — registry path confirmed by VCG/MeshLab Qt application convention; no file-based config is known."
+}

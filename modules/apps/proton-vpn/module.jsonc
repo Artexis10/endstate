@@ -1,0 +1,68 @@
+{
+  // Config Module: Proton VPN
+  // Captures user preferences and connection settings from %LOCALAPPDATA%\Proton
+  // Capture-only pattern - no shipped payload; credentials/tokens excluded via secrets
+  // configType: file
+
+  "id": "apps.proton-vpn",
+  "displayName": "Proton VPN",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Proton.ProtonVPN"],
+    "exe": ["ProtonVPN.exe"],
+    "uninstallDisplayName": ["^Proton VPN"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\Proton\\ProtonVPN\\AppSettings.json" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // User preferences: protocol selection, auto-connect settings, UI state, split-tunneling rules
+      { "source": "%LOCALAPPDATA%\\Proton\\ProtonVPN\\AppSettings.json", "dest": "apps/proton-vpn/AppSettings.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Auth tokens, session credentials, and certificate material - never portable
+      "**\\Credentials\\**",
+      "**\\Session\\**",
+      "**\\*.token",
+      "**\\*.key",
+      "**\\*.pem",
+      "**\\*.p12",
+      "**\\*.pfx",
+      // Logs and diagnostics
+      "**\\Logs\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\Crashes\\**",
+      "**\\CrashReports\\**",
+      // Cache and transient runtime state
+      "**\\Cache\\**",
+      "**\\cache\\**",
+      "**\\Temp\\**",
+      "**\\*.tmp",
+      "**\\*.lock",
+      // Connection state databases - install-bound, not portable
+      "**\\*.db",
+      "**\\*.db-shm",
+      "**\\*.db-wal"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%LOCALAPPDATA%\\Proton\\ProtonVPN\\Credentials",
+      "%LOCALAPPDATA%\\Proton\\ProtonVPN\\Session",
+      "%APPDATA%\\Proton\\ProtonVPN\\Credentials",
+      "%APPDATA%\\Proton\\ProtonVPN\\Session"
+    ],
+    "warning": "Proton VPN stores authentication tokens and session credentials in Credentials and Session directories. These are account-bound and must never be auto-restored - restoring them on another machine would expose the user's VPN account session. Re-authenticate after rebuilding.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Proton VPN user preferences (AppSettings.json) from %LOCALAPPDATA%\\Proton\\ProtonVPN - protocol selection, auto-connect rules, split-tunneling, and UI state. Auth tokens, session credentials, certificate material, logs, and cache are excluded. Confidence: medium - config path inferred from Proton VPN Windows conventions; AppSettings.json name is consistent with Proton's .NET/WPF app pattern."
+}

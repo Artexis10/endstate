@@ -1,0 +1,88 @@
+{
+  // Config Module: Mullvad Browser
+  // Capture-only — captures user.js / prefs.js overrides and extension settings from the default profile.
+  // Full profile directories are excluded; only portable preference files are in scope.
+
+  "id": "apps.mullvad-browser",
+  "displayName": "Mullvad Browser",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["MullvadVPN.MullvadBrowser"],
+    "exe": ["mullvad-browser.exe"],
+    "uninstallDisplayName": ["^Mullvad Browser"]
+  },
+
+  "verify": [
+    // prefs.js is written by the browser on first launch into the default profile
+    {
+      "type": "file-exists",
+      "path": "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\prefs.js"
+    }
+  ],
+
+  // Capture-only module — no shipped payload, restore is intentionally empty.
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // prefs.js — runtime-generated full preference dump (Firefox-style)
+      {
+        "source": "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\prefs.js",
+        "dest": "apps/mullvad-browser/prefs.js",
+        "optional": true
+      },
+      // user.js — user-authored preference overrides (if present)
+      {
+        "source": "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\user.js",
+        "dest": "apps/mullvad-browser/user.js",
+        "optional": true
+      },
+      // extension-preferences.json — per-extension settings store
+      {
+        "source": "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\extension-preferences.json",
+        "dest": "apps/mullvad-browser/extension-preferences.json",
+        "optional": true
+      },
+      // extensions.json — installed extension manifest list
+      {
+        "source": "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\extensions.json",
+        "dest": "apps/mullvad-browser/extensions.json",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\cache2\\**",
+      "**\\OfflineCache\\**",
+      "**\\thumbnails\\**",
+      "**\\crashes\\**",
+      "**\\minidumps\\**",
+      "**\\storage\\**",
+      "**\\datareporting\\**",
+      "**\\sessionstore-backups\\**",
+      "**\\*.sqlite",
+      "**\\*.sqlite-shm",
+      "**\\*.sqlite-wal",
+      "**\\*.lock",
+      "**\\*.log",
+      "**\\*.lz4"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // Cookies, session tokens, and login data must never be restored
+      "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\cookies.sqlite",
+      "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\logins.json",
+      "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\key4.db",
+      "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\cert9.db",
+      // Full profile directory catch-all
+      "%APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\**"
+    ],
+    "warning": "Mullvad Browser profile contains cookies, session tokens, saved logins, and certificate stores. These MUST NOT be auto-restored. Only preference files explicitly listed in capture.files are in scope.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Capture-only. Captures prefs.js, user.js, and extension metadata from the default profile at %APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\. Cookies, logins, key databases, and SQLite state are excluded. Profile path inferred from Mullvad Browser 13.x Windows layout; confidence medium (no in-situ verification)."
+}

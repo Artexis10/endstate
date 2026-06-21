@@ -1,0 +1,47 @@
+{
+  // Config Module: Screenpresso
+  // Screenshot and screen recording tool - captures XML-based preferences
+
+  "id": "apps.screenpresso",
+  "displayName": "Screenpresso",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Learnpulse.Screenpresso"],
+    "exe": ["Screenpresso.exe"],
+    "uninstallDisplayName": ["^Screenpresso"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Learnpulse\\Screenpresso" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      {
+        "source": "%APPDATA%\\Learnpulse\\Screenpresso",
+        "dest": "apps/screenpresso/Screenpresso",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\CrashReports\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\Learnpulse\\Screenpresso\\license.xml"
+    ],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Screenpresso XML preferences from %APPDATA%\\Learnpulse\\Screenpresso. License file excluded from auto-restore. Capture-only; no shipped payload."
+}

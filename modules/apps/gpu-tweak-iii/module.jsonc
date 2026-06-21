@@ -1,0 +1,78 @@
+{
+  // Config Module: ASUS GPU Tweak III
+  // GPU overclocking and monitoring utility by ASUS - no winget ID (manual/ASUS suite install).
+  // Settings live under %PROGRAMDATA%\ASUS\GPUTweakIII (system-wide, shared across users).
+  // Restore is omitted (capture-only) because the path is under ProgramData and writing there
+  // requires elevation; no payload is shipped.
+
+  "id": "apps.gpu-tweak-iii",
+  "displayName": "ASUS GPU Tweak III",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": [],
+    "exe": ["GPUTweakIII.exe"],
+    "uninstallDisplayName": ["^ASUS GPU Tweak III"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%PROGRAMDATA%\\ASUS\\GPUTweakIII" }
+  ],
+
+  // Capture-only module: no payload shipped, restore array is intentionally empty.
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Main settings directory - profiles, OC presets, fan curves, and UI preferences.
+      {
+        "source": "%PROGRAMDATA%\\ASUS\\GPUTweakIII",
+        "dest": "apps/gpu-tweak-iii/GPUTweakIII",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\Logs\\**",
+      "**\\Log\\**",
+      "**\\Cache\\**",
+      "**\\Temp\\**",
+      "**\\crash\\**",
+      "**\\*.lock",
+      "**\\*.dmp"
+    ]
+  },
+
+  "secrets": {
+    // No known credential paths for GPU Tweak III; block is present as a precaution
+    // in case ASUS account sign-in state is persisted inside the ProgramData directory.
+    "files": [
+      "%PROGRAMDATA%\\ASUS\\GPUTweakIII\\account.json",
+      "%PROGRAMDATA%\\ASUS\\GPUTweakIII\\token.json",
+      "%PROGRAMDATA%\\ASUS\\GPUTweakIII\\credentials.json"
+    ],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures ASUS GPU Tweak III OC profiles, fan-curve presets, and UI settings from %PROGRAMDATA%\\ASUS\\GPUTweakIII. No winget ID — distributed via ASUS Armoury Crate or standalone installer. Restore omitted: ProgramData requires elevation. Confidence: medium — path confirmed by community reports; exact filenames vary by version.",
+
+  "curation": {
+    "seed": {
+      "type": "script",
+      "script": "seed.ps1"
+    },
+    "snapshotRoots": [
+      "%PROGRAMDATA%"
+    ],
+    "excludePatterns": [
+      "**/*.log",
+      "**/*.tmp",
+      "**/Logs/**",
+      "**/Cache/**",
+      "**/Temp/**",
+      "**/*.lock",
+      "**/*.dmp"
+    ]
+  }
+}

@@ -1,0 +1,63 @@
+{
+  // Config Module: NoMachine
+  // Provides verify/capture configuration for NoMachine (remote desktop / virtual display)
+  // Capture-only module - no shipped payload; captures user .nxs session profiles from Documents\NoMachine
+  // configType: file
+
+  "id": "apps.nomachine",
+  "displayName": "NoMachine",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["NoMachine.NoMachine"],
+    "exe": ["nxplayer.exe", "nxclient.exe"],
+    "uninstallDisplayName": ["^NoMachine"]
+  },
+
+  "verify": [
+    // NoMachine writes .nxs connection profiles to Documents\NoMachine on first use
+    { "type": "file-exists", "path": "%USERPROFILE%\\Documents\\NoMachine" }
+  ],
+
+  // Capture-only: restore array is intentionally empty (no shipped payload)
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // User-created .nxs session profile files (connection host, port, display settings)
+      {
+        "source": "%USERPROFILE%\\Documents\\NoMachine",
+        "dest": "apps/nomachine/NoMachine",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // Log and trace files written by nxclient / nxplayer
+      "**\\*.log",
+      "**\\*.trace",
+      // Lock files left by active sessions
+      "**\\*.lock",
+      "**\\*.lck",
+      // Temporary / partial download artifacts
+      "**\\*.tmp",
+      // Session recording videos (can be very large)
+      "**\\recordings\\**",
+      "**\\*.mkv",
+      "**\\*.avi",
+      // Cache directories
+      "**\\cache\\**",
+      "**\\Cache\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // .nxs files CAN embed saved passwords or SSH private-key paths - user must review
+      "%USERPROFILE%\\Documents\\NoMachine\\*.nxs"
+    ],
+    "warning": "NoMachine .nxs session files may embed saved credentials (passwords or SSH key references). Review captured files before committing to a shared store. This module captures them but they must not be automatically restored on a new machine without user review.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures NoMachine user session profiles (.nxs files) from %USERPROFILE%\\Documents\\NoMachine. Excludes logs, lock files, temp files, and session recordings. .nxs files may embed saved credentials and are flagged warn-only in secrets. Confidence: medium - Documents\\NoMachine is the documented per-user profile directory; system-wide server config lives under %PROGRAMDATA%\\NoMachine and is excluded (not portable across machines)."
+}

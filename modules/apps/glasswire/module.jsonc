@@ -1,0 +1,62 @@
+{
+  // Config Module: GlassWire
+  // Network monitoring and firewall tool - captures user preferences and alert settings
+  // configType: file
+  // Capture-only: no shipped payload; restore entries are empty by design.
+  // Settings are split between %PROGRAMDATA%\GlassWire (shared/service config)
+  // and %LOCALAPPDATA%\GlassWire (per-user UI prefs). Only the per-user
+  // %LOCALAPPDATA% tree is portable across machines; %PROGRAMDATA% paths are
+  // listed under secrets because they may contain license activation data and
+  // are service-bound to the local install.
+
+  "id": "apps.glasswire",
+  "displayName": "GlassWire",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["GlassWire.GlassWire"],
+    "exe": ["GlassWire.exe"],
+    "uninstallDisplayName": ["^GlassWire"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%LOCALAPPDATA%\\GlassWire\\glasswire.conf" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Per-user UI preferences and alert thresholds
+      { "source": "%LOCALAPPDATA%\\GlassWire\\glasswire.conf", "dest": "apps/glasswire/glasswire.conf", "optional": true },
+      // Firewall profile / allow-block rules (user-defined, portable)
+      { "source": "%LOCALAPPDATA%\\GlassWire\\glasswire_rules.conf", "dest": "apps/glasswire/glasswire_rules.conf", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Traffic history database - large, machine-specific, not portable
+      "**\\glasswire.db",
+      "**\\glasswire_old.db",
+      // Logs and crash reports
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.dmp",
+      // Temp and lock files
+      "**\\*.tmp",
+      "**\\*.lock"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // %PROGRAMDATA% config may contain the activation / license key embedded
+      // by the GlassWire service; restoring it on another machine can corrupt
+      // the license state or bind the wrong host to the activation.
+      "%PROGRAMDATA%\\GlassWire\\glasswire.conf",
+      "%PROGRAMDATA%\\GlassWire\\glasswire.db"
+    ],
+    "warning": "GlassWire stores activation / license information and the full traffic history database under %PROGRAMDATA%\\GlassWire. These are bound to the local service installation; restoring them on a different machine may corrupt license state or clone machine-specific network records. They are excluded from both capture and restore.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures GlassWire per-user preferences and firewall rules from %LOCALAPPDATA%\\GlassWire only. Traffic history database (glasswire.db) and %PROGRAMDATA% paths (service config, potential license data) are excluded. Confidence: medium - config file locations inferred from GlassWire's known AppData layout; actual filenames may vary by version."
+}

@@ -1,0 +1,97 @@
+{
+  // Config Module: Podman Desktop
+  // Container management GUI (Red Hat) - captures user settings and container engine config
+  // Capture-only: no shipped payload; restore array is empty
+
+  "id": "apps.podman-desktop",
+  "displayName": "Podman Desktop",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["RedHat.Podman-Desktop"],
+    "exe": ["podman-desktop.exe"],
+    "uninstallDisplayName": ["^Podman Desktop"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Podman Desktop\\configuration\\default\\0.json" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Podman Desktop stores its UI/extension settings under %APPDATA%\Podman Desktop\configuration\
+      {
+        "source": "%APPDATA%\\Podman Desktop\\configuration",
+        "dest": "apps/podman-desktop/configuration",
+        "optional": true
+      },
+      // containers/registries.conf - per-user OCI registry mirrors and unqualified-search config
+      {
+        "source": "%USERPROFILE%\\.config\\containers\\registries.conf",
+        "dest": "apps/podman-desktop/containers/registries.conf",
+        "optional": true
+      },
+      // containers/storage.conf - per-user storage driver and root overrides
+      {
+        "source": "%USERPROFILE%\\.config\\containers\\storage.conf",
+        "dest": "apps/podman-desktop/containers/storage.conf",
+        "optional": true
+      },
+      // containers/containers.conf - per-user Podman engine settings (cgroups, network, etc.)
+      {
+        "source": "%USERPROFILE%\\.config\\containers\\containers.conf",
+        "dest": "apps/podman-desktop/containers/containers.conf",
+        "optional": true
+      },
+      // containers/policy.json - per-user image signature/trust policy
+      {
+        "source": "%USERPROFILE%\\.config\\containers\\policy.json",
+        "dest": "apps/podman-desktop/containers/policy.json",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // Runtime logs and crash artifacts
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\crashDumps\\**",
+      // Extension and UI caches
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Code Cache\\**",
+      "**\\blob_storage\\**",
+      "**\\DawnCache\\**",
+      // Electron/Chromium state databases - machine-specific, not portable
+      "**\\*.vscdb",
+      "**\\Network\\**",
+      "**\\Session Storage\\**",
+      "**\\Local Storage\\**",
+      "**\\IndexedDB\\**",
+      "**\\databases\\**",
+      // Lock files
+      "**\\*.lock",
+      "**\\SingletonLock",
+      "**\\SingletonCookie",
+      // Telemetry / machine-scoped identifiers
+      "**\\telemetry\\**",
+      "**\\Telemetry\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // Registry auth credentials written by podman login / buildah login
+      "%USERPROFILE%\\.config\\containers\\auth.json",
+      // Any .pem / .key / .crt files the user may have placed in the containers config dir
+      "%USERPROFILE%\\.config\\containers\\*.pem",
+      "%USERPROFILE%\\.config\\containers\\*.key",
+      "%USERPROFILE%\\.config\\containers\\*.crt"
+    ],
+    "warning": "auth.json contains OCI registry credentials (base64-encoded username:password tokens). Private key and certificate files MUST NOT be auto-restored. Review manually and re-authenticate with 'podman login' after provisioning.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Podman Desktop UI/extension settings (%APPDATA%\\Podman Desktop\\configuration) and per-user container engine config (%USERPROFILE%\\.config\\containers\\*.conf, policy.json). Registry auth (auth.json) and TLS credentials are blocked from auto-restore. Confidence: medium - directory layout confirmed from upstream source and community reports; exact configuration subdirectory depth may vary across Podman Desktop versions."
+}

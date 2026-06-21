@@ -1,0 +1,54 @@
+{
+  // Config Module: Spyder
+  // Provides verify/restore/capture configuration for Spyder (Scientific Python IDE)
+  // Capture-only module - captures spyder.ini preferences; no shipped payload
+
+  "id": "apps.spyder",
+  "displayName": "Spyder",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Spyder.Spyder"],
+    "exe": ["spyder.exe"],
+    "uninstallDisplayName": ["^Spyder\\b"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\spyder-py3\\config\\spyder.ini" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Primary preferences file: editor settings, font, shortcuts, run configs, appearance
+      { "source": "%APPDATA%\\spyder-py3\\config\\spyder.ini", "dest": "apps/spyder/spyder.ini", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Volatile runtime / cache artefacts
+      "**\\lsp_logs\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.tmp",
+      "**\\__pycache__\\**",
+      // Spyder caches sessions, history, and autosave under the config dir
+      "**\\autosave\\**",
+      "**\\onlinehelp\\**",
+      "**\\history.py",
+      "**\\history_internal.py",
+      // Completions / symbol caches (rebuilt at startup)
+      "**\\completions-fallback\\**",
+      "**\\snippets\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\spyder-py3\\config\\spyder.ini"
+    ],
+    "warning": "spyder.ini may embed remote kernel connection info (e.g. SSH tunnels, remote Jupyter server URLs and tokens). Review the captured file before sharing a bundle.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Spyder's primary INI preferences (%APPDATA%\\spyder-py3\\config\\spyder.ini): editor, font, keybindings, appearance, and run configurations. Logs, autosave, history, LSP logs, and completion caches are excluded. Sensitivity is none for local-only setups; secrets block guards against users who configure remote kernels with tokens. Confidence: high - config path confirmed by Spyder documentation and %APPDATA%\\spyder-py3 is the canonical Windows config root."
+}

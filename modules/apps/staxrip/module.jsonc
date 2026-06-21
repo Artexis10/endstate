@@ -1,0 +1,67 @@
+{
+  // Config Module: StaxRip
+  // Video encoding frontend (AviSynth/VapourSynth + encoder wrappers)
+  // Capture-only: no shipped payload; restore array is empty by design
+
+  "id": "apps.staxrip",
+  "displayName": "StaxRip",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["staxrip.staxrip"],
+    "exe": ["StaxRip.exe"],
+    "uninstallDisplayName": ["^StaxRip"]
+  },
+
+  "verify": [
+    // Cheapest assertion: the settings file written after first launch
+    { "type": "file-exists", "path": "%APPDATA%\\StaxRip\\Settings\\settings.xml" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Primary settings folder under %APPDATA% (used when running without admin rights
+      // or when no portable folder is detected beside the exe)
+      {
+        "source": "%APPDATA%\\StaxRip\\Settings",
+        "dest": "apps/staxrip/Settings",
+        "optional": true
+      },
+      // Template/profile folder (codec profiles, filter presets, job templates)
+      {
+        "source": "%APPDATA%\\StaxRip\\Templates",
+        "dest": "apps/staxrip/Templates",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // Runtime / volatile
+      "**\\Log\\**",
+      "**\\Logs\\**",
+      "**\\*.log",
+      "**\\Temp\\**",
+      "**\\temp\\**",
+      "**\\*.tmp",
+      "**\\*.lock",
+      // Job queue state — machine-specific, not portable
+      "**\\jobs.xml",
+      "**\\joblist.xml",
+      // Recent-files MRU list — machine-specific paths
+      "**\\recentfiles.xml",
+      // Crash / telemetry
+      "**\\CrashReports\\**",
+      "**\\*.dmp"
+    ]
+  },
+
+  "secrets": {
+    // StaxRip has no known credential or token store; block entry is a safety net
+    // in case a future version adds API-key-bearing config files
+    "files": [],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Capture-only module for StaxRip video encoding frontend. Captures settings and encoder/filter templates from %APPDATA%\\StaxRip\\. No credentials or license blobs are stored by this app. Confidence: medium — config root inferred from app behaviour and community documentation; portable installs may store settings beside the exe instead."
+}

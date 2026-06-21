@@ -1,0 +1,60 @@
+{
+  // Config Module: DbGate
+  // Provides verify/restore/capture configuration for DbGate (open-source database manager)
+  // Capture-only module — no shipped payload; restore array is empty.
+  // connections.json holds saved connection profiles (host, port, driver, credentials) —
+  // treated as a secret and blocked from auto-restore due to embedded credential fields.
+
+  "id": "apps.dbgate",
+  "displayName": "DbGate",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["dbgate.dbgate"],
+    "exe": ["dbgate.exe"],
+    "uninstallDisplayName": ["^DbGate"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\DbGate\\connections.json" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Saved connection profiles (host, port, database, driver — also contains credential fields)
+      { "source": "%APPDATA%\\DbGate\\connections.json", "dest": "apps/dbgate/connections.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Electron/Chromium runtime artefacts
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\DawnGraphiteCache\\**",
+      "**\\DawnWebGPUCache\\**",
+      "**\\Crashpad\\**",
+      // Logs and temp files
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\Temp\\**",
+      // Electron session / local storage state
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Network\\**",
+      "**\\blob_storage\\**",
+      "**\\*.lock"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\DbGate\\connections.json"
+    ],
+    "warning": "connections.json stores saved database connection profiles and may include plaintext or lightly-obfuscated passwords and SSH key paths depending on the driver and authentication mode configured by the user. This file MUST NOT be auto-restored; users should re-enter connection credentials on the new machine.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures DbGate connection profiles from %APPDATA%\\DbGate\\connections.json. connections.json is flagged as a secret (warn-only) because it may carry inline credential fields; users must re-enter passwords after restore. Electron caches, logs, and session storage are excluded. Confidence: medium — config path inferred from DbGate's Electron/app data conventions; no official documentation explicitly names the Windows config root."
+}

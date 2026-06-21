@@ -1,0 +1,51 @@
+{
+  // Config Module: Zettlr
+  // Provides verify/capture configuration for Zettlr (Markdown editor / Zettelkasten tool)
+  // Capture-only module - no shipped payload; restore array is empty
+
+  "id": "apps.zettlr",
+  "displayName": "Zettlr",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Zettlr.Zettlr"],
+    "exe": ["Zettlr.exe"],
+    "uninstallDisplayName": ["^Zettlr"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Zettlr\\config.json" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Main application preferences (theme, editor settings, export, spellcheck, etc.)
+      { "source": "%APPDATA%\\Zettlr\\config.json", "dest": "apps/zettlr/config.json", "optional": true },
+      // User CSS overrides injected into the editor / preview pane
+      { "source": "%APPDATA%\\Zettlr\\custom.css", "dest": "apps/zettlr/custom.css", "optional": true },
+      // Bundled / user-added dictionary files (hunspell .dic / .aff pairs)
+      { "source": "%APPDATA%\\Zettlr\\dict", "dest": "apps/zettlr/dict", "optional": true }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\Code Cache\\**",
+      "**\\DawnCache\\**",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.tmp",
+      "**\\*.lock",
+      "**\\stats.json"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures Zettlr app-level preferences (config.json), user CSS (custom.css), and dictionary files from %APPDATA%\\Zettlr\\. Workspaces/vaults (user document trees) are user content and are NOT captured. stats.json (writing statistics) excluded as volatile runtime data. Confidence: high — Electron app; config dir is the standard Electron userData path resolved via app.getPath('userData') which maps to %APPDATA%\\Zettlr on Windows."
+}

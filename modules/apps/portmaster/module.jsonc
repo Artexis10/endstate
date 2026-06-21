@@ -1,0 +1,64 @@
+{
+  // Config Module: Portmaster
+  // Application firewall by Safing - captures per-app rules and global settings stored as JSON under %PROGRAMDATA%
+
+  "id": "apps.portmaster",
+  "displayName": "Portmaster",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Safing.Portmaster"],
+    "exe": ["portmaster-app.exe", "portmaster-core.exe"],
+    "uninstallDisplayName": ["^Portmaster"]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%ProgramFiles%\\Safing\\Portmaster\\portmaster-app.exe" }
+  ],
+
+  // Capture-only: no payload is shipped; restore array is empty.
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Global settings
+      {
+        "source": "%PROGRAMDATA%\\Safing\\Portmaster\\config.json",
+        "dest": "apps/portmaster/config.json",
+        "optional": true
+      },
+      // Per-app firewall profiles directory (one JSON file per application profile)
+      {
+        "source": "%PROGRAMDATA%\\Safing\\Portmaster\\profiles",
+        "dest": "apps/portmaster/profiles",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      // Runtime databases and indexes rebuilt on startup
+      "**\\databases\\**",
+      "**\\updates\\**",
+      "**\\logs\\**",
+      "**\\tmp\\**",
+      // Lock and state files
+      "**\\*.lock",
+      "**\\*.db",
+      "**\\*.cache",
+      // Intel/threat-feed data (large, auto-updated)
+      "**\\intel\\**",
+      "**\\network\\**"
+    ]
+  },
+
+  "secrets": {
+    // No credential or token files are known for Portmaster, but any SPN/account
+    // tokens stored by the Safing cloud integration must not be auto-restored.
+    "files": [
+      "%PROGRAMDATA%\\Safing\\Portmaster\\account.json"
+    ],
+    "warning": "Any SPN/account tokens stored by the Safing cloud integration (account.json) must not be auto-restored.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Capture-only. Captures global Portmaster config and per-app firewall profiles from %PROGRAMDATA%\\Safing\\Portmaster\\. Runtime databases, intel feeds, logs, and update artifacts excluded. Account/cloud-token file (account.json) flagged as secret and never auto-restored. Confidence: medium — profile directory layout verified against Portmaster v1 on-disk structure."
+}

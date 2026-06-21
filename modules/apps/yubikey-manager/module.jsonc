@@ -1,0 +1,63 @@
+{
+  // Config Module: YubiKey Manager
+  // Provides verify/capture configuration for YubiKey Manager (Yubico authenticator/OTP/FIDO2 management GUI)
+  // Capture-only module - no shipped payload; restore is a no-op until the user captures first
+  // configType: file — settings live under %APPDATA%\com.yubico.authenticator
+
+  "id": "apps.yubikey-manager",
+  "displayName": "YubiKey Manager",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["Yubico.YubiKeyManager"],
+    "exe": ["yubikey-manager.exe", "ykman-gui.exe", "yubikey_manager.exe"],
+    "uninstallDisplayName": ["^YubiKey Manager"]
+  },
+
+  "verify": [
+    // The settings.json written by the Dart/Flutter app on first run is the cheapest portable signal
+    { "type": "file-exists", "path": "%APPDATA%\\com.yubico.authenticator\\settings.json" }
+  ],
+
+  "restore": [],
+
+  "capture": {
+    "files": [
+      // Primary application preferences (theme, NFC/USB settings, general options)
+      { "source": "%APPDATA%\\com.yubico.authenticator\\settings.json", "dest": "apps/yubikey-manager/settings.json", "optional": true },
+      // Shared preferences written by the Flutter engine (window size, locale, etc.)
+      { "source": "%APPDATA%\\com.yubico.authenticator\\shared_preferences.json", "dest": "apps/yubikey-manager/shared_preferences.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Flutter engine cache / Skia GPU shader cache
+      "**\\cache\\**",
+      "**\\Cache\\**",
+      "**\\gpu_cache\\**",
+      "**\\code_cache\\**",
+      // Log files
+      "**\\*.log",
+      "**\\logs\\**",
+      // Lock files and transient state
+      "**\\*.lock",
+      "**\\flutter_secure_storage\\**",
+      // Session / crash artifacts
+      "**\\CrashpadMetrics*.pma",
+      "**\\crashpad\\**"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      // Flutter secure storage may persist OTP seeds or FIDO2 token-adjacent secrets
+      "%APPDATA%\\com.yubico.authenticator\\flutter_secure_storage",
+      // Any credential or private-key blobs the app may write
+      "%APPDATA%\\com.yubico.authenticator\\*.key",
+      "%APPDATA%\\com.yubico.authenticator\\*.pem",
+      "%APPDATA%\\com.yubico.authenticator\\*.p12"
+    ],
+    "warning": "Flutter secure storage may contain OTP seeds, FIDO2 credentials, or other token-adjacent secrets that are bound to this device and MUST NOT be auto-restored. Any key/cert blobs are similarly off-limits.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures YubiKey Manager UI preferences (theme, NFC/USB toggles, window geometry) from %APPDATA%\\com.yubico.authenticator. No credentials, OTP seeds, or key material are in scope. Confidence: medium — config path inferred from Flutter/Dart app defaults for Yubico Authenticator on Windows; actual file names may vary across YubiKey Manager vs Yubico Authenticator product variants."
+}
