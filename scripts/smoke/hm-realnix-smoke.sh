@@ -53,11 +53,15 @@ ENGINE_BIN="${SMOKE_BIN}/endstate"
 echo "    built: ${ENGINE_BIN}"
 
 # ---------------------------------------------------------------------------
-# Phase 2: Write a minimal manifest using homeManager.settings
+# Phase 2: Write a manifest exercising homeManager.settings
 #
-# Uses only curated catalog concepts that exist on main today:
-#   git (userName, userEmail, defaultBranch) and shell (aliases).
-# No nix packages (apps: []) so the smoke is purely config-stage.
+# Covers git + shell (bespoke) AND every data-driven dotfiles/CLI program
+# (ripgrep, fd, zsh, bash, helix, kitty, alacritty, wezterm, jujutsu, atuin,
+# yazi). Each sets its STABLE second-field option with a real, non-empty value
+# so the generic emit loop actually emits it (an empty value is skipped) and a
+# real `home-manager switch` validates the option name against the pinned
+# home-manager (HEAD). A wrong rename (e.g. zsh.initContent) fails activation.
+# No nix packages (apps: []) so the smoke is purely the config stage.
 # ---------------------------------------------------------------------------
 
 phase "Writing smoke manifest"
@@ -79,7 +83,18 @@ cat > "${SMOKE_MANIFEST}" << 'MANIFEST'
           "ll": "ls -la",
           "gs": "git status"
         }
-      }
+      },
+      "ripgrep": { "enable": true, "arguments": ["--smart-case"] },
+      "fd": { "enable": true, "extraOptions": ["--hidden"] },
+      "zsh": { "enable": true, "initContent": "setopt AUTO_CD" },
+      "bash": { "enable": true, "initExtra": "shopt -s globstar" },
+      "wezterm": { "enable": true, "extraConfig": "-- endstate smoke" },
+      "helix": { "enable": true, "settings": { "theme": "default" } },
+      "kitty": { "enable": true, "settings": { "font_size": 12 } },
+      "alacritty": { "enable": true, "settings": { "window": { "opacity": 1.0 } } },
+      "jujutsu": { "enable": true, "settings": { "user": { "name": "Smoke", "email": "smoke@endstate-ci.example" } } },
+      "atuin": { "enable": true, "settings": { "auto_sync": false } },
+      "yazi": { "enable": true, "settings": { "mgr": { "show_hidden": false } } }
     }
   }
 }
