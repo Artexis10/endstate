@@ -231,6 +231,110 @@ func TestLoadManifest_HomeManagerSettings_RejectsUnknownMoreCuratedKey(t *testin
 	}
 }
 
+// TestLoadManifest_HomeManagerSettings_DotfilesTier verifies the dotfiles/CLI-tier
+// curated concepts (ripgrep, fd, zsh, bash, helix, kitty, alacritty, wezterm,
+// jujutsu, atuin, yazi) round-trip through JSONC load with their typed fields retained.
+func TestLoadManifest_HomeManagerSettings_DotfilesTier(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "m.jsonc")
+	content := `{
+  "version": 1,
+  "name": "hm-dotfiles",
+  "apps": [],
+  "homeManager": {
+    "settings": {
+      "ripgrep": { "enable": true, "arguments": ["--smart-case", "--hidden"] },
+      "fd": { "enable": true, "extraOptions": ["--hidden", "--no-ignore"] },
+      "zsh": { "enable": true, "initContent": "export FOO=bar" },
+      "bash": { "enable": true, "initExtra": "shopt -s globstar" },
+      "helix": { "enable": true, "settings": { "theme": "catppuccin", "editor": { "line-number": "relative" } } },
+      "kitty": { "enable": true, "settings": { "font_size": 12, "background_opacity": "0.9" } },
+      "alacritty": { "enable": true, "settings": { "window": { "opacity": 0.95 } } },
+      "wezterm": { "enable": true, "extraConfig": "return { font_size = 12.0 }" },
+      "jujutsu": { "enable": true, "settings": { "user": { "name": "Ada" } } },
+      "atuin": { "enable": true, "settings": { "auto_sync": true } },
+      "yazi": { "enable": true, "settings": { "manager": { "show_hidden": true } } }
+    }
+  }
+}`
+	if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := LoadManifest(p)
+	if err != nil {
+		t.Fatalf("unexpected error loading dotfiles-tier catalog: %v", err)
+	}
+	if m.HomeManager == nil || m.HomeManager.Settings == nil {
+		t.Fatal("HomeManager.Settings = nil, want non-nil")
+	}
+	s := m.HomeManager.Settings
+	if s.Ripgrep == nil || !s.Ripgrep.Enable || len(s.Ripgrep.Arguments) != 2 || s.Ripgrep.Arguments[0] != "--smart-case" {
+		t.Errorf("ripgrep = %+v, want enable=true + arguments=[--smart-case --hidden]", s.Ripgrep)
+	}
+	if s.Fd == nil || !s.Fd.Enable || len(s.Fd.ExtraOptions) != 2 || s.Fd.ExtraOptions[0] != "--hidden" {
+		t.Errorf("fd = %+v, want enable=true + extraOptions=[--hidden --no-ignore]", s.Fd)
+	}
+	if s.Zsh == nil || !s.Zsh.Enable || s.Zsh.InitContent != "export FOO=bar" {
+		t.Errorf("zsh = %+v, want enable=true + initContent", s.Zsh)
+	}
+	if s.Bash == nil || !s.Bash.Enable || !strings.Contains(s.Bash.InitExtra, "globstar") {
+		t.Errorf("bash = %+v, want enable=true + initExtra", s.Bash)
+	}
+	if s.Helix == nil || !s.Helix.Enable || s.Helix.Settings["theme"] != "catppuccin" {
+		t.Errorf("helix = %+v, want enable=true + settings.theme=catppuccin", s.Helix)
+	}
+	if s.Kitty == nil || !s.Kitty.Enable || s.Kitty.Settings["background_opacity"] != "0.9" {
+		t.Errorf("kitty = %+v, want enable=true + settings", s.Kitty)
+	}
+	if s.Alacritty == nil || !s.Alacritty.Enable || s.Alacritty.Settings["window"] == nil {
+		t.Errorf("alacritty = %+v, want enable=true + settings.window", s.Alacritty)
+	}
+	if s.Wezterm == nil || !s.Wezterm.Enable || !strings.Contains(s.Wezterm.ExtraConfig, "font_size") {
+		t.Errorf("wezterm = %+v, want enable=true + extraConfig", s.Wezterm)
+	}
+	if s.Jujutsu == nil || !s.Jujutsu.Enable || s.Jujutsu.Settings["user"] == nil {
+		t.Errorf("jujutsu = %+v, want enable=true + settings.user", s.Jujutsu)
+	}
+	if s.Atuin == nil || !s.Atuin.Enable || s.Atuin.Settings["auto_sync"] != true {
+		t.Errorf("atuin = %+v, want enable=true + settings.auto_sync=true", s.Atuin)
+	}
+	if s.Yazi == nil || !s.Yazi.Enable || s.Yazi.Settings["manager"] == nil {
+		t.Errorf("yazi = %+v, want enable=true + settings.manager", s.Yazi)
+	}
+}
+
+// TestLoadManifest_HomeManagerSettings_RejectsUnknownDotfilesTierKey verifies a typo'd
+// sub-key on a dotfiles-tier curated concept fails to load rather than being silently
+// dropped (the DisallowUnknownFields moat applies to every typed curated struct).
+func TestLoadManifest_HomeManagerSettings_RejectsUnknownDotfilesTierKey(t *testing.T) {
+	cases := map[string]string{
+		"ripgrep-typo":   `"ripgrep": { "arguemnts": [] }`,
+		"fd-typo":        `"fd": { "extraOption": [] }`,
+		"zsh-typo":       `"zsh": { "initContnet": "x" }`,
+		"bash-typo":      `"bash": { "initExtar": "x" }`,
+		"helix-typo":     `"helix": { "settigns": {} }`,
+		"kitty-typo":     `"kitty": { "settigns": {} }`,
+		"alacritty-typo": `"alacritty": { "setings": {} }`,
+		"wezterm-typo":   `"wezterm": { "extraCfg": "x" }`,
+		"jujutsu-typo":   `"jujutsu": { "setttings": {} }`,
+		"atuin-typo":     `"atuin": { "settigns": {} }`,
+		"yazi-typo":      `"yazi": { "settigns": {} }`,
+	}
+	for name, block := range cases {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := filepath.Join(dir, "m.jsonc")
+			content := `{ "version": 1, "name": "typo", "apps": [], "homeManager": { "settings": { ` + block + ` } } }`
+			if err := os.WriteFile(p, []byte(content), 0644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := LoadManifest(p); err == nil {
+				t.Fatalf("%s: expected an error for an unknown sub-key, got nil", name)
+			}
+		})
+	}
+}
+
 // TestLoadManifest_HomeManagerInputsMutuallyExclusive verifies settings / config /
 // flake are mutually exclusive — any pair fails to load with a clear error.
 func TestLoadManifest_HomeManagerInputsMutuallyExclusive(t *testing.T) {

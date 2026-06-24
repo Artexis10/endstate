@@ -54,10 +54,37 @@
         "extraConfig": "set number\nset relativenumber\nset expandtab\nset tabstop=2"
       },
 
+      // Dotfiles/CLI tier — same stable-surface mapping, broader coverage.
+      "ripgrep": {
+        "enable": true,
+        // Raw rg flags forwarded verbatim via programs.ripgrep.arguments.
+        "arguments": ["--smart-case", "--hidden", "--glob=!.git/*"]
+      },
+      "fd": {
+        "enable": true,
+        // Raw fd flags forwarded verbatim via programs.fd.extraOptions.
+        "extraOptions": ["--hidden", "--no-ignore"]
+      },
+      "zsh": {
+        "enable": true,
+        // Raw .zshrc body — the stable, consolidated init surface
+        // (programs.zsh.initContent).
+        "initContent": "bindkey -e\nsetopt AUTO_CD"
+      },
+      "kitty": {
+        "enable": true,
+        // kitty.conf key→value, forwarded verbatim (programs.kitty.settings).
+        "settings": { "font_size": 12, "enable_audio_bell": false }
+      },
+
       // Raw home-manager passthrough — forwarded verbatim. Use this for any
       // program NOT in the curated set above (a curated name here would conflict).
+      // Tools that map cleanly to a bare programs.<name> attrset and need no
+      // rename-insulation already work here with zero curation — e.g. lsd, btop,
+      // jq, broot: "lsd": { "enable": true }, "btop": { "enable": true }, …
       "programs": {
-        "htop": { "enable": true, "settings": { "show_program_path": false } }
+        "htop": { "enable": true, "settings": { "show_program_path": false } },
+        "lsd": { "enable": true }
       },
 
       // Arbitrary files placed via home-manager (source resolved relative to this

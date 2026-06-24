@@ -206,6 +206,95 @@ func TestCompileHomeNix_MoreCuratedRawOverlapErrors(t *testing.T) {
 	}
 }
 
+// TestCompileHomeNix_DotfilesTier: the dotfiles/CLI-tier curated concepts render the
+// expected stable home-manager statements — list (ripgrep.arguments, fd.extraOptions),
+// raw string (zsh.initContent, bash.initExtra, wezterm.extraConfig), and attrset
+// (helix/kitty/alacritty/jujutsu/atuin/yazi .settings).
+func TestCompileHomeNix_DotfilesTier(t *testing.T) {
+	s := &manifest.HomeManagerSettings{
+		Ripgrep:   &manifest.RipgrepSettings{Enable: true, Arguments: []string{"--smart-case", "--hidden"}},
+		Fd:        &manifest.FdSettings{Enable: true, ExtraOptions: []string{"--hidden", "--no-ignore"}},
+		Zsh:       &manifest.ZshSettings{Enable: true, InitContent: "export FOO=bar"},
+		Bash:      &manifest.BashSettings{Enable: true, InitExtra: "shopt -s globstar"},
+		Helix:     &manifest.HelixSettings{Enable: true, Settings: map[string]any{"theme": "catppuccin"}},
+		Kitty:     &manifest.KittySettings{Enable: true, Settings: map[string]any{"font_size": float64(12)}},
+		Alacritty: &manifest.AlacrittySettings{Enable: true, Settings: map[string]any{"window": map[string]any{"opacity": 0.95}}},
+		Wezterm:   &manifest.WeztermSettings{Enable: true, ExtraConfig: "return { font_size = 12.0 }"},
+		Jujutsu:   &manifest.JujutsuSettings{Enable: true, Settings: map[string]any{"user": map[string]any{"name": "Ada"}}},
+		Atuin:     &manifest.AtuinSettings{Enable: true, Settings: map[string]any{"auto_sync": true}},
+		Yazi:      &manifest.YaziSettings{Enable: true, Settings: map[string]any{"manager": map[string]any{"show_hidden": true}}},
+	}
+	home, _, err := CompileHomeNix(s, t.TempDir())
+	if err != nil {
+		t.Fatalf("CompileHomeNix: %v", err)
+	}
+	out := string(home)
+	for _, w := range []string{
+		"programs.ripgrep.enable = true;",
+		`programs.ripgrep.arguments = [ "--smart-case" "--hidden" ];`,
+		"programs.fd.enable = true;",
+		`programs.fd.extraOptions = [ "--hidden" "--no-ignore" ];`,
+		"programs.zsh.enable = true;",
+		`programs.zsh.initContent = "export FOO=bar";`,
+		"programs.bash.enable = true;",
+		`programs.bash.initExtra = "shopt -s globstar";`,
+		"programs.helix.enable = true;",
+		`programs.helix.settings = `,
+		`"theme" = "catppuccin"`,
+		"programs.kitty.enable = true;",
+		`programs.kitty.settings = `,
+		"programs.alacritty.enable = true;",
+		`programs.alacritty.settings = `,
+		`"window"`,
+		"programs.wezterm.enable = true;",
+		`programs.wezterm.extraConfig = "return { font_size = 12.0 }";`,
+		"programs.jujutsu.enable = true;",
+		`programs.jujutsu.settings = `,
+		"programs.atuin.enable = true;",
+		`programs.atuin.settings = `,
+		`"auto_sync" = true`,
+		"programs.yazi.enable = true;",
+		`programs.yazi.settings = `,
+	} {
+		if !strings.Contains(out, w) {
+			t.Errorf("compiled home.nix missing %q\n---\n%s", w, out)
+		}
+	}
+}
+
+// TestCompileHomeNix_DotfilesTierRawOverlapErrors: a raw programs key colliding with a
+// dotfiles-tier curated concept is a clear error rather than a Nix double definition.
+func TestCompileHomeNix_DotfilesTierRawOverlapErrors(t *testing.T) {
+	for _, name := range []string{"ripgrep", "fd", "zsh", "bash", "helix", "kitty", "alacritty", "wezterm", "jujutsu", "atuin", "yazi"} {
+		t.Run(name, func(t *testing.T) {
+			s := &manifest.HomeManagerSettings{
+				Ripgrep:  &manifest.RipgrepSettings{Enable: true},
+				Programs: map[string]any{name: map[string]any{"enable": true}},
+			}
+			if _, _, err := CompileHomeNix(s, t.TempDir()); err == nil {
+				t.Fatalf("expected an error for raw programs.%s overlapping curated %s, got nil", name, name)
+			}
+		})
+	}
+}
+
+// TestCompileHomeNix_DotfilesTierEnableOnly: a dotfiles-tier concept set with only
+// enable (no second field) renders just the explicit enable statement.
+func TestCompileHomeNix_DotfilesTierEnableOnly(t *testing.T) {
+	s := &manifest.HomeManagerSettings{Zsh: &manifest.ZshSettings{Enable: false}}
+	home, _, err := CompileHomeNix(s, t.TempDir())
+	if err != nil {
+		t.Fatalf("CompileHomeNix: %v", err)
+	}
+	out := string(home)
+	if !strings.Contains(out, "programs.zsh.enable = false;") {
+		t.Errorf("compiled home.nix missing explicit zsh disable:\n%s", out)
+	}
+	if strings.Contains(out, "programs.zsh.initContent") {
+		t.Errorf("compiled home.nix should not emit empty zsh.initContent:\n%s", out)
+	}
+}
+
 // TestCompileHomeNix_Deterministic: identical settings → identical output.
 func TestCompileHomeNix_Deterministic(t *testing.T) {
 	s := &manifest.HomeManagerSettings{
