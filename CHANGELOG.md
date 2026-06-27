@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.21.0](https://github.com/Artexis10/endstate/compare/v2.20.0...v2.21.0) (2026-06-27)
+
+
+### Features
+
+* **backup:** macOS Keychain + Linux Secret Service keychain backends ([#129](https://github.com/Artexis10/endstate/issues/129)) ([5ea8df5](https://github.com/Artexis10/endstate/commit/5ea8df541d5878dd8a75713d011ca56779c163e1))
+* **bootstrap:** Unix self-install + multi-platform release artifacts ([#130](https://github.com/Artexis10/endstate/issues/130)) ([f22cd32](https://github.com/Artexis10/endstate/commit/f22cd32ce8afc807b152bf70fb8c2b4da21bb213))
+* **catalog:** add 42 Windows config modules across 11 categories ([#133](https://github.com/Artexis10/endstate/issues/133)) ([1c971ca](https://github.com/Artexis10/endstate/commit/1c971caa1db99d822ea0f119fe37db4fd0527419))
+* **home-manager:** data-driven cross-platform config catalog + 11 programs ([#135](https://github.com/Artexis10/endstate/issues/135)) ([45b5a5f](https://github.com/Artexis10/endstate/commit/45b5a5f11af03250b08ade08f9f5a5a306a51202))
+* **windows-settings:** value-level Windows OS-settings tier (8 groups) ([#134](https://github.com/Artexis10/endstate/issues/134)) ([d073cc7](https://github.com/Artexis10/endstate/commit/d073cc73588323c830c2931d3f172053befd09b7))
+
+
+### Bug Fixes
+
+* **ci:** bump Go 1.22 to 1.26 (fixes macOS LC_UUID dyld crash) ([#136](https://github.com/Artexis10/endstate/issues/136)) ([851f996](https://github.com/Artexis10/endstate/commit/851f996861dfb2e4ccc1d412220dde226af78bde))
+
 ## [2.20.0](https://github.com/Artexis10/endstate/compare/v2.19.0...v2.20.0) (2026-06-06)
 
 
