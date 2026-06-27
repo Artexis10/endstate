@@ -29,5 +29,5 @@
 
 ## 6. Manual validation (deferred — not CI-verifiable in this environment)
 
-- [ ] 6.1 Real macOS Keychain round-trip (`backup login` → `backup push` on a Mac with an unlocked login keychain)
-- [ ] 6.2 Real Secret Service round-trip on a desktop Linux session with an unlocked GNOME Keyring / KWallet
+- [ ] 6.1 (DEFERRED → docs/roadmap/roadmap.md §6 real-machine validation queue) Real macOS Keychain round-trip (`backup login` → `backup push` on a Mac with an unlocked login keychain)
+- [ ] 6.2 (DEFERRED → docs/roadmap/roadmap.md §6 real-machine validation queue) Real Secret Service round-trip on a desktop Linux session with an unlocked GNOME Keyring / KWallet

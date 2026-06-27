@@ -215,6 +215,11 @@ platform support matrix.
 - **Real install-path CI**: the GH macOS runner has Homebrew (and CI-Nix) preinstalled, so the
   bootstrap *install* path (absent → consent → install) is only exercisable on a clean real machine,
   not in the existing smokes.
+- **Real-machine validation queue** (composes with the real-Mac E2E pass): real macOS Keychain
+  round-trip (`backup login` → `backup push` with an unlocked login keychain) and real Secret
+  Service round-trip on a desktop Linux session (unlocked GNOME Keyring / KWallet) — the Unix
+  keychain backends (#129) are CI-verified hermetically only; plus a darwin release-binary check
+  once the first multi-platform release (#130) is cut.
 
 ---
 
