@@ -40,6 +40,7 @@ Commands:
   bootstrap       Bootstrap Endstate installation
   backup          Hosted Backup commands (login, logout, status, ...)
   account         Hosted account management (delete)
+  schedule        Scheduled drift-check commands (enable, disable, status, run)
 
 Global flags:
   --json               Output result as a single-line JSON envelope to stdout
@@ -70,6 +71,10 @@ Per-command flags:
   --confirm            Acknowledge a state-changing operation (apply --prune, rollback, backup/account delete)
 
 Subcommands:
+  schedule enable      Register drift-check task (--manifest, --interval, --time, --auto-push)
+  schedule disable     Remove drift-check task
+  schedule status      Report schedule config and last run outcome
+  schedule run         Execute drift-check now (--root, --json)
   profile list         List discovered profiles
   profile path <name>  Resolve profile path
   profile validate <p> Validate a profile manifest
@@ -139,6 +144,12 @@ type parsedArgs struct {
 	saveRecoveryTo    string
 	overwrite         bool
 	ifChanged         bool
+
+	// Schedule flags
+	scheduleInterval string // --interval daily|weekly
+	scheduleTime     string // --time HH:MM
+	autoPush         bool   // --auto-push
+	root             string // --root <path> (ENDSTATE_ROOT override for schedule run)
 
 	// Positional args after command (used by profile / backup / account subcommands)
 	positionalArgs []string
@@ -210,6 +221,23 @@ func parseArgs(args []string) parsedArgs {
 			p.overwrite = true
 		case "--if-changed":
 			p.ifChanged = true
+		case "--auto-push":
+			p.autoPush = true
+		case "--interval":
+			if i+1 < len(args) {
+				p.scheduleInterval = args[i+1]
+				i++
+			}
+		case "--time":
+			if i+1 < len(args) {
+				p.scheduleTime = args[i+1]
+				i++
+			}
+		case "--root":
+			if i+1 < len(args) {
+				p.root = args[i+1]
+				i++
+			}
 		case "--WithConfig":
 			// GUI sends --WithConfig for capture; the Go engine includes
 			// config modules by default, so this is a no-op. Accept it
@@ -351,6 +379,8 @@ func commandUsage(cmd string) string {
 		return "Usage: endstate account <subcommand> [flags] [--json]\n\nSubcommands:\n  delete --confirm  Delete the Hosted Backup account permanently\n"
 	case "bootstrap":
 		return "Usage: endstate bootstrap\n\nBootstrap Endstate installation.\n"
+	case "schedule":
+		return "Usage: endstate schedule <subcommand> [flags] [--json]\n\nSubcommands:\n  enable --manifest <path> [--interval daily|weekly] [--time HH:MM] [--auto-push]\n                              Register the drift-check scheduled task (Windows only)\n  disable                     Remove the drift-check scheduled task\n  status                      Report schedule config and last-run outcome\n  run [--root <path>]         Execute drift-check now; write last-run.json; exit 0 on drift\n"
 	default:
 		return usageText
 	}
@@ -591,6 +621,21 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Args:       subArgs,
 			Confirm:    p.confirm,
 			Events:     p.events,
+		})
+
+	case "schedule":
+		subcommand := ""
+		if len(p.positionalArgs) > 0 {
+			subcommand = p.positionalArgs[0]
+		}
+		return commands.RunSchedule(commands.ScheduleFlags{
+			Subcommand: subcommand,
+			Manifest:   p.manifest,
+			Interval:   p.scheduleInterval,
+			Time:       p.scheduleTime,
+			AutoPush:   p.autoPush,
+			Root:       p.root,
+			JSON:       p.jsonMode,
 		})
 
 	default:
