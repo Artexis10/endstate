@@ -38,6 +38,12 @@ const (
 	// installed-but-undeclared packages.
 	ErrConvergenceUnsupported ErrorCode = "CONVERGENCE_UNSUPPORTED"
 
+	// ErrConfirmationRequired is returned by `rebuild` when a live run (neither
+	// --dry-run nor --no-restore) is requested without --confirm. It is raised
+	// before any mutation so the refusal has zero side effects. Additive in
+	// schema 1.x.
+	ErrConfirmationRequired ErrorCode = "CONFIRMATION_REQUIRED"
+
 	// Schedule error codes. Additive in schema 1.x.
 	// ErrNotSupported is returned by schedule enable/disable/run on non-Windows platforms.
 	ErrNotSupported ErrorCode = "NOT_SUPPORTED"
