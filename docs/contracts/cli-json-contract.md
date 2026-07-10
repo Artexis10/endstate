@@ -525,6 +525,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 
 - `bundle` is present only for a `.zip` input (with `extracted: true`); it is omitted for a bare-manifest rebuild. The metadata fields under `bundle` are best-effort (read from the bundle's `metadata.json`) and omitted when unavailable.
 - `apply` carries the underlying `apply` command result; `verify` carries the underlying `verify` command result and is omitted on `--dry-run`.
+- `restore` reflects the configured posture (`"enabled"` unless `--no-restore`), not whether restore executed — a `--dry-run` reports `"enabled"` while executing nothing.
 
 **Note:** Verify failures are **data**, not a command error. A rebuild whose post-install verification reports drift (a missing app, a failed assertion, or version drift) still returns `success: true` and **exit 0**; the failures live in `data.verify.summary.fail`. Only infrastructure or input errors (e.g. `MANIFEST_PARSE_ERROR`, `CONFIRMATION_REQUIRED`) flip `success` to `false`.
 

@@ -21,6 +21,8 @@ The confirmation gate is evaluated **before any filesystem mutation** — before
 
 `--dry-run` (preview only) and `--no-restore` (install without touching configuration) are the two non-destructive lanes and need no confirmation. The gate reuses the already-parsed `--confirm` flag — the same consent primitive `apply --prune`/`apply --repin` use.
 
+**Reconciliation with `restore-opt-in` (Core Invariant #6):** rebuild enables restore by default, which departs from the letter of the `-EnableRestore` requirement while preserving its substance — restore still never runs without explicit command-line consent. Rebuild's whole purpose is a restore-enabled rebuild, so the consent primitive is command-level (`--confirm`, refused before any mutation) rather than a separate `--enable-restore` that every rebuild would have to carry. Install (non-destructive, same as plain `apply`) is deliberately not gated; `--confirm` gates exactly the destructive config-overwrite step. This change carries a MODIFIED delta for `restore-opt-in` restating the requirement with rebuild's primitive named; consent remains impossible to default, infer from the environment, or supply via manifest/bundle content.
+
 ## Temp-dir lifetime outlives the full pipeline by construction
 
 For a `.zip` input, `ExtractBundle` creates the temp dir; `RunRebuild` registers `defer os.RemoveAll(filepath.Dir(manifestPath))` immediately after a successful extraction. Because the cleanup is deferred at the orchestrator scope, the extracted `configs/` payload is guaranteed to still exist through the entire install → restore → verify sequence and is removed only when `RunRebuild` returns — on the success path *and* on any mid-pipeline error path. A bare `.jsonc` input registers no cleanup (nothing was extracted). Extraction failure is self-cleaning: `ExtractBundle` removes its own temp dir before returning the error, so the `defer` is never registered for a failed extraction.
@@ -32,11 +34,17 @@ For a `.zip` input, `ExtractBundle` creates the temp dir; `RunRebuild` registers
 - `RunApply(ApplyFlags{Manifest, DryRun, EnableRestore: !NoRestore, Events})` — apply already owns plan + install + restore (Phase 2b) + its own internal verify. Its `*envelope.Error` is propagated as-is.
 - `RunVerify(VerifyFlags{Manifest, Events})` — skipped on `--dry-run`. Verify is a superset of apply's Phase 3: it re-detects apps *and* dispatches the manifest's `verify[]` block and version-drift checks, so it is the authoritative post-rebuild assertion. Verify failures live in `summary.fail`; they are **data**, not an envelope error (precedent: `schedule run` — "drift is data"). `rebuild` returns a success envelope, exit 0, even when apply/verify summaries contain failures.
 
+**Known, accepted duplication (v0):** because apply runs its own Phase 3 and rebuild then runs the standalone verify, apps are re-detected twice per live rebuild (two `DetectBatch` passes, two `verify` phase/summary pairs in the composed stream). This costs one extra winget detection pass and slightly widens exposure to winget's SQLite lock contention (landmine #6), in exchange for not forking apply's internals. A follow-up may let rebuild's internal apply skip Phase 3 since the standalone verify supersedes it.
+
 ## Events / runId
 
 `rebuild` composes apply's and verify's **existing** event streams unchanged. Each sub-run opens with a `phase` event and closes with a `summary` event, so the concatenation still satisfies the event-contract ordering invariant (first event is a phase, last event is a summary). No new event types are introduced; the schema stays v1.
 
 Known, pre-existing divergence (documented, not fixed here): apply emits under an internal `apply-<ts>` runId and verify under `verify-<ts>`, while the `rebuild` JSON envelope carries its own `rebuild-<ts>` runId. The per-file "all events share one runId" invariant already holds *within* each phase group; unifying the streamed runId with the envelope runId is a cosmetic GUI-facing follow-up and is intentionally out of scope so this change does not refactor apply's internal runId plumbing.
+
+## Archive ordering
+
+The `capture-bundle-zip` MODIFIED delta targets the requirement added by the still-unarchived `capture-bundle-zip` change. Archive `capture-bundle-zip` before archiving this change, or the MODIFIED delta will reference a requirement that does not yet exist in the main spec tree.
 
 ## Non-goals (v0)
 

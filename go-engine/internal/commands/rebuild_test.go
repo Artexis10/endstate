@@ -258,11 +258,20 @@ func TestRunRebuild_BareManifest_InstallsWithoutExtraction(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestRunRebuild_NoConfirm_RefusesBeforeMutation(t *testing.T) {
-	manifestPath := bareManifest(t)
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	zipPath, _, _ := seedRoundTripBundle(t)
+
+	// Steer ExtractBundle's temp parent into a controlled dir so we can prove
+	// the refusal happened before extraction (spec: "no bundle SHALL be
+	// extracted").
+	controlled := t.TempDir()
+	t.Setenv("TMPDIR", controlled)
+	t.Setenv("TEMP", controlled)
+	t.Setenv("TMP", controlled)
 
 	md := &mockDriver{installed: map[string]bool{}}
 	withMockDriver(md, func() {
-		_, e := RunRebuild(RebuildFlags{From: manifestPath})
+		_, e := RunRebuild(RebuildFlags{From: zipPath})
 		if e == nil {
 			t.Fatal("expected CONFIRMATION_REQUIRED, got nil error")
 		}
@@ -272,6 +281,9 @@ func TestRunRebuild_NoConfirm_RefusesBeforeMutation(t *testing.T) {
 	})
 	if md.installCalls != 0 {
 		t.Errorf("expected zero installs on refusal, got %d", md.installCalls)
+	}
+	if extracted, _ := filepath.Glob(filepath.Join(controlled, "endstate-apply-*")); len(extracted) != 0 {
+		t.Errorf("refusal must precede extraction, found extraction dir(s): %v", extracted)
 	}
 }
 
@@ -416,6 +428,36 @@ func TestRunRebuild_TempDirCleanedUp(t *testing.T) {
 
 	t.Run("after mid-pipeline install error", func(t *testing.T) {
 		run(t, &mockDriver{installed: map[string]bool{}, installErr: errInstallBoom})
+	})
+
+	// The install-error lane above returns through apply's normal path (an
+	// install failure is a failed action, not an envelope error). This lane
+	// forces the envelope-error return (rebuild's `return nil, applyErr`):
+	// extraction succeeds, then the extracted manifest fails to parse.
+	t.Run("after post-extraction manifest parse error", func(t *testing.T) {
+		controlled := t.TempDir()
+		t.Setenv("TMPDIR", controlled)
+		t.Setenv("TEMP", controlled)
+		t.Setenv("TMP", controlled)
+
+		zipPath := filepath.Join(t.TempDir(), "bad-manifest.zip")
+		zf, err := os.Create(zipPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w := zip.NewWriter(zf)
+		f, _ := w.Create("manifest.jsonc")
+		_, _ = f.Write([]byte("{not valid json"))
+		_ = w.Close()
+		_ = zf.Close()
+
+		_, e := RunRebuild(RebuildFlags{From: zipPath, Confirm: true})
+		if e == nil || e.Code != envelope.ErrManifestParseError {
+			t.Fatalf("expected MANIFEST_PARSE_ERROR from the extracted manifest, got %v", e)
+		}
+		if leftovers, _ := filepath.Glob(filepath.Join(controlled, "endstate-apply-*")); len(leftovers) != 0 {
+			t.Errorf("temp extraction dir(s) not cleaned up on error return: %v", leftovers)
+		}
 	})
 }
 

@@ -19,6 +19,7 @@ Rebuilding a machine from an Endstate profile is the product's headline promise,
 
 ### Modified Capabilities
 - `capture-bundle-zip`: zip consumption in the Go engine now happens via `rebuild`. The previously-PowerShell-only "apply from zip extracts to temp directory and cleans up" behavior is realized by the Go engine's `rebuild` command (extract → apply → verify → cleanup).
+- `restore-opt-in`: the explicit-consent requirement is restated to name `rebuild`'s consent primitive. `apply`/`restore` keep `-EnableRestore` unchanged; `rebuild` — whose purpose is a restore-enabled rebuild — takes consent as an explicit command-line `--confirm` (refused before any mutation without it, `--no-restore` opts out). Consent is never defaulted, inferred from the environment, or supplied by manifest/bundle content.
 
 ## Impact
 
