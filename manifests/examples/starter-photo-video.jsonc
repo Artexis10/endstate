@@ -1,0 +1,37 @@
+{
+  // Starter Pack: Photo & Video Editing
+  //
+  // What's inside: Adobe Creative Cloud (hub for Photoshop / Lightroom /
+  // Premiere — sign in and pick your apps), darktable (RAW), GIMP (photo
+  // editing), Krita (digital painting), Inkscape (vector), Kdenlive (video
+  // editing), CapCut (short-form video), HandBrake (transcoding), Audacity
+  // (audio), Blender (3D/motion), OBS Studio (recording), VLC.
+  //
+  // Note: DaVinci Resolve is the other big free video editor but has no
+  // winget package — install it manually from blackmagicdesign.com.
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-photo-video.jsonc
+
+  "version": 1,
+  "name": "starter-photo-video",
+
+  "apps": [
+    { "id": "adobe-creativecloud",           "refs": { "windows": "Adobe.CreativeCloud" } },
+    { "id": "darktable-darktable",           "refs": { "windows": "darktable.darktable" } },
+    { "id": "gimp-gimp",                     "refs": { "windows": "GIMP.GIMP" } },
+    { "id": "kde-krita",                     "refs": { "windows": "KDE.Krita" } },
+    { "id": "inkscape-inkscape",             "refs": { "windows": "Inkscape.Inkscape" } },
+    { "id": "kde-kdenlive",                  "refs": { "windows": "KDE.Kdenlive" } },
+    { "id": "bytedance-capcut",              "refs": { "windows": "ByteDance.CapCut" } },
+    { "id": "handbrake-handbrake",           "refs": { "windows": "HandBrake.HandBrake" } },
+    { "id": "audacity-audacity",             "refs": { "windows": "Audacity.Audacity" } },
+    { "id": "blenderfoundation-blender",     "refs": { "windows": "BlenderFoundation.Blender" } },
+    { "id": "obsproject-obsstudio",          "refs": { "windows": "OBSProject.OBSStudio" } },
+    { "id": "videolan-vlc",                  "refs": { "windows": "VideoLAN.VLC" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}

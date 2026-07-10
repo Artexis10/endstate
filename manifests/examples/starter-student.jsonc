@@ -1,0 +1,32 @@
+{
+  // Starter Pack: Student Essentials
+  //
+  // What's inside: Notion, Obsidian (notes), Anki (flashcards), Zotero
+  // (citations), Zoom, Microsoft Teams (classes), LibreOffice, Acrobat
+  // Reader, Discord, Spotify, VLC, Claude.
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-student.jsonc
+
+  "version": 1,
+  "name": "starter-student",
+
+  "apps": [
+    { "id": "notion-notion",                     "refs": { "windows": "Notion.Notion" } },
+    { "id": "obsidian-obsidian",                 "refs": { "windows": "Obsidian.Obsidian" } },
+    { "id": "anki-anki",                         "refs": { "windows": "Anki.Anki" } },
+    { "id": "zotero-zotero",                     "refs": { "windows": "Zotero.Zotero" } },
+    { "id": "zoom-zoom",                         "refs": { "windows": "Zoom.Zoom" } },
+    { "id": "microsoft-teams",                   "refs": { "windows": "Microsoft.Teams" } },
+    { "id": "thedocumentfoundation-libreoffice", "refs": { "windows": "TheDocumentFoundation.LibreOffice" } },
+    { "id": "adobe-acrobat-reader",              "refs": { "windows": "Adobe.Acrobat.Reader.64-bit" } },
+    { "id": "discord-discord",                   "refs": { "windows": "Discord.Discord" } },
+    { "id": "spotify-spotify",                   "refs": { "windows": "Spotify.Spotify" } },
+    { "id": "videolan-vlc",                      "refs": { "windows": "VideoLAN.VLC" } },
+    { "id": "anthropic-claude",                  "refs": { "windows": "Anthropic.Claude" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}

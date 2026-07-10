@@ -1,0 +1,33 @@
+{
+  // Starter Pack: Privacy-First
+  //
+  // What's inside: Brave (private browsing), Tor Browser, KeePassXC (local
+  // password manager), Signal, Mullvad VPN, WireGuard, VeraCrypt (disk
+  // encryption), Cryptomator (cloud-storage encryption), Gpg4win,
+  // simplewall (outbound firewall), Thunderbird, 7-Zip (AES archives).
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-privacy.jsonc
+
+  "version": 1,
+  "name": "starter-privacy",
+
+  "apps": [
+    { "id": "brave-brave",                   "refs": { "windows": "Brave.Brave" } },
+    { "id": "torproject-torbrowser",         "refs": { "windows": "TorProject.TorBrowser" } },
+    { "id": "keepassxcteam-keepassxc",       "refs": { "windows": "KeePassXCTeam.KeePassXC" } },
+    { "id": "openwhispersystems-signal",     "refs": { "windows": "OpenWhisperSystems.Signal" } },
+    { "id": "mullvadvpn-mullvadvpn",         "refs": { "windows": "MullvadVPN.MullvadVPN" } },
+    { "id": "wireguard-wireguard",           "refs": { "windows": "WireGuard.WireGuard" } },
+    { "id": "idrix-veracrypt",               "refs": { "windows": "IDRIX.VeraCrypt" } },
+    { "id": "cryptomator-cryptomator",       "refs": { "windows": "Cryptomator.Cryptomator" } },
+    { "id": "gnupg-gpg4win",                 "refs": { "windows": "GnuPG.Gpg4win" } },
+    { "id": "henryplusplus-simplewall",      "refs": { "windows": "Henry++.simplewall" } },
+    { "id": "mozilla-thunderbird",           "refs": { "windows": "Mozilla.Thunderbird" } },
+    { "id": "7zip-7zip",                     "refs": { "windows": "7zip.7zip" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}

@@ -1,0 +1,31 @@
+{
+  // Starter Pack: Gaming Rig
+  //
+  // What's inside: Steam, Epic Games Launcher, GOG GALAXY, Discord,
+  // MSI Afterburner (monitoring/OC), Playnite (unified game library),
+  // RetroArch (retro/emulation in one app), Sunshine (stream games to
+  // other devices), VLC, 7-Zip.
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-gaming.jsonc
+
+  "version": 1,
+  "name": "starter-gaming",
+
+  "apps": [
+    { "id": "valve-steam",               "refs": { "windows": "Valve.Steam" } },
+    { "id": "epicgames-epicgameslauncher", "refs": { "windows": "EpicGames.EpicGamesLauncher" } },
+    { "id": "gog-galaxy",                "refs": { "windows": "GOG.Galaxy" } },
+    { "id": "discord-discord",           "refs": { "windows": "Discord.Discord" } },
+    { "id": "guru3d-afterburner",        "refs": { "windows": "Guru3D.Afterburner" } },
+    { "id": "playnite-playnite",         "refs": { "windows": "Playnite.Playnite" } },
+    { "id": "libretro-retroarch",        "refs": { "windows": "Libretro.RetroArch" } },
+    { "id": "lizardbyte-sunshine",       "refs": { "windows": "LizardByte.Sunshine" } },
+    { "id": "videolan-vlc",              "refs": { "windows": "VideoLAN.VLC" } },
+    { "id": "7zip-7zip",                 "refs": { "windows": "7zip.7zip" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}

@@ -1,0 +1,30 @@
+{
+  // Starter Pack: Streamer Rig
+  //
+  // What's inside: OBS Studio, Elgato Stream Deck, Voicemeeter (audio
+  // routing), Chatterino (Twitch chat), Discord, Spotify, CapCut (clips
+  // for Shorts/TikTok), Audacity, HandBrake, VLC.
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-streamer.jsonc
+
+  "version": 1,
+  "name": "starter-streamer",
+
+  "apps": [
+    { "id": "obsproject-obsstudio",          "refs": { "windows": "OBSProject.OBSStudio" } },
+    { "id": "elgato-streamdeck",             "refs": { "windows": "Elgato.StreamDeck" } },
+    { "id": "vb-audio-voicemeeter",          "refs": { "windows": "VB-Audio.Voicemeeter" } },
+    { "id": "chatterinoteam-chatterino",     "refs": { "windows": "ChatterinoTeam.Chatterino" } },
+    { "id": "discord-discord",               "refs": { "windows": "Discord.Discord" } },
+    { "id": "spotify-spotify",               "refs": { "windows": "Spotify.Spotify" } },
+    { "id": "bytedance-capcut",              "refs": { "windows": "ByteDance.CapCut" } },
+    { "id": "audacity-audacity",             "refs": { "windows": "Audacity.Audacity" } },
+    { "id": "handbrake-handbrake",           "refs": { "windows": "HandBrake.HandBrake" } },
+    { "id": "videolan-vlc",                  "refs": { "windows": "VideoLAN.VLC" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}
