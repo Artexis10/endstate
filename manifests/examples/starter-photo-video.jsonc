@@ -1,0 +1,35 @@
+{
+  // Starter Pack: Photo & Video Editing
+  //
+  // What's inside: GIMP (photo editing), Krita (digital painting), Inkscape
+  // (vector graphics), Kdenlive (video editing), Shotcut (video editing),
+  // Handbrake (transcoding), Audacity (audio), VLC (playback), Paint.NET
+  // (quick edits), Blender (3D / compositing), Darktable (RAW processing),
+  // 7-Zip, Notepad++.
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-photo-video.jsonc
+
+  "version": 1,
+  "name": "starter-photo-video",
+
+  "apps": [
+    { "id": "gimp-gimp",                 "refs": { "windows": "GIMP.GIMP" } },
+    { "id": "kde-krita",                 "refs": { "windows": "KDE.Krita" } },
+    { "id": "inkscape-inkscape",         "refs": { "windows": "Inkscape.Inkscape" } },
+    { "id": "kde-kdenlive",              "refs": { "windows": "KDE.Kdenlive" } },
+    { "id": "meltytech-shotcut",         "refs": { "windows": "Meltytech.Shotcut" } },
+    { "id": "handbrake-handbrake",       "refs": { "windows": "HandBrake.HandBrake" } },
+    { "id": "audacity-audacity",         "refs": { "windows": "Audacity.Audacity" } },
+    { "id": "videolan-vlc",              "refs": { "windows": "VideoLAN.VLC" } },
+    { "id": "dotpdnllc-paintdotnet",     "refs": { "windows": "dotPDNLLC.paintdotnet" } },
+    { "id": "blenderfoundation-blender", "refs": { "windows": "BlenderFoundation.Blender" } },
+    { "id": "darktable-darktable",       "refs": { "windows": "darktable.darktable" } },
+    { "id": "7zip-7zip",                 "refs": { "windows": "7zip.7zip" } },
+    { "id": "notepadplusplus-notepadplusplus", "refs": { "windows": "Notepad++.Notepad++" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}

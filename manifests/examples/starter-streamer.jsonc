@@ -1,0 +1,32 @@
+{
+  // Starter Pack: Streaming Rig
+  //
+  // What's inside: OBS Studio, Discord, Spotify, Telegram, VLC, Audacity,
+  // Handbrake, Ferdium (multi-messenger hub), 7-Zip, Notepad++, obs-studio,
+  // plus obs-studio for scene/profile management.
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-streamer.jsonc
+
+  "version": 1,
+  "name": "starter-streamer",
+
+  "apps": [
+    { "id": "obsproject-obsstudio",      "refs": { "windows": "OBSProject.OBSStudio" } },
+    { "id": "discord-discord",           "refs": { "windows": "Discord.Discord" } },
+    { "id": "spotify-spotify",           "refs": { "windows": "Spotify.Spotify" } },
+    { "id": "telegram-telegramdesktop",  "refs": { "windows": "Telegram.TelegramDesktop" } },
+    { "id": "videolan-vlc",              "refs": { "windows": "VideoLAN.VLC" } },
+    { "id": "audacity-audacity",         "refs": { "windows": "Audacity.Audacity" } },
+    { "id": "handbrake-handbrake",       "refs": { "windows": "HandBrake.HandBrake" } },
+    { "id": "ferdium-ferdium",           "refs": { "windows": "Ferdium.Ferdium" } },
+    { "id": "notepadplusplus-notepadplusplus", "refs": { "windows": "Notepad++.Notepad++" } },
+    { "id": "7zip-7zip",                 "refs": { "windows": "7zip.7zip" } },
+    { "id": "microsoft-windowsterminal", "refs": { "windows": "Microsoft.WindowsTerminal" } },
+    { "id": "anthropic-claude",          "refs": { "windows": "Anthropic.Claude" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}

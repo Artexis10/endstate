@@ -1,0 +1,36 @@
+{
+  // Starter Pack: Student Essentials
+  //
+  // What's inside: LibreOffice (office suite), Obsidian (notes / knowledge base),
+  // Joplin (synced markdown notes), Anki (spaced-repetition flashcards),
+  // Zotero (reference manager / citations), Logseq (networked notes),
+  // Thunderbird (email), Discord, Spotify, VLC, Acrobat Reader, 7-Zip,
+  // Notepad++, Claude Desktop (AI assistant).
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-student.jsonc
+
+  "version": 1,
+  "name": "starter-student",
+
+  "apps": [
+    { "id": "thedocumentfoundation-libreoffice", "refs": { "windows": "TheDocumentFoundation.LibreOffice" } },
+    { "id": "obsidian-obsidian",         "refs": { "windows": "Obsidian.Obsidian" } },
+    { "id": "joplin-joplin",             "refs": { "windows": "Joplin.Joplin" } },
+    { "id": "anki-anki",                 "refs": { "windows": "Anki.Anki" } },
+    { "id": "zotero-zotero",             "refs": { "windows": "Zotero.Zotero" } },
+    { "id": "logseq-logseq",             "refs": { "windows": "Logseq.Logseq" } },
+    { "id": "mozilla-thunderbird",       "refs": { "windows": "Mozilla.Thunderbird" } },
+    { "id": "discord-discord",           "refs": { "windows": "Discord.Discord" } },
+    { "id": "spotify-spotify",           "refs": { "windows": "Spotify.Spotify" } },
+    { "id": "videolan-vlc",              "refs": { "windows": "VideoLAN.VLC" } },
+    { "id": "adobe-acrobat-reader",      "refs": { "windows": "Adobe.Acrobat.Reader.64-bit" } },
+    { "id": "7zip-7zip",                 "refs": { "windows": "7zip.7zip" } },
+    { "id": "notepadplusplus-notepadplusplus", "refs": { "windows": "Notepad++.Notepad++" } },
+    { "id": "anthropic-claude",          "refs": { "windows": "Anthropic.Claude" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}

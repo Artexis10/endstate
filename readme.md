@@ -12,6 +12,40 @@ Website: <https://substratesystems.io/endstate> · Download: <https://substrates
 
 ---
 
+## Starter setups
+
+Ready-to-apply manifests for common machine types. Each one installs a curated set of mainstream apps via winget — no configuration is written, so they are safe to apply on any machine.
+
+| Pack | What's inside | File |
+|------|--------------|------|
+| Full-stack dev | Git, VS Code, Zed, Docker, WSL, GitHub CLI, Windows Terminal, Bruno, DBeaver, lazygit, ripgrep, zoxide, Starship, oh-my-posh, Notepad++, 7-Zip, Claude | [starter-fullstack-dev.jsonc](manifests/examples/starter-fullstack-dev.jsonc) |
+| Streamer | OBS Studio, Discord, Spotify, Telegram, VLC, Audacity, HandBrake, Ferdium, Windows Terminal, Notepad++, 7-Zip, Claude | [starter-streamer.jsonc](manifests/examples/starter-streamer.jsonc) |
+| Photo & video | GIMP, Krita, Inkscape, Kdenlive, Shotcut, HandBrake, Audacity, VLC, Paint.NET, Blender, darktable, 7-Zip, Notepad++ | [starter-photo-video.jsonc](manifests/examples/starter-photo-video.jsonc) |
+| Gaming | Playnite, RetroArch, Dolphin, DuckStation, PCSX2, PPSSPP, BizHawk, Special K, Sunshine, Discord, VLC, 7-Zip | [starter-gaming.jsonc](manifests/examples/starter-gaming.jsonc) |
+| Privacy-first | KeePassXC, Mullvad VPN, WireGuard, Gpg4win, VeraCrypt, Cryptomator, simplewall, Malwarebytes, Signal, Thunderbird, 7-Zip, Notepad++ | [starter-privacy.jsonc](manifests/examples/starter-privacy.jsonc) |
+| Student | LibreOffice, Obsidian, Joplin, Anki, Zotero, Logseq, Thunderbird, Discord, Spotify, VLC, Acrobat Reader, 7-Zip, Notepad++, Claude | [starter-student.jsonc](manifests/examples/starter-student.jsonc) |
+
+To apply a pack:
+
+```bash
+# GUI: drag the .jsonc file onto the Endstate window → Preview → Apply
+
+# CLI:
+endstate apply --profile manifests/examples/starter-fullstack-dev.jsonc
+```
+
+### Share your own setup
+
+The loop that works today:
+
+1. Capture and sanitize your current machine: `endstate capture --sanitize --out my-setup.jsonc`
+2. Post the file anywhere (GitHub Gist, a repo, a message).
+3. The recipient drags it onto the Endstate GUI (or runs `endstate apply --profile my-setup.jsonc`) → previews the plan → applies.
+
+The sanitized manifest contains only app IDs and winget references — no machine-specific paths, timestamps, or credentials.
+
+---
+
 ## Why This Exists
 
 Rebuilding a machine after a clean install is tedious, error-prone, and mentally draining. Configuration drift accumulates silently. Manual steps get forgotten. The result is machines that cannot be reliably reconstructed.

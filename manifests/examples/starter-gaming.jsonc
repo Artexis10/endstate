@@ -1,0 +1,36 @@
+{
+  // Starter Pack: Gaming Rig
+  //
+  // What's inside: Playnite (unified game library), RetroArch (multi-system
+  // emulator), Dolphin (GameCube / Wii), DuckStation (PS1), PCSX2 (PS2),
+  // PPSSPP (PSP), BizHawk (TAS-grade multi-system), Special K (per-game
+  // tweaks / HDR), Sunshine (game streaming host), Discord, VLC, 7-Zip.
+  //
+  // Note: RPCS3 (PS3), Cemu (Wii U), Ryujinx (Switch), and Flycast (Dreamcast)
+  // are not included because they have no winget ID and require manual install.
+  //
+  // How to apply:
+  //   GUI : drag this file onto the Endstate window → Preview → Apply
+  //   CLI : endstate apply --profile manifests/examples/starter-gaming.jsonc
+
+  "version": 1,
+  "name": "starter-gaming",
+
+  "apps": [
+    { "id": "playnite-playnite",         "refs": { "windows": "Playnite.Playnite" } },
+    { "id": "libretro-retroarch",        "refs": { "windows": "Libretro.RetroArch" } },
+    { "id": "dolphinemulator-dolphin",   "refs": { "windows": "DolphinEmulator.Dolphin" } },
+    { "id": "stenzek-duckstation",       "refs": { "windows": "Stenzek.DuckStation" } },
+    { "id": "pcsx2team-pcsx2",           "refs": { "windows": "PCSX2Team.PCSX2" } },
+    { "id": "ppssppteam-ppsspp",         "refs": { "windows": "PPSSPPTeam.PPSSPP" } },
+    { "id": "tasemulators-bizhawk",      "refs": { "windows": "TASEmulators.BizHawk" } },
+    { "id": "specialk-specialk",         "refs": { "windows": "SpecialK.SpecialK" } },
+    { "id": "lizardbyte-sunshine",       "refs": { "windows": "LizardByte.Sunshine" } },
+    { "id": "discord-discord",           "refs": { "windows": "Discord.Discord" } },
+    { "id": "videolan-vlc",              "refs": { "windows": "VideoLAN.VLC" } },
+    { "id": "7zip-7zip",                 "refs": { "windows": "7zip.7zip" } }
+  ],
+
+  "restore": [],
+  "verify": []
+}
