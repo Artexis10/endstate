@@ -1,0 +1,83 @@
+// Copyright 2025 Substrate Systems OÜ
+// SPDX-License-Identifier: Apache-2.0
+
+package commands
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+// TestRunCapabilities_HostedBackupIfChangedAdvertised verifies that the
+// capabilities envelope includes features.hostedBackup.ifChanged = true,
+// which is the canonical GUI gate for the conditional auto-backup flow.
+func TestRunCapabilities_HostedBackupIfChangedAdvertised(t *testing.T) {
+	data, err := RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities() returned error: %v", err)
+	}
+
+	// Marshal to JSON and unmarshal into a generic map to test the wire shape.
+	b, jsonErr := json.Marshal(data)
+	if jsonErr != nil {
+		t.Fatalf("json.Marshal capabilities data: %v", jsonErr)
+	}
+
+	var envelope map[string]interface{}
+	if jsonErr = json.Unmarshal(b, &envelope); jsonErr != nil {
+		t.Fatalf("json.Unmarshal capabilities data: %v", jsonErr)
+	}
+
+	features, ok := envelope["features"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("capabilities.features is not an object, got: %T", envelope["features"])
+	}
+
+	hostedBackup, ok := features["hostedBackup"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("capabilities.features.hostedBackup is not an object, got: %T", features["hostedBackup"])
+	}
+
+	ifChanged, ok := hostedBackup["ifChanged"]
+	if !ok {
+		t.Fatal("capabilities.features.hostedBackup.ifChanged is missing")
+	}
+
+	ifChangedBool, ok := ifChanged.(bool)
+	if !ok {
+		t.Fatalf("capabilities.features.hostedBackup.ifChanged is not a bool, got: %T", ifChanged)
+	}
+
+	if !ifChangedBool {
+		t.Error("capabilities.features.hostedBackup.ifChanged = false, want true")
+	}
+}
+
+// TestRunCapabilities_HostedBackupShape verifies the full shape of the
+// hostedBackup features block so regressions in existing fields are caught.
+func TestRunCapabilities_HostedBackupShape(t *testing.T) {
+	data, err := RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities() returned error: %v", err)
+	}
+
+	caps, ok := data.(CapabilitiesData)
+	if !ok {
+		t.Fatalf("RunCapabilities() returned %T, want CapabilitiesData", data)
+	}
+
+	hb := caps.Features.HostedBackup
+
+	if !hb.Supported {
+		t.Error("hostedBackup.supported = false, want true")
+	}
+	if hb.MinSchemaVersion == "" {
+		t.Error("hostedBackup.minSchemaVersion is empty")
+	}
+	if !hb.Rename {
+		t.Error("hostedBackup.rename = false, want true")
+	}
+	if !hb.IfChanged {
+		t.Error("hostedBackup.ifChanged = false, want true")
+	}
+}

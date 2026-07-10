@@ -194,7 +194,16 @@ endstate capabilities --json
       "streaming": false,
       "parallelInstall": true,
       "configModules": true,
-      "jsonOutput": true
+      "jsonOutput": true,
+      "manualApps": true,
+      "hostedBackup": {
+        "supported": true,
+        "minSchemaVersion": "1.0",
+        "issuerUrl": "https://auth.example.com",
+        "audience": "endstate-backup",
+        "rename": true,
+        "ifChanged": true
+      }
     },
     "platform": {
       "os": "windows",
@@ -204,6 +213,10 @@ endstate capabilities --json
   "error": null
 }
 ```
+
+> **Note:** `features.hostedBackup.ifChanged` is the canonical GUI gate for the
+> conditional auto-backup flow (`backup push --if-changed`). The GUI MUST check
+> this field rather than probing `commands.backup.flags` for `--if-changed`.
 
 ### GUI Responsibilities
 

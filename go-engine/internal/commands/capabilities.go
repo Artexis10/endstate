@@ -62,6 +62,11 @@ type HostedBackupFeature struct {
 	// backup labels via PATCH). The GUI gates its rename affordance on this
 	// so it stays hidden against an older engine.
 	Rename bool `json:"rename"`
+	// IfChanged advertises that the engine supports `--if-changed` on
+	// `backup push` (skip upload when the manifest hash is unchanged). The
+	// GUI gates its conditional auto-backup flow on this flag rather than
+	// probing commands.backup.flags — contract §advertise-if-changed-capability.
+	IfChanged bool `json:"ifChanged"`
 }
 
 // PlatformInfo describes the host operating system and available package manager
@@ -154,6 +159,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				IssuerURL:        backup.IssuerURL(),
 				Audience:         backup.Audience(),
 				Rename:           true,
+				IfChanged:        true,
 			},
 		},
 		Platform:           platformInfoFor(runtime.GOOS),
