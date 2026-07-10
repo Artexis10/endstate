@@ -130,11 +130,12 @@ type parsedArgs struct {
 	versionID         string
 	to                string
 	confirm           bool
-	prune             bool // apply --prune: converge to the exact declared set
-	repin             bool // apply --repin: reinstall a drifted declared App.Version
-	bootstrapBackends bool // apply --bootstrap-backends: install an absent backend (consented)
-	noBootstrap       bool // apply --no-bootstrap: skip an absent backend rather than install
+	prune             bool   // apply --prune: converge to the exact declared set
+	repin             bool   // apply --repin: reinstall a drifted declared App.Version
+	bootstrapBackends bool   // apply --bootstrap-backends: install an absent backend (consented)
+	noBootstrap       bool   // apply --no-bootstrap: skip an absent backend rather than install
 	only              string // apply --only: comma-separated app id subset to process
+	onlyMissingValue  bool   // --only was present but had no value (next token was a flag or EOL)
 	saveRecoveryTo    string
 	overwrite         bool
 	ifChanged         bool
@@ -196,9 +197,14 @@ func parseArgs(args []string) parsedArgs {
 		case "--no-bootstrap":
 			p.noBootstrap = true
 		case "--only":
-			if i+1 < len(args) {
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
 				p.only = args[i+1]
 				i++
+			} else {
+				// --only with no value (last arg or next token is another flag).
+				// Leave p.only empty and set the missing-value flag so dispatch
+				// can return a proper validation error instead of silently no-oping.
+				p.onlyMissingValue = true
 			}
 		case "--overwrite":
 			p.overwrite = true
@@ -426,6 +432,12 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 		return commands.RunCapabilities()
 
 	case "apply":
+		if p.onlyMissingValue {
+			return nil, envelope.NewError(
+				envelope.ErrManifestValidationError,
+				"--only requires a value: no app id was provided").
+				WithRemediation("Provide one or more comma-separated app ids, e.g. --only git,vscode.")
+		}
 		return commands.RunApply(commands.ApplyFlags{
 			Manifest:          p.manifest,
 			DryRun:            p.dryRun,

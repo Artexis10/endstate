@@ -142,25 +142,29 @@ endstate capabilities --json
       "max": "1.0"
     },
     "commands": {
-      "capture": {
+      "capabilities": {
         "supported": true,
-        "flags": ["--profile", "--out-manifest", "--include-runtimes", "--include-store-apps", "--minimize", "--discover", "--update", "--json"]
-      },
-      "plan": {
-        "supported": true,
-        "flags": ["--manifest", "--json"]
+        "flags": ["--json"]
       },
       "apply": {
         "supported": true,
-        "flags": ["--manifest", "--plan", "--dry-run", "--enable-restore", "--restore-filter", "--json"]
+        "flags": ["--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--only", "--json", "--events"]
       },
       "verify": {
         "supported": true,
-        "flags": ["--manifest", "--json"]
+        "flags": ["--manifest", "--json", "--events"]
+      },
+      "capture": {
+        "supported": true,
+        "flags": ["--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events"]
+      },
+      "plan": {
+        "supported": true,
+        "flags": ["--manifest", "--json", "--events"]
       },
       "restore": {
         "supported": true,
-        "flags": ["--manifest", "--enable-restore", "--restore-filter", "--dry-run", "--json"]
+        "flags": ["--manifest", "--restore-filter", "--json", "--events", "--filter"]
       },
       "report": {
         "supported": true,
@@ -170,7 +174,11 @@ endstate capabilities --json
         "supported": true,
         "flags": ["--json"]
       },
-      "capabilities": {
+      "profile": {
+        "supported": true,
+        "flags": ["--json"]
+      },
+      "bootstrap": {
         "supported": true,
         "flags": ["--json"]
       }

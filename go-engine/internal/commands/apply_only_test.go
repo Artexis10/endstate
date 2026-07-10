@@ -11,6 +11,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/provision"
 )
 
 // ---------------------------------------------------------------------------
@@ -486,5 +487,198 @@ func TestRunCapabilities_ApplyFlags_IncludesOnly(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("commands.apply.flags does not contain --only; got %v", applyCmd.Flags)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Synthesis ordering regression: synthesized apps must be selectable via --only
+// ---------------------------------------------------------------------------
+
+// syntheticAppManifest writes a manifest with configModules that will cause
+// SynthesizeAppsFromModules to produce a manual app entry for "lightroom", plus
+// one regular winget app "git". Returns the manifest path.
+func syntheticAppManifest(t *testing.T) string {
+	t.Helper()
+	content := `{
+		"name": "synthesis-test",
+		"apps": [
+			{ "id": "git", "refs": { "windows": "Git.Git" } }
+		],
+		"configModules": ["apps.lightroom"]
+	}`
+	path := filepath.Join(t.TempDir(), "m.jsonc")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// lightroomCatalog returns a minimal module catalog with a pathExists module
+// for lightroom that SynthesizeAppsFromModules will expand into a manual app.
+func lightroomCatalog() map[string]*modules.Module {
+	return map[string]*modules.Module{
+		"apps.lightroom": {
+			ID:          "apps.lightroom",
+			DisplayName: "Lightroom Classic",
+			Matches: modules.MatchCriteria{
+				PathExists: []string{`%LOCALAPPDATA%\Adobe\Lightroom\nonexistent-sentinel.exe`},
+			},
+			Capture: &modules.CaptureDef{Files: []modules.CaptureFile{}},
+		},
+	}
+}
+
+// TestRunApply_Only_SynthesizedApp_PresentWhenSelected verifies that a
+// synthesized app (produced by SynthesizeAppsFromModules from a configModule
+// with pathExists) can be selected via --only. The synthesized app must appear
+// in the plan when its id is in --only.
+func TestRunApply_Only_SynthesizedApp_PresentWhenSelected(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{}}
+	path := syntheticAppManifest(t)
+
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		withMockCatalog(lightroomCatalog(), nil, func() {
+			r, err := RunApply(ApplyFlags{
+				Manifest: path,
+				DryRun:   true,
+				Only:     "lightroom", // select the synthesized app by its short id
+			})
+			if err != nil {
+				t.Fatalf("RunApply --only synthesized app: unexpected error: %v", err)
+			}
+			result = r.(*ApplyResult)
+		})
+	})
+
+	if result.Summary.Total != 1 {
+		t.Errorf("summary.total = %d, want 1 (only lightroom)", result.Summary.Total)
+	}
+	if len(result.Actions) != 1 {
+		t.Fatalf("len(actions) = %d, want 1", len(result.Actions))
+	}
+	if result.Actions[0].ID != "lightroom" {
+		t.Errorf("actions[0].ID = %q, want lightroom", result.Actions[0].ID)
+	}
+	if result.Actions[0].Driver != "manual" {
+		t.Errorf("actions[0].Driver = %q, want manual (synthesized app is a manual app)", result.Actions[0].Driver)
+	}
+}
+
+// TestRunApply_Only_SynthesizedApp_AbsentWhenNotSelected verifies that when
+// --only selects a different app (git), the synthesized lightroom app is NOT
+// included in the plan. This is the regression guard for the synthesis ordering
+// bug: synthesis must run before --only filtering, but the filter must still
+// exclude unselected synthesized apps.
+func TestRunApply_Only_SynthesizedApp_AbsentWhenNotSelected(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{}}
+	path := syntheticAppManifest(t)
+
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		withMockCatalog(lightroomCatalog(), nil, func() {
+			r, err := RunApply(ApplyFlags{
+				Manifest: path,
+				DryRun:   true,
+				Only:     "git", // select only git; lightroom is synthesized but NOT selected
+			})
+			if err != nil {
+				t.Fatalf("RunApply --only git (synthesized absent): unexpected error: %v", err)
+			}
+			result = r.(*ApplyResult)
+		})
+	})
+
+	if result.Summary.Total != 1 {
+		t.Errorf("summary.total = %d, want 1 (only git)", result.Summary.Total)
+	}
+	if len(result.Actions) != 1 {
+		t.Fatalf("len(actions) = %d, want 1", len(result.Actions))
+	}
+	if result.Actions[0].ID != "git" {
+		t.Errorf("actions[0].ID = %q, want git", result.Actions[0].ID)
+	}
+	for _, a := range result.Actions {
+		if a.ID == "lightroom" {
+			t.Error("lightroom must NOT appear in actions when not selected by --only")
+		}
+	}
+}
+
+// TestRunApply_Only_SynthesizedApp_UnknownIDError verifies that referencing a
+// synthesized app id that is NOT in the catalog (and therefore not synthesized)
+// produces MANIFEST_VALIDATION_ERROR naming the unknown id.
+func TestRunApply_Only_SynthesizedApp_UnknownIDError(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{}}
+	path := syntheticAppManifest(t)
+
+	var eerr *envelope.Error
+	withMockDriver(md, func() {
+		withMockCatalog(lightroomCatalog(), nil, func() {
+			_, eerr = RunApply(ApplyFlags{
+				Manifest: path,
+				DryRun:   true,
+				Only:     "not-in-catalog", // id not in apps[] and not synthesized
+			})
+		})
+	})
+
+	if eerr == nil {
+		t.Fatal("expected MANIFEST_VALIDATION_ERROR for unknown synthesized id, got nil")
+	}
+	if eerr.Code != envelope.ErrManifestValidationError {
+		t.Errorf("error code = %q, want MANIFEST_VALIDATION_ERROR", eerr.Code)
+	}
+	if !containsStr(eerr.Message, "not-in-catalog") {
+		t.Errorf("error message %q does not name the unknown id", eerr.Message)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Generation-recording integration test: --only (non-dry-run, mock driver)
+// ---------------------------------------------------------------------------
+
+// TestRunApply_Only_GenerationRecordsSubset verifies that after a real
+// (non-dry-run) apply with --only, the written provisioning generation records
+// only the selected app refs (not the unselected ones).
+func TestRunApply_Only_GenerationRecordsSubset(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+
+	// git is not installed → will be installed. vscode is not installed but is
+	// NOT selected by --only → must not appear in the generation. 7zip is not
+	// selected either.
+	md := &mockDriver{installed: map[string]bool{}}
+	path := threeAppsManifest(t)
+
+	withMockDriver(md, func() {
+		_, eerr := RunApply(ApplyFlags{
+			Manifest: path,
+			Only:     "git", // select only git
+		})
+		if eerr != nil {
+			t.Fatalf("RunApply --only git: unexpected error: %v", eerr)
+		}
+	})
+
+	gens, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gens) != 1 {
+		t.Fatalf("want 1 generation, got %d", len(gens))
+	}
+	g := gens[0]
+	// Only git should be recorded.
+	if len(g.AddedRefs) != 1 {
+		t.Fatalf("addedRefs = %v, want [Git.Git]", g.AddedRefs)
+	}
+	if g.AddedRefs[0] != "Git.Git" {
+		t.Errorf("addedRefs[0] = %q, want Git.Git", g.AddedRefs[0])
+	}
+	// Items must not include vscode or 7zip.
+	for _, item := range g.Items {
+		if item.ID == "vscode" || item.ID == "7zip" {
+			t.Errorf("generation items must not include unselected app %q", item.ID)
+		}
 	}
 }
