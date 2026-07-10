@@ -100,7 +100,8 @@ When `success` is `false`, the `error` field contains:
 | `GENERATION_NOT_FOUND` | The `rollback --to <n>` target generation does not exist, or records no backend-native rollback anchor. Additive in schema 1.x. |
 | `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
 | `CONVERGENCE_UNSUPPORTED` | `apply --prune` was requested on a backend that cannot safely remove installed-but-undeclared packages (the winget driver, or any host with no realizer). Nothing is removed. Additive in schema 1.x. |
-| `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows). Additive in schema 1.x. |
+| `CONFIRMATION_REQUIRED` | `rebuild` was invoked for a live run (restore on, not `--dry-run`) without `--confirm`. Raised before any mutation, so the refusal has no side effects. Additive in schema 1.x. |
+| `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows), or the input mode is unsupported (e.g. `rebuild --from <URL>`). Additive in schema 1.x. |
 | `TASK_REGISTRATION_FAILED` | `schedule enable` could not register the Windows Scheduled Task via `schtasks.exe`. Additive in schema 1.x. |
 
 #### Hosted Backup error codes
@@ -472,6 +473,63 @@ When the manifest uses `homeManager.settings`, the engine compiles the declarati
 - **`files` places arbitrary files (text or binary).** Each `target → source` (source resolved relative to the manifest) is **staged into the generated flake directory** (binary-safe; kept inside the flake tree so pure evaluation can read it) and placed via home-manager's `home.file`. This matches the breadth of the Windows module catalog. **Place/restore only**; capturing files back into `settings` is a separate, deferred capability.
 
 > **Rollback of an activated home-manager configuration is not yet supported** (a documented follow-on). home-manager keeps its own numbered generations; re-activating a prior one ships separately.
+
+---
+
+## Command: `rebuild`
+
+Rebuilds a machine from a capture bundle (`.zip`) or a bare manifest (`.jsonc`) in one command: it (optionally) extracts the bundle, installs the declared apps, restores configuration, then verifies the result. Restore is ON by default. Local file input only — URL input is rejected.
+
+```powershell
+endstate rebuild --from ./MyProfile.zip --dry-run --json
+endstate rebuild --from ./MyProfile.zip --confirm --json
+endstate rebuild --from ./machine.jsonc --no-restore --json
+```
+
+### Flags
+
+| Flag | Behavior |
+|------|----------|
+| `--from <path>` | Required. A local `.zip` capture bundle or a `.jsonc` manifest. A value containing a URL scheme (`://`) is rejected with `NOT_SUPPORTED`; a missing path returns `MANIFEST_NOT_FOUND`; an empty value returns `MANIFEST_VALIDATION_ERROR`; a `.zip` without `manifest.jsonc` returns `MANIFEST_PARSE_ERROR`. |
+| `--confirm` | Required for a live run (restore on, not `--dry-run`). Without it a live rebuild refuses with `CONFIRMATION_REQUIRED` **before any mutation** (before extraction, planning, install, or restore). |
+| `--dry-run` | Preview only: previews the plan without installing, restoring, or verifying. Needs no `--confirm`. The result carries no `verify` data. |
+| `--no-restore` | Install and verify without restoring configuration. Non-destructive, so it needs no `--confirm`. The result reports `restore: "disabled"`. |
+| `--events jsonl` | Stream events to stderr. `rebuild` composes the apply and verify event streams unchanged (no new event types). |
+
+### Response
+
+```json
+{
+  "schemaVersion": "1.0",
+  "cliVersion": "0.1.0",
+  "command": "rebuild",
+  "runId": "20241220-143052",
+  "timestampUtc": "2024-12-20T14:30:52Z",
+  "success": true,
+  "data": {
+    "from": "C:\\Users\\me\\MyProfile.zip",
+    "bundle": {
+      "extracted": true,
+      "schemaVersion": "1.0",
+      "capturedAt": "2024-12-19T10:00:00Z",
+      "machineName": "OLD-PC",
+      "endstateVersion": "0.1.0",
+      "configModulesIncluded": ["vscode", "git"]
+    },
+    "dryRun": false,
+    "restore": "enabled",
+    "apply": { "dryRun": false, "summary": { "total": 12, "success": 10, "skipped": 2, "failed": 0 }, "actions": [] },
+    "verify": { "summary": { "total": 12, "pass": 12, "fail": 0 }, "results": [] }
+  },
+  "error": null
+}
+```
+
+- `bundle` is present only for a `.zip` input (with `extracted: true`); it is omitted for a bare-manifest rebuild. The metadata fields under `bundle` are best-effort (read from the bundle's `metadata.json`) and omitted when unavailable.
+- `apply` carries the underlying `apply` command result; `verify` carries the underlying `verify` command result and is omitted on `--dry-run`.
+- `restore` reflects the configured posture (`"enabled"` unless `--no-restore`), not whether restore executed — a `--dry-run` reports `"enabled"` while executing nothing.
+
+**Note:** Verify failures are **data**, not a command error. A rebuild whose post-install verification reports drift (a missing app, a failed assertion, or version drift) still returns `success: true` and **exit 0**; the failures live in `data.verify.summary.fail`. Only infrastructure or input errors (e.g. `MANIFEST_PARSE_ERROR`, `CONFIRMATION_REQUIRED`) flip `success` to `false`.
 
 ---
 

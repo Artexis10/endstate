@@ -155,6 +155,20 @@ endstate verify --manifest manifests/local/my-machine.jsonc
 endstate doctor
 ```
 
+### Fresh machine (one command)
+
+Handed a profile bundle (`.zip`) or a manifest? `rebuild` does the whole fresh-machine flow — install apps, restore configuration, then verify — in a single step:
+
+```bash
+# 1. Preview the rebuild (no changes)
+endstate rebuild --from MyProfile.zip --dry-run
+
+# 2. Do it (restore is on by default, so a live run needs --confirm)
+endstate rebuild --from MyProfile.zip --confirm
+```
+
+Overwritten files are backed up first and can be undone with `endstate revert`. Use `--no-restore` to install and verify without touching configuration.
+
 ### CLI Commands
 
 | Command | Description |
@@ -163,6 +177,7 @@ endstate doctor
 | `capture` | Capture current machine state into a manifest |
 | `plan` | Generate execution plan from manifest without applying |
 | `apply` | Execute the plan (with optional `-DryRun`) |
+| `rebuild` | Rebuild a machine from a bundle/manifest in one step (install + restore + verify; live run needs `--confirm`) |
 | `restore` | Restore configuration files from manifest (requires `-EnableRestore`) |
 | `export-config` | Export config files from system to export folder (inverse of restore) |
 | `validate-export` | Validate export integrity before restore |

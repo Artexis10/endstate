@@ -366,6 +366,10 @@ One event covers the **combined** set of backends a run needs and lacks, so the 
   - Missing optional fields
   - Duplicate events (rare, but possible)
 
+### Composed streams (`rebuild`)
+
+`endstate rebuild` does **not** define new event types. It composes the **existing** `apply` and `verify` event streams unchanged: apply's stream (opening with a `phase` event, closing with a `summary`) is followed by verify's stream (also opening `phase`, closing `summary`). Whenever events are emitted, the concatenation satisfies the ordering invariant — the first event is a phase and the last is a summary; an input error before planning (e.g. the extracted manifest fails to load) yields an empty stream plus the envelope error, the same as every other command. Schema stays **v1**. (Known cosmetic divergence: the streamed sub-run `runId`s are `apply-<ts>`/`verify-<ts>` while the `rebuild` JSON envelope carries its own `rebuild-<ts>` — unifying them is a deferred GUI-facing follow-up.)
+
 ---
 
 ## Versioning

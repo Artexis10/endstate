@@ -161,6 +161,10 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				Supported: true,
 				Flags:     []string{"--manifest", "--interval", "--time", "--auto-push", "--root", "--json"},
 			},
+			"rebuild": {
+				Supported: true,
+				Flags:     []string{"--from", "--dry-run", "--confirm", "--no-restore", "--json", "--events"},
+			},
 		},
 		Features: FeaturesInfo{
 			Streaming:       false,

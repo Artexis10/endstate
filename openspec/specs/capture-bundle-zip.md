@@ -32,9 +32,8 @@ Resolution order for `--profile "Name"`: zip → folder → bare manifest. First
 
 ### Apply from Zip
 
-- `endstate apply --profile "Name.zip"` extracts to temp dir, reads manifest, installs apps
-- Config restore from zip requires `--enable-restore`
-- Temp extraction cleaned up after apply completes
+- `endstate rebuild --from "Name.zip"` is the Go engine's zip-consumption path: it extracts to a temp dir, installs apps, restores configs, verifies, then cleans up the temp dir after the full pipeline completes (the historical `apply --profile "Name.zip"` path was retired with the PowerShell engine)
+- Config restore runs by default under rebuild and requires explicit `--confirm` consent; `--no-restore` opts out
 
 ### JSON Output
 
