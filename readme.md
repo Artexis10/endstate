@@ -2,6 +2,8 @@
 
 **Set up a new Windows PC in minutes.** Endstate scans your current machine for installed apps and settings, saves them to one portable file you control, then reinstalls the apps and restores your settings on a fresh Windows install. Free, open source, local-first — no account, no telemetry. Windows today via [winget](https://learn.microsoft.com/windows/package-manager/winget/); the engine is cross-platform (Linux/macOS in progress).
 
+![Endstate demo: pick a starter pack, preview the real plan, apply](docs/media/endstate-demo.gif)
+
 Website: <https://substratesystems.io/endstate> · Download: <https://substratesystems.io/download>
 
 **Author:** Hugo Ander Kivi  
