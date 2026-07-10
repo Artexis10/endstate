@@ -2,7 +2,7 @@
 
 ### Requirement: capture --pin records installed versions
 
-`capture --pin` SHALL write, for each emitted winget app whose installed version the package-manager snapshot exposes, that version into the app's manifest `version` field. Version recording SHALL be best-effort: an app whose version the snapshot does not expose SHALL be emitted without a `version` field, and a missing version or a failed snapshot SHALL NOT fail the capture. Without `--pin`, capture SHALL emit no `version` fields on the winget path and its output SHALL be unchanged.
+`capture --pin` SHALL write, for each emitted winget app whose installed version the package-manager snapshot exposes, that version into the app's manifest `version` field. Version recording SHALL be best-effort: an app whose version the snapshot does not expose SHALL be emitted without a `version` field, and a missing version or a failed snapshot SHALL NOT fail the capture. Without `--pin`, a fresh capture SHALL emit no `version` fields on the winget path and its output SHALL be unchanged; `--update` merge preservation is governed by the following requirement.
 
 #### Scenario: Pin writes installed versions into the manifest
 - **WHEN** `capture --pin` runs on the winget backend and an app's installed version is known

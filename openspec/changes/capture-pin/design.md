@@ -8,7 +8,7 @@ Capture's step 2 already calls `snapshot.GetDisplayNameMap()` (a `winget list` v
 
 ## D2 — `--update` semantics: preserve, refresh, never blank
 
-The app **set** comes from `winget export` (no versions); **versions** come from the `winget list` snapshot. The two can disagree (declared-but-not-installed apps, garbled rows), so version data is evidence, not truth.
+The app **set** comes from `winget export` (no versions); **versions** come from the `winget list` snapshot. The two can disagree (declared-but-not-installed apps, garbled rows), so version data is evidence, not truth. Pin fidelity also inherits the display-name pass's keying caveat: versions are keyed by the tabular `winget list` Id column, so a row whose Id winget truncates cannot be matched against the export set and yields no pin — accepted under the best-effort posture.
 
 | Scenario | Behavior |
 |---|---|

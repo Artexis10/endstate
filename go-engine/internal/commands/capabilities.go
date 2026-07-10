@@ -111,7 +111,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"capture": {
 				Supported: true,
-				Flags:     []string{"--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events"},
+				Flags:     []string{"--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin"},
 			},
 			"plan": {
 				Supported: true,

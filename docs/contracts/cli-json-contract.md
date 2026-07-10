@@ -158,7 +158,7 @@ endstate capabilities --json
       },
       "capture": {
         "supported": true,
-        "flags": ["--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events"]
+        "flags": ["--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin"]
       },
       "plan": {
         "supported": true,
@@ -385,6 +385,8 @@ The recorded Provisioning Generation reflects the converged set: `addedRefs` for
 ### Version capture and pinning (winget)
 
 On the winget backend, each Provisioning Generation item records the installed `version` of the package, captured from `winget list` (best-effort — empty when winget exposes none). The Nix realizer pins exact versions through its ref, so nix generations leave `version` empty.
+
+`capture --pin` writes each installed winget app's version into the emitted manifest's `version` field (best-effort — omitted when winget exposes none), producing a manifest that reproduces the exact installed set on `apply`.
 
 A manifest app MAY declare a `version` to **pin** the install:
 
