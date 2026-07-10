@@ -92,7 +92,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"apply": {
 				Supported: true,
-				Flags:     []string{"--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--json", "--events"},
+				Flags:     []string{"--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--only", "--json", "--events"},
 			},
 			"verify": {
 				Supported: true,

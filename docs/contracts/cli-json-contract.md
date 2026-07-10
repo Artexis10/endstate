@@ -142,25 +142,29 @@ endstate capabilities --json
       "max": "1.0"
     },
     "commands": {
-      "capture": {
+      "capabilities": {
         "supported": true,
-        "flags": ["--profile", "--out-manifest", "--include-runtimes", "--include-store-apps", "--minimize", "--discover", "--update", "--json"]
-      },
-      "plan": {
-        "supported": true,
-        "flags": ["--manifest", "--json"]
+        "flags": ["--json"]
       },
       "apply": {
         "supported": true,
-        "flags": ["--manifest", "--plan", "--dry-run", "--enable-restore", "--restore-filter", "--json"]
+        "flags": ["--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--only", "--json", "--events"]
       },
       "verify": {
         "supported": true,
-        "flags": ["--manifest", "--json"]
+        "flags": ["--manifest", "--json", "--events"]
+      },
+      "capture": {
+        "supported": true,
+        "flags": ["--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events"]
+      },
+      "plan": {
+        "supported": true,
+        "flags": ["--manifest", "--json", "--events"]
       },
       "restore": {
         "supported": true,
-        "flags": ["--manifest", "--enable-restore", "--restore-filter", "--dry-run", "--json"]
+        "flags": ["--manifest", "--restore-filter", "--json", "--events", "--filter"]
       },
       "report": {
         "supported": true,
@@ -170,7 +174,11 @@ endstate capabilities --json
         "supported": true,
         "flags": ["--json"]
       },
-      "capabilities": {
+      "profile": {
+        "supported": true,
+        "flags": ["--json"]
+      },
+      "bootstrap": {
         "supported": true,
         "flags": ["--json"]
       }
@@ -282,6 +290,7 @@ Executes provisioning plan.
 ```powershell
 endstate apply --manifest ./manifest.jsonc --json
 endstate apply --manifest ./manifest.jsonc --dry-run --json
+endstate apply --manifest ./manifest.jsonc --only git,vscode --json
 ```
 
 ### Response
@@ -333,6 +342,17 @@ endstate apply --manifest ./manifest.jsonc --dry-run --json
 ```
 
 **Note:** `eventsFile` is only included when `--events jsonl` is enabled. The engine persists events to `logs/<runId>.events.jsonl` in addition to streaming to stderr.
+
+### App-Subset Selection (`--only`)
+
+`apply --only <id[,id,...]>` limits the run to manifest apps whose `id` is in the comma-separated list. Filtering happens at the manifest level before planning, so every downstream stage (plan generation, driver execution, config-module expansion, restore scoping, verification, event emission, and summary counts) behaves as if the manifest contained only the selected apps. Omitting `--only` leaves behaviour unchanged.
+
+| Flag | Behavior |
+|------|----------|
+| `--only <ids>` | Comma-separated list of manifest app `id` values to include. Ids not found in the manifest fail the run with `MANIFEST_VALIDATION_ERROR` naming the unknown ids. An empty or blank value is likewise rejected. |
+| `--dry-run` | Can be combined with `--only` to preview the subset plan without executing. This is the GUI's per-app selection preview path. |
+
+`--only` cannot be combined with `--prune` — prune converges to the exact manifest set, and pruning against a deliberate subset would classify every unselected app as drift. The combination is rejected with `MANIFEST_VALIDATION_ERROR`.
 
 ### Convergence (`--prune`)
 

@@ -80,6 +80,107 @@ type ApplyFlags struct {
 	// absent backend's lane rather than install it. Takes precedence over
 	// BootstrapBackends.
 	NoBootstrap bool
+	// Only limits the run to the comma-separated list of manifest app IDs. When
+	// non-empty, filtering happens before planning so every downstream stage
+	// (plan, drivers, config-module expansion, restore scoping, verify, events,
+	// summary counts) sees only the selected apps. Incompatible with --prune.
+	Only string
+}
+
+// parseOnlyIDs normalises the --only value into a deduplicated set of app IDs.
+// Blank entries (e.g. leading/trailing commas) are dropped. Returns nil when
+// the flag is empty (feature disabled, unchanged behaviour).
+func parseOnlyIDs(only string) []string {
+	if only == "" {
+		return nil
+	}
+	parts := strings.Split(only, ",")
+	seen := make(map[string]bool, len(parts))
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// filterAppsByOnly returns the subset of apps whose ID is in the allowSet, and
+// a slice of IDs from allowSet that matched nothing (unknown IDs).
+func filterAppsByOnly(apps []manifest.App, allowSet []string) (filtered []manifest.App, unknown []string) {
+	allow := make(map[string]bool, len(allowSet))
+	for _, id := range allowSet {
+		allow[id] = true
+	}
+	matched := make(map[string]bool, len(allowSet))
+	for _, app := range apps {
+		if allow[app.ID] {
+			filtered = append(filtered, app)
+			matched[app.ID] = true
+		}
+	}
+	for _, id := range allowSet {
+		if !matched[id] {
+			unknown = append(unknown, id)
+		}
+	}
+	return filtered, unknown
+}
+
+// validateOnly checks the --only flag value against the (fully-synthesized)
+// manifest app set and returns the filtered []manifest.App plus a validation
+// error if any IDs are unknown, the selection is empty, or --only is combined
+// with --prune. Returns (nil, nil) when --only was not provided (empty string),
+// indicating the feature is disabled.
+//
+// IMPORTANT: mf.Apps must already include synthesized apps from
+// SynthesizeAppsFromModules before this function is called, so that module-
+// derived manual apps are selectable/filterable just like regular apps.
+func validateOnly(flags ApplyFlags, mf *manifest.Manifest) ([]manifest.App, *envelope.Error) {
+	// Feature disabled: --only not provided.
+	if flags.Only == "" {
+		return nil, nil
+	}
+
+	// Guard: --only + --prune is invalid. Prune converges to the EXACT manifest
+	// set; pruning against a deliberate subset would classify every unselected app
+	// as drift. Check before parsing so the error surfaces even for blank --only.
+	if flags.Prune {
+		return nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only and --prune cannot be combined: --prune converges to the exact manifest set, which conflicts with a deliberate subset selection").
+			WithRemediation("Remove --prune when using --only, or omit --only to converge the full manifest.")
+	}
+
+	ids := parseOnlyIDs(flags.Only)
+
+	// Empty selection after normalisation (e.g. --only "  ,  ").
+	if len(ids) == 0 {
+		return nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only requires at least one app id; the provided value is empty after normalisation").
+			WithRemediation("Provide one or more comma-separated app ids, e.g. --only git,vscode.")
+	}
+
+	filtered, unknown := filterAppsByOnly(mf.Apps, ids)
+
+	if len(unknown) > 0 {
+		return nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			fmt.Sprintf("--only references app ids not found in the manifest: %s", strings.Join(unknown, ", "))).
+			WithRemediation("Check spelling and ensure the ids match the 'id' field of apps declared in the manifest.")
+	}
+
+	if len(filtered) == 0 {
+		return nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only produced an empty app selection; no apps would be processed").
+			WithRemediation("Provide ids that match at least one app declared in the manifest.")
+	}
+
+	return filtered, nil
 }
 
 // RestoreModuleRef identifies a config module available for restore, including
@@ -183,36 +284,58 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		return nil, envelopeErr
 	}
 
-	// Resolve module catalog for configModuleMap (non-fatal if unavailable).
-	var configModuleMap map[string]string
-	var restoreModulesAvailable []RestoreModuleRef
-
+	// Load the module catalog once; it is used for synthesis (pre-filter) and
+	// for module matching (post-filter). Non-fatal if unavailable.
+	var catalog map[string]*modules.Module
 	repoRoot := resolveRepoRootFn()
 	if repoRoot != "" {
-		catalog, catalogErr := loadModuleCatalogFn(repoRoot)
-		if catalogErr == nil && len(catalog) > 0 {
-			// Synthesize manual app entries from configModules with pathExists
-			// matchers before the plan loop, so they enter the plan.
-			modules.SynthesizeAppsFromModules(mf, catalog)
+		if cat, catalogErr := loadModuleCatalogFn(repoRoot); catalogErr == nil && len(cat) > 0 {
+			catalog = cat
+		}
+	}
 
-			matchedModules := modules.MatchModulesForApps(catalog, mf.Apps)
-			if len(matchedModules) > 0 {
-				configModuleMap = make(map[string]string, len(matchedModules))
-				for _, mod := range matchedModules {
-					if len(mod.Matches.Winget) > 0 {
-						for _, wingetRef := range mod.Matches.Winget {
-							configModuleMap[wingetRef] = mod.ID
-						}
-					} else {
-						// pathExists-only modules: key by short app ID so the GUI can match.
-						shortID := strings.TrimPrefix(mod.ID, "apps.")
-						configModuleMap[shortID] = mod.ID
+	// Phase 1a: Synthesis — MUST run before --only so that module-derived manual
+	// apps (pathExists synthesized entries) are part of the selectable/filterable
+	// app set. validateOnly then sees the fully-expanded list.
+	if catalog != nil {
+		modules.SynthesizeAppsFromModules(mf, catalog)
+	}
+
+	// Phase 1b: --only filter — validate and filter against the fully-expanded
+	// app list (including synthesized apps). validateOnly returns the filtered
+	// []manifest.App directly — no second filterAppsByOnly call needed.
+	if flags.Only != "" {
+		filtered, onlyErr := validateOnly(flags, mf)
+		if onlyErr != nil {
+			return nil, onlyErr
+		}
+		mfCopy := *mf
+		mfCopy.Apps = filtered
+		mf = &mfCopy
+	}
+
+	// Phase 1c: Module matching — runs AFTER --only so configModuleMap and
+	// restoreModulesAvailable are scoped to the filtered app set.
+	var configModuleMap map[string]string
+	var restoreModulesAvailable []RestoreModuleRef
+	if catalog != nil {
+		matchedModules := modules.MatchModulesForApps(catalog, mf.Apps)
+		if len(matchedModules) > 0 {
+			configModuleMap = make(map[string]string, len(matchedModules))
+			for _, mod := range matchedModules {
+				if len(mod.Matches.Winget) > 0 {
+					for _, wingetRef := range mod.Matches.Winget {
+						configModuleMap[wingetRef] = mod.ID
 					}
-					restoreModulesAvailable = append(restoreModulesAvailable, RestoreModuleRef{
-						ID:          mod.ID,
-						DisplayName: resolveModuleDisplayName(mod),
-					})
+				} else {
+					// pathExists-only modules: key by short app ID so the GUI can match.
+					shortID := strings.TrimPrefix(mod.ID, "apps.")
+					configModuleMap[shortID] = mod.ID
 				}
+				restoreModulesAvailable = append(restoreModulesAvailable, RestoreModuleRef{
+					ID:          mod.ID,
+					DisplayName: resolveModuleDisplayName(mod),
+				})
 			}
 		}
 	}
