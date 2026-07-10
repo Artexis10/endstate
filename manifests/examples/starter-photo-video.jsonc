@@ -1,11 +1,13 @@
 {
   // Starter Pack: Photo & Video Editing
   //
-  // What's inside: GIMP (photo editing), Krita (digital painting), Inkscape
-  // (vector graphics), Kdenlive (video editing), Shotcut (video editing),
-  // Handbrake (transcoding), Audacity (audio), VLC (playback), Paint.NET
-  // (quick edits), Blender (3D / compositing), Darktable (RAW processing),
-  // 7-Zip, Notepad++.
+  // What's inside: darktable (RAW/Lightroom-style), GIMP (photo editing),
+  // Krita (digital painting), Inkscape (vector), Kdenlive (video editing),
+  // CapCut (short-form video), HandBrake (transcoding), Audacity (audio),
+  // Blender (3D/motion), OBS Studio (recording), VLC.
+  //
+  // Note: DaVinci Resolve is the other big free video editor but has no
+  // winget package — install it manually from blackmagicdesign.com.
   //
   // How to apply:
   //   GUI : drag this file onto the Endstate window → Preview → Apply
@@ -15,19 +17,17 @@
   "name": "starter-photo-video",
 
   "apps": [
-    { "id": "gimp-gimp",                 "refs": { "windows": "GIMP.GIMP" } },
-    { "id": "kde-krita",                 "refs": { "windows": "KDE.Krita" } },
-    { "id": "inkscape-inkscape",         "refs": { "windows": "Inkscape.Inkscape" } },
-    { "id": "kde-kdenlive",              "refs": { "windows": "KDE.Kdenlive" } },
-    { "id": "meltytech-shotcut",         "refs": { "windows": "Meltytech.Shotcut" } },
-    { "id": "handbrake-handbrake",       "refs": { "windows": "HandBrake.HandBrake" } },
-    { "id": "audacity-audacity",         "refs": { "windows": "Audacity.Audacity" } },
-    { "id": "videolan-vlc",              "refs": { "windows": "VideoLAN.VLC" } },
-    { "id": "dotpdnllc-paintdotnet",     "refs": { "windows": "dotPDNLLC.paintdotnet" } },
-    { "id": "blenderfoundation-blender", "refs": { "windows": "BlenderFoundation.Blender" } },
-    { "id": "darktable-darktable",       "refs": { "windows": "darktable.darktable" } },
-    { "id": "7zip-7zip",                 "refs": { "windows": "7zip.7zip" } },
-    { "id": "notepadplusplus-notepadplusplus", "refs": { "windows": "Notepad++.Notepad++" } }
+    { "id": "darktable-darktable",           "refs": { "windows": "darktable.darktable" } },
+    { "id": "gimp-gimp",                     "refs": { "windows": "GIMP.GIMP" } },
+    { "id": "kde-krita",                     "refs": { "windows": "KDE.Krita" } },
+    { "id": "inkscape-inkscape",             "refs": { "windows": "Inkscape.Inkscape" } },
+    { "id": "kde-kdenlive",                  "refs": { "windows": "KDE.Kdenlive" } },
+    { "id": "bytedance-capcut",              "refs": { "windows": "ByteDance.CapCut" } },
+    { "id": "handbrake-handbrake",           "refs": { "windows": "HandBrake.HandBrake" } },
+    { "id": "audacity-audacity",             "refs": { "windows": "Audacity.Audacity" } },
+    { "id": "blenderfoundation-blender",     "refs": { "windows": "BlenderFoundation.Blender" } },
+    { "id": "obsproject-obsstudio",          "refs": { "windows": "OBSProject.OBSStudio" } },
+    { "id": "videolan-vlc",                  "refs": { "windows": "VideoLAN.VLC" } }
   ],
 
   "restore": [],

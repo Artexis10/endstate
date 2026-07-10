@@ -1,11 +1,10 @@
 {
   // Starter Pack: Privacy-First
   //
-  // What's inside: KeePassXC (password manager), Mullvad VPN, WireGuard,
-  // Gpg4win / GnuPG (encryption + signing), VeraCrypt (disk encryption),
-  // Cryptomator (cloud vault encryption), simplewall (application firewall),
-  // Malwarebytes (malware protection), Signal, Thunderbird (email),
-  // 7-Zip, Notepad++.
+  // What's inside: Brave (private browsing), Tor Browser, KeePassXC (local
+  // password manager), Signal, Mullvad VPN, WireGuard, VeraCrypt (disk
+  // encryption), Cryptomator (cloud-storage encryption), Gpg4win,
+  // simplewall (outbound firewall), Thunderbird, 7-Zip (AES archives).
   //
   // How to apply:
   //   GUI : drag this file onto the Endstate window → Preview → Apply
@@ -15,18 +14,18 @@
   "name": "starter-privacy",
 
   "apps": [
-    { "id": "keepassxcteam-keepassxc",   "refs": { "windows": "KeePassXCTeam.KeePassXC" } },
-    { "id": "mullvadvpn-mullvadvpn",     "refs": { "windows": "MullvadVPN.MullvadVPN" } },
-    { "id": "wireguard-wireguard",       "refs": { "windows": "WireGuard.WireGuard" } },
-    { "id": "gnupg-gpg4win",             "refs": { "windows": "GnuPG.Gpg4win" } },
-    { "id": "idrix-veracrypt",           "refs": { "windows": "IDRIX.VeraCrypt" } },
-    { "id": "cryptomator-cryptomator",   "refs": { "windows": "Cryptomator.Cryptomator" } },
-    { "id": "henryplusplus-simplewall",  "refs": { "windows": "Henry++.simplewall" } },
-    { "id": "malwarebytes-malwarebytes", "refs": { "windows": "Malwarebytes.Malwarebytes" } },
-    { "id": "openwhispersystems-signal", "refs": { "windows": "OpenWhisperSystems.Signal" } },
-    { "id": "mozilla-thunderbird",       "refs": { "windows": "Mozilla.Thunderbird" } },
-    { "id": "7zip-7zip",                 "refs": { "windows": "7zip.7zip" } },
-    { "id": "notepadplusplus-notepadplusplus", "refs": { "windows": "Notepad++.Notepad++" } }
+    { "id": "brave-brave",                   "refs": { "windows": "Brave.Brave" } },
+    { "id": "torproject-torbrowser",         "refs": { "windows": "TorProject.TorBrowser" } },
+    { "id": "keepassxcteam-keepassxc",       "refs": { "windows": "KeePassXCTeam.KeePassXC" } },
+    { "id": "openwhispersystems-signal",     "refs": { "windows": "OpenWhisperSystems.Signal" } },
+    { "id": "mullvadvpn-mullvadvpn",         "refs": { "windows": "MullvadVPN.MullvadVPN" } },
+    { "id": "wireguard-wireguard",           "refs": { "windows": "WireGuard.WireGuard" } },
+    { "id": "idrix-veracrypt",               "refs": { "windows": "IDRIX.VeraCrypt" } },
+    { "id": "cryptomator-cryptomator",       "refs": { "windows": "Cryptomator.Cryptomator" } },
+    { "id": "gnupg-gpg4win",                 "refs": { "windows": "GnuPG.Gpg4win" } },
+    { "id": "henryplusplus-simplewall",      "refs": { "windows": "Henry++.simplewall" } },
+    { "id": "mozilla-thunderbird",           "refs": { "windows": "Mozilla.Thunderbird" } },
+    { "id": "7zip-7zip",                     "refs": { "windows": "7zip.7zip" } }
   ],
 
   "restore": [],

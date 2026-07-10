@@ -1,9 +1,12 @@
 {
   // Starter Pack: Full-Stack Dev Rig
   //
-  // What's inside: git, VS Code, Zed, Node/npm, Docker Desktop, WSL, GitHub CLI,
-  // Windows Terminal, Bruno (API client), DBeaver (database GUI), lazygit, ripgrep,
-  // zoxide, Starship prompt, oh-my-posh, Notepad++, 7-Zip, PowerShell 7.
+  // What's inside: Git, VS Code, Cursor (AI editor), Windows Terminal, WSL,
+  // Docker Desktop, Node.js LTS, GitHub CLI, Postman, DBeaver (databases),
+  // lazygit, ripgrep, zoxide, Starship prompt, 7-Zip, Claude.
+  //
+  // One pick per job: Cursor covers the AI-editor slot, Postman the API
+  // client, Starship the prompt. Swap to taste — it's just a file.
   //
   // How to apply:
   //   GUI : drag this file onto the Endstate window → Preview → Apply
@@ -13,23 +16,22 @@
   "name": "starter-fullstack-dev",
 
   "apps": [
-    { "id": "git-git",                    "refs": { "windows": "Git.Git" } },
-    { "id": "microsoft-visualstudiocode", "refs": { "windows": "Microsoft.VisualStudioCode" } },
-    { "id": "zedindustries-zed",          "refs": { "windows": "ZedIndustries.Zed" } },
-    { "id": "microsoft-windowsterminal",  "refs": { "windows": "Microsoft.WindowsTerminal" } },
-    { "id": "microsoft-wsl",              "refs": { "windows": "Microsoft.WSL" } },
-    { "id": "docker-dockerdesktop",       "refs": { "windows": "Docker.DockerDesktop" } },
-    { "id": "github-cli",                 "refs": { "windows": "GitHub.cli" } },
-    { "id": "bruno-bruno",                "refs": { "windows": "Bruno.Bruno" } },
-    { "id": "dbeaver-dbeaver-community",  "refs": { "windows": "DBeaver.DBeaver.Community" } },
-    { "id": "jesseduffieldlazygit",       "refs": { "windows": "JesseDuffield.lazygit" } },
-    { "id": "burntsushi-ripgrep-msvc",    "refs": { "windows": "BurntSushi.ripgrep.MSVC" } },
-    { "id": "ajeetdsouza-zoxide",         "refs": { "windows": "ajeetdsouza.zoxide" } },
-    { "id": "starship-starship",          "refs": { "windows": "Starship.Starship" } },
-    { "id": "jandedobbeleer-ohmyposh",    "refs": { "windows": "JanDeDobbeleer.OhMyPosh" } },
-    { "id": "notepadplusplus-notepadplusplus", "refs": { "windows": "Notepad++.Notepad++" } },
-    { "id": "7zip-7zip",                  "refs": { "windows": "7zip.7zip" } },
-    { "id": "anthropic-claude",           "refs": { "windows": "Anthropic.Claude" } }
+    { "id": "git-git",                       "refs": { "windows": "Git.Git" } },
+    { "id": "microsoft-visualstudiocode",    "refs": { "windows": "Microsoft.VisualStudioCode" } },
+    { "id": "anysphere-cursor",              "refs": { "windows": "Anysphere.Cursor" } },
+    { "id": "microsoft-windowsterminal",     "refs": { "windows": "Microsoft.WindowsTerminal" } },
+    { "id": "microsoft-wsl",                 "refs": { "windows": "Microsoft.WSL" } },
+    { "id": "docker-dockerdesktop",          "refs": { "windows": "Docker.DockerDesktop" } },
+    { "id": "openjs-nodejs-lts",             "refs": { "windows": "OpenJS.NodeJS.LTS" } },
+    { "id": "github-cli",                    "refs": { "windows": "GitHub.cli" } },
+    { "id": "postman-postman",               "refs": { "windows": "Postman.Postman" } },
+    { "id": "dbeaver-dbeaver-community",     "refs": { "windows": "DBeaver.DBeaver.Community" } },
+    { "id": "jesseduffieldlazygit",          "refs": { "windows": "JesseDuffield.lazygit" } },
+    { "id": "burntsushi-ripgrep-msvc",       "refs": { "windows": "BurntSushi.ripgrep.MSVC" } },
+    { "id": "ajeetdsouza-zoxide",            "refs": { "windows": "ajeetdsouza.zoxide" } },
+    { "id": "starship-starship",             "refs": { "windows": "Starship.Starship" } },
+    { "id": "7zip-7zip",                     "refs": { "windows": "7zip.7zip" } },
+    { "id": "anthropic-claude",              "refs": { "windows": "Anthropic.Claude" } }
   ],
 
   "restore": [],
