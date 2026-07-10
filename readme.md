@@ -18,9 +18,9 @@ Ready-to-apply manifests for common machine types. Each one installs a curated s
 
 | Pack | What's inside | File |
 |------|--------------|------|
-| Full-stack dev | Git, VS Code, Cursor, Windows Terminal, WSL, Docker, Node.js LTS, GitHub CLI, Postman, DBeaver, lazygit, ripgrep, zoxide, Starship, 7-Zip, Claude | [starter-fullstack-dev.jsonc](manifests/examples/starter-fullstack-dev.jsonc) |
+| Full-stack dev | Git, VS Code, Cursor, Zed, Windows Terminal, WSL, Docker, Node.js LTS, GitHub CLI, Postman, DBeaver, lazygit, ripgrep, zoxide, Starship, 7-Zip, Claude | [starter-fullstack-dev.jsonc](manifests/examples/starter-fullstack-dev.jsonc) |
 | Streamer | OBS Studio, Elgato Stream Deck, Voicemeeter, Chatterino, Discord, Spotify, CapCut, Audacity, HandBrake, VLC | [starter-streamer.jsonc](manifests/examples/starter-streamer.jsonc) |
-| Photo & video | darktable, GIMP, Krita, Inkscape, Kdenlive, CapCut, HandBrake, Audacity, Blender, OBS Studio, VLC | [starter-photo-video.jsonc](manifests/examples/starter-photo-video.jsonc) |
+| Photo & video | Adobe Creative Cloud, darktable, GIMP, Krita, Inkscape, Kdenlive, CapCut, HandBrake, Audacity, Blender, OBS Studio, VLC | [starter-photo-video.jsonc](manifests/examples/starter-photo-video.jsonc) |
 | Gaming | Steam, Epic Games, GOG GALAXY, Discord, MSI Afterburner, Playnite, RetroArch, Sunshine, VLC, 7-Zip | [starter-gaming.jsonc](manifests/examples/starter-gaming.jsonc) |
 | Privacy-first | Brave, Tor Browser, KeePassXC, Signal, Mullvad VPN, WireGuard, VeraCrypt, Cryptomator, Gpg4win, simplewall, Thunderbird, 7-Zip | [starter-privacy.jsonc](manifests/examples/starter-privacy.jsonc) |
 | Student | Notion, Obsidian, Anki, Zotero, Zoom, Teams, LibreOffice, Acrobat Reader, Discord, Spotify, VLC, Claude | [starter-student.jsonc](manifests/examples/starter-student.jsonc) |

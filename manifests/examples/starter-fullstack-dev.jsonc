@@ -1,9 +1,9 @@
 {
   // Starter Pack: Full-Stack Dev Rig
   //
-  // What's inside: Git, VS Code, Cursor (AI editor), Windows Terminal, WSL,
-  // Docker Desktop, Node.js LTS, GitHub CLI, Postman, DBeaver (databases),
-  // lazygit, ripgrep, zoxide, Starship prompt, 7-Zip, Claude.
+  // What's inside: Git, VS Code, Cursor (AI editor), Zed, Windows Terminal,
+  // WSL, Docker Desktop, Node.js LTS, GitHub CLI, Postman, DBeaver
+  // (databases), lazygit, ripgrep, zoxide, Starship prompt, 7-Zip, Claude.
   //
   // One pick per job: Cursor covers the AI-editor slot, Postman the API
   // client, Starship the prompt. Swap to taste — it's just a file.
@@ -19,6 +19,7 @@
     { "id": "git-git",                       "refs": { "windows": "Git.Git" } },
     { "id": "microsoft-visualstudiocode",    "refs": { "windows": "Microsoft.VisualStudioCode" } },
     { "id": "anysphere-cursor",              "refs": { "windows": "Anysphere.Cursor" } },
+    { "id": "zedindustries-zed",             "refs": { "windows": "ZedIndustries.Zed" } },
     { "id": "microsoft-windowsterminal",     "refs": { "windows": "Microsoft.WindowsTerminal" } },
     { "id": "microsoft-wsl",                 "refs": { "windows": "Microsoft.WSL" } },
     { "id": "docker-dockerdesktop",          "refs": { "windows": "Docker.DockerDesktop" } },
