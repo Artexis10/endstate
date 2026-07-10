@@ -62,6 +62,7 @@ Per-command flags:
   --include-runtimes   Include runtime packages (capture)
   --include-store-apps Include Microsoft Store apps (capture)
   --minimize           Minimize manifest format (capture)
+  --pin                Record installed versions into the manifest (capture)
   --export <path>      Export directory path (restore, export-config, validate-export)
   --restore-filter <e> Filter restore entries by module ID (restore, apply)
   --latest             Most recent run (report)
@@ -122,6 +123,7 @@ type parsedArgs struct {
 	includeRuntimes  bool
 	includeStoreApps bool
 	minimize         bool
+	pin              bool
 
 	// Report flags
 	latest bool
@@ -195,6 +197,8 @@ func parseArgs(args []string) parsedArgs {
 			p.includeStoreApps = true
 		case "--minimize":
 			p.minimize = true
+		case "--pin":
+			p.pin = true
 		case "--latest":
 			p.latest = true
 		case "--confirm":
@@ -354,7 +358,7 @@ func commandUsage(cmd string) string {
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
-		return "Usage: endstate capture [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--json] [--events jsonl]\n\nCapture current machine state.\n"
+		return "Usage: endstate capture [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--pin] [--json] [--events jsonl]\n\nCapture current machine state.\n"
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
@@ -501,6 +505,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			IncludeRuntimes:  p.includeRuntimes,
 			IncludeStoreApps: p.includeStoreApps,
 			Minimize:         p.minimize,
+			Pin:              p.pin,
 			Events:           p.events,
 		})
 

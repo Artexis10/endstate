@@ -181,6 +181,32 @@ func TestRunCaptureRealizer_EmitsBareAttrHostKeyedRefs(t *testing.T) {
 	}
 }
 
+// --pin is accepted as a no-op on the realizer path: versions are already
+// recorded unconditionally there, so the flag must change nothing.
+func TestRunCaptureRealizer_PinFlag_IsNoOp(t *testing.T) {
+	outDefault := filepath.Join(t.TempDir(), "default.jsonc")
+	outPinned := filepath.Join(t.TempDir(), "pinned.jsonc")
+
+	rawDefault, eerr := runCaptureRealizer(CaptureFlags{Out: outDefault, Name: "nixbox"}, &fakeRealizer{currentSet: nixSet("ripgrep", "jq")}, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("runCaptureRealizer (no pin) returned envelope error: %+v", eerr)
+	}
+	rawPinned, eerr := runCaptureRealizer(CaptureFlags{Out: outPinned, Name: "nixbox", Pin: true}, &fakeRealizer{currentSet: nixSet("ripgrep", "jq")}, noopEmitter())
+	if eerr != nil {
+		t.Fatalf("runCaptureRealizer (--pin) returned envelope error: %+v", eerr)
+	}
+
+	if resDefault, resPinned := rawDefault.(*CaptureResult), rawPinned.(*CaptureResult); resDefault.Counts != resPinned.Counts {
+		t.Errorf("--pin changed realizer counts: %+v vs %+v", resDefault.Counts, resPinned.Counts)
+	}
+
+	appsDefault, _ := json.Marshal(readCapturedManifest(t, outDefault).Apps)
+	appsPinned, _ := json.Marshal(readCapturedManifest(t, outPinned).Apps)
+	if string(appsDefault) != string(appsPinned) {
+		t.Errorf("--pin changed realizer manifest apps:\n%s\nvs\n%s", appsDefault, appsPinned)
+	}
+}
+
 // TestRunCaptureRealizer_BrewLaneInertByDefaultOnDarwin locks the hermeticity the
 // macOS CI taught us: even when the host reports darwin, the realizer-capture path
 // must NOT spawn the real Homebrew driver. The brew capture lane resolves via

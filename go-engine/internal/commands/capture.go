@@ -35,6 +35,7 @@ type CaptureFlags struct {
 	IncludeRuntimes  bool
 	IncludeStoreApps bool
 	Minimize         bool
+	Pin              bool
 	Events           string // "jsonl" or ""
 }
 
@@ -103,9 +104,10 @@ var snapshotRetryDelay = 2 * time.Second
 // and can be replaced in tests to inject fake data.
 var takeSnapshotFn = snapshot.WingetExport
 
-// getDisplayNameMapFn is the function used to obtain the winget display-name
-// map. It defaults to snapshot.GetDisplayNameMap and can be replaced in tests.
-var getDisplayNameMapFn = snapshot.GetDisplayNameMap
+// listInstalledFn enumerates installed packages (winget list) to build the
+// display-name and installed-version maps in one pass. It defaults to
+// snapshot.TakeSnapshot and can be replaced in tests.
+var listInstalledFn = snapshot.TakeSnapshot
 
 // resolveRepoRootFn returns the repo root path. It defaults to
 // config.ResolveRepoRoot and can be replaced in tests to avoid filesystem
@@ -179,30 +181,32 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	emitter.EmitPhase("capture")
 
 	// --- 2. Enumerate winget-managed packages and resolve display names ---
-	// Both calls spawn winget and are slow; run them concurrently.
+	// Both calls spawn winget and are slow; run them concurrently. The
+	// installed-apps snapshot (winget list) yields both display names and
+	// installed versions in a single pass.
 	type snapshotResult struct {
 		apps []snapshot.SnapshotApp
 		err  error
 	}
-	type nameMapResult struct {
-		nameMap map[string]string
-		err     error
+	type installedResult struct {
+		apps []snapshot.SnapshotApp
+		err  error
 	}
 
 	snapCh := make(chan snapshotResult, 1)
-	nameCh := make(chan nameMapResult, 1)
+	installedCh := make(chan installedResult, 1)
 
 	go func() {
 		apps, err := takeSnapshotFn()
 		snapCh <- snapshotResult{apps, err}
 	}()
 	go func() {
-		nameMap, err := getDisplayNameMapFn()
-		nameCh <- nameMapResult{nameMap, err}
+		apps, err := listInstalledFn()
+		installedCh <- installedResult{apps, err}
 	}()
 
 	snapRes := <-snapCh
-	nameRes := <-nameCh
+	installedRes := <-installedCh
 
 	if snapRes.err != nil {
 		var execErr *exec.Error
@@ -241,10 +245,25 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		).WithRemediation("Wait a few seconds and try again. Run 'winget list' in a terminal to verify winget is working.")
 	}
 
-	// Display name map — failure is non-fatal.
+	// Display-name and installed-version maps, both derived from the one
+	// installed-apps snapshot — failure is non-fatal (empty maps). Empty
+	// versions are skipped so a missing version omits the field.
 	displayNameMap := make(map[string]string)
-	if nameRes.err == nil {
-		displayNameMap = nameRes.nameMap
+	versionMap := make(map[string]string)
+	if installedRes.err == nil {
+		for _, app := range installedRes.apps {
+			displayNameMap[app.ID] = app.Name
+			if app.Version != "" {
+				versionMap[app.ID] = app.Version
+			}
+		}
+	}
+
+	// The user explicitly asked for pins; a wholesale-empty version map (list
+	// failure or lock-contention race) would otherwise produce an unpinned
+	// manifest that reports success silently.
+	if flags.Pin && len(versionMap) == 0 {
+		fmt.Fprintln(os.Stderr, "Warning: --pin requested but the installed-apps snapshot exposed no versions; the manifest will be written without pins.")
 	}
 
 	totalFound := len(snapshotApps)
@@ -280,6 +299,16 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			Name: sApp.Name,
 		}
 
+		// --pin records the installed version (best-effort). Empty stays empty
+		// and is dropped by omitempty.
+		if flags.Pin {
+			ver := versionMap[sApp.ID]
+			if ver == "" {
+				ver = sApp.Version
+			}
+			app.Version = ver
+		}
+
 		captured = append(captured, app)
 	}
 
@@ -308,13 +337,26 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			}
 		}
 
-		// Convert existing apps to capturedApp format.
+		// Convert existing apps to capturedApp format, preserving declared
+		// driver and version through the merge (parity with the realizer merge
+		// path — dropping them would silently blank declared state).
 		var merged []capturedApp
 		for _, app := range existingMf.Apps {
-			merged = append(merged, capturedApp{
-				ID:   app.ID,
-				Refs: app.Refs,
-			})
+			ca := capturedApp{
+				ID:      app.ID,
+				Refs:    app.Refs,
+				Driver:  app.Driver,
+				Version: app.Version,
+			}
+			// Under --pin, refresh an existing app's version from the installed-
+			// apps snapshot only when it exposes a non-empty version — absence of
+			// evidence never blanks a declared pin.
+			if flags.Pin {
+				if ver := versionMap[app.Refs["windows"]]; ver != "" {
+					ca.Version = ver
+				}
+			}
+			merged = append(merged, ca)
 		}
 
 		// Append newly discovered apps that aren't already present.
@@ -336,8 +378,10 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		sorted := make([]cleanApp, len(captured))
 		for i, app := range captured {
 			sorted[i] = cleanApp{
-				ID:   app.ID,
-				Refs: app.Refs,
+				ID:      app.ID,
+				Refs:    app.Refs,
+				Driver:  app.Driver,
+				Version: app.Version,
 			}
 		}
 		sort.Slice(sorted, func(i, j int) bool {

@@ -53,6 +53,31 @@ func TestRunCapabilities_HostedBackupIfChangedAdvertised(t *testing.T) {
 	}
 }
 
+// TestRunCapabilities_CaptureFlags_IncludesPin verifies that the capabilities
+// envelope advertises --pin in commands.capture.flags so clients can gate a
+// pinned-capture option on engine support.
+func TestRunCapabilities_CaptureFlags_IncludesPin(t *testing.T) {
+	result, err := RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities returned error: %v", err)
+	}
+	data := result.(CapabilitiesData)
+	captureCmd, ok := data.Commands["capture"]
+	if !ok {
+		t.Fatal("capture command not found in capabilities")
+	}
+	found := false
+	for _, f := range captureCmd.Flags {
+		if f == "--pin" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("commands.capture.flags does not contain --pin; got %v", captureCmd.Flags)
+	}
+}
+
 // TestRunCapabilities_HostedBackupShape verifies the full shape of the
 // hostedBackup features block so regressions in existing fields are caught.
 func TestRunCapabilities_HostedBackupShape(t *testing.T) {

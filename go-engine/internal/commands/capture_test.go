@@ -41,15 +41,38 @@ func withMockSnapshot(apps []snapshot.SnapshotApp, err error, f func()) {
 	f()
 }
 
-// withMockDisplayNames replaces getDisplayNameMapFn with one that returns the
-// given map and error, calls f, then restores the original.
+// withMockDisplayNames replaces the installed-apps seam (listInstalledFn) with
+// one that synthesizes name-only SnapshotApp entries from the given map (or
+// returns err), calls f, then restores the original. Capture derives its
+// display-name map from these entries; with no Version set, no versions leak,
+// so display-name-only call sites behave exactly as before the seam swap.
 func withMockDisplayNames(nameMap map[string]string, err error, f func()) {
-	orig := getDisplayNameMapFn
-	getDisplayNameMapFn = func() (map[string]string, error) {
-		return nameMap, err
+	orig := listInstalledFn
+	listInstalledFn = func() ([]snapshot.SnapshotApp, error) {
+		if err != nil {
+			return nil, err
+		}
+		apps := make([]snapshot.SnapshotApp, 0, len(nameMap))
+		for id, name := range nameMap {
+			apps = append(apps, snapshot.SnapshotApp{ID: id, Name: name})
+		}
+		return apps, nil
 	}
-	defer func() { getDisplayNameMapFn = orig }()
+	defer func() { listInstalledFn = orig }()
 	f()
+}
+
+// withMockInstalledApps replaces the installed-apps seam (listInstalledFn) with
+// one that returns the given version-bearing SnapshotApp entries. It registers a
+// t.Cleanup to restore the original, so callers use it inline (typically before
+// a withMockSnapshot closure) rather than wrapping a func.
+func withMockInstalledApps(t *testing.T, apps []snapshot.SnapshotApp) {
+	t.Helper()
+	orig := listInstalledFn
+	listInstalledFn = func() ([]snapshot.SnapshotApp, error) {
+		return apps, nil
+	}
+	t.Cleanup(func() { listInstalledFn = orig })
 }
 
 // withMockCatalog replaces loadModuleCatalogFn and resolveRepoRootFn so the
@@ -77,6 +100,59 @@ func sampleApps() []snapshot.SnapshotApp {
 		{Name: "Git", ID: "Git.Git", Version: "2.43.0", Source: "winget"},
 		{Name: "Google Chrome", ID: "Google.Chrome", Version: "120.0.6099.130", Source: "winget"},
 	}
+}
+
+// sampleExportSet returns an ID-only export set (mirrors `winget export`, which
+// populates package IDs but no versions) for the three sample apps. Pin tests
+// use this as the export set so the conversion loop's sApp.Version fallback is
+// empty and versions come solely from the installed-apps snapshot.
+func sampleExportSet() []snapshot.SnapshotApp {
+	return []snapshot.SnapshotApp{
+		{Name: "Visual Studio Code", ID: "Microsoft.VisualStudioCode", Source: "winget"},
+		{Name: "Git", ID: "Git.Git", Source: "winget"},
+		{Name: "Google Chrome", ID: "Google.Chrome", Source: "winget"},
+	}
+}
+
+// sampleInstalledApps returns the installed-apps snapshot (`winget list`) with
+// versions for the three sample apps. Versions differ from sampleApps so pin
+// tests prove the installed-version map is authoritative.
+func sampleInstalledApps() []snapshot.SnapshotApp {
+	return []snapshot.SnapshotApp{
+		{Name: "Visual Studio Code", ID: "Microsoft.VisualStudioCode", Version: "1.99.0", Source: "winget"},
+		{Name: "Git", ID: "Git.Git", Version: "2.44.0", Source: "winget"},
+		{Name: "Google Chrome", ID: "Google.Chrome", Version: "130.0.1", Source: "winget"},
+	}
+}
+
+// readManifestApps reads the written manifest and returns its apps as generic
+// maps so tests can assert on the raw JSON shape (presence/absence of keys).
+func readManifestApps(t *testing.T, path string) []map[string]interface{} {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read output: %v", err)
+	}
+	var mf struct {
+		Apps []map[string]interface{} `json:"apps"`
+	}
+	if err := json.Unmarshal(data, &mf); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	return mf.Apps
+}
+
+// manifestAppVersion returns the version field for the app whose refs.windows
+// equals winRef, and whether such an app was found.
+func manifestAppVersion(apps []map[string]interface{}, winRef string) (string, bool) {
+	for _, app := range apps {
+		refs, _ := app["refs"].(map[string]interface{})
+		if r, _ := refs["windows"].(string); r == winRef {
+			v, _ := app["version"].(string)
+			return v, true
+		}
+	}
+	return "", false
 }
 
 // sampleAppsWithRuntimesAndStore returns apps including runtime and store entries.
@@ -1689,6 +1765,330 @@ func TestRunCapture_NormalCapture_NoRetry(t *testing.T) {
 
 	if callCount != 1 {
 		t.Errorf("expected takeSnapshotFn called once (no retry), got %d", callCount)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// capture --pin: installed-version pinning (windows-version-capture-pinning)
+// ---------------------------------------------------------------------------
+
+// Without --pin, no app carries a version field even when the installed-apps
+// snapshot exposes versions (byte-regression guard).
+func TestRunCapture_NoPin_OmitsVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-no-pin.jsonc")
+
+	withMockInstalledApps(t, sampleInstalledApps())
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		emptyCatalog(func() {
+			_, err := RunCapture(CaptureFlags{Out: outPath})
+			if err != nil {
+				t.Fatalf("RunCapture returned unexpected error: %+v", err)
+			}
+		})
+	})
+
+	for _, app := range readManifestApps(t, outPath) {
+		if _, has := app["version"]; has {
+			t.Errorf("expected no version field without --pin, got %v", app["version"])
+		}
+	}
+}
+
+// With --pin, each app's version matches the mocked installed version (not the
+// export-set version).
+func TestRunCapture_Pin_WritesInstalledVersions(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-pin.jsonc")
+
+	want := map[string]string{
+		"Microsoft.VisualStudioCode": "1.99.0",
+		"Git.Git":                    "2.44.0",
+		"Google.Chrome":              "130.0.1",
+	}
+
+	withMockInstalledApps(t, sampleInstalledApps())
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		emptyCatalog(func() {
+			_, err := RunCapture(CaptureFlags{Out: outPath, Pin: true})
+			if err != nil {
+				t.Fatalf("RunCapture returned unexpected error: %+v", err)
+			}
+		})
+	})
+
+	apps := readManifestApps(t, outPath)
+	if len(apps) != len(want) {
+		t.Fatalf("expected %d apps, got %d", len(want), len(apps))
+	}
+	for ref, wantVer := range want {
+		gotVer, found := manifestAppVersion(apps, ref)
+		if !found {
+			t.Errorf("app %q missing from output", ref)
+			continue
+		}
+		if gotVer != wantVer {
+			t.Errorf("app %q: version=%q, want %q", ref, gotVer, wantVer)
+		}
+	}
+}
+
+// With --pin, an app present in the export set but absent from the installed
+// snapshot (skew) is emitted without a version field; capture still succeeds.
+func TestRunCapture_Pin_SkewedApp_OmitsVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-pin-skew.jsonc")
+
+	// Installed snapshot covers only two of the three export-set apps; Chrome
+	// is absent and must be emitted without a version.
+	installed := []snapshot.SnapshotApp{
+		{Name: "Visual Studio Code", ID: "Microsoft.VisualStudioCode", Version: "1.99.0"},
+		{Name: "Git", ID: "Git.Git", Version: "2.44.0"},
+	}
+
+	withMockInstalledApps(t, installed)
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		emptyCatalog(func() {
+			_, err := RunCapture(CaptureFlags{Out: outPath, Pin: true})
+			if err != nil {
+				t.Fatalf("RunCapture returned unexpected error: %+v", err)
+			}
+		})
+	})
+
+	apps := readManifestApps(t, outPath)
+	ver, found := manifestAppVersion(apps, "Google.Chrome")
+	if !found {
+		t.Fatal("expected Google.Chrome in output")
+	}
+	if ver != "" {
+		t.Errorf("expected no version for skewed app Google.Chrome, got %q", ver)
+	}
+}
+
+// With --pin, a total failure of the installed-apps snapshot degrades to no
+// versions; capture still succeeds (display-name posture preserved).
+func TestRunCapture_Pin_SnapshotError_SucceedsWithoutVersions(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-pin-snap-err.jsonc")
+
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		withMockDisplayNames(nil, errors.New("winget list failed"), func() {
+			emptyCatalog(func() {
+				_, err := RunCapture(CaptureFlags{Out: outPath, Pin: true})
+				if err != nil {
+					t.Fatalf("capture should succeed when installed-apps snapshot fails: %+v", err)
+				}
+			})
+		})
+	})
+
+	for _, app := range readManifestApps(t, outPath) {
+		if _, has := app["version"]; has {
+			t.Errorf("expected no version when installed-apps snapshot failed, got %v", app["version"])
+		}
+	}
+}
+
+// With --pin --sanitize, versions are kept, _name is stripped, and apps are
+// sorted by id.
+func TestRunCapture_PinSanitize_KeepsVersions(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-pin-sanitize.jsonc")
+
+	withMockInstalledApps(t, sampleInstalledApps())
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		emptyCatalog(func() {
+			_, err := RunCapture(CaptureFlags{Out: outPath, Pin: true, Sanitize: true})
+			if err != nil {
+				t.Fatalf("RunCapture returned unexpected error: %+v", err)
+			}
+		})
+	})
+
+	apps := readManifestApps(t, outPath)
+	if len(apps) != 3 {
+		t.Fatalf("expected 3 apps, got %d", len(apps))
+	}
+	prevID := ""
+	for i, app := range apps {
+		if _, has := app["_name"]; has {
+			t.Errorf("sanitized app should not have _name field: %v", app)
+		}
+		if v, _ := app["version"].(string); v == "" {
+			t.Errorf("expected version present under --pin --sanitize for %v", app["id"])
+		}
+		id, _ := app["id"].(string)
+		if i > 0 && prevID > id {
+			t.Errorf("apps not sorted by id: %q > %q", prevID, id)
+		}
+		prevID = id
+	}
+}
+
+// --update without --pin preserves an existing app's version AND driver through
+// the merge (previously both were silently dropped).
+func TestRunCapture_Update_NoPin_PreservesVersionAndDriver(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-update-preserve-version.jsonc")
+
+	existing := `{
+  "version": 1,
+  "name": "existing",
+  "apps": [
+    {"id": "microsoft-visualstudiocode", "version": "1.85.0", "driver": "winget", "refs": {"windows": "Microsoft.VisualStudioCode"}}
+  ]
+}`
+	existingPath := filepath.Join(tmpDir, "existing.jsonc")
+	if err := os.WriteFile(existingPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	withMockInstalledApps(t, sampleInstalledApps())
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		emptyCatalog(func() {
+			_, err := RunCapture(CaptureFlags{Out: outPath, Manifest: existingPath, Update: true})
+			if err != nil {
+				t.Fatalf("RunCapture returned unexpected error: %+v", err)
+			}
+		})
+	})
+
+	found := false
+	for _, app := range readManifestApps(t, outPath) {
+		if id, _ := app["id"].(string); id == "microsoft-visualstudiocode" {
+			found = true
+			if v, _ := app["version"].(string); v != "1.85.0" {
+				t.Errorf("expected version 1.85.0 preserved through --update, got %q", v)
+			}
+			if d, _ := app["driver"].(string); d != "winget" {
+				t.Errorf("expected driver winget preserved through --update, got %q", d)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected microsoft-visualstudiocode in merged output")
+	}
+}
+
+// --update --pin refreshes an existing pin (1.0.0) to the drifted installed
+// version (2.0.0).
+func TestRunCapture_UpdatePin_RefreshesDriftedVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-update-pin-refresh.jsonc")
+
+	existing := `{
+  "version": 1,
+  "name": "existing",
+  "apps": [
+    {"id": "microsoft-visualstudiocode", "version": "1.0.0", "refs": {"windows": "Microsoft.VisualStudioCode"}}
+  ]
+}`
+	existingPath := filepath.Join(tmpDir, "existing.jsonc")
+	if err := os.WriteFile(existingPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	installed := []snapshot.SnapshotApp{
+		{Name: "Visual Studio Code", ID: "Microsoft.VisualStudioCode", Version: "2.0.0"},
+	}
+
+	withMockInstalledApps(t, installed)
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		emptyCatalog(func() {
+			_, err := RunCapture(CaptureFlags{Out: outPath, Manifest: existingPath, Update: true, Pin: true})
+			if err != nil {
+				t.Fatalf("RunCapture returned unexpected error: %+v", err)
+			}
+		})
+	})
+
+	ver, found := manifestAppVersion(readManifestApps(t, outPath), "Microsoft.VisualStudioCode")
+	if !found {
+		t.Fatal("expected Microsoft.VisualStudioCode in merged output")
+	}
+	if ver != "2.0.0" {
+		t.Errorf("expected refreshed version 2.0.0, got %q", ver)
+	}
+}
+
+// --update --pin keeps an existing pin when the app is absent from the
+// installed snapshot (a missing version never blanks a declared pin).
+func TestRunCapture_UpdatePin_MissingVersion_RetainsPin(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-update-pin-retain.jsonc")
+
+	existing := `{
+  "version": 1,
+  "name": "existing",
+  "apps": [
+    {"id": "microsoft-visualstudiocode", "version": "1.0.0", "refs": {"windows": "Microsoft.VisualStudioCode"}}
+  ]
+}`
+	existingPath := filepath.Join(tmpDir, "existing.jsonc")
+	if err := os.WriteFile(existingPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Installed snapshot exposes a version for a DIFFERENT app only — so the
+	// pin is retained specifically because the pinned app's key missed, not
+	// because the map was empty (guards the merge's lookup key).
+	withMockInstalledApps(t, []snapshot.SnapshotApp{
+		{ID: "Google.Chrome", Name: "Google Chrome", Version: "126.0.6478.127"},
+	})
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		emptyCatalog(func() {
+			_, err := RunCapture(CaptureFlags{Out: outPath, Manifest: existingPath, Update: true, Pin: true})
+			if err != nil {
+				t.Fatalf("RunCapture returned unexpected error: %+v", err)
+			}
+		})
+	})
+
+	ver, found := manifestAppVersion(readManifestApps(t, outPath), "Microsoft.VisualStudioCode")
+	if !found {
+		t.Fatal("expected Microsoft.VisualStudioCode in merged output")
+	}
+	if ver != "1.0.0" {
+		t.Errorf("expected retained pin 1.0.0, got %q", ver)
+	}
+}
+
+// --update --pin gives a newly discovered app its installed version (new apps
+// flow through the conversion loop).
+func TestRunCapture_UpdatePin_NewApp_CarriesVersion(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "test-update-pin-new.jsonc")
+
+	// Existing manifest has only VSCode; Chrome is newly discovered.
+	existing := `{
+  "version": 1,
+  "name": "existing",
+  "apps": [
+    {"id": "microsoft-visualstudiocode", "refs": {"windows": "Microsoft.VisualStudioCode"}}
+  ]
+}`
+	existingPath := filepath.Join(tmpDir, "existing.jsonc")
+	if err := os.WriteFile(existingPath, []byte(existing), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	withMockInstalledApps(t, sampleInstalledApps())
+	withMockSnapshot(sampleExportSet(), nil, func() {
+		emptyCatalog(func() {
+			_, err := RunCapture(CaptureFlags{Out: outPath, Manifest: existingPath, Update: true, Pin: true})
+			if err != nil {
+				t.Fatalf("RunCapture returned unexpected error: %+v", err)
+			}
+		})
+	})
+
+	ver, found := manifestAppVersion(readManifestApps(t, outPath), "Google.Chrome")
+	if !found {
+		t.Fatal("expected newly discovered Google.Chrome in merged output")
+	}
+	if ver != "130.0.1" {
+		t.Errorf("expected new app version 130.0.1, got %q", ver)
 	}
 }
 
