@@ -203,6 +203,10 @@ endstate capabilities --json
         "audience": "endstate-backup",
         "rename": true,
         "ifChanged": true
+      },
+      "schedule": {
+        "supported": true,
+        "autoPush": true
       }
     },
     "platform": {

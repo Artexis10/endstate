@@ -100,6 +100,8 @@ When `success` is `false`, the `error` field contains:
 | `GENERATION_NOT_FOUND` | The `rollback --to <n>` target generation does not exist, or records no backend-native rollback anchor. Additive in schema 1.x. |
 | `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
 | `CONVERGENCE_UNSUPPORTED` | `apply --prune` was requested on a backend that cannot safely remove installed-but-undeclared packages (the winget driver, or any host with no realizer). Nothing is removed. Additive in schema 1.x. |
+| `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows). Additive in schema 1.x. |
+| `TASK_REGISTRATION_FAILED` | `schedule enable` could not register the Windows Scheduled Task via `schtasks.exe`. Additive in schema 1.x. |
 
 #### Hosted Backup error codes
 
@@ -696,6 +698,130 @@ A backend that can neither roll back natively nor uninstall refuses with `ROLLBA
 ```
 
 For the best-effort path, `removedRefs` lists the refs uninstalled (on `--dry-run`, the refs that *would* be uninstalled — an already-absent package counts as removed). `failedRefs` lists refs whose uninstall failed (for example, another installed package still depends on one); `partial` is `true` when any failed. `newGeneration` is the appended rollback-marked generation (it records `removedRefs` and carries an empty `addedRefs`; omitted on `--dry-run` and when nothing was removed). `warning` is the untracked-dependency caveat. When **every** targeted uninstall fails the command returns `ROLLBACK_FAILED`; a missing winget binary returns `WINGET_NOT_AVAILABLE`; an unknown `--to` returns `GENERATION_NOT_FOUND`. No new error codes are introduced.
+
+---
+
+## Command: `schedule`
+
+Manages the Endstate scheduled drift-check feature via Windows Task Scheduler.
+Four subcommands: `enable`, `disable`, `status`, `run`. Additive in schema 1.x.
+
+```powershell
+endstate schedule enable --manifest ./manifest.jsonc [--interval daily|weekly] [--time HH:MM] [--auto-push] [--json]
+endstate schedule disable [--json]
+endstate schedule status [--json]
+endstate schedule run [--manifest <path>] [--root <path>] [--json]
+```
+
+### Platform gating
+
+`schedule enable`, `schedule disable`, and `schedule run` are **Windows-only**. On other platforms they return error code `NOT_SUPPORTED`. `schedule status` works on all platforms (returns the persisted config and last-run).
+
+### `schedule enable` response
+
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": true,
+    "manifest": "C:\\manifests\\my-machine.jsonc",
+    "interval": "daily",
+    "time": "09:00",
+    "autoPush": false,
+    "taskName": "Endstate\\DriftCheck",
+    "root": "C:\\Users\\user\\AppData\\Local\\Endstate"
+  }
+}
+```
+
+Registration is idempotent (`schtasks /F`): re-running `enable` re-asserts the task with the current executable path and configuration. The task command line bakes `--root` so scheduled runs and GUI-spawned runs share one state directory.
+
+### `schedule disable` response
+
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": false,
+    "taskName": "Endstate\\DriftCheck"
+  }
+}
+```
+
+The task is removed (`schtasks /Delete /F`) and `state/schedule/config.json` is updated with `enabled: false` (file is retained).
+
+### `schedule status` response
+
+```json
+{
+  "success": true,
+  "data": {
+    "enabled": true,
+    "manifest": "C:\\manifests\\my-machine.jsonc",
+    "interval": "daily",
+    "time": "09:00",
+    "autoPush": false,
+    "taskName": "Endstate\\DriftCheck",
+    "lastRun": {
+      "schemaVersion": "1.0",
+      "runId": "schedule-20260710-090000",
+      "timestampUtc": "2026-07-10T09:00:00Z",
+      "verify": {
+        "summary": { "total": 10, "pass": 9, "fail": 1 },
+        "drifted": [
+          { "id": "vscode", "name": "Visual Studio Code", "status": "fail", "reason": "missing" }
+        ]
+      },
+      "autoBackup": null,
+      "error": null
+    }
+  }
+}
+```
+
+`lastRun` is `null` when the schedule has never run. Clients use `lastRun` to distinguish: never-run, last-run-succeeded-no-drift, last-run-found-drift, and last-run-failed (hard error in `lastRun.error`).
+
+### `schedule run` response
+
+`schedule run` verifies in-process, writes `state/schedule/last-run.json` atomically, and **exits 0 on drift** (drift is data, not error). When `--json` is passed for manual/debug invocation, the last-run document is returned as the envelope `data`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "runId": "schedule-20260710-090000",
+    "timestampUtc": "2026-07-10T09:00:00Z",
+    "verify": {
+      "summary": { "total": 10, "pass": 9, "fail": 1 },
+      "drifted": [
+        { "id": "vscode", "name": "Visual Studio Code", "status": "fail", "reason": "missing" }
+      ]
+    },
+    "autoBackup": null,
+    "error": null
+  }
+}
+```
+
+No NDJSON events are emitted by `schedule run` (headless; event contract v1 is untouched).
+
+### Stable error codes
+
+| Code | Trigger |
+|------|---------|
+| `NOT_SUPPORTED` | `schedule enable/disable/run` on non-Windows |
+| `TASK_REGISTRATION_FAILED` | `schtasks.exe` failed; config is not marked enabled |
+| `SCHEDULE_DISABLED` | `schedule run` was invoked but no schedule is enabled; run `schedule enable` first |
+| `MANIFEST_NOT_FOUND` | `--manifest` missing or path does not exist |
+
+### State files
+
+Both files are written atomically (temp+rename):
+
+- `state/schedule/config.json` — `{schemaVersion, enabled, manifest, interval, time, autoPush, taskName, root, registeredAt}`
+- `state/schedule/last-run.json` — `{schemaVersion, runId, timestampUtc, verify, autoBackup, error}`
+
+---
 
 ## Versioning Rules
 

@@ -47,6 +47,17 @@ type FeaturesInfo struct {
 	JSONOutput      bool                `json:"jsonOutput"`
 	ManualApps      bool                `json:"manualApps"`
 	HostedBackup    HostedBackupFeature `json:"hostedBackup"`
+	Schedule        ScheduleFeature     `json:"schedule"`
+}
+
+// ScheduleFeature advertises the scheduled drift-check capability. The GUI gates
+// its "Continuous protection" card on this block. Additive in schema 1.x.
+type ScheduleFeature struct {
+	// Supported is true only on Windows where schtasks.exe is available.
+	Supported bool `json:"supported"`
+	// AutoPush indicates that schedule run supports --auto-push via the
+	// persisted keychain session.
+	AutoPush bool `json:"autoPush"`
 }
 
 // HostedBackupFeature is the GUI-facing capability advertisement for the
@@ -146,6 +157,10 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				Supported: true,
 				Flags:     []string{"--confirm", "--json"},
 			},
+			"schedule": {
+				Supported: true,
+				Flags:     []string{"--manifest", "--interval", "--time", "--auto-push", "--root", "--json"},
+			},
 		},
 		Features: FeaturesInfo{
 			Streaming:       false,
@@ -160,6 +175,10 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				Audience:         backup.Audience(),
 				Rename:           true,
 				IfChanged:        true,
+			},
+			Schedule: ScheduleFeature{
+				Supported: runtime.GOOS == "windows",
+				AutoPush:  true,
 			},
 		},
 		Platform:           platformInfoFor(runtime.GOOS),

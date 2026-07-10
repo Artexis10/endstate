@@ -38,6 +38,15 @@ const (
 	// installed-but-undeclared packages.
 	ErrConvergenceUnsupported ErrorCode = "CONVERGENCE_UNSUPPORTED"
 
+	// Schedule error codes. Additive in schema 1.x.
+	// ErrNotSupported is returned by schedule enable/disable/run on non-Windows platforms.
+	ErrNotSupported ErrorCode = "NOT_SUPPORTED"
+	// ErrTaskRegistrationFailed is returned when schtasks.exe fails to register the task.
+	ErrTaskRegistrationFailed ErrorCode = "TASK_REGISTRATION_FAILED"
+	// ErrScheduleDisabled is returned when schedule run is invoked but no schedule is
+	// enabled; the caller should run 'schedule enable --manifest <path>' first.
+	ErrScheduleDisabled ErrorCode = "SCHEDULE_DISABLED"
+
 	// Hosted-backup error codes. Mapped from substrate backend HTTP responses
 	// per docs/contracts/hosted-backup-contract.md and cli-json-contract.md.
 	ErrAuthRequired         ErrorCode = "AUTH_REQUIRED"
