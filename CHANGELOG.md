@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.22.0](https://github.com/Artexis10/endstate/compare/v2.21.0...v2.22.0) (2026-07-10)
+
+
+### Features
+
+* **apply:** --only flag for app-subset installs ([#140](https://github.com/Artexis10/endstate/issues/140)) ([4f04400](https://github.com/Artexis10/endstate/commit/4f04400c35ef3053787886a602cfead5117270d6))
+* **capabilities:** advertise hostedBackup.ifChanged capability gate ([#138](https://github.com/Artexis10/endstate/issues/138)) ([ffea93d](https://github.com/Artexis10/endstate/commit/ffea93dbf343f33e51aa5d7a6b730c03beaf1cb3))
+* **capture:** --pin flag writes installed versions into the manifest ([#145](https://github.com/Artexis10/endstate/issues/145)) ([947b733](https://github.com/Artexis10/endstate/commit/947b7337239858ebd02b558efed82ffab3bc2d49))
+* **manifests:** six curated starter-pack profiles + README Setups section ([#137](https://github.com/Artexis10/endstate/issues/137)) ([fb990a3](https://github.com/Artexis10/endstate/commit/fb990a3c58d087d92848ddb667aa2e8f66bcc280))
+* **rebuild:** one-command fresh-machine flow from a capture bundle or manifest ([#146](https://github.com/Artexis10/endstate/issues/146)) ([9769869](https://github.com/Artexis10/endstate/commit/97698696629e1422be1656d619637d31417725c9))
+* **schedule:** scheduled drift check — endstate schedule enable|disable|status|run ([#139](https://github.com/Artexis10/endstate/issues/139)) ([e86505b](https://github.com/Artexis10/endstate/commit/e86505b576f8bec29baa9eafd6d68b94121eff9c))
+
+
+### Bug Fixes
+
+* **capabilities:** advertise brew alongside nix in darwin drivers list ([#144](https://github.com/Artexis10/endstate/issues/144)) ([18c1330](https://github.com/Artexis10/endstate/commit/18c13302ed8229b6b10c12e58a891c9fcf4098d1))
+
 ## [2.21.0](https://github.com/Artexis10/endstate/compare/v2.20.0...v2.21.0) (2026-06-27)
 
 
