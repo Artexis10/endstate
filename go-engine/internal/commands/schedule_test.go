@@ -302,8 +302,12 @@ func TestRunScheduleEnable_Idempotent(t *testing.T) {
 }
 
 // TestRunScheduleRun_DisabledReturnsError verifies that schedule run on a
-// disabled schedule returns a stable error and records it in last-run.json.
+// disabled schedule returns SCHEDULE_DISABLED and records it in last-run.json.
 func TestRunScheduleRun_DisabledReturnsError(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("schedule run disabled-config path only reachable on Windows (non-Windows returns NOT_SUPPORTED first)")
+	}
+
 	dir := t.TempDir()
 	withStateRoot(t, dir)
 
@@ -316,8 +320,8 @@ func TestRunScheduleRun_DisabledReturnsError(t *testing.T) {
 	if envErr == nil {
 		t.Fatal("expected error for disabled schedule, got nil")
 	}
-	if envErr.Code != envelope.ErrNotSupported {
-		t.Errorf("error code = %q, want NOT_SUPPORTED", envErr.Code)
+	if envErr.Code != envelope.ErrScheduleDisabled {
+		t.Errorf("error code = %q, want SCHEDULE_DISABLED", envErr.Code)
 	}
 
 	// last-run.json must record the error.
@@ -330,6 +334,25 @@ func TestRunScheduleRun_DisabledReturnsError(t *testing.T) {
 	}
 	if lr.Error == nil || lr.Error.Code == "" {
 		t.Error("last-run.json has no error block")
+	}
+	if lr.Error != nil && lr.Error.Code != string(envelope.ErrScheduleDisabled) {
+		t.Errorf("last-run.json error code = %q, want SCHEDULE_DISABLED", lr.Error.Code)
+	}
+}
+
+// TestRunScheduleRun_NonWindows verifies that schedule run on a non-Windows
+// platform returns NOT_SUPPORTED before attempting any state access.
+func TestRunScheduleRun_NonWindows(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("NOT_SUPPORTED path only applies to non-Windows")
+	}
+
+	_, envErr := RunSchedule(ScheduleFlags{Subcommand: "run"})
+	if envErr == nil {
+		t.Fatal("expected error on non-Windows, got nil")
+	}
+	if envErr.Code != envelope.ErrNotSupported {
+		t.Errorf("error code = %q, want NOT_SUPPORTED", envErr.Code)
 	}
 }
 

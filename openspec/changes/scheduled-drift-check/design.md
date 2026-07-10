@@ -31,7 +31,7 @@ Both under `state.StateDir()` (pattern: `go-engine/internal/state/state.go`), wr
 
 ## `schedule run` semantics
 
-1. Load config (missing/disabled → stable error envelope, recorded to `last-run.json` where possible).
+1. Load config (missing → `INTERNAL_ERROR`; disabled → `SCHEDULE_DISABLED`, recorded to `last-run.json` where possible).
 2. Verify **in-process** (call into the same code path as `RunVerify`, `go-engine/internal/commands/verify.go`) against `config.manifest`. Drift is data: the process exits 0 and records the drifted set.
 3. If `config.autoPush`: capture in-process, then push with `IfChanged: true` (reuses `go-engine/internal/backup/upload` and the keychain session from `go-engine/internal/backup/auth/session.go`). Auth-required / subscription-lapsed outcomes are recorded in `last-run.json` — never interactive, never a prompt.
 4. Write `last-run.json` atomically. Hard errors (manifest missing, task misconfigured) are recorded with a stable `error.code` so clients can render "check failing" distinct from "no drift".
@@ -46,7 +46,8 @@ No NDJSON: a scheduled run has no attached consumer; the event contract (`docs/c
 
 ## Platform gating
 
-- `features.schedule.supported` is `true` only on Windows (`GOOS == windows`); `schedule enable|run` on other platforms return the stable `NOT_SUPPORTED` error envelope. Linux/macOS (cron/launchd) is deliberately out of scope for v1.
+- `features.schedule.supported` is `true` only on Windows (`GOOS == windows`); `schedule enable|disable|run` on other platforms return the stable `NOT_SUPPORTED` error envelope. Linux/macOS (cron/launchd) is deliberately out of scope for v1.
+- `schedule run` on a disabled-but-configured schedule (Windows only, after the platform gate) returns `SCHEDULE_DISABLED` — a distinct code so clients can display an actionable message rather than a generic platform error.
 
 ## Cut line
 

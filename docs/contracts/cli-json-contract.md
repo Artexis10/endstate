@@ -710,7 +710,7 @@ Four subcommands: `enable`, `disable`, `status`, `run`. Additive in schema 1.x.
 endstate schedule enable --manifest ./manifest.jsonc [--interval daily|weekly] [--time HH:MM] [--auto-push] [--json]
 endstate schedule disable [--json]
 endstate schedule status [--json]
-endstate schedule run [--root <path>] [--json]
+endstate schedule run [--manifest <path>] [--root <path>] [--json]
 ```
 
 ### Platform gating
@@ -811,6 +811,7 @@ No NDJSON events are emitted by `schedule run` (headless; event contract v1 is u
 |------|---------|
 | `NOT_SUPPORTED` | `schedule enable/disable/run` on non-Windows |
 | `TASK_REGISTRATION_FAILED` | `schtasks.exe` failed; config is not marked enabled |
+| `SCHEDULE_DISABLED` | `schedule run` was invoked but no schedule is enabled; run `schedule enable` first |
 | `MANIFEST_NOT_FOUND` | `--manifest` missing or path does not exist |
 
 ### State files

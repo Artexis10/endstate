@@ -43,6 +43,9 @@ const (
 	ErrNotSupported ErrorCode = "NOT_SUPPORTED"
 	// ErrTaskRegistrationFailed is returned when schtasks.exe fails to register the task.
 	ErrTaskRegistrationFailed ErrorCode = "TASK_REGISTRATION_FAILED"
+	// ErrScheduleDisabled is returned when schedule run is invoked but no schedule is
+	// enabled; the caller should run 'schedule enable --manifest <path>' first.
+	ErrScheduleDisabled ErrorCode = "SCHEDULE_DISABLED"
 
 	// Hosted-backup error codes. Mapped from substrate backend HTTP responses
 	// per docs/contracts/hosted-backup-contract.md and cli-json-contract.md.

@@ -287,6 +287,13 @@ func runScheduleStatus(flags ScheduleFlags) (interface{}, *envelope.Error) {
 // write last-run.json. Drift is data (exit 0). Hard errors are recorded in
 // last-run.json with stable codes. No NDJSON events are emitted.
 func runScheduleRun(flags ScheduleFlags) (interface{}, *envelope.Error) {
+	if runtime.GOOS != "windows" {
+		return nil, envelope.NewError(
+			envelope.ErrNotSupported,
+			"schedule run is only supported on Windows.",
+		).WithRemediation("Use cron or launchd on Linux/macOS.")
+	}
+
 	stateDir := scheduleStateDir(flags.Root)
 
 	runID := "schedule-" + time.Now().UTC().Format("20060102-150405")
@@ -311,11 +318,11 @@ func runScheduleRun(flags ScheduleFlags) (interface{}, *envelope.Error) {
 
 	if !cfg.Enabled {
 		lr.Error = &schedule.LastRunError{
-			Code:    string(envelope.ErrNotSupported),
-			Message: "Schedule is not enabled; run 'schedule enable' first.",
+			Code:    string(envelope.ErrScheduleDisabled),
+			Message: "Schedule is not enabled; run 'schedule enable --manifest <path>' first.",
 		}
 		_ = schedule.WriteLastRun(schedule.LastRunPath(stateDir), lr)
-		return nil, envelope.NewError(envelope.ErrNotSupported, lr.Error.Message)
+		return nil, envelope.NewError(envelope.ErrScheduleDisabled, lr.Error.Message)
 	}
 
 	// Use manifest from flags if provided; otherwise use configured manifest.

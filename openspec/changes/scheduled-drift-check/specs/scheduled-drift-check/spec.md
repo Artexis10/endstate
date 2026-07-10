@@ -59,13 +59,18 @@ Because scheduler-executed actions cannot set environment variables, `schedule e
 
 ### Requirement: Scheduling support is advertised as a capability
 
-The capabilities envelope SHALL advertise scheduling additively: `features.schedule.supported` SHALL be `true` on Windows and `false` elsewhere, `features.schedule.autoPush` SHALL indicate auto-push support, and `commands.schedule` SHALL list the supported flags. On platforms where scheduling is unsupported, `schedule enable` SHALL fail with the stable error code `NOT_SUPPORTED`.
+The capabilities envelope SHALL advertise scheduling additively: `features.schedule.supported` SHALL be `true` on Windows and `false` elsewhere, `features.schedule.autoPush` SHALL indicate auto-push support, and `commands.schedule` SHALL list the supported flags. On platforms where scheduling is unsupported, `schedule enable`, `schedule disable`, and `schedule run` SHALL fail with the stable error code `NOT_SUPPORTED`. When `schedule run` is invoked on a Windows host where no schedule has been enabled, it SHALL fail with the stable error code `SCHEDULE_DISABLED` (distinct from the platform gate, so clients can render an actionable message).
 
 #### Scenario: Windows advertises scheduling
 - **WHEN** a client invokes `capabilities --json` on Windows
 - **THEN** `features.schedule.supported` is `true` and `commands.schedule.flags` includes `--manifest`, `--interval`, `--time`, `--auto-push`, `--root`, `--json`
 
 #### Scenario: Unsupported platform stays dark and fails stably
-- **WHEN** `schedule enable` is invoked on a non-Windows platform
+- **WHEN** `schedule enable`, `schedule disable`, or `schedule run` is invoked on a non-Windows platform
 - **THEN** it fails with error code `NOT_SUPPORTED`
 - **AND** `capabilities --json` reports `features.schedule.supported: false`
+
+#### Scenario: schedule run on disabled schedule returns SCHEDULE_DISABLED
+- **WHEN** `schedule run` is invoked on Windows but no schedule has been enabled (`config.enabled: false`)
+- **THEN** it fails with error code `SCHEDULE_DISABLED`
+- **AND** `last-run.json` records the error with code `SCHEDULE_DISABLED`
