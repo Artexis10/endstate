@@ -282,6 +282,7 @@ Executes provisioning plan.
 ```powershell
 endstate apply --manifest ./manifest.jsonc --json
 endstate apply --manifest ./manifest.jsonc --dry-run --json
+endstate apply --manifest ./manifest.jsonc --only git,vscode --json
 ```
 
 ### Response
@@ -333,6 +334,17 @@ endstate apply --manifest ./manifest.jsonc --dry-run --json
 ```
 
 **Note:** `eventsFile` is only included when `--events jsonl` is enabled. The engine persists events to `logs/<runId>.events.jsonl` in addition to streaming to stderr.
+
+### App-Subset Selection (`--only`)
+
+`apply --only <id[,id,...]>` limits the run to manifest apps whose `id` is in the comma-separated list. Filtering happens at the manifest level before planning, so every downstream stage (plan generation, driver execution, config-module expansion, restore scoping, verification, event emission, and summary counts) behaves as if the manifest contained only the selected apps. Omitting `--only` leaves behaviour unchanged.
+
+| Flag | Behavior |
+|------|----------|
+| `--only <ids>` | Comma-separated list of manifest app `id` values to include. Ids not found in the manifest fail the run with `MANIFEST_VALIDATION_ERROR` naming the unknown ids. An empty or blank value is likewise rejected. |
+| `--dry-run` | Can be combined with `--only` to preview the subset plan without executing. This is the GUI's per-app selection preview path. |
+
+`--only` cannot be combined with `--prune` — prune converges to the exact manifest set, and pruning against a deliberate subset would classify every unselected app as drift. The combination is rejected with `MANIFEST_VALIDATION_ERROR`.
 
 ### Convergence (`--prune`)
 

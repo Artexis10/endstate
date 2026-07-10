@@ -80,6 +80,102 @@ type ApplyFlags struct {
 	// absent backend's lane rather than install it. Takes precedence over
 	// BootstrapBackends.
 	NoBootstrap bool
+	// Only limits the run to the comma-separated list of manifest app IDs. When
+	// non-empty, filtering happens before planning so every downstream stage
+	// (plan, drivers, config-module expansion, restore scoping, verify, events,
+	// summary counts) sees only the selected apps. Incompatible with --prune.
+	Only string
+}
+
+// parseOnlyIDs normalises the --only value into a deduplicated set of app IDs.
+// Blank entries (e.g. leading/trailing commas) are dropped. Returns nil when
+// the flag is empty (feature disabled, unchanged behaviour).
+func parseOnlyIDs(only string) []string {
+	if only == "" {
+		return nil
+	}
+	parts := strings.Split(only, ",")
+	seen := make(map[string]bool, len(parts))
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" && !seen[p] {
+			seen[p] = true
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// filterAppsByOnly returns the subset of apps whose ID is in the allowSet, and
+// a slice of IDs from allowSet that matched nothing (unknown IDs).
+func filterAppsByOnly(apps []manifest.App, allowSet []string) (filtered []manifest.App, unknown []string) {
+	allow := make(map[string]bool, len(allowSet))
+	for _, id := range allowSet {
+		allow[id] = true
+	}
+	matched := make(map[string]bool, len(allowSet))
+	for _, app := range apps {
+		if allow[app.ID] {
+			filtered = append(filtered, app)
+			matched[app.ID] = true
+		}
+	}
+	for _, id := range allowSet {
+		if !matched[id] {
+			unknown = append(unknown, id)
+		}
+	}
+	return filtered, unknown
+}
+
+// validateOnly checks the --only flag value against the manifest apps and
+// returns a validation error if any IDs are unknown, the selection is empty,
+// or --only is combined with --prune. Returns (nil, nil) when --only was not
+// provided (empty string), indicating the feature is disabled.
+func validateOnly(flags ApplyFlags, mf *manifest.Manifest) ([]string, *envelope.Error) {
+	// Feature disabled: --only not provided.
+	if flags.Only == "" {
+		return nil, nil
+	}
+
+	// Guard: --only + --prune is invalid. Prune converges to the EXACT manifest
+	// set; pruning against a deliberate subset would classify every unselected app
+	// as drift. Check before parsing so the error surfaces even for blank --only.
+	if flags.Prune {
+		return nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only and --prune cannot be combined: --prune converges to the exact manifest set, which conflicts with a deliberate subset selection").
+			WithRemediation("Remove --prune when using --only, or omit --only to converge the full manifest.")
+	}
+
+	ids := parseOnlyIDs(flags.Only)
+
+	// Empty selection after normalisation (e.g. --only "  ,  ").
+	if len(ids) == 0 {
+		return nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only requires at least one app id; the provided value is empty after normalisation").
+			WithRemediation("Provide one or more comma-separated app ids, e.g. --only git,vscode.")
+	}
+
+	filtered, unknown := filterAppsByOnly(mf.Apps, ids)
+
+	if len(unknown) > 0 {
+		return nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			fmt.Sprintf("--only references app ids not found in the manifest: %s", strings.Join(unknown, ", "))).
+			WithRemediation("Check spelling and ensure the ids match the 'id' field of apps declared in the manifest.")
+	}
+
+	if len(filtered) == 0 {
+		return nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only produced an empty app selection; no apps would be processed").
+			WithRemediation("Provide ids that match at least one app declared in the manifest.")
+	}
+
+	return ids, nil
 }
 
 // RestoreModuleRef identifies a config module available for restore, including
@@ -181,6 +277,21 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	mf, envelopeErr := loadManifest(flags.Manifest)
 	if envelopeErr != nil {
 		return nil, envelopeErr
+	}
+
+	// --only: validate and filter the manifest app set BEFORE any planning.
+	// This is a pre-execution guard: unknown ids, empty selection, or the
+	// incompatible --only+--prune combination all fail here with no side effects.
+	onlyIDs, onlyErr := validateOnly(flags, mf)
+	if onlyErr != nil {
+		return nil, onlyErr
+	}
+	if onlyIDs != nil {
+		// filterAppsByOnly already validated; unknown is guaranteed empty here.
+		filtered, _ := filterAppsByOnly(mf.Apps, onlyIDs)
+		mfCopy := *mf
+		mfCopy.Apps = filtered
+		mf = &mfCopy
 	}
 
 	// Resolve module catalog for configModuleMap (non-fatal if unavailable).
