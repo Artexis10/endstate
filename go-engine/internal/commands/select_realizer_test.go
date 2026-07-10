@@ -113,11 +113,14 @@ func TestDriversFor_Linux(t *testing.T) {
 
 func TestDriversFor_Darwin(t *testing.T) {
 	got := driversFor("darwin")
-	if len(got) != 1 {
-		t.Fatalf("driversFor(darwin) = %v, want [nix]", got)
+	if len(got) != 2 {
+		t.Fatalf("driversFor(darwin) = %v, want [nix brew]", got)
 	}
 	if got[0] != "nix" {
 		t.Errorf("driversFor(darwin)[0] = %q, want nix", got[0])
+	}
+	if got[1] != "brew" {
+		t.Errorf("driversFor(darwin)[1] = %q, want brew", got[1])
 	}
 }
 
