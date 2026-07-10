@@ -197,15 +197,22 @@ func platformInfoFor(goos string) PlatformInfo {
 	return PlatformInfo{OS: goos, Drivers: driversFor(goos)}
 }
 
-// driversFor returns the package-manager drivers available on the given OS. It
-// derives the list from selectBackend so it stays in sync with backend
-// selection (winget on Windows; empty until a platform backend is added).
+// driversFor returns the package-manager drivers available on the given OS,
+// accumulated across every backend selector so the advertised list matches what
+// the engine can actually drive on the host: winget on Windows; the Nix realizer
+// on Linux/macOS; plus the Homebrew driver as an additive explicit lane on macOS
+// (so darwin advertises both "nix" and "brew"). Stays in sync with
+// selectBackend/selectRealizer/selectBrewDriver.
 func driversFor(goos string) []string {
+	drivers := []string{}
 	if d, err := selectBackend(goos); err == nil && d != nil {
-		return []string{d.Name()}
+		drivers = append(drivers, d.Name())
 	}
 	if r, err := selectRealizer(goos); err == nil && r != nil {
-		return []string{r.Name()}
+		drivers = append(drivers, r.Name())
 	}
-	return []string{}
+	if d, err := selectBrewDriver(goos); err == nil && d != nil {
+		drivers = append(drivers, d.Name())
+	}
+	return drivers
 }
