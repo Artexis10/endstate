@@ -27,6 +27,7 @@ Commands:
   capabilities    Report CLI capabilities (GUI handshake)
   apply           Execute provisioning plan
   rebuild         Rebuild a machine from a bundle or manifest (install + restore + verify)
+  import          Import an external package list into a manifest (--from unigetui)
   verify          Verify machine state against manifest
   capture         Capture current machine state
   plan            Generate execution plan
@@ -71,6 +72,8 @@ Per-command flags:
   --restore-filter <e> Filter restore entries by module ID (restore, apply, rebuild)
   --restore-target <m> Map capture ID to target instance; repeatable (restore, apply, rebuild)
   --from <path>        Bundle (.zip) or manifest (.jsonc) to rebuild from (rebuild)
+  --from <source>      External package-list source to import (import; e.g. unigetui)
+  --path <file>        Source bundle file to import (import)
   --no-restore         Install without restoring configuration (rebuild)
   --latest             Most recent run (report)
   --last <n>           Last N runs (report)
@@ -122,8 +125,11 @@ type parsedArgs struct {
 	restoreTargets []string // repeatable --restore-target <captureId>=<targetInstanceId>
 
 	// Rebuild flags
-	from      string // rebuild --from <bundle.zip|manifest.jsonc>
+	from      string // rebuild --from <bundle.zip|manifest.jsonc>; import --from <source>
 	noRestore bool   // rebuild --no-restore: install without restoring configuration
+
+	// Import flags
+	path string // import --path <bundle.ubundle>: source file to import
 
 	// Capture flags
 	out                string
@@ -331,6 +337,11 @@ func parseArgs(args []string) parsedArgs {
 				p.from = args[i+1]
 				i++
 			}
+		case "--path":
+			if i+1 < len(args) {
+				p.path = args[i+1]
+				i++
+			}
 		case "--email":
 			if i+1 < len(args) {
 				p.email = args[i+1]
@@ -394,6 +405,8 @@ func commandUsage(cmd string) string {
 		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--only <id[,id...]>] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. With --only, limit the run to the comma-separated list of manifest app ids (filtering happens before planning so only the selected apps are installed, restored, and verified). With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (supported versioned drivers). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. --only and --prune cannot be combined. When a selected optional package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
 	case "rebuild":
 		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--dry-run] [--confirm] [--no-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. Backend-bootstrap flags are propagated to apply. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
+	case "import":
+		return "Usage: endstate import --from unigetui --path <file> [--out <path>] [--pin] [--json]\n\nImport an external package list into an Endstate manifest. The only supported source is 'unigetui' (a UniGetUI .ubundle backup/bundle, JSON). Winget-source packages become manifest apps; every non-winget package (chocolatey, scoop, pip, ...) and every incompatible entry is reported, never silently dropped. With --pin, the app version is recorded (a package's InstallationOptions.Version pin wins over the observed version). Output defaults to manifests/local/imported-unigetui.jsonc (gitignored). This is a pure transform: no installs, no network. Scope: the package list only — UniGetUI's own settings are not imported; Endstate's module catalog restores app config on plan/apply.\n"
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
@@ -543,6 +556,14 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			RestoreTargets:    append([]string(nil), p.restoreTargets...),
 			BootstrapBackends: p.bootstrapBackends,
 			NoBootstrap:       p.noBootstrap,
+		})
+
+	case "import":
+		return commands.RunImport(commands.ImportFlags{
+			From: p.from,
+			Path: p.path,
+			Out:  p.out,
+			Pin:  p.pin,
 		})
 
 	case "verify":

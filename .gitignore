@@ -137,3 +137,6 @@ scripts/audit-modules-prompt.md
 # Go engine build artifacts
 go-engine/endstate.exe
 
+
+# OMC operational state (runtime artifacts, never committed)
+.omc/

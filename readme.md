@@ -171,6 +171,22 @@ Overwritten files are backed up first and can be undone with `endstate revert`. 
 
 When multiple installed app versions are valid configuration targets, `apply`, `restore`, and `rebuild` accept repeatable `--restore-target <captureId>=<targetInstanceId>` mappings. `--restore-filter` still selects modules first; Endstate never silently chooses the newest side-by-side version.
 
+### Import from UniGetUI
+
+Already tracking your apps in [UniGetUI](https://github.com/marticliment/UniGetUI)? Export a bundle (or grab a local backup `.ubundle`) and turn it into an Endstate manifest:
+
+```bash
+# Convert a UniGetUI backup into a manifest (pure transform: no installs, no network)
+endstate import --from unigetui --path "MY-PC installed packages.ubundle"
+
+# Record versions too (a package's pinned version wins over the observed one)
+endstate import --from unigetui --path backup.ubundle --pin
+```
+
+The default output is `manifests/local/imported-unigetui.jsonc` (gitignored); outside a repo checkout it lands next to the input bundle instead. Use `--out` to choose another path. From there, `endstate plan`/`apply` installs the apps and Endstate's module catalog lights up config restore for the apps it recognises.
+
+**Scope — the honest version:** import moves the **package list only**. UniGetUI's own settings are *not* imported (UniGetUI's backup doesn't include them either). Winget-source packages become manifest apps; everything else is reported, never silently dropped — non-winget managers (chocolatey, scoop, pip, ...) and UniGetUI's own incompatible entries are listed with a reason. Config restore comes from Endstate's module catalog after import, not from the bundle.
+
 ### CLI Commands
 
 | Command | Description |
@@ -180,6 +196,7 @@ When multiple installed app versions are valid configuration targets, `apply`, `
 | `plan` | Generate execution plan from manifest without applying |
 | `apply` | Execute the plan (with optional `-DryRun`) |
 | `rebuild` | Rebuild a machine from a bundle/manifest in one step (install + restore + verify; live run needs `--confirm`) |
+| `import` | Import an external package list into a manifest (`--from unigetui`; winget packages in, non-winget reported) |
 | `restore` | Restore configuration files from manifest (requires `-EnableRestore`) |
 | `export-config` | Export config files from system to export folder (inverse of restore) |
 | `validate-export` | Validate export integrity before restore |
