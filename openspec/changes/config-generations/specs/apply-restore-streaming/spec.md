@@ -35,4 +35,3 @@ Legacy config restore SHALL emit a config-resolution event with resolution `lega
 #### Scenario: Legacy restore warning precedes action
 - **WHEN** restore executes a legacy config payload with consent
 - **THEN** the stream reports `legacy_unverified` before any corresponding target mutation
-
