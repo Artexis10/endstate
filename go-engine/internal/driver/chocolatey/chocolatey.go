@@ -162,6 +162,10 @@ func (c *ChocolateyDriver) install(action, ref, version string, allowDowngrade b
 	if err != nil {
 		return nil, err
 	}
+	return classifyInstallResult(result, version), nil
+}
+
+func classifyInstallResult(result commandResult, version string) *driver.InstallResult {
 	if successfulExit(result.exitCode) {
 		message := "Installed successfully"
 		if version != "" {
@@ -171,7 +175,7 @@ func (c *ChocolateyDriver) install(action, ref, version string, allowDowngrade b
 			Status:         driver.StatusInstalled,
 			Message:        message,
 			RebootRequired: rebootExit(result.exitCode),
-		}, nil
+		}
 	}
 
 	message := fmt.Sprintf("chocolatey exited with code %d", result.exitCode)
@@ -182,5 +186,5 @@ func (c *ChocolateyDriver) install(action, ref, version string, allowDowngrade b
 		Status:  driver.StatusFailed,
 		Reason:  driver.ReasonInstallFailed,
 		Message: message,
-	}, nil
+	}
 }

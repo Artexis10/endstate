@@ -24,17 +24,21 @@ func (c *ChocolateyDriver) Uninstall(ref string) (*driver.UninstallResult, error
 	if err != nil {
 		return nil, err
 	}
+	return classifyUninstallResult(result), nil
+}
+
+func classifyUninstallResult(result commandResult) *driver.UninstallResult {
 	if result.exitCode == exitSoftwareNotInstalled {
-		return &driver.UninstallResult{Status: driver.StatusAbsent, Message: "Package was not installed"}, nil
+		return &driver.UninstallResult{Status: driver.StatusAbsent, Message: "Package was not installed"}
 	}
 	if successfulExit(result.exitCode) || result.exitCode == exitProductUninstalled {
-		return &driver.UninstallResult{Status: driver.StatusUninstalled, Message: "Uninstalled successfully"}, nil
+		return &driver.UninstallResult{Status: driver.StatusUninstalled, Message: "Uninstalled successfully"}
 	}
 	if absentPattern.MatchString(result.stdout + result.stderr) {
-		return &driver.UninstallResult{Status: driver.StatusAbsent, Message: "Package was not installed"}, nil
+		return &driver.UninstallResult{Status: driver.StatusAbsent, Message: "Package was not installed"}
 	}
 	return &driver.UninstallResult{
 		Status:  driver.StatusFailed,
 		Message: fmt.Sprintf("chocolatey exited with code %d", result.exitCode),
-	}, nil
+	}
 }

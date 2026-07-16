@@ -51,14 +51,7 @@ func TestReinstallVersionUsesDowngradeCapableUpgrade(t *testing.T) {
 func TestInstallRebootExitIsSuccessfulFact(t *testing.T) {
 	for _, exitCode := range []int{1641, 3010} {
 		t.Run(strconv.Itoa(exitCode), func(t *testing.T) {
-			d := &ChocolateyDriver{ExecCommand: scriptedCommand(map[string]scriptedResponse{
-				"install git --yes --no-progress --limit-output --version 2.46.0": {exitCode: exitCode},
-			}, nil)}
-
-			result, err := d.InstallVersion("git", "2.46.0")
-			if err != nil {
-				t.Fatalf("InstallVersion returned error: %v", err)
-			}
+			result := classifyInstallResult(commandResult{exitCode: exitCode}, "2.46.0")
 			if result.Status != driver.StatusInstalled || !result.RebootRequired {
 				t.Fatalf("exit %d result = %+v, want successful reboot fact", exitCode, result)
 			}

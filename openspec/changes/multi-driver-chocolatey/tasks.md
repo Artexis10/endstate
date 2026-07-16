@@ -47,3 +47,5 @@
 - [x] 7.2 Run focused package/command tests after each TDD slice, then `go test ./...`, `go vet ./...`, Windows build, and strict OpenSpec validation (the full suite's pre-existing registry integration tests remain blocked by sandbox registry-write denial; all feature packages pass)
 - [x] 7.3 Perform an independent review/verifier pass against the approved spec and resolve all critical/important findings
 - [x] 7.4 Record maintainer-side Windows smoke steps for mixed capture/rebuild, bootstrap absent/present paths, pin/repin, rollback, and source/credential non-mutation
+- [x] 7.5 Make legacy Winget capture tests isolate the Winget lane so host-installed Chocolatey/Brew packages cannot leak into fixtures across the CI matrix
+- [ ] 7.6 Test documented Chocolatey Windows exit classifications without relying on Unix-truncated subprocess exit codes, then rerun the cross-platform Go CI gate

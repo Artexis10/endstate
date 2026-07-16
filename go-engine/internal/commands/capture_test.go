@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
@@ -32,13 +33,64 @@ func withMockSnapshot(apps []snapshot.SnapshotApp, err error, f func()) {
 	takeSnapshotFn = func() ([]snapshot.SnapshotApp, error) {
 		return apps, err
 	}
+	defer func() { takeSnapshotFn = orig }()
+	withLegacyWingetCaptureEnvironment(f)
+}
+
+func withLegacyWingetCaptureEnvironment(f func()) {
 	origRealizer := newRealizerFn
+	origResolve := resolveCaptureEnumeratorFn
+	origGOOS := captureGOOSFn
 	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	resolveCaptureEnumeratorFn = func(name string, structuredEvents bool) (driver.InstalledEnumerator, error) {
+		if strings.EqualFold(name, "winget") {
+			return legacyWingetCaptureEnumerator{structuredEvents: structuredEvents}, nil
+		}
+		return fakeInstalledEnumerator{}, nil
+	}
+	captureGOOSFn = func() string { return "windows" }
 	defer func() {
-		takeSnapshotFn = orig
 		newRealizerFn = origRealizer
+		resolveCaptureEnumeratorFn = origResolve
+		captureGOOSFn = origGOOS
 	}()
 	f()
+}
+
+func TestWithMockSnapshotIsolatesNonWingetCaptureDrivers(t *testing.T) {
+	origResolve := resolveCaptureEnumeratorFn
+	origGOOS := captureGOOSFn
+	nonWingetResolved := false
+	resolveCaptureEnumeratorFn = func(name string, structuredEvents bool) (driver.InstalledEnumerator, error) {
+		if strings.EqualFold(name, "winget") {
+			return legacyWingetCaptureEnumerator{structuredEvents: structuredEvents}, nil
+		}
+		nonWingetResolved = true
+		return fakeInstalledEnumerator{packages: []driver.InstalledPackage{{Ref: "host-package"}}}, nil
+	}
+	captureGOOSFn = func() string { return "windows" }
+	defer func() {
+		resolveCaptureEnumeratorFn = origResolve
+		captureGOOSFn = origGOOS
+	}()
+
+	out := filepath.Join(t.TempDir(), "captured.jsonc")
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				raw, eerr := RunCapture(CaptureFlags{Out: out})
+				if eerr != nil {
+					t.Fatalf("RunCapture returned envelope error: %+v", eerr)
+				}
+				if got := raw.(*CaptureResult).Counts.Included; got != len(sampleApps()) {
+					t.Fatalf("included = %d, want isolated Winget count %d", got, len(sampleApps()))
+				}
+			})
+		})
+	})
+	if nonWingetResolved {
+		t.Fatal("legacy Winget capture helper resolved a non-Winget driver")
+	}
 }
 
 // withMockDisplayNames replaces the installed-apps seam (listInstalledFn) with
@@ -197,15 +249,8 @@ func withMockSnapshotSequence(calls []snapshotCall, f func()) {
 		callIdx++
 		return calls[idx].apps, calls[idx].err
 	}
-	// Force the no-realizer path (see withMockSnapshot) so the capture fork does
-	// not divert these winget-path tests to the Nix realizer on linux/darwin.
-	origRealizer := newRealizerFn
-	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
-	defer func() {
-		takeSnapshotFn = orig
-		newRealizerFn = origRealizer
-	}()
-	f()
+	defer func() { takeSnapshotFn = orig }()
+	withLegacyWingetCaptureEnvironment(f)
 }
 
 // withRetryDelay overrides snapshotRetryDelay for the duration of f.

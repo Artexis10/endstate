@@ -59,14 +59,7 @@ func TestUninstallClassifiesWindowsInstallerOutcomes(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			d := &ChocolateyDriver{ExecCommand: scriptedCommand(map[string]scriptedResponse{
-				"uninstall git --yes --no-progress --limit-output": {exitCode: tt.exitCode},
-			}, nil)}
-
-			result, err := d.Uninstall("git")
-			if err != nil {
-				t.Fatalf("Uninstall returned error: %v", err)
-			}
+			result := classifyUninstallResult(commandResult{exitCode: tt.exitCode})
 			if result.Status != tt.want {
 				t.Fatalf("exit %d result = %+v, want status %s", tt.exitCode, result, tt.want)
 			}
