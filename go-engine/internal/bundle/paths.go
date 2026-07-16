@@ -10,6 +10,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 var (
@@ -68,6 +70,10 @@ func containedHostPath(root, portableRelative string) (string, error) {
 
 func ensureNoLinksInExistingPath(candidate string) error {
 	abs, err := filepath.Abs(filepath.Clean(candidate))
+	if err != nil {
+		return err
+	}
+	abs, err = safepath.CanonicalizePlatformRootAlias(abs)
 	if err != nil {
 		return err
 	}

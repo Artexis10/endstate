@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 // rejectExistingTargetLinks verifies every existing component from the volume
@@ -15,6 +17,11 @@ import (
 // the concrete host target identity.
 func rejectExistingTargetLinks(target string) error {
 	clean := filepath.Clean(target)
+	var err error
+	clean, err = safepath.CanonicalizePlatformRootAlias(clean)
+	if err != nil {
+		return err
+	}
 	chain := make([]string, 0, 8)
 	for current := clean; ; current = filepath.Dir(current) {
 		chain = append(chain, current)

@@ -34,9 +34,17 @@ Migration definitions SHALL contain only engine-defined declarative operations. 
 ### Requirement: Every Migration Runs on a Copy and Is Validated
 The engine SHALL verify payload integrity, copy the config set to a fresh staging root, apply migration edges only within staging, validate every edge output, and validate the final target generation before resolving host writes. Supported validation primitives SHALL include `file-exists`, `json-parse`, `json-path-exists`, `ini-parse`, and `ini-key-exists`.
 
+Host-path validation SHALL canonicalize fixed operating-system root aliases before walking path components. On macOS, the system-managed `/var` alias SHALL resolve to `/private/var` for validation and concrete identity. Links or reparse points below the canonical root SHALL remain unsupported.
+
 #### Scenario: Original captured payload remains unchanged
 - **WHEN** a migration succeeds or fails
 - **THEN** the bytes under the bundle payload root remain unchanged
+
+#### Scenario: macOS system temp paths remain usable
+- **WHEN** capture, staging, journaling, or restore uses a path below macOS `/var`
+- **AND** `/var` is the standard system alias for `/private/var`
+- **THEN** validation uses the canonical `/private/var` identity
+- **AND** still rejects any link below that canonical root
 
 #### Scenario: Intermediate edge validation fails
 - **WHEN** validation after `g1 -> g2` fails in a planned `g1 -> g2 -> g3` chain

@@ -23,6 +23,10 @@ func ValidateFilesystemTarget(target string) error {
 	if err != nil {
 		return err
 	}
+	clean, err = safepath.CanonicalizePlatformRootAlias(clean)
+	if err != nil {
+		return err
+	}
 	chain := make([]string, 0, 8)
 	for current := clean; ; current = filepath.Dir(current) {
 		chain = append(chain, current)
@@ -58,6 +62,10 @@ func ConcreteFilesystemTarget(target string) (string, error) {
 		return "", err
 	}
 	abs, err := filepath.Abs(filepath.Clean(target))
+	if err != nil {
+		return "", err
+	}
+	abs, err = safepath.CanonicalizePlatformRootAlias(abs)
 	if err != nil {
 		return "", err
 	}

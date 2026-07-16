@@ -316,13 +316,13 @@ func ExpandInstancePath(template string, instance ConfigInstance, role InstanceP
 	if strings.TrimSpace(template) == "" {
 		return "", fmt.Errorf("instance path is empty")
 	}
-	expanded, err := expandInstancePlaceholders(template, instance)
-	if err != nil {
-		return "", err
-	}
 
 	switch role {
 	case PortableRelativePath:
+		expanded, err := expandInstancePlaceholders(template, instance)
+		if err != nil {
+			return "", err
+		}
 		if containsPortableHostExpansion(expanded) {
 			return "", fmt.Errorf("portable path %q contains a host expansion", template)
 		}
@@ -334,10 +334,13 @@ func ExpandInstancePath(template string, instance ConfigInstance, role InstanceP
 		}
 		return filepath.Clean(expanded), nil
 	case HostPath:
+		expanded, err := expandHostInstancePathTemplate(template, instance)
+		if err != nil {
+			return "", err
+		}
 		if hasTraversal(template) {
 			return "", fmt.Errorf("host path %q contains parent traversal", template)
 		}
-		expanded = config.ExpandEnvVars(expanded)
 		if hasTraversal(expanded) {
 			return "", fmt.Errorf("expanded host path %q contains parent traversal", expanded)
 		}
@@ -351,6 +354,51 @@ func ExpandInstancePath(template string, instance ConfigInstance, role InstanceP
 	default:
 		return "", fmt.Errorf("unsupported instance path role %q", role)
 	}
+}
+
+// expandHostInstancePathTemplate expands environment variables only in the
+// module-authored portions of a host path. Instance values are inserted as
+// opaque evidence so placeholder- or environment-shaped text inside them is
+// never interpreted a second time.
+func expandHostInstancePathTemplate(template string, instance ConfigInstance) (string, error) {
+	if err := validateTemplatePlaceholders(template); err != nil {
+		return "", err
+	}
+	values := []struct {
+		token string
+		value string
+	}{
+		{token: "${instance.root}", value: instance.Root},
+		{token: "${instance.version}", value: instance.Version.Raw},
+		{token: "${instance.id}", value: instance.ID},
+	}
+
+	var expanded strings.Builder
+	remaining := template
+	for remaining != "" {
+		nextIndex := len(remaining)
+		nextValue := -1
+		for index, replacement := range values {
+			candidate := strings.Index(remaining, replacement.token)
+			if candidate >= 0 && candidate < nextIndex {
+				nextIndex = candidate
+				nextValue = index
+			}
+		}
+		if nextValue < 0 {
+			expanded.WriteString(config.ExpandEnvVars(remaining))
+			break
+		}
+
+		expanded.WriteString(config.ExpandEnvVars(remaining[:nextIndex]))
+		replacement := values[nextValue]
+		if replacement.value == "" {
+			return "", fmt.Errorf("placeholder %s has no value", replacement.token)
+		}
+		expanded.WriteString(replacement.value)
+		remaining = remaining[nextIndex+len(replacement.token):]
+	}
+	return expanded.String(), nil
 }
 
 func containsPortableHostExpansion(path string) bool {

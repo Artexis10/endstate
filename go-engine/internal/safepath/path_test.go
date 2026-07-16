@@ -23,6 +23,12 @@ func TestResolveAcceptsContainedPortablePath(t *testing.T) {
 	}
 }
 
+func TestValidateRootAcceptsHostTempDirectory(t *testing.T) {
+	if err := ValidateRoot(t.TempDir()); err != nil {
+		t.Fatalf("ValidateRoot host temp directory: %v", err)
+	}
+}
+
 func TestResolveRejectsUnsafePortablePaths(t *testing.T) {
 	root := safePathTestRoot(t)
 	unsafe := []string{

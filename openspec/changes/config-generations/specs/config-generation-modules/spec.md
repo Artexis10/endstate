@@ -77,7 +77,7 @@ Generation matching SHALL operate on preserved raw version evidence and an expli
 - **AND** does not use declaration order as a tie-breaker
 
 ### Requirement: Instance Placeholders Are Restricted
-Generation capture and restore paths MAY use only documented instance placeholders. The engine SHALL reject unknown placeholders, placeholder expansion outside allowed roots, absolute portable destinations, and path traversal.
+Generation capture and restore paths MAY use only documented instance placeholders. The engine SHALL reject unknown placeholders, placeholder expansion outside allowed roots, absolute portable destinations, and path traversal. Host environment expansion SHALL apply only to module-authored template segments; text inserted from an instance placeholder SHALL NOT be recursively interpreted as another instance placeholder or host environment variable.
 
 #### Scenario: Allowed instance root expands
 - **WHEN** a path uses `${instance.root}` from the selected path detector
@@ -86,6 +86,11 @@ Generation capture and restore paths MAY use only documented instance placeholde
 #### Scenario: Traversal is rejected
 - **WHEN** a generation definition attempts to escape a payload or staging root with `..`
 - **THEN** catalog validation rejects the module before capture or restore
+
+#### Scenario: Placeholder values are not recursively expanded
+- **WHEN** an instance root, version, or ID contains text that resembles an instance placeholder or host environment variable
+- **THEN** the engine preserves that text as instance evidence
+- **AND** does not recursively expand or remove it
 
 ### Requirement: Module Revision Is Engine Computed
 The engine SHALL compute the module revision as SHA-256 over canonical parsed module JSON with loader-only fields excluded and SHALL compute a canonical fingerprint for each generation definition. Comments, whitespace, and line endings SHALL NOT affect either value.

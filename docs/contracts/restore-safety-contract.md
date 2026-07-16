@@ -50,6 +50,8 @@ Stable per-set reasons include compatibility causes plus `restore_filtered`, `re
 
 Preflight rejects selected config sets whose concrete target paths are equal or overlap by parent/child containment, and rejects multiple captured sets competing for one target instance/config set. Neither colliding set mutates its target.
 
+Host-path validation canonicalizes fixed operating-system root aliases before walking path components. In particular, macOS `/var` is validated and compared through its standard `/private/var` identity; links below that canonical root remain rejected.
+
 ### onConflict Field
 
 Each restore entry supports an `onConflict` field:

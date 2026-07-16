@@ -103,7 +103,11 @@ func validateRoot(root string) (string, error) {
 		return "", pathError(CodeUnsafeRoot, root, ErrUnsafeRoot)
 	}
 	clean := filepath.Clean(root)
-	info, err := rejectRootChainLinks(clean)
+	validationRoot, err := CanonicalizePlatformRootAlias(clean)
+	if err != nil {
+		return "", err
+	}
+	info, err := rejectRootChainLinks(validationRoot)
 	if err != nil {
 		return "", err
 	}
