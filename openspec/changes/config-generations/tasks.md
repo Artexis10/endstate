@@ -46,7 +46,7 @@
 - [x] 5.6 Detect exact and parent/child target collisions plus multiple captured sources competing for one target.
 - [ ] 5.7 Re-run target detection after rebuild installs and ensure final resolution replaces stale pre-install evidence before restore.
 - [ ] 5.8 Adapt legacy bundle/module restores to emit `legacy_unverified` without fabricating versions or generations.
-- [ ] 5.9 Add planner tests for every resolution/reason, generation-fingerprint acceptance/rejection, side-by-side mapping, post-install version changes, collisions, per-set isolation, no legacy fallback, and catalog pinning.
+- [x] 5.9 Add planner tests for every resolution/reason, generation-fingerprint acceptance/rejection, side-by-side mapping, post-install version changes, collisions, per-set isolation, no legacy fallback, and catalog pinning.
 
 ## 6. Forward Migration Engine
 
