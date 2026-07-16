@@ -14,7 +14,7 @@
 - [x] 2.5 Validate migration graphs for unknown generations, duplicate/same/backward edges, cycles, ambiguous routes, unknown operations, and missing validation.
 - [x] 2.6 Replace silent catalog skipping for generation-aware module errors with structured diagnostics usable by commands and envelopes.
 - [x] 2.7 Add table-driven catalog tests covering valid schema v1/v2 modules and every schema/graph/path rejection.
-- [ ] 2.8 Add released-generation fingerprint history/CI validation and explicit historical-fingerprint acceptance declarations so generation IDs cannot be silently repurposed.
+- [x] 2.8 Add released-generation fingerprint history/CI validation and explicit historical-fingerprint acceptance declarations so generation IDs cannot be silently repurposed.
 
 ## 3. Instance Discovery and Version Normalization
 
