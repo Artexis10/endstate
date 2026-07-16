@@ -62,7 +62,7 @@
 ## 7. Transactional Restore, Journal, and Revert
 
 - [x] 7.1 Convert a resolved direct/migrated config set into concrete restore actions only after staging and preflight succeed.
-- [ ] 7.2 Pre-create all required backups for a config-set transaction before its first target write.
+- [x] 7.2 Pre-create all required backups for a config-set transaction before its first target write.
 - [ ] 7.3 Add atomic journal-intent persistence before mutation and make journal write failure fatal for the config set/command.
 - [ ] 7.4 Implement config-set commit, final target validation, atomic completion recording, and immediate rollback on partial commit, validation failure, or completion-record failure.
 - [ ] 7.5 Extend journal entries with capture/target IDs, source/target generations, migration path, both module revisions, validation status, and rollback outcome.

@@ -52,6 +52,11 @@ type RestoreResult struct {
 	Error               string   `json:"error,omitempty"`
 	Warnings            []string `json:"warnings,omitempty"`
 	RestoreType         string   `json:"restoreType,omitempty"`
+	CaptureID           string   `json:"captureId,omitempty"`
+	ConfigSetID         string   `json:"configSetId,omitempty"`
+	TargetInstanceID    string   `json:"targetInstanceId,omitempty"`
+	SourceGeneration    string   `json:"sourceGeneration,omitempty"`
+	TargetGeneration    string   `json:"targetGeneration,omitempty"`
 }
 
 // RestoreOptions holds configuration for a restore run.

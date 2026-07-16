@@ -40,6 +40,7 @@ type RestoreData struct {
 	Results     []restore.RestoreResult `json:"results"`
 	JournalPath string                  `json:"journalPath,omitempty"`
 	DryRun      bool                    `json:"dryRun"`
+	*ConfigResultFields
 }
 
 // RunRestore executes the restore command: loads the manifest, converts

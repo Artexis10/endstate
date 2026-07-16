@@ -67,6 +67,7 @@ type RebuildResult struct {
 	Restore string             `json:"restore"` // "enabled" | "disabled"
 	Apply   interface{}        `json:"apply"`
 	Verify  interface{}        `json:"verify,omitempty"`
+	*ConfigResultFields
 }
 
 // RunRebuild executes the one-command fresh-machine flow: it resolves and

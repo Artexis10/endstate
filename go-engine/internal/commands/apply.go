@@ -211,6 +211,7 @@ type ApplyResult struct {
 	// from a homeManager.config (vs a direct homeManager.flake). Omitted when no
 	// config stage ran.
 	HomeManager *ApplyHomeManager `json:"homeManager,omitempty"`
+	*ConfigResultFields
 }
 
 // ApplyHomeManager surfaces the home-manager configuration stage in the apply
