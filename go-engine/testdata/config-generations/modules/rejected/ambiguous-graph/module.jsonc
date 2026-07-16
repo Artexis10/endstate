@@ -1,0 +1,59 @@
+{
+  "moduleSchemaVersion": 2,
+  "id": "apps.fixture-ambiguous",
+  "displayName": "Fixture Ambiguous Migration Graph",
+  "sensitivity": "low",
+  "matches": {
+    "winget": ["Fixture.Ambiguous"]
+  },
+  "config": {
+    "instanceDetectors": [
+      { "id": "installed", "type": "package" }
+    ],
+    "sets": [
+      {
+        "id": "preferences",
+        "generations": [
+          {
+            "id": "g1",
+            "order": 1,
+            "matches": [{ "versionRange": "<2" }],
+            "validate": [{ "type": "json-parse", "path": "settings.json" }]
+          },
+          {
+            "id": "g2",
+            "order": 2,
+            "matches": [{ "versionRange": ">=2 <3" }],
+            "validate": [{ "type": "json-parse", "path": "settings.json" }]
+          },
+          {
+            "id": "g3",
+            "order": 3,
+            "matches": [{ "versionRange": ">=3" }],
+            "validate": [{ "type": "json-parse", "path": "settings.json" }]
+          }
+        ],
+        "migrations": [
+          {
+            "from": "g1",
+            "to": "g2",
+            "operations": [{ "type": "json-set", "path": "settings.json", "jsonPath": "$.stage", "value": 2 }],
+            "validate": [{ "type": "json-path-exists", "path": "settings.json", "jsonPath": "$.stage" }]
+          },
+          {
+            "from": "g2",
+            "to": "g3",
+            "operations": [{ "type": "json-set", "path": "settings.json", "jsonPath": "$.stage", "value": 3 }],
+            "validate": [{ "type": "json-path-exists", "path": "settings.json", "jsonPath": "$.stage" }]
+          },
+          {
+            "from": "g1",
+            "to": "g3",
+            "operations": [{ "type": "json-set", "path": "settings.json", "jsonPath": "$.stage", "value": 3 }],
+            "validate": [{ "type": "json-path-exists", "path": "settings.json", "jsonPath": "$.stage" }]
+          }
+        ]
+      }
+    ]
+  }
+}

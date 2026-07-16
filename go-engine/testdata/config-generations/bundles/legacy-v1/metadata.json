@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "1.0",
+  "capturedAt": "2026-07-16T00:00:00Z",
+  "machineName": "fixture-host",
+  "endstateVersion": "fixture",
+  "configModulesIncluded": ["fixture-legacy"],
+  "configModulesSkipped": [],
+  "captureWarnings": []
+}
