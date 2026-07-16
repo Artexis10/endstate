@@ -28,10 +28,10 @@
 ## 4. Bundle v2 and Capture Provenance
 
 - [x] 4.1 Add manifest-v2 `configCaptures[]` (including source-generation fingerprints) and metadata-schema-2 types with strict validation and v1/v2 loading dispatch.
-- [ ] 4.2 Give each captured config set a deterministic capture ID and isolated `configs/<captureId>/` payload root.
-- [ ] 4.3 Preserve full nested relative paths during collection and reject duplicate destinations, fixing basename collapse and collision behavior.
-- [ ] 4.4 Generate per-file size/SHA-256 payload manifests and verify them before compatibility planning.
-- [ ] 4.5 Write canonical source-module snapshots under `provenance/modules/`, verify their recorded hashes, and prevent them from becoming target authority.
+- [x] 4.2 Give each captured config set a deterministic capture ID and isolated `configs/<captureId>/` payload root.
+- [x] 4.3 Preserve full nested relative paths during collection and reject duplicate destinations, fixing basename collapse and collision behavior.
+- [x] 4.4 Generate per-file size/SHA-256 payload manifests and verify them before compatibility planning.
+- [x] 4.5 Write canonical source-module snapshots under `provenance/modules/`, verify their recorded hashes, and prevent them from becoming target authority.
 - [ ] 4.6 Emit manifest version 2 only when generation-aware config is present and ensure generation-aware sets have no flat restore fallback.
 - [ ] 4.7 Extend capture JSON output with bundle/manifest versions and per-instance, per-config-set provenance while preserving existing module metadata.
 - [ ] 4.8 Add bundle round-trip tests for nested paths, same-basename files, side-by-side instances, hash mismatch, edited module snapshots, mixed v1/v2 modules with isolated legacy entries, and install-only bundles.
