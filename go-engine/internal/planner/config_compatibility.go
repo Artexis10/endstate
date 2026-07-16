@@ -166,6 +166,9 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 	if source.CaptureModuleSchemaVersion != 2 {
 		return finishCompatibility(plan, ResolutionUnknown, ReasonUnsupportedModuleSchema, StatusSkipped)
 	}
+	if source.PayloadIntegrityFailed {
+		return finishCompatibility(plan, ResolutionUnknown, ReasonPayloadIntegrityFailed, StatusFailed)
+	}
 	current, ok := r.modules[source.ModuleID]
 	if !ok {
 		if _, rejected := r.rejected[source.ModuleID]; rejected {
@@ -188,9 +191,6 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 	if source.GenerationFingerprint != sourceGeneration.Fingerprint &&
 		!containsString(sourceGeneration.AcceptsSourceFingerprints, source.GenerationFingerprint) {
 		return finishCompatibility(plan, ResolutionUnknown, ReasonSourceGenerationDefinitionChanged, StatusSkipped)
-	}
-	if source.PayloadIntegrityFailed {
-		return finishCompatibility(plan, ResolutionUnknown, ReasonPayloadIntegrityFailed, StatusFailed)
 	}
 	target.ModuleRevision = current.revision
 	plan.TargetInstances[0] = target

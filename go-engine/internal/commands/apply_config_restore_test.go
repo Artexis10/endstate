@@ -37,7 +37,7 @@ func TestRunApplyDryRunExecutesFinalGenerationPlanningAndReturnsConfigFields(t *
 		t.Fatal(err)
 	}
 	digest := strings.Repeat("a", 64)
-	captureRevision := strings.Repeat("c", 64)
+	snapshotPath, captureRevision := writeCommandTestModuleSnapshot(t, manifestDir, "apps.example")
 	mf := manifest.Manifest{
 		Version: 2, Name: "generation-dry-run", Apps: []manifest.App{}, Restore: []manifest.RestoreEntry{},
 		ConfigCaptures: []manifest.ConfigCapture{{
@@ -47,7 +47,7 @@ func TestRunApplyDryRunExecutesFinalGenerationPlanningAndReturnsConfigFields(t *
 				Evidence: &manifest.ConfigSourceInstanceEvidence{Type: "package", Backend: "winget", Ref: "Vendor.App"},
 			},
 			SourceGeneration: "g1", SourceGenerationFingerprint: digest,
-			CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 2, ContentHash: captureRevision, SnapshotPath: "provenance/modules/apps.example.json"},
+			CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 2, ContentHash: captureRevision, SnapshotPath: snapshotPath},
 			PayloadRoot:   "configs/capture-a", PayloadManifest: payloadManifest,
 		}},
 	}
@@ -317,6 +317,7 @@ func postInstallGenerationFixture(t *testing.T) (string, string, *modules.Module
 	g1Fingerprint := strings.Repeat("a", 64)
 	g2Fingerprint := strings.Repeat("b", 64)
 	moduleRevision := strings.Repeat("c", 64)
+	snapshotPath, captureRevision := writeCommandTestModuleSnapshot(t, manifestDir, "apps.example")
 	mf := manifest.Manifest{
 		Version: 2, Name: "post-install-generation",
 		Apps:    []manifest.App{{ID: "example", Refs: map[string]string{"windows": "Vendor.App"}}},
@@ -329,7 +330,7 @@ func postInstallGenerationFixture(t *testing.T) (string, string, *modules.Module
 			},
 			SourceGeneration: "g1", SourceGenerationFingerprint: g1Fingerprint,
 			CaptureModule: manifest.CaptureModuleProvenance{
-				SchemaVersion: 2, ContentHash: moduleRevision, SnapshotPath: "provenance/modules/apps.example.json",
+				SchemaVersion: 2, ContentHash: captureRevision, SnapshotPath: snapshotPath,
 			},
 			PayloadRoot: "configs/capture-a", PayloadManifest: payloadManifest,
 		}},

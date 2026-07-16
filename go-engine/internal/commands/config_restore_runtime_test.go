@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
@@ -17,7 +18,6 @@ import (
 func TestNewConfigRestoreRuntimeLoadsAndPinsCatalogExactlyOnce(t *testing.T) {
 	manifestDir := t.TempDir()
 	capture := commandTestConfigCapture(t, manifestDir, "capture-pinned", "apps.pinned", "preferences")
-	capture.CaptureModule.ContentHash = "capture-revision"
 
 	moduleFile := filepath.Join(t.TempDir(), "module.jsonc")
 	if err := os.WriteFile(moduleFile, []byte(`{"revision":"original"}`), 0o644); err != nil {
@@ -77,6 +77,7 @@ func TestNewConfigRestoreRuntimeLoadsAndPinsCatalogExactlyOnce(t *testing.T) {
 		ID: "target-instance", ModuleID: "apps.pinned", DetectorID: "installed", RawVersion: "99",
 	})
 	if plan.Resolution.Resolution != planner.ResolutionDirect || plan.Resolution.Reason != nil ||
+		plan.Resolution.CaptureModuleRevision != capture.CaptureModule.ContentHash ||
 		plan.Resolution.RestoreModuleRevision != "restore-revision" || loadCount != 1 {
 		t.Fatalf("resolver was not pinned: resolution=%+v loadCount=%d", plan.Resolution, loadCount)
 	}
@@ -94,6 +95,65 @@ func TestNewConfigRestoreRuntimeLoadsAndPinsCatalogExactlyOnce(t *testing.T) {
 		},
 	}); err != nil || seenGlob != "pinned/*" || loadCount != 1 {
 		t.Fatalf("detectors were not pinned: glob=%q err=%v loadCount=%d", seenGlob, err, loadCount)
+	}
+}
+
+func TestNewConfigRestoreRuntimeMarksInvalidModuleSnapshotAsPayloadIntegrityFailure(t *testing.T) {
+	tests := []struct {
+		name       string
+		invalidate func(string) error
+		construct  func(configRestoreBuildRequest) (*configRestoreRuntime, *envelope.Error)
+	}{
+		{
+			name: "edited snapshot through catalog source",
+			invalidate: func(snapshotPath string) error {
+				return os.WriteFile(snapshotPath, []byte("edited"), 0o644)
+			},
+			construct: func(request configRestoreBuildRequest) (*configRestoreRuntime, *envelope.Error) {
+				return newConfigRestoreRuntimeWithCatalogSource(request, configRestoreCatalogLoader(
+					func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+						return map[string]*modules.Module{}, nil, nil
+					},
+				))
+			},
+		},
+		{
+			name:       "missing snapshot through pinned catalog",
+			invalidate: os.Remove,
+			construct: func(request configRestoreBuildRequest) (*configRestoreRuntime, *envelope.Error) {
+				return newConfigRestoreRuntimeWithCatalogSnapshot(request, newConfigCatalogSnapshot(map[string]*modules.Module{}, nil))
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manifestDir := t.TempDir()
+			capture := commandTestConfigCapture(t, manifestDir, "capture-pinned", "apps.pinned", "preferences")
+			snapshotPath := filepath.Join(manifestDir, filepath.FromSlash(capture.CaptureModule.SnapshotPath))
+			if err := tt.invalidate(snapshotPath); err != nil {
+				t.Fatal(err)
+			}
+
+			runtime, envErr := tt.construct(configRestoreBuildRequest{
+				Manifest:     &manifest.Manifest{Version: 2, ConfigCaptures: []manifest.ConfigCapture{capture}},
+				ManifestPath: filepath.Join(manifestDir, "manifest.jsonc"),
+			})
+			if envErr != nil {
+				t.Fatalf("runtime construction returned command error: %+v", envErr)
+			}
+			if len(runtime.inputs.generationSources) != 1 || !runtime.inputs.generationSources[0].source.PayloadIntegrityFailed {
+				t.Fatalf("invalid snapshot was not isolated as payload integrity failure: %+v", runtime.inputs.generationSources)
+			}
+
+			plan := runtime.catalog.resolver.ResolveCandidate(runtime.inputs.generationSources[0].source, planner.TargetInstance{
+				ID: "target-instance", ModuleID: "apps.pinned", DetectorID: "installed", RawVersion: "99",
+			})
+			if plan.Resolution.Status != planner.StatusFailed || plan.Resolution.Reason == nil ||
+				*plan.Resolution.Reason != planner.ReasonPayloadIntegrityFailed {
+				t.Fatalf("resolution = %+v, want failed/payload_integrity_failed", plan.Resolution)
+			}
+		})
 	}
 }
 

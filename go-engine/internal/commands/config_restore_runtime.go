@@ -4,8 +4,10 @@
 package commands
 
 import (
+	"path/filepath"
 	"sort"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
@@ -57,6 +59,7 @@ func newConfigRestoreRuntimeWithCatalogSource(
 	catalogSource configRestoreCatalogSource,
 ) (*configRestoreRuntime, *envelope.Error) {
 	inputs, envErr := buildConfigRestoreInputs(request)
+	markInvalidConfigCaptureSnapshots(request, &inputs)
 	runtime := newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot())
 	if envErr != nil || len(inputs.generationSources) == 0 {
 		return runtime, envErr
@@ -84,6 +87,7 @@ func newConfigRestoreRuntimeWithCatalogSnapshot(
 	catalog configCatalogSnapshot,
 ) (*configRestoreRuntime, *envelope.Error) {
 	inputs, envErr := buildConfigRestoreInputs(request)
+	markInvalidConfigCaptureSnapshots(request, &inputs)
 	if envErr != nil || len(inputs.generationSources) == 0 {
 		return newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()), envErr
 	}
@@ -92,6 +96,28 @@ func newConfigRestoreRuntimeWithCatalogSnapshot(
 			WithRemediation("Prepare one trusted catalog snapshot before configuration planning.")
 	}
 	return newConfigRestoreRuntimeFromInputs(inputs, catalog), nil
+}
+
+// markInvalidConfigCaptureSnapshots verifies immutable capture-time module
+// evidence at the command boundary. The snapshot is never parsed as current
+// restore authority; a verification failure is isolated to its config set so
+// other valid sets can still be planned and restored.
+func markInvalidConfigCaptureSnapshots(request configRestoreBuildRequest, inputs *configRestoreInputs) {
+	if inputs == nil || request.Manifest == nil || len(inputs.generationSources) == 0 {
+		return
+	}
+	bundleRoot := filepath.Dir(request.ManifestPath)
+	invalidCaptureIDs := make(map[string]struct{})
+	for _, capture := range request.Manifest.ConfigCaptures {
+		if err := bundle.VerifyModuleSnapshot(bundleRoot, capture); err != nil {
+			invalidCaptureIDs[capture.CaptureID] = struct{}{}
+		}
+	}
+	for index := range inputs.generationSources {
+		if _, invalid := invalidCaptureIDs[inputs.generationSources[index].source.CaptureID]; invalid {
+			inputs.generationSources[index].source.PayloadIntegrityFailed = true
+		}
+	}
 }
 
 func newConfigRestoreRuntimeFromInputs(

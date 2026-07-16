@@ -4,6 +4,8 @@
 package commands
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path"
 	"path/filepath"
@@ -307,7 +309,22 @@ func commandTestConfigCapture(t *testing.T, manifestDir, captureID, moduleID, co
 	if err := os.MkdirAll(filepath.Join(manifestDir, filepath.FromSlash(capture.PayloadRoot)), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	capture.CaptureModule.SnapshotPath, capture.CaptureModule.ContentHash = writeCommandTestModuleSnapshot(t, manifestDir, moduleID)
 	return capture
+}
+
+func writeCommandTestModuleSnapshot(t *testing.T, manifestDir, moduleID string) (string, string) {
+	t.Helper()
+	snapshot := []byte(fmt.Sprintf("{\"id\":%q}\n", moduleID))
+	recordedPath := path.Join("provenance/modules", moduleID+".json")
+	snapshotPath := filepath.Join(manifestDir, filepath.FromSlash(recordedPath))
+	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(snapshotPath, snapshot, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return recordedPath, fmt.Sprintf("%x", sha256.Sum256(snapshot))
 }
 
 func commandConfigCapture(captureID, moduleID, configSetID string) manifest.ConfigCapture {

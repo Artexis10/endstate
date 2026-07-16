@@ -124,6 +124,15 @@ func TestCompatibilityResolverResolveCandidate_SourceAuthorityFailures(t *testin
 			wantReason: ReasonPayloadIntegrityFailed,
 			wantStatus: StatusFailed,
 		},
+		{
+			name: "payload integrity failure wins before missing catalog",
+			mutate: func(source *SourceCapture, _ *modules.Module) {
+				source.PayloadIntegrityFailed = true
+			},
+			without:    true,
+			wantReason: ReasonPayloadIntegrityFailed,
+			wantStatus: StatusFailed,
+		},
 	}
 
 	for _, tt := range tests {
