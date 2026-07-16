@@ -76,7 +76,7 @@
 ## 8. CLI, Envelopes, Events, and Capabilities
 
 - [ ] 8.1 Add repeatable `--restore-target <captureId>=<targetInstanceId>` parsing to apply, restore, and rebuild, with input errors for malformed/duplicate/unknown-capture mappings and per-set skips for post-install absent/incompatible targets.
-- [ ] 8.2 Advertise `--restore-target` through capabilities and preserve module-level `--restore-filter` precedence.
+- [x] 8.2 Advertise `--restore-target` through capabilities and preserve module-level `--restore-filter` precedence.
 - [ ] 8.3 Add identical `configResolutions[]` and `configResolutionSummary` semantics to apply, standalone restore, and rebuild dry-run/live JSON output, including legacy warning states and source-generation fingerprints.
 - [ ] 8.4 Link concrete `restoreItems[]` to capture IDs, config sets, target instances, and generations without changing app `items[]`.
 - [ ] 8.5 Emit ordered `config-resolution` and `config-migration` JSONL events before target mutation, including validation/commit/rollback outcomes.

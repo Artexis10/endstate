@@ -287,6 +287,16 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
+	// This is the command-boundary preflight until generation planning is wired.
+	// The command coordinator must reuse or replace it, not normalize inputs twice.
+	if _, configInputErr := buildConfigRestoreInputs(configRestoreBuildRequest{
+		Manifest:       mf,
+		ManifestPath:   flags.Manifest,
+		RestoreFilter:  flags.RestoreFilter,
+		RestoreTargets: flags.RestoreTargets,
+	}); configInputErr != nil {
+		return nil, configInputErr
+	}
 
 	// Load the module catalog once; it is used for synthesis (pre-filter) and
 	// for module matching (post-filter). Non-fatal if unavailable.

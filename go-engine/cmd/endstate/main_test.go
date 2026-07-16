@@ -5,6 +5,7 @@ package main
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -29,5 +30,17 @@ func TestParseArgsPreservesMissingRestoreTargetForValidation(t *testing.T) {
 	}
 	if !parsed.dryRun {
 		t.Fatal("following flag was consumed as a restore target")
+	}
+}
+
+func TestRestoreCapableCommandUsageAdvertisesRestoreTarget(t *testing.T) {
+	for _, command := range []string{"apply", "restore", "rebuild"} {
+		usage := commandUsage(command)
+		if !strings.Contains(usage, "--restore-target <captureId>=<targetInstanceId>") {
+			t.Fatalf("%s usage does not advertise --restore-target: %s", command, usage)
+		}
+	}
+	if !strings.Contains(usageText, "--restore-target <m>") {
+		t.Fatalf("top-level usage does not advertise repeatable --restore-target: %s", usageText)
 	}
 }

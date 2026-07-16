@@ -65,7 +65,8 @@ Per-command flags:
   --minimize           Minimize manifest format (capture)
   --pin                Record installed versions into the manifest (capture)
   --export <path>      Export directory path (restore, export-config, validate-export)
-  --restore-filter <e> Filter restore entries by module ID (restore, apply)
+  --restore-filter <e> Filter restore entries by module ID (restore, apply, rebuild)
+  --restore-target <m> Map capture ID to target instance; repeatable (restore, apply, rebuild)
   --from <path>        Bundle (.zip) or manifest (.jsonc) to rebuild from (rebuild)
   --no-restore         Install without restoring configuration (rebuild)
   --latest             Most recent run (report)
@@ -378,9 +379,9 @@ func commandUsage(cmd string) string {
 	case "capabilities":
 		return "Usage: endstate capabilities [--json]\n\nReport CLI capabilities for GUI handshake.\n"
 	case "apply":
-		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--only <id[,id...]>] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. With --only, limit the run to the comma-separated list of manifest app ids (filtering happens before planning so only the selected apps are installed, restored, and verified). With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (winget only). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. --only and --prune cannot be combined. On macOS/Linux, when a needed package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
+		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--only <id[,id...]>] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. With --only, limit the run to the comma-separated list of manifest app ids (filtering happens before planning so only the selected apps are installed, restored, and verified). With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (winget only). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. --only and --prune cannot be combined. On macOS/Linux, when a needed package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
 	case "rebuild":
-		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--dry-run] [--confirm] [--no-restore] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
+		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--dry-run] [--confirm] [--no-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
@@ -388,7 +389,7 @@ func commandUsage(cmd string) string {
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
-		return "Usage: endstate restore [--manifest <path>] [--enable-restore] [--dry-run] [--export <path>] [--restore-filter <expr>] [--json] [--events jsonl]\n\nRestore configuration files.\n"
+		return "Usage: endstate restore [--manifest <path>] [--enable-restore] [--dry-run] [--export <path>] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--json] [--events jsonl]\n\nRestore configuration files. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence.\n"
 	case "revert":
 		return "Usage: endstate revert [--json] [--events jsonl]\n\nRevert last restore operation using journal.\n"
 	case "export-config":
