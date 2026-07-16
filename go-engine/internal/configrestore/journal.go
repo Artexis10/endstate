@@ -169,6 +169,21 @@ func ReadJournalIntent(ctx context.Context, transactionRoot string) (*JournalInt
 }
 
 func readJournalIntentFile(ctx context.Context, root, path string) (*JournalIntent, error) {
+	intent, err := readJournalIntentMetadataFile(ctx, root, path)
+	if err != nil {
+		return nil, err
+	}
+	if _, _, err := verifySnapshotArtifacts(ctx, filepath.Join(root, "snapshots"), intent.actions); err != nil {
+		return nil, err
+	}
+	return intent, nil
+}
+
+// readJournalIntentMetadataFile verifies the immutable intent envelope and
+// target identities without requiring rollback artifacts to still exist.
+// Terminal classification must use this view before deciding whether backups
+// are relevant; pending recovery upgrades to the full reader above.
+func readJournalIntentMetadataFile(ctx context.Context, root, path string) (*JournalIntent, error) {
 	if err := checkSnapshotContext(ctx); err != nil {
 		return nil, err
 	}
@@ -190,9 +205,6 @@ func readJournalIntentFile(ctx context.Context, root, path string) (*JournalInte
 		return nil, err
 	}
 	if err := validateJournalValidations(root, disk.Actions, disk.Validations); err != nil {
-		return nil, err
-	}
-	if _, _, err := verifySnapshotArtifacts(ctx, filepath.Join(root, "snapshots"), disk.Actions); err != nil {
 		return nil, err
 	}
 	return intentFromDisk(root, path, disk), nil
