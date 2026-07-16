@@ -12,7 +12,7 @@ package events
 // BaseEvent contains the required fields that every event MUST include per
 // schema v1. Concrete event structs embed this type.
 type BaseEvent struct {
-	Version   int    `json:"version"`   // Always 1
+	Version   int    `json:"version"` // Always 1
 	RunID     string `json:"runId"`
 	Timestamp string `json:"timestamp"` // RFC3339 UTC
 	Event     string `json:"event"`     // "phase" | "item" | "summary" | "error" | "artifact"
@@ -60,6 +60,75 @@ type ArtifactEvent struct {
 	Phase string `json:"phase"`
 	Kind  string `json:"kind"`
 	Path  string `json:"path"`
+}
+
+// ConfigMigrationStage is the closed engine-owned progress stage vocabulary.
+type ConfigMigrationStage string
+
+const (
+	ConfigMigrationStaging    ConfigMigrationStage = "staging"
+	ConfigMigrationEdge       ConfigMigrationStage = "edge"
+	ConfigMigrationValidation ConfigMigrationStage = "validation"
+	ConfigMigrationCommit     ConfigMigrationStage = "commit"
+	ConfigMigrationRollback   ConfigMigrationStage = "rollback"
+)
+
+// ConfigProgressStatus is the closed progress status vocabulary used by
+// config-migration events. Terminal config-set outcomes remain envelope data.
+type ConfigProgressStatus string
+
+const (
+	ConfigProgressStarted   ConfigProgressStatus = "started"
+	ConfigProgressCompleted ConfigProgressStatus = "completed"
+	ConfigProgressFailed    ConfigProgressStatus = "failed"
+)
+
+// ConfigMigrationEvent reports staging, edge, validation, commit, and rollback
+// progress for one captured config set.
+type ConfigMigrationEvent struct {
+	BaseEvent
+	CaptureID      string               `json:"captureId"`
+	ConfigSetID    string               `json:"configSetId"`
+	Stage          ConfigMigrationStage `json:"stage"`
+	FromGeneration string               `json:"fromGeneration,omitempty"`
+	ToGeneration   string               `json:"toGeneration,omitempty"`
+	Status         ConfigProgressStatus `json:"status"`
+	Reason         *string              `json:"reason"`
+	Message        string               `json:"message"`
+	Remediation    *string              `json:"remediation"`
+}
+
+// RestoreItemStatus is the closed legacy/concrete restore progress vocabulary.
+type RestoreItemStatus string
+
+const (
+	RestoreItemRestoring            RestoreItemStatus = "restoring"
+	RestoreItemRestored             RestoreItemStatus = "restored"
+	RestoreItemSkippedUpToDate      RestoreItemStatus = "skipped_up_to_date"
+	RestoreItemSkippedMissingSource RestoreItemStatus = "skipped_missing_source"
+	RestoreItemFailed               RestoreItemStatus = "failed"
+)
+
+// RestoreItemEvent reports one concrete restore action. Nullable fields stay
+// present as JSON null to keep the streaming contract deterministic.
+type RestoreItemEvent struct {
+	BaseEvent
+	ID            string            `json:"id"`
+	Module        string            `json:"module"`
+	Restorer      string            `json:"restorer"`
+	Source        string            `json:"source"`
+	Target        string            `json:"target"`
+	Status        RestoreItemStatus `json:"status"`
+	Reason        *string           `json:"reason"`
+	BackupPath    *string           `json:"backupPath"`
+	TargetExisted bool              `json:"targetExisted"`
+	Message       string            `json:"message"`
+
+	CaptureID        string `json:"captureId,omitempty"`
+	ConfigSetID      string `json:"configSetId,omitempty"`
+	TargetInstanceID string `json:"targetInstanceId,omitempty"`
+	SourceGeneration string `json:"sourceGeneration,omitempty"`
+	TargetGeneration string `json:"targetGeneration,omitempty"`
 }
 
 // ConsentEvent requests the user's consent to bootstrap one or more absent
