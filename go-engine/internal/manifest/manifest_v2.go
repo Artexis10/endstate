@@ -114,6 +114,58 @@ func validateRawConfigCaptures(raw map[string]json.RawMessage, version int, file
 	return nil
 }
 
+func validateRawLegacyAssociations(raw map[string]json.RawMessage, version int, filePath string) error {
+	if lanesRaw, exists := raw["legacyConfigLanes"]; exists {
+		if version == 2 && bytes.Equal(bytes.TrimSpace(lanesRaw), []byte("null")) {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, `"legacyConfigLanes" must be an array`)
+		}
+		var lanes []json.RawMessage
+		if err := json.Unmarshal(lanesRaw, &lanes); err != nil {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, `"legacyConfigLanes" must be an array`)
+		}
+		if version == 1 && len(lanes) > 0 {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "nonempty legacyConfigLanes requires manifest version 2")
+		}
+		if version == 2 {
+			for index, laneRaw := range lanes {
+				var lane map[string]json.RawMessage
+				if err := json.Unmarshal(laneRaw, &lane); err != nil || lane == nil {
+					return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacyConfigLanes[%d] must be an object", index)
+				}
+				if err := requireRawFields(lane, "captureId", "moduleId", "moduleSchemaVersion", "payloadRoot"); err != nil {
+					return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacyConfigLanes[%d]: %v", index, err)
+				}
+			}
+		}
+	}
+
+	if version != 1 {
+		return nil
+	}
+	restoreRaw, exists := raw["restore"]
+	if !exists {
+		return nil
+	}
+	var restores []map[string]json.RawMessage
+	if err := json.Unmarshal(restoreRaw, &restores); err != nil {
+		return nil // the typed decoder reports a malformed restore shape
+	}
+	for index, restore := range restores {
+		legacyRaw, exists := restore["legacyCaptureId"]
+		if !exists || bytes.Equal(bytes.TrimSpace(legacyRaw), []byte("null")) {
+			continue
+		}
+		var legacyCaptureID string
+		if err := json.Unmarshal(legacyRaw, &legacyCaptureID); err != nil {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].legacyCaptureId must be a string", index)
+		}
+		if strings.TrimSpace(legacyCaptureID) != "" {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].legacyCaptureId requires manifest version 2", index)
+		}
+	}
+	return nil
+}
+
 func validateRawConfigCapture(captureRaw json.RawMessage) error {
 	var capture map[string]json.RawMessage
 	if err := json.Unmarshal(captureRaw, &capture); err != nil || capture == nil {
@@ -284,60 +336,109 @@ func validateConfigCapture(capture *ConfigCapture) error {
 // payloads. A v2 payload can only be consumed by the generation resolver; it
 // must never also be reachable through the flat restore list.
 func validateNoGenerationLegacyFallback(manifest *Manifest, filePath string) error {
-	roots := make([]string, 0, len(manifest.ConfigCaptures))
+	return validateLegacyConfigLanes(manifest, filePath)
+}
+
+func validateLegacyConfigLanes(manifest *Manifest, filePath string) error {
+	laneByID := make(map[string]LegacyConfigLane, len(manifest.LegacyConfigLanes))
+	legacyModules := make(map[string]struct{}, len(manifest.LegacyConfigLanes))
 	generationModules := make(map[string]struct{}, len(manifest.ConfigCaptures))
+	allCaptureIDs := make(map[string]struct{}, len(manifest.ConfigCaptures)+len(manifest.LegacyConfigLanes))
+	roots := make([]string, 0, len(manifest.ConfigCaptures)+len(manifest.LegacyConfigLanes))
 	for _, capture := range manifest.ConfigCaptures {
-		roots = append(roots, capture.PayloadRoot)
 		generationModules[capture.ModuleID] = struct{}{}
+		allCaptureIDs[capture.CaptureID] = struct{}{}
+		roots = append(roots, capture.PayloadRoot)
 	}
+	for index, lane := range manifest.LegacyConfigLanes {
+		if !manifestStableIDPattern.MatchString(lane.CaptureID) || !manifestStableIDPattern.MatchString(lane.ModuleID) {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacyConfigLanes[%d] has an invalid captureId or moduleId", index)
+		}
+		if lane.ModuleSchemaVersion != 1 {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacyConfigLanes[%d].moduleSchemaVersion must be exactly 1", index)
+		}
+		expectedRoot := path.Join("configs", lane.CaptureID)
+		if err := validatePortableManifestPath(lane.PayloadRoot); err != nil || lane.PayloadRoot != expectedRoot {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacyConfigLanes[%d].payloadRoot must be %q", index, expectedRoot)
+		}
+		if _, duplicate := allCaptureIDs[lane.CaptureID]; duplicate {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "duplicate captureId %q across config captures and legacy lanes", lane.CaptureID)
+		}
+		if _, duplicate := legacyModules[lane.ModuleID]; duplicate {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "duplicate legacy lane moduleId %q", lane.ModuleID)
+		}
+		if _, generationAware := generationModules[lane.ModuleID]; generationAware {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "module %q cannot have both generation and legacy lanes", lane.ModuleID)
+		}
+		for _, existingRoot := range roots {
+			if portableRootsOverlap(existingRoot, lane.PayloadRoot) {
+				return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacy payload root %q overlaps %q", lane.PayloadRoot, existingRoot)
+			}
+		}
+		allCaptureIDs[lane.CaptureID] = struct{}{}
+		legacyModules[lane.ModuleID] = struct{}{}
+		laneByID[lane.CaptureID] = lane
+		roots = append(roots, lane.PayloadRoot)
+	}
+
 	listedModules := make(map[string]struct{}, len(manifest.ConfigModules))
-	for _, moduleID := range manifest.ConfigModules {
+	for index, moduleID := range manifest.ConfigModules {
+		if !manifestStableIDPattern.MatchString(moduleID) {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "configModules[%d] is not a stable module ID", index)
+		}
+		if _, duplicate := listedModules[moduleID]; duplicate {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "configModules contains duplicate module %q", moduleID)
+		}
+		if _, expected := legacyModules[moduleID]; !expected {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "configModules contains module %q without a legacy lane", moduleID)
+		}
 		listedModules[moduleID] = struct{}{}
 	}
+	if len(listedModules) != len(legacyModules) {
+		return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "configModules must exactly equal the legacy lane module set")
+	}
+
+	used := make(map[string]struct{}, len(laneByID))
 	for index, restore := range manifest.Restore {
-		if !manifestStableIDPattern.MatchString(restore.FromModule) {
-			return manifestValidationError(
-				filePath,
-				ManifestDiagnosticInvalidConfigCapture,
-				"restore[%d].fromModule must be a nonempty stable lowercase module ID",
-				index,
-			)
+		if !manifestStableIDPattern.MatchString(restore.LegacyCaptureID) {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].legacyCaptureId must identify one legacy lane", index)
 		}
-		if _, listed := listedModules[restore.FromModule]; !listed {
-			return manifestValidationError(
-				filePath,
-				ManifestDiagnosticInvalidConfigCapture,
-				"restore[%d].fromModule %q is not listed in configModules",
-				index,
-				restore.FromModule,
-			)
+		lane, exists := laneByID[restore.LegacyCaptureID]
+		if !exists {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].legacyCaptureId %q does not resolve to a legacy lane", index, restore.LegacyCaptureID)
 		}
-		if _, generationAware := generationModules[restore.FromModule]; generationAware {
-			return manifestValidationError(
-				filePath,
-				ManifestDiagnosticInvalidConfigCapture,
-				"restore[%d].fromModule %q is generation-aware and cannot use a flat restore lane",
-				index,
-				restore.FromModule,
-			)
+		if restore.FromModule != lane.ModuleID {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].fromModule %q does not match legacy lane module %q", index, restore.FromModule, lane.ModuleID)
 		}
-		if strings.TrimSpace(restore.Source) == "" {
-			continue
-		}
-		source := path.Clean(strings.ReplaceAll(strings.TrimSpace(restore.Source), `\`, "/"))
-		for _, root := range roots {
-			if source == root || strings.HasPrefix(source, root+"/") {
-				return manifestValidationError(
-					filePath,
-					ManifestDiagnosticInvalidConfigCapture,
-					"restore[%d].source enters generation payload root %q",
-					index,
-					root,
-				)
+		if strings.TrimSpace(restore.Source) != "" {
+			source, err := normalizeLegacyRestoreSource(restore.Source)
+			if err != nil || (source != lane.PayloadRoot && !strings.HasPrefix(source, lane.PayloadRoot+"/")) {
+				return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].source must remain under legacy payload root %q", index, lane.PayloadRoot)
 			}
+		}
+		used[lane.CaptureID] = struct{}{}
+	}
+	for _, lane := range manifest.LegacyConfigLanes {
+		if _, exists := used[lane.CaptureID]; !exists {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacy lane %q is not used by any flat restore entry", lane.CaptureID)
 		}
 	}
 	return nil
+}
+
+func normalizeLegacyRestoreSource(source string) (string, error) {
+	portable := strings.ReplaceAll(strings.TrimSpace(source), `\`, "/")
+	portable = strings.TrimPrefix(portable, "./")
+	if err := validatePortableManifestPath(portable); err != nil {
+		return "", err
+	}
+	return portable, nil
+}
+
+func portableRootsOverlap(left, right string) bool {
+	left = strings.ToLower(left)
+	right = strings.ToLower(right)
+	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
 }
 
 func normalizeNumericManifestVersion(value string) (string, bool) {
@@ -372,8 +473,8 @@ func validatePortableManifestPath(value string) error {
 	if strings.Contains(trimmed, `\`) {
 		return fmt.Errorf("path must use portable forward slashes")
 	}
-	if strings.HasPrefix(trimmed, "/") || windowsVolumePattern.MatchString(trimmed) {
-		return fmt.Errorf("path is absolute or volume-qualified")
+	if strings.HasPrefix(trimmed, "/") || windowsVolumePattern.MatchString(trimmed) || strings.Contains(trimmed, ":") {
+		return fmt.Errorf("path is absolute, volume-qualified, or names an alternate data stream")
 	}
 	if strings.HasPrefix(trimmed, "~") || strings.ContainsAny(trimmed, "$%") {
 		return fmt.Errorf("path contains host expansion")

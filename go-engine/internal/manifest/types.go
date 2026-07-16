@@ -24,11 +24,23 @@ type Manifest struct {
 	ConfigModules  []string        `json:"configModules,omitempty"`
 	ExcludeConfigs []string        `json:"excludeConfigs,omitempty"`
 	ConfigCaptures []ConfigCapture `json:"configCaptures,omitempty"`
+	// LegacyConfigLanes explicitly associates every flat schema-v1 payload
+	// retained in a mixed manifest-v2 bundle with its module and isolated root.
+	LegacyConfigLanes []LegacyConfigLane `json:"legacyConfigLanes,omitempty"`
 
 	// HomeManager declares a home-manager configuration the Nix realizer activates
 	// as a config stage of apply (opt-in via --enable-restore). Absent ⇒ no config
 	// stage (default apply unchanged). Realizer-only; the winget path ignores it.
 	HomeManager *HomeManagerConfig `json:"homeManager,omitempty"`
+}
+
+// LegacyConfigLane identifies one explicitly isolated schema-v1 payload in a
+// manifest-v2 bundle. It carries no generation claim and remains unverified.
+type LegacyConfigLane struct {
+	CaptureID           string `json:"captureId"`
+	ModuleID            string `json:"moduleId"`
+	ModuleSchemaVersion int    `json:"moduleSchemaVersion"`
+	PayloadRoot         string `json:"payloadRoot"`
 }
 
 // ConfigCapture is the immutable manifest-v2 provenance and payload index for
@@ -398,6 +410,9 @@ type RestoreEntry struct {
 	Optional   bool     `json:"optional,omitempty"`
 	Exclude    []string `json:"exclude,omitempty"`
 	FromModule string   `json:"fromModule,omitempty"`
+	// LegacyCaptureID binds a manifest-v2 flat restore action to exactly one
+	// LegacyConfigLane. It is intentionally absent from manifest v1.
+	LegacyCaptureID string `json:"legacyCaptureId,omitempty"`
 
 	// registry-set fields (value-level Windows OS-settings ops). Key is an HKCU
 	// key path; ValueName/ValueType/Data describe the single named value to set.

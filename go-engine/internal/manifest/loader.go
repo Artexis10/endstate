@@ -59,6 +59,9 @@ func loadManifestInternal(absPath string, visited map[string]bool, inheritedVers
 	if err := validateRawConfigCaptures(raw, version, absPath); err != nil {
 		return nil, err
 	}
+	if err := validateRawLegacyAssociations(raw, version, absPath); err != nil {
+		return nil, err
+	}
 
 	var m Manifest
 	if err := json.Unmarshal(clean, &m); err != nil {
@@ -67,6 +70,9 @@ func loadManifestInternal(absPath string, visited map[string]bool, inheritedVers
 	m.Version = version
 	if version == 2 {
 		if err := validateConfigCaptures(m.ConfigCaptures, absPath, false); err != nil {
+			return nil, err
+		}
+		if err := validateLegacyConfigLanes(&m, absPath); err != nil {
 			return nil, err
 		}
 	}
@@ -123,6 +129,7 @@ func resolveIncludes(m *Manifest, basePath string, visited map[string]bool, pare
 		m.Restore = append(m.Restore, included.Restore...)
 		m.Verify = append(m.Verify, included.Verify...)
 		m.ConfigCaptures = append(m.ConfigCaptures, included.ConfigCaptures...)
+		m.LegacyConfigLanes = append(m.LegacyConfigLanes, included.LegacyConfigLanes...)
 		if parentVersion == 2 {
 			m.ConfigModules = append(m.ConfigModules, included.ConfigModules...)
 		}

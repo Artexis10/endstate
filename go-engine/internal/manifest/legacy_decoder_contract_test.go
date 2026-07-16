@@ -46,7 +46,7 @@ func TestFrozenLegacyDecoderCannotReachGenerationPayloads(t *testing.T) {
 	}{
 		{"pure v2", nil, 0},
 		{"mixed v2 explicit legacy lane", []any{map[string]any{
-			"type": "copy", "source": "./configs/legacy-app/prefs.json", "target": "%APPDATA%/Legacy/prefs.json", "fromModule": "legacy.example",
+			"type": "copy", "source": "./configs/legacy-a/prefs.json", "target": "%APPDATA%/Legacy/prefs.json", "fromModule": "legacy.example", "legacyCaptureId": "legacy-a",
 		}}, 1},
 	}
 
@@ -57,6 +57,9 @@ func TestFrozenLegacyDecoderCannotReachGenerationPayloads(t *testing.T) {
 			if tt.restore != nil {
 				value["restore"] = tt.restore
 				value["configModules"] = []any{"legacy.example"}
+				value["legacyConfigLanes"] = []any{map[string]any{
+					"captureId": "legacy-a", "moduleId": "legacy.example", "moduleSchemaVersion": 1, "payloadRoot": "configs/legacy-a",
+				}}
 			}
 			encoded, err := json.Marshal(value)
 			if err != nil {

@@ -285,18 +285,12 @@ func TestLoadManifestV2StrictValidation(t *testing.T) {
 
 func TestLoadManifestV2AllowsExplicitlyAssociatedLegacyRestore(t *testing.T) {
 	value := validManifestV2Value("capture-a")
-	value["configModules"] = []any{"legacy.example"}
-	value["restore"] = []any{map[string]any{
-		"type":       "copy",
-		"source":     "./configs/legacy.example/a.json",
-		"target":     "~/.example/a.json",
-		"fromModule": "legacy.example",
-	}}
+	addValidLegacyLane(value, "legacy-a", "legacy.example")
 	loaded, err := LoadManifest(writeManifestValue(t, value))
 	if err != nil {
 		t.Fatalf("LoadManifest rejected explicit legacy lane: %v", err)
 	}
-	if len(loaded.Restore) != 1 || loaded.Restore[0].FromModule != "legacy.example" {
+	if len(loaded.Restore) != 1 || loaded.Restore[0].FromModule != "legacy.example" || loaded.Restore[0].LegacyCaptureID != "legacy-a" {
 		t.Fatalf("legacy lane association lost: %+v", loaded.Restore)
 	}
 }
