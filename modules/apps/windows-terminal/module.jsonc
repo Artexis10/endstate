@@ -3,6 +3,7 @@
   // Provides verify/restore/capture configuration for Windows Terminal
   // Curated module - captures user settings, excludes volatile state
   
+  "moduleSchemaVersion": 2,
   "id": "apps.windows-terminal",
   "displayName": "Windows Terminal",
   "sensitivity": "low",
@@ -17,27 +18,46 @@
     { "type": "command-exists", "command": "wt" }
   ],
   
-  "restore": [
-    {
-      "type": "copy",
-      "source": "./payload/apps/windows-terminal/settings.json",
-      "target": "%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
-      "backup": true,
-      "optional": true
-    }
-  ],
-  
-  "capture": {
-    "files": [
-      { "source": "%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json", "dest": "apps/windows-terminal/settings.json", "optional": true }
+  "config": {
+    "instanceDetectors": [
+      { "id": "installed", "type": "package" }
     ],
-    "excludeGlobs": [
-      "**\\Cache\\**",
-      "**\\Temp\\**",
-      "**\\Logs\\**",
-      "**\\*.log",
-      "**\\*.lock",
-      "**\\state.json"
+    "sets": [
+      {
+        "id": "preferences",
+        "displayName": "Settings",
+        "generations": [
+          {
+            "id": "g1",
+            "order": 1,
+            "capture": {
+              "files": [
+                { "source": "%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json", "dest": "settings.json", "optional": true }
+              ],
+              "excludeGlobs": [
+                "**\\Cache\\**",
+                "**\\Temp\\**",
+                "**\\Logs\\**",
+                "**\\*.log",
+                "**\\*.lock",
+                "**\\state.json"
+              ]
+            },
+            "restore": [
+              {
+                "type": "copy",
+                "source": "settings.json",
+                "target": "%LOCALAPPDATA%\\Packages\\Microsoft.WindowsTerminal_8wekyb3d8bbwe\\LocalState\\settings.json",
+                "backup": true,
+                "optional": true
+              }
+            ],
+            "validate": [
+              { "type": "json-parse", "path": "settings.json" }
+            ]
+          }
+        ]
+      }
     ]
   },
   

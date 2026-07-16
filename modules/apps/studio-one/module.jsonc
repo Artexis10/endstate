@@ -3,6 +3,7 @@
   // Provides verify/restore/capture configuration for the Studio One DAW
   // Settings live in a version-numbered folder under %APPDATA%\PreSonus\Studio One <ver>
 
+  "moduleSchemaVersion": 2,
   "id": "apps.studio-one",
   "displayName": "PreSonus Studio One",
   "sensitivity": "low",
@@ -18,88 +19,68 @@
     ]
   },
 
-  "verify": [
-    // Settings folder name carries the major version, so check the common recent ones.
-    { "type": "file-exists", "path": "%APPDATA%\\PreSonus\\Studio One 7" }
-  ],
-
-  "restore": [
-    {
-      // Studio One Pro 7 settings tree (preferences, key commands, devices, surfaces, presets, templates)
-      "type": "copy",
-      "source": "./payload/apps/studio-one/Studio One 7",
-      "target": "%APPDATA%\\PreSonus\\Studio One 7",
-      "backup": true,
-      "optional": true,
-      "exclude": [
-        "**\\PluginBlacklist.settings",
-        "**\\PlugInScanner.log",
-        "**\\*.log",
-        "**\\Cache\\**",
-        "**\\*Cache*",
-        "**\\Temp\\**",
-        "**\\*.lock",
-        "**\\user.license"
-      ]
-    },
-    {
-      // Studio One 6 settings tree
-      "type": "copy",
-      "source": "./payload/apps/studio-one/Studio One 6",
-      "target": "%APPDATA%\\PreSonus\\Studio One 6",
-      "backup": true,
-      "optional": true,
-      "exclude": [
-        "**\\PluginBlacklist.settings",
-        "**\\PlugInScanner.log",
-        "**\\*.log",
-        "**\\Cache\\**",
-        "**\\*Cache*",
-        "**\\Temp\\**",
-        "**\\*.lock",
-        "**\\user.license"
-      ]
-    },
-    {
-      // Studio One 5 settings tree
-      "type": "copy",
-      "source": "./payload/apps/studio-one/Studio One 5",
-      "target": "%APPDATA%\\PreSonus\\Studio One 5",
-      "backup": true,
-      "optional": true,
-      "exclude": [
-        "**\\PluginBlacklist.settings",
-        "**\\PlugInScanner.log",
-        "**\\*.log",
-        "**\\Cache\\**",
-        "**\\*Cache*",
-        "**\\Temp\\**",
-        "**\\*.lock",
-        "**\\user.license"
-      ]
-    }
-  ],
-
-  "capture": {
-    "files": [
-      // Whole versioned settings folder: preferences/Options, Key Commands (keymaps),
-      // User Devices + Surface Data (control surfaces), Presets, Templates, plug-in path config.
-      { "source": "%APPDATA%\\PreSonus\\Studio One 7", "dest": "apps/studio-one/Studio One 7", "optional": true },
-      { "source": "%APPDATA%\\PreSonus\\Studio One 6", "dest": "apps/studio-one/Studio One 6", "optional": true },
-      { "source": "%APPDATA%\\PreSonus\\Studio One 5", "dest": "apps/studio-one/Studio One 5", "optional": true }
+  "config": {
+    "instanceDetectors": [
+      {
+        "id": "versions",
+        "type": "path",
+        "glob": "%APPDATA%\\PreSonus\\Studio One *",
+        "versionPattern": "^Studio One (?P<version>[0-9]+)$"
+      }
     ],
-    "excludeGlobs": [
-      // Plug-in scan database / blacklist + scanner log: rebuilt automatically on launch.
-      "**\\PluginBlacklist.settings",
-      "**\\PlugInScanner.log",
-      "**\\*.log",
-      // Caches, temp, lock files.
-      "**\\Cache\\**",
-      "**\\*Cache*",
-      "**\\Temp\\**",
-      "**\\*.lock",
-      // Activation/license blob (machine-bound; primary copy lives under ProgramData, never restorable).
-      "**\\user.license"
+    "sets": [
+      {
+        "id": "preferences",
+        "displayName": "Settings",
+        "generations": [
+          {
+            "id": "g1",
+            "order": 1,
+            "matches": [
+              { "versionRange": ">=5 <8" }
+            ],
+            "capture": {
+              "files": [
+                // Whole versioned settings folder: preferences/Options, Key Commands (keymaps),
+                // User Devices + Surface Data (control surfaces), Presets, Templates, plug-in path config.
+                { "source": "${instance.root}", "dest": "settings", "optional": true }
+              ],
+              "excludeGlobs": [
+                // Plug-in scan database / blacklist + scanner log: rebuilt automatically on launch.
+                "**\\PluginBlacklist.settings",
+                "**\\PlugInScanner.log",
+                "**\\*.log",
+                // Caches, temp, lock files.
+                "**\\Cache\\**",
+                "**\\*Cache*",
+                "**\\Temp\\**",
+                "**\\*.lock",
+                // Activation/license blob (machine-bound; primary copy lives under ProgramData, never restorable).
+                "**\\user.license"
+              ]
+            },
+            "restore": [
+              {
+                "type": "copy",
+                "source": "settings",
+                "target": "${instance.root}",
+                "backup": true,
+                "optional": true,
+                "exclude": [
+                  "**\\PluginBlacklist.settings",
+                  "**\\PlugInScanner.log",
+                  "**\\*.log",
+                  "**\\Cache\\**",
+                  "**\\*Cache*",
+                  "**\\Temp\\**",
+                  "**\\*.lock",
+                  "**\\user.license"
+                ]
+              }
+            ]
+          }
+        ]
+      }
     ]
   },
 
