@@ -115,11 +115,14 @@ func TestConfigRestorePlanningSessionFinalPreservesSideBySideTargets(t *testing.
 }
 
 func TestConfigRestorePlanningSessionFinalDetectionFailureReplacesPreviewAndIsIsolated(t *testing.T) {
-	runtime, _ := planningTestRuntime(t, "alpha,beta",
+	runtime, _ := planningTestRuntimeWithTargets(t, "alpha,beta", []string{"capture-filtered=stale-target"},
 		planningTestModule("apps.alpha", modules.InstanceDetectorDef{ID: "installed", Type: "package"}),
 		planningTestModule("apps.beta", modules.InstanceDetectorDef{ID: "profiles", Type: "path", Glob: "beta/*"}),
 		planningTestModule("apps.filtered", modules.InstanceDetectorDef{ID: "profiles", Type: "path", Glob: "filtered/*"}),
 	)
+	if _, exists := runtime.inputs.targetMappings["capture-filtered"]; exists {
+		t.Fatalf("filtered mapping survived runtime snapshot: %#v", runtime.inputs.targetMappings)
+	}
 	session := newConfigRestorePlanningSession(runtime)
 	preview := session.Preview(configRestoreDetectionEvidence{
 		PackagesByModule: map[string][]modules.PackageEvidence{
@@ -132,9 +135,10 @@ func TestConfigRestorePlanningSessionFinalDetectionFailureReplacesPreviewAndIsIs
 			return []string{filepath.Join(t.TempDir(), "1.5")}, nil
 		},
 	})
-	if len(preview.Sets) != 2 {
-		t.Fatalf("preview planned filtered sources: %+v", preview.Sets)
+	if len(preview.Sets) != 3 {
+		t.Fatalf("preview omitted deterministic filtered row: %+v", preview.Sets)
 	}
+	assertFilteredPlanningSet(t, preview, "capture-filtered")
 
 	final := session.Final(configRestoreDetectionEvidence{
 		PackagesByModule: map[string][]modules.PackageEvidence{
@@ -147,8 +151,15 @@ func TestConfigRestorePlanningSessionFinalDetectionFailureReplacesPreviewAndIsIs
 			return nil, errors.New("beta detector unavailable")
 		},
 	})
-	if len(final.Sets) != 2 {
+	if len(final.Sets) != 3 {
 		t.Fatalf("final sets = %+v", final.Sets)
+	}
+	if got := []string{final.Sets[0].Source.CaptureID, final.Sets[1].Source.CaptureID, final.Sets[2].Source.CaptureID}; strings.Join(got, ",") != "capture-alpha,capture-beta,capture-filtered" {
+		t.Fatalf("final set order = %v", got)
+	}
+	if final.Summary.Total != 3 || final.Summary.Direct != 1 || final.Summary.Unknown != 2 ||
+		final.Summary.Skipped != 2 {
+		t.Fatalf("final summary did not include filtered row: %+v", final.Summary)
 	}
 	alpha := planningSetByCapture(t, final, "capture-alpha")
 	if alpha.Resolution.Resolution != planner.ResolutionDirect || alpha.Resolution.Reason != nil ||
@@ -166,9 +177,20 @@ func TestConfigRestorePlanningSessionFinalDetectionFailureReplacesPreviewAndIsIs
 		t.Fatal("final plan was not executable")
 	}
 	assertPlanningReason(t, executable, "capture-beta", planner.ReasonTargetDetectionFailed)
+	assertFilteredPlanningSet(t, executable, "capture-filtered")
 }
 
 func planningTestRuntime(t *testing.T, restoreFilter string, catalogModules ...*modules.Module) (*configRestoreRuntime, *int) {
+	t.Helper()
+	return planningTestRuntimeWithTargets(t, restoreFilter, nil, catalogModules...)
+}
+
+func planningTestRuntimeWithTargets(
+	t *testing.T,
+	restoreFilter string,
+	restoreTargets []string,
+	catalogModules ...*modules.Module,
+) (*configRestoreRuntime, *int) {
 	t.Helper()
 	manifestDir := t.TempDir()
 	captures := make([]manifest.ConfigCapture, len(catalogModules))
@@ -186,13 +208,26 @@ func planningTestRuntime(t *testing.T, restoreFilter string, catalogModules ...*
 	}
 	t.Cleanup(func() { loadConfigRestoreCatalogFn = originalLoader })
 	runtime, envErr := newConfigRestoreRuntime(configRestoreBuildRequest{
-		Manifest:     &manifest.Manifest{Version: 2, ConfigCaptures: captures},
-		ManifestPath: filepath.Join(manifestDir, "manifest.jsonc"), RestoreFilter: restoreFilter,
+		Manifest:       &manifest.Manifest{Version: 2, ConfigCaptures: captures},
+		ManifestPath:   filepath.Join(manifestDir, "manifest.jsonc"),
+		RestoreFilter:  restoreFilter,
+		RestoreTargets: restoreTargets,
 	})
 	if envErr != nil {
 		t.Fatalf("newConfigRestoreRuntime: %+v", envErr)
 	}
 	return runtime, &loadCount
+}
+
+func assertFilteredPlanningSet(t *testing.T, plan planner.ConfigPlan, captureID string) {
+	t.Helper()
+	set := planningSetByCapture(t, plan, captureID)
+	if set.Resolution.Resolution != planner.ResolutionUnknown || set.Resolution.Status != planner.StatusSkipped ||
+		set.Resolution.Reason == nil || *set.Resolution.Reason != planner.ReasonRestoreFiltered ||
+		set.Resolution.TargetInstanceID != "" || len(set.TargetInstances) != 0 ||
+		len(set.Resolution.TargetCandidates) != 0 || len(set.Resolution.ResolvedTargets) != 0 {
+		t.Fatalf("filtered row = %+v", set)
+	}
 }
 
 func planningTestModule(moduleID string, detector modules.InstanceDetectorDef) *modules.Module {

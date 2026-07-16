@@ -87,6 +87,7 @@ func (session *configRestorePlanningSession) buildFreshPlan(evidence configResto
 		session.runtime.inputs.targetMappings,
 	)
 	applyTargetDetectionFailures(&plan, failedModules)
+	mergeFilteredConfigRestoreSources(&plan, session.runtime.inputs.generationSources)
 	return plan
 }
 
@@ -134,6 +135,68 @@ func applyTargetDetectionFailures(plan *planner.ConfigPlan, failedModules map[st
 			Status:          planner.StatusSkipped,
 		}
 		set.Resolution = planner.ProjectConfigResolution(*set)
+	}
+	recomputeConfigPlanSummary(plan)
+}
+
+func mergeFilteredConfigRestoreSources(plan *planner.ConfigPlan, values []configRestoreSource) {
+	if plan == nil {
+		return
+	}
+	selectedByCapture := make(map[string]planner.PlanSet, len(plan.Sets))
+	for _, set := range plan.Sets {
+		selectedByCapture[set.Source.CaptureID] = set
+	}
+	ordered := append([]configRestoreSource(nil), values...)
+	sort.Slice(ordered, func(left, right int) bool {
+		leftSource := ordered[left].source
+		rightSource := ordered[right].source
+		if leftSource.CaptureID != rightSource.CaptureID {
+			return leftSource.CaptureID < rightSource.CaptureID
+		}
+		if leftSource.ModuleID != rightSource.ModuleID {
+			return leftSource.ModuleID < rightSource.ModuleID
+		}
+		if leftSource.ConfigSetID != rightSource.ConfigSetID {
+			return leftSource.ConfigSetID < rightSource.ConfigSetID
+		}
+		return leftSource.Instance.ID < rightSource.Instance.ID
+	})
+
+	merged := make([]planner.PlanSet, 0, len(ordered))
+	for _, value := range ordered {
+		if value.selected {
+			if selected, exists := selectedByCapture[value.source.CaptureID]; exists {
+				merged = append(merged, selected)
+			}
+			continue
+		}
+		merged = append(merged, filteredConfigRestorePlanSet(value.source))
+	}
+	plan.Sets = merged
+	recomputeConfigPlanSummary(plan)
+}
+
+func filteredConfigRestorePlanSet(source planner.SourceCapture) planner.PlanSet {
+	reason := planner.ReasonRestoreFiltered
+	set := planner.PlanSet{
+		Source:          source,
+		TargetInstances: []planner.TargetInstance{},
+		Resolution: planner.ConfigResolution{
+			Resolution:      planner.ResolutionUnknown,
+			Reason:          &reason,
+			MigrationPath:   []string{},
+			ResolvedTargets: []string{},
+			Status:          planner.StatusSkipped,
+		},
+	}
+	set.Resolution = planner.ProjectConfigResolution(set)
+	return set
+}
+
+func recomputeConfigPlanSummary(plan *planner.ConfigPlan) {
+	if plan == nil {
+		return
 	}
 	resolutions := make([]planner.ConfigResolution, len(plan.Sets))
 	for index := range plan.Sets {
