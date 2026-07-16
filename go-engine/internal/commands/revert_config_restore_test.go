@@ -171,6 +171,102 @@ func TestRunRevertInterleavesGenerationAndLegacyMembersInReverseOrdinalOrder(t *
 	}
 }
 
+func TestRunRevertRetrySuppressesConsumedSyntheticJournal(t *testing.T) {
+	repoRoot := t.TempDir()
+	stateDir := filepath.Join(repoRoot, "state")
+	logsDir := filepath.Join(repoRoot, "logs")
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sourceRunID := "apply-source-synthetic-retry"
+	guard, err := configrestore.BeginLive(context.Background(), stateDir, sourceRunID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generationTarget := filepath.Join(repoRoot, "generation-settings.json")
+	if err := os.WriteFile(generationTarget, []byte("generation-prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	transactionRoot, err := guard.CreateTransactionRoot("capture-generation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := configrestore.PrepareSnapshots(context.Background(), configrestore.SnapshotRequest{
+		Set: &configrestore.MaterializedSet{Actions: []configrestore.Action{{
+			Kind: configrestore.ActionDeleteFile, Strategy: "delete-glob", Target: generationTarget, SnapshotRequired: true,
+		}}}, TransactionRoot: transactionRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage := configRestoreTestLineage("capture-generation")
+	lineage.RunID = sourceRunID
+	intent, err := configrestore.PersistJournalIntent(context.Background(), configrestore.JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: lineage,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := configrestore.ExecuteConfigSetTransaction(context.Background(), configrestore.TransactionRequest{
+		Prepared: prepared, Intent: intent,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	legacySource := filepath.Join(repoRoot, "legacy-source.json")
+	legacyTarget := filepath.Join(repoRoot, "legacy-settings.json")
+	if err := os.WriteFile(legacySource, []byte("legacy-desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyTarget, []byte("legacy-prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	legacyResults, err := restore.RunRestore([]restore.RestoreAction{{
+		ID: "legacy", Type: "copy", Source: filepath.Base(legacySource), Target: legacyTarget, Backup: true,
+	}}, restore.RestoreOptions{
+		ManifestDir: repoRoot, BackupDir: filepath.Join(stateDir, "backups", sourceRunID), RunID: sourceRunID,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := restore.WriteJournal(logsDir, sourceRunID, "", repoRoot, "", legacyResults); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drift the older generation member so the first attempt consumes the
+	// newer synthetic journal and then fails before reverting generation state.
+	if err := os.WriteFile(generationTarget, []byte("generation-drift"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalRoot := resolveRepoRootFn
+	resolveRepoRootFn = func() string { return repoRoot }
+	t.Cleanup(func() { resolveRepoRootFn = originalRoot })
+	if _, envErr := RunRevert(RevertFlags{}); envErr == nil {
+		t.Fatal("generation drift did not fail first revert")
+	}
+	if data, err := os.ReadFile(legacyTarget); err != nil || string(data) != "legacy-prior" {
+		t.Fatalf("synthetic legacy revert = %q, %v", data, err)
+	}
+	if err := os.Remove(generationTarget); err != nil {
+		t.Fatal(err)
+	}
+
+	got, envErr := RunRevert(RevertFlags{})
+	if envErr != nil {
+		t.Fatalf("retry RunRevert: %+v", envErr)
+	}
+	result := got.(*RevertData)
+	if len(result.Results) != 1 || result.Results[0].Target != generationTarget {
+		t.Fatalf("retry history selection = %+v", result.Results)
+	}
+	if data, err := os.ReadFile(generationTarget); err != nil || string(data) != "generation-prior" {
+		t.Fatalf("generation retry state = %q, %v", data, err)
+	}
+}
+
 func TestEmitConfigRevertResultsUsesContractedRestoreLifecycle(t *testing.T) {
 	buffer := &bytes.Buffer{}
 	emitter := events.NewEmitterWithWriter("revert-events", true, buffer)
@@ -204,6 +300,16 @@ func TestEmitConfigRevertResultsUsesContractedRestoreLifecycle(t *testing.T) {
 	}
 	if summary["phase"] != "restore" || summary["total"] != float64(1) || summary["failed"] != float64(1) {
 		t.Fatalf("failed revert summary = %#v", summary)
+	}
+}
+
+func TestAppendGenerationRevertResultsPreservesPartialActions(t *testing.T) {
+	results := appendGenerationRevertResults(nil, &configrestore.GenerationRevertResult{Actions: []configrestore.GenerationRevertAction{
+		{Target: "restored-target", BackupUsed: true},
+		{Target: "deleted-target", BackupUsed: false},
+	}})
+	if len(results) != 2 || results[0].Action != "reverted" || results[1].Action != "deleted" {
+		t.Fatalf("partial generation projection = %+v", results)
 	}
 }
 

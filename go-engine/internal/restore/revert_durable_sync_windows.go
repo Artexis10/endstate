@@ -19,6 +19,18 @@ func syncDurableLegacyDirectory(path string) error {
 	return syncDurableLegacyWindowsPath(path, true)
 }
 
+func publishDurableLegacyRecordNoReplace(temporary, destination string) error {
+	from, err := windows.UTF16PtrFromString(temporary)
+	if err != nil {
+		return err
+	}
+	to, err := windows.UTF16PtrFromString(destination)
+	if err != nil {
+		return err
+	}
+	return windows.MoveFileEx(from, to, windows.MOVEFILE_WRITE_THROUGH)
+}
+
 func syncDurableLegacyWindowsPath(path string, wantDirectory bool) error {
 	pointer, err := windows.UTF16PtrFromString(path)
 	if err != nil {

@@ -54,13 +54,7 @@ func durableLegacyRegistryStates(entry JournalEntry, workRoot string) (durableLe
 	}
 }
 
-func applyDurableLegacyRegistryRevert(
-	entry JournalEntry,
-	index int,
-	entryDigest string,
-	prepared durableLegacyRevertPrepared,
-	workRoot string,
-) error {
+func applyDurableLegacyRegistryRevert(entry JournalEntry, index int) error {
 	switch entry.RestoreType {
 	case "registry-set":
 		backup, err := readRegistrySetBackup(entry.BackupPath)
@@ -70,14 +64,6 @@ func applyDurableLegacyRegistryRevert(
 		return revertRegistrySet(backup)
 	case "registry-import":
 		if entry.BackupCreated && entry.BackupPath != "" {
-			started := durableLegacyRegistryReplaceStarted{
-				Version: durableLegacyRevertVersion, EntryIndex: index, EntryDigest: entryDigest,
-				Target: entry.TargetPath, Desired: prepared.Desired,
-			}
-			path := durableLegacyRegistryReplacePath(workRoot, index)
-			if err := writeImmutableDurableJSON(path, started); err != nil {
-				return err
-			}
 			if err := deleteDurableLegacyRegistryKey(entry.TargetPath); err != nil {
 				return err
 			}
@@ -93,32 +79,6 @@ func applyDurableLegacyRegistryRevert(
 	default:
 		return fmt.Errorf("unsupported durable registry revert type %q", entry.RestoreType)
 	}
-}
-
-func durableLegacyRegistryReplacePath(workRoot string, index int) string {
-	return filepath.Join(workRoot, fmt.Sprintf("entry-%06d-registry-replace.json", index))
-}
-
-func durableLegacyRegistryReplaceInProgress(
-	entry JournalEntry,
-	index int,
-	entryDigest string,
-	prepared durableLegacyRevertPrepared,
-	workRoot string,
-) (bool, error) {
-	if entry.RestoreType != "registry-import" || !entry.BackupCreated || entry.BackupPath == "" {
-		return false, nil
-	}
-	var started durableLegacyRegistryReplaceStarted
-	found, err := readStrictDurableJSON(durableLegacyRegistryReplacePath(workRoot, index), &started)
-	if err != nil || !found {
-		return found, err
-	}
-	if started.Version != durableLegacyRevertVersion || started.EntryIndex != index ||
-		started.EntryDigest != entryDigest || started.Target != entry.TargetPath || started.Desired != prepared.Desired {
-		return false, fmt.Errorf("legacy registry replacement marker differs from journal entry %d", index)
-	}
-	return true, nil
 }
 
 func deleteDurableLegacyRegistryKey(target string) error {

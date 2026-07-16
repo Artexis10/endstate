@@ -49,14 +49,6 @@ type durableLegacyRevertCompleted struct {
 	Action      string `json:"action"`
 }
 
-type durableLegacyRegistryReplaceStarted struct {
-	Version     int                      `json:"version"`
-	EntryIndex  int                      `json:"entryIndex"`
-	EntryDigest string                   `json:"entryDigest"`
-	Target      string                   `json:"target"`
-	Desired     durableLegacyRevertState `json:"desired"`
-}
-
 // RunRevertDurable reverts legacy filesystem entries with an immutable
 // per-entry before-state record. A retry may continue only from the exact
 // state recorded before undo or from the verified desired prior state; any
@@ -271,16 +263,10 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 		return RevertResult{}, err
 	}
 	if current != prepared.Desired {
-		replaceStarted, err := durableLegacyRegistryReplaceInProgress(entry, index, entryDigest, prepared, workRoot)
-		if err != nil {
-			return RevertResult{}, err
-		}
-		intermediate := entry.RestoreType == "registry-import" && entry.BackupCreated && entry.BackupPath != "" &&
-			current == absentDurableRegistryState("registry-key") && replaceStarted
-		if current != prepared.Before && !intermediate {
+		if current != prepared.Before {
 			return RevertResult{}, fmt.Errorf("legacy registry revert target %q changed after its durable before-state was recorded", entry.TargetPath)
 		}
-		if err := applyDurableLegacyRegistryRevert(entry, index, entryDigest, prepared, workRoot); err != nil {
+		if err := applyDurableLegacyRegistryRevert(entry, index); err != nil {
 			return RevertResult{}, err
 		}
 		if err := durableRevertCheckpoint("after_target_replaced", index); err != nil {
@@ -695,30 +681,101 @@ func writeImmutableDurableJSON(path string, value any) (resultErr error) {
 		return err
 	}
 	data = append(data, '\n')
+	directory := filepath.Dir(path)
+	if err := reconcileDurableLegacyRecordTemps(directory); err != nil {
+		return err
+	}
 	if existing, _, err := safepath.ReadRegularFile(path); err == nil {
 		if bytes.Equal(existing, data) {
-			return nil
+			if err := syncDurableLegacyFile(path); err != nil {
+				return err
+			}
+			return syncDurableLegacyDirectory(directory)
 		}
 		return fmt.Errorf("durable legacy revert record %q differs", path)
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	file, err := os.CreateTemp(directory, ".legacy-revert-record-*.tmp")
 	if err != nil {
 		return err
 	}
-	if _, err := file.Write(data); err != nil {
+	temporaryPath := file.Name()
+	defer func() {
 		_ = file.Close()
+		if err := os.Remove(temporaryPath); err == nil {
+			_ = syncDurableLegacyDirectory(directory)
+		}
+	}()
+	if err := file.Chmod(0o600); err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
 		return err
 	}
 	if err := file.Sync(); err != nil {
-		_ = file.Close()
 		return err
 	}
 	if err := file.Close(); err != nil {
 		return err
 	}
-	return syncDurableLegacyDirectory(filepath.Dir(path))
+	if err := publishDurableLegacyRecordNoReplace(temporaryPath, path); err != nil {
+		existing, _, readErr := safepath.ReadRegularFile(path)
+		if readErr != nil || !bytes.Equal(existing, data) {
+			return errors.Join(err, readErr)
+		}
+		if syncErr := syncDurableLegacyFile(path); syncErr != nil {
+			return errors.Join(err, syncErr)
+		}
+		if syncErr := syncDurableLegacyDirectory(directory); syncErr != nil {
+			return errors.Join(err, syncErr)
+		}
+		return nil
+	}
+	return syncDurableLegacyDirectory(directory)
+}
+
+func reconcileDurableLegacyRecordTemps(directory string) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	removed := false
+	for _, entry := range entries {
+		if !isDurableLegacyRecordTemp(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || isLinkOrReparse(info) {
+			return fmt.Errorf("durable legacy record temp %q is not a safe regular file", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		removed = true
+	}
+	if removed {
+		return syncDurableLegacyDirectory(directory)
+	}
+	return nil
+}
+
+func isDurableLegacyRecordTemp(name string) bool {
+	const prefix = ".legacy-revert-record-"
+	const suffix = ".tmp"
+	if len(name) <= len(prefix)+len(suffix) || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+		return false
+	}
+	for _, character := range name[len(prefix) : len(name)-len(suffix)] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func readDurableLegacyPrepared(path string) (durableLegacyRevertPrepared, bool, error) {

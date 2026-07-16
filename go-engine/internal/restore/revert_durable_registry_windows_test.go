@@ -18,7 +18,8 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
-func TestRunRevertDurableRegistryImportReplacesKeyAndResumesAfterDelete(t *testing.T) {
+func setupDurableRegistryImport(t *testing.T) (string, string, string, *Journal) {
+	t.Helper()
 	subkey := fmt.Sprintf(`Software\EndstateTest\DurableRevert\%d`, time.Now().UnixNano())
 	target := `HKCU\` + subkey
 	t.Cleanup(func() { _ = exec.Command("reg", "delete", target, "/f").Run() })
@@ -70,34 +71,16 @@ func TestRunRevertDurableRegistryImportReplacesKeyAndResumesAfterDelete(t *testi
 		TargetPath: target, TargetExistedBefore: true, BackupCreated: true,
 		BackupPath: backup, Action: "restored", RestoreType: "registry-import",
 	}}}
-	workRoot := t.TempDir()
-	originalCheckpoint := durableRevertCheckpoint
-	fired := false
-	durableRevertCheckpoint = func(phase string, _ int) error {
-		if phase == "after_registry_key_deleted" && !fired {
-			fired = true
-			return errors.New("simulated registry delete/import crash")
-		}
-		return nil
-	}
-	t.Cleanup(func() { durableRevertCheckpoint = originalCheckpoint })
+	return subkey, target, backup, journal
+}
 
-	if _, err := RunRevertDurable(journal, "", workRoot); err == nil || !strings.Contains(err.Error(), "simulated") {
-		t.Fatalf("first registry revert error = %v", err)
-	}
-	if key, err := registry.OpenKey(registry.CURRENT_USER, subkey, registry.QUERY_VALUE); err != registry.ErrNotExist {
-		if err == nil {
-			_ = key.Close()
-		}
-		t.Fatalf("registry key after delete checkpoint = %v", err)
-	}
-
-	durableRevertCheckpoint = originalCheckpoint
-	results, err := RunRevertDurable(journal, "", workRoot)
+func TestRunRevertDurableRegistryImportReplacesKeyExactly(t *testing.T) {
+	subkey, _, backup, journal := setupDurableRegistryImport(t)
+	results, err := RunRevertDurable(journal, "", t.TempDir())
 	if err != nil || len(results) != 1 || results[0].Action != "reverted" {
-		t.Fatalf("resumed registry results = %+v, %v", results, err)
+		t.Fatalf("registry results = %+v, %v", results, err)
 	}
-	key, err = registry.OpenKey(registry.CURRENT_USER, subkey, registry.QUERY_VALUE)
+	key, err := registry.OpenKey(registry.CURRENT_USER, subkey, registry.QUERY_VALUE)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,5 +111,41 @@ func TestRunRevertDurableRegistryImportReplacesKeyAndResumesAfterDelete(t *testi
 	}
 	if _, err := os.Stat(backup); err != nil {
 		t.Fatalf("verified backup disappeared: %v", err)
+	}
+}
+
+func TestRunRevertDurableRegistryImportFailsClosedAfterDeleteGap(t *testing.T) {
+	subkey, _, _, journal := setupDurableRegistryImport(t)
+	originalCheckpoint := durableRevertCheckpoint
+	fired := false
+	durableRevertCheckpoint = func(phase string, _ int) error {
+		if phase == "after_registry_key_deleted" && !fired {
+			fired = true
+			return errors.New("simulated registry delete/import crash")
+		}
+		return nil
+	}
+	t.Cleanup(func() { durableRevertCheckpoint = originalCheckpoint })
+
+	workRoot := t.TempDir()
+	if _, err := RunRevertDurable(journal, "", workRoot); err == nil || !strings.Contains(err.Error(), "simulated") {
+		t.Fatalf("first registry revert error = %v", err)
+	}
+	if key, err := registry.OpenKey(registry.CURRENT_USER, subkey, registry.QUERY_VALUE); err != registry.ErrNotExist {
+		if err == nil {
+			_ = key.Close()
+		}
+		t.Fatalf("registry key after delete checkpoint = %v", err)
+	}
+
+	durableRevertCheckpoint = originalCheckpoint
+	if _, err := RunRevertDurable(journal, "", workRoot); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("unsafe registry retry error = %v", err)
+	}
+	if key, err := registry.OpenKey(registry.CURRENT_USER, subkey, registry.QUERY_VALUE); err != registry.ErrNotExist {
+		if err == nil {
+			_ = key.Close()
+		}
+		t.Fatalf("failed-closed retry recreated registry key: %v", err)
 	}
 }

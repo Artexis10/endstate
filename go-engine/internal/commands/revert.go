@@ -118,7 +118,7 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 	}
 	useStoreRun := len(runs) > 0 && !newerStandalone
 	if useStoreRun {
-		members := configRestoreRevertMembers(runs[0], latestPath, latestJournal)
+		members := configRestoreRevertMembers(runs[0], latestPath, latestJournal, latestConsumed)
 		for index := len(members) - 1; index >= 0; index-- {
 			member := members[index]
 			if member.legacyPath != "" {
@@ -153,16 +153,10 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 			}
 
 			generation, revertErr := guard.RevertGenerationMember(context.Background(), member.member)
+			results = appendGenerationRevertResults(results, generation)
 			if revertErr != nil {
 				return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to revert generation-aware configuration.").
 					WithDetail(map[string]string{"reason": revertErr.Error()})
-			}
-			for _, action := range generation.Actions {
-				revertAction := "deleted"
-				if action.BackupUsed {
-					revertAction = "reverted"
-				}
-				results = append(results, restore.RevertResult{Target: action.Target, Action: revertAction})
 			}
 		}
 	} else {
@@ -247,6 +241,7 @@ func configRestoreRevertMembers(
 	run *configrestore.StoreRun,
 	latestPath string,
 	latestJournal *restore.Journal,
+	latestConsumed bool,
 ) []configRestoreRevertMember {
 	if run == nil {
 		return []configRestoreRevertMember{}
@@ -267,12 +262,26 @@ func configRestoreRevertMembers(
 		}
 		result = append(result, entry)
 	}
-	if latestJournal != nil && latestJournal.RunID == run.RunID() && !registeredLatest {
+	if latestJournal != nil && latestJournal.RunID == run.RunID() && !registeredLatest && !latestConsumed {
 		result = append(result, configRestoreRevertMember{
 			legacyPath: latestPath, synthetic: true, ordinal: lastOrdinal + 1,
 		})
 	}
 	return result
+}
+
+func appendGenerationRevertResults(results []restore.RevertResult, generation *configrestore.GenerationRevertResult) []restore.RevertResult {
+	if generation == nil {
+		return results
+	}
+	for _, action := range generation.Actions {
+		revertAction := "deleted"
+		if action.BackupUsed {
+			revertAction = "reverted"
+		}
+		results = append(results, restore.RevertResult{Target: action.Target, Action: revertAction})
+	}
+	return results
 }
 
 func newerStandaloneLegacyJournal(run *configrestore.StoreRun, journal *restore.Journal) (bool, error) {

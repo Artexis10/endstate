@@ -666,8 +666,14 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 	blockedGeneration := make(map[int]bool)
 	for left := 0; left < len(claims); left++ {
 		for right := left + 1; right < len(claims); right++ {
-			if claims[left].ownerKey() == claims[right].ownerKey() ||
-				!concreteConfigRestoreClaimsOverlap(claims[left].claim, claims[right].claim) {
+			if !concreteConfigRestoreClaimsOverlap(claims[left].claim, claims[right].claim) {
+				continue
+			}
+			// Exact repeated targets within one lane are ordered and journaled as a
+			// reversible state chain. Parent/child overlaps are not: changing a
+			// child also changes the parent's captured tree state, so reject those
+			// before any forward mutation.
+			if claims[left].ownerKey() == claims[right].ownerKey() && claims[left].claim == claims[right].claim {
 				continue
 			}
 			for _, owner := range []ownedConfigRestoreClaim{claims[left], claims[right]} {

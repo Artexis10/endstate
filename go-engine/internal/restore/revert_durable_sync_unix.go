@@ -7,6 +7,8 @@ package restore
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"golang.org/x/sys/unix"
 )
@@ -17,6 +19,20 @@ func syncDurableLegacyFile(path string) error {
 
 func syncDurableLegacyDirectory(path string) error {
 	return syncDurableLegacyUnixPath(path, true)
+}
+
+func publishDurableLegacyRecordNoReplace(temporary, destination string) error {
+	if err := os.Link(temporary, destination); err != nil {
+		return err
+	}
+	directory := filepath.Dir(destination)
+	if err := syncDurableLegacyDirectory(directory); err != nil {
+		return err
+	}
+	if err := os.Remove(temporary); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return syncDurableLegacyDirectory(directory)
 }
 
 func syncDurableLegacyUnixPath(path string, wantDirectory bool) error {

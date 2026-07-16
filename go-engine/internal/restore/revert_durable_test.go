@@ -166,6 +166,33 @@ func TestRunRevertDurablePreflightsRepeatedTargetAsStateChain(t *testing.T) {
 	}
 }
 
+func TestRunRevertDurableReconcilesAbandonedRecordPublicationTemp(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "settings.json")
+	backup := filepath.Join(root, "settings.backup.json")
+	if err := os.WriteFile(target, []byte("desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	workRoot := t.TempDir()
+	abandoned := filepath.Join(workRoot, ".legacy-revert-record-12345.tmp")
+	if err := os.WriteFile(abandoned, []byte("torn"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journal := &Journal{Entries: []JournalEntry{{
+		TargetPath: target, TargetExistedBefore: true, BackupCreated: true,
+		BackupPath: backup, Action: "restored", RestoreType: "copy",
+	}}}
+	if _, err := RunRevertDurable(journal, "", workRoot); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(abandoned); !os.IsNotExist(err) {
+		t.Fatalf("abandoned publication temp survived: %v", err)
+	}
+}
+
 func TestRunRevertDurableResumesDirectorySwapAfterOriginalIsHeld(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "settings")

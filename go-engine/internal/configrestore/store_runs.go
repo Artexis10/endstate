@@ -212,12 +212,23 @@ func (g *Guard) PrepareLegacyMemberRevert(ctx context.Context, member *StoreMemb
 	if err := rejectExistingTargetLinks(root); err != nil {
 		return "", nil, err
 	}
-	if err := os.Mkdir(root, 0o700); err != nil && !os.IsExist(err) {
+	created := false
+	if err := os.Mkdir(root, 0o700); err == nil {
+		created = true
+	} else if !os.IsExist(err) {
 		return "", nil, fmt.Errorf("create legacy revert work directory: %w", err)
 	}
 	info, err := os.Lstat(root)
 	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
 		return "", nil, fmt.Errorf("legacy revert work path is not a safe directory")
+	}
+	if err := syncDurableDirectory(root); err != nil {
+		return "", nil, fmt.Errorf("sync legacy revert work directory: %w", err)
+	}
+	if created {
+		if err := syncDurableDirectory(g.legacyRevertWork); err != nil {
+			return "", nil, fmt.Errorf("sync legacy revert work parent: %w", err)
+		}
 	}
 	return root, append([]byte(nil), journalData...), nil
 }

@@ -663,6 +663,39 @@ func TestConfigRestoreExecutionBlocksGenerationAndLegacyCollisionBeforeEitherRun
 }
 
 func TestConfigRestoreExecutionUnifiedCollisionPreflightCoversLegacyOrdinaryAndRegistryScopes(t *testing.T) {
+	t.Run("parent child overlap within one legacy lane", func(t *testing.T) {
+		manifestDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(manifestDir, "directory.json"), []byte("directory"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(manifestDir, "child.json"), []byte("child"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		target := filepath.Join(t.TempDir(), "settings")
+		moduleID := "apps.overlap"
+		inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+			captureID: bundle.LegacyCaptureID(moduleID), moduleID: moduleID, configSetID: "legacy", selected: true,
+			restoreEntries: []manifest.RestoreEntry{
+				{Type: "copy", Source: "directory.json", Target: target, FromModule: moduleID},
+				{Type: "copy", Source: "child.json", Target: filepath.Join(target, "child.json"), FromModule: moduleID},
+			},
+		}}}
+		session := &configRestoreExecutionSession{
+			runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+			coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+		}
+		result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+			RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+		})
+		if envErr != nil || len(result.Plan.Sets) != 1 || len(result.RestoreItems) != 0 ||
+			result.Plan.Sets[0].Resolution.Reason == nil || *result.Plan.Sets[0].Resolution.Reason != planner.ReasonTargetCollision {
+			t.Fatalf("result=%+v error=%+v", result, envErr)
+		}
+		if _, err := os.Stat(target); !os.IsNotExist(err) {
+			t.Fatalf("overlap preflight changed target: %v", err)
+		}
+	})
+
 	t.Run("legacy versus legacy", func(t *testing.T) {
 		manifestDir := t.TempDir()
 		for _, name := range []string{"alpha.json", "beta.json"} {

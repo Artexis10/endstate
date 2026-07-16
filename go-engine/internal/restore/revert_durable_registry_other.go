@@ -11,14 +11,6 @@ func durableLegacyRegistryStates(JournalEntry, string) (durableLegacyRevertState
 	return durableLegacyRevertState{}, durableLegacyRevertState{}, fmt.Errorf("durable legacy registry revert is only supported on Windows")
 }
 
-func applyDurableLegacyRegistryRevert(
-	entry JournalEntry, _ int, _ string, _ durableLegacyRevertPrepared, _ string,
-) error {
+func applyDurableLegacyRegistryRevert(entry JournalEntry, _ int) error {
 	return fmt.Errorf("durable legacy %s revert is only supported on Windows", entry.RestoreType)
-}
-
-func durableLegacyRegistryReplaceInProgress(
-	JournalEntry, int, string, durableLegacyRevertPrepared, string,
-) (bool, error) {
-	return false, nil
 }
