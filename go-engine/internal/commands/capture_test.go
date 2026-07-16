@@ -1842,19 +1842,15 @@ func TestRunCapture_NormalCapture_NoRetry(t *testing.T) {
 	}
 	defer func() { takeSnapshotFn = orig }()
 
-	// Force the no-realizer path so the capture fork does not divert this
-	// winget-path test to the Nix realizer on linux/darwin.
-	origRealizer := newRealizerFn
-	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
-	defer func() { newRealizerFn = origRealizer }()
-
-	withRetryDelay(0, func() {
-		noopDisplayNames(func() {
-			emptyCatalog(func() {
-				_, err := RunCapture(CaptureFlags{Out: outPath})
-				if err != nil {
-					t.Fatalf("RunCapture returned unexpected error: %+v", err)
-				}
+	withLegacyWingetCaptureEnvironment(func() {
+		withRetryDelay(0, func() {
+			noopDisplayNames(func() {
+				emptyCatalog(func() {
+					_, err := RunCapture(CaptureFlags{Out: outPath})
+					if err != nil {
+						t.Fatalf("RunCapture returned unexpected error: %+v", err)
+					}
+				})
 			})
 		})
 	})
