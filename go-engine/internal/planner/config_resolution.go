@@ -3,7 +3,11 @@
 
 package planner
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
+)
 
 // Resolution describes source/target configuration compatibility. It is
 // deliberately independent from TerminalStatus, which describes what happened
@@ -94,6 +98,11 @@ type SourceCapture struct {
 	Generation            string         `json:"sourceGeneration"`
 	GenerationFingerprint string         `json:"sourceGenerationFingerprint"`
 	ModuleRevision        string         `json:"captureModuleRevision"`
+
+	// CaptureModuleSchemaVersion and PayloadIntegrityFailed are verified
+	// bundle facts used during planning; they are not additional envelope data.
+	CaptureModuleSchemaVersion int  `json:"-"`
+	PayloadIntegrityFailed     bool `json:"-"`
 }
 
 // TargetInstance is a current-catalog target candidate for one config set.
@@ -109,6 +118,10 @@ type TargetInstance struct {
 	Generation            string           `json:"targetGeneration,omitempty"`
 	GenerationFingerprint string           `json:"targetGenerationFingerprint,omitempty"`
 	ModuleRevision        string           `json:"restoreModuleRevision"`
+
+	// Root is host-local detection data used to expand current trusted restore
+	// declarations. It must never enter a portable envelope.
+	Root string `json:"-"`
 }
 
 // ConfigResolution is the stable envelope-facing result for one captured
@@ -203,4 +216,9 @@ type PlanSet struct {
 	Source          SourceCapture    `json:"source"`
 	TargetInstances []TargetInstance `json:"targetInstances"`
 	Resolution      ConfigResolution `json:"resolution"`
+
+	// TargetGenerationDef and MigrationEdges are pinned declarative data for
+	// later staging. They are internal because modules remain data, not output.
+	TargetGenerationDef *modules.GenerationDef     `json:"-"`
+	MigrationEdges      []modules.MigrationEdgeDef `json:"-"`
 }
