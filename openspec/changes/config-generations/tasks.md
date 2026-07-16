@@ -68,7 +68,7 @@
 - [x] 7.5 Extend journal entries with capture/target IDs, source/target generations, migration path, both module revisions, validation status, and rollback outcome.
 - [ ] 7.6 Update revert to consume concrete journal actions without attempting a reverse generation migration.
 - [x] 7.7 Enforce application-closure requirements by returning `app_running` without killing processes or mutating the set.
-- [ ] 7.8 Add failure-injection tests for backup, intent write, each commit action, final validation, rollback, and completion write.
+- [x] 7.8 Add failure-injection tests for backup, intent write, each commit action, final validation, rollback, and completion write.
 - [ ] 7.9 Add multi-set tests proving a failed set rolls back while safe non-overlapping sets continue.
 - [ ] 7.10 Detect pending journal intents before new mutation, perform idempotent recovery rollback, and block with `recovery_required` when recovery cannot complete.
 - [ ] 7.11 Add crash-window and next-run recovery tests for process death before/during/after commit and incomplete completion records.
