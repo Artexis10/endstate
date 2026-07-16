@@ -114,12 +114,12 @@ func TestRunRevertDurableRegistryImportReplacesKeyExactly(t *testing.T) {
 	}
 }
 
-func TestRunRevertDurableRegistryImportFailsClosedAfterDeleteGap(t *testing.T) {
+func TestRunRevertDurableRegistryImportResumesHeldKeySwap(t *testing.T) {
 	subkey, _, _, journal := setupDurableRegistryImport(t)
 	originalCheckpoint := durableRevertCheckpoint
 	fired := false
 	durableRevertCheckpoint = func(phase string, _ int) error {
-		if phase == "after_registry_key_deleted" && !fired {
+		if phase == "after_registry_target_held" && !fired {
 			fired = true
 			return errors.New("simulated registry delete/import crash")
 		}
@@ -139,13 +139,72 @@ func TestRunRevertDurableRegistryImportFailsClosedAfterDeleteGap(t *testing.T) {
 	}
 
 	durableRevertCheckpoint = originalCheckpoint
+	results, err := RunRevertDurable(journal, "", workRoot)
+	if err != nil || len(results) != 1 || results[0].Action != "reverted" {
+		t.Fatalf("registry swap retry = %+v, %v", results, err)
+	}
+	key, err := registry.OpenKey(registry.CURRENT_USER, subkey, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer key.Close()
+	value, _, err := key.GetStringValue("Existing")
+	if err != nil || value != "prior" {
+		t.Fatalf("registry swap retry value = %q, %v", value, err)
+	}
+}
+
+func TestRunRevertDurableRegistryImportFailureLeavesTargetUntouched(t *testing.T) {
+	subkey, _, _, journal := setupDurableRegistryImport(t)
+	originalImport := durableRegistryImportFile
+	durableRegistryImportFile = func(string) error { return errors.New("simulated staging import failure") }
+	t.Cleanup(func() { durableRegistryImportFile = originalImport })
+	workRoot := t.TempDir()
+	if _, err := RunRevertDurable(journal, "", workRoot); err == nil || !strings.Contains(err.Error(), "simulated") {
+		t.Fatalf("staging import error = %v", err)
+	}
+	key, err := registry.OpenKey(registry.CURRENT_USER, subkey, registry.QUERY_VALUE)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value, _, valueErr := key.GetStringValue("Existing")
+	introduced, _, introducedErr := key.GetStringValue("Introduced")
+	_ = key.Close()
+	if valueErr != nil || value != "restored" || introducedErr != nil || introduced != "remove-me" {
+		t.Fatalf("failed staging import changed target: existing=%q/%v introduced=%q/%v", value, valueErr, introduced, introducedErr)
+	}
+
+	durableRegistryImportFile = originalImport
+	if _, err := RunRevertDurable(journal, "", workRoot); err != nil {
+		t.Fatalf("retry after staging import failure = %v", err)
+	}
+}
+
+func TestRunRevertDurableRegistryImportRejectsUserDeleteAfterReplacement(t *testing.T) {
+	subkey, target, _, journal := setupDurableRegistryImport(t)
+	originalCheckpoint := durableRevertCheckpoint
+	durableRevertCheckpoint = func(phase string, _ int) error {
+		if phase == "after_target_replaced" {
+			return errors.New("simulated crash after registry replacement")
+		}
+		return nil
+	}
+	t.Cleanup(func() { durableRevertCheckpoint = originalCheckpoint })
+	workRoot := t.TempDir()
+	if _, err := RunRevertDurable(journal, "", workRoot); err == nil {
+		t.Fatal("registry replacement unexpectedly completed")
+	}
+	if err := exec.Command("reg", "delete", target, "/f").Run(); err != nil {
+		t.Fatal(err)
+	}
+	durableRevertCheckpoint = originalCheckpoint
 	if _, err := RunRevertDurable(journal, "", workRoot); err == nil || !strings.Contains(err.Error(), "changed") {
-		t.Fatalf("unsafe registry retry error = %v", err)
+		t.Fatalf("post-replacement user delete retry = %v", err)
 	}
 	if key, err := registry.OpenKey(registry.CURRENT_USER, subkey, registry.QUERY_VALUE); err != registry.ErrNotExist {
 		if err == nil {
 			_ = key.Close()
 		}
-		t.Fatalf("failed-closed retry recreated registry key: %v", err)
+		t.Fatalf("retry overwrote post-replacement user delete: %v", err)
 	}
 }

@@ -140,11 +140,19 @@ func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string) error 
 			if !chained {
 				before = actual
 			}
+			stagePath, heldPath, err := durableLegacyRegistryScratchTargets(entry, entryDigest)
+			if err != nil {
+				return err
+			}
 			expected := durableLegacyRevertPrepared{
 				Version: durableLegacyRevertVersion, EntryIndex: index, EntryDigest: entryDigest,
 				Target: entry.TargetPath, Before: before, Desired: desired, DesiredSource: entry.BackupPath,
+				StagePath: stagePath, HeldPath: heldPath,
 			}
 			if !found {
+				if err := validateDurableLegacyRegistryScratchAvailable(stagePath, heldPath, workRoot); err != nil {
+					return err
+				}
 				if err := writeImmutableDurableJSON(preparedPath, expected); err != nil {
 					return err
 				}
@@ -252,33 +260,43 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 	if !found {
 		return RevertResult{}, fmt.Errorf("legacy registry revert entry %d was not durably prepared", index)
 	}
+	stagePath, heldPath, err := durableLegacyRegistryScratchTargets(entry, entryDigest)
+	if err != nil {
+		return RevertResult{}, err
+	}
 	if prepared.Version != durableLegacyRevertVersion || prepared.EntryIndex != index ||
 		prepared.EntryDigest != entryDigest || prepared.Target != entry.TargetPath || prepared.Desired != desired ||
-		prepared.DesiredSource != entry.BackupPath {
+		prepared.DesiredSource != entry.BackupPath || prepared.StagePath != stagePath || prepared.HeldPath != heldPath {
 		return RevertResult{}, fmt.Errorf("legacy registry revert prepared record differs from journal entry %d", index)
 	}
 
+	if entry.RestoreType == "registry-import" && entry.BackupCreated && entry.BackupPath != "" {
+		if err := applyDurableLegacyRegistryImportSwap(entry, prepared, index, workRoot); err != nil {
+			return RevertResult{}, err
+		}
+	} else {
+		current, _, err := durableLegacyRegistryStates(entry, workRoot)
+		if err != nil {
+			return RevertResult{}, err
+		}
+		if current != prepared.Desired {
+			if current != prepared.Before {
+				return RevertResult{}, fmt.Errorf("legacy registry revert target %q changed after its durable before-state was recorded", entry.TargetPath)
+			}
+			if err := applyDurableLegacyRegistryRevert(entry, index); err != nil {
+				return RevertResult{}, err
+			}
+		}
+	}
+	if err := durableRevertCheckpoint("after_target_replaced", index); err != nil {
+		return RevertResult{}, err
+	}
 	current, _, err := durableLegacyRegistryStates(entry, workRoot)
 	if err != nil {
 		return RevertResult{}, err
 	}
 	if current != prepared.Desired {
-		if current != prepared.Before {
-			return RevertResult{}, fmt.Errorf("legacy registry revert target %q changed after its durable before-state was recorded", entry.TargetPath)
-		}
-		if err := applyDurableLegacyRegistryRevert(entry, index); err != nil {
-			return RevertResult{}, err
-		}
-		if err := durableRevertCheckpoint("after_target_replaced", index); err != nil {
-			return RevertResult{}, err
-		}
-		current, _, err = durableLegacyRegistryStates(entry, workRoot)
-		if err != nil {
-			return RevertResult{}, err
-		}
-		if current != prepared.Desired {
-			return RevertResult{}, fmt.Errorf("legacy registry revert target %q does not match its recorded prior state", entry.TargetPath)
-		}
+		return RevertResult{}, fmt.Errorf("legacy registry revert target %q does not match its recorded prior state", entry.TargetPath)
 	}
 	action := "reverted"
 	if desired.Kind == "absent" {
