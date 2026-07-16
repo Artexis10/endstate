@@ -24,9 +24,11 @@ import (
 // the unsupported path on a host whose driver cannot uninstall.
 type plainDriver struct{}
 
-func (plainDriver) Name() string                                  { return "winget" }
-func (plainDriver) Detect(string) (bool, string, error)           { return false, "", nil }
-func (plainDriver) Install(string) (*driver.InstallResult, error) { return &driver.InstallResult{}, nil }
+func (plainDriver) Name() string                        { return "winget" }
+func (plainDriver) Detect(string) (bool, string, error) { return false, "", nil }
+func (plainDriver) Install(string) (*driver.InstallResult, error) {
+	return &driver.InstallResult{}, nil
+}
 
 // fakeUninstaller implements driver.Driver + driver.Uninstaller with scriptable
 // per-ref outcomes and call capture.
@@ -36,9 +38,11 @@ type fakeUninstaller struct {
 	calls   []string                           // refs passed to Uninstall, in order
 }
 
-func (f *fakeUninstaller) Name() string                                  { return "winget" }
-func (f *fakeUninstaller) Detect(string) (bool, string, error)           { return false, "", nil }
-func (f *fakeUninstaller) Install(string) (*driver.InstallResult, error) { return &driver.InstallResult{}, nil }
+func (f *fakeUninstaller) Name() string                        { return "winget" }
+func (f *fakeUninstaller) Detect(string) (bool, string, error) { return false, "", nil }
+func (f *fakeUninstaller) Install(string) (*driver.InstallResult, error) {
+	return &driver.InstallResult{}, nil
+}
 func (f *fakeUninstaller) Uninstall(ref string) (*driver.UninstallResult, error) {
 	f.calls = append(f.calls, ref)
 	if f.uerr != nil {
@@ -113,6 +117,7 @@ func setOf(gen int, names ...string) realizer.Set {
 // Windows the real winget driver now implements driver.Uninstaller, so leaving
 // newDriverFn at its default would take the best-effort path instead.
 func TestRollback_NoBackend_Unsupported(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
 	origR, origD := newRealizerFn, newDriverFn
 	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
 	newDriverFn = func() (driver.Driver, error) { return nil, ErrNoBackend }
@@ -122,11 +127,20 @@ func TestRollback_NoBackend_Unsupported(t *testing.T) {
 	if env == nil || env.Code != envelope.ErrRollbackUnsupported {
 		t.Fatalf("want ROLLBACK_UNSUPPORTED, got %+v", env)
 	}
+	for _, backend := range []string{"Winget", "Chocolatey", "Brew"} {
+		if !strings.Contains(env.Remediation, backend) {
+			t.Errorf("rollback remediation = %q, want supported backend %q", env.Remediation, backend)
+		}
+	}
 }
 
 // TestRollback_NotNativeCapable_Unsupported: a realizer that does not advertise
 // NativeRollback refuses with ROLLBACK_UNSUPPORTED without calling Rollback.
 func TestRollback_NotNativeCapable_Unsupported(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "4", AddedRefs: []string{"nixpkgs#jq"}}); err != nil {
+		t.Fatalf("seed native generation: %v", err)
+	}
 	fr := &fakeRealizer{caps: provision.Capabilities{}} // all false
 	withFakeRealizer(fr, func() {
 		_, env := RunRollback(RollbackFlags{Confirm: true})
@@ -438,6 +452,7 @@ func TestRollback_Driver_Bare_RevertsMostRecent(t *testing.T) {
 // (and no realizer) → ROLLBACK_UNSUPPORTED.
 func TestRollback_Driver_NotUninstaller_Unsupported(t *testing.T) {
 	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	seedWingetGen(t, "A")
 	withDriverOnly(plainDriver{}, func() {
 		_, env := RunRollback(RollbackFlags{To: "1", Confirm: true})
 		if env == nil || env.Code != envelope.ErrRollbackUnsupported {
@@ -634,15 +649,15 @@ type pkgOnlyRollbacker struct {
 	cur           realizer.Set
 }
 
-func (*pkgOnlyRollbacker) Name() string                              { return "nix" }
-func (p *pkgOnlyRollbacker) Current() (realizer.Set, error)          { return p.cur, nil }
+func (*pkgOnlyRollbacker) Name() string                     { return "nix" }
+func (p *pkgOnlyRollbacker) Current() (realizer.Set, error) { return p.cur, nil }
 func (*pkgOnlyRollbacker) Plan([]realizer.Installable) (realizer.Diff, error) {
 	return realizer.Diff{}, nil
 }
 func (*pkgOnlyRollbacker) Realize([]realizer.Installable) (realizer.Result, error) {
 	return realizer.Result{}, nil
 }
-func (p *pkgOnlyRollbacker) Rollback(int) error                      { p.rollbackCalls++; return nil }
+func (p *pkgOnlyRollbacker) Rollback(int) error { p.rollbackCalls++; return nil }
 func (*pkgOnlyRollbacker) Capabilities() provision.Capabilities {
 	return provision.Capabilities{NativeRollback: true}
 }

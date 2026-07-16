@@ -4,10 +4,41 @@
 package bootstrap
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestNew_InstallerIOCanBeCapturedWithoutSuppressingStdin(t *testing.T) {
+	origRun := runInstallerCommandFn
+	defer func() { runInstallerCommandFn = origRun }()
+
+	var gotStdin interface{}
+	runInstallerCommandFn = func(cmd *exec.Cmd) error {
+		gotStdin = cmd.Stdin
+		_, _ = fmt.Fprint(cmd.Stdout, "installer stdout")
+		_, _ = fmt.Fprint(cmd.Stderr, "installer stderr")
+		return nil
+	}
+
+	bs := New()
+	var stdout, stderr bytes.Buffer
+	bs.ConfigureInstallerIO(os.Stdin, &stdout, &stderr)
+	if err := bs.Install(BackendChocolatey); err != nil {
+		t.Fatalf("Install error = %v", err)
+	}
+	if gotStdin != os.Stdin {
+		t.Fatalf("installer stdin = %v, want os.Stdin", gotStdin)
+	}
+	if stdout.String() != "installer stdout" || stderr.String() != "installer stderr" {
+		t.Fatalf("captured output = (%q, %q)", stdout.String(), stderr.String())
+	}
+}
 
 // Probe partitions a needed set into present (detected working) and absent
 // (needs install), preserving input order.
@@ -108,12 +139,15 @@ func TestProvision_MultipleBackendsIndependentOutcomes(t *testing.T) {
 		},
 		Verify: func(b Backend) (bool, error) { return true, nil },
 	}
-	out := bs.Provision([]Backend{BackendBrew, BackendNix})
+	out := bs.Provision([]Backend{BackendBrew, BackendNix, BackendChocolatey})
 	if out[BackendBrew] != OutcomeInstalled {
 		t.Fatalf("brew outcome = %v, want Installed", out[BackendBrew])
 	}
 	if out[BackendNix] != OutcomeInstallFailed {
 		t.Fatalf("nix outcome = %v, want InstallFailed", out[BackendNix])
+	}
+	if out[BackendChocolatey] != OutcomeInstalled {
+		t.Fatalf("chocolatey outcome = %v, want Installed", out[BackendChocolatey])
 	}
 }
 
@@ -138,14 +172,70 @@ func TestInstallerCommand_NamesOfficialInstaller(t *testing.T) {
 	if !strings.Contains(strings.ToLower(nixCmd), "determinate") {
 		t.Fatalf("nix installer command %q must reference the Determinate installer", nixCmd)
 	}
+
+	wantChocolatey := `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iwr https://community.chocolatey.org/install.ps1 -UseBasicParsing | iex"`
+	if got := InstallerCommand(BackendChocolatey); got != wantChocolatey {
+		t.Fatalf("chocolatey installer command = %q, want %q", got, wantChocolatey)
+	}
+}
+
+func TestResolveBin_ChocolateyUsesProgramDataKnownPath(t *testing.T) {
+	t.Setenv("PATH", "")
+	programData := t.TempDir()
+	t.Setenv("ProgramData", programData)
+
+	want := filepath.Join(programData, "chocolatey", "bin", "choco.exe")
+	if err := os.MkdirAll(filepath.Dir(want), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(want, []byte("test binary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := resolveBin(BackendChocolatey); got != want {
+		t.Fatalf("resolveBin(chocolatey) = %q, want %q", got, want)
+	}
+	origRunVersion := runVersionCommandFn
+	runVersionCommandFn = func(bin string) error {
+		if bin != want {
+			t.Fatalf("version probe binary = %q, want %q", bin, want)
+		}
+		return nil
+	}
+	defer func() { runVersionCommandFn = origRunVersion }()
+	present, err := realDetect(BackendChocolatey)
+	if err != nil || !present {
+		t.Fatalf("realDetect(chocolatey) = (%v, %v), want (true, nil)", present, err)
+	}
+}
+
+func TestRealDetect_ExistingButBrokenBackendIsAbsent(t *testing.T) {
+	t.Setenv("PATH", "")
+	programData := t.TempDir()
+	t.Setenv("ProgramData", programData)
+	bin := filepath.Join(programData, "chocolatey", "bin", "choco.exe")
+	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bin, []byte("broken"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	origRunVersion := runVersionCommandFn
+	runVersionCommandFn = func(string) error { return errors.New("cannot execute") }
+	defer func() { runVersionCommandFn = origRunVersion }()
+
+	present, err := realDetect(BackendChocolatey)
+	if present || err == nil {
+		t.Fatalf("realDetect(broken chocolatey) = (%v, %v), want false with probe error", present, err)
+	}
 }
 
 // The plain-language consent message must NOT name any backend product — the
 // concepts stay invisible. (Product names live only in the inspectable Details.)
 func TestConsentMessage_NamesNoBackendProduct(t *testing.T) {
-	for _, set := range [][]Backend{{BackendBrew}, {BackendNix}, {BackendBrew, BackendNix}} {
+	for _, set := range [][]Backend{{BackendBrew}, {BackendNix}, {BackendChocolatey}, {BackendBrew, BackendNix, BackendChocolatey}} {
 		msg := strings.ToLower(ConsentMessage(set))
-		for _, banned := range []string{"nix", "homebrew", "brew", "determinate"} {
+		for _, banned := range []string{"nix", "homebrew", "brew", "determinate", "chocolatey", "choco"} {
 			if strings.Contains(msg, banned) {
 				t.Fatalf("consent message for %v must not name product %q: %q", set, banned, msg)
 			}

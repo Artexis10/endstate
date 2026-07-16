@@ -12,7 +12,7 @@ package events
 // BaseEvent contains the required fields that every event MUST include per
 // schema v1. Concrete event structs embed this type.
 type BaseEvent struct {
-	Version   int    `json:"version"`   // Always 1
+	Version   int    `json:"version"` // Always 1
 	RunID     string `json:"runId"`
 	Timestamp string `json:"timestamp"` // RFC3339 UTC
 	Event     string `json:"event"`     // "phase" | "item" | "summary" | "error" | "artifact"
@@ -28,12 +28,13 @@ type PhaseEvent struct {
 // ItemEvent tracks progress of a single installable item.
 type ItemEvent struct {
 	BaseEvent
-	ID      string `json:"id"`
-	Driver  string `json:"driver"`
-	Name    string `json:"name,omitempty"`
-	Status  string `json:"status"`
-	Reason  string `json:"reason"`
-	Message string `json:"message,omitempty"`
+	ID             string `json:"id"`
+	Driver         string `json:"driver"`
+	Name           string `json:"name,omitempty"`
+	Status         string `json:"status"`
+	Reason         string `json:"reason"`
+	Message        string `json:"message,omitempty"`
+	RebootRequired bool   `json:"rebootRequired,omitempty"`
 }
 
 // SummaryEvent is emitted at the end of each phase with aggregate counts.

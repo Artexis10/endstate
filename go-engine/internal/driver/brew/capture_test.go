@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 )
 
 // scriptedByVector drives a distinct (exitCode, stdout) response per FULL brew
@@ -84,24 +86,24 @@ func TestEnumerateInstalled_FormulaeAndCasks(t *testing.T) {
 		t.Fatalf("EnumerateInstalled error: %v", err)
 	}
 
-	byRef := map[string]InstalledApp{}
+	byRef := map[string]driver.InstalledPackage{}
 	for _, a := range got {
 		byRef[a.Ref] = a
 	}
 
 	// --- Exact formulae ---
-	if a, ok := byRef["ripgrep"]; !ok || a.Cask || a.Version != "14.1.0" {
+	if a, ok := byRef["ripgrep"]; !ok || a.DisplayName != "ripgrep" || a.Version != "14.1.0" {
 		t.Errorf("ripgrep = %+v (ok=%v), want formula version 14.1.0", a, ok)
 	}
-	if a, ok := byRef["jq"]; !ok || a.Cask || a.Version != "1.7" {
+	if a, ok := byRef["jq"]; !ok || a.DisplayName != "jq" || a.Version != "1.7" {
 		t.Errorf("jq = %+v (ok=%v), want formula version 1.7", a, ok)
 	}
 
 	// --- Exact casks (cask: ref, Cask=true, cask versions) ---
-	if a, ok := byRef["cask:firefox"]; !ok || !a.Cask || a.Version != "122.0" {
+	if a, ok := byRef["cask:firefox"]; !ok || a.DisplayName != "firefox" || a.Version != "122.0" {
 		t.Errorf("cask:firefox = %+v (ok=%v), want cask version 122.0", a, ok)
 	}
-	if a, ok := byRef["cask:google-chrome"]; !ok || !a.Cask || a.Version != "121.0" {
+	if a, ok := byRef["cask:google-chrome"]; !ok || a.DisplayName != "google-chrome" || a.Version != "121.0" {
 		t.Errorf("cask:google-chrome = %+v (ok=%v), want cask version 121.0", a, ok)
 	}
 

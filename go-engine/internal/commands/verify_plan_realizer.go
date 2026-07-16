@@ -22,7 +22,7 @@ import (
 // the current generation once and reports each host package present/missing,
 // preserving the per-item event stream. Verify is read-only (verification-first
 // invariant) and does not touch configs.
-func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, brewApps []manifest.App, brewDrv driver.Driver) (interface{}, *envelope.Error) {
+func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	driverName := r.Name()
 	emitter.EmitPhase("verify")
 
@@ -101,17 +101,20 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 	// single verify summary (one summary per phase). A brew app present via
 	// `brew list` passes; missing fails; an advisory version mismatch is surfaced
 	// as version_drift (best-effort, like winget). When brewDrv is nil (non-darwin
-	// host) each brew app is a visible fail/missing rather than silently dropped.
-	brewResults, brewPass, brewFail := verifyBrewLane(brewApps, brewDrv, emitter)
+	// host) each brew app is a visible skip rather than silently dropped.
+	brewResults, brewPass, brewFail, brewSkipped := verifyBrewLane(brewApps, brewDrv, emitter)
 	results = append(results, brewResults...)
 	pass += brewPass
 	fail += brewFail
+	unsupportedResults := verifyUnsupportedDrivers(firstAppSlice(unsupportedApps), emitter)
+	results = append(results, unsupportedResults...)
+	skipped := brewSkipped + len(unsupportedResults)
 
-	total := pass + fail
-	emitter.EmitSummary("verify", total, pass, 0, fail)
+	total := pass + fail + skipped
+	emitter.EmitSummary("verify", total, pass, skipped, fail)
 	return &VerifyResult{
 		Manifest: VerifyManifestRef{Path: flags.Manifest, Name: mf.Name},
-		Summary:  VerifySummary{Total: total, Pass: pass, Fail: fail},
+		Summary:  VerifySummary{Total: total, Pass: pass, Fail: fail, Skipped: skipped},
 		Results:  results,
 	}, nil
 }
@@ -119,23 +122,23 @@ func runVerifyRealizer(flags VerifyFlags, mf *manifest.Manifest, r realizer.Real
 // verifyBrewLane checks the presence (and advisory version) of each brew app via
 // the brew driver, emitting per-item events into the caller's already-open
 // verify phase and returning the verify items + (pass, fail) to fold into the
-// single verify summary. A nil drv (non-darwin host) reports each brew app
-// missing (a visible fail) rather than silently dropping it.
-func verifyBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter) (items []VerifyItem, pass, fail int) {
+// single verify summary. A nil drv (non-darwin host) reports each brew app as
+// a visible skip rather than silently dropping it.
+func verifyBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter) (items []VerifyItem, pass, fail, skipped int) {
 	if len(brewApps) == 0 {
-		return nil, 0, 0
+		return nil, 0, 0, 0
 	}
 	if brewDrv == nil {
 		for _, app := range brewApps {
 			ref := app.Refs["darwin"]
 			name := brewItemName(app, ref)
-			item := VerifyItem{Type: "app", ID: app.ID, Ref: ref, Name: name,
-				Status: "fail", Reason: driver.ReasonMissing, Message: "brew driver unavailable on this host"}
-			emitter.EmitItem(brewEventID(app.ID, ref), "brew", "failed", driver.ReasonMissing, item.Message, name)
+			item := VerifyItem{Type: "app", ID: app.ID, Ref: ref, Driver: "brew", Name: name,
+				Status: driver.StatusSkipped, Reason: driver.ReasonFiltered, Message: "brew driver unavailable on this host"}
+			emitter.EmitItem(brewEventID(app.ID, ref), "brew", driver.StatusSkipped, driver.ReasonFiltered, item.Message, name)
 			items = append(items, item)
-			fail++
+			skipped++
 		}
-		return items, pass, fail
+		return items, pass, fail, skipped
 	}
 
 	refs := make([]string, 0, len(brewApps))
@@ -180,7 +183,7 @@ func verifyBrewLane(brewApps []manifest.App, brewDrv driver.Driver, emitter *eve
 		}
 		items = append(items, item)
 	}
-	return items, pass, fail
+	return items, pass, fail, skipped
 }
 
 // checkHomeManagerGeneration reads the active home-manager generation via hgr
@@ -240,7 +243,7 @@ func checkHomeManagerGeneration(hgr realizer.HomeGenerationReader, emitter inter
 
 // runPlanRealizer is the plan (read-only preview) path for a realizer backend.
 // It computes one whole-set diff and reports it as planner actions.
-func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, brewApps []manifest.App, brewDrv driver.Driver) (interface{}, *envelope.Error) {
+func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	driverName := r.Name()
 	emitter.EmitPhase("plan")
 
@@ -284,12 +287,16 @@ func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer
 	actions = append(actions, brewActions...)
 	present += brewPresent
 	toInstall += brewToInstall
+	brewSkipped := len(brewActions) - brewPresent - brewToInstall
+	unsupportedActions := planUnsupportedDrivers(firstAppSlice(unsupportedApps), emitter)
+	actions = append(actions, unsupportedActions...)
+	skipped := brewSkipped + len(unsupportedActions)
 
-	total := present + toInstall
-	emitter.EmitSummary("plan", total, present, 0, toInstall)
+	total := present + toInstall + skipped
+	emitter.EmitSummary("plan", total, present, skipped, toInstall)
 	return &PlanResult{
 		Manifest: PlanManifestRef{Path: flags.Manifest, Name: mf.Name},
-		Plan:     planner.PlanSummary{Total: total, ToInstall: toInstall, AlreadyPresent: present},
+		Plan:     planner.PlanSummary{Total: total, ToInstall: toInstall, AlreadyPresent: present, Skipped: skipped},
 		Actions:  actions,
 	}, nil
 }

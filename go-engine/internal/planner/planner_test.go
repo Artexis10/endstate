@@ -4,6 +4,7 @@
 package planner
 
 import (
+	"errors"
 	"os"
 	"runtime"
 	"testing"
@@ -19,6 +20,25 @@ import (
 type testDriver struct {
 	installed map[string]bool
 }
+
+type batchErrorDriver struct{}
+
+func (*batchErrorDriver) Name() string { return "batch-error" }
+func (*batchErrorDriver) Detect(string) (bool, string, error) {
+	return false, "", errors.New("unexpected per-ref detection")
+}
+func (*batchErrorDriver) DetectBatch([]string) (map[string]driver.DetectResult, error) {
+	return nil, errors.New("package database locked")
+}
+func (*batchErrorDriver) Install(string) (*driver.InstallResult, error) { return nil, nil }
+
+type perRefErrorDriver struct{}
+
+func (*perRefErrorDriver) Name() string { return "per-ref-error" }
+func (*perRefErrorDriver) Detect(string) (bool, string, error) {
+	return false, "", errors.New("backend unavailable")
+}
+func (*perRefErrorDriver) Install(string) (*driver.InstallResult, error) { return nil, nil }
 
 func (d *testDriver) Name() string { return "test" }
 
@@ -52,7 +72,7 @@ func (d *testDriver) Install(ref string) (*driver.InstallResult, error) {
 func TestComputePlan_AllPresent(t *testing.T) {
 	drv := &testDriver{installed: map[string]bool{
 		"Microsoft.VisualStudioCode": true,
-		"Git.Git":                   true,
+		"Git.Git":                    true,
 	}}
 
 	mf := &manifest.Manifest{
@@ -745,5 +765,43 @@ func TestComputePlan_BatchDetectMatchesFallback(t *testing.T) {
 			t.Errorf("action[%d] planned mismatch: batch=%q fallback=%q",
 				i, planBatch.Actions[i].PlannedAction, planFallback.Actions[i].PlannedAction)
 		}
+	}
+}
+
+func TestComputePlan_BatchDetectionErrorIsVisibleAndNeverBecomesInstall(t *testing.T) {
+	mf := &manifest.Manifest{Apps: []manifest.App{
+		{ID: "git", Refs: map[string]string{"windows": "Git.Git"}},
+		{ID: "vscode", Refs: map[string]string{"windows": "Microsoft.VisualStudioCode"}},
+	}}
+
+	plan, err := ComputePlan(mf, &batchErrorDriver{})
+	if err != nil {
+		t.Fatalf("ComputePlan error: %v", err)
+	}
+	if plan.Summary.Total != 2 || plan.Summary.Skipped != 2 || plan.Summary.ToInstall != 0 {
+		t.Fatalf("summary = %+v, want two visible skips and no installs", plan.Summary)
+	}
+	for _, action := range plan.Actions {
+		if action.CurrentStatus != driver.StatusFailed || action.PlannedAction != "skip" || action.Message != "package database locked" {
+			t.Fatalf("action = %+v, want failed/skip with batch diagnostic", action)
+		}
+	}
+}
+
+func TestComputePlan_PerRefDetectionErrorIsVisibleAndNeverBecomesInstall(t *testing.T) {
+	mf := &manifest.Manifest{Apps: []manifest.App{
+		{ID: "git", Refs: map[string]string{"windows": "Git.Git"}},
+	}}
+
+	plan, err := ComputePlan(mf, &perRefErrorDriver{})
+	if err != nil {
+		t.Fatalf("ComputePlan error: %v", err)
+	}
+	if plan.Summary.Total != 1 || plan.Summary.Skipped != 1 || plan.Summary.ToInstall != 0 {
+		t.Fatalf("summary = %+v, want one visible skip and no installs", plan.Summary)
+	}
+	action := plan.Actions[0]
+	if action.CurrentStatus != driver.StatusFailed || action.PlannedAction != "skip" || action.Message != "backend unavailable" {
+		t.Fatalf("action = %+v, want failed/skip with per-ref diagnostic", action)
 	}
 }

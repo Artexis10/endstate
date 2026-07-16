@@ -25,6 +25,49 @@ func withVerifyPlanRealizerAndBrew(fr *fakeRealizer, brewFn func() (driver.Drive
 	f()
 }
 
+func TestRunPlan_AbsentBrewIsVisibleSkipWithoutConstructingDriver(t *testing.T) {
+	mfPath := writeTempManifest(t, replaceGOOS(`{
+  "version": 1, "name": "brew-plan-absent",
+  "apps": [{"id":"hello","driver":"brew","refs":{"darwin":"hello"}}]
+}`))
+
+	withBootstrapAvail(nil, func() {
+		withVerifyPlanRealizerAndBrew(&fakeRealizer{}, panicBrewDriverFn(t), func() {
+			raw, eerr := RunPlan(PlanFlags{Manifest: mfPath})
+			if eerr != nil {
+				t.Fatalf("RunPlan error: %v", eerr)
+			}
+			action := raw.(*PlanResult).Actions[0]
+			if action.Driver != "brew" || action.CurrentStatus != driver.StatusSkipped || action.PlannedAction != "skip" {
+				t.Fatalf("plan action = %+v, want visible unavailable Brew skip", action)
+			}
+		})
+	})
+}
+
+func TestRunVerify_AbsentBrewIsVisibleSkipWithoutConstructingDriver(t *testing.T) {
+	mfPath := writeTempManifest(t, replaceGOOS(`{
+  "version": 1, "name": "brew-verify-absent",
+  "apps": [{"id":"hello","driver":"brew","refs":{"darwin":"hello"}}]
+}`))
+
+	withBootstrapAvail(nil, func() {
+		withVerifyPlanRealizerAndBrew(&fakeRealizer{}, panicBrewDriverFn(t), func() {
+			raw, eerr := RunVerify(VerifyFlags{Manifest: mfPath})
+			if eerr != nil {
+				t.Fatalf("RunVerify error: %v", eerr)
+			}
+			result := raw.(*VerifyResult)
+			if len(result.Results) != 1 || result.Results[0].Driver != "brew" || result.Results[0].Status != driver.StatusSkipped {
+				t.Fatalf("verify result = %+v, want visible unavailable Brew skip", result.Results)
+			}
+			if result.Summary.Skipped != 1 || result.Summary.Fail != 0 {
+				t.Fatalf("verify summary = %+v, want one skip and no false missing failure", result.Summary)
+			}
+		})
+	})
+}
+
 // TestRunVerify_BrewLane_PresenceReported: a driver:"brew" app present via brew
 // is reported pass in the single verify summary alongside the realizer apps.
 func TestRunVerify_BrewLane_PresenceReported(t *testing.T) {
@@ -57,6 +100,12 @@ func TestRunVerify_BrewLane_PresenceReported(t *testing.T) {
 	}
 	if !hasVerifyItem(vr.Results, "ripgrep", "pass") {
 		t.Errorf("expected ripgrep pass (present via nix), got %+v", vr.Results)
+	}
+	if got := verifyDriverForID(vr.Results, "ripgrep"); got != "nix" {
+		t.Errorf("ripgrep driver = %q, want nix", got)
+	}
+	if got := verifyDriverForID(vr.Results, "hello"); got != "brew" {
+		t.Errorf("hello driver = %q, want brew", got)
 	}
 }
 
@@ -215,6 +264,15 @@ func hasVerifyItem(results []VerifyItem, id, status string) bool {
 		}
 	}
 	return false
+}
+
+func verifyDriverForID(results []VerifyItem, id string) string {
+	for _, result := range results {
+		if result.ID == id {
+			return result.Driver
+		}
+	}
+	return ""
 }
 
 // hasPlanAction reports whether actions contains one with the given id, driver,

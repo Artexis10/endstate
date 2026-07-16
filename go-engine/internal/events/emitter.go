@@ -15,9 +15,10 @@ import (
 // When enabled is false all Emit* methods are no-ops, so callers never need
 // an extra guard.
 type Emitter struct {
-	runID   string
-	enabled bool
-	writer  io.Writer
+	runID         string
+	enabled       bool
+	writer        io.Writer
+	emittedPhases map[string]bool
 }
 
 // NewEmitter creates an Emitter that writes to os.Stderr.
@@ -64,6 +65,13 @@ func (e *Emitter) EmitPhase(phase string) {
 	if !e.enabled {
 		return
 	}
+	if e.emittedPhases == nil {
+		e.emittedPhases = make(map[string]bool)
+	}
+	if e.emittedPhases[phase] {
+		return
+	}
+	e.emittedPhases[phase] = true
 	e.emit(PhaseEvent{
 		BaseEvent: e.base("phase"),
 		Phase:     phase,
@@ -76,17 +84,25 @@ func (e *Emitter) EmitPhase(phase string) {
 // when no reason is available — here we use empty string). name is the
 // optional human-readable display name; when empty it is omitted from JSON.
 func (e *Emitter) EmitItem(id, driver, status, reason, message, name string) {
+	e.EmitItemWithReboot(id, driver, status, reason, message, name, false)
+}
+
+// EmitItemWithReboot emits an item progress event and carries the successful
+// package-manager reboot fact when one was reported. False is omitted from the
+// wire shape for backwards compatibility.
+func (e *Emitter) EmitItemWithReboot(id, driver, status, reason, message, name string, rebootRequired bool) {
 	if !e.enabled {
 		return
 	}
 	e.emit(ItemEvent{
-		BaseEvent: e.base("item"),
-		ID:        id,
-		Driver:    driver,
-		Name:      name,
-		Status:    status,
-		Reason:    reason,
-		Message:   message,
+		BaseEvent:      e.base("item"),
+		ID:             id,
+		Driver:         driver,
+		Name:           name,
+		Status:         status,
+		Reason:         reason,
+		Message:        message,
+		RebootRequired: rebootRequired,
 	})
 }
 

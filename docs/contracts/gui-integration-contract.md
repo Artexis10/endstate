@@ -211,7 +211,7 @@ endstate capabilities --json
     },
     "platform": {
       "os": "windows",
-      "drivers": ["winget"]
+      "drivers": ["winget", "chocolatey"]
     }
   },
   "error": null
@@ -229,6 +229,19 @@ endstate capabilities --json
 3. Cache capabilities for the session
 4. Use `commands` to determine available features
 5. Use `features` to enable/disable UI elements
+6. Treat `platform.drivers` as an ordered supported-backend list; on Windows Winget is the default and Chocolatey is additive
+
+### Multi-Driver Presentation
+
+- Package items use the CLI-resolved `driver`; the GUI never retries through a different package manager. Known unsupported-host drivers remain visible as skipped.
+- Capture may pass repeatable `--driver <name>` filters. With no filter, it captures all available drivers.
+- Prefer `packageModuleMap` (`driver:ref` keys, arrays of matching module IDs) for settings correlation; fall back to legacy Winget-only `configModuleMap`. Capture module metadata may add `chocolateyRefs` beside `wingetRefs`.
+- Parse additive warnings as `{code,message,driver?,ref?}`. `optional_driver_unavailable` keeps available lanes usable; `possible_duplicate` must show both captured entries.
+- `rebootRequired: true` on a successful apply item/item event is a restart-needed state, not a warning or failure.
+
+### Backend Bootstrap Consent
+
+The GUI renders the existing combined consent event and, after affirmative consent, reruns apply or rebuild with `--bootstrap-backends`. Explicit opt-out uses `--no-bootstrap`; rebuild propagates either flag to apply. The GUI never installs Chocolatey or another package backend directly.
 
 ---
 
@@ -238,6 +251,8 @@ endstate capabilities --json
 |---------|-----------|-------------|
 | `capabilities` | `--json` | Report CLI capabilities |
 | `apply` | `--json` | Execute provisioning |
+| `capture` | `--json` | Capture installed packages; supports repeatable `--driver` filters |
+| `rebuild` | `--json` | Apply and verify a capture bundle or manifest; propagates backend-bootstrap flags |
 | `restore` | `--json` | Restore configuration |
 | `verify` | `--json` | Verify machine state |
 | `report` | `--json` | Retrieve run history |

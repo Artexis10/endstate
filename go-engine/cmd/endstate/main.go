@@ -64,6 +64,9 @@ Per-command flags:
   --include-store-apps Include Microsoft Store apps (capture)
   --minimize           Minimize manifest format (capture)
   --pin                Record installed versions into the manifest (capture)
+  --driver <name>      Limit capture to a package driver; repeatable (capture)
+  --bootstrap-backends Authorize setup of selected absent backends (apply, rebuild)
+  --no-bootstrap       Skip selected absent backend lanes (apply, rebuild)
   --export <path>      Export directory path (restore, export-config, validate-export)
   --restore-filter <e> Filter restore entries by module ID (restore, apply)
   --from <path>        Bundle (.zip) or manifest (.jsonc) to rebuild from (rebuild)
@@ -121,16 +124,18 @@ type parsedArgs struct {
 	noRestore bool   // rebuild --no-restore: install without restoring configuration
 
 	// Capture flags
-	out              string
-	name             string
-	profile          string
-	sanitize         bool
-	discover         bool
-	update           bool
-	includeRuntimes  bool
-	includeStoreApps bool
-	minimize         bool
-	pin              bool
+	out                string
+	name               string
+	profile            string
+	sanitize           bool
+	discover           bool
+	update             bool
+	includeRuntimes    bool
+	includeStoreApps   bool
+	minimize           bool
+	pin                bool
+	drivers            []string
+	driverMissingValue bool // --driver was present without a following value
 
 	// Report flags
 	latest bool
@@ -206,6 +211,13 @@ func parseArgs(args []string) parsedArgs {
 			p.minimize = true
 		case "--pin":
 			p.pin = true
+		case "--driver":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				p.drivers = append(p.drivers, args[i+1])
+				i++
+			} else {
+				p.driverMissingValue = true
+			}
 		case "--latest":
 			p.latest = true
 		case "--confirm":
@@ -368,13 +380,13 @@ func commandUsage(cmd string) string {
 	case "capabilities":
 		return "Usage: endstate capabilities [--json]\n\nReport CLI capabilities for GUI handshake.\n"
 	case "apply":
-		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--only <id[,id...]>] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. With --only, limit the run to the comma-separated list of manifest app ids (filtering happens before planning so only the selected apps are installed, restored, and verified). With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (winget only). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. --only and --prune cannot be combined. On macOS/Linux, when a needed package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
+		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--only <id[,id...]>] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. With --only, limit the run to the comma-separated list of manifest app ids (filtering happens before planning so only the selected apps are installed, restored, and verified). With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (supported versioned drivers). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. --only and --prune cannot be combined. When a selected optional package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
 	case "rebuild":
-		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--dry-run] [--confirm] [--no-restore] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
+		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--dry-run] [--confirm] [--no-restore] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. The existing backend-bootstrap flags are propagated to apply. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
-		return "Usage: endstate capture [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--pin] [--json] [--events jsonl]\n\nCapture current machine state.\n"
+		return "Usage: endstate capture [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Repeat --driver to select more than one package driver.\n"
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
@@ -388,7 +400,7 @@ func commandUsage(cmd string) string {
 	case "report":
 		return "Usage: endstate report [--latest] [--last <n>] [--run-id <id>] [--json]\n\nRetrieve run history.\n"
 	case "rollback":
-		return "Usage: endstate rollback [--to <generation>] [--enable-restore] [--confirm] [--dry-run] [--json] [--events jsonl]\n\nRoll back the installed package set to a prior provisioning generation. Available only on backends that advertise native rollback (e.g. Nix on Linux/macOS). With --to, targets that engine generation number (see 'endstate generations'); without it, rolls back to the previous version. With --enable-restore (and --to), ALSO reverts the home-manager configuration recorded in that generation (symmetric with 'apply --enable-restore'). Requires --confirm; use --dry-run to preview the target without changing anything.\n"
+		return "Usage: endstate rollback [--to <generation>] [--enable-restore] [--confirm] [--dry-run] [--json] [--events jsonl]\n\nRoll back selected provisioning generations using each recorded backend: native generation rollback for Nix and best-effort uninstall for Winget, Chocolatey, and Homebrew. With --to, targets that engine generation number (see 'endstate generations'); without it, rolls back the newest non-rollback run group. With --enable-restore (and --to), ALSO reverts the home-manager configuration recorded in that generation (symmetric with 'apply --enable-restore'). Requires --confirm; use --dry-run to preview without changing anything.\n"
 	case "doctor":
 		return "Usage: endstate doctor [--json]\n\nRun system diagnostics.\n"
 	case "profile":
@@ -476,6 +488,11 @@ func main() {
 
 // dispatch routes the parsed command to its handler and returns the data payload
 // or an envelope error.
+var (
+	runCaptureFn = commands.RunCapture
+	runRebuildFn = commands.RunRebuild
+)
+
 func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 	switch p.command {
 	case "capabilities":
@@ -504,12 +521,14 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 		})
 
 	case "rebuild":
-		return commands.RunRebuild(commands.RebuildFlags{
-			From:      p.from,
-			DryRun:    p.dryRun,
-			Confirm:   p.confirm,
-			NoRestore: p.noRestore,
-			Events:    p.events,
+		return runRebuildFn(commands.RebuildFlags{
+			From:              p.from,
+			DryRun:            p.dryRun,
+			Confirm:           p.confirm,
+			NoRestore:         p.noRestore,
+			Events:            p.events,
+			BootstrapBackends: p.bootstrapBackends,
+			NoBootstrap:       p.noBootstrap,
 		})
 
 	case "verify":
@@ -519,7 +538,13 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 		})
 
 	case "capture":
-		return commands.RunCapture(commands.CaptureFlags{
+		if p.driverMissingValue {
+			return nil, envelope.NewError(
+				envelope.ErrManifestValidationError,
+				"--driver requires a package driver name").
+				WithRemediation("Provide a driver name, e.g. --driver winget or --driver chocolatey.")
+		}
+		return runCaptureFn(commands.CaptureFlags{
 			Manifest:         p.manifest,
 			Out:              p.out,
 			Profile:          p.profile,
@@ -531,6 +556,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			IncludeStoreApps: p.includeStoreApps,
 			Minimize:         p.minimize,
 			Pin:              p.pin,
+			Drivers:          p.drivers,
 			Events:           p.events,
 		})
 

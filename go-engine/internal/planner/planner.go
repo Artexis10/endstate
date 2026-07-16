@@ -33,6 +33,7 @@ type PlanAction struct {
 	CurrentStatus string `json:"currentStatus"`
 	PlannedAction string `json:"plannedAction"`
 	DisplayName   string `json:"displayName,omitempty"`
+	Message       string `json:"message,omitempty"`
 }
 
 // PlanSummary aggregates the plan outcome counts.
@@ -59,8 +60,11 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 	}
 
 	var batchResults map[string]driver.DetectResult
+	var batchErr error
+	batchUsed := false
 	if bd, ok := drv.(driver.BatchDetector); ok && len(wingetRefs) > 0 {
-		batchResults, _ = bd.DetectBatch(wingetRefs)
+		batchUsed = true
+		batchResults, batchErr = bd.DetectBatch(wingetRefs)
 	}
 
 	for _, app := range mf.Apps {
@@ -95,14 +99,46 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 			continue
 		}
 
-		// Use batch results if available; fall back to per-ref Detect.
+		if batchErr != nil {
+			plan.Actions = append(plan.Actions, PlanAction{
+				Type:          "app",
+				ID:            app.ID,
+				Ref:           ref,
+				Driver:        drv.Name(),
+				CurrentStatus: "failed",
+				PlannedAction: "skip",
+				DisplayName:   resolveDisplayName("", app),
+				Message:       batchErr.Error(),
+			})
+			plan.Summary.Skipped++
+			continue
+		}
+
+		// Use batch results if available; otherwise detect this ref directly.
 		var installed bool
 		var displayName string
-		if br, ok := batchResults[ref]; ok {
-			installed = br.Installed
-			displayName = br.DisplayName
+		var detectErr error
+		if batchUsed {
+			if br, ok := batchResults[ref]; ok {
+				installed = br.Installed
+				displayName = br.DisplayName
+			}
 		} else {
-			installed, displayName, _ = drv.Detect(ref)
+			installed, displayName, detectErr = drv.Detect(ref)
+		}
+		if detectErr != nil {
+			plan.Actions = append(plan.Actions, PlanAction{
+				Type:          "app",
+				ID:            app.ID,
+				Ref:           ref,
+				Driver:        drv.Name(),
+				CurrentStatus: "failed",
+				PlannedAction: "skip",
+				DisplayName:   resolveDisplayName("", app),
+				Message:       detectErr.Error(),
+			})
+			plan.Summary.Skipped++
+			continue
 		}
 
 		action := PlanAction{

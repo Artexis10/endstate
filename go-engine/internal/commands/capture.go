@@ -16,10 +16,12 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
 
@@ -36,7 +38,8 @@ type CaptureFlags struct {
 	IncludeStoreApps bool
 	Minimize         bool
 	Pin              bool
-	Events           string // "jsonl" or ""
+	Drivers          []string // repeatable explicit package drivers; empty uses platform capture defaults
+	Events           string   // "jsonl" or ""
 }
 
 // CaptureResult is the data payload for the capture command.
@@ -46,6 +49,8 @@ type CaptureResult struct {
 	AppsIncluded         []CaptureApp          `json:"appsIncluded"`
 	ConfigModules        []CaptureModuleResult `json:"configModules"`
 	ConfigModuleMap      map[string]string     `json:"configModuleMap"`
+	PackageModuleMap     map[string][]string   `json:"packageModuleMap"`
+	Warnings             []CommandWarning      `json:"warnings,omitempty"`
 	OutputPath           string                `json:"outputPath"`
 	OutputFormat         string                `json:"outputFormat"` // "zip" or "jsonc"
 	ConfigsIncluded      []string              `json:"configsIncluded"`
@@ -69,13 +74,14 @@ type CaptureApp struct {
 
 // CaptureModuleResult holds per-module capture details for ConfigModules.
 type CaptureModuleResult struct {
-	DisplayName   string   `json:"displayName"`
-	WingetRefs    []string `json:"wingetRefs"`
-	AppID         string   `json:"appId"`
-	ID            string   `json:"id"`
-	Paths         []string `json:"paths"`
-	FilesCaptured int      `json:"filesCaptured"`
-	Status        string   `json:"status"` // "captured" or "skipped"
+	DisplayName    string   `json:"displayName"`
+	WingetRefs     []string `json:"wingetRefs"`
+	ChocolateyRefs []string `json:"chocolateyRefs"`
+	AppID          string   `json:"appId"`
+	ID             string   `json:"id"`
+	Paths          []string `json:"paths"`
+	FilesCaptured  int      `json:"filesCaptured"`
+	Status         string   `json:"status"` // "captured" or "skipped"
 }
 
 // CaptureCountsFull aggregates filtering and capture statistics.
@@ -133,6 +139,281 @@ type capturedApp struct {
 	Driver  string            `json:"driver,omitempty"`
 	Version string            `json:"version,omitempty"`
 	Name    string            `json:"_name,omitempty"`
+	Source  string            `json:"-"`
+}
+
+type enumeratedCapturePackage struct {
+	Driver  string
+	Package driver.InstalledPackage
+}
+
+type legacyWingetCaptureEnumerator struct {
+	structuredEvents bool
+}
+
+// resolveCaptureEnumeratorFn is the capture-specific lazy driver seam. Winget
+// keeps the long-standing snapshot injection points used by command tests;
+// other drivers resolve through the platform registry.
+var resolveCaptureEnumeratorFn = func(name string, structuredEvents bool) (driver.InstalledEnumerator, error) {
+	if strings.EqualFold(name, "winget") {
+		return legacyWingetCaptureEnumerator{structuredEvents: structuredEvents}, nil
+	}
+	d, err := selectDriver(captureGOOSFn(), name)
+	if err != nil {
+		return nil, err
+	}
+	enumerator, ok := d.(driver.InstalledEnumerator)
+	if !ok {
+		return nil, fmt.Errorf("driver %s does not support installed-package enumeration", name)
+	}
+	return enumerator, nil
+}
+
+func (legacy legacyWingetCaptureEnumerator) EnumerateInstalled() ([]driver.InstalledPackage, error) {
+	type snapshotResult struct {
+		apps []snapshot.SnapshotApp
+		err  error
+	}
+	exportCh := make(chan snapshotResult, 1)
+	listCh := make(chan snapshotResult, 1)
+	go func() {
+		apps, err := takeSnapshotFn()
+		exportCh <- snapshotResult{apps: apps, err: err}
+	}()
+	go func() {
+		apps, err := listInstalledFn()
+		listCh <- snapshotResult{apps: apps, err: err}
+	}()
+
+	exported := <-exportCh
+	listed := <-listCh
+	if exported.err != nil {
+		return nil, exported.err
+	}
+	if len(exported.apps) == 0 {
+		if !legacy.structuredEvents {
+			fmt.Fprintf(os.Stderr, "Warning: winget returned 0 packages, retrying after %v...\n", snapshotRetryDelay)
+		}
+		time.Sleep(snapshotRetryDelay)
+		if retry, err := takeSnapshotFn(); err == nil && len(retry) > 0 {
+			exported.apps = retry
+		}
+	}
+
+	evidence := make(map[string]snapshot.SnapshotApp, len(listed.apps))
+	if listed.err == nil {
+		for _, app := range listed.apps {
+			evidence[app.ID] = app
+		}
+	}
+	packages := make([]driver.InstalledPackage, 0, len(exported.apps))
+	for _, app := range exported.apps {
+		listedApp := evidence[app.ID]
+		name := listedApp.Name
+		if name == "" {
+			name = app.Name
+		}
+		version := listedApp.Version
+		if version == "" {
+			version = app.Version
+		}
+		packages = append(packages, driver.InstalledPackage{Ref: app.ID, DisplayName: name, Version: version})
+	}
+	return packages, nil
+}
+
+func captureDriverNames(flags CaptureFlags) []string {
+	registered := platformBackendsFor(captureGOOSFn()).DriverNames()
+	if len(flags.Drivers) == 0 {
+		return registered
+	}
+	selected := make(map[string]bool, len(flags.Drivers))
+	for _, name := range flags.Drivers {
+		name = strings.ToLower(strings.TrimSpace(name))
+		if name != "" {
+			selected[name] = true
+		}
+	}
+	ordered := make([]string, 0, len(selected))
+	for _, name := range registered {
+		if selected[name] {
+			ordered = append(ordered, name)
+			delete(selected, name)
+		}
+	}
+	unknown := make([]string, 0, len(selected))
+	for name := range selected {
+		unknown = append(unknown, name)
+	}
+	sort.Strings(unknown)
+	return append(ordered, unknown...)
+}
+
+func includesCaptureDriver(flags CaptureFlags, wanted string) bool {
+	for _, name := range captureDriverNames(flags) {
+		if name == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func enumerateWindowsCapturePackages(flags CaptureFlags) ([]enumeratedCapturePackage, []CommandWarning, *envelope.Error) {
+	explicit := len(flags.Drivers) > 0
+	if explicit {
+		for _, name := range flags.Drivers {
+			if strings.TrimSpace(name) == "" {
+				return nil, nil, envelope.NewError(envelope.ErrCaptureFailed, "Capture driver name must not be empty.")
+			}
+		}
+	}
+	var packages []enumeratedCapturePackage
+	var warnings []CommandWarning
+	seenIdentities := make(map[string]bool)
+	for _, name := range captureDriverNames(flags) {
+		enumerator, err := resolveCaptureEnumeratorFn(name, flags.Events == "jsonl")
+		if err == nil {
+			var installed []driver.InstalledPackage
+			installed, err = enumerator.EnumerateInstalled()
+			if err == nil {
+				sort.SliceStable(installed, func(i, j int) bool {
+					left, right := strings.ToLower(installed[i].Ref), strings.ToLower(installed[j].Ref)
+					if left != right {
+						return left < right
+					}
+					return installed[i].Ref < installed[j].Ref
+				})
+				for _, pkg := range installed {
+					if strings.TrimSpace(pkg.Ref) == "" {
+						continue
+					}
+					identity := captureIdentity(name, pkg.Ref)
+					if seenIdentities[identity] {
+						continue
+					}
+					seenIdentities[identity] = true
+					packages = append(packages, enumeratedCapturePackage{Driver: name, Package: pkg})
+				}
+				continue
+			}
+		}
+
+		if !explicit && name != "winget" {
+			warnings = append(warnings, CommandWarning{
+				Code:    "optional_driver_unavailable",
+				Message: fmt.Sprintf("Optional capture driver %s is unavailable: %v", name, err),
+				Driver:  name,
+			})
+			continue
+		}
+		if name == "winget" {
+			var execErr *exec.Error
+			if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
+				return nil, warnings, envelope.NewError(
+					envelope.ErrWingetNotAvailable,
+					"winget is not installed or not available on PATH.",
+				).WithRemediation("Install winget from https://aka.ms/winget or ensure it is on your PATH.")
+			}
+		}
+		return nil, warnings, envelope.NewError(
+			envelope.ErrCaptureFailed,
+			fmt.Sprintf("Failed to enumerate installed packages with %s: %v", name, err),
+		)
+	}
+	return packages, warnings, nil
+}
+
+func countCapturePackages(packages []enumeratedCapturePackage, driverName string) int {
+	count := 0
+	for _, item := range packages {
+		if item.Driver == driverName {
+			count++
+		}
+	}
+	return count
+}
+
+func effectiveCaptureDriver(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return "winget"
+	}
+	return name
+}
+
+func captureIdentity(driverName, ref string) string {
+	return effectiveCaptureDriver(driverName) + "\x00" + strings.TrimSpace(ref)
+}
+
+func deterministicCaptureID(base, driverName string, used map[string]bool) string {
+	if used == nil {
+		used = make(map[string]bool)
+	}
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = "package"
+	}
+	if !used[strings.ToLower(base)] {
+		used[strings.ToLower(base)] = true
+		return base
+	}
+	suffixBase := base + "-" + effectiveCaptureDriver(driverName)
+	candidate := suffixBase
+	for n := 2; used[strings.ToLower(candidate)]; n++ {
+		candidate = fmt.Sprintf("%s-%d", suffixBase, n)
+	}
+	used[strings.ToLower(candidate)] = true
+	return candidate
+}
+
+func assignDeterministicCaptureIDs(apps []capturedApp, used map[string]bool) {
+	if used == nil {
+		used = make(map[string]bool, len(apps))
+	}
+	for i := range apps {
+		apps[i].ID = deterministicCaptureID(apps[i].ID, effectiveCaptureDriver(apps[i].Driver), used)
+	}
+}
+
+func possibleDuplicateWarnings(apps []capturedApp) []CommandWarning {
+	type prior struct{ driverName string }
+	seen := make(map[string][]prior)
+	var warnings []CommandWarning
+	for _, app := range apps {
+		name := strings.TrimSpace(app.Name)
+		if name == "" {
+			continue
+		}
+		driverName := effectiveCaptureDriver(app.Driver)
+		key := strings.ToLower(name)
+		duplicate := false
+		for _, earlier := range seen[key] {
+			if earlier.driverName != driverName {
+				duplicate = true
+				break
+			}
+		}
+		if duplicate {
+			ref := app.Refs["windows"]
+			warnings = append(warnings, CommandWarning{
+				Code:    "possible_duplicate",
+				Message: fmt.Sprintf("%s reports the same display name %q as another package driver; both entries were kept", driverName, name),
+				Driver:  driverName,
+				Ref:     ref,
+			})
+		}
+		seen[key] = append(seen[key], prior{driverName: driverName})
+	}
+	return warnings
+}
+
+func captureHasAnyVersion(apps []capturedApp) bool {
+	for _, app := range apps {
+		if app.Version != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanApp is the sanitized version of capturedApp without underscore-prefixed fields.
@@ -170,6 +451,30 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("capture")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
 
+	// An explicit selection on a realizer host is authoritative. Resolve it
+	// before the legacy realizer-first dispatch so --driver brew can skip Nix
+	// entirely and unsupported selections cannot silently fall back to Nix.
+	if len(flags.Drivers) > 0 && platformBackendsFor(captureGOOSFn()).RealizerName() != "" {
+		emitter.EmitPhase("capture")
+		selection, selectionErr := resolveRealizerCaptureSelection(flags, captureGOOSFn())
+		if selectionErr != nil {
+			return nil, selectionErr
+		}
+
+		var rz realizer.Realizer
+		if selection.nix {
+			var rerr error
+			rz, rerr = newRealizerFn()
+			if rerr != nil || rz == nil {
+				return nil, envelope.NewError(
+					envelope.ErrCaptureFailed,
+					fmt.Sprintf("Explicit capture driver nix is unavailable: %v", rerr),
+				)
+			}
+		}
+		return runCaptureRealizerSelected(flags, rz, emitter, selection)
+	}
+
 	// --- 0. Realizer path (whole-set, e.g. Nix on linux/darwin) ---
 	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
 	// the winget capture path below, byte-identical to prior behavior.
@@ -180,146 +485,69 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	// --- 1. Emit phase event (first event per event-contract.md) ---
 	emitter.EmitPhase("capture")
 
-	// --- 2. Enumerate winget-managed packages and resolve display names ---
-	// Both calls spawn winget and are slow; run them concurrently. The
-	// installed-apps snapshot (winget list) yields both display names and
-	// installed versions in a single pass.
-	type snapshotResult struct {
-		apps []snapshot.SnapshotApp
-		err  error
+	// --- 2. Enumerate selected package-manager ledgers ---
+	enumerated, warnings, enumErr := enumerateWindowsCapturePackages(flags)
+	if enumErr != nil {
+		return nil, enumErr
 	}
-	type installedResult struct {
-		apps []snapshot.SnapshotApp
-		err  error
-	}
+	totalFound := len(enumerated)
 
-	snapCh := make(chan snapshotResult, 1)
-	installedCh := make(chan installedResult, 1)
-
-	go func() {
-		apps, err := takeSnapshotFn()
-		snapCh <- snapshotResult{apps, err}
-	}()
-	go func() {
-		apps, err := listInstalledFn()
-		installedCh <- installedResult{apps, err}
-	}()
-
-	snapRes := <-snapCh
-	installedRes := <-installedCh
-
-	if snapRes.err != nil {
-		var execErr *exec.Error
-		if errors.As(snapRes.err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
-			return nil, envelope.NewError(
-				envelope.ErrWingetNotAvailable,
-				"winget is not installed or not available on PATH.",
-			).WithRemediation("Install winget from https://aka.ms/winget or ensure it is on your PATH.")
-		}
-		return nil, envelope.NewError(
-			envelope.ErrCaptureFailed,
-			fmt.Sprintf("Failed to take system snapshot: %v", snapRes.err),
-		)
-	}
-
-	snapshotApps := snapRes.apps
-
-	// Guard: winget sometimes returns empty results due to database lock
-	// contention. Retry once after a brief pause before failing.
-	if len(snapshotApps) == 0 {
-		fmt.Fprintf(os.Stderr, "Warning: winget returned 0 packages, retrying after %v...\n", snapshotRetryDelay)
-		time.Sleep(snapshotRetryDelay)
-		retryApps, retryErr := takeSnapshotFn()
-		if retryErr == nil && len(retryApps) > 0 {
-			snapshotApps = retryApps
-		}
-	}
-
-	// If still empty after retry, fail explicitly. A machine with winget
-	// should always have at least a few packages. Discover mode is exempt
-	// because it may legitimately find nothing on a fresh machine.
-	if len(snapshotApps) == 0 && !flags.Discover {
+	// Preserve Winget's empty-ledger guard. Other explicitly selected drivers
+	// may legitimately enumerate an empty package ledger.
+	if includesCaptureDriver(flags, "winget") && countCapturePackages(enumerated, "winget") == 0 && !flags.Discover {
 		return nil, envelope.NewError(
 			envelope.ErrCaptureFailed,
 			"Winget returned no packages after retry. This usually means another winget operation is still running.",
 		).WithRemediation("Wait a few seconds and try again. Run 'winget list' in a terminal to verify winget is working.")
 	}
 
-	// Display-name and installed-version maps, both derived from the one
-	// installed-apps snapshot — failure is non-fatal (empty maps). Empty
-	// versions are skipped so a missing version omits the field.
-	displayNameMap := make(map[string]string)
-	versionMap := make(map[string]string)
-	if installedRes.err == nil {
-		for _, app := range installedRes.apps {
-			displayNameMap[app.ID] = app.Name
-			if app.Version != "" {
-				versionMap[app.ID] = app.Version
-			}
-		}
-	}
-
-	// The user explicitly asked for pins; a wholesale-empty version map (list
-	// failure or lock-contention race) would otherwise produce an unpinned
-	// manifest that reports success silently.
-	if flags.Pin && len(versionMap) == 0 {
-		fmt.Fprintln(os.Stderr, "Warning: --pin requested but the installed-apps snapshot exposed no versions; the manifest will be written without pins.")
-	}
-
-	totalFound := len(snapshotApps)
-
-	// --- 3. Convert and filter snapshot apps ---
+	// --- 3. Convert and filter package records ---
 	var captured []capturedApp
 	filteredRuntimes := 0
 	filteredStore := 0
 	skipped := 0
-
-	for _, sApp := range snapshotApps {
+	for _, item := range enumerated {
+		pkg := item.Package
 		// Filter runtime packages unless --include-runtimes.
-		if !flags.IncludeRuntimes && snapshot.IsRuntimePackage(sApp.ID) {
+		if item.Driver == "winget" && !flags.IncludeRuntimes && snapshot.IsRuntimePackage(pkg.Ref) {
 			filteredRuntimes++
 			skipped++
 			continue
 		}
 
 		// Filter store IDs unless --include-store-apps.
-		if !flags.IncludeStoreApps && snapshot.IsStoreID(sApp.ID) {
+		if item.Driver == "winget" && !flags.IncludeStoreApps && snapshot.IsStoreID(pkg.Ref) {
 			filteredStore++
 			skipped++
 			continue
 		}
-
-		appID := wingetIDToManifestID(sApp.ID)
-
 		app := capturedApp{
-			ID: appID,
+			ID: wingetIDToManifestID(pkg.Ref),
 			Refs: map[string]string{
-				"windows": sApp.ID,
+				"windows": pkg.Ref,
 			},
-			Name: sApp.Name,
+			Name:   pkg.DisplayName,
+			Source: item.Driver,
+		}
+		if item.Driver != "winget" {
+			app.Driver = item.Driver
 		}
 
-		// --pin records the installed version (best-effort). Empty stays empty
-		// and is dropped by omitempty.
 		if flags.Pin {
-			ver := versionMap[sApp.ID]
-			if ver == "" {
-				ver = sApp.Version
-			}
-			app.Version = ver
+			app.Version = pkg.Version
 		}
-
 		captured = append(captured, app)
+	}
+	assignDeterministicCaptureIDs(captured, nil)
+	warnings = append(warnings, possibleDuplicateWarnings(captured)...)
+	if flags.Pin && !captureHasAnyVersion(captured) && flags.Events != "jsonl" {
+		fmt.Fprintln(os.Stderr, "Warning: --pin requested but installed-package enumeration exposed no versions; the manifest will be written without pins.")
 	}
 
 	// --- 4. Emit item events for each included app ---
 	for _, app := range captured {
-		wingetID := app.Refs["windows"]
-		name := displayNameMap[wingetID]
-		if name == "" {
-			name = app.Name
-		}
-		emitter.EmitItem(wingetID, "winget", "captured", "", fmt.Sprintf("Captured %s", name), name)
+		ref := app.Refs["windows"]
+		emitter.EmitItem(ref, app.Source, "captured", "", fmt.Sprintf("Captured %s", app.Name), app.Name)
 	}
 
 	// --- 5. If --update and --manifest: merge with existing manifest ---
@@ -329,12 +557,17 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			return nil, loadErr
 		}
 
-		// Build set of existing windows refs for dedup.
+		// Identity is the selected driver plus manager-specific ref. An omitted
+		// app.driver is the legacy Winget default.
 		existingRefs := make(map[string]bool)
 		for _, app := range existingMf.Apps {
 			if ref, ok := app.Refs["windows"]; ok {
-				existingRefs[ref] = true
+				existingRefs[captureIdentity(app.Driver, ref)] = true
 			}
+		}
+		versionMap := make(map[string]string, len(captured))
+		for _, app := range captured {
+			versionMap[captureIdentity(app.Driver, app.Refs["windows"])] = app.Version
 		}
 
 		// Convert existing apps to capturedApp format, preserving declared
@@ -347,12 +580,13 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 				Refs:    app.Refs,
 				Driver:  app.Driver,
 				Version: app.Version,
+				Source:  effectiveCaptureDriver(app.Driver),
 			}
 			// Under --pin, refresh an existing app's version from the installed-
 			// apps snapshot only when it exposes a non-empty version — absence of
 			// evidence never blanks a declared pin.
 			if flags.Pin {
-				if ver := versionMap[app.Refs["windows"]]; ver != "" {
+				if ver := versionMap[captureIdentity(app.Driver, app.Refs["windows"])]; ver != "" {
 					ca.Version = ver
 				}
 			}
@@ -360,9 +594,14 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		}
 
 		// Append newly discovered apps that aren't already present.
+		usedIDs := make(map[string]bool, len(merged))
+		for _, app := range merged {
+			usedIDs[strings.ToLower(strings.TrimSpace(app.ID))] = true
+		}
 		for _, app := range captured {
-			winRef := app.Refs["windows"]
-			if !existingRefs[winRef] {
+			identity := captureIdentity(app.Driver, app.Refs["windows"])
+			if !existingRefs[identity] {
+				app.ID = deterministicCaptureID(app.ID, effectiveCaptureDriver(app.Driver), usedIDs)
 				merged = append(merged, app)
 			}
 		}
@@ -457,12 +696,13 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		absPath = outputPath
 	}
 
-	// --- 9. Build appsIncluded (reuses displayNameMap from step 2) ---
-	appsIncluded := buildAppsIncluded(captured, displayNameMap)
+	// --- 9. Build appsIncluded with package-manager provenance ---
+	appsIncluded := buildAppsIncluded(captured, nil)
 
 	// --- 10. Module matching and optional bundle creation ---
 	configModules := []CaptureModuleResult{}
 	configModuleMap := map[string]string{}
+	packageModuleMap := map[string][]string{}
 	configsIncluded := []string{}
 	configsSkipped := []string{}
 	configsCaptureErrors := []string{}
@@ -480,8 +720,9 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 				manifestApps := make([]manifest.App, 0, len(captured))
 				for _, ca := range captured {
 					manifestApps = append(manifestApps, manifest.App{
-						ID:   ca.ID,
-						Refs: ca.Refs,
+						ID:     ca.ID,
+						Refs:   ca.Refs,
+						Driver: ca.Driver,
 					})
 				}
 
@@ -490,6 +731,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 				if len(matchedModules) > 0 {
 					// Build configModuleMap from matched modules.
 					configModuleMap = buildConfigModuleMap(matchedModules)
+					packageModuleMap = buildPackageModuleMap(matchedModules)
 
 					// Determine zip output path.
 					profileName := manifestName
@@ -547,6 +789,8 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		AppsIncluded:         appsIncluded,
 		ConfigModules:        configModules,
 		ConfigModuleMap:      configModuleMap,
+		PackageModuleMap:     packageModuleMap,
+		Warnings:             warnings,
 		OutputPath:           finalOutputPath,
 		OutputFormat:         outputFormat,
 		ConfigsIncluded:      configsIncluded,
@@ -581,7 +825,7 @@ func buildAppsIncluded(apps []capturedApp, displayNameMap map[string]string) []C
 			wingetID = ca.ID
 		}
 		entry := CaptureApp{
-			Source: "winget",
+			Source: effectiveCaptureDriver(ca.Driver),
 			ID:     wingetID,
 		}
 		if name, ok := displayNameMap[wingetID]; ok && name != "" {
@@ -590,6 +834,27 @@ func buildAppsIncluded(apps []capturedApp, displayNameMap map[string]string) []C
 			entry.Name = ca.Name
 		}
 		result = append(result, entry)
+	}
+	return result
+}
+
+// buildPackageModuleMap exposes driver-qualified package-to-module ownership.
+// Values are slices because multiple matched modules may intentionally attach
+// configuration to the same package identity.
+func buildPackageModuleMap(matchedModules []*modules.Module) map[string][]string {
+	result := make(map[string][]string)
+	for _, mod := range matchedModules {
+		for _, ref := range mod.Matches.Winget {
+			key := "winget:" + ref
+			result[key] = append(result[key], mod.ID)
+		}
+		for _, ref := range mod.Matches.Chocolatey {
+			key := "chocolatey:" + ref
+			result[key] = append(result[key], mod.ID)
+		}
+	}
+	for key := range result {
+		sort.Strings(result[key])
 	}
 	return result
 }
@@ -603,7 +868,7 @@ func buildConfigModuleMap(matchedModules []*modules.Module) map[string]string {
 			for _, wingetRef := range mod.Matches.Winget {
 				m[wingetRef] = mod.ID
 			}
-		} else {
+		} else if len(mod.Matches.Chocolatey) == 0 {
 			m[mod.ID] = mod.ID
 		}
 	}
@@ -629,12 +894,13 @@ func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors [
 			dirName := moduleDirName(mod.ID)
 			skipped = append(skipped, dirName)
 			results = append(results, CaptureModuleResult{
-				ID:          mod.ID,
-				AppID:       dirName,
-				DisplayName: mod.DisplayName,
-				WingetRefs:  safeStringSlice(mod.Matches.Winget),
-				Paths:       []string{},
-				Status:      "skipped",
+				ID:             mod.ID,
+				AppID:          dirName,
+				DisplayName:    mod.DisplayName,
+				WingetRefs:     safeStringSlice(mod.Matches.Winget),
+				ChocolateyRefs: safeStringSlice(mod.Matches.Chocolatey),
+				Paths:          []string{},
+				Status:         "skipped",
 			})
 		}
 		return
@@ -703,13 +969,14 @@ func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors [
 		}
 
 		results = append(results, CaptureModuleResult{
-			ID:            mod.ID,
-			AppID:         dirName,
-			DisplayName:   mod.DisplayName,
-			WingetRefs:    safeStringSlice(mod.Matches.Winget),
-			Paths:         paths,
-			FilesCaptured: moduleFileCounts[dirName],
-			Status:        status,
+			ID:             mod.ID,
+			AppID:          dirName,
+			DisplayName:    mod.DisplayName,
+			WingetRefs:     safeStringSlice(mod.Matches.Winget),
+			ChocolateyRefs: safeStringSlice(mod.Matches.Chocolatey),
+			Paths:          paths,
+			FilesCaptured:  moduleFileCounts[dirName],
+			Status:         status,
 		})
 	}
 

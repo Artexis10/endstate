@@ -158,6 +158,22 @@ func TestEmitPhaseIsNDJSON(t *testing.T) {
 	}
 }
 
+func TestEmitPhaseIsIdempotentAcrossPreflightEvents(t *testing.T) {
+	em, buf := captureEmitter("test-run")
+	em.EmitPhase("plan")
+	em.EmitConsent([]string{"chocolatey"}, "consent", nil)
+	em.EmitPhase("plan")
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("events = %q, want one phase followed by consent", buf.String())
+	}
+	first := parseEvent(t, lines[0])
+	if first["event"] != "phase" || first["phase"] != "plan" {
+		t.Fatalf("first event = %+v, want plan phase", first)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Item event
 // ---------------------------------------------------------------------------
@@ -215,6 +231,24 @@ func TestEmitItemWithReason(t *testing.T) {
 	ev := parseEvent(t, lastLine(buf))
 	if ev["reason"] != "already_installed" {
 		t.Errorf("reason = %v, want %q", ev["reason"], "already_installed")
+	}
+}
+
+func TestEmitItemWithRebootRequired(t *testing.T) {
+	em, buf := captureEmitter("reboot-test")
+	em.EmitItemWithReboot("git.install", "chocolatey", "installed", "", "Installed", "Git", true)
+	ev := parseEvent(t, lastLine(buf))
+	if ev["rebootRequired"] != true {
+		t.Errorf("rebootRequired = %v, want true", ev["rebootRequired"])
+	}
+}
+
+func TestEmitItemOmitsRebootRequiredWhenFalse(t *testing.T) {
+	em, buf := captureEmitter("no-reboot-test")
+	em.EmitItemWithReboot("Git.Git", "winget", "installed", "", "Installed", "Git", false)
+	ev := parseEvent(t, lastLine(buf))
+	if _, ok := ev["rebootRequired"]; ok {
+		t.Errorf("rebootRequired should be omitted when false, got %v", ev["rebootRequired"])
 	}
 }
 

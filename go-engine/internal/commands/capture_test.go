@@ -216,6 +216,29 @@ func withRetryDelay(d time.Duration, f func()) {
 	f()
 }
 
+func assertCaptureEventStreamIsNDJSON(t *testing.T, stderr string) {
+	t.Helper()
+	lineNumber := 0
+	eventCount := 0
+	for _, line := range strings.Split(stderr, "\n") {
+		lineNumber++
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("stderr line %d is not valid event JSON: %v\n%s", lineNumber, err, line)
+		}
+		if event["event"] == nil {
+			t.Fatalf("stderr line %d is JSON but not an event: %s", lineNumber, line)
+		}
+		eventCount++
+	}
+	if eventCount == 0 {
+		t.Fatal("expected capture to emit structured events")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Capture tests
 // ---------------------------------------------------------------------------
@@ -856,8 +879,8 @@ func TestRunCapture_AppsIncluded_HasSourceNameID(t *testing.T) {
 
 	displayNames := map[string]string{
 		"Microsoft.VisualStudioCode": "Visual Studio Code",
-		"Git.Git":                   "Git",
-		"Google.Chrome":             "Google Chrome",
+		"Git.Git":                    "Git",
+		"Google.Chrome":              "Google Chrome",
 	}
 
 	var result *CaptureResult
@@ -1684,7 +1707,7 @@ func TestRunCapture_EmptySnapshot_RetriesAndSucceeds(t *testing.T) {
 
 	calls := []snapshotCall{
 		{apps: []snapshot.SnapshotApp{}, err: nil}, // first call: empty (lock contention)
-		{apps: sampleApps(), err: nil},              // retry: success
+		{apps: sampleApps(), err: nil},             // retry: success
 	}
 
 	var result *CaptureResult
@@ -1708,6 +1731,34 @@ func TestRunCapture_EmptySnapshot_RetriesAndSucceeds(t *testing.T) {
 	if result.Counts.TotalFound != 3 {
 		t.Errorf("expected totalFound=3 after retry, got %d", result.Counts.TotalFound)
 	}
+}
+
+func TestRunCapture_EventsJSONL_ZeroPackageRetryKeepsStderrValidNDJSON(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "captured.jsonc")
+	calls := []snapshotCall{
+		{apps: []snapshot.SnapshotApp{}},
+		{apps: sampleExportSet()},
+	}
+	origGOOS := captureGOOSFn
+	captureGOOSFn = func() string { return "windows" }
+	defer func() { captureGOOSFn = origGOOS }()
+
+	stderr := captureStderr(t, func() {
+		withRetryDelay(0, func() {
+			withMockSnapshotSequence(calls, func() {
+				noopDisplayNames(func() {
+					emptyCatalog(func() {
+						_, eerr := RunCapture(CaptureFlags{Out: outPath, Drivers: []string{"winget"}, Events: "jsonl"})
+						if eerr != nil {
+							t.Fatalf("RunCapture: %v", eerr)
+						}
+					})
+				})
+			})
+		})
+	})
+
+	assertCaptureEventStreamIsNDJSON(t, stderr)
 }
 
 func TestRunCapture_EmptySnapshot_RetryAlsoEmpty_FailsWithCaptureFailed(t *testing.T) {
@@ -1888,6 +1939,30 @@ func TestRunCapture_Pin_SnapshotError_SucceedsWithoutVersions(t *testing.T) {
 			t.Errorf("expected no version when installed-apps snapshot failed, got %v", app["version"])
 		}
 	}
+}
+
+func TestRunCapture_EventsJSONL_PinWithoutVersionsKeepsStderrValidNDJSON(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "captured.jsonc")
+	origGOOS := captureGOOSFn
+	captureGOOSFn = func() string { return "windows" }
+	defer func() { captureGOOSFn = origGOOS }()
+
+	stderr := captureStderr(t, func() {
+		withMockSnapshot(sampleExportSet(), nil, func() {
+			withMockDisplayNames(nil, errors.New("winget list failed"), func() {
+				emptyCatalog(func() {
+					_, eerr := RunCapture(CaptureFlags{
+						Out: outPath, Pin: true, Drivers: []string{"winget"}, Events: "jsonl",
+					})
+					if eerr != nil {
+						t.Fatalf("RunCapture: %v", eerr)
+					}
+				})
+			})
+		})
+	})
+
+	assertCaptureEventStreamIsNDJSON(t, stderr)
 }
 
 // With --pin --sanitize, versions are kept, _name is stripped, and apps are

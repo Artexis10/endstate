@@ -28,6 +28,7 @@ type Module struct {
 // MatchCriteria defines how a module is matched to installed applications.
 type MatchCriteria struct {
 	Winget               []string `json:"winget,omitempty"`
+	Chocolatey           []string `json:"chocolatey,omitempty"`
 	Exe                  []string `json:"exe,omitempty"`
 	UninstallDisplayName []string `json:"uninstallDisplayName,omitempty"`
 	PathExists           []string `json:"pathExists,omitempty"`

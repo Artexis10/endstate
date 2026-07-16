@@ -8,22 +8,11 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 )
 
-// InstalledApp is one enumerated Homebrew install: a top-level formula or a
-// Cask. Ref is the Endstate ref the engine records — a bare name for a formula,
-// a "cask:<token>" ref for a Cask (so a captured manifest round-trips back to
-// the brew driver). Version is best-effort and may be empty.
-type InstalledApp struct {
-	// Name is the bare package token (e.g. "ripgrep", "firefox").
-	Name string
-	// Ref is the Endstate ref ("ripgrep" or "cask:firefox").
-	Ref string
-	// Cask is true for a Homebrew Cask (a GUI app), false for a formula.
-	Cask bool
-	// Version is the installed version, best-effort ("" when brew exposes none).
-	Version string
-}
+var _ driver.InstalledEnumerator = (*BrewDriver)(nil)
 
 // EnumerateInstalled lists the brew packages to record in a captured manifest:
 // top-level formulae (`brew leaves` — excludes dependency-only formulae) and
@@ -41,7 +30,7 @@ type InstalledApp struct {
 // These are validated ONLY by the real-macOS smoke; the hermetic tests lock the
 // assumed shapes. A missing brew binary surfaces as ErrBrewNotAvailable so the
 // caller treats it as backend-unavailable rather than per-package.
-func (b *BrewDriver) EnumerateInstalled() ([]InstalledApp, error) {
+func (b *BrewDriver) EnumerateInstalled() ([]driver.InstalledPackage, error) {
 	formulae, err := b.listLines("leaves")
 	if err != nil {
 		return nil, err
@@ -60,32 +49,23 @@ func (b *BrewDriver) EnumerateInstalled() ([]InstalledApp, error) {
 		caskVersions, _ = b.listVersions(true)
 	}
 
-	apps := make([]InstalledApp, 0, len(formulae)+len(casks))
+	sort.Strings(formulae)
+	sort.Strings(casks)
+	apps := make([]driver.InstalledPackage, 0, len(formulae)+len(casks))
 	for _, name := range formulae {
-		apps = append(apps, InstalledApp{
-			Name:    name,
-			Ref:     name,
-			Cask:    false,
-			Version: formulaVersions[strings.ToLower(name)],
+		apps = append(apps, driver.InstalledPackage{
+			DisplayName: name,
+			Ref:         name,
+			Version:     formulaVersions[strings.ToLower(name)],
 		})
 	}
 	for _, name := range casks {
-		apps = append(apps, InstalledApp{
-			Name:    name,
-			Ref:     caskPrefix + name,
-			Cask:    true,
-			Version: caskVersions[strings.ToLower(name)],
+		apps = append(apps, driver.InstalledPackage{
+			DisplayName: name,
+			Ref:         caskPrefix + name,
+			Version:     caskVersions[strings.ToLower(name)],
 		})
 	}
-
-	// Deterministic order: formulae then casks, each sorted by name (stable
-	// capture output regardless of brew's listing order).
-	sort.SliceStable(apps, func(i, j int) bool {
-		if apps[i].Cask != apps[j].Cask {
-			return !apps[i].Cask // formulae before casks
-		}
-		return apps[i].Name < apps[j].Name
-	})
 	return apps, nil
 }
 

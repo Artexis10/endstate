@@ -8,6 +8,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/driver/brew"
+	"github.com/Artexis10/endstate/go-engine/internal/driver/chocolatey"
 	"github.com/Artexis10/endstate/go-engine/internal/driver/winget"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer/nix"
@@ -33,12 +34,7 @@ var ErrNoBrewDriver = errors.New("no brew driver available for this platform")
 // uses the winget driver; other platforms have no backend yet and return
 // ErrNoBackend so callers fail explicitly rather than attempting installs.
 func selectBackend(goos string) (driver.Driver, error) {
-	switch goos {
-	case "windows":
-		return winget.New(), nil
-	default:
-		return nil, ErrNoBackend
-	}
+	return platformBackendsFor(goos).ResolveDriver("")
 }
 
 // selectRealizer returns the whole-set package realizer for the given OS. Linux
@@ -50,12 +46,7 @@ func selectBackend(goos string) (driver.Driver, error) {
 // atomic-generation model is kept beside the per-package Driver, not shoehorned
 // into Driver.Install).
 func selectRealizer(goos string) (realizer.Realizer, error) {
-	switch goos {
-	case "linux", "darwin":
-		return nix.New(), nil
-	default:
-		return nil, ErrNoRealizer
-	}
+	return platformBackendsFor(goos).ResolveRealizer()
 }
 
 // selectBrewDriver returns the Homebrew per-package driver for the given OS.
@@ -65,10 +56,28 @@ func selectRealizer(goos string) (realizer.Realizer, error) {
 // brew driver owns the explicit driver:"brew" lane in the same run. Every non-
 // darwin host returns ErrNoBrewDriver.
 func selectBrewDriver(goos string) (driver.Driver, error) {
-	switch goos {
-	case "darwin":
-		return brew.New(), nil
-	default:
+	d, err := platformBackendsFor(goos).ResolveDriver("brew")
+	if err != nil {
 		return nil, ErrNoBrewDriver
 	}
+	return d, nil
+}
+
+// selectDriver resolves either the platform default (empty name) or an
+// authoritative explicit per-package driver. Commands use this as multi-driver
+// routing is generalized; selectBackend remains the compatibility default seam.
+func selectDriver(goos, name string) (driver.Driver, error) {
+	return platformBackendsFor(goos).ResolveDriver(name)
+}
+
+// platformBackendsFor is the single concrete construction point shared by the
+// legacy selectors and capability reporting. Constructors are lazy: asking for
+// supported names never checks whether package-manager executables are installed.
+func platformBackendsFor(goos string) platformBackendRegistry {
+	return newPlatformBackendRegistry(goos, backendFactories{
+		winget:     func() (driver.Driver, error) { return winget.New(), nil },
+		chocolatey: func() (driver.Driver, error) { return chocolatey.New(), nil },
+		brew:       func() (driver.Driver, error) { return brew.New(), nil },
+		nix:        func() (realizer.Realizer, error) { return nix.New(), nil },
+	})
 }

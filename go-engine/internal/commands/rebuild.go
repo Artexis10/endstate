@@ -29,6 +29,11 @@ type RebuildFlags struct {
 	NoRestore bool
 	// Events controls streaming event output. "jsonl" enables it; "" disables.
 	Events string
+	// BootstrapBackends authorizes installing and verifying selected absent
+	// package backends before package mutation.
+	BootstrapBackends bool
+	// NoBootstrap forces selected absent backend lanes to be skipped.
+	NoBootstrap bool
 }
 
 // RebuildBundleInfo describes the extracted capture bundle. It is nil for a
@@ -144,12 +149,7 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 	if flags.NoRestore {
 		restoreState = "disabled"
 	}
-	applyResult, applyErr := RunApply(ApplyFlags{
-		Manifest:      manifestPath,
-		DryRun:        flags.DryRun,
-		EnableRestore: !flags.NoRestore,
-		Events:        flags.Events,
-	})
+	applyResult, applyErr := RunApply(rebuildApplyFlags(flags, manifestPath))
 	if applyErr != nil {
 		return nil, applyErr
 	}
@@ -179,6 +179,17 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		Apply:   applyResult,
 		Verify:  verifyResult,
 	}, nil
+}
+
+func rebuildApplyFlags(flags RebuildFlags, manifestPath string) ApplyFlags {
+	return ApplyFlags{
+		Manifest:          manifestPath,
+		DryRun:            flags.DryRun,
+		EnableRestore:     !flags.NoRestore,
+		Events:            flags.Events,
+		BootstrapBackends: flags.BootstrapBackends,
+		NoBootstrap:       flags.NoBootstrap,
+	}
 }
 
 // readBundleMetadata best-effort reads metadata.json from an extracted bundle

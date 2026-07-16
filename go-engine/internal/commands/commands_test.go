@@ -1052,7 +1052,7 @@ func TestRunVerify_ManualApp_Missing(t *testing.T) {
 }
 
 // TestRunApply_ManualValidation_MissingVerifyPath verifies that a manifest
-// with manual but no verifyPath returns a parse error.
+// with manual but no verifyPath returns a validation error.
 func TestRunApply_ManualValidation_MissingVerifyPath(t *testing.T) {
 	md := &mockDriver{}
 	withMockDriver(md, func() {
@@ -1060,8 +1060,8 @@ func TestRunApply_ManualValidation_MissingVerifyPath(t *testing.T) {
 		if err == nil {
 			t.Fatal("expected envelope error for manual without verifyPath, got nil")
 		}
-		if string(err.Code) != "MANIFEST_PARSE_ERROR" {
-			t.Errorf("expected MANIFEST_PARSE_ERROR, got %q", err.Code)
+		if err.Code != envelope.ErrManifestValidationError {
+			t.Errorf("expected MANIFEST_VALIDATION_ERROR, got %q", err.Code)
 		}
 	})
 }

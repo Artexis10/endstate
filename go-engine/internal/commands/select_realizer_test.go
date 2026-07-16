@@ -93,11 +93,14 @@ func TestSelectBackend_Plan9ReturnsErrNoBackend(t *testing.T) {
 
 func TestDriversFor_Windows(t *testing.T) {
 	got := driversFor("windows")
-	if len(got) != 1 {
-		t.Fatalf("driversFor(windows) = %v, want [winget]", got)
+	want := []string{"winget", "chocolatey"}
+	if len(got) != len(want) {
+		t.Fatalf("driversFor(windows) = %v, want %v", got, want)
 	}
-	if got[0] != "winget" {
-		t.Errorf("driversFor(windows)[0] = %q, want winget", got[0])
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("driversFor(windows)[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }
 

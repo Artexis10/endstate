@@ -107,10 +107,17 @@ Each entry in the `apps` array must have:
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `id` | string | Yes | Stable cross-platform app identifier |
+| `driver` | string | No | Package driver selector: `winget`, `chocolatey`, or `brew` (case-insensitive) |
 | `refs` | object | No | Platform-specific package references |
-| `refs.windows` | string | No | Windows package ID (e.g., winget ID) |
+| `refs.windows` | string | No | Windows package ID interpreted by the selected Windows driver |
 
 **Note:** For backward compatibility, app entries with missing `id` are accepted but flagged as warnings.
+
+On Windows, omitted `driver` means `winget`. An explicit driver never falls back to another manager. A globally known driver unsupported on the host is a visible skipped item; an unknown driver fails manifest validation before package mutation.
+
+### Driver-Aware Config Module Matches
+
+Config modules may add `matches.chocolatey` alongside `matches.winget`. Results preserve legacy `configModuleMap` (bare Winget refs) and add `packageModuleMap` with `driver:ref` keys whose values are arrays of matching module IDs; capture module metadata adds `chocolateyRefs` alongside `wingetRefs`.
 
 ---
 
@@ -303,6 +310,13 @@ When introducing new versions:
       "id": "vscode",
       "refs": {
         "windows": "Microsoft.VisualStudioCode"
+      }
+    },
+    {
+      "id": "git-chocolatey",
+      "driver": "chocolatey",
+      "refs": {
+        "windows": "git.install"
       }
     }
   ],
