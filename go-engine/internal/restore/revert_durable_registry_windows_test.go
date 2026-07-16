@@ -28,7 +28,7 @@ func setupDurableRegistryImport(t *testing.T) (string, string, string, *Journal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := key.SetStringValue("Existing", "prior"); err != nil {
+	if err := key.SetStringValue("Existing", "prior-Ж"); err != nil {
 		_ = key.Close()
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestRunRevertDurableRegistryImportReplacesKeyExactly(t *testing.T) {
 		t.Fatal(err)
 	}
 	existing, _, err := key.GetStringValue("Existing")
-	if err != nil || existing != "prior" {
+	if err != nil || existing != "prior-Ж" {
 		_ = key.Close()
 		t.Fatalf("restored existing value = %q, %v", existing, err)
 	}
@@ -149,7 +149,7 @@ func TestRunRevertDurableRegistryImportResumesHeldKeySwap(t *testing.T) {
 	}
 	defer key.Close()
 	value, _, err := key.GetStringValue("Existing")
-	if err != nil || value != "prior" {
+	if err != nil || value != "prior-Ж" {
 		t.Fatalf("registry swap retry value = %q, %v", value, err)
 	}
 }

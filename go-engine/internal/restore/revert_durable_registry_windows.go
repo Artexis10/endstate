@@ -7,6 +7,7 @@ package restore
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"unicode/utf16"
 	"unsafe"
 
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
@@ -294,7 +296,13 @@ func rewriteDurableRegistryExport(data []byte, from, to string) ([]byte, error) 
 		}
 		lines[index] = "[" + replaced + "]"
 	}
-	return []byte(strings.Join(lines, "\r\n")), nil
+	runes := utf16.Encode([]rune(strings.Join(lines, "\r\n")))
+	encoded := make([]byte, 2+len(runes)*2)
+	encoded[0], encoded[1] = 0xff, 0xfe
+	for index, value := range runes {
+		binary.LittleEndian.PutUint16(encoded[2+index*2:], value)
+	}
+	return encoded, nil
 }
 
 func canonicalDurableRegistryKey(target string) (string, error) {
