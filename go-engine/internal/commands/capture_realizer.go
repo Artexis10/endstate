@@ -81,10 +81,13 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 		ref := el.Name // bare attr -> apply's ResolveInstallable expands against the pin
 		ver := nix.StorePathVersion(el.Name, el.StorePaths)
 		captured = append(captured, capturedApp{
-			ID:      name,
-			Refs:    map[string]string{goos: ref},
-			Name:    name,
-			Version: ver,
+			ID:               name,
+			Refs:             map[string]string{goos: ref},
+			Name:             name,
+			Version:          ver,
+			Installed:        true,
+			InstalledVersion: ver,
+			Backend:          driverName,
 		})
 		capturedIDs[name] = true
 		emitter.EmitItem(ref, driverName, "captured", "", fmt.Sprintf("Captured %s", name), name)
@@ -105,11 +108,14 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 							continue // realizer already captured this ID; do not duplicate
 						}
 						captured = append(captured, capturedApp{
-							ID:      ba.Name,
-							Refs:    map[string]string{"darwin": ba.Ref},
-							Driver:  "brew",
-							Name:    ba.Name,
-							Version: ba.Version,
+							ID:               ba.Name,
+							Refs:             map[string]string{"darwin": ba.Ref},
+							Driver:           "brew",
+							Name:             ba.Name,
+							Version:          ba.Version,
+							Installed:        true,
+							InstalledVersion: ba.Version,
+							Backend:          "brew",
 						})
 						capturedIDs[ba.Name] = true
 						emitter.EmitItem(ba.Ref, "brew", "captured", "", fmt.Sprintf("Captured %s", ba.Name), ba.Name)
@@ -138,11 +144,26 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 				existingRefs[ref] = true
 			}
 		}
+		currentlyDetected := make(map[string]capturedApp, len(captured))
+		for _, app := range captured {
+			if ref := app.Refs[goos]; ref != "" {
+				currentlyDetected[ref] = app
+			}
+		}
 		merged := make([]capturedApp, 0, len(existingMf.Apps)+len(captured))
 		for _, app := range existingMf.Apps {
 			// Preserve the existing app's driver (e.g. "brew") on re-read so a
-			// previously-captured brew app round-trips through --update unchanged.
-			merged = append(merged, capturedApp{ID: app.ID, Refs: app.Refs, Driver: app.Driver, Version: app.Version})
+			// previously-captured brew app round-trips through --update unchanged,
+			// while attaching current installed evidence only when the backend
+			// actually enumerated the same host ref in this run.
+			mergedApp := capturedApp{ID: app.ID, Refs: app.Refs, Driver: app.Driver, Version: app.Version}
+			if detected, ok := currentlyDetected[app.Refs[goos]]; ok {
+				mergedApp.Name = detected.Name
+				mergedApp.Installed = detected.Installed
+				mergedApp.InstalledVersion = detected.InstalledVersion
+				mergedApp.Backend = detected.Backend
+			}
+			merged = append(merged, mergedApp)
 		}
 		for _, app := range captured {
 			if !existingRefs[app.Refs[goos]] {
@@ -224,23 +245,38 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 	// --- 9. Build appsIncluded (package-scoped; source is the backend name) ---
 	appsIncluded := make([]CaptureApp, 0, len(captured))
 	for _, ca := range captured {
-		appsIncluded = append(appsIncluded, CaptureApp{Source: driverName, ID: ca.ID, Name: ca.Name})
+		source := ca.Backend
+		if source == "" {
+			source = driverName
+		}
+		appsIncluded = append(appsIncluded, CaptureApp{Source: source, ID: ca.ID, Name: ca.Name})
 	}
 
-	// --- 10. Emit artifact and summary events ---
-	emitter.EmitArtifact("capture", "manifest", absPath)
+	// --- 10. Plan config capture and publish one canonical artifact ---
+	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		Flags: flags, ManifestPath: absPath,
+		Apps: buildModuleMatchApps(captured),
+	})
+	if finalizeErr != nil {
+		return nil, envelope.NewError(
+			envelope.ErrCaptureFailed,
+			fmt.Sprintf("Failed to create capture bundle: %v", finalizeErr),
+		)
+	}
+
+	// --- 11. Emit artifact and summary events ---
+	emitter.EmitArtifact("capture", "manifest", finalization.OutputPath)
 	emitter.EmitSummary("capture", included, included, 0, 0)
 
-	// No config modules / bundle on the realizer path (packages only).
 	return &CaptureResult{
 		AppsIncluded:         appsIncluded,
-		ConfigModules:        []CaptureModuleResult{},
-		ConfigModuleMap:      map[string]string{},
-		OutputPath:           absPath,
-		OutputFormat:         "jsonc",
-		ConfigsIncluded:      []string{},
-		ConfigsSkipped:       []string{},
-		ConfigsCaptureErrors: []string{},
+		ConfigModules:        finalization.ConfigModules,
+		ConfigModuleMap:      finalization.ConfigModuleMap,
+		OutputPath:           finalization.OutputPath,
+		OutputFormat:         finalization.OutputFormat,
+		ConfigsIncluded:      finalization.ConfigsIncluded,
+		ConfigsSkipped:       finalization.ConfigsSkipped,
+		ConfigsCaptureErrors: finalization.ConfigsCaptureErrors,
 		Sanitized:            flags.Sanitize,
 		IsExample:            false,
 		Counts: CaptureCountsFull{
@@ -249,8 +285,12 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 		},
 		Manifest: CaptureManifest{
 			Name: manifestName,
-			Path: absPath,
+			Path: finalization.OutputPath,
 		},
+		BundleSchemaVersion: generationBundleSchemaVersion(finalization),
+		ManifestVersion:     generationManifestVersion(finalization),
+		CaptureWarnings:     finalization.CaptureWarnings,
+		ConfigCapture:       captureConfigResultSummary(finalization),
 	}, nil
 }
 

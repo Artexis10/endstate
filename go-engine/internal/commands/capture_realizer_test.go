@@ -104,10 +104,7 @@ func hmGenSettings(settings *manifest.HomeManagerSettings, generatedFlake string
 
 func readCapturedManifest(t *testing.T, path string) capturedManifestFile {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read manifest %s: %v", path, err)
-	}
+	data := readCaptureManifestBytes(t, path)
 	var mf capturedManifestFile
 	if err := json.Unmarshal(data, &mf); err != nil {
 		t.Fatalf("manifest is not valid JSON: %v\n%s", err, data)
@@ -122,7 +119,7 @@ func readCapturedManifest(t *testing.T, path string) capturedManifestFile {
 // Each element is emitted as a manifest app whose only ref is host-keyed
 // (runtime.GOOS) and equal to the element's bare attr Name — NOT its AttrPath.
 // Apps are sorted by id; the manifest is version 1; no version is recorded; and
-// the result synthesizes no config modules (packages only).
+// the result synthesizes no config modules when the catalog is empty.
 func TestRunCaptureRealizer_EmitsBareAttrHostKeyedRefs(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "nix-capture.jsonc")
 	fr := &fakeRealizer{currentSet: nixSet("ripgrep", "jq")}
@@ -141,8 +138,8 @@ func TestRunCaptureRealizer_EmitsBareAttrHostKeyedRefs(t *testing.T) {
 	if res.Counts.TotalFound != 2 {
 		t.Errorf("Counts.TotalFound = %d, want 2", res.Counts.TotalFound)
 	}
-	if res.OutputFormat != "jsonc" {
-		t.Errorf("OutputFormat = %q, want jsonc", res.OutputFormat)
+	if res.OutputFormat != "zip" {
+		t.Errorf("OutputFormat = %q, want zip", res.OutputFormat)
 	}
 	if len(res.ConfigModules) != 0 {
 		t.Errorf("realizer path must not synthesize config modules, got %d", len(res.ConfigModules))
@@ -249,10 +246,7 @@ func TestRunCaptureRealizer_EmptyProfile_WritesValidEmptyManifest(t *testing.T) 
 		t.Errorf("Counts.Included = %d, want 0", res.Counts.Included)
 	}
 
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
+	data := readCaptureManifestBytes(t, out)
 	if !strings.Contains(string(data), `"apps": []`) {
 		t.Errorf("expected empty apps array (not null), got:\n%s", data)
 	}
@@ -465,10 +459,7 @@ func TestRunCaptureRealizer_NoHomeManagerHistory_OmitsField(t *testing.T) {
 		}
 	})
 
-	data, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
+	data := readCaptureManifestBytes(t, out)
 	if strings.Contains(string(data), "homeManager") {
 		t.Errorf("expected no homeManager field, got:\n%s", data)
 	}
@@ -648,10 +639,7 @@ func TestRunCaptureRealizer_SecretMaterialNeverCaptured(t *testing.T) {
 		}
 	})
 
-	raw, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
-	}
+	raw := readCaptureManifestBytes(t, out)
 	if strings.Contains(string(raw), sentinel) {
 		t.Fatal("CAPTURE LEAK: secret material (sentinel) found in the captured manifest")
 	}

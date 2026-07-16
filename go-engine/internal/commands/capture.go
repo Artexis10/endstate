@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
@@ -54,6 +53,10 @@ type CaptureResult struct {
 	Sanitized            bool                  `json:"sanitized"`
 	IsExample            interface{}           `json:"isExample"`
 	Counts               CaptureCountsFull     `json:"counts"`
+	BundleSchemaVersion  string                `json:"bundleSchemaVersion,omitempty"`
+	ManifestVersion      int                   `json:"manifestVersion,omitempty"`
+	CaptureWarnings      []string              `json:"captureWarnings"`
+	ConfigCapture        *CaptureConfigSummary `json:"configCapture,omitempty"`
 
 	// Manifest identifies the manifest that was produced (kept for tooling
 	// and test compatibility).
@@ -481,104 +484,49 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	// --- 9. Build appsIncluded (reuses displayNameMap from step 2) ---
 	appsIncluded := buildAppsIncluded(captured, displayNameMap)
 
-	// --- 10. Module matching and optional bundle creation ---
-	configModules := []CaptureModuleResult{}
-	configModuleMap := map[string]string{}
-	configsIncluded := []string{}
-	configsSkipped := []string{}
-	configsCaptureErrors := []string{}
-	configSecretsExcluded := 0
-
-	outputFormat := "jsonc"
-	finalOutputPath := absPath
-
-	if !flags.Sanitize {
-		repoRoot := resolveRepoRootFn()
-		if repoRoot != "" {
-			catalog, catalogErr := loadModuleCatalogFn(repoRoot)
-			if catalogErr == nil && len(catalog) > 0 {
-				manifestApps := buildModuleMatchApps(captured)
-				matchedModules := matchModulesForAppsFn(catalog, manifestApps)
-
-				if len(matchedModules) > 0 {
-					// Build configModuleMap from matched modules.
-					configModuleMap = buildConfigModuleMap(matchedModules)
-
-					// Determine zip output path.
-					profileName := manifestName
-					if flags.Profile != "" {
-						profileName = flags.Profile
-					}
-					profilesDir := resolveProfileDirFn()
-					zipOutputPath := filepath.Join(profilesDir, profileName+".zip")
-
-					version := config.ReadVersion(repoRoot)
-
-					// Create zip bundle.
-					bundleErr := bundle.CreateBundle(absPath, matchedModules, zipOutputPath, version)
-
-					if bundleErr == nil {
-						// Bundle succeeded: zip is the deliverable.
-						// Remove intermediate .jsonc (zip is the canonical output).
-						os.Remove(absPath)
-						outputFormat = "zip"
-						finalOutputPath = zipOutputPath
-					} else {
-						// Bundle failed: keep the .jsonc as fallback.
-						configsCaptureErrors = append(configsCaptureErrors,
-							fmt.Sprintf("Bundle creation failed: %v", bundleErr))
-					}
-
-					// Build per-module results using a fresh staging pass so we
-					// have accurate file counts and paths.
-					configModules, configsIncluded, configsSkipped, configsCaptureErrors, configSecretsExcluded =
-						buildConfigModuleResults(matchedModules, configsCaptureErrors)
-				}
-			}
-		}
-	}
-
-	// Ensure slice fields are never null in JSON output.
-	if configModules == nil {
-		configModules = []CaptureModuleResult{}
-	}
-	if configsIncluded == nil {
-		configsIncluded = []string{}
-	}
-	if configsSkipped == nil {
-		configsSkipped = []string{}
-	}
-	if configsCaptureErrors == nil {
-		configsCaptureErrors = []string{}
+	// --- 10. Plan config capture and publish one canonical artifact ---
+	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		Flags: flags, ManifestPath: absPath,
+		Apps: buildModuleMatchApps(captured),
+	})
+	if finalizeErr != nil {
+		return nil, envelope.NewError(
+			envelope.ErrCaptureFailed,
+			fmt.Sprintf("Failed to create capture bundle: %v", finalizeErr),
+		)
 	}
 
 	// --- 11. Emit artifact and summary events ---
-	emitter.EmitArtifact("capture", "manifest", finalOutputPath)
+	emitter.EmitArtifact("capture", "manifest", finalization.OutputPath)
 	emitter.EmitSummary("capture", totalFound, included, skipped, 0)
 
 	return &CaptureResult{
 		AppsIncluded:         appsIncluded,
-		ConfigModules:        configModules,
-		ConfigModuleMap:      configModuleMap,
-		OutputPath:           finalOutputPath,
-		OutputFormat:         outputFormat,
-		ConfigsIncluded:      configsIncluded,
-		ConfigsSkipped:       configsSkipped,
-		ConfigsCaptureErrors: configsCaptureErrors,
+		ConfigModules:        finalization.ConfigModules,
+		ConfigModuleMap:      finalization.ConfigModuleMap,
+		OutputPath:           finalization.OutputPath,
+		OutputFormat:         finalization.OutputFormat,
+		ConfigsIncluded:      finalization.ConfigsIncluded,
+		ConfigsSkipped:       finalization.ConfigsSkipped,
+		ConfigsCaptureErrors: finalization.ConfigsCaptureErrors,
 		Sanitized:            flags.Sanitize,
 		IsExample:            false,
 		Counts: CaptureCountsFull{
 			FilteredRuntimes:       filteredRuntimes,
 			Included:               included,
 			TotalFound:             totalFound,
-			SensitiveExcludedCount: configSecretsExcluded,
+			SensitiveExcludedCount: finalization.SensitiveExcluded,
 			FilteredStoreApps:      filteredStore,
 			Skipped:                skipped,
 		},
 		Manifest: CaptureManifest{
 			Name: manifestName,
-			Path: finalOutputPath,
+			Path: finalization.OutputPath,
 		},
+		BundleSchemaVersion: generationBundleSchemaVersion(finalization),
+		ManifestVersion:     generationManifestVersion(finalization),
+		CaptureWarnings:     finalization.CaptureWarnings,
+		ConfigCapture:       captureConfigResultSummary(finalization),
 	}, nil
 }
 
@@ -655,112 +603,6 @@ func buildConfigModuleMap(matchedModules []*modules.Module) map[string]string {
 		}
 	}
 	return m
-}
-
-// buildConfigModuleResults builds the CaptureModuleResult slice and collects
-// per-module file counts by running CollectConfigFiles against each matched
-// module in a temporary staging directory.
-func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors []string) (
-	results []CaptureModuleResult,
-	included []string,
-	skipped []string,
-	captureErrors []string,
-	sensitiveExcluded int,
-) {
-	captureErrors = existingErrors
-
-	stagingDir, mkdirErr := os.MkdirTemp("", "endstate-capture-meta-")
-	if mkdirErr != nil {
-		captureErrors = append(captureErrors, fmt.Sprintf("failed to create staging dir: %v", mkdirErr))
-		for _, mod := range matchedModules {
-			dirName := moduleDirName(mod.ID)
-			skipped = append(skipped, dirName)
-			results = append(results, CaptureModuleResult{
-				ID:          mod.ID,
-				AppID:       dirName,
-				DisplayName: mod.DisplayName,
-				WingetRefs:  safeStringSlice(mod.Matches.Winget),
-				Paths:       []string{},
-				Status:      "skipped",
-			})
-		}
-		return
-	}
-	defer os.RemoveAll(stagingDir)
-
-	includedSet := make(map[string]bool)
-	moduleFileCounts := make(map[string]int)
-	moduleFilePaths := make(map[string][]string)
-	moduleErrors := make(map[string]bool)
-
-	for _, mod := range matchedModules {
-		dirName := moduleDirName(mod.ID)
-
-		fileCollected, secretsN, collectErr := bundle.CollectConfigFiles(mod, stagingDir)
-		sensitiveExcluded += secretsN
-		if collectErr != nil {
-			captureErrors = append(captureErrors, fmt.Sprintf("module %s: %v", mod.ID, collectErr))
-			moduleErrors[dirName] = true
-			moduleFileCounts[dirName] = 0
-			moduleFilePaths[dirName] = []string{}
-			continue
-		}
-
-		regCollected, regErr := bundle.CollectRegistryKeys(mod, stagingDir)
-		if regErr != nil {
-			captureErrors = append(captureErrors, fmt.Sprintf("module %s registry: %v", mod.ID, regErr))
-			// Don't mark the whole module as errored — file collection may have succeeded.
-		}
-
-		regValuesCollected, regValErr := bundle.CollectRegistryValues(mod, stagingDir)
-		if regValErr != nil {
-			captureErrors = append(captureErrors, fmt.Sprintf("module %s registry values: %v", mod.ID, regValErr))
-			// Don't mark the whole module as errored — other collection may have succeeded.
-		}
-
-		collected := append(fileCollected, regCollected...)
-		collected = append(collected, regValuesCollected...)
-
-		if len(collected) > 0 {
-			includedSet[dirName] = true
-			moduleFileCounts[dirName] = len(collected)
-			moduleFilePaths[dirName] = collected
-		} else {
-			moduleFileCounts[dirName] = 0
-			moduleFilePaths[dirName] = []string{}
-		}
-	}
-
-	for _, mod := range matchedModules {
-		dirName := moduleDirName(mod.ID)
-
-		status := "skipped"
-		if moduleErrors[dirName] {
-			status = "error"
-		} else if includedSet[dirName] {
-			status = "captured"
-			included = append(included, dirName)
-		} else {
-			skipped = append(skipped, dirName)
-		}
-
-		paths := moduleFilePaths[dirName]
-		if paths == nil {
-			paths = []string{}
-		}
-
-		results = append(results, CaptureModuleResult{
-			ID:            mod.ID,
-			AppID:         dirName,
-			DisplayName:   mod.DisplayName,
-			WingetRefs:    safeStringSlice(mod.Matches.Winget),
-			Paths:         paths,
-			FilesCaptured: moduleFileCounts[dirName],
-			Status:        status,
-		})
-	}
-
-	return
 }
 
 // moduleDirName strips the "apps." prefix from a module ID to get the

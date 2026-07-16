@@ -10,6 +10,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
 
 // presentBootstrapFn is the default backend-bootstrap pre-step fake: it reports
@@ -56,6 +57,14 @@ func TestMain(m *testing.M) {
 	// byte-identical (the factory gate still decides resolution). Tests that
 	// exercise the bootstrap wiring override bootstrapBackendsFn locally.
 	bootstrapBackendsFn = presentBootstrapFn
+
+	// Capture always publishes a bundle now, even when no config module matches.
+	// Keep the default catalog empty so package-capture tests never depend on the
+	// checkout's live module catalog; tests that exercise matching replace this
+	// seam explicitly.
+	loadCaptureModuleCatalogFn = func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+		return map[string]*modules.Module{}, []modules.CatalogDiagnostic{}, nil
+	}
 
 	code := m.Run()
 	cleanup()

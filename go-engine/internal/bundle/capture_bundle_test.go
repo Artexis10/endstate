@@ -138,6 +138,55 @@ func TestCreateCaptureBundleZeroFilePlanIsTypedSkipAndCannotEnableV2(t *testing.
 	}
 }
 
+func TestCreateCaptureBundleIncludesPreplanningDiagnosticInResultAndMetadata(t *testing.T) {
+	dir := t.TempDir()
+	diagnostic := CaptureBundleDiagnostic{
+		CaptureID:   CaptureID("apps.v2", "preferences", "instance-a"),
+		ModuleID:    "apps.v2",
+		ConfigSetID: "preferences",
+		InstanceID:  "instance-a",
+		Status:      CaptureBundleStatusSkipped,
+		Code:        "unknown_generation",
+		Detail:      "config set has no matching generation",
+	}
+	request := testCaptureBundleRequest(t, dir, nil, nil)
+	request.PreplanningDiagnostics = []CaptureBundleDiagnostic{diagnostic}
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ManifestVersion != 1 || len(result.Diagnostics) != 1 || result.Diagnostics[0] != diagnostic {
+		t.Fatalf("preplanning result = %+v", result)
+	}
+	if len(result.CaptureWarnings) != 1 || result.CaptureWarnings[0] != captureBundleDiagnosticWarning(diagnostic) {
+		t.Fatalf("preplanning result warnings = %q", result.CaptureWarnings)
+	}
+	_, metadata := loadCaptureBundle(t, request.OutputPath)
+	if len(metadata.CaptureWarnings) != 1 || metadata.CaptureWarnings[0] != captureBundleDiagnosticWarning(diagnostic) {
+		t.Fatalf("preplanning metadata warning = %q", metadata.CaptureWarnings)
+	}
+}
+
+func TestCreateCaptureBundleReportsGenerationSecretExclusionsFromPublicationPass(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root")
+	secret := filepath.Join(root, "token.json")
+	writeCaptureFile(t, filepath.Join(root, "prefs.json"), []byte("prefs"))
+	writeCaptureFile(t, secret, []byte("secret"))
+	plan := testConfigSetCapturePlanWithSecrets(root, &modules.CaptureDef{
+		Files: []modules.CaptureFile{{Source: `${instance.root}`, Dest: "preferences"}},
+	}, &modules.SecretsDef{Files: []string{secret}})
+	plan.Instance.Evidence = modules.InstanceEvidence{Type: "path", Path: root}
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{plan.Module}, []ConfigSetCapturePlan{plan})
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SensitiveExcluded != 1 || len(result.ConfigCaptures) != 1 || len(result.ConfigCaptures[0].PayloadManifest) != 1 {
+		t.Fatalf("single-pass generation facts = %+v", result)
+	}
+}
+
 func TestCreateCaptureBundlePureV2HasNoFlatFallbackAndIgnoresTopLevelV2Config(t *testing.T) {
 	dir := t.TempDir()
 	root := filepath.Join(dir, "v2-root")
@@ -165,11 +214,20 @@ func TestCreateCaptureBundleMixedAssociatesOnlyLegacyFlatActions(t *testing.T) {
 	plan := testGenerationCapturePlan(t, "apps.v2", "instance-a", root, false, false)
 	legacy := testLegacyCaptureModule(t, dir, "apps.legacy", "legacy")
 	request := testCaptureBundleRequest(t, dir, []*modules.Module{plan.Module, legacy}, []ConfigSetCapturePlan{plan})
-	if _, err := CreateCaptureBundle(request); err != nil {
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
 		t.Fatal(err)
 	}
-	loaded, _ := loadCaptureBundle(t, request.OutputPath)
 	legacyID := LegacyCaptureID(legacy.ID)
+	if len(result.LegacyModules) != 1 {
+		t.Fatalf("legacy module collection results = %+v", result.LegacyModules)
+	}
+	legacyResult := result.LegacyModules[0]
+	if legacyResult.ModuleID != legacy.ID || legacyResult.Status != LegacyCaptureStatusCaptured || legacyResult.FilesCaptured != 1 ||
+		len(legacyResult.Paths) != 1 || legacyResult.Paths[0] != "configs/"+legacyID+"/legacy.json" {
+		t.Fatalf("legacy module collection result = %+v", legacyResult)
+	}
+	loaded, _ := loadCaptureBundle(t, request.OutputPath)
 	if len(loaded.LegacyConfigLanes) != 1 || loaded.LegacyConfigLanes[0].CaptureID != legacyID || loaded.LegacyConfigLanes[0].PayloadRoot != "configs/"+legacyID {
 		t.Fatalf("legacy lanes = %+v", loaded.LegacyConfigLanes)
 	}

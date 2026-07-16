@@ -25,6 +25,9 @@ const (
 	CaptureBundleStatusFailed     = "failed"
 	CaptureBundleDiagnosticEmpty  = "CONFIG_CAPTURE_EMPTY"
 	CaptureBundleDiagnosticFailed = "CONFIG_CAPTURE_FAILED"
+	LegacyCaptureStatusCaptured   = "captured"
+	LegacyCaptureStatusSkipped    = "skipped"
+	LegacyCaptureStatusFailed     = "failed"
 )
 
 // CaptureBundleRequest is the typed input for generation-aware bundle
@@ -36,6 +39,10 @@ type CaptureBundleRequest struct {
 	EndstateVersion string
 	Modules         []*modules.Module
 	GenerationPlans []ConfigSetCapturePlan
+	// PreplanningDiagnostics carries deterministic catalog/discovery/generation
+	// refusals that produced no executable collection plan. They are reported
+	// and persisted exactly like collection-time diagnostics.
+	PreplanningDiagnostics []CaptureBundleDiagnostic
 }
 
 // CaptureBundleDiagnostic records a non-fatal per-config-set capture outcome.
@@ -61,6 +68,20 @@ type CaptureBundleResult struct {
 	ConfigModulesIncluded  []string
 	ConfigModulesSkipped   []string
 	Diagnostics            []CaptureBundleDiagnostic
+	CaptureWarnings        []string
+	LegacyModules          []LegacyModuleCaptureResult
+	SensitiveExcluded      int
+}
+
+// LegacyModuleCaptureResult exposes facts from the single schema-v1
+// collection pass that actually populated the artifact. Paths are the final
+// portable zip paths, including mixed-v2 lane rewriting.
+type LegacyModuleCaptureResult struct {
+	ModuleID        string
+	Paths           []string
+	FilesCaptured   int
+	SecretsExcluded int
+	Status          string
 }
 
 // LegacyCaptureID returns a deterministic, opaque module-scoped identity in a
@@ -98,9 +119,11 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		return capturePlanIdentity(plans[left]) < capturePlanIdentity(plans[right])
 	})
 	configCaptures := make([]manifest.ConfigCapture, 0, len(plans))
-	diagnostics := make([]CaptureBundleDiagnostic, 0)
+	diagnostics := append([]CaptureBundleDiagnostic(nil), request.PreplanningDiagnostics...)
+	sensitiveExcluded := 0
 	for _, plan := range plans {
-		capture, diagnostic := collectGenerationCapture(plan, stagingRoot)
+		capture, excluded, diagnostic := collectGenerationCapture(plan, stagingRoot)
+		sensitiveExcluded += excluded
 		if diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
@@ -176,24 +199,27 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		ConfigModulesIncluded:  nonNilStrings(legacy.included),
 		ConfigModulesSkipped:   nonNilStrings(legacy.skipped),
 		Diagnostics:            append([]CaptureBundleDiagnostic(nil), diagnostics...),
+		CaptureWarnings:        nonNilStrings(captureWarnings),
+		LegacyModules:          cloneLegacyModuleResults(legacy.modules),
+		SensitiveExcluded:      sensitiveExcluded,
 	}, nil
 }
 
-func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*manifest.ConfigCapture, *CaptureBundleDiagnostic) {
+func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*manifest.ConfigCapture, int, *CaptureBundleDiagnostic) {
 	diagnostic := capturePlanDiagnostic(plan)
 	collection, err := CollectConfigSet(plan, stagingRoot)
 	if err != nil {
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = captureBundleErrorCode(err)
 		diagnostic.Detail = err.Error()
-		return nil, &diagnostic
+		return nil, 0, &diagnostic
 	}
 	if collection.FilesCollected == 0 {
 		removeCapturePayload(stagingRoot, collection.PayloadRoot)
 		diagnostic.Status = CaptureBundleStatusSkipped
 		diagnostic.Code = CaptureBundleDiagnosticEmpty
 		diagnostic.Detail = "generation capture produced no regular files"
-		return nil, &diagnostic
+		return nil, collection.SecretsExcluded, &diagnostic
 	}
 	payloadHost, err := containedHostPath(stagingRoot, collection.PayloadRoot)
 	if err != nil {
@@ -201,7 +227,7 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = ConfigCaptureUnsafePath
 		diagnostic.Detail = err.Error()
-		return nil, &diagnostic
+		return nil, collection.SecretsExcluded, &diagnostic
 	}
 	payloadManifest, err := BuildPayloadManifest(payloadHost)
 	if err == nil {
@@ -212,7 +238,7 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = captureBundleErrorCode(err)
 		diagnostic.Detail = err.Error()
-		return nil, &diagnostic
+		return nil, collection.SecretsExcluded, &diagnostic
 	}
 	snapshot, err := WriteModuleSnapshot(stagingRoot, plan.Module)
 	if err != nil {
@@ -220,7 +246,7 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = captureBundleErrorCode(err)
 		diagnostic.Detail = err.Error()
-		return nil, &diagnostic
+		return nil, collection.SecretsExcluded, &diagnostic
 	}
 
 	evidence := plan.Instance.Evidence
@@ -245,7 +271,7 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 		},
 		PayloadRoot:     collection.PayloadRoot,
 		PayloadManifest: payloadManifest,
-	}, nil
+	}, collection.SecretsExcluded, nil
 }
 
 type legacyCaptureCollection struct {
@@ -255,6 +281,7 @@ type legacyCaptureCollection struct {
 	included  []string
 	skipped   []string
 	warnings  []string
+	modules   []LegacyModuleCaptureResult
 }
 
 func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string, mixedV2 bool) (*legacyCaptureCollection, error) {
@@ -282,25 +309,32 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		if mixedV2 && len(mod.Restore) == 0 {
 			legacy.skipped = append(legacy.skipped, shortID)
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s: captured legacy payload has no flat restore actions", mod.ID))
+			legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{ModuleID: mod.ID, Paths: []string{}, Status: LegacyCaptureStatusSkipped})
 			continue
 		}
 		workRoot, err := os.MkdirTemp("", "endstate-legacy-capture-")
 		if err != nil {
 			return nil, fmt.Errorf("capture bundle: create legacy staging for %s: %w", mod.ID, err)
 		}
-		fileCollected, _, fileErr := CollectConfigFiles(mod, workRoot)
+		fileCollected, secretsExcluded, fileErr := CollectConfigFiles(mod, workRoot)
 		if fileErr != nil {
 			_ = os.RemoveAll(workRoot)
 			legacy.skipped = append(legacy.skipped, shortID)
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s: %v", mod.ID, fileErr))
+			legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
+				ModuleID: mod.ID, Paths: []string{}, SecretsExcluded: secretsExcluded, Status: LegacyCaptureStatusFailed,
+			})
 			continue
 		}
 		registryCollected, registryErr := CollectRegistryKeys(mod, workRoot)
+		hadCollectionError := false
 		if registryErr != nil {
+			hadCollectionError = true
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s registry: %v", mod.ID, registryErr))
 		}
 		registryValuesCollected, registryValuesErr := CollectRegistryValues(mod, workRoot)
 		if registryValuesErr != nil {
+			hadCollectionError = true
 			legacy.warnings = append(legacy.warnings, fmt.Sprintf("module %s registry values: %v", mod.ID, registryValuesErr))
 		}
 		collected := append(fileCollected, registryCollected...)
@@ -308,6 +342,13 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		if len(collected) == 0 {
 			_ = os.RemoveAll(workRoot)
 			legacy.skipped = append(legacy.skipped, shortID)
+			status := LegacyCaptureStatusSkipped
+			if hadCollectionError {
+				status = LegacyCaptureStatusFailed
+			}
+			legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
+				ModuleID: mod.ID, Paths: []string{}, SecretsExcluded: secretsExcluded, Status: status,
+			})
 			continue
 		}
 
@@ -335,6 +376,13 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 
 		legacy.included = append(legacy.included, shortID)
 		legacy.moduleIDs = append(legacy.moduleIDs, mod.ID)
+		legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
+			ModuleID:        mod.ID,
+			Paths:           rewriteLegacyCollectionPaths(collected, shortID, layoutID),
+			FilesCaptured:   len(collected),
+			SecretsExcluded: secretsExcluded,
+			Status:          LegacyCaptureStatusCaptured,
+		})
 		if mixedV2 {
 			legacy.lanes = append(legacy.lanes, manifest.LegacyConfigLane{
 				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1, PayloadRoot: path.Join("configs", legacyCaptureID),
@@ -357,7 +405,35 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 	sort.SliceStable(legacy.restores, func(left, right int) bool {
 		return restoreSortKey(legacy.restores[left]) < restoreSortKey(legacy.restores[right])
 	})
+	sort.Slice(legacy.modules, func(left, right int) bool { return legacy.modules[left].ModuleID < legacy.modules[right].ModuleID })
 	return legacy, nil
+}
+
+func rewriteLegacyCollectionPaths(values []string, oldLayoutID, newLayoutID string) []string {
+	paths := make([]string, 0, len(values))
+	oldPrefix := "configs/" + oldLayoutID
+	newPrefix := "configs/" + newLayoutID
+	for _, value := range values {
+		normalized := filepath.ToSlash(value)
+		if normalized == oldPrefix || strings.HasPrefix(normalized, oldPrefix+"/") {
+			normalized = newPrefix + strings.TrimPrefix(normalized, oldPrefix)
+		}
+		paths = append(paths, normalized)
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func cloneLegacyModuleResults(values []LegacyModuleCaptureResult) []LegacyModuleCaptureResult {
+	if values == nil {
+		return []LegacyModuleCaptureResult{}
+	}
+	cloned := make([]LegacyModuleCaptureResult, len(values))
+	for index, value := range values {
+		cloned[index] = value
+		cloned[index].Paths = nonNilStrings(value.Paths)
+	}
+	return cloned
 }
 
 func rewriteLegacyRestore(restore modules.RestoreDef, layoutID string) manifest.RestoreEntry {
@@ -483,10 +559,9 @@ func captureHostname() string {
 }
 
 func nonNilStrings(values []string) []string {
-	if values == nil {
-		return []string{}
-	}
-	return append([]string(nil), values...)
+	result := make([]string, len(values))
+	copy(result, values)
+	return result
 }
 
 func nonNilConfigCaptures(values []manifest.ConfigCapture) []manifest.ConfigCapture {
