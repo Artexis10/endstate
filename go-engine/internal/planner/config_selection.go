@@ -39,13 +39,23 @@ func (r *CompatibilityResolver) resolveSourceTargets(
 	targets []TargetInstance,
 	explicitMappings map[string]string,
 ) PlanSet {
+	candidates := make([]PlanSet, len(targets))
+	resolvedTargets := append([]TargetInstance(nil), targets...)
+	for index, target := range targets {
+		candidate := r.ResolveCandidate(source, target)
+		candidates[index] = candidate
+		if len(candidate.TargetInstances) == 1 {
+			resolvedTargets[index] = candidate.TargetInstances[0]
+		}
+	}
+
 	if mappedTargetID, mapped := explicitMappings[source.CaptureID]; mapped {
-		for _, target := range targets {
+		for targetIndex, target := range resolvedTargets {
 			if target.ID != mappedTargetID {
 				continue
 			}
-			candidate := r.ResolveCandidate(source, target)
-			candidate.TargetInstances = append([]TargetInstance(nil), targets...)
+			candidate := candidates[targetIndex]
+			candidate.TargetInstances = resolvedTargets
 			if isViableCompatibility(candidate.Resolution) {
 				return candidate
 			}
@@ -55,26 +65,23 @@ func (r *CompatibilityResolver) resolveSourceTargets(
 			}
 			return candidate
 		}
-		plan := unresolvedSourcePlan(source, targets, ResolutionUnknown, ReasonMappedTargetNotDetected, StatusSkipped)
+		plan := unresolvedSourcePlan(source, resolvedTargets, ResolutionUnknown, ReasonMappedTargetNotDetected, StatusSkipped)
 		plan.Resolution.TargetInstanceID = mappedTargetID
 		return plan
 	}
 
 	if len(targets) == 0 {
-		return unresolvedSourcePlan(source, targets, ResolutionUnknown, ReasonTargetNotDetected, StatusSkipped)
+		return unresolvedSourcePlan(source, resolvedTargets, ResolutionUnknown, ReasonTargetNotDetected, StatusSkipped)
 	}
 
-	candidates := make([]PlanSet, len(targets))
 	viable := make([]PlanSet, 0, len(targets))
-	for index, target := range targets {
-		candidate := r.ResolveCandidate(source, target)
-		candidates[index] = candidate
+	for _, candidate := range candidates {
 		if isViableCompatibility(candidate.Resolution) {
 			viable = append(viable, candidate)
 		}
 	}
 	if len(viable) == 1 {
-		viable[0].TargetInstances = append([]TargetInstance(nil), targets...)
+		viable[0].TargetInstances = resolvedTargets
 		return viable[0]
 	}
 	if len(viable) > 1 {
@@ -85,19 +92,19 @@ func (r *CompatibilityResolver) resolveSourceTargets(
 			}
 		}
 		if len(exact) == 1 {
-			exact[0].TargetInstances = append([]TargetInstance(nil), targets...)
+			exact[0].TargetInstances = resolvedTargets
 			return exact[0]
 		}
-		return unresolvedSourcePlan(source, targets, ResolutionUnknown, ReasonAmbiguousTargetInstance, StatusSkipped)
+		return unresolvedSourcePlan(source, resolvedTargets, ResolutionUnknown, ReasonAmbiguousTargetInstance, StatusSkipped)
 	}
 
 	if candidatesShareOutcome(candidates) {
 		common := candidates[0]
-		common.TargetInstances = append([]TargetInstance(nil), targets...)
+		common.TargetInstances = resolvedTargets
 		clearSelectedTarget(&common)
 		return common
 	}
-	return unresolvedSourcePlan(source, targets, ResolutionUnknown, ReasonAmbiguousTargetInstance, StatusSkipped)
+	return unresolvedSourcePlan(source, resolvedTargets, ResolutionUnknown, ReasonAmbiguousTargetInstance, StatusSkipped)
 }
 
 func unresolvedSourcePlan(

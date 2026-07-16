@@ -103,6 +103,8 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 	if source.PayloadIntegrityFailed {
 		return finishCompatibility(plan, ResolutionUnknown, ReasonPayloadIntegrityFailed, StatusFailed)
 	}
+	target.ModuleRevision = current.revision
+	plan.TargetInstances[0] = target
 	targetGeneration, err := modules.SelectGeneration(&set, targetVersionEvidence(target))
 	if err != nil {
 		reason := ReasonUnknownGeneration
@@ -114,7 +116,6 @@ func (r *CompatibilityResolver) ResolveCandidate(source SourceCapture, target Ta
 
 	target.Generation = targetGeneration.ID
 	target.GenerationFingerprint = targetGeneration.Fingerprint
-	target.ModuleRevision = current.revision
 	plan.TargetInstances[0] = target
 	plan.TargetGenerationDef = cloneGeneration(targetGeneration)
 	plan.Resolution.TargetGeneration = targetGeneration.ID
