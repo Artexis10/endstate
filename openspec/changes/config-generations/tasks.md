@@ -40,8 +40,8 @@
 
 - [x] 5.1 Add normalized source-capture, target-instance, config-resolution, reason, and summary data types.
 - [x] 5.2 Implement exactly-one generation matching and the `unknown_generation` / `ambiguous_generation` outcomes.
-- [ ] 5.3 Implement same-generation direct resolution and forward-route lookup against one pinned trusted catalog snapshot.
-- [ ] 5.4 Implement downgrade rejection, missing-path handling, unsupported-module-schema handling, payload-integrity failure, missing catalog module/set/generation, and changed/unaccepted source-generation fingerprint outcomes.
+- [x] 5.3 Implement same-generation direct resolution and forward-route lookup against one pinned trusted catalog snapshot.
+- [x] 5.4 Implement downgrade rejection, missing-path handling, unsupported-module-schema handling, payload-integrity failure, missing catalog module/set/generation, and changed/unaccepted source-generation fingerprint outcomes.
 - [ ] 5.5 Implement deterministic target selection: unique target, unique exact-version preference, explicit mapping, and ambiguous-target refusal.
 - [ ] 5.6 Detect exact and parent/child target collisions plus multiple captured sources competing for one target.
 - [ ] 5.7 Re-run target detection after rebuild installs and ensure final resolution replaces stale pre-install evidence before restore.
