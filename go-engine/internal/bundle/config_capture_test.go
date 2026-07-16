@@ -276,6 +276,87 @@ func TestCollectConfigSetRejectsSourceAndStagingLinks(t *testing.T) {
 	})
 }
 
+func TestCollectConfigSetRejectsSourceSwappedToLinkAfterPreflight(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "prefs.json")
+	outside := filepath.Join(t.TempDir(), "secret.json")
+	writeCaptureFile(t, source, []byte("approved"))
+	writeCaptureFile(t, outside, []byte("secret"))
+	probe := filepath.Join(root, "probe-link")
+	requireCaptureSymlink(t, outside, probe)
+	if err := os.Remove(probe); err != nil {
+		t.Fatal(err)
+	}
+
+	originalOpen := openConfigCaptureSource
+	called := false
+	openConfigCaptureSource = func(path string) (*os.File, error) {
+		called = true
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+		if err := os.Symlink(outside, path); err != nil {
+			return nil, err
+		}
+		return os.Open(path)
+	}
+	t.Cleanup(func() { openConfigCaptureSource = originalOpen })
+
+	plan := testConfigSetCapturePlan(root, &modules.CaptureDef{Files: []modules.CaptureFile{{
+		Source: `${instance.root}/prefs.json`, Dest: "prefs.json",
+	}}})
+	staging := t.TempDir()
+	_, err := CollectConfigSet(plan, staging)
+	if !called {
+		t.Fatal("capture source open seam was not called")
+	}
+	if ConfigCaptureDiagnosticCode(err) != ConfigCaptureLinkUnsupported {
+		t.Fatalf("swapped source error = %v code=%q", err, ConfigCaptureDiagnosticCode(err))
+	}
+	payloadRoot := filepath.Join(staging, "configs", CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID))
+	if _, statErr := os.Lstat(payloadRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("swapped source published payload: %v", statErr)
+	}
+}
+
+func TestCollectConfigSetRejectsSourceSwappedToDifferentRegularFileAfterPreflight(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "prefs.json")
+	replacement := filepath.Join(root, "replacement.json")
+	writeCaptureFile(t, source, []byte("approved"))
+	writeCaptureFile(t, replacement, []byte("secret"))
+
+	originalOpen := openConfigCaptureSource
+	called := false
+	openConfigCaptureSource = func(path string) (*os.File, error) {
+		called = true
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+		if err := os.Rename(replacement, path); err != nil {
+			return nil, err
+		}
+		return os.Open(path)
+	}
+	t.Cleanup(func() { openConfigCaptureSource = originalOpen })
+
+	plan := testConfigSetCapturePlan(root, &modules.CaptureDef{Files: []modules.CaptureFile{{
+		Source: `${instance.root}/prefs.json`, Dest: "prefs.json",
+	}}})
+	staging := t.TempDir()
+	_, err := CollectConfigSet(plan, staging)
+	if !called {
+		t.Fatal("capture source open seam was not called")
+	}
+	if ConfigCaptureDiagnosticCode(err) != ConfigCaptureUnsafePath {
+		t.Fatalf("swapped source error = %v code=%q", err, ConfigCaptureDiagnosticCode(err))
+	}
+	payloadRoot := filepath.Join(staging, "configs", CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID))
+	if _, statErr := os.Lstat(payloadRoot); !os.IsNotExist(statErr) {
+		t.Fatalf("swapped source published payload: %v", statErr)
+	}
+}
+
 func TestCollectConfigSetRetainsSecretExcludeAndBloatSafety(t *testing.T) {
 	root := t.TempDir()
 	writeCaptureFile(t, filepath.Join(root, "keep", "prefs.json"), []byte("keep"))

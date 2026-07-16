@@ -97,12 +97,15 @@ func CaptureID(moduleID, setID, instanceID string) string {
 type configCopyItem struct {
 	source string
 	dest   string
+	digest [sha256.Size]byte
 }
 
 type configCopyPreflight struct {
 	items           []configCopyItem
 	secretsExcluded int
 }
+
+var openConfigCaptureSource = os.Open
 
 // CollectConfigSet preflights and copies one generation capture into only its
 // configs/<captureId>/ root. The root is removed on every collection error.
@@ -168,8 +171,8 @@ func CollectConfigSet(plan ConfigSetCapturePlan, stagingRoot string) (_ *ConfigS
 		if err := ensureNoLinksInExistingPath(filepath.Dir(destination)); err != nil {
 			return nil, capturePathError(err, "destination %q", item.dest)
 		}
-		if err := copyRegularFile(item.source, destination); err != nil {
-			return nil, captureError(ConfigCaptureIO, "copy %q to %q: %v", item.source, item.dest, err)
+		if err := copyRegularFile(item.source, destination, item.digest); err != nil {
+			return nil, capturePathError(err, "copy %q to %q", item.source, item.dest)
 		}
 		files = append(files, item.dest)
 	}
@@ -374,15 +377,67 @@ func addConfigCopyItem(preflight *configCopyPreflight, source, destination strin
 			return captureError(ConfigCaptureDestinationCollision, "destination collision between %q and %q", existing, destination)
 		}
 	}
-	preflight.items = append(preflight.items, configCopyItem{source: source, dest: destination})
+	digest, err := fingerprintConfigCaptureSource(source)
+	if err != nil {
+		return capturePathError(err, "fingerprint source %q", source)
+	}
+	preflight.items = append(preflight.items, configCopyItem{source: source, dest: destination, digest: digest})
 	return nil
 }
 
-func copyRegularFile(source, destination string) error {
+func fingerprintConfigCaptureSource(source string) ([sha256.Size]byte, error) {
+	var result [sha256.Size]byte
+	if err := ensureNoLinksInExistingPath(source); err != nil {
+		return result, err
+	}
+	preOpenInfo, err := os.Lstat(source)
+	if err != nil {
+		return result, err
+	}
+	if isLinkOrReparse(preOpenInfo) {
+		return result, fmt.Errorf("%w: source %q", errBundleLink, source)
+	}
+	if !preOpenInfo.Mode().IsRegular() {
+		return result, fmt.Errorf("%w: source %q is not a regular file", errUnsafeBundlePath, source)
+	}
+	input, err := os.Open(source)
+	if err != nil {
+		return result, err
+	}
+	defer input.Close()
+	openedInfo, err := input.Stat()
+	if err != nil {
+		return result, err
+	}
+	if !openedInfo.Mode().IsRegular() || !os.SameFile(preOpenInfo, openedInfo) {
+		return result, fmt.Errorf("%w: source %q changed before fingerprinting", errUnsafeBundlePath, source)
+	}
+	hasher := sha256.New()
+	if _, err := io.Copy(hasher, input); err != nil {
+		return result, err
+	}
+	if err := verifyConfigCaptureSourceIdentity(source, preOpenInfo, openedInfo); err != nil {
+		return result, err
+	}
+	copy(result[:], hasher.Sum(nil))
+	return result, nil
+}
+
+func copyRegularFile(source, destination string, expectedDigest [sha256.Size]byte) (resultErr error) {
 	if err := ensureNoLinksInExistingPath(source); err != nil {
 		return err
 	}
-	input, err := os.Open(source)
+	preOpenInfo, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if isLinkOrReparse(preOpenInfo) {
+		return fmt.Errorf("%w: source %q", errBundleLink, source)
+	}
+	if !preOpenInfo.Mode().IsRegular() {
+		return fmt.Errorf("%w: source %q is not a regular file", errUnsafeBundlePath, source)
+	}
+	input, err := openConfigCaptureSource(source)
 	if err != nil {
 		return err
 	}
@@ -392,7 +447,10 @@ func copyRegularFile(source, destination string) error {
 		return err
 	}
 	if !info.Mode().IsRegular() {
-		return fmt.Errorf("source is not a regular file")
+		return fmt.Errorf("%w: opened source %q is not a regular file", errUnsafeBundlePath, source)
+	}
+	if err := verifyConfigCaptureSourceIdentity(source, preOpenInfo, info); err != nil {
+		return err
 	}
 	output, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
@@ -402,9 +460,17 @@ func copyRegularFile(source, destination string) error {
 	defer func() {
 		if !closed {
 			_ = output.Close()
+			_ = os.Remove(destination)
 		}
 	}()
-	if _, err := io.Copy(output, input); err != nil {
+	hasher := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(output, hasher), input); err != nil {
+		return err
+	}
+	if !reflect.DeepEqual(hasher.Sum(nil), expectedDigest[:]) {
+		return fmt.Errorf("%w: source %q changed content after capture preflight", errUnsafeBundlePath, source)
+	}
+	if err := verifyConfigCaptureSourceIdentity(source, preOpenInfo, info); err != nil {
 		return err
 	}
 	if err := output.Sync(); err != nil {
@@ -414,6 +480,20 @@ func copyRegularFile(source, destination string) error {
 		return err
 	}
 	closed = true
+	return nil
+}
+
+func verifyConfigCaptureSourceIdentity(source string, preOpenInfo, openedInfo os.FileInfo) error {
+	currentInfo, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if isLinkOrReparse(currentInfo) {
+		return fmt.Errorf("%w: source %q changed to a link or reparse point", errBundleLink, source)
+	}
+	if !currentInfo.Mode().IsRegular() || !os.SameFile(preOpenInfo, openedInfo) || !os.SameFile(currentInfo, openedInfo) {
+		return fmt.Errorf("%w: source %q changed identity during capture", errUnsafeBundlePath, source)
+	}
 	return nil
 }
 
