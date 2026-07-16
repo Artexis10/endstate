@@ -151,7 +151,7 @@ endstate capabilities --json
       },
       "apply": {
         "supported": true,
-        "flags": ["--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--only", "--json", "--events"]
+        "flags": ["--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--restore-target", "--only", "--json", "--events"]
       },
       "verify": {
         "supported": true,
@@ -167,7 +167,11 @@ endstate capabilities --json
       },
       "restore": {
         "supported": true,
-        "flags": ["--manifest", "--restore-filter", "--json", "--events", "--filter"]
+        "flags": ["--manifest", "--restore-filter", "--restore-target", "--json", "--events", "--filter"]
+      },
+      "rebuild": {
+        "supported": true,
+        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--restore-filter", "--restore-target", "--json", "--events"]
       },
       "report": {
         "supported": true,
@@ -240,6 +244,8 @@ endstate capture --profile "My-Desktop" --json
   "data": {
     "outputPath": "C:\\Users\\user\\Documents\\Endstate\\Profiles\\My-Desktop.zip",
     "outputFormat": "zip",
+    "bundleSchemaVersion": "2.0",
+    "manifestVersion": 2,
     "sanitized": false,
     "isExample": false,
     "counts": {
@@ -260,7 +266,30 @@ endstate capture --profile "My-Desktop" --json
       "Git.Git": "apps.git",
       "Microsoft.VisualStudioCode": "apps.vscode"
     },
-    "captureWarnings": []
+    "captureWarnings": [],
+    "configCapture": {
+      "configSets": [
+        {
+          "captureId": "apps.vscode-preferences-instance-a",
+          "moduleId": "apps.vscode",
+          "configSetId": "preferences",
+          "displayName": "Preferences",
+          "sourceInstance": {
+            "id": "instance-a",
+            "detectorId": "installed-package",
+            "rawVersion": "1.92.0",
+            "normalizedVersion": "1.92.0",
+            "evidence": { "backend": "winget", "ref": "Microsoft.VisualStudioCode" }
+          },
+          "sourceGeneration": "g1",
+          "sourceGenerationFingerprint": "<sha256>",
+          "captureModuleRevision": "<sha256>",
+          "filesCaptured": 2,
+          "status": "captured",
+          "reason": null
+        }
+      ]
+    }
   },
   "error": null
 }
@@ -272,6 +301,8 @@ endstate capture --profile "My-Desktop" --json
 |-------|------|----------|-------------|
 | `outputPath` | string | Yes | Absolute path to output file |
 | `outputFormat` | string | Yes | `"zip"` for bundle, `"jsonc"` for legacy |
+| `bundleSchemaVersion` | string | No | Bundle metadata schema (`"2.0"` for generation-aware capture) |
+| `manifestVersion` | integer | No | Embedded manifest version (`2` for generation-aware capture) |
 | `sanitized` | boolean | Yes | Whether output was sanitized |
 | `isExample` | boolean | Yes | Whether this is an example manifest |
 | `counts` | object | Yes | Capture statistics |
@@ -281,8 +312,11 @@ endstate capture --profile "My-Desktop" --json
 | `configsCaptureErrors` | array | No | Config capture error descriptions |
 | `configModuleMap` | object | Yes | Maps winget package refs to config module IDs (empty `{}` when no mappings) |
 | `captureWarnings` | array | No | General capture warnings |
+| `configCapture.configSets` | array | No | Per-instance/per-config-set generation provenance and capture results |
 
 **Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`. `configModuleMap` is always present (empty object when no config modules resolve to winget refs).
+
+Existing schema-v1 module fields remain backward compatible. Generation-aware fields are absent for schema-v1 payloads or explicitly identify them as unversioned; the engine never fabricates source versions or generations. A generation-aware artifact reports bundle schema `2.0` and manifest version `2` without changing this stdout envelope's additive schema `1.0` contract.
 
 ---
 
@@ -345,6 +379,72 @@ endstate apply --manifest ./manifest.jsonc --only git,vscode --json
 ```
 
 **Note:** `eventsFile` is only included when `--events jsonl` is enabled. The engine persists events to `logs/<runId>.events.jsonl` in addition to streaming to stderr.
+
+### Generation-Aware Configuration Output (Apply, Restore, and Rebuild)
+
+When restore-capable input contains configuration payloads, apply, standalone restore, and rebuild add `configResolutions[]` and `configResolutionSummary` to their command data. This is additive in stdout schema `1.0`. Application-install `items[]`/`actions[]` remain unchanged.
+
+```json
+{
+  "configResolutions": [
+    {
+      "captureId": "apps.example-preferences-instance-a",
+      "moduleId": "apps.example",
+      "configSetId": "preferences",
+      "sourceInstanceId": "instance-a",
+      "targetInstanceId": "instance-b",
+      "sourceGeneration": "g1",
+      "sourceGenerationFingerprint": "<sha256>",
+      "targetGeneration": "g2",
+      "resolution": "migrate",
+      "reason": null,
+      "migrationPath": ["g1", "g2"],
+      "captureModuleRevision": "<sha256-a>",
+      "restoreModuleRevision": "<sha256-b>",
+      "resolvedTargets": [],
+      "status": "restored"
+    }
+  ],
+  "configResolutionSummary": {
+    "total": 1,
+    "direct": 0,
+    "migrate": 1,
+    "incompatible": 0,
+    "unknown": 0,
+    "legacyUnverified": 0,
+    "selected": 1,
+    "skipped": 0,
+    "failed": 0
+  }
+}
+```
+
+`resolution` describes source/target compatibility and is exactly `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. Application versions are evidence for selecting config generations; they are not a pairwise compatibility result. Stable reasons include `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `mapped_target_not_detected`, `mapped_target_incompatible`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, `source_generation_definition_changed`, and `recovery_required`.
+
+`status` is independent from `resolution` and is terminal in the envelope. It is exactly:
+
+| Status | Meaning |
+|--------|---------|
+| `planned` | Dry-run only; the selected set passed compatibility, integrity, preflight, staging, and validation |
+| `restored` | Live transaction reached and validated desired state and durably recorded completion |
+| `skipped` | No target mutation was attempted because non-execution was intentional or safely required, including filtering/consent, unknown/incompatible resolution, absent/incompatible mapped target, `app_running`, or already-up-to-date state |
+| `failed` | The selected set failed before any target mutation, so rollback was unnecessary |
+| `rolled_back` | Mutation began, failed, and rollback durably restored and verified complete pre-run state |
+| `rollback_failed` | Mutation began and complete restoration could not be proven; no later config-set mutation starts in the run |
+
+For `failed`, `rolled_back`, and `rollback_failed`, `reason` retains the primary execution failure. Rollback outcome is carried by `status`; it never overwrites that cause. `configResolutionSummary.selected` counts `planned`, `restored`, `failed`, `rolled_back`, and `rollback_failed`; `skipped` counts `skipped`; `failed` counts `failed`, `rolled_back`, and `rollback_failed`.
+
+Legacy manifest/bundle v1 payloads are represented as `legacy_unverified` with unknown generation fields omitted. They retain explicit restore consent, conflict handling, backup, journal, and revert. Invalid manifest-v2 generation provenance never becomes `legacy_unverified` and never falls back to a flat restore path.
+
+Concrete `restoreItems[]` retain all existing fields. Items produced from a generation-aware config set add optional `captureId`, `configSetId`, `targetInstanceId`, `sourceGeneration`, and `targetGeneration` fields so actions remain traceable to the resolution plan.
+
+If durable journal intent cannot be written, the affected config set is `failed` before mutation and the command/envelope reports failure with a structured journal reason. Journal errors are never ignored or represented as successful restore. Before a new restore-capable mutation, an unrecoverable pending intent reports `recovery_required` and prevents all new config mutation.
+
+### Explicit Target Mapping
+
+Apply, standalone restore, and rebuild accept repeatable `--restore-target <captureId>=<targetInstanceId>`. Module-level `--restore-filter` applies first. Malformed mappings, duplicate mappings for one capture ID, and mappings to unknown capture IDs are command-input errors before installation or configuration mutation. After final post-install detection, a well-formed mapping to an absent/incompatible target skips only that config set with `mapped_target_not_detected` or `mapped_target_incompatible`; successful installation is not rolled back.
+
+The engine automatically maps only one viable target or one unique exact-version target. Multiple viable side-by-side targets report `unknown` / `ambiguous_target_instance`; no newest-version rule exists.
 
 ### App-Subset Selection (`--only`)
 
@@ -494,7 +594,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 | `--confirm` | Required for a live run (restore on, not `--dry-run`). Without it a live rebuild refuses with `CONFIRMATION_REQUIRED` **before any mutation** (before extraction, planning, install, or restore). |
 | `--dry-run` | Preview only: previews the plan without installing, restoring, or verifying. Needs no `--confirm`. The result carries no `verify` data. |
 | `--no-restore` | Install and verify without restoring configuration. Non-destructive, so it needs no `--confirm`. The result reports `restore: "disabled"`. |
-| `--events jsonl` | Stream events to stderr. `rebuild` composes the apply and verify event streams unchanged (no new event types). |
+| `--events jsonl` | Stream events to stderr. `rebuild` composes the apply stream (including config-resolution/config-migration events when applicable) and verify stream unchanged; it defines no rebuild-only event type. |
 
 ### Response
 

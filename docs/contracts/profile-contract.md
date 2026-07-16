@@ -1,4 +1,4 @@
-# Endstate Profile Contract v1.0
+# Endstate Profile Contract (manifest v1 and v2)
 
 This document defines the canonical profile manifest contract for Endstate. Both the Endstate engine (CLI) and Endstate GUI adhere to this contract.
 
@@ -16,7 +16,7 @@ The engine is the authority on what constitutes a valid profile; the GUI relies 
 
 ### Format 1: Zip Bundle (Preferred)
 
-A `.zip` file containing:
+A `.zip` file containing either a legacy/schema-v1 layout or a generation-aware layout:
 
 ```
 <name>.zip
@@ -26,6 +26,18 @@ A `.zip` file containing:
 │   │   └── <files...>
 │   └── ...
 └── metadata.json           # Capture metadata
+```
+
+Generation-aware payloads use stable capture IDs and include inspectable provenance:
+
+```
+<name>.zip
+├── manifest.jsonc          # version: 2; configCaptures[]
+├── configs/
+│   └── <capture-id>/       # complete relative payload hierarchy
+├── provenance/
+│   └── modules/            # canonical, non-executable source module snapshots
+└── metadata.json           # schemaVersion: "2.0"
 ```
 
 **`metadata.json` schema:**
@@ -43,6 +55,8 @@ A `.zip` file containing:
 ```
 
 A zip with only `manifest.jsonc` + `metadata.json` (no `configs/`) is valid (install-only profile).
+
+For metadata schema `2.0`, `metadata.json` additionally identifies `manifestVersion: 2`. Compatibility-relevant per-set source provenance lives in the embedded manifest's `configCaptures[]`; metadata summarizes the artifact and does not become target authority.
 
 ### Format 2: Loose Folder
 
@@ -64,15 +78,18 @@ A single `.jsonc`/`.json`/`.json5` file. Install-only — no config payloads.
 
 ---
 
-## Schema Version
+## Manifest Schema Version
 
-- **Current Profile Version:** `1`
+- **Generation-Aware Version:** `2`
 - **Minimum Supported:** `1`
 
 Profile versioning follows these rules:
 - The `version` field is a **number** (not a string)
-- Version `1` is the current and only supported version
+- Version `1` remains supported for legacy/schema-v1 flat restore payloads
+- Version `2` is required when any generation-aware `configCaptures[]` record is present
 - Future versions will be backward-compatible where possible
+
+New engines explicitly dispatch and validate versions 1 and 2. Version-2 data that is malformed never falls back to version-1 restore behavior. Released version-1 engines may still process application declarations and explicit legacy lanes, so generation-aware payload safety comes from structural isolation: v2 payloads have no flat restore entry.
 
 ---
 
@@ -84,7 +101,7 @@ A file is considered a **valid profile manifest** if and only if:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `version` | number | Must be `1` (integer) |
+| `version` | number | Must be supported integer `1` or `2` |
 | `apps` | array | Array of app entries (may be empty) |
 
 ### Optional Fields
@@ -99,6 +116,29 @@ A file is considered a **valid profile manifest** if and only if:
 | `configModules` | array | Config module references |
 | `exclude` | `string[]` | Winget IDs to remove from merged app list (composition) |
 | `excludeConfigs` | `string[]` | Config module IDs to suppress from restore (composition) |
+| `configCaptures` | array | Version-2 per-instance/per-config-set provenance and payload records; required for version 2 |
+
+### Version-2 Config Capture Schema
+
+Each `configCaptures[]` record is independently addressable and requires:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `captureId` | string | Stable ID used for payload location and explicit target mapping |
+| `moduleId` | string | Current-catalog lookup identity |
+| `configSetId` | string | Independently evolving settings family |
+| `sourceInstance` | object | Stable instance/detector IDs, raw/normalized version evidence, and detector evidence |
+| `sourceGeneration` | string | Capture-time generation ID |
+| `sourceGenerationFingerprint` | string | Canonical capture-time generation fingerprint |
+| `captureModule` | object | Schema version, canonical content hash, and snapshot path |
+| `payloadRoot` | string | Portable `configs/<captureId>` root |
+| `payloadManifest` | array | Relative path, byte size, and SHA-256 for every payload entry |
+
+The bundle owns these immutable source facts and bytes. The pinned trusted current catalog owns target discovery, target generations, and migrations. The module snapshot is verified and inspectable but never executed or used as target authority.
+
+A version-2 manifest may also contain explicitly identified schema-v1 flat restore lanes. Those remain `legacy_unverified`; no flat entry may reference a generation-aware payload or act as fallback for invalid `configCaptures[]` data.
+
+Manifest version 1 does not interpret `configCaptures[]`. Capture-generated version-2 manifests contain at least one generation-aware record; install-only/schema-v1-only captures remain version 1.
 
 ### App Entry Schema
 
@@ -147,8 +187,9 @@ Test-ProfileManifest -Path <path>
 
 1. **File exists** — Path must point to an existing file
 2. **Parseable** — Content must be valid JSON/JSONC/JSON5
-3. **Version field** — Must have `version` field with numeric value `1`
+3. **Version field** — Must have a supported numeric integer value (`1` or `2`)
 4. **Apps field** — Must have `apps` field that is an array
+5. **Version-2 provenance** — Every `configCaptures[]` record is complete, structurally isolated, hierarchy-safe, and internally consistent
 
 ### Error Codes
 
@@ -158,7 +199,7 @@ Test-ProfileManifest -Path <path>
 | `PARSE_ERROR` | Invalid JSON/JSONC/JSON5 syntax |
 | `MISSING_VERSION` | No `version` field present |
 | `INVALID_VERSION_TYPE` | `version` is not a number |
-| `UNSUPPORTED_VERSION` | `version` is not `1` |
+| `UNSUPPORTED_VERSION` | `version` is not a supported manifest version |
 | `MISSING_APPS` | No `apps` field present |
 | `INVALID_APPS_TYPE` | `apps` is not an array |
 | `INVALID_APP_ENTRY` | App entry missing required `id` field (warning) |
@@ -187,7 +228,7 @@ First match wins. The default profiles directory is `Documents\Endstate\Profiles
 3. Deduplicate: if a name appears in multiple formats, prefer zip → folder → bare
 4. For each candidate:
    - Parse the manifest content
-   - Validate against profile signature
+   - Ask the engine to validate against the versioned profile signature
    - Only include profiles that pass validation
 5. Return list of valid profiles with metadata
 
@@ -263,7 +304,7 @@ endstate validate <path>
 
 - Validates the file against the profile contract
 - Prints clear errors and exits non-zero on invalid
-- Prints "Valid profile (v1)" on success
+- Prints the validated profile version on success
 
 ### Apply/Preview Commands
 
@@ -280,6 +321,7 @@ Both `apply` and `preview` commands validate the manifest before execution:
 All existing manifests that match the current structure continue to work:
 - `version: 1` with `apps` array → Valid
 - Missing optional fields → Valid (defaults applied)
+- Version-1 config payloads remain available through existing consent, conflict, backup, journal, and revert behavior and are reported `legacy_unverified`
 
 ### Future Versions
 
@@ -287,6 +329,13 @@ When introducing new versions:
 - Engine will support multiple versions simultaneously
 - GUI will use engine validation (single source of truth)
 - New optional fields do not require version bump
+
+### Generation-Aware Compatibility
+
+- A source/target application version comparison never substitutes for config-generation resolution
+- Side-by-side source and target instances remain separate; no latest-version preference is encoded in the profile
+- Each config set resolves independently as `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`
+- Unknown or incompatible config sets do not block independent application installation
 
 ---
 
@@ -308,6 +357,43 @@ When introducing new versions:
   ],
   "restore": [],
   "verify": []
+}
+```
+
+## Example: Valid Generation-Aware Profile
+
+```jsonc
+{
+  "version": 2,
+  "name": "design-workstation",
+  "apps": [
+    { "id": "example", "refs": { "windows": "Vendor.Example" } }
+  ],
+  "configCaptures": [
+    {
+      "captureId": "apps.example-preferences-instance-a",
+      "moduleId": "apps.example",
+      "configSetId": "preferences",
+      "sourceInstance": {
+        "id": "instance-a",
+        "detectorId": "installed-package",
+        "rawVersion": "27.4",
+        "normalizedVersion": "27.4",
+        "evidence": { "backend": "winget", "ref": "Vendor.Example" }
+      },
+      "sourceGeneration": "g1",
+      "sourceGenerationFingerprint": "<sha256>",
+      "captureModule": {
+        "schemaVersion": 2,
+        "contentHash": "<sha256>",
+        "snapshotPath": "provenance/modules/apps.example.json"
+      },
+      "payloadRoot": "configs/apps.example-preferences-instance-a",
+      "payloadManifest": [
+        { "relativePath": "settings/preferences.json", "size": 123, "sha256": "<sha256>" }
+      ]
+    }
+  ]
 }
 ```
 
@@ -351,12 +437,13 @@ Error: `INVALID_APPS_TYPE`
 
 ## Implementation Notes
 
-### Engine (PowerShell)
+### Engine
 
-The engine implements `Test-ProfileManifest` in `engine/manifest.ps1`:
+The engine owns version dispatch and validation:
 - Single source of truth for validation
 - Used by `validate`, `apply`, `preview` commands
 - Returns structured result with `Valid`, `Errors`, `Summary`
+- Pins the trusted current catalog for generation resolution and never treats bundle snapshots as executable authority
 
 ### GUI (Tauri/Rust)
 
@@ -368,5 +455,5 @@ The GUI exposes validation via Tauri command:
 ### Synchronization
 
 - Engine owns the validation logic
-- GUI calls engine validation (preferred) or mirrors logic
+- GUI calls engine validation and does not mirror manifest-v2 provenance or generation rules
 - Contract document is canonical reference for both

@@ -222,6 +222,8 @@ endstate capabilities --json
 > conditional auto-backup flow (`backup push --if-changed`). The GUI MUST check
 > this field rather than probing `commands.backup.flags` for `--if-changed`.
 
+For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, and `commands.rebuild.flags` advertise repeatable `--restore-target`. The GUI must capability-gate target selection rather than assuming a CLI version supports it.
+
 ### GUI Responsibilities
 
 1. Call `capabilities --json` on startup
@@ -237,10 +239,39 @@ endstate capabilities --json
 | Command | JSON Flag | Description |
 |---------|-----------|-------------|
 | `capabilities` | `--json` | Report CLI capabilities |
+| `capture` | `--json` | Capture apps and configuration into a profile artifact |
 | `apply` | `--json` | Execute provisioning |
 | `restore` | `--json` | Restore configuration |
+| `rebuild` | `--json` | Install, restore, and verify from a capture artifact |
 | `verify` | `--json` | Verify machine state |
 | `report` | `--json` | Retrieve run history |
+
+---
+
+## Configuration Generation Presentation
+
+The CLI is the sole authority for application/config instance discovery, raw and normalized version evidence, config-generation selection, compatibility resolution, migration paths, target collisions, and transaction outcome. The GUI must not load module or bundle snapshots as rules and must not compare versions or reconstruct a migration graph.
+
+Restore-capable envelopes expose `configResolutions[]` and `configResolutionSummary`; streams expose `config-resolution` and `config-migration`. The GUI correlates rows by `captureId`, renders engine-provided target candidates, and sends a user choice back as `--restore-target <captureId>=<targetInstanceId>`. It never silently selects a highest/newest side-by-side instance.
+
+The new event types and optional restore-item fields remain event schema version `1`; consumers follow the existing rule of ignoring unknown additive fields/types they do not yet render.
+
+### Locked Default Labels
+
+| Engine resolution | Default GUI label |
+|-------------------|-------------------|
+| `direct` | **Compatible** |
+| `migrate` | **Will be upgraded** |
+| `unknown` or `legacy_unverified` | **Compatibility unknown** |
+| `incompatible` | **Not supported** |
+
+Advanced details may display the source/target instance versions, config-set and generation IDs, migration path, capture/restore module revisions, and stable reason. They are progressive disclosure of engine output, not inputs to GUI-side logic.
+
+Legacy v1 payloads remain usable through existing explicit consent and are labeled **Compatibility unknown** (`legacy_unverified`), never falsely incompatible. Invalid v2 provenance is shown as the engine's `unknown`/failure reason and never offered through a legacy fallback.
+
+### Terminal Execution Status
+
+The GUI treats compatibility `resolution` and terminal execution `status` as separate fields. Envelope status is exactly `planned`, `restored`, `skipped`, `failed`, `rolled_back`, or `rollback_failed`. In-progress staging/commit/rollback appears only in events. For failure rows, the GUI preserves `reason` as the primary execution failure and uses `status` for rollback outcome. `rollback_failed` must be surfaced as requiring attention because the engine blocks later config-set mutation.
 
 ---
 
