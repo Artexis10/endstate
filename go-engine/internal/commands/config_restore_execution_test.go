@@ -68,15 +68,61 @@ func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T
 	if len(lines) < 2 {
 		t.Fatalf("events = %q", buffer.String())
 	}
-	var first, second map[string]any
-	if err := json.Unmarshal([]byte(lines[0]), &first); err != nil {
-		t.Fatal(err)
+	decoded := make([]map[string]any, len(lines))
+	for index := range lines {
+		if err := json.Unmarshal([]byte(lines[index]), &decoded[index]); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := json.Unmarshal([]byte(lines[1]), &second); err != nil {
-		t.Fatal(err)
+	if decoded[0]["event"] != "phase" || decoded[0]["phase"] != "restore" ||
+		decoded[1]["event"] != "config-resolution" || decoded[1]["resolution"] != "legacy_unverified" ||
+		decoded[len(decoded)-2]["event"] != "restore-item" || decoded[len(decoded)-1]["event"] != "summary" {
+		t.Fatalf("event order = %#v", decoded)
 	}
-	if first["event"] != "config-resolution" || first["resolution"] != "legacy_unverified" || second["event"] != "restore-item" {
-		t.Fatalf("event order = %#v then %#v", first, second)
+	restoreEvents := []map[string]any{}
+	for _, event := range decoded {
+		if event["event"] == "restore-item" {
+			restoreEvents = append(restoreEvents, event)
+		}
+	}
+	if len(restoreEvents) != 2 || restoreEvents[0]["id"] != restoreEvents[1]["id"] ||
+		restoreEvents[0]["status"] != "restoring" || restoreEvents[1]["status"] == "restoring" {
+		t.Fatalf("restore-item lifecycle = %#v", restoreEvents)
+	}
+}
+
+func TestConfigRestoreExecutionFramesConsentOffResolutionsWithRestorePhaseAndSummary(t *testing.T) {
+	inputs := emptyConfigRestoreInputs()
+	inputs.hasConfigPayloads = true
+	inputs.legacyLanes = []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+	}}
+	runtime := newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot())
+	buffer := &bytes.Buffer{}
+	session := &configRestoreExecutionSession{
+		runtime: runtime, coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+
+	_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: false,
+		Emitter:        events.NewEmitterWithWriter("consent-off-events", true, buffer),
+	})
+	if envErr != nil {
+		t.Fatalf("execute: %+v", envErr)
+	}
+	lines := strings.Split(strings.TrimSpace(buffer.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("event count = %d, want phase/resolution/summary: %s", len(lines), buffer.String())
+	}
+	decoded := make([]map[string]any, len(lines))
+	for index := range lines {
+		if err := json.Unmarshal([]byte(lines[index]), &decoded[index]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if decoded[0]["event"] != "phase" || decoded[0]["phase"] != "restore" ||
+		decoded[1]["event"] != "config-resolution" || decoded[2]["event"] != "summary" || decoded[2]["phase"] != "restore" {
+		t.Fatalf("event framing = %#v", decoded)
 	}
 }
 
@@ -386,7 +432,11 @@ func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEv
 			t.Fatalf("event %d: %v", index, err)
 		}
 	}
-	if len(decoded) != 12 || decoded[0]["event"] != "config-resolution" || decoded[len(decoded)-1]["event"] != "restore-item" {
+	if len(decoded) != 15 || decoded[0]["event"] != "phase" || decoded[0]["phase"] != "restore" ||
+		decoded[1]["event"] != "config-resolution" || decoded[8]["event"] != "restore-item" ||
+		decoded[8]["status"] != "restoring" || decoded[13]["event"] != "restore-item" ||
+		decoded[13]["status"] == "restoring" || decoded[8]["id"] != decoded[13]["id"] ||
+		decoded[14]["event"] != "summary" || decoded[14]["phase"] != "restore" {
 		t.Fatalf("ordered events = %#v", decoded)
 	}
 	resolutionCount := 0
@@ -398,13 +448,13 @@ func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEv
 	if resolutionCount != 1 {
 		t.Fatalf("resolution count = %d", resolutionCount)
 	}
-	if decoded[7]["stage"] != "commit" || decoded[7]["status"] != "started" ||
-		decoded[8]["stage"] != "commit" || decoded[8]["status"] != "failed" ||
-		decoded[9]["stage"] != "rollback" || decoded[9]["status"] != "started" ||
-		decoded[10]["stage"] != "rollback" || decoded[10]["status"] != "completed" {
-		t.Fatalf("commit/rollback events = %#v", decoded[7:11])
+	if decoded[9]["stage"] != "commit" || decoded[9]["status"] != "started" ||
+		decoded[10]["stage"] != "commit" || decoded[10]["status"] != "failed" ||
+		decoded[11]["stage"] != "rollback" || decoded[11]["status"] != "started" ||
+		decoded[12]["stage"] != "rollback" || decoded[12]["status"] != "completed" {
+		t.Fatalf("commit/rollback events = %#v", decoded[9:13])
 	}
-	resolutionJSON, _ := json.Marshal(decoded[0])
+	resolutionJSON, _ := json.Marshal(decoded[1])
 	if strings.Contains(string(resolutionJSON), hostRoot) {
 		t.Fatalf("config-resolution leaked host-local target root %q: %s", hostRoot, resolutionJSON)
 	}

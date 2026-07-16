@@ -722,7 +722,6 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		// ----------------------------------------------------------------
 
 		if configRuntime.inputs.hasConfigPayloads || (flags.EnableRestore && len(mf.Restore) > 0) {
-			emitter.EmitPhase("restore")
 			configExecution, executeErr := configSession.Execute(
 				context.Background(),
 				applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter),
@@ -730,7 +729,6 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 			if executeErr != nil {
 				return nil, executeErr
 			}
-			emitConfigRestoreSummary(emitter, configExecution.Results)
 			if configRuntime.inputs.hasConfigPayloads {
 				configFields = NewConfigResultFields(configExecution.Plan.Sets, configExecution.RestoreItems)
 			}

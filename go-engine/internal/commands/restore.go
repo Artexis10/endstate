@@ -88,16 +88,10 @@ func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 	if _, previewErr := session.Preview(context.Background()); previewErr != nil {
 		return nil, configRestoreInternalError(previewErr.Error())
 	}
-	if flags.EnableRestore {
-		emitter.EmitPhase("restore")
-	}
 	options := restoreConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter)
 	execution, executeErr := session.Execute(context.Background(), options)
 	if executeErr != nil {
 		return nil, executeErr
-	}
-	if flags.EnableRestore {
-		emitConfigRestoreSummary(emitter, execution.Results)
 	}
 	var configFields *ConfigResultFields
 	if configRuntime.inputs.hasConfigPayloads {

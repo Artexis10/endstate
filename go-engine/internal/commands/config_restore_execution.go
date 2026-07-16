@@ -108,6 +108,12 @@ func (session *configRestoreExecutionSession) Execute(
 	if session == nil || session.runtime == nil || session.coordinator == nil {
 		return result, configRestoreInternalError("configuration restore session is not initialized")
 	}
+	if options.Emitter != nil && shouldFrameConfigRestoreEvents(session.runtime.inputs, options.RestoreEnabled) {
+		options.Emitter.EmitPhase("restore")
+		defer func() {
+			emitConfigRestoreSummary(options.Emitter, result.RestoreItems)
+		}()
+	}
 	plan, err := session.coordinator.Final(ctx, options.RestoreEnabled)
 	if err != nil {
 		return result, configRestoreInternalError(err.Error())
@@ -141,6 +147,7 @@ func (session *configRestoreExecutionSession) Execute(
 		applyConcreteConfigRestoreCollisions(&result.Plan, prepared)
 		prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 		for _, item := range prepared {
+			emitGenerationConfigRestoreStarts(options.Emitter, result.Plan.Sets[item.setIndex], item.materialized)
 			outcome := inspectDryRunConfigRestoreSet(ctx, item.materialized, options.Registry)
 			applyConfigRestoreSetOutcome(&result.Plan.Sets[item.setIndex], outcome)
 			items := configRestoreResultsForSet(result.Plan.Sets[item.setIndex], item.materialized, outcome)
@@ -208,6 +215,7 @@ func (session *configRestoreExecutionSession) Execute(
 			applyConfigRestoreSetOutcome(set, outcome)
 			continue
 		}
+		emitGenerationConfigRestoreStarts(options.Emitter, *set, item.materialized)
 		outcome := executeLiveConfigRestoreSetFn(ctx, configRestoreLiveSetRequest{
 			Materialized: item.materialized, TransactionRoot: transactionRoot,
 			Lineage: configRestoreJournalLineage(options.RunID, *set), Registry: options.Registry,
@@ -264,6 +272,11 @@ func (session *configRestoreExecutionSession) Execute(
 	result.Results = append(result.Results, result.RestoreItems...)
 	recomputeConfigPlanSummary(&result.Plan)
 	return result, nil
+}
+
+func shouldFrameConfigRestoreEvents(inputs configRestoreInputs, restoreEnabled bool) bool {
+	return inputs.hasConfigPayloads || len(inputs.generationSources) > 0 || len(inputs.legacyLanes) > 0 ||
+		(restoreEnabled && len(inputs.ordinaryRestores) > 0)
 }
 
 func markSelectedConfigRestoreSetsPlanned(plan *planner.ConfigPlan) {
@@ -597,7 +610,11 @@ func executeLegacyAndOrdinaryConfigRestores(
 		if !lane.selected {
 			continue
 		}
-		results, err := restore.RunRestore(convertToActions(lane.restoreEntries, ""), restoreOptions, nil)
+		actions := convertToActions(lane.restoreEntries, "")
+		emitRestoreActionStarts(options.Emitter, actions, restoreOptions, configRestoreEventLineage{
+			ModuleID: lane.moduleID, CaptureID: lane.captureID, ConfigSetID: lane.configSetID,
+		})
+		results, err := restore.RunRestore(actions, restoreOptions, nil)
 		if err != nil {
 			return configRestoreLegacyProjection{}, nil, envelope.NewError(envelope.ErrRestoreFailed, err.Error())
 		}
@@ -610,7 +627,9 @@ func executeLegacyAndOrdinaryConfigRestores(
 	}
 	ordinary := []restore.RestoreResult{}
 	if len(inputs.ordinaryRestores) > 0 {
-		results, runErr := restore.RunRestore(convertToActions(inputs.ordinaryRestores, ""), restoreOptions, nil)
+		actions := convertToActions(inputs.ordinaryRestores, "")
+		emitRestoreActionStarts(options.Emitter, actions, restoreOptions, configRestoreEventLineage{})
+		results, runErr := restore.RunRestore(actions, restoreOptions, nil)
 		if runErr != nil {
 			return configRestoreLegacyProjection{}, nil, envelope.NewError(envelope.ErrRestoreFailed, runErr.Error())
 		}
@@ -620,11 +639,76 @@ func executeLegacyAndOrdinaryConfigRestores(
 	return legacy, ordinary, nil
 }
 
+type configRestoreEventLineage struct {
+	ModuleID         string
+	CaptureID        string
+	ConfigSetID      string
+	TargetInstanceID string
+	SourceGeneration string
+	TargetGeneration string
+}
+
+func emitRestoreActionStarts(
+	emitter *events.Emitter,
+	actions []restore.RestoreAction,
+	options restore.RestoreOptions,
+	lineage configRestoreEventLineage,
+) {
+	if emitter == nil {
+		return
+	}
+	for _, action := range actions {
+		descriptor := restore.DescribeAction(action, options)
+		moduleID := lineage.ModuleID
+		if moduleID == "" {
+			moduleID = action.FromModule
+		}
+		emitter.EmitRestoreItem(events.RestoreItemProgress{
+			ID: descriptor.ID, Module: moduleID, Restorer: descriptor.RestoreType,
+			Source: descriptor.Source, Target: descriptor.Target, Status: events.RestoreItemRestoring,
+			TargetExisted: descriptor.TargetExisted, Message: "restoring settings",
+			CaptureID: lineage.CaptureID, ConfigSetID: lineage.ConfigSetID,
+			TargetInstanceID: lineage.TargetInstanceID, SourceGeneration: lineage.SourceGeneration,
+			TargetGeneration: lineage.TargetGeneration,
+		})
+	}
+}
+
+func emitGenerationConfigRestoreStarts(
+	emitter *events.Emitter,
+	set planner.PlanSet,
+	materialized *configrestore.MaterializedSet,
+) {
+	if emitter == nil || materialized == nil {
+		return
+	}
+	for index, action := range materialized.Actions {
+		targetExisted := false
+		if action.Target != "" {
+			_, err := os.Stat(action.Target)
+			targetExisted = err == nil
+		}
+		emitter.EmitRestoreItem(events.RestoreItemProgress{
+			ID:     fmt.Sprintf("config:%s:%06d", set.Source.CaptureID, index),
+			Module: set.Source.ModuleID, Restorer: action.Strategy,
+			Source: action.Source, Target: action.Target, Status: events.RestoreItemRestoring,
+			TargetExisted: targetExisted, Message: "restoring settings",
+			CaptureID: set.Source.CaptureID, ConfigSetID: set.Source.ConfigSetID,
+			TargetInstanceID: set.Resolution.TargetInstanceID,
+			SourceGeneration: set.Source.Generation, TargetGeneration: set.Resolution.TargetGeneration,
+		})
+	}
+}
+
 func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreResult, moduleID string) {
 	if emitter == nil {
 		return
 	}
 	for _, result := range results {
+		restorer := result.RestoreType
+		if restorer == "" {
+			restorer = "copy"
+		}
 		status := events.RestoreItemRestored
 		var reason *string
 		message := "settings restored"
@@ -648,7 +732,7 @@ func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreRe
 			backupPath = &value
 		}
 		emitter.EmitRestoreItem(events.RestoreItemProgress{
-			ID: result.ID, Module: moduleID, Restorer: result.RestoreType,
+			ID: result.ID, Module: moduleID, Restorer: restorer,
 			Source: result.Source, Target: result.Target, Status: status, Reason: reason,
 			BackupPath: backupPath, TargetExisted: result.TargetExistedBefore, Message: message,
 			CaptureID: result.CaptureID, ConfigSetID: result.ConfigSetID,

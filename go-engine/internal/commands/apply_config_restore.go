@@ -36,18 +36,12 @@ func executePreparedApplyConfigRestore(
 		return nil, nil
 	}
 	inputs := flags.configRestoreRuntime.inputs
-	if flags.EnableRestore && (inputs.hasConfigPayloads || len(inputs.ordinaryRestores) > 0) {
-		emitter.EmitPhase("restore")
-	}
 	execution, envErr := session.Execute(
 		ctx,
 		applyConfigRestoreExecutionOptions(flags, runID, flags.configRestoreRepoRoot, emitter),
 	)
 	if envErr != nil {
 		return nil, envErr
-	}
-	if flags.EnableRestore {
-		emitConfigRestoreSummary(emitter, execution.Results)
 	}
 	if !inputs.hasConfigPayloads {
 		return nil, nil

@@ -68,6 +68,43 @@ type RestoreOptions struct {
 	RunID       string
 }
 
+// ActionDescriptor resolves the stable event identity and concrete paths for
+// one restore action without mutating the target.
+type ActionDescriptor struct {
+	ID            string
+	Source        string
+	Target        string
+	RestoreType   string
+	TargetExisted bool
+}
+
+// DescribeAction performs the same path resolution used by RunRestore so a
+// caller can emit an in-progress transition before the action mutates state.
+func DescribeAction(action RestoreAction, opts RestoreOptions) ActionDescriptor {
+	restoreType := action.Type
+	if restoreType == "" {
+		restoreType = "copy"
+	}
+	descriptor := ActionDescriptor{ID: generateID(action), RestoreType: restoreType}
+	switch restoreType {
+	case "registry-set":
+		descriptor.Target = registrySetTarget(action)
+		return descriptor
+	case "registry-import":
+		descriptor.Source = resolveSource(action.Source, opts)
+		descriptor.Target = action.Target
+		return descriptor
+	case "delete-glob":
+		descriptor.Target = resolveTarget(action.Target)
+	default:
+		descriptor.Source = resolveSource(action.Source, opts)
+		descriptor.Target = resolveTarget(action.Target)
+	}
+	_, err := os.Stat(descriptor.Target)
+	descriptor.TargetExisted = err == nil
+	return descriptor
+}
+
 // sensitiveSegments are path segments that trigger a warning when detected in
 // restore target paths. Matches the PowerShell $script:SensitivePathSegments.
 var sensitiveSegments = []string{
