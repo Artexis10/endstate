@@ -316,25 +316,9 @@ func ExpandInstancePath(template string, instance ConfigInstance, role InstanceP
 	if strings.TrimSpace(template) == "" {
 		return "", fmt.Errorf("instance path is empty")
 	}
-	if err := validateTemplatePlaceholders(template); err != nil {
+	expanded, err := expandInstancePlaceholders(template, instance)
+	if err != nil {
 		return "", err
-	}
-
-	values := map[string]string{
-		"instance.root":    instance.Root,
-		"instance.version": instance.Version.Raw,
-		"instance.id":      instance.ID,
-	}
-	expanded := template
-	for placeholder, value := range values {
-		token := "${" + placeholder + "}"
-		if !strings.Contains(expanded, token) {
-			continue
-		}
-		if value == "" {
-			return "", fmt.Errorf("placeholder %s has no value", token)
-		}
-		expanded = strings.ReplaceAll(expanded, token, value)
 	}
 
 	switch role {

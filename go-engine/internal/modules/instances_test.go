@@ -350,6 +350,39 @@ func TestExpandInstancePath_AllowedPlaceholdersAndRoles(t *testing.T) {
 	}
 }
 
+func TestInstancePlaceholderExpansion_DoesNotRecursivelyExpandReplacementValues(t *testing.T) {
+	root := filepath.Join(t.TempDir(), `${instance.id}`)
+	instance := ConfigInstance{
+		ID:      "resolved-id",
+		Root:    root,
+		Version: NewVersionEvidence(`${instance.id}`),
+	}
+	wantPath := filepath.Join(root, "prefs", `${instance.id}.json`)
+	wantTemplate := root + `\` + `${instance.id}`
+
+	for iteration := 0; iteration < 100; iteration++ {
+		gotPath, err := ExpandInstancePath(
+			`${instance.root}/prefs/${instance.version}.json`,
+			instance,
+			HostPath,
+		)
+		if err != nil {
+			t.Fatalf("path expansion %d: %v", iteration, err)
+		}
+		if gotPath != wantPath {
+			t.Fatalf("path expansion %d = %q, want %q", iteration, gotPath, wantPath)
+		}
+
+		gotTemplate, err := ExpandInstanceTemplate(`${instance.root}\${instance.version}`, instance)
+		if err != nil {
+			t.Fatalf("template expansion %d: %v", iteration, err)
+		}
+		if gotTemplate != wantTemplate {
+			t.Fatalf("template expansion %d = %q, want %q", iteration, gotTemplate, wantTemplate)
+		}
+	}
+}
+
 func TestExpandInstancePath_RejectsMissingAndUnknownPlaceholders(t *testing.T) {
 	tests := []struct {
 		name     string
