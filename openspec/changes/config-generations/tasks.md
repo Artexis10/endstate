@@ -50,10 +50,10 @@
 
 ## 6. Forward Migration Engine
 
-- [ ] 6.1 Add an engine-owned migration operation registry with no shell, command, executable, plugin, generic-regex, or host-absolute escape hatch.
-- [ ] 6.2 Implement staging-relative `file-copy`, `file-move`, and `file-delete` with traversal and symlink/reparse-point containment checks.
-- [ ] 6.3 Implement parsed `json-set`, `json-delete`, and `json-move` operations with atomic staged writes.
-- [ ] 6.4 Implement parsed `ini-set`, `ini-delete`, and `ini-move` operations with deterministic encoding/newline behavior.
+- [x] 6.1 Add an engine-owned migration operation registry with no shell, command, executable, plugin, generic-regex, or host-absolute escape hatch.
+- [x] 6.2 Implement staging-relative `file-copy`, `file-move`, and `file-delete` with traversal and symlink/reparse-point containment checks.
+- [x] 6.3 Implement parsed `json-set`, `json-delete`, and `json-move` operations with atomic staged writes.
+- [x] 6.4 Implement parsed `ini-set`, `ini-delete`, and `ini-move` operations with deterministic encoding/newline behavior.
 - [ ] 6.5 Implement `file-exists`, `json-parse`, `json-path-exists`, `ini-parse`, and `ini-key-exists` validation primitives.
 - [ ] 6.6 Implement unique multi-edge migration execution with validation after every edge and final-generation validation.
 - [ ] 6.7 Prove with tests that source bundle bytes remain unchanged on success and every failure path.
