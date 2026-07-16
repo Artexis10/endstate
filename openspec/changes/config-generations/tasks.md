@@ -7,19 +7,19 @@
 
 ## 2. Module Schema v2 and Catalog Validation
 
-- [ ] 2.1 Add schema-v2 module types for instance detectors, config sets, generations, version selectors, validation declarations, and migration edges while preserving the schema-v1 adapter.
-- [ ] 2.2 Implement canonical parsed-JSON serialization, SHA-256 module revision hashing, and per-generation fingerprints with tests for cosmetic versus semantic edits.
-- [ ] 2.3 Validate stable IDs, positive unique generation order, config-set scoping, allowlisted placeholders, and portable/staging-safe paths.
-- [ ] 2.4 Validate numeric version ranges and anchored raw-version patterns without declaration-order tie-breaking.
-- [ ] 2.5 Validate migration graphs for unknown generations, duplicate/same/backward edges, cycles, ambiguous routes, unknown operations, and missing validation.
-- [ ] 2.6 Replace silent catalog skipping for generation-aware module errors with structured diagnostics usable by commands and envelopes.
-- [ ] 2.7 Add table-driven catalog tests covering valid schema v1/v2 modules and every schema/graph/path rejection.
+- [x] 2.1 Add schema-v2 module types for instance detectors, config sets, generations, version selectors, validation declarations, and migration edges while preserving the schema-v1 adapter.
+- [x] 2.2 Implement canonical parsed-JSON serialization, SHA-256 module revision hashing, and per-generation fingerprints with tests for cosmetic versus semantic edits.
+- [x] 2.3 Validate stable IDs, positive unique generation order, config-set scoping, allowlisted placeholders, and portable/staging-safe paths.
+- [x] 2.4 Validate numeric version ranges and anchored raw-version patterns without declaration-order tie-breaking.
+- [x] 2.5 Validate migration graphs for unknown generations, duplicate/same/backward edges, cycles, ambiguous routes, unknown operations, and missing validation.
+- [x] 2.6 Replace silent catalog skipping for generation-aware module errors with structured diagnostics usable by commands and envelopes.
+- [x] 2.7 Add table-driven catalog tests covering valid schema v1/v2 modules and every schema/graph/path rejection.
 - [ ] 2.8 Add released-generation fingerprint history/CI validation and explicit historical-fingerprint acceptance declarations so generation IDs cannot be silently repurposed.
 
 ## 3. Instance Discovery and Version Normalization
 
 - [ ] 3.1 Preserve captured `App.Version` through module matching and add regression tests for the current version-dropping path.
-- [ ] 3.2 Implement raw vendor-version preservation and the documented numeric dotted normalizer/comparator.
+- [x] 3.2 Implement raw vendor-version preservation and the documented numeric dotted normalizer/comparator.
 - [ ] 3.3 Implement the package instance detector across engine-supported package backends with deterministic evidence and stable instance IDs.
 - [ ] 3.4 Implement the path instance detector with engine-owned glob expansion, named version extraction, deterministic ordering, and deduplication.
 - [ ] 3.5 Implement allowlisted `${instance.*}` expansion and reject missing values, absolute portable destinations, and traversal.
@@ -39,7 +39,7 @@
 ## 5. Generation and Target Resolution
 
 - [ ] 5.1 Add normalized source-capture, target-instance, config-resolution, reason, and summary data types.
-- [ ] 5.2 Implement exactly-one generation matching and the `unknown_generation` / `ambiguous_generation` outcomes.
+- [x] 5.2 Implement exactly-one generation matching and the `unknown_generation` / `ambiguous_generation` outcomes.
 - [ ] 5.3 Implement same-generation direct resolution and forward-route lookup against one pinned trusted catalog snapshot.
 - [ ] 5.4 Implement downgrade rejection, missing-path handling, unsupported-module-schema handling, payload-integrity failure, missing catalog module/set/generation, and changed/unaccepted source-generation fingerprint outcomes.
 - [ ] 5.5 Implement deterministic target selection: unique target, unique exact-version preference, explicit mapping, and ambiguous-target refusal.
