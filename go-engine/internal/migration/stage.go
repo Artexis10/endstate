@@ -33,6 +33,7 @@ type StageRequest struct {
 	TargetGeneration *modules.GenerationDef
 	MigrationEdges   []modules.MigrationEdgeDef
 	TempParent       string
+	Observer         StageObserver
 }
 
 // StageResult owns a successful disposable staging root.
@@ -70,6 +71,13 @@ func (e *Engine) Stage(ctx context.Context, request StageRequest) (result *Stage
 	if err := validateStageRequestShape(request); err != nil {
 		return nil, newStageError(request, CodeInvalidStageRequest, PhaseRequestValidation, -1, err)
 	}
+	reporter := newProgressReporter(request.CaptureID, request.Observer)
+	reporter.start(ProgressStaging, -1, "", "")
+	defer func() {
+		if resultErr != nil {
+			reporter.fail(CodeOf(resultErr))
+		}
+	}()
 	if err := bundle.VerifyPayloadManifest(request.PayloadRoot, request.PayloadManifest); err != nil {
 		return nil, integrityStageError(request, PhaseSourceIntegrity, err)
 	}
@@ -138,27 +146,34 @@ func (e *Engine) Stage(ctx context.Context, request StageRequest) (result *Stage
 	if err != nil {
 		return nil, newStageError(request, CodeInvalidMigrationPath, PhasePathValidation, -1, err)
 	}
+	reporter.complete()
 	for edgeIndex, edge := range request.MigrationEdges {
+		reporter.start(ProgressEdge, edgeIndex, edge.From, edge.To)
 		if err := e.checkpoint(ctx, PhaseEdgeOperation, edgeIndex); err != nil {
 			return nil, newStageError(request, CodeCanceled, PhaseEdgeOperation, edgeIndex, err)
 		}
 		if err := e.Apply(stageRoot, edge.Operations); err != nil {
 			return nil, operationStageError(request, edgeIndex, err)
 		}
+		reporter.complete()
+		reporter.start(ProgressValidation, edgeIndex, edge.From, edge.To)
 		if err := e.checkpoint(ctx, PhaseEdgeValidation, edgeIndex); err != nil {
 			return nil, newStageError(request, CodeCanceled, PhaseEdgeValidation, edgeIndex, err)
 		}
 		if err := configvalidate.ValidateStaging(stageRoot, edge.Validate); err != nil {
 			return nil, validationStageError(request, PhaseEdgeValidation, edgeIndex, err)
 		}
+		reporter.complete()
 	}
 
+	reporter.start(ProgressValidation, -1, "", request.TargetGeneration.ID)
 	if err := e.checkpoint(ctx, PhaseTargetValidation, -1); err != nil {
 		return nil, newStageError(request, CodeCanceled, PhaseTargetValidation, -1, err)
 	}
 	if err := configvalidate.ValidateStaging(stageRoot, request.TargetGeneration.Validate); err != nil {
 		return nil, validationStageError(request, PhaseTargetValidation, -1, err)
 	}
+	reporter.complete()
 
 	result = &StageResult{
 		Root:             stageRoot,

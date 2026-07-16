@@ -152,15 +152,19 @@ func TestStageRejectsInvalidRequestShapeBeforePayloadIntegrityWork(t *testing.T)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			payload, tempParent := newStagePayload(t, map[string]string{"settings.json": "tampered-after-manifest"})
+			observer := &recordingStageObserver{}
 			request := StageRequest{
 				CaptureID: "capture-shape", PayloadRoot: payload,
 				PayloadManifest:  []manifest.PayloadManifestEntry{{RelativePath: "settings.json", Size: 1, SHA256: testStageSHA256([]byte("x"))}},
-				SourceGeneration: "g1", TargetGeneration: validTarget, TempParent: tempParent,
+				SourceGeneration: "g1", TargetGeneration: validTarget, TempParent: tempParent, Observer: observer,
 			}
 			tt.edit(&request)
 			sourceBefore := snapshotStageSource(t, payload)
 			_, err := NewEngine().Stage(context.Background(), request)
 			assertStageError(t, err, CodeInvalidStageRequest, PhaseRequestValidation, -1, "", "")
+			if len(observer.progress) != 0 {
+				t.Fatalf("invalid request emitted progress: %+v", observer.progress)
+			}
 			assertStageSourceUnchanged(t, payload, sourceBefore)
 			assertStageTempParentEmpty(t, tempParent)
 		})
