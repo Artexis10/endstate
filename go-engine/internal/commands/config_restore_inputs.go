@@ -43,6 +43,7 @@ type configRestoreSource struct {
 	source          planner.SourceCapture
 	payloadRoot     string
 	payloadManifest []manifest.PayloadManifestEntry
+	selected        bool
 }
 
 type configRestoreLegacyLane struct {
@@ -51,6 +52,7 @@ type configRestoreLegacyLane struct {
 	configSetID    string
 	payloadRoot    string
 	restoreEntries []manifest.RestoreEntry
+	selected       bool
 }
 
 type configRestoreInputErrorDetail struct {
@@ -137,14 +139,12 @@ func buildV1ConfigRestoreInputs(
 	sort.Strings(moduleIDs)
 	inputs.hasConfigPayloads = len(moduleIDs) > 0
 	for _, moduleID := range moduleIDs {
-		if !configRestoreFilterIncludes(filter, moduleID) {
-			continue
-		}
 		inputs.legacyLanes = append(inputs.legacyLanes, configRestoreLegacyLane{
 			captureID:      bundle.LegacyCaptureID(moduleID),
 			moduleID:       moduleID,
 			configSetID:    "legacy",
 			restoreEntries: cloneConfigRestoreEntries(grouped[moduleID]),
+			selected:       configRestoreFilterIncludes(filter, moduleID),
 		})
 	}
 	return nil
@@ -203,12 +203,12 @@ func buildV2ConfigRestoreInputs(
 		return leftSource.ConfigSetID < rightSource.ConfigSetID
 	})
 	selectedCaptureIDs := make(map[string]struct{}, len(allSources))
-	for _, source := range allSources {
-		if !configRestoreFilterIncludes(filter, source.source.ModuleID) {
-			continue
+	for index := range allSources {
+		allSources[index].selected = configRestoreFilterIncludes(filter, allSources[index].source.ModuleID)
+		inputs.generationSources = append(inputs.generationSources, allSources[index])
+		if allSources[index].selected {
+			selectedCaptureIDs[allSources[index].source.CaptureID] = struct{}{}
 		}
-		inputs.generationSources = append(inputs.generationSources, source)
-		selectedCaptureIDs[source.source.CaptureID] = struct{}{}
 	}
 	for captureID, targetID := range mappings {
 		if _, selected := selectedCaptureIDs[captureID]; selected {
@@ -253,10 +253,9 @@ func buildV2ConfigRestoreInputs(
 		}
 		return allLanes[left].moduleID < allLanes[right].moduleID
 	})
-	for _, lane := range allLanes {
-		if configRestoreFilterIncludes(filter, lane.moduleID) {
-			inputs.legacyLanes = append(inputs.legacyLanes, lane)
-		}
+	for index := range allLanes {
+		allLanes[index].selected = configRestoreFilterIncludes(filter, allLanes[index].moduleID)
+		inputs.legacyLanes = append(inputs.legacyLanes, allLanes[index])
 	}
 	return nil
 }

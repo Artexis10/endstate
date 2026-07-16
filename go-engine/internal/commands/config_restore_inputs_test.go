@@ -135,6 +135,30 @@ func TestBuildConfigRestoreInputsGroupsV1ModulesAndLeavesAnonymousActionsOrdinar
 	}
 }
 
+func TestBuildConfigRestoreInputsRetainsFilteredV1LaneForSkippedProjection(t *testing.T) {
+	mf := &manifest.Manifest{Version: 1, Restore: []manifest.RestoreEntry{
+		{Type: "copy", Source: "beta", Target: "beta-target", FromModule: "apps.beta"},
+		{Type: "copy", Source: "alpha", Target: "alpha-target", FromModule: "apps.alpha"},
+	}}
+
+	inputs, envErr := buildConfigRestoreInputs(configRestoreBuildRequest{
+		Manifest: mf, ManifestPath: filepath.Join(t.TempDir(), "manifest.jsonc"), RestoreFilter: "alpha",
+	})
+	if envErr != nil {
+		t.Fatalf("buildConfigRestoreInputs: %+v", envErr)
+	}
+	if len(inputs.legacyLanes) != 2 {
+		t.Fatalf("legacy lanes = %+v, want selected and filtered identities", inputs.legacyLanes)
+	}
+	if inputs.legacyLanes[0].moduleID != "apps.alpha" || !inputs.legacyLanes[0].selected ||
+		inputs.legacyLanes[1].moduleID != "apps.beta" || inputs.legacyLanes[1].selected {
+		t.Fatalf("legacy selection state = %+v", inputs.legacyLanes)
+	}
+	if len(inputs.targetMappings) != 0 {
+		t.Fatalf("v1 lane acquired executable target mappings: %#v", inputs.targetMappings)
+	}
+}
+
 func TestBuildConfigRestoreInputsRejectsAmbiguousV1ModuleIdentity(t *testing.T) {
 	inputs, envErr := buildConfigRestoreInputs(configRestoreBuildRequest{
 		Manifest: &manifest.Manifest{Version: 1, Restore: []manifest.RestoreEntry{{
@@ -221,7 +245,9 @@ func TestBuildConfigRestoreInputsValidatesMappingsBeforeFiltering(t *testing.T) 
 		if envErr != nil {
 			t.Fatalf("buildConfigRestoreInputs: %+v", envErr)
 		}
-		if len(inputs.generationSources) != 1 || inputs.generationSources[0].source.CaptureID != "capture-alpha" {
+		if len(inputs.generationSources) != 2 || inputs.generationSources[0].source.CaptureID != "capture-alpha" ||
+			!inputs.generationSources[0].selected || inputs.generationSources[1].source.CaptureID != "capture-beta" ||
+			inputs.generationSources[1].selected {
 			t.Fatalf("filtered sources = %+v", inputs.generationSources)
 		}
 		if !reflect.DeepEqual(inputs.targetMappings, map[string]string{"capture-alpha": "instance-alpha"}) {
