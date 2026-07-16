@@ -40,9 +40,13 @@ Application versions are evidence used to select config generations; they are no
 
 Same-generation transfer is direct. Different generations require one explicit, uniquely resolvable forward migration path in the same config set. Generation `order` proves direction but never creates an edge; a lower-order target is an unsupported downgrade. No path, ambiguous path, changed/unaccepted source fingerprint, or missing current-catalog knowledge remains incompatible/unknown rather than guessed.
 
-The engine never chooses a newest side-by-side instance. It auto-selects only one viable target or one unique exact-version target. Otherwise it reports `ambiguous_target_instance` until the caller supplies `--restore-target <captureId>=<targetInstanceId>`. Module-level `--restore-filter` applies first. Invalid mapping syntax, duplicate capture mappings, and unknown capture IDs fail before installation or config mutation; a mapped target absent/incompatible after final post-install detection skips only that set.
+The engine never chooses a newest side-by-side instance. It auto-selects only one viable target or one unique exact-version target. Otherwise it reports `ambiguous_target_instance` until the caller supplies `--restore-target <captureId>=<targetInstanceId>`. Module-level `--restore-filter` applies first. Invalid mapping syntax, duplicate capture mappings, and unknown/non-targetable capture IDs return `INVALID_RESTORE_TARGET` with engine-authored message and remediation before installation or config mutation; a mapped target absent/incompatible after final post-install detection skips only that set.
 
 Source provenance comes from the bundle and remains immutable. Target discovery, current generation definitions, and migration edges come only from the trusted catalog snapshot pinned for the run. Bundle-supplied module snapshots are inspectable but never executable or authoritative.
+
+Every result preserves a portable, non-secret `sourceInstance` and a non-null `targetCandidates[]` containing portable target identity and version evidence. Host-local target roots and locators remain internal engine data. The engine authors `label`, `message`, nullable `remediation`, and all technical detail; GUI consumers render those values verbatim and never reconstruct them from application versions, candidates, module rules, or bundle data.
+
+Stable per-set reasons include compatibility causes plus `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, and `already_up_to_date`. A missing reason or remediation is serialized as `null`.
 
 Preflight rejects selected config sets whose concrete target paths are equal or overlap by parent/child containment, and rejects multiple captured sets competing for one target instance/config set. Neither colliding set mutates its target.
 
@@ -117,7 +121,7 @@ After staging succeeds, each config set commits transactionally:
 4. Validate the committed target generation.
 5. Atomically mark the intent `committed`.
 
-Intent persistence failure occurs before mutation. Commit, final-validation, or completion-record failure after mutation triggers immediate rollback of that config set. A verified rollback allows safe non-overlapping sets to continue. Incomplete rollback stops all later config-set mutation. Before any future restore-capable mutation, pending intents are recovered idempotently; unrecoverable state fails the new run with `recovery_required` before new writes.
+Staging validation uses `staging_validation_failed`; backup failure uses `backup_failed`; intent persistence failure occurs before mutation and uses `journal_intent_failed`. Commit, final target validation, or completion-record failure uses `commit_failed`, `target_validation_failed`, or `journal_completion_failed` respectively and triggers immediate rollback of that config set after mutation. A verified rollback allows safe non-overlapping sets to continue. Incomplete rollback stops all later config-set mutation. Before any future restore-capable mutation, pending intents are recovered idempotently; unrecoverable state fails the new run with `recovery_required` before new writes.
 
 If a generation requires its application closed, a running app produces `app_running`; the engine never stops or kills it.
 
@@ -135,6 +139,8 @@ Envelope status is independent from compatibility resolution and is exactly one 
 | `rollback_failed` | Mutation began and complete restoration could not be proven; later config-set mutation is blocked |
 
 For failure statuses, `reason` retains the primary integrity, staging, backup, journal, commit, or validation failure. Rollback outcome is represented by `status`, not by replacing that cause.
+
+When restore-capable input contains config payloads, command data includes `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]`; every result's `targetCandidates[]`, `migrationPath[]`, and `resolvedTargets[]` is also present. These arrays serialize as `[]`, never `null`, when empty. Config-free input omits the config fields entirely. Rebuild's canonical config fields are top-level command data; its nested apply result may mirror them.
 
 ---
 
@@ -172,9 +178,9 @@ The default flow presents one toggle per app:
 4. Default behavior: `onConflict: skip` — only restores files that don't exist yet
 5. No jargon, no file paths, no technical detail
 
-For generation-aware payloads, the engine may expose multiple config sets or side-by-side target choices beneath one app. The GUI renders those engine-provided rows and mappings; it does not inspect module rules, compare app versions, select generations, or infer compatibility.
+For generation-aware payloads, the engine may expose multiple config sets or side-by-side target choices beneath one app. The GUI renders those engine-provided rows, labels, messages, remediation, technical details, and mappings verbatim; it does not inspect module rules, compare app versions, select generations, infer compatibility, or author replacement copy.
 
-Default compatibility labels are locked:
+Engine-authored default compatibility labels are locked:
 
 - `direct` → **Compatible**
 - `migrate` → **Will be upgraded**
@@ -348,12 +354,14 @@ No declaration order, lexically newest path, highest app version, implicit gener
 
 For schema-v1 lanes, existing module-derived restore metadata may populate the per-app advanced view. For schema-v2 lanes, the GUI consumes engine preflight/envelope data only:
 
-1. Engine `configResolutions[]` → compatibility, source/target identity, generations, reasons, and migration path
+1. Engine `configResolutions[]` → compatibility, portable source instance, non-null target candidates, generations, reasons, presentation, and migration path
 2. Engine `restoreItems[]`/preflight → concrete path actions and conflict state
 3. Engine target candidates → side-by-side choices keyed by target instance ID
 4. GUI renders the supplied data and passes user selections back through documented CLI flags
 
-The GUI never loads a capture-time module snapshot as rules and never recomputes a generation or migration path.
+The GUI never loads a capture-time module snapshot as rules and never recomputes a generation, migration path, target evidence, technical detail, or presentation copy.
+
+Every explicit schema-v1 module lane uses `configSetId: "legacy"` and the deterministic, domain-separated capture ID returned by `bundle.LegacyCaptureID(moduleId)`. Anonymous inline restore actions without a module-lane association remain ordinary restore items; they do not receive fabricated config-resolution rows, instances, versions, or generations.
 
 ### Module Display Names
 

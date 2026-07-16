@@ -1,7 +1,9 @@
 ## ADDED Requirements
 
 ### Requirement: Engine Resolves Every Captured Config Set Before Mutation
-Before writing target configuration, the engine SHALL produce a per-capture resolution of `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified` with a stable machine-readable reason and the source/target generations when known.
+Before writing target configuration, the engine SHALL produce a per-capture resolution of `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified` with a nullable stable machine-readable reason and the source/target generations when known.
+
+Every resolution SHALL preserve the portable captured `sourceInstance` and expose `targetCandidates[]` containing portable, non-secret target identity and version evidence. `targetCandidates[]` SHALL be a non-null array. Host-local target roots and locators SHALL remain internal engine data. The engine SHALL also author the row's `label`, `message`, nullable `remediation`, and technical detail; consumers SHALL render those values without recomputation.
 
 #### Scenario: Same generation resolves direct
 - **WHEN** source and target config generations are identical
@@ -22,6 +24,11 @@ Before writing target configuration, the engine SHALL produce a per-capture reso
 - **WHEN** target version or generation cannot be determined safely
 - **THEN** resolution is `unknown`
 - **AND** no config mutation occurs for that set
+
+#### Scenario: Target candidates do not expose host roots
+- **WHEN** resolution discovers one or more target instances
+- **THEN** `targetCandidates[]` includes their portable identity and version evidence
+- **AND** omits host-local target roots and locators
 
 ### Requirement: Target Instance Selection Never Guesses Latest
 The engine SHALL automatically select a target instance only when there is one viable target or one unique exact-version target. Multiple viable targets SHALL produce `ambiguous_target_instance` until the caller provides an explicit valid mapping.
@@ -55,7 +62,8 @@ An explicit capture-to-target mapping SHALL reference an existing capture ID and
 
 #### Scenario: Mapping input is malformed or duplicated
 - **WHEN** a restore-target mapping is malformed, duplicates a capture ID, or names an unknown capture ID
-- **THEN** the command returns an input error before installation or config mutation
+- **THEN** the command returns `INVALID_RESTORE_TARGET` before installation or config mutation
+- **AND** provides an engine-authored message and remediation
 
 #### Scenario: Mapped target is absent after install
 - **WHEN** a syntactically valid mapped target instance is not detected after rebuild installation
@@ -130,3 +138,32 @@ If the pinned current catalog lacks the captured module ID, config-set ID, or so
 - **WHEN** the current generation ID matches but its fingerprint differs and the captured fingerprint is not explicitly accepted
 - **THEN** resolution is `unknown` with reason `source_generation_definition_changed`
 - **AND** no config mutation occurs
+
+### Requirement: Non-Execution and Execution Failures Use Stable Reasons
+The engine SHALL use stable per-set reasons for intentional non-execution and execution failures. In addition to compatibility reasons, the locked vocabulary SHALL include `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, and `already_up_to_date`. A successful resolution or execution SHALL serialize `reason: null`.
+
+#### Scenario: Module filter skips a set explicitly
+- **WHEN** `--restore-filter` excludes an explicit config module lane
+- **THEN** the set is skipped with reason `restore_filtered`
+
+#### Scenario: Restore consent is disabled
+- **WHEN** config payloads are present but restore is not enabled for the invocation
+- **THEN** the affected sets are skipped with reason `restore_not_enabled`
+
+#### Scenario: Target discovery fails safely
+- **WHEN** engine-owned target detection fails for a config set
+- **THEN** the set does not mutate target configuration
+- **AND** reports reason `target_detection_failed`
+
+#### Scenario: Staging validation fails before mutation
+- **WHEN** staged migration or final staged-generation validation fails
+- **THEN** the set reports reason `staging_validation_failed`
+
+#### Scenario: Transaction preserves the primary failure
+- **WHEN** backup, journal intent, commit, final target validation, or completion recording fails
+- **THEN** reason is respectively `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, or `journal_completion_failed`
+- **AND** rollback status does not replace that primary reason
+
+#### Scenario: Target is already current
+- **WHEN** the selected target already equals the desired configuration
+- **THEN** the set is skipped with reason `already_up_to_date`

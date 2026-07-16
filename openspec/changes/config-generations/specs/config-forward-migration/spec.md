@@ -42,6 +42,7 @@ The engine SHALL verify payload integrity, copy the config set to a fresh stagin
 - **WHEN** validation after `g1 -> g2` fails in a planned `g1 -> g2 -> g3` chain
 - **THEN** the engine stops the chain
 - **AND** discards staging
+- **AND** reports reason `staging_validation_failed`
 - **AND** performs no host target mutation for that config set
 
 ### Requirement: Config-Set Commit Is Journaled and Transactional
@@ -54,11 +55,13 @@ After staging succeeds, the engine SHALL create all required backups, atomically
 #### Scenario: Journal write fails
 - **WHEN** the engine cannot durably write journal intent
 - **THEN** the config-set commit fails
+- **AND** reports reason `journal_intent_failed`
 - **AND** no target file or registry value is changed
 
 #### Scenario: Completion record fails
 - **WHEN** target commit and validation succeed but the engine cannot mark journal intent committed
 - **THEN** the engine immediately rolls the config set back
+- **AND** retains reason `journal_completion_failed`
 - **AND** does not report the set as successfully committed
 
 ### Requirement: Failed Commit Rolls Back Its Config Set

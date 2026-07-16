@@ -13,7 +13,8 @@ Apply, standalone restore, and rebuild SHALL support repeatable `--restore-targe
 
 #### Scenario: Invalid target mapping fails preflight
 - **WHEN** a mapping is malformed, duplicates a capture mapping, or references an unknown capture ID
-- **THEN** the command returns an input error before installation or config mutation
+- **THEN** the command returns `INVALID_RESTORE_TARGET` before installation or config mutation
+- **AND** the error includes an engine-authored message and remediation
 
 #### Scenario: Mapped target cannot be used after install
 - **WHEN** a syntactically valid target ID is absent or incompatible after final post-install detection

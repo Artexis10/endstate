@@ -131,7 +131,12 @@ For each captured config set it produces:
 
 ```text
 captureId
+moduleId
+configSetId
+sourceInstance { id, detectorId, rawVersion, normalizedVersion, evidence }
+sourceInstanceId
 targetInstanceId
+targetCandidates[] { id, moduleId, detectorId, rawVersion, normalizedVersion, evidence, targetGeneration, restoreModuleRevision }
 sourceGeneration
 sourceGenerationFingerprint
 targetGeneration
@@ -142,9 +147,16 @@ captureModuleRevision
 restoreModuleRevision
 resolvedTargets[]
 status
+label
+message
+remediation
 ```
 
-`resolution` is one of `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. More precise causes live in `reason`, including `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, and `source_generation_definition_changed`.
+`sourceInstance` and every member of `targetCandidates[]` contain portable, non-secret evidence only. Target roots and other host-local locators remain internal engine data. `targetCandidates[]`, `migrationPath[]`, and `resolvedTargets[]` are always JSON arrays, including `[]` when empty.
+
+`resolution` is one of `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. More precise causes live in `reason`, including `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `mapped_target_not_detected`, `mapped_target_incompatible`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, `source_generation_definition_changed`, `recovery_required`, `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, and `already_up_to_date`.
+
+The engine owns the user-facing `label`, `message`, and nullable `remediation` for every result as well as the technical detail above. A missing reason or remediation is serialized as `null`; the GUI renders this engine output verbatim and never reconstructs copy or compatibility from module rules.
 
 Resolution and execution status are independent. `resolution` describes source/target compatibility; terminal envelope `status` describes what happened to that config set in this invocation and is exactly one of `planned`, `restored`, `skipped`, `failed`, `rolled_back`, or `rollback_failed`. Envelope rows never use in-progress statuses; staging, commit, and rollback progress belongs to JSONL events. The statuses mean:
 
@@ -162,6 +174,8 @@ Target detection runs before restore and, in rebuild, again after application in
 Before execution, the planner rejects overlapping target paths across selected config sets, including parent/child overlaps. It also rejects multiple captured sets competing for one target. No “newest version wins” rule exists.
 
 Existing module-level `--restore-filter` remains. A repeatable `--restore-target <captureId>=<targetInstanceId>` selection is added to restore-capable commands and advertised through capabilities. Malformed/duplicate mappings and mappings to an unknown capture ID are command-input errors before installation or config mutation. A syntactically valid mapped target that is absent or incompatible after final post-install detection skips only that config set with `mapped_target_not_detected` or `mapped_target_incompatible`; successful application installation remains intact.
+
+Malformed, duplicate, unknown-capture, or otherwise invalid mapping input uses the stable command error `INVALID_RESTORE_TARGET` with engine-authored message and remediation. This command error is distinct from a syntactically valid mapping whose target becomes absent or incompatible after installation; the latter remains a per-set result.
 
 ### 6. Forward migration is an explicit, uniquely resolvable graph
 
@@ -199,20 +213,24 @@ Bundle/manifest v1 and schema-v1 modules retain the current inline restore path.
 
 A manifest-v2 bundle may contain both generation-aware config captures and schema-v1 flat payloads. Flat restore entries are permitted only for the explicitly identified schema-v1 payloads, which remain `legacy_unverified`; they can never supply missing data or act as fallback for an invalid generation-aware capture.
 
+Every explicit legacy module lane uses `configSetId: "legacy"` and a deterministic capture ID produced by the domain-separated `bundle.LegacyCaptureID(moduleId)`. Anonymous inline restore actions that are not associated with a module lane remain ordinary restore items. The engine does not fabricate config-resolution rows, source/target instances, versions, or generations for those anonymous actions.
+
 A v2 bundle with invalid generation provenance never falls back to this legacy path. That distinction prevents malformed new data from bypassing compatibility checks.
 
 ### 9. Engine output is detailed; GUI language is distilled
 
-JSON envelopes gain `configResolutions[]` and a config-level summary. Existing `restoreItems[]` remain concrete action results and gain optional capture/generation fields for v2 restores. Summary `selected` counts `planned`, `restored`, `failed`, `rolled_back`, and `rollback_failed`; summary `skipped` counts `skipped`; summary `failed` counts `failed`, `rolled_back`, and `rollback_failed`. JSONL adds config-resolution and config-migration progress without changing the existing app `items[]` contract.
+JSON envelopes gain `configResolutions[]` and a config-level summary. Existing `restoreItems[]` remain concrete action results and gain optional capture/generation fields for v2 restores. When input has no config payloads, the config fields are omitted. When config payloads are present, the arrays are present and serialize as `[]` rather than `null`, including when filtering or planning produces no concrete restore items. Rebuild exposes the canonical config fields at the top level of its command data; its nested apply result may mirror the same values. Summary `selected` counts `planned`, `restored`, `failed`, `rolled_back`, and `rollback_failed`; summary `skipped` counts `skipped`; summary `failed` counts `failed`, `rolled_back`, and `rollback_failed`. JSONL adds config-resolution and config-migration progress without changing the existing app `items[]` contract.
 
-The engine exposes stable machine states; the GUI maps them to four default labels:
+The engine exposes stable machine states and authors their label, message, and nullable remediation. Default labels are:
 
 - `direct` -> **Compatible**
 - `migrate` -> **Will be upgraded**
 - `unknown` or `legacy_unverified` -> **Compatibility unknown**
 - `incompatible` -> **Not supported**
 
-Advanced details may show source/target versions, generations, migration path, module revisions, and reasons. The GUI does not recompute any of them.
+Advanced details may show the engine-provided portable source instance, target candidates, versions, generations, migration path, module revisions, and reasons. The GUI renders the engine-authored copy and technical details verbatim and does not recompute any of them.
+
+`config-migration` events use the closed stage vocabulary `staging`, `edge`, `validation`, `commit`, or `rollback`, and the closed progress status vocabulary `started`, `completed`, or `failed`. Event order, reason, message, and remediation are engine-authored; consumers do not interpret module migration operations.
 
 ## Risks / Trade-offs
 

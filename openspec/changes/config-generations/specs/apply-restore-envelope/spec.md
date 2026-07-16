@@ -1,7 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Restore Envelope Includes Config Generation Resolutions
-When restore-capable input contains config payloads, apply, standalone restore, and rebuild JSON output SHALL include `configResolutions[]` and `configResolutionSummary`. Each resolution SHALL include `captureId`, `moduleId`, `configSetId`, source/target instance IDs, source/target generations and source-generation fingerprint when known, `resolution`, `reason`, `migrationPath`, capture/restore module revisions, and terminal `status`. Legacy inputs SHALL use `legacy_unverified` rather than fabricated generation values.
+When restore-capable input contains config payloads, apply, standalone restore, and rebuild JSON output SHALL include `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]`. Each resolution SHALL include `captureId`, `moduleId`, `configSetId`, portable `sourceInstance`, source/target instance IDs, non-null `targetCandidates[]`, source/target generations and source-generation fingerprint when known, `resolution`, nullable `reason`, `migrationPath`, capture/restore module revisions, terminal `status`, and engine-authored `label`, `message`, and nullable `remediation`. Target candidates SHALL contain only portable, non-secret identity/version evidence; host-local roots SHALL remain internal. Legacy inputs SHALL use `legacy_unverified` rather than fabricated generation values.
+
+When restore-capable input contains no config payloads, these config fields SHALL be omitted. When config payloads are present, `configResolutions[]`, `targetCandidates[]`, `migrationPath[]`, `resolvedTargets[]`, and `restoreItems[]` SHALL be present arrays and SHALL serialize as `[]`, never `null`, when empty. `reason` and `remediation` SHALL serialize as `null` when they have no value. Rebuild SHALL expose the canonical config fields at the top level of its command data; its nested apply result MAY mirror the same values.
+
+The engine SHALL author the default distilled label, result message, remediation, and technical details. Consumers SHALL render those values verbatim and SHALL NOT reconstruct compatibility, presentation copy, or target evidence from module or bundle rules.
 
 `resolution` and `status` SHALL be independent: resolution describes compatibility, while status describes the terminal execution outcome for the invocation. Status SHALL be exactly one of `planned`, `restored`, `skipped`, `failed`, `rolled_back`, or `rollback_failed`; in-progress values SHALL NOT appear in the envelope. `planned` SHALL be dry-run-only for a selected set that passed compatibility, integrity, preflight, and staging validation. `restored` SHALL mean a live transaction reached and validated the desired target state and durably recorded completion. `skipped` SHALL mean no target mutation was attempted and non-execution was intentional or safely required, including filtering/consent, unknown or incompatible resolution, absent/incompatible mapped target, `app_running`, or an already-up-to-date target. `failed` SHALL mean the selected set could not complete before any target mutation occurred. `rolled_back` SHALL mean mutation began and rollback durably restored and verified the complete pre-run state. `rollback_failed` SHALL mean mutation began and complete restoration could not be proven; the engine SHALL start no later config-set mutation in that run.
 
@@ -47,6 +51,20 @@ For `failed`, `rolled_back`, and `rollback_failed`, `reason` SHALL retain the pr
 - **WHEN** standalone restore consumes generation-aware or legacy config payloads with JSON output
 - **THEN** it emits the same `configResolutions[]` fields, states, reasons, and summary semantics as apply/rebuild
 
+#### Scenario: Config-free command preserves the existing shape
+- **WHEN** restore-capable input contains no generation-aware or explicit legacy module payload
+- **THEN** config resolution, summary, and restore-item fields are omitted
+
+#### Scenario: Payload with no concrete actions uses empty arrays
+- **WHEN** input contains a config payload but filtering or safe non-execution produces no concrete restore action
+- **THEN** the config arrays are present as `[]`
+- **AND** no config array is `null`
+
+#### Scenario: Rebuild exposes canonical config data
+- **WHEN** rebuild consumes config payloads
+- **THEN** its command data exposes canonical top-level config resolutions, summary, and restore items
+- **AND** a nested apply result may mirror the same values without changing their semantics
+
 ### Requirement: Concrete Restore Items Link Back to Generation Plan
 Concrete `restoreItems[]` produced from generation-aware config sets SHALL retain the existing restore-item fields and SHALL add optional `captureId`, `configSetId`, `targetInstanceId`, `sourceGeneration`, and `targetGeneration` fields. Application install `items[]` SHALL remain unchanged.
 
@@ -59,5 +77,5 @@ The JSON envelope SHALL report a command/config-set failure when durable journal
 
 #### Scenario: Journal intent cannot be persisted
 - **WHEN** backup/staging succeeds but journal intent persistence fails
-- **THEN** the result is failed with a structured journal reason
+- **THEN** the result is failed with reason `journal_intent_failed`
 - **AND** no target mutation is reported

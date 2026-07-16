@@ -92,6 +92,7 @@ When `success` is `false`, the `error` field contains:
 | `CAPTURE_BLOCKED` | Capture blocked by guardrail |
 | `INSTALL_FAILED` | Package installation failed |
 | `RESTORE_FAILED` | Configuration restore failed |
+| `INVALID_RESTORE_TARGET` | A `--restore-target` mapping is malformed, duplicates a capture mapping, or names an unknown/non-targetable capture. Raised before installation or config mutation and includes engine-authored remediation. |
 | `VERIFY_FAILED` | Verification check failed |
 | `PERMISSION_DENIED` | Insufficient permissions |
 | `INTERNAL_ERROR` | Unexpected internal error |
@@ -382,7 +383,7 @@ endstate apply --manifest ./manifest.jsonc --only git,vscode --json
 
 ### Generation-Aware Configuration Output (Apply, Restore, and Rebuild)
 
-When restore-capable input contains configuration payloads, apply, standalone restore, and rebuild add `configResolutions[]` and `configResolutionSummary` to their command data. This is additive in stdout schema `1.0`. Application-install `items[]`/`actions[]` remain unchanged.
+When restore-capable input contains configuration payloads, apply, standalone restore, and rebuild add `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]` to their command data. This is additive in stdout schema `1.0`. Application-install `items[]`/`actions[]` remain unchanged. If the input contains no config payloads, these config fields are omitted. If config payloads are present, no config field is omitted: all arrays are present and use `[]`, never `null`, when empty; `reason` and `remediation` use `null` when absent.
 
 ```json
 {
@@ -391,8 +392,27 @@ When restore-capable input contains configuration payloads, apply, standalone re
       "captureId": "apps.example-preferences-instance-a",
       "moduleId": "apps.example",
       "configSetId": "preferences",
+      "sourceInstance": {
+        "id": "instance-a",
+        "detectorId": "photoshop-install",
+        "rawVersion": "25.0.0",
+        "normalizedVersion": "25.0.0",
+        "evidence": { "kind": "installed-app", "value": "Adobe Photoshop 2024" }
+      },
       "sourceInstanceId": "instance-a",
       "targetInstanceId": "instance-b",
+      "targetCandidates": [
+        {
+          "id": "instance-b",
+          "moduleId": "apps.example",
+          "detectorId": "photoshop-install",
+          "rawVersion": "26.0.0",
+          "normalizedVersion": "26.0.0",
+          "evidence": { "kind": "installed-app", "value": "Adobe Photoshop 2025" },
+          "targetGeneration": "g2",
+          "restoreModuleRevision": "<sha256-b>"
+        }
+      ],
       "sourceGeneration": "g1",
       "sourceGenerationFingerprint": "<sha256>",
       "targetGeneration": "g2",
@@ -402,7 +422,10 @@ When restore-capable input contains configuration payloads, apply, standalone re
       "captureModuleRevision": "<sha256-a>",
       "restoreModuleRevision": "<sha256-b>",
       "resolvedTargets": [],
-      "status": "restored"
+      "status": "restored",
+      "label": "Will be upgraded",
+      "message": "Settings will be upgraded from g1 to g2 before restore.",
+      "remediation": null
     }
   ],
   "configResolutionSummary": {
@@ -415,11 +438,14 @@ When restore-capable input contains configuration payloads, apply, standalone re
     "selected": 1,
     "skipped": 0,
     "failed": 0
-  }
+  },
+  "restoreItems": []
 }
 ```
 
-`resolution` describes source/target compatibility and is exactly `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. Application versions are evidence for selecting config generations; they are not a pairwise compatibility result. Stable reasons include `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `mapped_target_not_detected`, `mapped_target_incompatible`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, `source_generation_definition_changed`, and `recovery_required`.
+`sourceInstance` and every `targetCandidates[]` member carry portable, non-secret identity and version evidence. Host-local target roots and locators are internal engine data and never appear in command results. `targetCandidates[]`, `migrationPath[]`, `resolvedTargets[]`, and `restoreItems[]` are non-null arrays. The engine authors each row's distilled `label`, `message`, nullable `remediation`, and technical details. GUIs render those values verbatim and do not reconstruct them from versions, candidates, modules, or bundle data.
+
+`resolution` describes source/target compatibility and is exactly `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. Application versions are evidence for selecting config generations; they are not a pairwise compatibility result. Stable reasons include `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `mapped_target_not_detected`, `mapped_target_incompatible`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, `source_generation_definition_changed`, `recovery_required`, `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, and `already_up_to_date`.
 
 `status` is independent from `resolution` and is terminal in the envelope. It is exactly:
 
@@ -434,15 +460,15 @@ When restore-capable input contains configuration payloads, apply, standalone re
 
 For `failed`, `rolled_back`, and `rollback_failed`, `reason` retains the primary execution failure. Rollback outcome is carried by `status`; it never overwrites that cause. `configResolutionSummary.selected` counts `planned`, `restored`, `failed`, `rolled_back`, and `rollback_failed`; `skipped` counts `skipped`; `failed` counts `failed`, `rolled_back`, and `rollback_failed`.
 
-Legacy manifest/bundle v1 payloads are represented as `legacy_unverified` with unknown generation fields omitted. They retain explicit restore consent, conflict handling, backup, journal, and revert. Invalid manifest-v2 generation provenance never becomes `legacy_unverified` and never falls back to a flat restore path.
+Legacy manifest/bundle v1 payloads are represented as `legacy_unverified` with unknown generation fields omitted. Every explicit schema-v1 module lane uses `configSetId: "legacy"` and the deterministic, domain-separated capture ID returned by `bundle.LegacyCaptureID(moduleId)`. Anonymous inline restore actions without a module-lane association remain ordinary `restoreItems[]`; the engine does not fabricate config-resolution rows, instances, versions, or generations for them. Legacy lanes retain explicit restore consent, conflict handling, backup, journal, and revert. Invalid manifest-v2 generation provenance never becomes `legacy_unverified` and never falls back to a flat restore path.
 
 Concrete `restoreItems[]` retain all existing fields. Items produced from a generation-aware config set add optional `captureId`, `configSetId`, `targetInstanceId`, `sourceGeneration`, and `targetGeneration` fields so actions remain traceable to the resolution plan.
 
-If durable journal intent cannot be written, the affected config set is `failed` before mutation and the command/envelope reports failure with a structured journal reason. Journal errors are never ignored or represented as successful restore. Before a new restore-capable mutation, an unrecoverable pending intent reports `recovery_required` and prevents all new config mutation.
+If durable journal intent cannot be written, the affected config set is `failed` before mutation with `journal_intent_failed`. A completion-record failure uses `journal_completion_failed`; journal errors are never ignored or represented as successful restore. Before a new restore-capable mutation, an unrecoverable pending intent reports `recovery_required` and prevents all new config mutation.
 
 ### Explicit Target Mapping
 
-Apply, standalone restore, and rebuild accept repeatable `--restore-target <captureId>=<targetInstanceId>`. Module-level `--restore-filter` applies first. Malformed mappings, duplicate mappings for one capture ID, and mappings to unknown capture IDs are command-input errors before installation or configuration mutation. After final post-install detection, a well-formed mapping to an absent/incompatible target skips only that config set with `mapped_target_not_detected` or `mapped_target_incompatible`; successful installation is not rolled back.
+Apply, standalone restore, and rebuild accept repeatable `--restore-target <captureId>=<targetInstanceId>`. Module-level `--restore-filter` applies first. Malformed mappings, duplicate mappings for one capture ID, and mappings to unknown or non-targetable capture IDs return `INVALID_RESTORE_TARGET` with engine-authored message and remediation before installation or configuration mutation. After final post-install detection, a well-formed mapping to an absent/incompatible target skips only that config set with `mapped_target_not_detected` or `mapped_target_incompatible`; successful installation is not rolled back.
 
 The engine automatically maps only one viable target or one unique exact-version target. Multiple viable side-by-side targets report `unknown` / `ambiguous_target_instance`; no newest-version rule exists.
 
@@ -614,7 +640,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
       "capturedAt": "2024-12-19T10:00:00Z",
       "machineName": "OLD-PC",
       "endstateVersion": "0.1.0",
-      "configModulesIncluded": ["vscode", "git"]
+      "configModulesIncluded": []
     },
     "dryRun": false,
     "restore": "enabled",
@@ -626,6 +652,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 ```
 
 - `bundle` is present only for a `.zip` input (with `extracted: true`); it is omitted for a bare-manifest rebuild. The metadata fields under `bundle` are best-effort (read from the bundle's `metadata.json`) and omitted when unavailable.
+- For bundle input containing config payloads, `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]` at the top level of rebuild `data` are canonical. The nested `apply` result may mirror them. Config-free input omits all three fields; payload-bearing input keeps the arrays present as `[]` when empty.
 - `apply` carries the underlying `apply` command result; `verify` carries the underlying `verify` command result and is omitted on `--dry-run`.
 - `restore` reflects the configured posture (`"enabled"` unless `--no-restore`), not whether restore executed — a `--dry-run` reports `"enabled"` while executing nothing.
 

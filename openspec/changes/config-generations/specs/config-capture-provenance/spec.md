@@ -66,6 +66,8 @@ Generation-aware bundles SHALL include a canonical declarative snapshot of each 
 ### Requirement: Legacy Bundles Remain Usable and Explicitly Unverified
 New engines SHALL accept bundle/manifest v1. Legacy config payloads SHALL be reported as `legacy_unverified`; application installation SHALL proceed, and config restore SHALL remain available through the existing explicit consent, conflict, backup, journal, and revert behavior without an additional expert flag.
 
+An explicit schema-v1 module lane SHALL use `configSetId: "legacy"` and the deterministic, domain-separated capture ID returned by `bundle.LegacyCaptureID(moduleId)`. Anonymous inline restore actions without a module-lane association SHALL remain ordinary restore items and SHALL NOT cause the engine to fabricate config-resolution rows, instances, versions, or generations.
+
 #### Scenario: Legacy bundle installs and can restore
 - **WHEN** a user rebuilds from a valid v1 bundle with restore consent
 - **THEN** application installation proceeds
@@ -76,6 +78,16 @@ New engines SHALL accept bundle/manifest v1. Legacy config payloads SHALL be rep
 - **WHEN** source generation provenance is absent because the bundle predates this capability
 - **THEN** the engine reports that compatibility could not be verified
 - **AND** does not claim that the settings are known incompatible
+
+#### Scenario: Explicit legacy module identity is deterministic
+- **WHEN** a schema-v1 module lane is represented in a legacy or mixed bundle
+- **THEN** its config result uses `configSetId: "legacy"`
+- **AND** its capture ID is `bundle.LegacyCaptureID(moduleId)`
+
+#### Scenario: Anonymous inline action stays an ordinary item
+- **WHEN** a flat restore action has no explicit module-lane association
+- **THEN** it may appear as an ordinary restore item
+- **AND** the engine emits no fabricated config-resolution row for it
 
 ### Requirement: Mixed V2 Bundles Keep Legacy and Generation-Aware Payloads Separate
 A manifest-v2 bundle MAY contain schema-v1 flat module payloads alongside generation-aware config captures. Flat restore entries SHALL be associated only with explicitly identified schema-v1 payloads, SHALL remain `legacy_unverified`, and SHALL NOT supply missing data or fallback behavior for a generation-aware config capture.

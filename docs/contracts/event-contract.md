@@ -355,8 +355,27 @@ Reports the engine's final compatibility/target decision for one captured config
   "captureId": "apps.example-preferences-instance-a",
   "moduleId": "apps.example",
   "configSetId": "preferences",
+  "sourceInstance": {
+    "id": "instance-a",
+    "detectorId": "photoshop-install",
+    "rawVersion": "25.0.0",
+    "normalizedVersion": "25.0.0",
+    "evidence": { "kind": "installed-app", "value": "Adobe Photoshop 2024" }
+  },
   "sourceInstanceId": "instance-a",
   "targetInstanceId": "instance-b",
+  "targetCandidates": [
+    {
+      "id": "instance-b",
+      "moduleId": "apps.example",
+      "detectorId": "photoshop-install",
+      "rawVersion": "26.0.0",
+      "normalizedVersion": "26.0.0",
+      "evidence": { "kind": "installed-app", "value": "Adobe Photoshop 2025" },
+      "targetGeneration": "g2",
+      "restoreModuleRevision": "<sha256-b>"
+    }
+  ],
   "sourceGeneration": "g1",
   "sourceGenerationFingerprint": "<sha256>",
   "targetGeneration": "g2",
@@ -364,24 +383,30 @@ Reports the engine's final compatibility/target decision for one captured config
   "reason": null,
   "migrationPath": ["g1", "g2"],
   "captureModuleRevision": "<sha256-a>",
-  "restoreModuleRevision": "<sha256-b>"
+  "restoreModuleRevision": "<sha256-b>",
+  "label": "Will be upgraded",
+  "message": "Settings will be upgraded from g1 to g2 before restore.",
+  "remediation": null
 }
 ```
 
 **Fields:**
 
 - Identity fields (`captureId`, `moduleId`, `configSetId`) are required.
+- `sourceInstance` preserves portable, non-secret capture identity and version evidence. `targetCandidates` is a required, non-null array of portable, non-secret target identity and version evidence; it is `[]` when no candidate exists. Host-local roots and locators remain internal and are never emitted.
 - Instance, generation, fingerprint, and module-revision fields are present when known; legacy payloads omit unknown generation fields.
 - `resolution` (required) is `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`.
 - `reason` is a stable machine reason or `null`; the GUI does not derive it from module data.
-- `migrationPath` is the ordered generation path and is empty unless a migration is planned.
+- `migrationPath` is the ordered generation path and is `[]` unless a migration is planned.
+- `label`, `message`, nullable `remediation`, and all technical detail are engine-authored. Consumers render them verbatim and do not recompute copy, compatibility, or evidence.
 
 **Guarantees:**
 
 - Exactly one final config-resolution event is emitted per captured config set in restore-capable input.
 - It precedes any mutating `restore-item` or commit-stage `config-migration` event for the same capture ID.
 - `incompatible` and `unknown` resolutions have no corresponding mutating event.
-- Legacy restore emits `legacy_unverified` before any corresponding legacy restore-item event.
+- An explicit legacy module lane uses `configSetId: "legacy"` and the deterministic capture ID returned by `bundle.LegacyCaptureID(moduleId)`, and emits `legacy_unverified` before any corresponding legacy restore-item event.
+- Anonymous inline restore actions without a module-lane association remain ordinary restore-item events and do not receive fabricated config-resolution events, instances, versions, or generations.
 
 ---
 
@@ -402,16 +427,18 @@ Reports engine-owned progress for staging, each ordered migration edge, validati
   "toGeneration": "g2",
   "status": "completed",
   "reason": null,
-  "message": "migration edge validated"
+  "message": "migration edge validated",
+  "remediation": null
 }
 ```
 
 **Fields:**
 
 - `captureId` and `configSetId` are required correlation identities.
-- `stage` identifies engine progress such as staging, edge, validation, commit, or rollback.
+- `stage` is exactly `staging`, `edge`, `validation`, `commit`, or `rollback`.
 - `fromGeneration` and `toGeneration` are present for an edge.
-- `status`, `reason`, and `message` are engine-derived; consumers render them and do not interpret migration operations.
+- `status` is exactly `started`, `completed`, or `failed`.
+- `reason` and `remediation` are nullable and serialize as `null` when absent. `status`, `reason`, `message`, and `remediation` are engine-derived; consumers render them verbatim and do not interpret migration operations.
 
 **Guarantees:**
 
