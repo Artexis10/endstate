@@ -400,6 +400,9 @@ func validateLegacyConfigLanes(manifest *Manifest, filePath string) error {
 
 	used := make(map[string]struct{}, len(laneByID))
 	for index, restore := range manifest.Restore {
+		if restore.LegacyCaptureID == "" && restore.FromModule == "" {
+			continue
+		}
 		if !manifestStableIDPattern.MatchString(restore.LegacyCaptureID) {
 			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].legacyCaptureId must identify one legacy lane", index)
 		}

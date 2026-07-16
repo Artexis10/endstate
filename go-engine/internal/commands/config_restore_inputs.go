@@ -230,6 +230,10 @@ func buildV2ConfigRestoreInputs(
 		}
 	}
 	for index, entry := range manifestValue.Restore {
+		if entry.LegacyCaptureID == "" && entry.FromModule == "" {
+			inputs.ordinaryRestores = append(inputs.ordinaryRestores, cloneConfigRestoreEntry(entry))
+			continue
+		}
 		lane, exists := lanesByID[entry.LegacyCaptureID]
 		if entry.LegacyCaptureID == "" || !exists || entry.FromModule != lane.moduleID {
 			return invalidConfigRestoreInputWithCapture(

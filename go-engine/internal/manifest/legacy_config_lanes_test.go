@@ -79,6 +79,26 @@ func TestLoadManifestV2CarriesStrictLegacyAssociation(t *testing.T) {
 	}
 }
 
+func TestLoadManifestV2KeepsAnonymousInlineRestoreOrdinary(t *testing.T) {
+	value := validManifestV2Value("capture-a")
+	addValidLegacyLane(value, "legacy-a", "legacy.example")
+	value["restore"] = append(value["restore"].([]any), map[string]any{
+		"type": "copy", "source": "./inline/settings.json", "target": "~/.example/inline.json",
+	})
+
+	loaded, err := LoadManifest(writeManifestValue(t, value))
+	if err != nil {
+		t.Fatalf("LoadManifest rejected anonymous ordinary restore: %v", err)
+	}
+	if len(loaded.Restore) != 2 {
+		t.Fatalf("restore entries = %+v", loaded.Restore)
+	}
+	ordinary := loaded.Restore[1]
+	if ordinary.FromModule != "" || ordinary.LegacyCaptureID != "" {
+		t.Fatalf("anonymous restore acquired legacy identity: %+v", ordinary)
+	}
+}
+
 func TestLoadManifestV2RejectsNullLegacyLaneArray(t *testing.T) {
 	value := validManifestV2Value("capture-a")
 	value["legacyConfigLanes"] = nil

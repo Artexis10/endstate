@@ -72,13 +72,17 @@ func TestBuildConfigRestoreInputsSeparatesMixedV2Lanes(t *testing.T) {
 		Type: "copy", Source: "./" + path.Join(legacyRoot, "settings.json"), Target: "%APPDATA%/Legacy/settings.json",
 		FromModule: "apps.legacy", LegacyCaptureID: legacyID, Exclude: []string{"cache/**"},
 	}
+	ordinaryRestore := manifest.RestoreEntry{
+		Type: "copy", Source: "./inline/settings.json", Target: "%APPDATA%/Inline/settings.json",
+		Exclude: []string{"temp/**"},
+	}
 	mf := &manifest.Manifest{
 		Version:        2,
 		ConfigCaptures: []manifest.ConfigCapture{generation},
 		LegacyConfigLanes: []manifest.LegacyConfigLane{{
 			CaptureID: legacyID, ModuleID: "apps.legacy", ModuleSchemaVersion: 1, PayloadRoot: legacyRoot,
 		}},
-		Restore: []manifest.RestoreEntry{legacyRestore},
+		Restore: []manifest.RestoreEntry{legacyRestore, ordinaryRestore},
 	}
 
 	inputs, envErr := buildConfigRestoreInputs(configRestoreBuildRequest{
@@ -87,7 +91,7 @@ func TestBuildConfigRestoreInputsSeparatesMixedV2Lanes(t *testing.T) {
 	if envErr != nil {
 		t.Fatalf("buildConfigRestoreInputs: %+v", envErr)
 	}
-	if !inputs.hasConfigPayloads || len(inputs.generationSources) != 1 || len(inputs.legacyLanes) != 1 || len(inputs.ordinaryRestores) != 0 {
+	if !inputs.hasConfigPayloads || len(inputs.generationSources) != 1 || len(inputs.legacyLanes) != 1 || len(inputs.ordinaryRestores) != 1 {
 		t.Fatalf("mixed inputs = %+v", inputs)
 	}
 	lane := inputs.legacyLanes[0]
@@ -98,6 +102,10 @@ func TestBuildConfigRestoreInputsSeparatesMixedV2Lanes(t *testing.T) {
 	mf.Restore[0].Exclude[0] = "mutated/**"
 	if lane.restoreEntries[0].Exclude[0] != "cache/**" {
 		t.Fatal("legacy restore entry aliases manifest memory")
+	}
+	mf.Restore[1].Exclude[0] = "mutated/**"
+	if inputs.ordinaryRestores[0].Exclude[0] != "temp/**" || inputs.ordinaryRestores[0].FromModule != "" || inputs.ordinaryRestores[0].LegacyCaptureID != "" {
+		t.Fatalf("ordinary restore was mutated or acquired legacy identity: %+v", inputs.ordinaryRestores)
 	}
 }
 
