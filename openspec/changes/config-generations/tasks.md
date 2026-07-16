@@ -38,7 +38,7 @@
 
 ## 5. Generation and Target Resolution
 
-- [ ] 5.1 Add normalized source-capture, target-instance, config-resolution, reason, and summary data types.
+- [x] 5.1 Add normalized source-capture, target-instance, config-resolution, reason, and summary data types.
 - [x] 5.2 Implement exactly-one generation matching and the `unknown_generation` / `ambiguous_generation` outcomes.
 - [ ] 5.3 Implement same-generation direct resolution and forward-route lookup against one pinned trusted catalog snapshot.
 - [ ] 5.4 Implement downgrade rejection, missing-path handling, unsupported-module-schema handling, payload-integrity failure, missing catalog module/set/generation, and changed/unaccepted source-generation fingerprint outcomes.
