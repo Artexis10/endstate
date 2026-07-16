@@ -70,3 +70,42 @@ func TestAtomicCopyFileRejectsSourceSwappedToLinkAfterPreflight(t *testing.T) {
 		}
 	}
 }
+
+func TestReadRegularFileRejectsSourceSwappedToLinkAfterPreflight(t *testing.T) {
+	dir := t.TempDir()
+	source := filepath.Join(dir, "source")
+	outside := filepath.Join(t.TempDir(), "outside")
+	if err := os.WriteFile(source, []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	probe := filepath.Join(dir, "probe-link")
+	if err := os.Symlink(outside, probe); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("creating Windows reparse-point symlink requires local privilege: %v", err)
+		}
+		t.Fatal(err)
+	}
+	if err := os.Remove(probe); err != nil {
+		t.Fatal(err)
+	}
+
+	previousOpen := openAtomicCopySource
+	openAtomicCopySource = func(path string) (*os.File, error) {
+		if err := os.Remove(path); err != nil {
+			return nil, err
+		}
+		if err := os.Symlink(outside, path); err != nil {
+			return nil, err
+		}
+		return os.Open(path)
+	}
+	defer func() { openAtomicCopySource = previousOpen }()
+
+	_, _, err := ReadRegularFile(source)
+	if !errors.Is(err, ErrLinkUnsupported) {
+		t.Fatalf("ReadRegularFile error = %v, want ErrLinkUnsupported", err)
+	}
+}

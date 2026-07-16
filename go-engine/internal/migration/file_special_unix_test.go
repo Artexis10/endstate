@@ -15,7 +15,7 @@ import (
 )
 
 func TestEngineRejectsSpecialFilesWithoutCreatingPartialCopy(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	source := filepath.Join(root, "tree")
 	if err := os.Mkdir(source, 0o755); err != nil {
 		t.Fatal(err)
@@ -36,7 +36,7 @@ func TestEngineRejectsSpecialFilesWithoutCreatingPartialCopy(t *testing.T) {
 }
 
 func TestEngineDirectoryCopyPreservesRootMode(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	source := filepath.Join(root, "source")
 	if err := os.Mkdir(source, 0o750); err != nil {
 		t.Fatal(err)

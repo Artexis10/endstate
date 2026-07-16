@@ -12,7 +12,7 @@ import (
 )
 
 func TestEngineJSONOperationsProduceDeterministicBytes(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	writeMigrationFile(t, root, "settings.json", `{"z":0,"large":900719925474099312345,"array":[1,2],"old":{"value":"move"},"settings":{}}`)
 	operations := []modules.MigrationOperationDef{
 		{Type: "json-set", Path: "settings.json", JSONPath: "$.settings.theme", Value: "system"},
@@ -69,7 +69,7 @@ func TestEngineJSONFailuresLeaveTargetBytesUnchanged(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			root := t.TempDir()
+			root := safeMigrationTestRoot(t)
 			writeMigrationFile(t, root, "settings.json", tt.content)
 			before, err := os.ReadFile(filepath.Join(root, "settings.json"))
 			if err != nil {
@@ -92,7 +92,7 @@ func TestEngineJSONFailuresLeaveTargetBytesUnchanged(t *testing.T) {
 }
 
 func TestEngineJSONSetDeepCopiesOperationValue(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	writeMigrationFile(t, root, "settings.json", `{"settings":{}}`)
 	value := map[string]any{"nested": []any{"original"}}
 	operation := modules.MigrationOperationDef{

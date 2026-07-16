@@ -32,7 +32,7 @@ func TestSupportedOperationTypesIsClosedAndStable(t *testing.T) {
 }
 
 func TestEngineRejectsArbitraryCodeAndUnknownOperations(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	unsupported := []string{
 		"shell", "powershell", "batch", "command", "executable",
 		"plugin", "regex-replace", "File-Copy", "file-copy ", "",
@@ -55,7 +55,7 @@ func TestEngineRequiresSafeRootEvenWithoutOperations(t *testing.T) {
 }
 
 func TestEngineFileOperationsSupportFilesAndContainedTrees(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	writeMigrationFile(t, root, "source.txt", "source")
 	writeMigrationFile(t, root, "tree/z.txt", "z")
 	writeMigrationFile(t, root, "tree/a.txt", "a")
@@ -87,7 +87,7 @@ func TestEngineFileOperationsSupportFilesAndContainedTrees(t *testing.T) {
 }
 
 func TestEngineStopsOnFirstErrorWithoutRollingBackEarlierStagingOperations(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	writeMigrationFile(t, root, "source.txt", "source")
 	writeMigrationFile(t, root, "must-remain.txt", "remain")
 	operations := []modules.MigrationOperationDef{
@@ -112,7 +112,7 @@ func TestEngineRejectsEveryUnsafeOperationPath(t *testing.T) {
 	}
 	for _, path := range unsafe {
 		t.Run(path, func(t *testing.T) {
-			root := t.TempDir()
+			root := safeMigrationTestRoot(t)
 			writeMigrationFile(t, root, "source.txt", "source")
 			err := NewEngine().Apply(root, []modules.MigrationOperationDef{{
 				Type: "file-copy", Source: "source.txt", Target: path,
@@ -127,7 +127,7 @@ func TestEngineRejectsEveryUnsafeOperationPath(t *testing.T) {
 func TestEngineRejectsCopyAndMoveIntoSourceDescendant(t *testing.T) {
 	for _, operationType := range []string{"file-copy", "file-move"} {
 		t.Run(operationType, func(t *testing.T) {
-			root := t.TempDir()
+			root := safeMigrationTestRoot(t)
 			writeMigrationFile(t, root, "tree/source.txt", "source")
 			err := NewEngine().Apply(root, []modules.MigrationOperationDef{{
 				Type: operationType, Source: "tree", Target: "tree/descendant",
@@ -144,7 +144,7 @@ func TestEngineRejectsCopyAndMoveIntoSourceDescendant(t *testing.T) {
 }
 
 func TestEngineRejectsLinksWithoutCreatingPartialCopy(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	outside := t.TempDir()
 	writeMigrationFile(t, root, "tree/safe.txt", "safe")
 	if err := os.Symlink(filepath.Join(outside, "outside.txt"), filepath.Join(root, "tree", "link")); err != nil {
@@ -166,7 +166,7 @@ func TestEngineRejectsLinksWithoutCreatingPartialCopy(t *testing.T) {
 }
 
 func TestEngineRejectsExistingDirectoryDestination(t *testing.T) {
-	root := t.TempDir()
+	root := safeMigrationTestRoot(t)
 	writeMigrationFile(t, root, "source/file.txt", "source")
 	writeMigrationFile(t, root, "target/original.txt", "original")
 	err := NewEngine().Apply(root, []modules.MigrationOperationDef{{
@@ -219,4 +219,13 @@ func assertNoMigrationTemps(t *testing.T, root string) {
 	if len(temps) != 0 {
 		t.Fatalf("temporary paths remain: %v", temps)
 	}
+}
+
+func safeMigrationTestRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
 }

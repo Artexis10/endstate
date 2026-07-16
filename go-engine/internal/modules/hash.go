@@ -67,8 +67,8 @@ func ComputeGenerationFingerprint(generation GenerationDef) (string, error) {
 func ParseModuleJSON(data []byte) (*Module, error) {
 	clean := manifest.StripJsoncComments(data)
 	var mod Module
-	if err := json.Unmarshal(clean, &mod); err != nil {
-		return nil, fmt.Errorf("parse module JSON: %w", err)
+	if err := decodeModuleJSON(clean, &mod); err != nil {
+		return nil, err
 	}
 
 	canonical, err := CanonicalizeModuleJSON(data)
@@ -104,7 +104,7 @@ func ParseModuleJSON(data []byte) (*Module, error) {
 
 func computeParsedGenerationFingerprints(canonicalModule []byte) ([][]string, error) {
 	var module map[string]any
-	if err := json.Unmarshal(canonicalModule, &module); err != nil {
+	if err := decodeModuleJSON(canonicalModule, &module); err != nil {
 		return nil, fmt.Errorf("read canonical module generations: %w", err)
 	}
 	config, ok := module["config"].(map[string]any)
@@ -141,6 +141,15 @@ func computeParsedGenerationFingerprints(canonicalModule []byte) ([][]string, er
 		}
 	}
 	return fingerprints, nil
+}
+
+func decodeModuleJSON(data []byte, destination any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(destination); err != nil {
+		return fmt.Errorf("parse module JSON: %w", err)
+	}
+	return ensureJSONEOF(decoder)
 }
 
 func ensureJSONEOF(decoder *json.Decoder) error {

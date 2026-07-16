@@ -18,6 +18,10 @@ const (
 	CodeJSONParentMissing     Code = "json_parent_missing"
 	CodeJSONSourceMissing     Code = "json_source_missing"
 	CodeJSONDestinationExists Code = "json_destination_exists"
+	CodeMalformedINI          Code = "malformed_ini"
+	CodeInvalidINIValue       Code = "invalid_ini_value"
+	CodeINISourceMissing      Code = "ini_source_missing"
+	CodeINIDestinationExists  Code = "ini_destination_exists"
 )
 
 type Error struct {

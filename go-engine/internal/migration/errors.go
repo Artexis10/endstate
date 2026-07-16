@@ -26,6 +26,10 @@ const (
 	CodeJSONParentMissing     ErrorCode = "json_parent_missing"
 	CodeJSONSourceMissing     ErrorCode = "json_source_missing"
 	CodeJSONDestinationExists ErrorCode = "json_destination_exists"
+	CodeMalformedINI          ErrorCode = "malformed_ini"
+	CodeInvalidINIValue       ErrorCode = "invalid_ini_value"
+	CodeINISourceMissing      ErrorCode = "ini_source_missing"
+	CodeINIDestinationExists  ErrorCode = "ini_destination_exists"
 	CodeIO                    ErrorCode = "io_error"
 )
 

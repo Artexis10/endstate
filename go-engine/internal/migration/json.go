@@ -28,9 +28,9 @@ func applyJSONOperation(root string, operation modules.MigrationOperationDef) er
 	if !info.Mode().IsRegular() {
 		return localError(CodeUnsupportedFileType, fmt.Errorf("JSON target is not a regular file"))
 	}
-	data, err := os.ReadFile(target)
+	data, mode, err := safepath.ReadRegularFile(target)
 	if err != nil {
-		return localError(CodeIO, err)
+		return mapPathError(err)
 	}
 	document, err := configdoc.ParseJSON(data)
 	if err != nil {
@@ -51,7 +51,7 @@ func applyJSONOperation(root string, operation modules.MigrationOperationDef) er
 	if err != nil {
 		return mapDocumentError(err)
 	}
-	if err := safepath.AtomicWriteFile(target, encoded, info.Mode()); err != nil {
+	if err := safepath.AtomicWriteFile(target, encoded, mode); err != nil {
 		return localError(CodeIO, err)
 	}
 	return nil
@@ -75,6 +75,14 @@ func mapDocumentError(err error) error {
 		return localError(CodeJSONSourceMissing, err)
 	case configdoc.CodeJSONDestinationExists:
 		return localError(CodeJSONDestinationExists, err)
+	case configdoc.CodeMalformedINI:
+		return localError(CodeMalformedINI, err)
+	case configdoc.CodeInvalidINIValue:
+		return localError(CodeInvalidINIValue, err)
+	case configdoc.CodeINISourceMissing:
+		return localError(CodeINISourceMissing, err)
+	case configdoc.CodeINIDestinationExists:
+		return localError(CodeINIDestinationExists, err)
 	default:
 		return localError(CodeIO, err)
 	}

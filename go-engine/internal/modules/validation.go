@@ -10,6 +10,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/configdoc"
 )
 
 const (
@@ -345,7 +347,16 @@ func validateMigrationOperation(operation MigrationOperationDef) error {
 		if err := require("jsonPath", operation.JSONPath); err != nil {
 			return err
 		}
-		return validatePaths(operation.Path)
+		if err := validatePaths(operation.Path); err != nil {
+			return err
+		}
+		if err := configdoc.ValidateJSONPath(operation.JSONPath); err != nil {
+			return fmt.Errorf("invalid jsonPath for %s: %w", operation.Type, err)
+		}
+		if operation.Type == "json-delete" && operation.JSONPath == "$" {
+			return fmt.Errorf("json-delete cannot delete the document root")
+		}
+		return nil
 	case "json-move":
 		if err := require("path", operation.Path); err != nil {
 			return err
@@ -356,8 +367,41 @@ func validateMigrationOperation(operation MigrationOperationDef) error {
 		if err := require("to", operation.To); err != nil {
 			return err
 		}
-		return validatePaths(operation.Path)
-	case "ini-set", "ini-delete":
+		if err := validatePaths(operation.Path); err != nil {
+			return err
+		}
+		if err := configdoc.ValidateJSONPath(operation.From); err != nil {
+			return fmt.Errorf("invalid from path for json-move: %w", err)
+		}
+		if err := configdoc.ValidateJSONPath(operation.To); err != nil {
+			return fmt.Errorf("invalid to path for json-move: %w", err)
+		}
+		if operation.From == "$" || operation.To == "$" {
+			return fmt.Errorf("json-move cannot move from or to the document root")
+		}
+		return nil
+	case "ini-set":
+		if err := require("path", operation.Path); err != nil {
+			return err
+		}
+		if err := require("section", operation.Section); err != nil {
+			return err
+		}
+		if err := require("key", operation.Key); err != nil {
+			return err
+		}
+		if err := validatePaths(operation.Path); err != nil {
+			return err
+		}
+		value, ok := operation.Value.(string)
+		if !ok {
+			return fmt.Errorf("value must be a string for ini-set")
+		}
+		if err := configdoc.ValidateINIValue(value); err != nil {
+			return fmt.Errorf("invalid value for ini-set: %w", err)
+		}
+		return nil
+	case "ini-delete":
 		if err := require("path", operation.Path); err != nil {
 			return err
 		}

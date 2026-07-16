@@ -20,40 +20,68 @@ func AtomicWriteFile(destination string, data []byte, mode os.FileMode) error {
 }
 
 func AtomicCopyFile(source, destination string, mode os.FileMode) error {
-	preOpenInfo, err := os.Lstat(source)
-	if err != nil {
-		return err
-	}
-	if isLinkOrReparse(preOpenInfo) {
-		return pathError(CodeLinkUnsupported, source, ErrLinkUnsupported)
-	}
-	if !preOpenInfo.Mode().IsRegular() {
-		return pathError(CodeUnsafePath, source, ErrUnsafePath)
-	}
-	input, err := openAtomicCopySource(source)
+	input, openedInfo, err := openVerifiedRegularFile(source)
 	if err != nil {
 		return err
 	}
 	defer input.Close()
-	openedInfo, err := input.Stat()
-	if err != nil {
-		return err
-	}
-	if !openedInfo.Mode().IsRegular() {
-		return pathError(CodeSourceChanged, source, ErrSourceChanged)
-	}
-	if err := verifyAtomicCopySource(source, openedInfo); err != nil {
-		return err
-	}
-	if !os.SameFile(preOpenInfo, openedInfo) {
-		return pathError(CodeSourceChanged, source, ErrSourceChanged)
-	}
 	return atomicWrite(destination, mode, func(file *os.File) error {
 		if _, err := io.Copy(file, input); err != nil {
 			return err
 		}
 		return verifyAtomicCopySource(source, openedInfo)
 	})
+}
+
+func ReadRegularFile(source string) ([]byte, os.FileMode, error) {
+	input, openedInfo, err := openVerifiedRegularFile(source)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer input.Close()
+	data, err := io.ReadAll(input)
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := verifyAtomicCopySource(source, openedInfo); err != nil {
+		return nil, 0, err
+	}
+	return data, openedInfo.Mode(), nil
+}
+
+func openVerifiedRegularFile(source string) (*os.File, os.FileInfo, error) {
+	preOpenInfo, err := os.Lstat(source)
+	if err != nil {
+		return nil, nil, err
+	}
+	if isLinkOrReparse(preOpenInfo) {
+		return nil, nil, pathError(CodeLinkUnsupported, source, ErrLinkUnsupported)
+	}
+	if !preOpenInfo.Mode().IsRegular() {
+		return nil, nil, pathError(CodeUnsafePath, source, ErrUnsafePath)
+	}
+	input, err := openAtomicCopySource(source)
+	if err != nil {
+		return nil, nil, err
+	}
+	openedInfo, err := input.Stat()
+	if err != nil {
+		_ = input.Close()
+		return nil, nil, err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		_ = input.Close()
+		return nil, nil, pathError(CodeSourceChanged, source, ErrSourceChanged)
+	}
+	if err := verifyAtomicCopySource(source, openedInfo); err != nil {
+		_ = input.Close()
+		return nil, nil, err
+	}
+	if !os.SameFile(preOpenInfo, openedInfo) {
+		_ = input.Close()
+		return nil, nil, pathError(CodeSourceChanged, source, ErrSourceChanged)
+	}
+	return input, openedInfo, nil
 }
 
 func verifyAtomicCopySource(source string, openedInfo os.FileInfo) error {

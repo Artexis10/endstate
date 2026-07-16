@@ -12,7 +12,7 @@ import (
 )
 
 func TestResolveAcceptsContainedPortablePath(t *testing.T) {
-	root := t.TempDir()
+	root := safePathTestRoot(t)
 	got, err := Resolve(root, "profiles/v2/settings.json")
 	if err != nil {
 		t.Fatalf("Resolve: %v", err)
@@ -24,7 +24,7 @@ func TestResolveAcceptsContainedPortablePath(t *testing.T) {
 }
 
 func TestResolveRejectsUnsafePortablePaths(t *testing.T) {
-	root := t.TempDir()
+	root := safePathTestRoot(t)
 	unsafe := []string{
 		"",
 		".",
@@ -55,11 +55,11 @@ func TestResolveRejectsUnsafePortablePaths(t *testing.T) {
 }
 
 func TestResolveRequiresAbsoluteExistingDirectoryRoot(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "file")
+	file := filepath.Join(safePathTestRoot(t), "file")
 	if err := os.WriteFile(file, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	missing := filepath.Join(t.TempDir(), "missing")
+	missing := filepath.Join(safePathTestRoot(t), "missing")
 	for _, root := range []string{"relative", missing, file} {
 		_, err := Resolve(root, "settings.json")
 		if !errors.Is(err, ErrUnsafeRoot) {
@@ -69,7 +69,7 @@ func TestResolveRequiresAbsoluteExistingDirectoryRoot(t *testing.T) {
 }
 
 func TestResolveRejectsLinkInExistingPath(t *testing.T) {
-	root := t.TempDir()
+	root := safePathTestRoot(t)
 	outside := t.TempDir()
 	link := filepath.Join(root, "linked")
 	if err := os.Symlink(outside, link); err != nil {
@@ -120,4 +120,13 @@ func TestResolveRejectsLinkInRootParentChain(t *testing.T) {
 	if !errors.Is(err, ErrLinkUnsupported) {
 		t.Fatalf("Resolve beneath linked parent error = %v, want ErrLinkUnsupported", err)
 	}
+}
+
+func safePathTestRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
 }

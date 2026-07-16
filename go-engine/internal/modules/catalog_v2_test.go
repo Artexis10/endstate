@@ -4,6 +4,7 @@
 package modules
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,37 @@ func writeTestModule(t *testing.T, root, dir, content string) string {
 		t.Fatal(err)
 	}
 	return moduleFile
+}
+
+func TestParseModuleJSONPreservesMigrationOperationNumbers(t *testing.T) {
+	content := strings.Replace(validV2Module, `"value": "system"`, `"value": 900719925474099312345`, 1)
+	mod, err := ParseModuleJSON([]byte(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := mod.Config.Sets[0].Migrations[0].Operations[1].Value
+	number, ok := value.(json.Number)
+	if !ok || number.String() != "900719925474099312345" {
+		t.Fatalf("operation value = %T(%v), want exact json.Number", value, value)
+	}
+}
+
+func TestLoadedGenerationFingerprintDoesNotRoundLargeSemanticNumbers(t *testing.T) {
+	left := strings.Replace(validV2Module, `"order": 1`, `"order": 9007199254740992`, 1)
+	right := strings.Replace(validV2Module, `"order": 1`, `"order": 9007199254740993`, 1)
+	leftModule, err := ParseModuleJSON([]byte(left))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rightModule, err := ParseModuleJSON([]byte(right))
+	if err != nil {
+		t.Fatal(err)
+	}
+	leftFingerprint := leftModule.Config.Sets[0].Generations[0].Fingerprint
+	rightFingerprint := rightModule.Config.Sets[0].Generations[0].Fingerprint
+	if leftFingerprint == rightFingerprint {
+		t.Fatalf("distinct exact operation numbers produced one fingerprint: %s", leftFingerprint)
+	}
 }
 
 func TestLoadCatalogWithDiagnostics_AcceptsV1AndV2(t *testing.T) {
@@ -343,6 +375,28 @@ func TestValidateModuleV2_Rejections(t *testing.T) {
 			m.Config.Sets[0].Migrations = append(m.Config.Sets[0].Migrations, m.Config.Sets[0].Migrations[0])
 		}, DiagnosticDuplicateMigrationEdge},
 		{"unknown operation", func(m *Module) { m.Config.Sets[0].Migrations[0].Operations[0].Type = "powershell" }, DiagnosticUnknownMigrationOperation},
+		{"invalid json-set path", func(m *Module) { m.Config.Sets[0].Migrations[0].Operations[1].JSONPath = "$..theme" }, DiagnosticInvalidMigrationOperation},
+		{"invalid json-delete path", func(m *Module) {
+			m.Config.Sets[0].Migrations[0].Operations[1] = MigrationOperationDef{Type: "json-delete", Path: "settings.json", JSONPath: "$[*]"}
+		}, DiagnosticInvalidMigrationOperation},
+		{"json-delete root", func(m *Module) {
+			m.Config.Sets[0].Migrations[0].Operations[1] = MigrationOperationDef{Type: "json-delete", Path: "settings.json", JSONPath: "$"}
+		}, DiagnosticInvalidMigrationOperation},
+		{"invalid json-move source path", func(m *Module) {
+			m.Config.Sets[0].Migrations[0].Operations[1] = MigrationOperationDef{Type: "json-move", Path: "settings.json", From: "$..source", To: "$.target"}
+		}, DiagnosticInvalidMigrationOperation},
+		{"invalid json-move destination path", func(m *Module) {
+			m.Config.Sets[0].Migrations[0].Operations[1] = MigrationOperationDef{Type: "json-move", Path: "settings.json", From: "$.source", To: "$[?(@.target)]"}
+		}, DiagnosticInvalidMigrationOperation},
+		{"json-move root source", func(m *Module) {
+			m.Config.Sets[0].Migrations[0].Operations[1] = MigrationOperationDef{Type: "json-move", Path: "settings.json", From: "$", To: "$.target"}
+		}, DiagnosticInvalidMigrationOperation},
+		{"json-move root destination", func(m *Module) {
+			m.Config.Sets[0].Migrations[0].Operations[1] = MigrationOperationDef{Type: "json-move", Path: "settings.json", From: "$.source", To: "$"}
+		}, DiagnosticInvalidMigrationOperation},
+		{"ini-set value must be string", func(m *Module) {
+			m.Config.Sets[0].Migrations[0].Operations[1] = MigrationOperationDef{Type: "ini-set", Path: "settings.ini", Section: "settings", Key: "theme", Value: json.Number("42")}
+		}, DiagnosticInvalidMigrationOperation},
 		{"absolute migration path", func(m *Module) { m.Config.Sets[0].Migrations[0].Operations[0].Source = `C:\\host\\prefs.json` }, DiagnosticUnsafePath},
 		{"migration missing validation", func(m *Module) { m.Config.Sets[0].Migrations[0].Validate = nil }, DiagnosticMissingMigrationValidation},
 		{"unknown validation", func(m *Module) { m.Config.Sets[0].Migrations[0].Validate[0].Type = "command" }, DiagnosticUnknownValidation},
