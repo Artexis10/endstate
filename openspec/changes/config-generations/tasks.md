@@ -90,8 +90,8 @@
 - [x] 9.3 Add one representative JSON or INI module with a real `g1 -> g2` migration and edge/final validation.
 - [x] 9.4 Add catalog-wide validation tests that schema-v1 modules remain valid and schema-v2 generation IDs/rules are safe.
 - [x] 9.5 Update the GUI integration contract so the GUI renders engine-provided Compatible, Will be upgraded, Compatibility unknown, and Not supported states without recomputation.
-- [ ] 9.6 Implement the separate GUI consumer for config resolutions, legacy warning/consent, side-by-side target selection, migration progress, and advanced provenance details.
-- [ ] 9.7 Add GUI tests for all four distilled states, target-selection ambiguity, legacy restore consent, migration failure/rollback, and progressive disclosure.
+- [x] 9.6 Implement the separate GUI consumer for config resolutions, legacy warning/consent, side-by-side target selection, migration progress, and advanced provenance details.
+- [x] 9.7 Add GUI tests for all four distilled states, target-selection ambiguity, legacy restore consent, migration failure/rollback, and progressive disclosure.
 
 ## 10. Verification and Rollout
 
