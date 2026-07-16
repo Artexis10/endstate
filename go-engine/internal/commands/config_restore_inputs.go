@@ -5,6 +5,7 @@ package commands
 
 import (
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -231,6 +232,12 @@ func buildV2ConfigRestoreInputs(
 	}
 	for index, entry := range manifestValue.Restore {
 		if entry.LegacyCaptureID == "" && entry.FromModule == "" {
+			if root, overlaps := ordinaryV2RestoreConfigPayloadRoot(entry.Source, manifestValue); overlaps {
+				return invalidConfigRestoreInput(
+					fmt.Sprintf("restore[%d].source", index), entry.Source,
+					fmt.Sprintf("anonymous ordinary restore source overlaps config payload root %q", root),
+				)
+			}
 			inputs.ordinaryRestores = append(inputs.ordinaryRestores, cloneConfigRestoreEntry(entry))
 			continue
 		}
@@ -262,6 +269,30 @@ func buildV2ConfigRestoreInputs(
 		inputs.legacyLanes = append(inputs.legacyLanes, allLanes[index])
 	}
 	return nil
+}
+
+func ordinaryV2RestoreConfigPayloadRoot(source string, manifestValue *manifest.Manifest) (string, bool) {
+	if manifestValue == nil || strings.TrimSpace(source) == "" {
+		return "", false
+	}
+	normalizedSource := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(source), `\`, "/"))
+	normalizedSource = strings.TrimPrefix(normalizedSource, "./")
+	normalizedSource = strings.TrimSuffix(path.Clean(normalizedSource), "/")
+	roots := make([]string, 0, len(manifestValue.ConfigCaptures)+len(manifestValue.LegacyConfigLanes))
+	for _, capture := range manifestValue.ConfigCaptures {
+		roots = append(roots, capture.PayloadRoot)
+	}
+	for _, lane := range manifestValue.LegacyConfigLanes {
+		roots = append(roots, lane.PayloadRoot)
+	}
+	for _, root := range roots {
+		normalizedRoot := strings.ToLower(strings.TrimSuffix(path.Clean(strings.ReplaceAll(root, `\`, "/")), "/"))
+		if normalizedSource == normalizedRoot || strings.HasPrefix(normalizedSource, normalizedRoot+"/") ||
+			strings.HasPrefix(normalizedRoot, normalizedSource+"/") {
+			return root, true
+		}
+	}
+	return "", false
 }
 
 func resolveConfigPayloadRoot(manifestPath, captureID, field, portableRoot string) (string, *envelope.Error) {

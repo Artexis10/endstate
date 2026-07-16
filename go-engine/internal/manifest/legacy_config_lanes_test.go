@@ -99,6 +99,30 @@ func TestLoadManifestV2KeepsAnonymousInlineRestoreOrdinary(t *testing.T) {
 	}
 }
 
+func TestLoadManifestV2RejectsAnonymousRestoreFromConfigPayloadRoot(t *testing.T) {
+	tests := []struct {
+		name   string
+		source string
+	}{
+		{name: "generation payload", source: "./configs/capture-a/prefs/a.json"},
+		{name: "legacy payload", source: "./configs/legacy-a/prefs.json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			value := validManifestV2Value("capture-a")
+			addValidLegacyLane(value, "legacy-a", "legacy.example")
+			value["restore"] = append(value["restore"].([]any), map[string]any{
+				"type": "copy", "source": tt.source, "target": "~/.example/ordinary.json",
+			})
+
+			_, err := LoadManifest(writeManifestValue(t, value))
+			if ManifestDiagnosticCode(err) != ManifestDiagnosticInvalidConfigCapture {
+				t.Fatalf("protected payload source accepted: %T %v code=%q", err, err, ManifestDiagnosticCode(err))
+			}
+		})
+	}
+}
+
 func TestLoadManifestV2RejectsNullLegacyLaneArray(t *testing.T) {
 	value := validManifestV2Value("capture-a")
 	value["legacyConfigLanes"] = nil

@@ -401,6 +401,17 @@ func validateLegacyConfigLanes(manifest *Manifest, filePath string) error {
 	used := make(map[string]struct{}, len(laneByID))
 	for index, restore := range manifest.Restore {
 		if restore.LegacyCaptureID == "" && restore.FromModule == "" {
+			if strings.TrimSpace(restore.Source) != "" {
+				source, err := normalizeLegacyRestoreSource(restore.Source)
+				if err != nil {
+					return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].source is not a portable ordinary restore source", index)
+				}
+				for _, protectedRoot := range roots {
+					if portableRootsOverlap(source, protectedRoot) {
+						return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "restore[%d].source must not overlap config payload root %q", index, protectedRoot)
+					}
+				}
+			}
 			continue
 		}
 		if !manifestStableIDPattern.MatchString(restore.LegacyCaptureID) {

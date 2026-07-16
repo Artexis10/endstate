@@ -109,6 +109,28 @@ func TestBuildConfigRestoreInputsSeparatesMixedV2Lanes(t *testing.T) {
 	}
 }
 
+func TestBuildConfigRestoreInputsRejectsAnonymousV2RestoreFromConfigPayloadRoot(t *testing.T) {
+	manifestDir := t.TempDir()
+	generation := commandTestConfigCapture(t, manifestDir, "capture-generation", "apps.generation", "preferences")
+	mf := &manifest.Manifest{
+		Version:        2,
+		ConfigCaptures: []manifest.ConfigCapture{generation},
+		Restore: []manifest.RestoreEntry{{
+			Type: "copy", Source: "./" + path.Join(generation.PayloadRoot, "settings.json"), Target: "%APPDATA%/Inline/settings.json",
+		}},
+	}
+
+	inputs, envErr := buildConfigRestoreInputs(configRestoreBuildRequest{
+		Manifest: mf, ManifestPath: filepath.Join(manifestDir, "manifest.jsonc"),
+	})
+	if envErr == nil || envErr.Code != envelope.ErrManifestValidationError {
+		t.Fatalf("protected anonymous source error = %+v", envErr)
+	}
+	if len(inputs.ordinaryRestores) != 0 {
+		t.Fatalf("protected anonymous source became executable: %+v", inputs.ordinaryRestores)
+	}
+}
+
 func TestBuildConfigRestoreInputsGroupsV1ModulesAndLeavesAnonymousActionsOrdinary(t *testing.T) {
 	mf := &manifest.Manifest{Version: 1, Restore: []manifest.RestoreEntry{
 		{Type: "copy", Source: "z", Target: "z-target", FromModule: "apps.zed"},
