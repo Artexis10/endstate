@@ -126,6 +126,53 @@ func TestConfigRestoreExecutionFramesConsentOffResolutionsWithRestorePhaseAndSum
 	}
 }
 
+func TestConfigRestoreExecutionEmitsExactlyOneDeleteGlobLifecycleForZeroOneOrManyMatches(t *testing.T) {
+	for _, matchCount := range []int{0, 1, 2} {
+		t.Run(fmt.Sprintf("matches-%d", matchCount), func(t *testing.T) {
+			target := t.TempDir()
+			for index := 0; index < matchCount; index++ {
+				if err := os.WriteFile(filepath.Join(target, fmt.Sprintf("old-%d.tmp", index)), []byte("old"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			inputs := emptyConfigRestoreInputs()
+			inputs.hasConfigPayloads = true
+			inputs.legacyLanes = []configRestoreLegacyLane{{
+				captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy",
+				restoreEntries: []manifest.RestoreEntry{{Type: "delete-glob", Target: target, Pattern: "*.tmp", FromModule: "apps.legacy"}},
+				selected:       true,
+			}}
+			buffer := &bytes.Buffer{}
+			session := &configRestoreExecutionSession{
+				runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+				coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+			}
+			_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+				RestoreEnabled: true, DryRun: true, ManifestDir: t.TempDir(),
+				Emitter: events.NewEmitterWithWriter("delete-glob-events", true, buffer),
+			})
+			if envErr != nil {
+				t.Fatalf("execute: %+v", envErr)
+			}
+			restoreEvents := []map[string]any{}
+			for _, line := range strings.Split(strings.TrimSpace(buffer.String()), "\n") {
+				var event map[string]any
+				if err := json.Unmarshal([]byte(line), &event); err != nil {
+					t.Fatal(err)
+				}
+				if event["event"] == "restore-item" {
+					restoreEvents = append(restoreEvents, event)
+				}
+			}
+			if len(restoreEvents) != 2 || restoreEvents[0]["id"] != restoreEvents[1]["id"] ||
+				restoreEvents[0]["status"] != "restoring" || restoreEvents[1]["status"] == "restoring" ||
+				restoreEvents[0]["restorer"] != "delete-glob" || restoreEvents[1]["restorer"] != "delete-glob" {
+				t.Fatalf("delete-glob lifecycle = %#v", restoreEvents)
+			}
+		})
+	}
+}
+
 func TestWriteLegacyConfigRestoreJournalReturnsExactAbsolutePathWithoutConfiguredLogsDir(t *testing.T) {
 	working := t.TempDir()
 	originalWorkingDirectory, err := os.Getwd()

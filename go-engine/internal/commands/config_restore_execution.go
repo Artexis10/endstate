@@ -704,7 +704,7 @@ func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreRe
 	if emitter == nil {
 		return
 	}
-	for _, result := range results {
+	for _, result := range aggregateConfigRestoreEventResults(results) {
 		restorer := result.RestoreType
 		if restorer == "" {
 			restorer = "copy"
@@ -739,6 +739,48 @@ func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreRe
 			TargetInstanceID: result.TargetInstanceID, SourceGeneration: result.SourceGeneration,
 			TargetGeneration: result.TargetGeneration,
 		})
+	}
+}
+
+func aggregateConfigRestoreEventResults(results []restore.RestoreResult) []restore.RestoreResult {
+	grouped := make([]restore.RestoreResult, 0, len(results))
+	indices := make(map[string]int, len(results))
+	for _, result := range results {
+		index, exists := indices[result.ID]
+		if !exists {
+			indices[result.ID] = len(grouped)
+			grouped = append(grouped, result)
+			continue
+		}
+		current := &grouped[index]
+		current.TargetExistedBefore = current.TargetExistedBefore || result.TargetExistedBefore
+		current.BackupCreated = current.BackupCreated || result.BackupCreated
+		if current.RestoreType == "" {
+			current.RestoreType = result.RestoreType
+		}
+		if restoreEventStatusRank(result.Status) > restoreEventStatusRank(current.Status) {
+			current.Status = result.Status
+			current.Error = result.Error
+		}
+		if current.BackupPath != result.BackupPath {
+			current.BackupPath = ""
+		}
+	}
+	return grouped
+}
+
+func restoreEventStatusRank(status string) int {
+	switch status {
+	case "failed":
+		return 4
+	case "restored":
+		return 3
+	case "skipped_missing_source":
+		return 2
+	case "skipped_up_to_date":
+		return 1
+	default:
+		return 0
 	}
 }
 

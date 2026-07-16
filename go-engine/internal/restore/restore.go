@@ -265,6 +265,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 
 			for i := range deleteResults {
 				deleteResults[i].ID = id
+				deleteResults[i].RestoreType = "delete-glob"
 				emitRestoreItemEvent(emitter, entry, deleteResults[i])
 			}
 			results = append(results, deleteResults...)
