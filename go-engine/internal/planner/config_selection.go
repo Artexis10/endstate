@@ -28,6 +28,7 @@ func (r *CompatibilityResolver) ResolveSources(
 	resolvePlanCollisions(&plan)
 	resolutions := make([]ConfigResolution, len(plan.Sets))
 	for index := range plan.Sets {
+		plan.Sets[index].Resolution = ProjectConfigResolution(plan.Sets[index])
 		resolutions[index] = plan.Sets[index].Resolution
 	}
 	plan.Summary = SummarizeConfigResolutions(resolutions)

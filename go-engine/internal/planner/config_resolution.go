@@ -62,6 +62,16 @@ const (
 	ReasonSourceGenerationDefinitionChanged ResolutionReason = "source_generation_definition_changed"
 	ReasonAppRunning                        ResolutionReason = "app_running"
 	ReasonRecoveryRequired                  ResolutionReason = "recovery_required"
+	ReasonRestoreFiltered                   ResolutionReason = "restore_filtered"
+	ReasonRestoreNotEnabled                 ResolutionReason = "restore_not_enabled"
+	ReasonTargetDetectionFailed             ResolutionReason = "target_detection_failed"
+	ReasonStagingValidationFailed           ResolutionReason = "staging_validation_failed"
+	ReasonBackupFailed                      ResolutionReason = "backup_failed"
+	ReasonJournalIntentFailed               ResolutionReason = "journal_intent_failed"
+	ReasonCommitFailed                      ResolutionReason = "commit_failed"
+	ReasonTargetValidationFailed            ResolutionReason = "target_validation_failed"
+	ReasonJournalCompletionFailed           ResolutionReason = "journal_completion_failed"
+	ReasonAlreadyUpToDate                   ResolutionReason = "already_up_to_date"
 )
 
 func (r ResolutionReason) String() string { return string(r) }
@@ -130,8 +140,10 @@ type ConfigResolution struct {
 	CaptureID                   string            `json:"captureId"`
 	ModuleID                    string            `json:"moduleId"`
 	ConfigSetID                 string            `json:"configSetId"`
+	SourceInstance              *SourceInstance   `json:"sourceInstance,omitempty"`
 	SourceInstanceID            string            `json:"sourceInstanceId,omitempty"`
 	TargetInstanceID            string            `json:"targetInstanceId,omitempty"`
+	TargetCandidates            []TargetInstance  `json:"targetCandidates"`
 	SourceGeneration            string            `json:"sourceGeneration,omitempty"`
 	SourceGenerationFingerprint string            `json:"sourceGenerationFingerprint,omitempty"`
 	TargetGeneration            string            `json:"targetGeneration,omitempty"`
@@ -142,6 +154,9 @@ type ConfigResolution struct {
 	RestoreModuleRevision       string            `json:"restoreModuleRevision,omitempty"`
 	ResolvedTargets             []string          `json:"resolvedTargets"`
 	Status                      TerminalStatus    `json:"status"`
+	Label                       string            `json:"label"`
+	Message                     string            `json:"message"`
+	Remediation                 *string           `json:"remediation"`
 }
 
 // MarshalJSON preserves the contract that collections are [] rather than null
@@ -150,6 +165,9 @@ func (r ConfigResolution) MarshalJSON() ([]byte, error) {
 	type wireResolution ConfigResolution
 	if r.MigrationPath == nil {
 		r.MigrationPath = []string{}
+	}
+	if r.TargetCandidates == nil {
+		r.TargetCandidates = []TargetInstance{}
 	}
 	if r.ResolvedTargets == nil {
 		r.ResolvedTargets = []string{}
