@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -219,14 +220,26 @@ func validateConfigSetCapturePlan(plan ConfigSetCapturePlan) error {
 	if ownedGeneration == nil || ownedGeneration != plan.Generation {
 		return captureError(ConfigCaptureInvalidPlan, "generation %q is not the pinned generation owned by config set %q", plan.Generation.ID, ownedSet.ID)
 	}
-	computedFingerprint, err := modules.ComputeGenerationFingerprint(*ownedGeneration)
-	if err != nil {
-		return captureError(ConfigCaptureInvalidPlan, "fingerprint generation %q: %v", ownedGeneration.ID, err)
-	}
-	if !payloadHashPattern.MatchString(ownedGeneration.Fingerprint) || computedFingerprint != ownedGeneration.Fingerprint {
-		return captureError(ConfigCaptureInvalidPlan, "generation %q fingerprint does not match its pinned definition", ownedGeneration.ID)
+	if !payloadHashPattern.MatchString(ownedGeneration.Fingerprint) || !moduleMatchesPinnedSnapshot(plan.Module) {
+		return captureError(ConfigCaptureInvalidPlan, "module %q no longer matches its pinned canonical snapshot", plan.Module.ID)
 	}
 	return nil
+}
+
+func moduleMatchesPinnedSnapshot(mod *modules.Module) bool {
+	canonical := mod.CanonicalSnapshot()
+	if len(canonical) == 0 || hashBytes(canonical) != mod.Revision {
+		return false
+	}
+	pinned, err := modules.ParseModuleJSON(canonical)
+	if err != nil || pinned.Revision != mod.Revision {
+		return false
+	}
+	// Catalog loading adds only host-location metadata after parsing. Align
+	// those loader fields before comparing the complete declarative snapshot.
+	pinned.FilePath = mod.FilePath
+	pinned.ModuleDir = mod.ModuleDir
+	return reflect.DeepEqual(pinned, mod)
 }
 
 func preflightConfigCopies(plan ConfigSetCapturePlan) (*configCopyPreflight, error) {

@@ -4,6 +4,7 @@
 package bundle
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -143,6 +144,15 @@ func TestCollectConfigSetRejectsMismatchedProvenanceBeforeStaging(t *testing.T) 
 	}
 }
 
+func TestCollectConfigSetAcceptsPinnedFingerprintWithExplicitDefaultFields(t *testing.T) {
+	root := t.TempDir()
+	writeCaptureFile(t, filepath.Join(root, "prefs.json"), []byte("value"))
+	plan := testGenerationCapturePlan(t, "apps.explicit-default", "instance-a", root, false, false)
+	if _, err := CollectConfigSet(plan, t.TempDir()); err != nil {
+		t.Fatalf("valid parsed generation with explicit optional:false rejected: %v", err)
+	}
+}
+
 func TestCollectConfigSetRemovesPartialPayloadOnCopyFailure(t *testing.T) {
 	root := t.TempDir()
 	writeCaptureFile(t, filepath.Join(root, "a.json"), []byte("first"))
@@ -278,11 +288,10 @@ func TestCollectConfigSetRetainsSecretExcludeAndBloatSafety(t *testing.T) {
 	if err := os.Truncate(installer, captureBloatBinaryMaxBytes+1); err != nil {
 		t.Fatal(err)
 	}
-	plan := testConfigSetCapturePlan(root, &modules.CaptureDef{
+	plan := testConfigSetCapturePlanWithSecrets(root, &modules.CaptureDef{
 		Files:        []modules.CaptureFile{{Source: `${instance.root}/keep`, Dest: "keep"}},
 		ExcludeGlobs: []string{"*.log"},
-	})
-	plan.Module.Secrets = &modules.SecretsDef{Files: []string{secretPath}}
+	}, &modules.SecretsDef{Files: []string{secretPath}})
 	result, err := CollectConfigSet(plan, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -308,23 +317,31 @@ func TestCollectConfigSetRegistryCaptureIsExplicitlyUnsupported(t *testing.T) {
 }
 
 func testConfigSetCapturePlan(root string, capture *modules.CaptureDef) ConfigSetCapturePlan {
-	mod := &modules.Module{
+	return testConfigSetCapturePlanWithSecrets(root, capture, nil)
+}
+
+func testConfigSetCapturePlanWithSecrets(root string, capture *modules.CaptureDef, secrets *modules.SecretsDef) ConfigSetCapturePlan {
+	moduleValue := &modules.Module{
 		ModuleSchemaVersion: 2,
 		ID:                  "apps.example",
 		DisplayName:         "Example",
+		Secrets:             secrets,
 		Config: &modules.ConfigDef{Sets: []modules.ConfigSetDef{{
 			ID:          "preferences",
 			DisplayName: "Preferences",
 			Generations: []modules.GenerationDef{{ID: "g1", Order: 1, Capture: capture}},
 		}}},
 	}
-	set := &mod.Config.Sets[0]
-	generation := &set.Generations[0]
-	fingerprint, err := modules.ComputeGenerationFingerprint(*generation)
+	data, err := json.Marshal(moduleValue)
 	if err != nil {
 		panic(err)
 	}
-	generation.Fingerprint = fingerprint
+	mod, err := modules.ParseModuleJSON(data)
+	if err != nil {
+		panic(err)
+	}
+	set := &mod.Config.Sets[0]
+	generation := &set.Generations[0]
 	return ConfigSetCapturePlan{
 		Module:     mod,
 		Set:        set,
