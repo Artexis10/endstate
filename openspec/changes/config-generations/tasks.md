@@ -1,7 +1,7 @@
 ## 1. Contracts and Test Fixtures
 
 - [x] 1.1 Update the config-portability, capture-artifact, capture-bundle, restore-safety, profile, CLI JSON, event, and GUI integration contracts for config generations, bundle/manifest v2, legacy warnings, and transactional migration semantics.
-- [ ] 1.2 Add canonical schema-v1 module, schema-v2 stable-generation, side-by-side path, forward-migration, invalid-graph, legacy bundle, and bundle-v2 fixtures.
+- [x] 1.2 Add canonical schema-v1 module, schema-v2 stable-generation, side-by-side path, forward-migration, invalid-graph, legacy bundle, and bundle-v2 fixtures.
 - [x] 1.3 Add manifest/bundle dispatch tests proving the new loader accepts v1 and v2 and rejects versions greater than 2, plus frozen legacy-decoder safety tests proving generated v2 manifests expose no flat restore path to generation-aware payloads while application declarations and explicitly represented legacy lanes may remain visible.
 - [x] 1.4 Lock the new resolution/status/reason vocabulary in contract tests and confirm existing envelope fields remain backward compatible.
 
@@ -55,9 +55,9 @@
 - [x] 6.3 Implement parsed `json-set`, `json-delete`, and `json-move` operations with atomic staged writes.
 - [x] 6.4 Implement parsed `ini-set`, `ini-delete`, and `ini-move` operations with deterministic encoding/newline behavior.
 - [x] 6.5 Implement `file-exists`, `json-parse`, `json-path-exists`, `ini-parse`, and `ini-key-exists` validation primitives.
-- [ ] 6.6 Implement unique multi-edge migration execution with validation after every edge and final-generation validation.
-- [ ] 6.7 Prove with tests that source bundle bytes remain unchanged on success and every failure path.
-- [ ] 6.8 Add negative security tests for arbitrary code declarations, absolute/traversal paths, links escaping staging, malformed documents, and unsupported binary formats.
+- [x] 6.6 Implement unique multi-edge migration execution with validation after every edge and final-generation validation.
+- [x] 6.7 Prove with tests that source bundle bytes remain unchanged on success and every failure path.
+- [x] 6.8 Add negative security tests for arbitrary code declarations, absolute/traversal paths, links escaping staging, malformed documents, and unsupported binary formats.
 
 ## 7. Transactional Restore, Journal, and Revert
 
