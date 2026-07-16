@@ -12,12 +12,14 @@
 package bootstrap
 
 import (
+	"errors"
+	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 )
 
-// Backend identifies a package backend the engine can bootstrap on macOS/Linux.
-// Windows is never bootstrapped (winget ships with the OS).
+// Backend identifies a package backend the engine can bootstrap.
 type Backend string
 
 const (
@@ -25,7 +27,12 @@ const (
 	BackendBrew Backend = "brew"
 	// BackendNix is the Nix realizer (the cross-OS default lane).
 	BackendNix Backend = "nix"
+	// BackendChocolatey is the optional Chocolatey driver on Windows. Winget is
+	// operating-system provided and is never bootstrapped.
+	BackendChocolatey Backend = "chocolatey"
 )
+
+const chocolateyInstallScript = `Set-ExecutionPolicy Bypass -Scope Process -Force; [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072; iwr https://community.chocolatey.org/install.ps1 -UseBasicParsing | iex`
 
 // Outcome is the per-backend result of Provision (install + verify).
 type Outcome int
@@ -59,15 +66,37 @@ type Bootstrapper struct {
 	Install func(b Backend) error
 	// Verify runs the backend's post-install probe (e.g. `<backend> --version`).
 	Verify func(b Backend) (ok bool, err error)
+	// InstallerStdin remains attached to the host terminal so official installer
+	// prompts still work. The output writers may be replaced by the command layer
+	// when stderr is reserved for structured JSONL events.
+	InstallerStdin  io.Reader
+	InstallerStdout io.Writer
+	InstallerStderr io.Writer
+	provisionErrors map[Backend]error
 }
 
 // New returns a Bootstrapper wired to the real detect/install/verify seams.
 func New() *Bootstrapper {
-	return &Bootstrapper{
-		Detect:  realDetect,
-		Install: realInstall,
-		Verify:  realVerify,
+	bs := &Bootstrapper{
+		Detect:          realDetect,
+		Verify:          realVerify,
+		InstallerStdin:  os.Stdin,
+		InstallerStdout: os.Stderr,
+		InstallerStderr: os.Stderr,
 	}
+	bs.Install = func(b Backend) error {
+		return realInstallWithIO(b, bs.InstallerStdin, bs.InstallerStdout, bs.InstallerStderr)
+	}
+	return bs
+}
+
+// ConfigureInstallerIO changes only the official installer process streams.
+// Detection and verification remain quiet probes. Callers keep stdin attached
+// while redirecting output when their stderr has a machine-readable contract.
+func (bs *Bootstrapper) ConfigureInstallerIO(stdin io.Reader, stdout, stderr io.Writer) {
+	bs.InstallerStdin = stdin
+	bs.InstallerStdout = stdout
+	bs.InstallerStderr = stderr
 }
 
 // Probe detects each needed backend and partitions the set into absent (needs
@@ -93,19 +122,36 @@ func (bs *Bootstrapper) Probe(needed []Backend) (absent, present []Backend) {
 // install ok and verify ok → OutcomeInstalled.
 func (bs *Bootstrapper) Provision(absent []Backend) map[Backend]Outcome {
 	out := make(map[Backend]Outcome, len(absent))
+	if bs.provisionErrors == nil {
+		bs.provisionErrors = make(map[Backend]error)
+	}
 	for _, b := range absent {
+		delete(bs.provisionErrors, b)
 		if err := bs.Install(b); err != nil {
 			out[b] = OutcomeInstallFailed
+			bs.provisionErrors[b] = err
 			continue
 		}
 		ok, err := bs.Verify(b)
 		if err != nil || !ok {
 			out[b] = OutcomeVerifyFailed
+			if err != nil {
+				bs.provisionErrors[b] = err
+			} else {
+				bs.provisionErrors[b] = errors.New("backend verification did not report available")
+			}
 			continue
 		}
 		out[b] = OutcomeInstalled
 	}
 	return out
+}
+
+// ProvisionError returns the install or verification error retained for the
+// most recent Provision attempt of b. It lets command layers surface bounded,
+// structured diagnostics without changing the stable Outcome classification.
+func (bs *Bootstrapper) ProvisionError(b Backend) error {
+	return bs.provisionErrors[b]
 }
 
 // ConsentMessage returns the plain-language, product-neutral consent ask for a
@@ -139,6 +185,10 @@ func InstallerCommand(b Backend) string {
 		// DeterminateSystems/nix-installer-action). --no-confirm because the
 		// engine owns the single up-front consent.
 		return `curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm`
+	case BackendChocolatey:
+		// The official Chocolatey PowerShell bootstrap command
+		// (https://docs.chocolatey.org/en-us/choco/setup/).
+		return `powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "` + chocolateyInstallScript + `"`
 	default:
 		return ""
 	}
@@ -146,21 +196,11 @@ func InstallerCommand(b Backend) string {
 
 // --- Real seams (never exercised under `go test`; validated on a real machine) ---
 
-// realDetect reports whether a backend's binary is present and runnable. It
-// checks PATH first, then the backend's well-known default install locations
-// (so a backend installed this session but not yet on the shell PATH still reads
-// as present).
+// realDetect reports whether a backend's binary is present and runnable. The
+// version probe prevents a corrupt or non-executable file at a known path from
+// being treated as a working backend.
 func realDetect(b Backend) (bool, error) {
-	bin := string(b) // "brew" / "nix"
-	if _, err := exec.LookPath(bin); err == nil {
-		return true, nil
-	}
-	for _, p := range knownBinPaths(b) {
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
-			return true, nil
-		}
-	}
-	return false, nil
+	return realVerify(b)
 }
 
 // knownBinPaths returns the well-known absolute binary locations for a backend,
@@ -175,6 +215,11 @@ func knownBinPaths(b Backend) []string {
 		}
 	case BackendNix:
 		return []string{"/nix/var/nix/profiles/default/bin/nix"} // Determinate default
+	case BackendChocolatey:
+		if programData := os.Getenv("ProgramData"); programData != "" {
+			return []string{filepath.Join(programData, "chocolatey", "bin", "choco.exe")}
+		}
+		return nil
 	default:
 		return nil
 	}
@@ -184,7 +229,9 @@ func knownBinPaths(b Backend) []string {
 // through so the OS credential / Xcode-CLT prompts the installer forces are NOT
 // suppressed (the user answers them directly). It is the only privileged step
 // and is never called in tests.
-func realInstall(b Backend) error {
+var runInstallerCommandFn = func(cmd *exec.Cmd) error { return cmd.Run() }
+
+func realInstallWithIO(b Backend, stdin io.Reader, stdout, stderr io.Writer) error {
 	var cmd *exec.Cmd
 	switch b {
 	case BackendBrew:
@@ -193,23 +240,29 @@ func realInstall(b Backend) error {
 	case BackendNix:
 		cmd = exec.Command("/bin/sh", "-c",
 			`curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install --no-confirm`)
+	case BackendChocolatey:
+		cmd = exec.Command("powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", chocolateyInstallScript)
 	default:
 		return os.ErrInvalid
 	}
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stderr // installer chatter is diagnostics, not the JSON envelope on stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	cmd.Stdin = stdin
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	return runInstallerCommandFn(cmd)
 }
 
 // realVerify confirms a freshly-installed backend actually works by running its
 // version command. "Installer exited 0" is not success — the probe is.
+var runVersionCommandFn = func(bin string) error {
+	return exec.Command(bin, "--version").Run()
+}
+
 func realVerify(b Backend) (bool, error) {
 	bin := resolveBin(b)
 	if bin == "" {
 		return false, nil
 	}
-	if err := exec.Command(bin, "--version").Run(); err != nil {
+	if err := runVersionCommandFn(bin); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -218,7 +271,10 @@ func realVerify(b Backend) (bool, error) {
 // resolveBin returns a runnable path for a backend's binary: PATH first, then the
 // known default locations (a just-installed backend may not be on PATH yet).
 func resolveBin(b Backend) string {
-	bin := string(b)
+	bin := binaryName(b)
+	if bin == "" {
+		return ""
+	}
 	if p, err := exec.LookPath(bin); err == nil {
 		return p
 	}
@@ -228,4 +284,15 @@ func resolveBin(b Backend) string {
 		}
 	}
 	return ""
+}
+
+func binaryName(b Backend) string {
+	switch b {
+	case BackendBrew, BackendNix:
+		return string(b)
+	case BackendChocolatey:
+		return "choco.exe"
+	default:
+		return ""
+	}
 }

@@ -26,7 +26,7 @@ type Manifest struct {
 
 	// HomeManager declares a home-manager configuration the Nix realizer activates
 	// as a config stage of apply (opt-in via --enable-restore). Absent ⇒ no config
-	// stage (default apply unchanged). Realizer-only; the winget path ignores it.
+	// stage (default apply unchanged). Realizer-only; package-driver-only paths ignore it.
 	HomeManager *HomeManagerConfig `json:"homeManager,omitempty"`
 }
 
@@ -102,19 +102,19 @@ type HomeManagerSecret struct {
 // a typo like git.usrName must fail loudly, not silently drop. Programs and Files
 // stay permissive (any home-manager program / any file target).
 type HomeManagerSettings struct {
-	Git      *GitSettings      `json:"git,omitempty"`
-	Shell    *ShellSettings    `json:"shell,omitempty"`
-	Direnv   *ProgramToggle    `json:"direnv,omitempty"`
-	Starship *ProgramToggle    `json:"starship,omitempty"`
-	Fzf      *ProgramToggle    `json:"fzf,omitempty"`
-	Zoxide   *ProgramToggle    `json:"zoxide,omitempty"`
-	Bat      *BatSettings      `json:"bat,omitempty"`
-	Tmux     *TmuxSettings     `json:"tmux,omitempty"`
-	SSH      *SSHSettings      `json:"ssh,omitempty"`
-	Eza      *EzaSettings      `json:"eza,omitempty"`
-	Gh       *GhSettings       `json:"gh,omitempty"`
-	Lazygit  *LazygitSettings  `json:"lazygit,omitempty"`
-	Neovim   *NeovimSettings   `json:"neovim,omitempty"`
+	Git      *GitSettings     `json:"git,omitempty"`
+	Shell    *ShellSettings   `json:"shell,omitempty"`
+	Direnv   *ProgramToggle   `json:"direnv,omitempty"`
+	Starship *ProgramToggle   `json:"starship,omitempty"`
+	Fzf      *ProgramToggle   `json:"fzf,omitempty"`
+	Zoxide   *ProgramToggle   `json:"zoxide,omitempty"`
+	Bat      *BatSettings     `json:"bat,omitempty"`
+	Tmux     *TmuxSettings    `json:"tmux,omitempty"`
+	SSH      *SSHSettings     `json:"ssh,omitempty"`
+	Eza      *EzaSettings     `json:"eza,omitempty"`
+	Gh       *GhSettings      `json:"gh,omitempty"`
+	Lazygit  *LazygitSettings `json:"lazygit,omitempty"`
+	Neovim   *NeovimSettings  `json:"neovim,omitempty"`
 
 	// Dotfiles/CLI tier — each maps to a stable home-manager programs.<name> surface
 	// (see home_catalog.go curatedTable). Same DisallowUnknownFields typo-rejection.

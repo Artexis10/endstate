@@ -6,6 +6,7 @@ package commands
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -16,10 +17,17 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
 
-// untrackedDepsWarning is surfaced by the best-effort (winget) rollback path:
+// untrackedDepsWarning is surfaced by best-effort package-driver rollback paths:
 // package-manager-pulled transitive dependencies and co-installs are not recorded
 // in a Provisioning Generation, so a best-effort rollback may leave them behind.
 const untrackedDepsWarning = "Package-manager-pulled transitive dependencies and co-installs are not tracked and may remain installed."
+
+// rollbackDriverFn is the named-driver construction seam used only after a
+// rollback target has been resolved. Keeping it lazy means dry-run can preview
+// recorded generations even when one of their package managers is unavailable.
+var rollbackDriverFn = func(name string) (driver.Driver, error) {
+	return selectDriver(runtime.GOOS, name)
+}
 
 // RollbackFlags holds the parsed CLI flags for the rollback command.
 type RollbackFlags struct {
@@ -43,7 +51,7 @@ type RollbackFlags struct {
 
 // RollbackResult is the data payload for the rollback command JSON envelope.
 // The native (realizer) path populates FromNative/ToNative; the best-effort
-// (driver/winget) path populates RemovedRefs/FailedRefs/Partial/Warning.
+// package-driver path populates RemovedRefs/FailedRefs/Partial/Warning.
 type RollbackResult struct {
 	DryRun           bool   `json:"dryRun"`
 	Backend          string `json:"backend"`
@@ -52,7 +60,7 @@ type RollbackResult struct {
 	FromNative    string `json:"fromNative,omitempty"` // backend-native version before rollback
 	ToNative      string `json:"toNative,omitempty"`   // native version targeted (dry-run) or active after
 	NewGeneration int    `json:"newGeneration,omitempty"`
-	// Best-effort (driver/winget) rollback fields.
+	// Best-effort package-driver rollback fields.
 	RemovedRefs []string `json:"removedRefs,omitempty"` // refs uninstalled (or, on --dry-run, that would be uninstalled)
 	FailedRefs  []string `json:"failedRefs,omitempty"`  // refs whose uninstall failed
 	Partial     bool     `json:"partial,omitempty"`     // true when any targeted uninstall failed
@@ -67,12 +75,12 @@ type RollbackResult struct {
 // On --dry-run it reports the target (recorded) generation that would be
 // re-activated; on a real run it also reports the new (forward) generation.
 type RollbackHomeResult struct {
-	TargetGeneration int    `json:"targetGeneration"`          // recorded home-manager generation being reverted to
-	NewGeneration    int    `json:"newGeneration,omitempty"`   // new forward generation after re-activation (0 on dry-run)
-	Flake            string `json:"flake,omitempty"`           // the config that was/would be re-activated
-	Config           string `json:"config,omitempty"`          // the user's declared home.nix, when the recorded config was engine-generated
-	Reactivated      bool   `json:"reactivated"`               // true when the config was actually re-activated
-	ViaFallback      bool   `json:"viaFallback,omitempty"`     // true when re-activated from the recorded flake because the snapshot was unavailable
+	TargetGeneration int    `json:"targetGeneration"`        // recorded home-manager generation being reverted to
+	NewGeneration    int    `json:"newGeneration,omitempty"` // new forward generation after re-activation (0 on dry-run)
+	Flake            string `json:"flake,omitempty"`         // the config that was/would be re-activated
+	Config           string `json:"config,omitempty"`        // the user's declared home.nix, when the recorded config was engine-generated
+	Reactivated      bool   `json:"reactivated"`             // true when the config was actually re-activated
+	ViaFallback      bool   `json:"viaFallback,omitempty"`   // true when re-activated from the recorded flake because the snapshot was unavailable
 }
 
 // RunRollback reverts the installed package set to a prior Provisioning
@@ -83,45 +91,37 @@ type RollbackHomeResult struct {
 //   - Native (realizer, e.g. Nix): atomic `nix profile rollback` to the engine
 //     generation's recorded native anchor (the user never references a Nix
 //     version — the moat).
-//   - Best-effort (driver, e.g. winget): uninstall the union of addedRefs of the
-//     generations recorded after the target (non-atomic, failure-tolerant).
+//   - Best-effort (per-package drivers): select generations after the target (or
+//     the newest apply RunID), group addedRefs by their recorded backend, and
+//     uninstall each group through that backend (non-atomic, failure-tolerant).
 //
-// Dispatch: a host with a realizer uses the native path exclusively; otherwise a
-// driver that implements driver.Uninstaller uses the best-effort path; otherwise
-// rollback is unsupported on this host.
+// Dispatch: a host with a realizer uses the native path exclusively; otherwise
+// the best-effort path resolves history first and constructs only the recorded
+// drivers it needs. This lets a named backend roll back independently of the
+// platform default.
 func RunRollback(flags RollbackFlags) (interface{}, *envelope.Error) {
 	if r, rerr := newRealizerFn(); rerr == nil {
 		return runRealizerRollback(flags, r)
 	}
-	if d, derr := newDriverFn(); derr == nil {
-		if un, ok := d.(driver.Uninstaller); ok {
-			return runDriverRollback(flags, d, un)
-		}
-	}
-	return nil, envelope.NewError(envelope.ErrRollbackUnsupported,
-		"This platform's package backend does not support rollback.").
-		WithRemediation("Native rollback needs a Nix backend (Linux/macOS); best-effort rollback needs an uninstall-capable driver (winget).")
+	return runDriverRollback(flags, nil, nil)
 }
 
 // runRealizerRollback performs a native, atomic rollback via a realizer that
 // advertises native rollback (Nix). The target is identified by engine
 // generation number and mapped to the backend-native anchor.
 func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{}, *envelope.Error) {
-	// Discover rollback eligibility by type-assertion + advertised capability,
-	// exactly like driver.BatchDetector / provision.CapabilityReporter.
-	rb, ok := r.(provision.Rollbacker)
-	if !ok || !nativeRollbackCapable(r) {
-		return nil, envelope.NewError(envelope.ErrRollbackUnsupported,
-			fmt.Sprintf("The %s backend does not support native rollback.", r.Name())).
-			WithRemediation("Rollback requires a backend that advertises native rollback (e.g. Nix).")
-	}
+	// Native rollback capability is checked only after history routing decides a
+	// native package lane is selected. Brew-only runs do not require it.
+	rb, hasNativeRollbacker := r.(provision.Rollbacker)
 
 	// Resolve the native target version from the engine generation number.
 	target := -1                               // backend-native version; -1 == previous
 	targetGen := 0                             // engine generation number; 0 == unspecified (previous)
 	hasPackageTarget := true                   // false for a config-only target generation (no native anchor)
 	var targetGeneration *provision.Generation // the resolved generation (config rollback reads its HomeManager ref)
-	if to := strings.TrimSpace(flags.To); to != "" {
+	var bareRunGenerations []*provision.Generation
+	explicitTarget := strings.TrimSpace(flags.To) != ""
+	if to := strings.TrimSpace(flags.To); explicitTarget {
 		n, err := strconv.Atoi(to)
 		if err != nil || n <= 0 {
 			return nil, envelope.NewError(envelope.ErrGenerationNotFound,
@@ -143,6 +143,33 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 		} else {
 			hasPackageTarget = false
 		}
+	} else {
+		gens, err := provision.List()
+		if err != nil {
+			return nil, envelope.NewError(envelope.ErrInternalError, err.Error())
+		}
+		bareRunGenerations = newestNonRollbackRun(gens)
+		if len(bareRunGenerations) > 0 {
+			hasPackageTarget = false
+			targetGen = bareRunGenerations[0].Number - 1
+			for _, g := range bareRunGenerations {
+				if g.Number-1 < targetGen {
+					targetGen = g.Number - 1
+				}
+				if strings.EqualFold(strings.TrimSpace(g.Backend), strings.TrimSpace(r.Name())) {
+					native := strings.TrimSpace(g.Native)
+					if _, err := strconv.Atoi(native); native != "" && err == nil {
+						hasPackageTarget = true
+					}
+				}
+			}
+		}
+	}
+
+	if hasPackageTarget && (!hasNativeRollbacker || !nativeRollbackCapable(r)) {
+		return nil, envelope.NewError(envelope.ErrRollbackUnsupported,
+			fmt.Sprintf("The %s backend does not support native rollback.", r.Name())).
+			WithRemediation("Rollback requires a backend that advertises native rollback (e.g. Nix).")
 	}
 
 	// Config rollback eligibility, validated BEFORE any mutation (--enable-restore
@@ -166,16 +193,15 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 		}
 	}
 
-	// Brew best-effort lane (composed with the native rollback): when an explicit
-	// --to target is given, uninstall the brew apps installed AFTER it — recorded in
-	// their own backend:"brew" generations, which the native nix rollback never
-	// touches. Bare rollback (no --to) stays native-package-only: the nix "previous"
-	// anchor is generation-relative and cannot be reconciled with interleaved brew
-	// generations without an explicit boundary. Computed read-only here so it informs
-	// the dry-run preview, the nothing-to-roll-back check, and the uninstall below.
+	// Brew best-effort lane (composed with native rollback). Explicit rollback
+	// removes Brew additions after the numbered boundary. Bare rollback removes
+	// only Brew additions from the newest non-rollback runId group, matching the
+	// native "previous" step when that apply also committed a Nix generation.
 	var brewRemoveRefs []string
-	if strings.TrimSpace(flags.To) != "" {
+	if explicitTarget {
 		brewRemoveRefs = brewRollbackRefs(targetGen)
+	} else {
+		brewRemoveRefs = brewRollbackRefsFromGenerations(bareRunGenerations)
 	}
 
 	// Nothing to roll back: a target generation with no native anchor, no eligible
@@ -190,8 +216,10 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 
 	// Best-effort current native version for reporting.
 	fromNative := ""
-	if cur, err := r.Current(); err == nil {
-		fromNative = strconv.Itoa(cur.Generation)
+	if hasPackageTarget {
+		if cur, err := r.Current(); err == nil {
+			fromNative = strconv.Itoa(cur.Generation)
+		}
 	}
 
 	toNative := ""
@@ -205,7 +233,7 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 	if flags.DryRun {
 		res := &RollbackResult{
 			DryRun:           true,
-			Backend:          r.Name(),
+			Backend:          realizerRollbackBackend(r.Name(), hasPackageTarget, brewRemoveRefs),
 			TargetGeneration: targetGen,
 			FromNative:       fromNative,
 			ToNative:         toNative,
@@ -271,9 +299,10 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 	// rolled back packages or re-activated config. A brew-only rollback (no native
 	// anchor, no config) records ONLY its backend:"brew" generation below, never an
 	// empty backend:"nix" one.
+	rollbackRunID := buildRunID("rollback")
 	newGen := 0
 	if hasPackageTarget || newHomeRef != nil {
-		newGen = appendRollbackGeneration(buildRunID("rollback"), r.Name(), cur, native, newHomeRef)
+		newGen = appendRollbackGeneration(rollbackRunID, r.Name(), cur, native, newHomeRef)
 	}
 
 	// Brew best-effort uninstall lane, composed with the native rollback. Runs AFTER
@@ -282,7 +311,7 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 	// separate backend:"brew" rollback generation.
 	res := &RollbackResult{
 		DryRun:           false,
-		Backend:          r.Name(),
+		Backend:          realizerRollbackBackend(r.Name(), hasPackageTarget, brewRemoveRefs),
 		TargetGeneration: targetGen,
 		FromNative:       fromNative,
 		ToNative:         native,
@@ -290,13 +319,77 @@ func runRealizerRollback(flags RollbackFlags, r realizer.Realizer) (interface{},
 		HomeManager:      homeResult,
 	}
 	if len(brewRemoveRefs) > 0 {
-		removed, failed := runBrewRollbackLane(brewRemoveRefs)
+		removed, failed, brewGen := runBrewRollbackLane(rollbackRunID, brewRemoveRefs)
+		if len(removed) == 0 && len(failed) > 0 && !hasPackageTarget && newHomeRef == nil {
+			return nil, envelope.NewError(envelope.ErrRollbackFailed,
+				"Rollback failed: no packages could be uninstalled.").
+				WithDetail(map[string]string{"failed": strings.Join(failed, ", ")}).
+				WithRemediation("Another installed package may depend on them; inspect the failed packages.")
+		}
 		res.RemovedRefs = removed
 		res.FailedRefs = failed
 		res.Partial = len(failed) > 0
 		res.Warning = untrackedDepsWarning
+		if brewGen > res.NewGeneration {
+			res.NewGeneration = brewGen
+		}
 	}
 	return res, nil
+}
+
+// newestNonRollbackRun selects the newest apply as one rollback unit. A
+// non-empty runId selects every non-rollback generation sharing it; a legacy
+// empty runId falls back to the single newest generation.
+func newestNonRollbackRun(gens []*provision.Generation) []*provision.Generation {
+	var newest *provision.Generation
+	for _, g := range gens {
+		if !g.Rollback {
+			newest = g
+			break
+		}
+	}
+	if newest == nil {
+		return nil
+	}
+	selected := []*provision.Generation{newest}
+	if newest.RunID == "" {
+		return selected
+	}
+	for _, g := range gens {
+		if g == newest || g.Rollback || g.RunID != newest.RunID {
+			continue
+		}
+		selected = append(selected, g)
+	}
+	return selected
+}
+
+func brewRollbackRefsFromGenerations(gens []*provision.Generation) []string {
+	seen := map[string]bool{}
+	var refs []string
+	for _, g := range gens {
+		if !strings.EqualFold(strings.TrimSpace(g.Backend), "brew") {
+			continue
+		}
+		for _, ref := range g.AddedRefs {
+			if ref == "" || seen[ref] {
+				continue
+			}
+			seen[ref] = true
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+func realizerRollbackBackend(realizerName string, nativeSelected bool, brewRefs []string) string {
+	if len(brewRefs) == 0 {
+		return realizerName
+	}
+	if nativeSelected {
+		return "mixed"
+	}
+	return "brew"
 }
 
 // brewRollbackRefs returns the de-duplicated union of the AddedRefs of every
@@ -327,21 +420,21 @@ func brewRollbackRefs(targetGen int) []string {
 // runBrewRollbackLane uninstalls the given brew refs best-effort via the host's
 // brew driver and records a backend:"brew" rollback generation. It mirrors
 // runDriverRollback's per-ref, failure-tolerant loop, scoped to brew and composed
-// into the native rollback. Because the native rollback has ALREADY committed when
-// this runs, an unavailable brew driver or a per-ref infrastructure error is
-// tolerated (the refs are reported failed) rather than aborting — the native
-// rollback cannot be unwound. Cask uninstalls are non-destructive (the brew driver
+// with native rollback when that lane is selected. Because any native rollback has
+// already committed when this runs, an unavailable brew driver or a per-ref
+// infrastructure error is tolerated (the refs are reported failed) rather than
+// aborting. Cask uninstalls are non-destructive (the brew driver
 // never passes --zap). A generation is recorded only when at least one ref was
 // actually removed (an all-failed lane records none, matching the winget path's
 // "nothing removed → no generation").
-func runBrewRollbackLane(refs []string) (removed, failed []string) {
+func runBrewRollbackLane(runID string, refs []string) (removed, failed []string, newGeneration int) {
 	d, derr := newBrewDriverFn()
 	if derr != nil {
-		return nil, refs
+		return nil, refs, 0
 	}
 	un, ok := d.(driver.Uninstaller)
 	if !ok {
-		return nil, refs
+		return nil, refs, 0
 	}
 	for _, ref := range refs {
 		res, uerr := un.Uninstall(ref)
@@ -357,9 +450,9 @@ func runBrewRollbackLane(refs []string) (removed, failed []string) {
 		}
 	}
 	if len(removed) > 0 {
-		appendRollbackGenerationRemoved(buildRunID("rollback"), "brew", removed, len(failed) > 0)
+		newGeneration = appendRollbackGenerationRemoved(runID, "brew", removed, len(failed) > 0)
 	}
-	return removed, failed
+	return removed, failed, newGeneration
 }
 
 // rollbackHomeConfig re-activates the home-manager config recorded by the target
@@ -488,28 +581,26 @@ func appendRollbackGeneration(runID, backend string, set realizer.Set, native st
 	return g.Number
 }
 
-// runDriverRollback performs a best-effort rollback on a driver that can
-// uninstall (winget). It reverts by uninstalling the union of the added
-// references of every Provisioning Generation recorded after the target. It is
-// non-atomic and failure-tolerant: per-package failures are reported and the run
-// is marked partial, never aborting mid-way. Package-stage only — it touches the
-// driver and internal/provision, never restore/backups/the revert journal.
+type rollbackDriverGroup struct {
+	backend string
+	refs    []string
+}
+
+// runDriverRollback performs a best-effort rollback using each selected
+// generation's recorded backend. d/un are the already-constructed platform
+// default from the legacy dispatch path; named non-default backends are resolved
+// lazily through rollbackDriverFn and are never substituted.
 func runDriverRollback(flags RollbackFlags, d driver.Driver, un driver.Uninstaller) (interface{}, *envelope.Error) {
-	backend := d.Name()
 	gens, err := provision.List()
 	if err != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, err.Error())
 	}
 
-	maxNum := 0
-	for _, g := range gens {
-		if g.Number > maxNum {
-			maxNum = g.Number
-		}
-	}
-
-	// Resolve the target generation number.
-	targetGen := maxNum - 1 // bare rollback reverts the most recent generation
+	// Resolve the selected non-rollback generations. Explicit rollback selects
+	// every later generation; bare rollback selects the complete newest apply run
+	// by RunID, with a single-generation fallback for legacy empty RunIDs.
+	targetGen := 0
+	var selected []*provision.Generation
 	if to := strings.TrimSpace(flags.To); to != "" {
 		n, perr := strconv.Atoi(to)
 		if perr != nil || n <= 0 {
@@ -521,25 +612,59 @@ func runDriverRollback(flags RollbackFlags, d driver.Driver, un driver.Uninstall
 			return nil, gerr
 		}
 		targetGen = n
-	}
-
-	// removeRefs = union of addedRefs of every generation numbered > targetGen.
-	seen := map[string]bool{}
-	var removeRefs []string
-	for _, g := range gens {
-		if g.Number <= targetGen {
-			continue
+		for _, g := range gens {
+			if !g.Rollback && g.Number > targetGen {
+				selected = append(selected, g)
+			}
 		}
-		for _, ref := range g.AddedRefs {
-			if ref != "" && !seen[ref] {
-				seen[ref] = true
-				removeRefs = append(removeRefs, ref)
+	} else {
+		var newest *provision.Generation
+		for _, g := range gens {
+			if !g.Rollback {
+				newest = g
+				break
+			}
+		}
+		if newest != nil {
+			selected = append(selected, newest)
+			if newest.RunID != "" {
+				for _, g := range gens {
+					if g == newest || g.Rollback || g.RunID != newest.RunID {
+						continue
+					}
+					selected = append(selected, g)
+				}
+			}
+			targetGen = newest.Number - 1
+			for _, g := range selected {
+				if g.Number-1 < targetGen {
+					targetGen = g.Number - 1
+				}
 			}
 		}
 	}
 
+	groups := groupRollbackGenerations(selected)
+	backend := rollbackResultBackend(groups, d)
+	removeRefs := flattenRollbackGroupRefs(groups)
+
 	// Nothing recorded after the target → already at/before it; a no-op success.
 	if len(removeRefs) == 0 {
+		// Preserve the legacy no-history/default-driver gate for mutating commands,
+		// but only after history and the rollback target have been resolved. Dry-run
+		// remains history-only and never constructs a package driver.
+		if !flags.DryRun && d == nil {
+			defaultDriver, derr := newDriverFn()
+			if derr != nil {
+				return nil, rollbackUnsupported()
+			}
+			defaultUninstaller, ok := defaultDriver.(driver.Uninstaller)
+			if !ok {
+				return nil, rollbackUnsupported()
+			}
+			d, un = defaultDriver, defaultUninstaller
+			backend = rollbackResultBackend(groups, d)
+		}
 		return &RollbackResult{DryRun: flags.DryRun, Backend: backend, TargetGeneration: targetGen}, nil
 	}
 
@@ -559,22 +684,49 @@ func runDriverRollback(flags RollbackFlags, d driver.Driver, un driver.Uninstall
 			WithRemediation("Re-run with --confirm, or use --dry-run to preview what would be removed.")
 	}
 
-	// Uninstall each ref independently; never abort on the first failure.
+	// Resolve and process each backend independently. A failed or unavailable
+	// backend contributes failed refs while later groups continue. The sole legacy
+	// exception is a single Winget lane whose infrastructure disappears: preserve
+	// WINGET_NOT_AVAILABLE for that established wire behavior.
 	var removed, failed []string
-	for _, ref := range removeRefs {
-		res, uerr := un.Uninstall(ref)
-		if uerr != nil {
-			// Infrastructure failure (e.g. the winget binary is missing) — whole-run.
-			return nil, envelope.NewError(envelope.ErrWingetNotAvailable,
-				"The package backend is unavailable.").
-				WithDetail(map[string]string{"raw": uerr.Error()}).
-				WithRemediation("Ensure winget is installed and on PATH.")
+	runID := buildRunID("rollback")
+	newGen := 0
+	for _, group := range groups {
+		groupUninstaller, rerr := resolveRollbackUninstaller(group.backend, d, un)
+		if rerr != nil {
+			if len(groups) == 1 && group.backend == "winget" {
+				return nil, wingetRollbackUnavailable(rerr)
+			}
+			failed = append(failed, group.refs...)
+			continue
 		}
-		switch res.Status {
-		case driver.StatusUninstalled, driver.StatusAbsent:
-			removed = append(removed, ref)
-		default:
-			failed = append(failed, ref)
+
+		var groupRemoved, groupFailed []string
+		for _, ref := range group.refs {
+			res, uerr := groupUninstaller.Uninstall(ref)
+			if uerr != nil {
+				if len(groups) == 1 && group.backend == "winget" {
+					return nil, wingetRollbackUnavailable(uerr)
+				}
+				groupFailed = append(groupFailed, ref)
+				continue
+			}
+			if res == nil {
+				groupFailed = append(groupFailed, ref)
+				continue
+			}
+			switch res.Status {
+			case driver.StatusUninstalled, driver.StatusAbsent:
+				groupRemoved = append(groupRemoved, ref)
+			default:
+				groupFailed = append(groupFailed, ref)
+			}
+		}
+
+		removed = append(removed, groupRemoved...)
+		failed = append(failed, groupFailed...)
+		if len(groupRemoved) > 0 {
+			newGen = appendRollbackGenerationRemoved(runID, group.backend, groupRemoved, len(groupFailed) > 0)
 		}
 	}
 
@@ -586,9 +738,6 @@ func runDriverRollback(flags RollbackFlags, d driver.Driver, un driver.Uninstall
 			WithRemediation("Another installed package may depend on them; inspect the failed packages.")
 	}
 
-	// Append a rollback-marked generation recording what was removed.
-	newGen := appendRollbackGenerationRemoved(buildRunID("rollback"), backend, removed, len(failed) > 0)
-
 	return &RollbackResult{
 		DryRun:           false,
 		Backend:          backend,
@@ -599,6 +748,106 @@ func runDriverRollback(flags RollbackFlags, d driver.Driver, un driver.Uninstall
 		NewGeneration:    newGen,
 		Warning:          untrackedDepsWarning,
 	}, nil
+}
+
+// groupRollbackGenerations groups selected generations by their authoritative
+// recorded backend. provision.List is newest-first, so first-seen group order is
+// newest-generation-first and ref order is deterministic. De-duplication is
+// deliberately scoped to one backend; equal refs owned by different managers
+// remain distinct rollback operations.
+func groupRollbackGenerations(gens []*provision.Generation) []rollbackDriverGroup {
+	indices := map[string]int{}
+	seen := map[string]map[string]bool{}
+	var groups []rollbackDriverGroup
+	for _, g := range gens {
+		backend := strings.ToLower(strings.TrimSpace(g.Backend))
+		idx, ok := indices[backend]
+		if !ok {
+			idx = len(groups)
+			indices[backend] = idx
+			seen[backend] = map[string]bool{}
+			groups = append(groups, rollbackDriverGroup{backend: backend})
+		}
+		for _, ref := range g.AddedRefs {
+			if ref == "" || seen[backend][ref] {
+				continue
+			}
+			seen[backend][ref] = true
+			groups[idx].refs = append(groups[idx].refs, ref)
+		}
+	}
+
+	// Generations with no additions do not require a backend lane.
+	filtered := groups[:0]
+	for _, group := range groups {
+		if len(group.refs) > 0 {
+			filtered = append(filtered, group)
+		}
+	}
+	return filtered
+}
+
+func flattenRollbackGroupRefs(groups []rollbackDriverGroup) []string {
+	var refs []string
+	for _, group := range groups {
+		refs = append(refs, group.refs...)
+	}
+	return refs
+}
+
+func rollbackResultBackend(groups []rollbackDriverGroup, d driver.Driver) string {
+	if len(groups) == 1 {
+		return groups[0].backend
+	}
+	if len(groups) > 1 {
+		return "mixed"
+	}
+	if d != nil {
+		return d.Name()
+	}
+	return ""
+}
+
+func resolveRollbackUninstaller(backend string, d driver.Driver, un driver.Uninstaller) (driver.Uninstaller, error) {
+	if d == nil && (backend == "" || strings.EqualFold(backend, "winget")) {
+		defaultDriver, err := newDriverFn()
+		if err != nil {
+			return nil, err
+		}
+		defaultUninstaller, ok := defaultDriver.(driver.Uninstaller)
+		if !ok {
+			return nil, fmt.Errorf("recorded backend %q does not support uninstall", backend)
+		}
+		d, un = defaultDriver, defaultUninstaller
+	}
+	if d != nil && (backend == "" || strings.EqualFold(strings.TrimSpace(d.Name()), backend)) {
+		if un == nil {
+			return nil, fmt.Errorf("recorded backend %q does not support uninstall", backend)
+		}
+		return un, nil
+	}
+	resolved, err := rollbackDriverFn(backend)
+	if err != nil {
+		return nil, err
+	}
+	resolvedUninstaller, ok := resolved.(driver.Uninstaller)
+	if !ok {
+		return nil, fmt.Errorf("recorded backend %q does not support uninstall", backend)
+	}
+	return resolvedUninstaller, nil
+}
+
+func rollbackUnsupported() *envelope.Error {
+	return envelope.NewError(envelope.ErrRollbackUnsupported,
+		"This platform's package backend does not support rollback.").
+		WithRemediation("Native rollback needs a Nix backend (Linux/macOS); best-effort rollback needs a supported uninstall-capable package driver (Winget, Chocolatey, or Brew).")
+}
+
+func wingetRollbackUnavailable(err error) *envelope.Error {
+	return envelope.NewError(envelope.ErrWingetNotAvailable,
+		"The package backend is unavailable.").
+		WithDetail(map[string]string{"raw": err.Error()}).
+		WithRemediation("Ensure winget is installed and on PATH.")
 }
 
 // appendRollbackGenerationRemoved writes a rollback-marked Provisioning

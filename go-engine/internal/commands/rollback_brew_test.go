@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 )
 
@@ -14,8 +15,8 @@ import (
 // Best-effort brew rollback composed with the native (Nix) realizer rollback.
 //
 // On darwin RunRollback short-circuits to the realizer; these tests prove the
-// brew uninstall lane runs ALONGSIDE the native rollback when an explicit
-// --to target is given. Both seams are overridden (newRealizerFn via the
+// brew uninstall lane runs ALONGSIDE the native rollback for both explicit
+// targets and bare mixed-run rollback. Both seams are overridden (newRealizerFn via the
 // capable fakeRealizer, newBrewDriverFn via withRealizerAndBrew) so the path is
 // host-independent — overriding only one would run the wrong backend on a given
 // OS (the recurring two-seam gotcha).
@@ -162,6 +163,153 @@ func TestRollback_Realizer_BrewLane_DryRun(t *testing.T) {
 	}
 }
 
+func TestRollback_Realizer_Bare_ConfigOnlyNixAndBrewSkipsNative(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "3", RunID: "apply-old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "nix", RunID: "apply-config-brew"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "brew", RunID: "apply-config-brew", AddedRefs: []string{"hello"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	fr := capableRealizer(setOf(3, "old"))
+	fb := &fakeBrewDriver{installed: map[string]bool{"hello": true}}
+	var result *RollbackResult
+	withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
+		raw, env := RunRollback(RollbackFlags{Confirm: true})
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 0 {
+		t.Fatalf("config-only Nix generation called native rollback %d times, want 0", fr.rollbackCalls)
+	}
+	if result.Backend != "brew" || len(result.RemovedRefs) != 1 || result.RemovedRefs[0] != "hello" {
+		t.Fatalf("config-only Nix + Brew result = %+v, want Brew-only package rollback", result)
+	}
+	gens, _ := provision.List()
+	for _, g := range gens {
+		if g.Rollback && g.Backend == "nix" {
+			t.Fatalf("config-only Nix lane wrote a native rollback generation: %+v", g)
+		}
+	}
+}
+
+func TestRollback_Realizer_Bare_BrewOnlyAllFailedReturnsRollbackFailed(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "3", RunID: "apply-old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "brew", RunID: "apply-brew", AddedRefs: []string{"hello"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	fr := &fakeRealizer{currentSet: setOf(3, "old")}
+	fb := &fakeBrewDriver{
+		installed: map[string]bool{"hello": true},
+		uninstallResults: map[string]*driver.UninstallResult{
+			"hello": {Status: driver.StatusFailed},
+		},
+	}
+	withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
+		_, env := RunRollback(RollbackFlags{Confirm: true})
+		if env == nil || env.Code != envelope.ErrRollbackFailed {
+			t.Fatalf("want ROLLBACK_FAILED, got %+v", env)
+		}
+	})
+	if fr.rollbackCalls != 0 {
+		t.Fatalf("Brew-only failure called native rollback %d times, want 0", fr.rollbackCalls)
+	}
+	if gens, _ := provision.List(); len(gens) != 2 {
+		t.Fatalf("all-failed Brew-only rollback wrote a generation: %+v", gens)
+	}
+}
+
+func TestRollback_Realizer_Bare_NativeSuccessToleratesAllBrewFailures(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "3", RunID: "apply-old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "4", RunID: "apply-mixed", AddedRefs: []string{"nixpkgs#jq"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "brew", RunID: "apply-mixed", AddedRefs: []string{"hello"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	fr := capableRealizer(setOf(4, "jq"))
+	fb := &fakeBrewDriver{
+		installed: map[string]bool{"hello": true},
+		uninstallResults: map[string]*driver.UninstallResult{
+			"hello": {Status: driver.StatusFailed},
+		},
+	}
+	var result *RollbackResult
+	withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
+		raw, env := RunRollback(RollbackFlags{Confirm: true})
+		if env != nil {
+			t.Fatalf("native success must tolerate Brew failure: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+	if fr.rollbackCalls != 1 || !result.Partial || len(result.RemovedRefs) != 0 || len(result.FailedRefs) != 1 || result.FailedRefs[0] != "hello" {
+		t.Fatalf("native-success/Brew-failure result = %+v; native calls=%d", result, fr.rollbackCalls)
+	}
+}
+
+func TestRollback_Realizer_ConfigSuccessToleratesAllBrewFailures(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{
+		Backend:     "nix",
+		HomeManager: &provision.HomeGenRef{Flake: "/dot#me", Generation: 7},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "brew", AddedRefs: []string{"hello"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	fr := &fakeRealizer{currentSet: setOf(0)}
+	fr.homeRollbackGen = 12
+	fb := &fakeBrewDriver{
+		installed: map[string]bool{"hello": true},
+		uninstallResults: map[string]*driver.UninstallResult{
+			"hello": {Status: driver.StatusFailed},
+		},
+	}
+	var result *RollbackResult
+	withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
+		raw, env := RunRollback(RollbackFlags{To: "1", EnableRestore: true, Confirm: true})
+		if env != nil {
+			t.Fatalf("config success must tolerate Brew failure: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 0 || fr.homeRollbackCalls != 1 || fr.lastHomeRollbackArg != 7 {
+		t.Fatalf("package/config rollback calls = %d/%d (config arg %d), want 0/1 (7)", fr.rollbackCalls, fr.homeRollbackCalls, fr.lastHomeRollbackArg)
+	}
+	if result.HomeManager == nil || !result.HomeManager.Reactivated || result.HomeManager.NewGeneration != 12 {
+		t.Fatalf("config rollback result = %+v, want reactivated generation 12", result.HomeManager)
+	}
+	if !result.Partial || len(result.RemovedRefs) != 0 || len(result.FailedRefs) != 1 || result.FailedRefs[0] != "hello" {
+		t.Fatalf("config-success/Brew-failure result = %+v", result)
+	}
+
+	gens, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gens) != 3 || !gens[0].Rollback || gens[0].Backend != "nix" || gens[0].HomeManager == nil || gens[0].HomeManager.Generation != 12 {
+		t.Fatalf("config-success rollback generation = %+v, want one Nix config rollback and no Brew rollback generation", gens)
+	}
+}
+
 // TestRollback_Realizer_BrewLane_RequiresConfirm: --to N without --confirm refuses,
 // uninstalls nothing, native-rolls-back nothing, and appends no generation.
 func TestRollback_Realizer_BrewLane_RequiresConfirm(t *testing.T) {
@@ -263,22 +411,22 @@ func TestRollback_Realizer_NoBrewGens_NonRegression(t *testing.T) {
 	}
 }
 
-// TestRollback_Realizer_Bare_BrewUntouched: bare rollback (no --to) stays
-// native-package-only and never engages the brew lane (the nix "previous" anchor
-// cannot be reconciled with interleaved brew generations without a boundary).
-func TestRollback_Realizer_Bare_BrewUntouched(t *testing.T) {
+func TestRollback_Realizer_Bare_RevertsNewestMixedRun(t *testing.T) {
 	t.Setenv("ENDSTATE_ROOT", t.TempDir())
-	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "4", AddedRefs: []string{"nixpkgs#jq"}}); err != nil {
-		t.Fatalf("seed nix gen: %v", err) // gen 1
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "3", RunID: "apply-old", AddedRefs: []string{"nixpkgs#old"}}); err != nil {
+		t.Fatalf("seed old nix gen: %v", err) // gen 1
 	}
-	if err := provision.Write(&provision.Generation{Backend: "brew", AddedRefs: []string{"hello"}}); err != nil {
-		t.Fatalf("seed brew gen: %v", err) // gen 2
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "4", RunID: "apply-mixed", AddedRefs: []string{"nixpkgs#jq"}}); err != nil {
+		t.Fatalf("seed mixed nix gen: %v", err) // gen 2
+	}
+	if err := provision.Write(&provision.Generation{Backend: "brew", RunID: "apply-mixed", AddedRefs: []string{"hello"}}); err != nil {
+		t.Fatalf("seed mixed brew gen: %v", err) // gen 3
 	}
 
 	fr := capableRealizer(setOf(4, "jq"))
+	fb := &fakeBrewDriver{installed: map[string]bool{"hello": true}}
 	var result *RollbackResult
-	// panicBrewDriverFn proves the bare path never resolves the brew driver.
-	withRealizerAndBrew(fr, panicBrewDriverFn(t), func() {
+	withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
 		raw, env := RunRollback(RollbackFlags{Confirm: true}) // no --to
 		if env != nil {
 			t.Fatalf("unexpected envelope error: %+v", env)
@@ -289,7 +437,127 @@ func TestRollback_Realizer_Bare_BrewUntouched(t *testing.T) {
 	if fr.rollbackCalls != 1 || fr.lastRollbackArg != -1 {
 		t.Errorf("want native Rollback(-1) once, got calls=%d arg=%d", fr.rollbackCalls, fr.lastRollbackArg)
 	}
-	if len(result.RemovedRefs) != 0 {
-		t.Errorf("bare rollback must not touch brew; RemovedRefs=%v", result.RemovedRefs)
+	if got := len(fb.uninstallCalls); got != 1 || fb.uninstallCalls[0] != "hello" {
+		t.Fatalf("brew uninstall calls = %v, want [hello]", fb.uninstallCalls)
+	}
+	if result.Backend != "mixed" || result.TargetGeneration != 1 || len(result.RemovedRefs) != 1 || result.RemovedRefs[0] != "hello" {
+		t.Errorf("mixed bare result = %+v, want mixed target 1 removing hello", result)
+	}
+
+	gens, err := provision.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var rollbackGens []*provision.Generation
+	for _, g := range gens {
+		if g.Rollback {
+			rollbackGens = append(rollbackGens, g)
+		}
+	}
+	if len(rollbackGens) != 2 {
+		t.Fatalf("rollback generations = %d, want nix + brew: %+v", len(rollbackGens), rollbackGens)
+	}
+	if rollbackGens[0].RunID == "" || rollbackGens[0].RunID != rollbackGens[1].RunID {
+		t.Fatalf("rollback run IDs = %q and %q, want one shared non-empty ID", rollbackGens[0].RunID, rollbackGens[1].RunID)
+	}
+	if result.NewGeneration != rollbackGens[0].Number {
+		t.Errorf("NewGeneration = %d, want newest backend-scoped generation %d", result.NewGeneration, rollbackGens[0].Number)
+	}
+}
+
+func TestRollback_Realizer_Bare_BrewOnlyNewestRun(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "4", RunID: "apply-old", AddedRefs: []string{"nixpkgs#jq"}}); err != nil {
+		t.Fatalf("seed old nix gen: %v", err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "brew", RunID: "apply-brew", AddedRefs: []string{"hello"}}); err != nil {
+		t.Fatalf("seed brew gen: %v", err)
+	}
+
+	fr := &fakeRealizer{currentSet: setOf(4, "jq")}
+	fb := &fakeBrewDriver{installed: map[string]bool{"hello": true}}
+	var result *RollbackResult
+	withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
+		raw, env := RunRollback(RollbackFlags{Confirm: true})
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 0 {
+		t.Fatalf("brew-only run called native rollback %d times, want 0", fr.rollbackCalls)
+	}
+	if result.Backend != "brew" || result.TargetGeneration != 1 || len(result.RemovedRefs) != 1 || result.RemovedRefs[0] != "hello" {
+		t.Fatalf("brew-only result = %+v", result)
+	}
+	gens, _ := provision.List()
+	for _, g := range gens {
+		if g.Rollback && g.Backend == "nix" {
+			t.Fatalf("brew-only rollback wrote a Nix rollback generation: %+v", g)
+		}
+	}
+}
+
+func TestRollback_Realizer_Bare_MixedPartialBrewFailure(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "3", RunID: "apply-old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "4", RunID: "apply-mixed", AddedRefs: []string{"nixpkgs#jq"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "brew", RunID: "apply-mixed", AddedRefs: []string{"a", "b"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	fr := capableRealizer(setOf(4, "jq"))
+	fb := &fakeBrewDriver{
+		installed: map[string]bool{"a": true, "b": true},
+		uninstallResults: map[string]*driver.UninstallResult{
+			"b": {Status: driver.StatusFailed},
+		},
+	}
+	var result *RollbackResult
+	withRealizerAndBrew(fr, func() (driver.Driver, error) { return fb, nil }, func() {
+		raw, env := RunRollback(RollbackFlags{Confirm: true})
+		if env != nil {
+			t.Fatalf("partial Brew failure must not undo native success: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 1 || !result.Partial || len(result.RemovedRefs) != 1 || result.RemovedRefs[0] != "a" || len(result.FailedRefs) != 1 || result.FailedRefs[0] != "b" {
+		t.Fatalf("partial mixed result = %+v; native calls=%d", result, fr.rollbackCalls)
+	}
+}
+
+func TestRollback_Realizer_Bare_MixedDryRunDoesNotResolveBrew(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "3", RunID: "apply-old"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "nix", Native: "4", RunID: "apply-mixed", AddedRefs: []string{"nixpkgs#jq"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := provision.Write(&provision.Generation{Backend: "brew", RunID: "apply-mixed", AddedRefs: []string{"hello"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	fr := capableRealizer(setOf(4, "jq"))
+	var result *RollbackResult
+	withRealizerAndBrew(fr, panicBrewDriverFn(t), func() {
+		raw, env := RunRollback(RollbackFlags{DryRun: true})
+		if env != nil {
+			t.Fatalf("unexpected envelope error: %+v", env)
+		}
+		result = raw.(*RollbackResult)
+	})
+
+	if fr.rollbackCalls != 0 || result.Backend != "mixed" || result.TargetGeneration != 1 || len(result.RemovedRefs) != 1 || result.RemovedRefs[0] != "hello" {
+		t.Fatalf("dry-run result = %+v; native rollback calls=%d", result, fr.rollbackCalls)
+	}
+	if gens, _ := provision.List(); len(gens) != 3 {
+		t.Fatalf("dry-run mutated generations: got %d, want 3", len(gens))
 	}
 }

@@ -103,7 +103,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"apply": {
 				Supported: true,
-				Flags:     []string{"--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--only", "--json", "--events"},
+				Flags:     []string{"--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--only", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"},
 			},
 			"verify": {
 				Supported: true,
@@ -111,7 +111,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"capture": {
 				Supported: true,
-				Flags:     []string{"--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin"},
+				Flags:     []string{"--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--driver"},
 			},
 			"plan": {
 				Supported: true,
@@ -163,7 +163,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"rebuild": {
 				Supported: true,
-				Flags:     []string{"--from", "--dry-run", "--confirm", "--no-restore", "--json", "--events"},
+				Flags:     []string{"--from", "--dry-run", "--confirm", "--no-restore", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"},
 			},
 		},
 		Features: FeaturesInfo{
@@ -201,22 +201,9 @@ func platformInfoFor(goos string) PlatformInfo {
 	return PlatformInfo{OS: goos, Drivers: driversFor(goos)}
 }
 
-// driversFor returns the package-manager drivers available on the given OS,
-// accumulated across every backend selector so the advertised list matches what
-// the engine can actually drive on the host: winget on Windows; the Nix realizer
-// on Linux/macOS; plus the Homebrew driver as an additive explicit lane on macOS
-// (so darwin advertises both "nix" and "brew"). Stays in sync with
-// selectBackend/selectRealizer/selectBrewDriver.
+// driversFor returns the statically supported package backends in registry
+// order. It deliberately does not resolve a backend factory or probe installed
+// executables: capabilities advertises engine support, not current machine state.
 func driversFor(goos string) []string {
-	drivers := []string{}
-	if d, err := selectBackend(goos); err == nil && d != nil {
-		drivers = append(drivers, d.Name())
-	}
-	if r, err := selectRealizer(goos); err == nil && r != nil {
-		drivers = append(drivers, r.Name())
-	}
-	if d, err := selectBrewDriver(goos); err == nil && d != nil {
-		drivers = append(drivers, d.Name())
-	}
-	return drivers
+	return platformBackendsFor(goos).SupportedNames()
 }

@@ -12,24 +12,25 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
-// partitionBrewLane splits a synthesized app set into the brew lane and the rest
-// (everything the Nix realizer owns). An app routes to the brew lane when it
-// declares driver:"brew" (case-insensitively) OR its darwin ref is a Homebrew
-// Cask (cask: prefix) — the cask: prefix is an unambiguous "this is a GUI app"
-// signal, so a Cask routes to brew BY DEFAULT without the user also declaring
-// driver:"brew" (brew-default-for-apps). Order is preserved within each lane so
-// the event stream and recorded actions stay deterministic. The realizer is
-// always handed restApps — it NEVER sees a brew/`cask:` ref; this routing (not a
-// manifest rejection) is what upholds that invariant.
-func partitionBrewLane(apps []manifest.App) (brewApps, restApps []manifest.App) {
+// partitionRealizerLanes preserves Nix as the default whole-set realizer while
+// keeping explicit package-driver ownership authoritative. Known drivers that
+// cannot run on a realizer host are returned separately so callers can surface
+// visible skips; they are never handed to Nix as fallback refs.
+func partitionRealizerLanes(apps []manifest.App) (brewApps, unsupportedApps, realizerApps []manifest.App) {
 	for _, app := range apps {
-		if strings.EqualFold(app.Driver, "brew") || isCaskRef(app.Refs["darwin"]) {
+		requested := strings.ToLower(strings.TrimSpace(app.Driver))
+		switch {
+		case requested == "brew":
 			brewApps = append(brewApps, app)
-		} else {
-			restApps = append(restApps, app)
+		case requested != "":
+			unsupportedApps = append(unsupportedApps, app)
+		case isCaskRef(app.Refs["darwin"]):
+			brewApps = append(brewApps, app)
+		default:
+			realizerApps = append(realizerApps, app)
 		}
 	}
-	return brewApps, restApps
+	return brewApps, unsupportedApps, realizerApps
 }
 
 // isCaskRef reports whether a darwin ref is a Homebrew Cask (cask: prefix). It

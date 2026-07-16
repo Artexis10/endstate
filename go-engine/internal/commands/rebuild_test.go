@@ -315,6 +315,23 @@ func TestRunRebuild_DryRun_PreviewsWithoutVerifyOrInstall(t *testing.T) {
 	}
 }
 
+func TestRebuildApplyFlags_PropagatesBackendBootstrapConsent(t *testing.T) {
+	got := rebuildApplyFlags(RebuildFlags{
+		DryRun:            true,
+		NoRestore:         true,
+		Events:            "jsonl",
+		BootstrapBackends: true,
+		NoBootstrap:       true,
+	}, "resolved-manifest.jsonc")
+
+	if !got.BootstrapBackends || !got.NoBootstrap {
+		t.Fatalf("bootstrap flags = (%v, %v), want both propagated", got.BootstrapBackends, got.NoBootstrap)
+	}
+	if got.Manifest != "resolved-manifest.jsonc" || !got.DryRun || got.EnableRestore || got.Events != "jsonl" {
+		t.Fatalf("other rebuild apply flags changed: %+v", got)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // 5. --no-restore without confirm → succeeds, targets untouched, restore disabled
 // ---------------------------------------------------------------------------

@@ -21,9 +21,9 @@ type PlanFlags struct {
 // PlanResult is the data payload for the plan command JSON envelope.
 // Shape matches docs/contracts/cli-json-contract.md section "Command: plan".
 type PlanResult struct {
-	Manifest PlanManifestRef       `json:"manifest"`
-	Plan     planner.PlanSummary   `json:"plan"`
-	Actions  []planner.PlanAction  `json:"actions"`
+	Manifest PlanManifestRef      `json:"manifest"`
+	Plan     planner.PlanSummary  `json:"plan"`
+	Actions  []planner.PlanAction `json:"actions"`
 }
 
 // PlanManifestRef identifies the manifest used for the plan.
@@ -51,37 +51,32 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
 	// the winget driver plan below, byte-identical to prior behavior.
 	if rz, rerr := newRealizerFn(); rerr == nil {
-		brewApps, restApps := partitionBrewLane(mf.Apps)
-		var brewDrv driver.Driver
-		if len(brewApps) > 0 {
-			if d, berr := newBrewDriverFn(); berr == nil {
-				brewDrv = d
-			}
-		}
+		brewApps, unsupportedApps, restApps := partitionRealizerLanes(mf.Apps)
+		brewDrv := resolveReadOnlyBrewDriver(len(brewApps) > 0, emitter)
 		rzMf := *mf
 		rzMf.Apps = restApps
-		return runPlanRealizer(flags, &rzMf, rz, emitter, brewApps, brewDrv)
+		return runPlanRealizer(flags, &rzMf, rz, emitter, brewApps, brewDrv, unsupportedApps)
 	}
 
-	// --- 2. Create driver and compute plan ---
-	d, derr := newDriverFn()
-	if derr != nil {
-		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())
-	}
+	// --- 2. Resolve authoritative per-package driver lanes and compute plan ---
 	emitter.EmitPhase("plan")
 
-	p, planErr := planner.ComputePlan(mf, d)
+	p, planErr := computeDriverLanePlanWithOverrides(mf, packageDriverReadOnlyOverrides(mf, emitter))
 	if planErr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, planErr.Error())
 	}
 
 	// --- 3. Emit item events ---
 	for _, action := range p.Actions {
-		emitter.EmitItem(action.Ref, action.Driver, action.CurrentStatus, "", action.PlannedAction, action.DisplayName)
+		reason := ""
+		if action.CurrentStatus == driver.StatusSkipped {
+			reason = driver.ReasonFiltered
+		}
+		emitter.EmitItem(action.Ref, action.Driver, action.CurrentStatus, reason, action.PlannedAction, action.DisplayName)
 	}
 
 	// --- 4. Summary event ---
-	emitter.EmitSummary("plan", p.Summary.Total, p.Summary.AlreadyPresent, 0, p.Summary.ToInstall)
+	emitter.EmitSummary("plan", p.Summary.Total, p.Summary.AlreadyPresent, p.Summary.Skipped, p.Summary.ToInstall)
 
 	return &PlanResult{
 		Manifest: PlanManifestRef{Path: flags.Manifest, Name: mf.Name},

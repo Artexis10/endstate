@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
@@ -32,13 +33,64 @@ func withMockSnapshot(apps []snapshot.SnapshotApp, err error, f func()) {
 	takeSnapshotFn = func() ([]snapshot.SnapshotApp, error) {
 		return apps, err
 	}
+	defer func() { takeSnapshotFn = orig }()
+	withLegacyWingetCaptureEnvironment(f)
+}
+
+func withLegacyWingetCaptureEnvironment(f func()) {
 	origRealizer := newRealizerFn
+	origResolve := resolveCaptureEnumeratorFn
+	origGOOS := captureGOOSFn
 	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
+	resolveCaptureEnumeratorFn = func(name string, structuredEvents bool) (driver.InstalledEnumerator, error) {
+		if strings.EqualFold(name, "winget") {
+			return legacyWingetCaptureEnumerator{structuredEvents: structuredEvents}, nil
+		}
+		return fakeInstalledEnumerator{}, nil
+	}
+	captureGOOSFn = func() string { return "windows" }
 	defer func() {
-		takeSnapshotFn = orig
 		newRealizerFn = origRealizer
+		resolveCaptureEnumeratorFn = origResolve
+		captureGOOSFn = origGOOS
 	}()
 	f()
+}
+
+func TestWithMockSnapshotIsolatesNonWingetCaptureDrivers(t *testing.T) {
+	origResolve := resolveCaptureEnumeratorFn
+	origGOOS := captureGOOSFn
+	nonWingetResolved := false
+	resolveCaptureEnumeratorFn = func(name string, structuredEvents bool) (driver.InstalledEnumerator, error) {
+		if strings.EqualFold(name, "winget") {
+			return legacyWingetCaptureEnumerator{structuredEvents: structuredEvents}, nil
+		}
+		nonWingetResolved = true
+		return fakeInstalledEnumerator{packages: []driver.InstalledPackage{{Ref: "host-package"}}}, nil
+	}
+	captureGOOSFn = func() string { return "windows" }
+	defer func() {
+		resolveCaptureEnumeratorFn = origResolve
+		captureGOOSFn = origGOOS
+	}()
+
+	out := filepath.Join(t.TempDir(), "captured.jsonc")
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				raw, eerr := RunCapture(CaptureFlags{Out: out})
+				if eerr != nil {
+					t.Fatalf("RunCapture returned envelope error: %+v", eerr)
+				}
+				if got := raw.(*CaptureResult).Counts.Included; got != len(sampleApps()) {
+					t.Fatalf("included = %d, want isolated Winget count %d", got, len(sampleApps()))
+				}
+			})
+		})
+	})
+	if nonWingetResolved {
+		t.Fatal("legacy Winget capture helper resolved a non-Winget driver")
+	}
 }
 
 // withMockDisplayNames replaces the installed-apps seam (listInstalledFn) with
@@ -197,15 +249,8 @@ func withMockSnapshotSequence(calls []snapshotCall, f func()) {
 		callIdx++
 		return calls[idx].apps, calls[idx].err
 	}
-	// Force the no-realizer path (see withMockSnapshot) so the capture fork does
-	// not divert these winget-path tests to the Nix realizer on linux/darwin.
-	origRealizer := newRealizerFn
-	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
-	defer func() {
-		takeSnapshotFn = orig
-		newRealizerFn = origRealizer
-	}()
-	f()
+	defer func() { takeSnapshotFn = orig }()
+	withLegacyWingetCaptureEnvironment(f)
 }
 
 // withRetryDelay overrides snapshotRetryDelay for the duration of f.
@@ -214,6 +259,29 @@ func withRetryDelay(d time.Duration, f func()) {
 	snapshotRetryDelay = d
 	defer func() { snapshotRetryDelay = orig }()
 	f()
+}
+
+func assertCaptureEventStreamIsNDJSON(t *testing.T, stderr string) {
+	t.Helper()
+	lineNumber := 0
+	eventCount := 0
+	for _, line := range strings.Split(stderr, "\n") {
+		lineNumber++
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("stderr line %d is not valid event JSON: %v\n%s", lineNumber, err, line)
+		}
+		if event["event"] == nil {
+			t.Fatalf("stderr line %d is JSON but not an event: %s", lineNumber, line)
+		}
+		eventCount++
+	}
+	if eventCount == 0 {
+		t.Fatal("expected capture to emit structured events")
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -856,8 +924,8 @@ func TestRunCapture_AppsIncluded_HasSourceNameID(t *testing.T) {
 
 	displayNames := map[string]string{
 		"Microsoft.VisualStudioCode": "Visual Studio Code",
-		"Git.Git":                   "Git",
-		"Google.Chrome":             "Google Chrome",
+		"Git.Git":                    "Git",
+		"Google.Chrome":              "Google Chrome",
 	}
 
 	var result *CaptureResult
@@ -1684,7 +1752,7 @@ func TestRunCapture_EmptySnapshot_RetriesAndSucceeds(t *testing.T) {
 
 	calls := []snapshotCall{
 		{apps: []snapshot.SnapshotApp{}, err: nil}, // first call: empty (lock contention)
-		{apps: sampleApps(), err: nil},              // retry: success
+		{apps: sampleApps(), err: nil},             // retry: success
 	}
 
 	var result *CaptureResult
@@ -1708,6 +1776,34 @@ func TestRunCapture_EmptySnapshot_RetriesAndSucceeds(t *testing.T) {
 	if result.Counts.TotalFound != 3 {
 		t.Errorf("expected totalFound=3 after retry, got %d", result.Counts.TotalFound)
 	}
+}
+
+func TestRunCapture_EventsJSONL_ZeroPackageRetryKeepsStderrValidNDJSON(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "captured.jsonc")
+	calls := []snapshotCall{
+		{apps: []snapshot.SnapshotApp{}},
+		{apps: sampleExportSet()},
+	}
+	origGOOS := captureGOOSFn
+	captureGOOSFn = func() string { return "windows" }
+	defer func() { captureGOOSFn = origGOOS }()
+
+	stderr := captureStderr(t, func() {
+		withRetryDelay(0, func() {
+			withMockSnapshotSequence(calls, func() {
+				noopDisplayNames(func() {
+					emptyCatalog(func() {
+						_, eerr := RunCapture(CaptureFlags{Out: outPath, Drivers: []string{"winget"}, Events: "jsonl"})
+						if eerr != nil {
+							t.Fatalf("RunCapture: %v", eerr)
+						}
+					})
+				})
+			})
+		})
+	})
+
+	assertCaptureEventStreamIsNDJSON(t, stderr)
 }
 
 func TestRunCapture_EmptySnapshot_RetryAlsoEmpty_FailsWithCaptureFailed(t *testing.T) {
@@ -1746,19 +1842,15 @@ func TestRunCapture_NormalCapture_NoRetry(t *testing.T) {
 	}
 	defer func() { takeSnapshotFn = orig }()
 
-	// Force the no-realizer path so the capture fork does not divert this
-	// winget-path test to the Nix realizer on linux/darwin.
-	origRealizer := newRealizerFn
-	newRealizerFn = func() (realizer.Realizer, error) { return nil, ErrNoRealizer }
-	defer func() { newRealizerFn = origRealizer }()
-
-	withRetryDelay(0, func() {
-		noopDisplayNames(func() {
-			emptyCatalog(func() {
-				_, err := RunCapture(CaptureFlags{Out: outPath})
-				if err != nil {
-					t.Fatalf("RunCapture returned unexpected error: %+v", err)
-				}
+	withLegacyWingetCaptureEnvironment(func() {
+		withRetryDelay(0, func() {
+			noopDisplayNames(func() {
+				emptyCatalog(func() {
+					_, err := RunCapture(CaptureFlags{Out: outPath})
+					if err != nil {
+						t.Fatalf("RunCapture returned unexpected error: %+v", err)
+					}
+				})
 			})
 		})
 	})
@@ -1888,6 +1980,30 @@ func TestRunCapture_Pin_SnapshotError_SucceedsWithoutVersions(t *testing.T) {
 			t.Errorf("expected no version when installed-apps snapshot failed, got %v", app["version"])
 		}
 	}
+}
+
+func TestRunCapture_EventsJSONL_PinWithoutVersionsKeepsStderrValidNDJSON(t *testing.T) {
+	outPath := filepath.Join(t.TempDir(), "captured.jsonc")
+	origGOOS := captureGOOSFn
+	captureGOOSFn = func() string { return "windows" }
+	defer func() { captureGOOSFn = origGOOS }()
+
+	stderr := captureStderr(t, func() {
+		withMockSnapshot(sampleExportSet(), nil, func() {
+			withMockDisplayNames(nil, errors.New("winget list failed"), func() {
+				emptyCatalog(func() {
+					_, eerr := RunCapture(CaptureFlags{
+						Out: outPath, Pin: true, Drivers: []string{"winget"}, Events: "jsonl",
+					})
+					if eerr != nil {
+						t.Fatalf("RunCapture: %v", eerr)
+					}
+				})
+			})
+		})
+	})
+
+	assertCaptureEventStreamIsNDJSON(t, stderr)
 }
 
 // With --pin --sanitize, versions are kept, _name is stripped, and apps are

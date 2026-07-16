@@ -83,17 +83,18 @@ Tracks progress of individual items (apps, configs, etc.).
   "runId": "apply-20250101-120000-MACHINE",
   "timestamp": "2025-01-01T12:00:01.456Z",
   "event": "item",
-  "id": "Microsoft.VisualStudioCode",
-  "driver": "winget",
+  "id": "git.install",
+  "driver": "chocolatey",
   "status": "installed",
   "reason": null,
-  "message": "Installed successfully"
+  "message": "Installed; restart required",
+  "rebootRequired": true
 }
 ```
 
 **Fields:**
 - `id` (string, required): Item identifier
-- `driver` (string, required): Driver name (e.g., `"winget"`)
+- `driver` (string, required for package items): Resolved stable driver/backend name (e.g., `"winget"`, `"chocolatey"`, `"brew"`, or `"nix"`)
 - `name` (string, optional): Human-readable display name (e.g., `"Visual Studio Code"`). When absent, consumers should format the `id` field for display.
 - `status` (string, required): One of:
   - `"to_install"` - Preview: will be installed
@@ -116,6 +117,7 @@ Tracks progress of individual items (apps, configs, etc.).
 
 **Note on `user_denied`:** Detection is heuristic and unreliable. Winget provides no standardized exit code for user cancellation. Pattern matching on output text may misclassify some user cancellations as `install_failed`.
 - `message` (string, optional): Human-readable message
+- `rebootRequired` (boolean, optional): `true` when a successful package operation requires a reboot; omitted otherwise. This is a success fact, not a warning or failure.
 
 **Guarantees:**
 - Same `id` may appear multiple times (status transitions)
@@ -302,7 +304,7 @@ Tracks per-chunk progress of a hosted-backup push or pull (added in engine v2.3.
 
 #### 8. Consent Event
 
-Requests the user's consent to bootstrap one or more absent package backends — on macOS/Linux the engine installs its own package backend (the Nix realizer / Homebrew driver) when it is missing. Non-breaking addition (new event type, no version bump required per extensibility rules).
+Requests the user's consent to bootstrap one or more absent package backends, including the Nix realizer/Homebrew driver on macOS/Linux and Chocolatey on Windows. Non-breaking addition (new event type, no version bump required per extensibility rules).
 
 One event covers the **combined** set of backends a run needs and lacks, so the GUI renders a single plain-language consent dialog. The `message` is product-neutral (it never names "Nix"/"Homebrew") to keep the backend concepts invisible; the `details` carry the exact, inspectable installer commands for anyone who looks.
 
@@ -328,11 +330,11 @@ One event covers the **combined** set of backends a run needs and lacks, so the 
 
 **Guarantees:**
 - At most ONE consent event per run, covering the combined set of absent needed backends (combined consent).
-- Emitted only by the mutating `apply` command, and only when a needed backend is absent and consent has not yet been given. A present/working backend never emits it; `--bootstrap-backends` installs without emitting a request; `--no-bootstrap` skips without emitting a request.
+- Emitted only by a mutating apply stage (including `rebuild`'s apply stage), and only when a needed backend is absent and consent has not yet been given. A present/working backend never emits it; `--bootstrap-backends` installs without emitting a request; `--no-bootstrap` skips without emitting a request.
 - The engine never installs a backend without explicit consent; absent a consent decision it defaults to skipping that backend's lane and continuing the run.
 
 **Consumer notes:**
-- The GUI renders `message` as the dialog body and may reveal `details` behind a "show details" affordance; on the user's affirmative it re-invokes the engine with `--bootstrap-backends`.
+- The GUI renders `message` as the dialog body and may reveal `details` behind a "show details" affordance; on the user's affirmative it re-invokes apply or rebuild with the existing `--bootstrap-backends` flag.
 - A consumer built against an older engine that does not emit `consent` is unaffected (forward compatibility — unknown event types are ignored).
 
 ---

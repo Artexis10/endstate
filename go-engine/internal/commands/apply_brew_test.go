@@ -123,26 +123,30 @@ func writeTempManifest(t *testing.T, content string) string {
 }
 
 // ---------------------------------------------------------------------------
-// partitionBrewLane
+// partitionRealizerLanes
 // ---------------------------------------------------------------------------
 
-func TestPartitionBrewLane_SplitsAndPreservesOrder(t *testing.T) {
+func TestPartitionRealizerLanes_SplitsAndPreservesOrder(t *testing.T) {
 	apps := []manifest.App{
 		{ID: "ripgrep", Refs: map[string]string{"darwin": "ripgrep"}},
 		{ID: "chrome", Driver: "brew", Refs: map[string]string{"darwin": "cask:google-chrome"}},
 		{ID: "jq", Refs: map[string]string{"darwin": "jq"}},
+		{ID: "windows-only", Driver: "chocolatey", Refs: map[string]string{"darwin": "windows-only"}},
 		{ID: "hello", Driver: "BREW", Refs: map[string]string{"darwin": "hello"}},
 	}
-	brewApps, restApps := partitionBrewLane(apps)
+	brewApps, unsupportedApps, restApps := partitionRealizerLanes(apps)
 	if len(brewApps) != 2 || brewApps[0].ID != "chrome" || brewApps[1].ID != "hello" {
 		t.Fatalf("brew lane = %+v, want [chrome hello] (case-insensitive)", brewApps)
+	}
+	if len(unsupportedApps) != 1 || unsupportedApps[0].ID != "windows-only" {
+		t.Fatalf("unsupported lane = %+v, want [windows-only]", unsupportedApps)
 	}
 	if len(restApps) != 2 || restApps[0].ID != "ripgrep" || restApps[1].ID != "jq" {
 		t.Fatalf("rest lane = %+v, want [ripgrep jq] order-preserved", restApps)
 	}
 }
 
-func TestPartitionBrewLane_CaskRefAutoRoutesToBrew(t *testing.T) {
+func TestPartitionRealizerLanes_CaskRefAutoRoutesToBrew(t *testing.T) {
 	apps := []manifest.App{
 		{ID: "ripgrep", Refs: map[string]string{"darwin": "nixpkgs#ripgrep"}},
 		// Cask ref, NO driver:"brew" → must still route to the brew lane.
@@ -151,7 +155,10 @@ func TestPartitionBrewLane_CaskRefAutoRoutesToBrew(t *testing.T) {
 		{ID: "slack", Refs: map[string]string{"darwin": "Cask:slack"}},
 		{ID: "jq", Refs: map[string]string{"darwin": "jq"}},
 	}
-	brewApps, restApps := partitionBrewLane(apps)
+	brewApps, unsupportedApps, restApps := partitionRealizerLanes(apps)
+	if len(unsupportedApps) != 0 {
+		t.Fatalf("unsupported lane = %+v, want empty", unsupportedApps)
+	}
 	if len(brewApps) != 2 || brewApps[0].ID != "chrome" || brewApps[1].ID != "slack" {
 		t.Fatalf("brew lane = %+v, want [chrome slack] (cask: auto-routes)", brewApps)
 	}
@@ -160,11 +167,14 @@ func TestPartitionBrewLane_CaskRefAutoRoutesToBrew(t *testing.T) {
 	}
 }
 
-func TestPartitionBrewLane_NoBrew(t *testing.T) {
+func TestPartitionRealizerLanes_NoBrew(t *testing.T) {
 	apps := []manifest.App{{ID: "ripgrep", Refs: map[string]string{"darwin": "ripgrep"}}}
-	brewApps, restApps := partitionBrewLane(apps)
+	brewApps, unsupportedApps, restApps := partitionRealizerLanes(apps)
 	if len(brewApps) != 0 {
 		t.Fatalf("brew lane = %+v, want empty", brewApps)
+	}
+	if len(unsupportedApps) != 0 {
+		t.Fatalf("unsupported lane = %+v, want empty", unsupportedApps)
 	}
 	if len(restApps) != 1 {
 		t.Fatalf("rest lane = %+v, want one", restApps)

@@ -53,6 +53,9 @@ type InstallResult struct {
 	Reason string
 	// Message is a human-readable description of what happened.
 	Message string
+	// RebootRequired is true when the package manager completed successfully but
+	// reported that Windows must reboot before the change is fully effective.
+	RebootRequired bool
 }
 
 // Driver is the interface that all package-manager adapters must implement.
@@ -146,4 +149,20 @@ type BatchDetector interface {
 	// DetectBatch checks multiple refs at once. Returns a map of ref →
 	// DetectResult. A ref absent from the map means not installed.
 	DetectBatch(refs []string) (map[string]DetectResult, error)
+}
+
+// InstalledPackage is the package-manager-neutral record returned by installed
+// package enumeration. Ref is the stable manager-specific package identifier;
+// DisplayName and Version are best-effort evidence exposed by that manager.
+type InstalledPackage struct {
+	Ref         string
+	DisplayName string
+	Version     string
+}
+
+// InstalledEnumerator is an optional driver capability for capture. It reports
+// the manager's installed-package ledger without applying cross-manager
+// deduplication or changing the manager's configured sources.
+type InstalledEnumerator interface {
+	EnumerateInstalled() ([]InstalledPackage, error)
 }

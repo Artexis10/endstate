@@ -6,6 +6,7 @@ package modules
 import (
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -13,7 +14,7 @@ import (
 
 // MatchModulesForApps matches captured apps against the config module catalog.
 // For each module with a capture section, it checks:
-//   - Whether any app's winget ref matches a module's matches.winget list
+//   - Whether an app's Windows ref matches the matcher for its selected driver
 //   - Whether any module's matches.pathExists paths exist on the filesystem
 //
 // Only modules with capture sections are returned. Results are sorted by
@@ -23,10 +24,19 @@ func MatchModulesForApps(catalog map[string]*Module, apps []manifest.App) []*Mod
 		return nil
 	}
 
-	// Collect all winget IDs from captured apps.
+	// Collect Windows refs by selected driver. An omitted driver retains the
+	// legacy Winget default; explicit drivers never cross-match.
 	wingetIDs := make(map[string]bool)
+	chocolateyIDs := make(map[string]bool)
 	for _, app := range apps {
-		if ref, ok := app.Refs["windows"]; ok && ref != "" {
+		ref := app.Refs["windows"]
+		if ref == "" {
+			continue
+		}
+		switch {
+		case strings.EqualFold(app.Driver, "chocolatey"):
+			chocolateyIDs[strings.ToLower(ref)] = true
+		case app.Driver == "" || strings.EqualFold(app.Driver, "winget"):
 			wingetIDs[ref] = true
 		}
 	}
@@ -46,6 +56,16 @@ func MatchModulesForApps(catalog map[string]*Module, apps []manifest.App) []*Mod
 			if wingetIDs[wingetPattern] {
 				isMatch = true
 				break
+			}
+		}
+
+		// Check Chocolatey ID matches.
+		if !isMatch {
+			for _, chocolateyPattern := range mod.Matches.Chocolatey {
+				if chocolateyIDs[strings.ToLower(chocolateyPattern)] {
+					isMatch = true
+					break
+				}
 			}
 		}
 

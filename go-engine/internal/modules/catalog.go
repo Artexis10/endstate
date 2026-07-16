@@ -91,12 +91,13 @@ func validateModule(mod *Module, filePath string) error {
 
 	// matches must have at least one matcher.
 	hasWinget := len(mod.Matches.Winget) > 0
+	hasChocolatey := len(mod.Matches.Chocolatey) > 0
 	hasExe := len(mod.Matches.Exe) > 0
 	hasUninstall := len(mod.Matches.UninstallDisplayName) > 0
 	hasPathExists := len(mod.Matches.PathExists) > 0
 
-	if !hasWinget && !hasExe && !hasUninstall && !hasPathExists {
-		return fmt.Errorf("invalid config module at %s: matches must have at least one of: winget, exe, uninstallDisplayName, pathExists", filePath)
+	if !hasWinget && !hasChocolatey && !hasExe && !hasUninstall && !hasPathExists {
+		return fmt.Errorf("invalid config module at %s: matches must have at least one of: winget, chocolatey, exe, uninstallDisplayName, pathExists", filePath)
 	}
 
 	return nil
