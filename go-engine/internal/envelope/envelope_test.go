@@ -5,6 +5,7 @@ package envelope_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -80,6 +81,17 @@ func TestNewFailure_AllFieldsPresent(t *testing.T) {
 	// data must still be present (empty object)
 	if env.Data == nil {
 		t.Error("data: expected non-nil empty object")
+	}
+}
+
+func TestNewFailureWithDataPreservesPartialCommandResult(t *testing.T) {
+	partial := map[string]interface{}{"configResolutions": []interface{}{map[string]interface{}{"status": "failed"}}}
+	env := envelope.NewFailureWithData(
+		"restore", "restore-run", testSchema, testVersion, partial,
+		envelope.NewError(envelope.ErrRestoreFailed, "Restore failed."),
+	)
+	if env.Success || !reflect.DeepEqual(env.Data, partial) || env.Error == nil {
+		t.Fatalf("failure envelope = %+v", env)
 	}
 }
 

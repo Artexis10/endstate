@@ -20,6 +20,7 @@ type configRestoreLiveSetRequest struct {
 	Lineage         configrestore.JournalLineage
 	Registry        configrestore.RegistryMutator
 	Observer        configrestore.TransactionObserver
+	Ready           func(*configrestore.PreparedSet)
 }
 
 type configRestoreSetOutcome struct {
@@ -49,6 +50,9 @@ func executeLiveConfigRestoreSet(ctx context.Context, request configRestoreLiveS
 	})
 	if err != nil {
 		return failedConfigRestoreSet(planner.ReasonJournalIntentFailed, err, false, prepared)
+	}
+	if request.Ready != nil {
+		request.Ready(prepared)
 	}
 	transaction, transactionErr := executeConfigRestoreTransactionFn(ctx, configrestore.TransactionRequest{
 		Prepared: prepared, Intent: intent, Registry: request.Registry, Observer: request.Observer,

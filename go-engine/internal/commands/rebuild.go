@@ -159,7 +159,14 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		RestoreTargets: append([]string(nil), flags.RestoreTargets...),
 	})
 	if applyErr != nil {
-		return nil, applyErr
+		var configFields *ConfigResultFields
+		if applied, ok := applyResult.(*ApplyResult); ok {
+			configFields = applied.ConfigResultFields
+		}
+		return &RebuildResult{
+			From: from, Bundle: bundleInfo, DryRun: flags.DryRun, Restore: restoreState,
+			Apply: applyResult, ConfigResultFields: configFields,
+		}, applyErr
 	}
 
 	// --- 5. Verify (skipped on dry-run) ---

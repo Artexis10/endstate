@@ -89,10 +89,12 @@ func DescribeAction(action RestoreAction, opts RestoreOptions) ActionDescriptor 
 	switch restoreType {
 	case "registry-set":
 		descriptor.Target = registrySetTarget(action)
+		descriptor.TargetExisted = describeRegistryTargetExists(action)
 		return descriptor
 	case "registry-import":
 		descriptor.Source = resolveSource(action.Source, opts)
 		descriptor.Target = action.Target
+		descriptor.TargetExisted = describeRegistryTargetExists(action)
 		return descriptor
 	case "delete-glob":
 		descriptor.Target = resolveTarget(action.Target)

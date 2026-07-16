@@ -90,20 +90,18 @@ func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 	}
 	options := restoreConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter)
 	execution, executeErr := session.Execute(context.Background(), options)
-	if executeErr != nil {
-		return nil, executeErr
-	}
 	var configFields *ConfigResultFields
 	if configRuntime.inputs.hasConfigPayloads {
 		configFields = NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems)
 	}
 
-	return &RestoreData{
+	data := &RestoreData{
 		Results:            execution.Results,
 		JournalPath:        execution.JournalPath,
 		DryRun:             flags.DryRun,
 		ConfigResultFields: configFields,
-	}, nil
+	}
+	return data, executeErr
 }
 
 func restoreConfigRestoreExecutionOptions(
@@ -151,6 +149,7 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 	}
 
 	var actions []restore.RestoreAction
+	usedIDs := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
 		// Generate a deterministic ID.
 		restoreType := e.Type
@@ -183,7 +182,6 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 			ValueType:  e.ValueType,
 			Data:       e.Data,
 		}
-
 		// Apply filter: if filter is set, skip entries that don't match.
 		// Inline entries (no FromModule) always pass the filter.
 		if len(filterList) > 0 && action.FromModule != "" {
@@ -197,6 +195,14 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 			if !matched {
 				continue
 			}
+		}
+		baseID := action.ID
+		for suffix := 2; ; suffix++ {
+			if _, exists := usedIDs[action.ID]; !exists {
+				usedIDs[action.ID] = struct{}{}
+				break
+			}
+			action.ID = fmt.Sprintf("%s#%d", baseID, suffix)
 		}
 
 		actions = append(actions, action)

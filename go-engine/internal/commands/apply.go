@@ -572,15 +572,24 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	}
 	var configFields *ConfigResultFields
 	if flags.DryRun {
+		dryActions := make([]ApplyAction, len(planEntries))
+		for index := range planEntries {
+			dryActions[index] = planEntries[index].action
+		}
 		configExecution, executeErr := configSession.Execute(
 			context.Background(),
 			applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter),
 		)
-		if executeErr != nil {
-			return nil, executeErr
-		}
 		if configRuntime.inputs.hasConfigPayloads {
 			configFields = NewConfigResultFields(configExecution.Plan.Sets, configExecution.RestoreItems)
+		}
+		if executeErr != nil {
+			return &ApplyResult{
+				DryRun: true, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+				Summary: ApplySummary{Total: totalApps, Skipped: presentCount}, Actions: dryActions,
+				ConfigModuleMap: configModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+				ConfigResultFields: configFields,
+			}, executeErr
 		}
 	}
 
@@ -726,11 +735,16 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				context.Background(),
 				applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter),
 			)
-			if executeErr != nil {
-				return nil, executeErr
-			}
 			if configRuntime.inputs.hasConfigPayloads {
 				configFields = NewConfigResultFields(configExecution.Plan.Sets, configExecution.RestoreItems)
+			}
+			if executeErr != nil {
+				return &ApplyResult{
+					DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+					Summary: ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
+					Actions: finalActions, ConfigModuleMap: configModuleMap,
+					RestoreModulesAvailable: restoreModulesAvailable, ConfigResultFields: configFields,
+				}, executeErr
 			}
 		}
 

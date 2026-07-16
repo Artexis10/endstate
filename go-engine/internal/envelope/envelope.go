@@ -57,6 +57,16 @@ func NewSuccess(command, runID, schemaVersion, cliVersion string, data interface
 // NewFailure builds an Envelope representing a failed command result.
 // data is set to an empty object so consumers always have a consistent shape.
 func NewFailure(command, runID, schemaVersion, cliVersion string, err *Error) *Envelope {
+	return NewFailureWithData(command, runID, schemaVersion, cliVersion, nil, err)
+}
+
+// NewFailureWithData preserves a command's canonical partial result when the
+// command fails after producing authoritative per-item outcomes. Nil data
+// retains the legacy empty-object failure shape.
+func NewFailureWithData(command, runID, schemaVersion, cliVersion string, data interface{}, err *Error) *Envelope {
+	if data == nil {
+		data = map[string]interface{}{}
+	}
 	return &Envelope{
 		SchemaVersion: schemaVersion,
 		CLIVersion:    cliVersion,
@@ -64,7 +74,7 @@ func NewFailure(command, runID, schemaVersion, cliVersion string, err *Error) *E
 		RunID:         runID,
 		TimestampUTC:  time.Now().UTC().Format(time.RFC3339),
 		Success:       false,
-		Data:          map[string]interface{}{},
+		Data:          data,
 		Error:         err,
 	}
 }

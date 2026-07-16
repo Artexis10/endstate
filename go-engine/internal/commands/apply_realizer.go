@@ -285,7 +285,13 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			context.Background(), flags, runID, emitter, configSession,
 		)
 		if configErr != nil {
-			return nil, configErr
+			return &ApplyResult{
+				DryRun: true, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+				Summary:         ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent},
+				Actions:         append(append([]ApplyAction{}, actions...), brew.brewActions()...),
+				ConfigModuleMap: configModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+				ConfigResultFields: configFields,
+			}, configErr
 		}
 		// --prune --dry-run previews the prune set without mutating anything and
 		// without requiring --confirm.
@@ -448,7 +454,13 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		context.Background(), flags, runID, emitter, configSession,
 	)
 	if configErr != nil {
-		return nil, configErr
+		return &ApplyResult{
+			DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+			Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
+			Actions:         append(append([]ApplyAction{}, actions...), brew.brewActions()...),
+			ConfigModuleMap: configModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+			Pruned: removed, ConfigResultFields: configFields,
+		}, configErr
 	}
 
 	// --- Phase 3: Verify (read current generation) ---

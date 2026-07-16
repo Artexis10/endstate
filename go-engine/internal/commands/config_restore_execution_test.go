@@ -155,6 +155,7 @@ func TestConfigRestoreExecutionEmitsExactlyOneDeleteGlobLifecycleForZeroOneOrMan
 				t.Fatalf("execute: %+v", envErr)
 			}
 			restoreEvents := []map[string]any{}
+			var summary map[string]any
 			for _, line := range strings.Split(strings.TrimSpace(buffer.String()), "\n") {
 				var event map[string]any
 				if err := json.Unmarshal([]byte(line), &event); err != nil {
@@ -163,13 +164,64 @@ func TestConfigRestoreExecutionEmitsExactlyOneDeleteGlobLifecycleForZeroOneOrMan
 				if event["event"] == "restore-item" {
 					restoreEvents = append(restoreEvents, event)
 				}
+				if event["event"] == "summary" && event["phase"] == "restore" {
+					summary = event
+				}
 			}
 			if len(restoreEvents) != 2 || restoreEvents[0]["id"] != restoreEvents[1]["id"] ||
 				restoreEvents[0]["status"] != "restoring" || restoreEvents[1]["status"] == "restoring" ||
-				restoreEvents[0]["restorer"] != "delete-glob" || restoreEvents[1]["restorer"] != "delete-glob" {
+				restoreEvents[0]["restorer"] != "delete-glob" || restoreEvents[1]["restorer"] != "delete-glob" ||
+				restoreEvents[0]["target"] != restoreEvents[1]["target"] || summary["total"] != float64(1) {
 				t.Fatalf("delete-glob lifecycle = %#v", restoreEvents)
 			}
 		})
+	}
+}
+
+func TestConfigRestoreExecutionKeepsDuplicateInputActionsAsDistinctLifecycles(t *testing.T) {
+	manifestDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(manifestDir, "settings.json"), []byte("settings"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "settings.json")
+	entry := manifest.RestoreEntry{Type: "copy", Source: "settings.json", Target: target, FromModule: "apps.legacy"}
+	inputs := emptyConfigRestoreInputs()
+	inputs.hasConfigPayloads = true
+	inputs.legacyLanes = []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy",
+		restoreEntries: []manifest.RestoreEntry{entry, entry}, selected: true,
+	}}
+	buffer := &bytes.Buffer{}
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+		Emitter: events.NewEmitterWithWriter("duplicate-action-events", true, buffer),
+	})
+	if envErr != nil {
+		t.Fatalf("execute: %+v", envErr)
+	}
+	restoreEvents := []map[string]any{}
+	var summary map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(buffer.String()), "\n") {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event["event"] == "restore-item" {
+			restoreEvents = append(restoreEvents, event)
+		}
+		if event["event"] == "summary" && event["phase"] == "restore" {
+			summary = event
+		}
+	}
+	if len(restoreEvents) != 4 || restoreEvents[0]["id"] != restoreEvents[1]["id"] ||
+		restoreEvents[2]["id"] != restoreEvents[3]["id"] || restoreEvents[0]["id"] == restoreEvents[2]["id"] ||
+		restoreEvents[0]["status"] != "restoring" || restoreEvents[2]["status"] != "restoring" ||
+		summary["total"] != float64(2) {
+		t.Fatalf("duplicate action lifecycles = %#v summary=%#v", restoreEvents, summary)
 	}
 }
 
@@ -451,6 +503,9 @@ func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEv
 			}}}, nil
 		},
 		func(_ context.Context, request configRestoreLiveSetRequest) configRestoreSetOutcome {
+			if request.Ready != nil {
+				request.Ready(nil)
+			}
 			for _, observation := range []configrestore.TransactionObservation{
 				{Stage: configrestore.TransactionStageCommit, Progress: configrestore.TransactionProgressStarted},
 				{Stage: configrestore.TransactionStageCommit, Progress: configrestore.TransactionProgressFailed, Reason: configrestore.ReasonCommitFailed},
@@ -480,7 +535,7 @@ func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEv
 		}
 	}
 	if len(decoded) != 15 || decoded[0]["event"] != "phase" || decoded[0]["phase"] != "restore" ||
-		decoded[1]["event"] != "config-resolution" || decoded[8]["event"] != "restore-item" ||
+		decoded[7]["event"] != "config-resolution" || decoded[8]["event"] != "restore-item" ||
 		decoded[8]["status"] != "restoring" || decoded[13]["event"] != "restore-item" ||
 		decoded[13]["status"] == "restoring" || decoded[8]["id"] != decoded[13]["id"] ||
 		decoded[14]["event"] != "summary" || decoded[14]["phase"] != "restore" {
@@ -501,9 +556,58 @@ func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEv
 		decoded[12]["stage"] != "rollback" || decoded[12]["status"] != "completed" {
 		t.Fatalf("commit/rollback events = %#v", decoded[9:13])
 	}
-	resolutionJSON, _ := json.Marshal(decoded[1])
+	resolutionJSON, _ := json.Marshal(decoded[7])
 	if strings.Contains(string(resolutionJSON), hostRoot) {
 		t.Fatalf("config-resolution leaked host-local target root %q: %s", hostRoot, resolutionJSON)
+	}
+}
+
+func TestConfigRestoreExecutionStreamsFinalPreflightCollisionResolutionOnce(t *testing.T) {
+	runtime, final := configRestoreExecutionFixture(t, "capture-a", "capture-b")
+	sharedTarget := filepath.Join(t.TempDir(), "settings.json")
+	restoreExecutionSeams(t,
+		beginLiveConfigRestoreFn,
+		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+			return &migration.StageResult{Root: t.TempDir(), TargetGeneration: request.TargetGeneration.ID}, nil
+		},
+		func(_ context.Context, request configrestore.Request) (*configrestore.MaterializedSet, error) {
+			return &configrestore.MaterializedSet{Actions: []configrestore.Action{{
+				Kind: configrestore.ActionWriteFile, Strategy: "copy", Target: sharedTarget, SnapshotRequired: true,
+			}}}, nil
+		},
+		executeLiveConfigRestoreSet,
+	)
+	buffer := &bytes.Buffer{}
+	session := &configRestoreExecutionSession{
+		runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, DryRun: true,
+		Emitter: events.NewEmitterWithWriter("collision-resolution-events", true, buffer),
+	})
+	if envErr != nil {
+		t.Fatalf("execute: %+v", envErr)
+	}
+	if result.Plan.Summary.Failed != 2 {
+		t.Fatalf("plan = %+v", result.Plan)
+	}
+	resolutionEvents := []map[string]any{}
+	for _, line := range strings.Split(strings.TrimSpace(buffer.String()), "\n") {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event["event"] == "config-resolution" {
+			resolutionEvents = append(resolutionEvents, event)
+		}
+	}
+	if len(resolutionEvents) != 2 {
+		t.Fatalf("resolution events = %#v", resolutionEvents)
+	}
+	for _, event := range resolutionEvents {
+		if event["reason"] != "target_collision" {
+			t.Fatalf("streamed preflight resolution = %#v", event)
+		}
 	}
 }
 
@@ -578,7 +682,7 @@ func TestConfigRestoreExecutionTreatsJournalIntentFailureAsCommandFatal(t *testi
 	session := &configRestoreExecutionSession{
 		runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final},
 	}
-	_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
 		RestoreEnabled: true, RunID: "apply-test", StateDir: t.TempDir(),
 	})
 	if envErr == nil || !secondMaterialized || persistCalls != 1 || guard.closeCount != 1 {
@@ -587,6 +691,12 @@ func TestConfigRestoreExecutionTreatsJournalIntentFailureAsCommandFatal(t *testi
 	detail, ok := envErr.Detail.(map[string]string)
 	if !ok || detail["reason"] != "journal_intent_failed" {
 		t.Fatalf("detail = %#v", envErr.Detail)
+	}
+	if result.Plan.Sets[0].Resolution.Status != planner.StatusFailed ||
+		result.Plan.Sets[0].Resolution.Reason == nil || *result.Plan.Sets[0].Resolution.Reason != planner.ReasonJournalIntentFailed ||
+		result.Plan.Sets[1].Resolution.Status != planner.StatusSkipped || result.Plan.Sets[1].Resolution.Reason == nil ||
+		*result.Plan.Sets[1].Resolution.Reason != planner.ReasonRecoveryRequired {
+		t.Fatalf("partial failure plan = %+v", result.Plan)
 	}
 	for _, target := range targets {
 		if _, err := os.Stat(target); err != nil {

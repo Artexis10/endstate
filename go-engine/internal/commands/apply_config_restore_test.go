@@ -6,12 +6,14 @@ package commands
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
+	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
@@ -277,6 +279,67 @@ func TestRunApplyTamperedGenerationPayloadIsSkippedWithoutMutation(t *testing.T)
 	}
 	if _, err := os.Stat(filepath.Join(targetRoot, "settings.json")); !os.IsNotExist(err) {
 		t.Fatalf("tampered payload changed target: %v", err)
+	}
+}
+
+func TestRestoreCapableCommandsPreserveConfigResultsOnJournalIntentFailure(t *testing.T) {
+	commands := []struct {
+		name   string
+		run    func(string) (interface{}, *envelope.Error)
+		fields func(interface{}) *ConfigResultFields
+	}{
+		{
+			name: "apply",
+			run: func(manifestPath string) (interface{}, *envelope.Error) {
+				return RunApply(ApplyFlags{Manifest: manifestPath, EnableRestore: true})
+			},
+			fields: func(value interface{}) *ConfigResultFields { return value.(*ApplyResult).ConfigResultFields },
+		},
+		{
+			name: "restore",
+			run: func(manifestPath string) (interface{}, *envelope.Error) {
+				return RunRestore(RestoreFlags{Manifest: manifestPath, EnableRestore: true})
+			},
+			fields: func(value interface{}) *ConfigResultFields { return value.(*RestoreData).ConfigResultFields },
+		},
+		{
+			name: "rebuild",
+			run: func(manifestPath string) (interface{}, *envelope.Error) {
+				return RunRebuild(RebuildFlags{From: manifestPath, Confirm: true})
+			},
+			fields: func(value interface{}) *ConfigResultFields { return value.(*RebuildResult).ConfigResultFields },
+		},
+	}
+
+	for _, tt := range commands {
+		t.Run(tt.name, func(t *testing.T) {
+			manifestPath, targetRoot, module := postInstallGenerationFixture(t)
+			if err := os.MkdirAll(targetRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			installConfigRestoreCommandCatalog(t, module, t.TempDir())
+			originalPersist := persistConfigRestoreJournalIntentFn
+			persistConfigRestoreJournalIntentFn = func(context.Context, configrestore.JournalIntentRequest) (*configrestore.JournalIntent, error) {
+				return nil, errors.New("disk full")
+			}
+			t.Cleanup(func() { persistConfigRestoreJournalIntentFn = originalPersist })
+
+			var value interface{}
+			var envErr *envelope.Error
+			withMockDriver(&mockDriver{
+				installed: map[string]bool{"Vendor.App": true}, versions: map[string]string{"Vendor.App": "2.0"},
+			}, func() {
+				value, envErr = tt.run(manifestPath)
+			})
+			if envErr == nil || value == nil {
+				t.Fatalf("value=%#v error=%+v, want partial result and command failure", value, envErr)
+			}
+			fields := tt.fields(value)
+			if fields == nil || len(fields.ConfigResolutions) != 1 || fields.ConfigResolutions[0].Status != planner.StatusFailed ||
+				fields.ConfigResolutions[0].Reason == nil || *fields.ConfigResolutions[0].Reason != planner.ReasonJournalIntentFailed {
+				t.Fatalf("partial config fields = %+v", fields)
+			}
+		})
 	}
 }
 

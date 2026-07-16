@@ -40,11 +40,8 @@ func executePreparedApplyConfigRestore(
 		ctx,
 		applyConfigRestoreExecutionOptions(flags, runID, flags.configRestoreRepoRoot, emitter),
 	)
-	if envErr != nil {
+	if !inputs.hasConfigPayloads {
 		return nil, envErr
 	}
-	if !inputs.hasConfigPayloads {
-		return nil, nil
-	}
-	return NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems), nil
+	return NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems), envErr
 }

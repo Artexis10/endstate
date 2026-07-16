@@ -447,7 +447,7 @@ func main() {
 	if p.jsonMode {
 		var env *envelope.Envelope
 		if cmdErr != nil {
-			env = envelope.NewFailure(p.command, runID, schemaVersion, cliVersion, cmdErr)
+			env = envelope.NewFailureWithData(p.command, runID, schemaVersion, cliVersion, data, cmdErr)
 		} else {
 			env = envelope.NewSuccess(p.command, runID, schemaVersion, cliVersion, data)
 		}

@@ -73,13 +73,15 @@ type configRestoreExecutionResult struct {
 	Plan         planner.ConfigPlan
 	RestoreItems []restore.RestoreResult
 	Results      []restore.RestoreResult
+	EventResults []restore.RestoreResult
 	JournalPath  string
 }
 
 type preparedConfigRestoreExecution struct {
-	setIndex     int
-	stage        *migration.StageResult
-	materialized *configrestore.MaterializedSet
+	setIndex        int
+	stage           *migration.StageResult
+	materialized    *configrestore.MaterializedSet
+	transactionRoot string
 }
 
 func newConfigRestoreExecutionSession(
@@ -104,6 +106,7 @@ func (session *configRestoreExecutionSession) Execute(
 ) (result configRestoreExecutionResult, envErr *envelope.Error) {
 	result = configRestoreExecutionResult{
 		Plan: emptyConfigRestorePlan(), RestoreItems: []restore.RestoreResult{}, Results: []restore.RestoreResult{},
+		EventResults: []restore.RestoreResult{},
 	}
 	if session == nil || session.runtime == nil || session.coordinator == nil {
 		return result, configRestoreInternalError("configuration restore session is not initialized")
@@ -111,7 +114,7 @@ func (session *configRestoreExecutionSession) Execute(
 	if options.Emitter != nil && shouldFrameConfigRestoreEvents(session.runtime.inputs, options.RestoreEnabled) {
 		options.Emitter.EmitPhase("restore")
 		defer func() {
-			emitConfigRestoreSummary(options.Emitter, result.RestoreItems)
+			emitConfigRestoreSummary(options.Emitter, result.EventResults)
 		}()
 	}
 	plan, err := session.coordinator.Final(ctx, options.RestoreEnabled)
@@ -125,11 +128,6 @@ func (session *configRestoreExecutionSession) Execute(
 		overlayConfigRestoreNotEnabled(&plan)
 	}
 	result.Plan = plan
-	for _, set := range plan.Sets {
-		if options.Emitter != nil {
-			options.Emitter.EmitConfigResolution(set)
-		}
-	}
 	legacyPreview := previewLegacyConfigRestorePlan(session.runtime.inputs, options.RestoreEnabled)
 	for _, set := range legacyPreview.Sets {
 		if options.Emitter != nil {
@@ -137,6 +135,7 @@ func (session *configRestoreExecutionSession) Execute(
 		}
 	}
 	if !options.RestoreEnabled {
+		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		result.Plan = mergeConfigRestorePlans(result.Plan, legacyPreview)
 		return result, nil
 	}
@@ -146,21 +145,33 @@ func (session *configRestoreExecutionSession) Execute(
 		defer closePreparedConfigRestoreExecutions(prepared)
 		applyConcreteConfigRestoreCollisions(&result.Plan, prepared)
 		prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
+		dryRunOutcomes := make(map[int]configRestoreSetOutcome, len(prepared))
+		dryRunItems := make(map[int][]restore.RestoreResult, len(prepared))
 		for _, item := range prepared {
-			emitGenerationConfigRestoreStarts(options.Emitter, result.Plan.Sets[item.setIndex], item.materialized)
 			outcome := inspectDryRunConfigRestoreSet(ctx, item.materialized, options.Registry)
 			applyConfigRestoreSetOutcome(&result.Plan.Sets[item.setIndex], outcome)
 			items := configRestoreResultsForSet(result.Plan.Sets[item.setIndex], item.materialized, outcome)
+			dryRunOutcomes[item.setIndex] = outcome
+			dryRunItems[item.setIndex] = items
 			result.RestoreItems = append(result.RestoreItems, items...)
+			result.EventResults = append(result.EventResults, items...)
+		}
+		emitGenerationConfigResolutions(options.Emitter, result.Plan)
+		for _, item := range prepared {
+			emitGenerationConfigRestoreStarts(
+				options.Emitter, result.Plan.Sets[item.setIndex], item.materialized, dryRunOutcomes[item.setIndex].Prepared,
+			)
+			items := dryRunItems[item.setIndex]
 			emitConfigRestoreItems(options.Emitter, items, result.Plan.Sets[item.setIndex].Source.ModuleID)
 		}
-		legacy, ordinary, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options)
+		legacy, ordinary, eventResults, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options)
 		if runErr != nil {
 			return result, runErr
 		}
 		result.Plan = mergeConfigRestorePlans(result.Plan, legacy.Plan)
 		result.RestoreItems = append(result.RestoreItems, legacy.RestoreItems...)
 		result.RestoreItems = append(result.RestoreItems, ordinary...)
+		result.EventResults = append(result.EventResults, eventResults...)
 		result.Results = append(result.Results, result.RestoreItems...)
 		recomputeConfigPlanSummary(&result.Plan)
 		return result, nil
@@ -168,15 +179,18 @@ func (session *configRestoreExecutionSession) Execute(
 	needsGeneration := selectedGenerationConfigRestoreExists(result.Plan)
 	needsNonGeneration := selectedLegacyConfigRestoreExists(session.runtime.inputs) || len(session.runtime.inputs.ordinaryRestores) > 0
 	if !needsGeneration && !needsNonGeneration {
+		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		result.Plan = mergeConfigRestorePlans(result.Plan, legacyPreview)
 		recomputeConfigPlanSummary(&result.Plan)
 		return result, nil
 	}
 	if beginLiveConfigRestoreFn == nil {
+		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		return result, configRestoreInternalError("live configuration restore lock/recovery coordinator is unavailable")
 	}
 	guard, err := beginLiveConfigRestoreFn(ctx, options.StateDir, options.RunID, options.Registry)
 	if err != nil {
+		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		if errors.Is(err, configrestore.ErrRecoveryRequired) {
 			return result, envelope.NewError(envelope.ErrRestoreFailed, "Configuration restore recovery is required.").
 				WithDetail(map[string]string{"reason": planner.ReasonRecoveryRequired.String(), "diagnostic": err.Error()}).
@@ -187,6 +201,7 @@ func (session *configRestoreExecutionSession) Execute(
 			WithRemediation("Resolve the pending configuration recovery failure, then retry.")
 	}
 	if guard == nil {
+		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		return result, configRestoreInternalError("live configuration restore coordinator returned a nil guard")
 	}
 	defer func() {
@@ -200,13 +215,10 @@ func (session *configRestoreExecutionSession) Execute(
 	prepared := session.stageAndMaterialize(ctx, &result.Plan, options)
 	defer closePreparedConfigRestoreExecutions(prepared)
 	applyConcreteConfigRestoreCollisions(&result.Plan, prepared)
-	prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
-
-	failStop := false
-	for _, item := range prepared {
+	for index := range prepared {
+		item := &prepared[index]
 		set := &result.Plan.Sets[item.setIndex]
-		if failStop {
-			markConfigRestoreRecoveryRequired(set)
+		if !selectedConfigRestorePlanSet(*set) {
 			continue
 		}
 		transactionRoot, err := guard.CreateTransactionRoot(set.Source.CaptureID)
@@ -215,17 +227,60 @@ func (session *configRestoreExecutionSession) Execute(
 			applyConfigRestoreSetOutcome(set, outcome)
 			continue
 		}
-		emitGenerationConfigRestoreStarts(options.Emitter, *set, item.materialized)
+		item.transactionRoot = transactionRoot
+	}
+	prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
+	emittedResolutions := make(map[int]bool, len(result.Plan.Sets))
+	for index, set := range result.Plan.Sets {
+		if !selectedConfigRestorePlanSet(set) {
+			emitGenerationConfigResolution(options.Emitter, set)
+			emittedResolutions[index] = true
+		}
+	}
+
+	failStop := false
+	for _, item := range prepared {
+		set := &result.Plan.Sets[item.setIndex]
+		if failStop {
+			markConfigRestoreRecoveryRequired(set)
+			emitGenerationConfigResolution(options.Emitter, *set)
+			emittedResolutions[item.setIndex] = true
+			continue
+		}
+		readyCalled := false
 		outcome := executeLiveConfigRestoreSetFn(ctx, configRestoreLiveSetRequest{
-			Materialized: item.materialized, TransactionRoot: transactionRoot,
+			Materialized: item.materialized, TransactionRoot: item.transactionRoot,
 			Lineage: configRestoreJournalLineage(options.RunID, *set), Registry: options.Registry,
 			Observer: newConfigRestoreTransactionObserver(options.Emitter, set.Source.CaptureID, set.Source.ConfigSetID),
+			Ready: func(prepared *configrestore.PreparedSet) {
+				emitGenerationConfigResolution(options.Emitter, *set)
+				emittedResolutions[item.setIndex] = true
+				emitGenerationConfigRestoreStarts(options.Emitter, *set, item.materialized, prepared)
+				readyCalled = true
+			},
 		})
 		applyConfigRestoreSetOutcome(set, outcome)
+		if !readyCalled {
+			emitGenerationConfigResolution(options.Emitter, *set)
+			emittedResolutions[item.setIndex] = true
+			emitGenerationConfigRestoreStarts(options.Emitter, *set, item.materialized, outcome.Prepared)
+		}
 		items := configRestoreResultsForSet(*set, item.materialized, outcome)
 		result.RestoreItems = append(result.RestoreItems, items...)
+		result.EventResults = append(result.EventResults, items...)
 		emitConfigRestoreItems(options.Emitter, items, set.Source.ModuleID)
 		if outcome.Reason != nil && *outcome.Reason == planner.ReasonJournalIntentFailed {
+			for index := range result.Plan.Sets {
+				if emittedResolutions[index] {
+					continue
+				}
+				set := &result.Plan.Sets[index]
+				if selectedConfigRestorePlanSet(*set) {
+					markConfigRestoreRecoveryRequired(set)
+				}
+				emitGenerationConfigResolution(options.Emitter, *set)
+				emittedResolutions[index] = true
+			}
 			recomputeConfigPlanSummary(&result.Plan)
 			return result, envelope.NewError(envelope.ErrRestoreFailed, "Failed to persist configuration restore intent.").
 				WithDetail(map[string]string{"reason": planner.ReasonJournalIntentFailed.String(), "diagnostic": outcome.Err.Error()}).
@@ -243,16 +298,22 @@ func (session *configRestoreExecutionSession) Execute(
 			}
 		}
 	}
+	for index, set := range result.Plan.Sets {
+		if !emittedResolutions[index] {
+			emitGenerationConfigResolution(options.Emitter, set)
+		}
+	}
 	if failStop {
 		result.Plan = mergeConfigRestorePlans(result.Plan, overlayLegacyRecoveryRequired(legacyPreview, session.runtime.inputs))
 	} else {
-		legacy, ordinary, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options)
+		legacy, ordinary, eventResults, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options)
 		if runErr != nil {
 			return result, runErr
 		}
 		result.Plan = mergeConfigRestorePlans(result.Plan, legacy.Plan)
 		result.RestoreItems = append(result.RestoreItems, legacy.RestoreItems...)
 		result.RestoreItems = append(result.RestoreItems, ordinary...)
+		result.EventResults = append(result.EventResults, eventResults...)
 		legacyItems := append(append([]restore.RestoreResult{}, legacy.RestoreItems...), ordinary...)
 		if len(legacyItems) > 0 {
 			journalPath, journalErr := writeLegacyConfigRestoreJournal(options, legacyItems)
@@ -272,6 +333,18 @@ func (session *configRestoreExecutionSession) Execute(
 	result.Results = append(result.Results, result.RestoreItems...)
 	recomputeConfigPlanSummary(&result.Plan)
 	return result, nil
+}
+
+func emitGenerationConfigResolutions(emitter *events.Emitter, plan planner.ConfigPlan) {
+	for _, set := range plan.Sets {
+		emitGenerationConfigResolution(emitter, set)
+	}
+}
+
+func emitGenerationConfigResolution(emitter *events.Emitter, set planner.PlanSet) {
+	if emitter != nil {
+		emitter.EmitConfigResolution(set)
+	}
 }
 
 func shouldFrameConfigRestoreEvents(inputs configRestoreInputs, restoreEnabled bool) bool {
@@ -598,7 +671,7 @@ func previewLegacyConfigRestorePlan(inputs configRestoreInputs, restoreEnabled b
 func executeLegacyAndOrdinaryConfigRestores(
 	inputs configRestoreInputs,
 	options configRestoreExecutionOptions,
-) (configRestoreLegacyProjection, []restore.RestoreResult, *envelope.Error) {
+) (configRestoreLegacyProjection, []restore.RestoreResult, []restore.RestoreResult, *envelope.Error) {
 	execution := configRestoreLegacyExecution{
 		DryRun: options.DryRun, ResultsByCaptureID: make(map[string][]restore.RestoreResult),
 	}
@@ -606,37 +679,50 @@ func executeLegacyAndOrdinaryConfigRestores(
 		DryRun: options.DryRun, BackupDir: options.BackupDir, ManifestDir: options.ManifestDir,
 		ExportRoot: options.ExportRoot, RunID: options.RunID,
 	}
+	eventResults := []restore.RestoreResult{}
 	for _, lane := range inputs.legacyLanes {
 		if !lane.selected {
 			continue
 		}
-		actions := convertToActions(lane.restoreEntries, "")
-		emitRestoreActionStarts(options.Emitter, actions, restoreOptions, configRestoreEventLineage{
+		lineage := configRestoreEventLineage{
 			ModuleID: lane.moduleID, CaptureID: lane.captureID, ConfigSetID: lane.configSetID,
-		})
-		results, err := restore.RunRestore(actions, restoreOptions, nil)
-		if err != nil {
-			return configRestoreLegacyProjection{}, nil, envelope.NewError(envelope.ErrRestoreFailed, err.Error())
+		}
+		results := []restore.RestoreResult{}
+		for _, action := range convertToActions(lane.restoreEntries, "") {
+			descriptor := restore.DescribeAction(action, restoreOptions)
+			emitRestoreActionStarts(options.Emitter, []restore.RestoreAction{action}, restoreOptions, lineage)
+			actionResults, err := restore.RunRestore([]restore.RestoreAction{action}, restoreOptions, nil)
+			if err != nil {
+				return configRestoreLegacyProjection{}, nil, nil, envelope.NewError(envelope.ErrRestoreFailed, err.Error())
+			}
+			linked := linkLegacyRestoreItems(lane, actionResults)
+			results = append(results, linked...)
+			eventResult := configRestoreEventResultForAction(descriptor, linked)
+			eventResults = append(eventResults, eventResult)
+			emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{eventResult}, lane.moduleID)
 		}
 		execution.ResultsByCaptureID[lane.captureID] = results
-		emitConfigRestoreItems(options.Emitter, linkLegacyRestoreItems(lane, results), lane.moduleID)
 	}
 	legacy, err := projectLegacyConfigRestores(inputs, true, execution)
 	if err != nil {
-		return configRestoreLegacyProjection{}, nil, configRestoreInternalError(err.Error())
+		return configRestoreLegacyProjection{}, nil, nil, configRestoreInternalError(err.Error())
 	}
 	ordinary := []restore.RestoreResult{}
 	if len(inputs.ordinaryRestores) > 0 {
-		actions := convertToActions(inputs.ordinaryRestores, "")
-		emitRestoreActionStarts(options.Emitter, actions, restoreOptions, configRestoreEventLineage{})
-		results, runErr := restore.RunRestore(actions, restoreOptions, nil)
-		if runErr != nil {
-			return configRestoreLegacyProjection{}, nil, envelope.NewError(envelope.ErrRestoreFailed, runErr.Error())
+		for _, action := range convertToActions(inputs.ordinaryRestores, "") {
+			descriptor := restore.DescribeAction(action, restoreOptions)
+			emitRestoreActionStarts(options.Emitter, []restore.RestoreAction{action}, restoreOptions, configRestoreEventLineage{})
+			results, runErr := restore.RunRestore([]restore.RestoreAction{action}, restoreOptions, nil)
+			if runErr != nil {
+				return configRestoreLegacyProjection{}, nil, nil, envelope.NewError(envelope.ErrRestoreFailed, runErr.Error())
+			}
+			ordinary = append(ordinary, results...)
+			eventResult := configRestoreEventResultForAction(descriptor, results)
+			eventResults = append(eventResults, eventResult)
+			emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{eventResult}, "")
 		}
-		ordinary = append(ordinary, results...)
-		emitConfigRestoreItems(options.Emitter, ordinary, "")
 	}
-	return legacy, ordinary, nil
+	return legacy, ordinary, eventResults, nil
 }
 
 type configRestoreEventLineage struct {
@@ -678,13 +764,17 @@ func emitGenerationConfigRestoreStarts(
 	emitter *events.Emitter,
 	set planner.PlanSet,
 	materialized *configrestore.MaterializedSet,
+	prepared *configrestore.PreparedSet,
 ) {
 	if emitter == nil || materialized == nil {
 		return
 	}
+	preparedActions := prepared.Actions()
 	for index, action := range materialized.Actions {
 		targetExisted := false
-		if action.Target != "" {
+		if index < len(preparedActions) {
+			targetExisted = preparedActions[index].Prior().Kind != configrestore.StateAbsent
+		} else if action.Target != "" {
 			_, err := os.Stat(action.Target)
 			targetExisted = err == nil
 		}
@@ -704,7 +794,7 @@ func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreRe
 	if emitter == nil {
 		return
 	}
-	for _, result := range aggregateConfigRestoreEventResults(results) {
+	for _, result := range results {
 		restorer := result.RestoreType
 		if restorer == "" {
 			restorer = "copy"
@@ -742,31 +832,38 @@ func emitConfigRestoreItems(emitter *events.Emitter, results []restore.RestoreRe
 	}
 }
 
-func aggregateConfigRestoreEventResults(results []restore.RestoreResult) []restore.RestoreResult {
-	grouped := make([]restore.RestoreResult, 0, len(results))
-	indices := make(map[string]int, len(results))
-	for _, result := range results {
-		index, exists := indices[result.ID]
-		if !exists {
-			indices[result.ID] = len(grouped)
-			grouped = append(grouped, result)
-			continue
+func configRestoreEventResultForAction(
+	descriptor restore.ActionDescriptor,
+	results []restore.RestoreResult,
+) restore.RestoreResult {
+	eventResult := restore.RestoreResult{
+		ID: descriptor.ID, Source: descriptor.Source, Target: descriptor.Target,
+		RestoreType: descriptor.RestoreType, TargetExistedBefore: descriptor.TargetExisted,
+		Status: "failed", Error: "restore action produced no result",
+	}
+	for index, result := range results {
+		if index == 0 {
+			eventResult.CaptureID = result.CaptureID
+			eventResult.ConfigSetID = result.ConfigSetID
+			eventResult.TargetInstanceID = result.TargetInstanceID
+			eventResult.SourceGeneration = result.SourceGeneration
+			eventResult.TargetGeneration = result.TargetGeneration
+			eventResult.Status = result.Status
+			eventResult.Error = result.Error
+			eventResult.BackupPath = result.BackupPath
+			eventResult.BackupCreated = result.BackupCreated
 		}
-		current := &grouped[index]
-		current.TargetExistedBefore = current.TargetExistedBefore || result.TargetExistedBefore
-		current.BackupCreated = current.BackupCreated || result.BackupCreated
-		if current.RestoreType == "" {
-			current.RestoreType = result.RestoreType
+		eventResult.TargetExistedBefore = eventResult.TargetExistedBefore || result.TargetExistedBefore
+		eventResult.BackupCreated = eventResult.BackupCreated || result.BackupCreated
+		if restoreEventStatusRank(result.Status) > restoreEventStatusRank(eventResult.Status) {
+			eventResult.Status = result.Status
+			eventResult.Error = result.Error
 		}
-		if restoreEventStatusRank(result.Status) > restoreEventStatusRank(current.Status) {
-			current.Status = result.Status
-			current.Error = result.Error
-		}
-		if current.BackupPath != result.BackupPath {
-			current.BackupPath = ""
+		if eventResult.BackupPath != result.BackupPath {
+			eventResult.BackupPath = ""
 		}
 	}
-	return grouped
+	return eventResult
 }
 
 func restoreEventStatusRank(status string) int {

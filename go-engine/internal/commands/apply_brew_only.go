@@ -110,11 +110,8 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 		configFields, configErr = executePreparedApplyConfigRestore(
 			context.Background(), flags, runID, emitter, configSession,
 		)
-		if configErr != nil {
-			return nil, configErr
-		}
 		dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
-		return &ApplyResult{
+		result := &ApplyResult{
 			DryRun:                  true,
 			Manifest:                ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 			Summary:                 ApplySummary{Total: totalApps, Skipped: skippedRealizer + presentCount + brewPresent},
@@ -122,7 +119,8 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 			ConfigModuleMap:         configModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
 			ConfigResultFields:      configFields,
-		}, nil
+		}
+		return result, configErr
 	}
 
 	// --- Phase 2: Apply ---
@@ -156,7 +154,13 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 		context.Background(), flags, runID, emitter, configSession,
 	)
 	if configErr != nil {
-		return nil, configErr
+		return &ApplyResult{
+			DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+			Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
+			Actions:         append(append([]ApplyAction{}, actions...), brew.brewActions()...),
+			ConfigModuleMap: configModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+			ConfigResultFields: configFields,
+		}, configErr
 	}
 
 	// --- Phase 3: Verify ---
