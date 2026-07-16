@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 )
@@ -337,9 +338,6 @@ func copySnapshotFile(ctx context.Context, source, destination string, mode os.F
 func desiredCopyState(prior, source filesystemState, exclude []string) (filesystemState, error) {
 	switch source.Kind {
 	case StateFile:
-		if prior.Kind == StateDirectory {
-			return filesystemState{}, fmt.Errorf("copy file cannot replace an existing directory")
-		}
 		entry := source.Entries["."]
 		if prior.Kind == StateFile {
 			entry.Mode = prior.Mode.Perm()
@@ -348,13 +346,10 @@ func desiredCopyState(prior, source filesystemState, exclude []string) (filesyst
 		state.Digest = digestFilesystemState(state)
 		return state, nil
 	case StateDirectory:
-		if prior.Kind == StateFile {
-			return filesystemState{}, fmt.Errorf("copy directory cannot overlay an existing file")
-		}
 		entries := cloneFilesystemEntries(prior.Entries)
-		if prior.Kind == StateAbsent {
+		if prior.Kind == StateAbsent || prior.Kind == StateFile {
 			entries = map[string]filesystemEntry{
-				".": {Path: ".", Kind: StateDirectory, Mode: 0o755},
+				".": {Path: ".", Kind: StateDirectory, Mode: defaultCreatedDirectoryMode()},
 			}
 		}
 		paths := sortedFilesystemPaths(source.Entries)
@@ -373,15 +368,21 @@ func desiredCopyState(prior, source filesystemState, exclude []string) (filesyst
 			existing, exists := entries[path]
 			switch entry.Kind {
 			case StateDirectory:
-				if exists && existing.Kind != StateDirectory {
-					return filesystemState{}, fmt.Errorf("copy directory collides with existing file %q", path)
+				if exists && existing.Kind == StateFile {
+					delete(entries, path)
+					exists = false
 				}
 				if !exists {
 					entries[path] = entry
 				}
 			case StateFile:
-				if exists && existing.Kind != StateFile {
-					return filesystemState{}, fmt.Errorf("copy file collides with existing directory %q", path)
+				if exists && existing.Kind == StateDirectory {
+					for candidate := range entries {
+						if candidate == path || strings.HasPrefix(candidate, path+"/") {
+							delete(entries, candidate)
+						}
+					}
+					exists = false
 				}
 				if exists {
 					entry.Mode = existing.Mode.Perm()
@@ -401,7 +402,7 @@ func desiredCopyState(prior, source filesystemState, exclude []string) (filesyst
 }
 
 func desiredWriteState(prior filesystemState, content []byte) filesystemState {
-	mode := os.FileMode(0o644)
+	mode := defaultCreatedFileMode()
 	if prior.Kind == StateFile {
 		mode = prior.Mode.Perm()
 	}
@@ -412,6 +413,20 @@ func desiredWriteState(prior filesystemState, content []byte) filesystemState {
 	state := filesystemState{Kind: StateFile, Mode: entry.Mode, Entries: map[string]filesystemEntry{".": entry}}
 	state.Digest = digestFilesystemState(state)
 	return state
+}
+
+func defaultCreatedFileMode() os.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0o666
+	}
+	return 0o644
+}
+
+func defaultCreatedDirectoryMode() os.FileMode {
+	if runtime.GOOS == "windows" {
+		return 0o777
+	}
+	return 0o755
 }
 
 func cloneFilesystemEntries(entries map[string]filesystemEntry) map[string]filesystemEntry {

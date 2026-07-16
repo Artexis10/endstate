@@ -160,6 +160,89 @@ func TestPersistCommittedMarkerHasNoFalliblePostPublicationCheckpoint(t *testing
 	}
 }
 
+func TestPersistCommittedMarkerReconcilesReadableAmbiguousPublicationDurability(t *testing.T) {
+	for _, failSync := range []bool{false, true} {
+		name := "success"
+		if failSync {
+			name = "sync failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			transactionRoot, prepared, _ := prepareJournalDelete(t)
+			intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+				Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			writer := NewJournalWriter()
+			writer.publish = ambiguousReadablePublication
+			writer.syncFile = func(string) error {
+				if failSync {
+					return errors.New("injected marker reconciliation sync failure")
+				}
+				return nil
+			}
+			writer.syncDirectory = func(string) error { return nil }
+			marker, err := writer.PersistCommitted(context.Background(), intent)
+			if failSync {
+				if marker != nil || CodeOf(err) != CodeJournalCompletionFailed ||
+					!errors.Is(err, ErrPublicationAmbiguous) {
+					t.Fatalf("marker=%#v err=%v code=%q", marker, err, CodeOf(err))
+				}
+				return
+			}
+			if err != nil || marker == nil || marker.State() != JournalCommitted {
+				t.Fatalf("marker=%#v err=%v", marker, err)
+			}
+		})
+	}
+}
+
+func TestPersistCommittedMarkerReconcilesExistingIdenticalRecordDurability(t *testing.T) {
+	transactionRoot, prepared, _ := prepareJournalDelete(t)
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PersistCommittedMarker(context.Background(), intent); err != nil {
+		t.Fatal(err)
+	}
+	for _, failSync := range []bool{false, true} {
+		name := "success"
+		if failSync {
+			name = "sync failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			writer := NewJournalWriter()
+			fileSynced := false
+			directorySynced := false
+			writer.syncFile = func(string) error {
+				fileSynced = true
+				if failSync {
+					return errors.New("injected existing marker sync failure")
+				}
+				return nil
+			}
+			writer.syncDirectory = func(string) error {
+				directorySynced = true
+				return nil
+			}
+			marker, err := writer.PersistCommitted(context.Background(), intent)
+			if failSync {
+				if marker != nil || CodeOf(err) != CodeJournalCompletionFailed || !errors.Is(err, ErrPublicationAmbiguous) {
+					t.Fatalf("marker=%#v err=%v code=%q", marker, err, CodeOf(err))
+				}
+				return
+			}
+			if err != nil || marker == nil || !fileSynced || !directorySynced {
+				t.Fatalf("marker=%#v err=%v fileSynced=%v directorySynced=%v", marker, err, fileSynced, directorySynced)
+			}
+		})
+	}
+}
+
 func TestPersistJournalMarkersFailClosedOnTamperAndConflictingMarkerArtifact(t *testing.T) {
 	t.Run("tampered identical marker", func(t *testing.T) {
 		transactionRoot, prepared, _ := prepareJournalDelete(t)

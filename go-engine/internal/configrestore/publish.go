@@ -23,8 +23,8 @@ const (
 // safe from this error.
 var ErrPublicationAmbiguous = errors.New("journal publication outcome is ambiguous")
 
-func publicationFailure(publishErr, reconciliationErr error) error {
-	if reconciliationErr == nil || os.IsNotExist(reconciliationErr) {
+func publicationFailure(state publicationState, publishErr, reconciliationErr error) error {
+	if state != publicationAmbiguous && (reconciliationErr == nil || os.IsNotExist(reconciliationErr)) {
 		return publishErr
 	}
 	return errors.Join(

@@ -67,6 +67,7 @@ func validateJournalActions(transactionRoot string, actions []JournalAction) err
 		return fmt.Errorf("journal intent requires at least one action")
 	}
 	snapshotRoot := filepath.Join(transactionRoot, "snapshots")
+	missingParentOwners := make(map[string]int)
 	for index, action := range actions {
 		if action.Index != index || action.Target == "" || action.Strategy == "" ||
 			action.Strategy != strings.TrimSpace(action.Strategy) || strings.ContainsRune(action.Strategy, 0) {
@@ -81,6 +82,20 @@ func validateJournalActions(transactionRoot string, actions []JournalAction) err
 		actionRoot := filepath.Join(snapshotRoot, formatActionIndex(index))
 		switch action.Kind {
 		case ActionCopy, ActionWriteFile, ActionDeleteFile:
+			if err := validateJournalMissingParents(transactionRoot, action); err != nil {
+				return fmt.Errorf("journal filesystem action[%d] missing parents: %w", index, err)
+			}
+			for _, parent := range action.MissingParents {
+				canonical := canonicalFilesystemTarget(parent)
+				if owner, exists := missingParentOwners[canonical]; exists {
+					return fmt.Errorf(
+						"journal filesystem action[%d] duplicates missing parent owned by action[%d]",
+						index,
+						owner,
+					)
+				}
+				missingParentOwners[canonical] = index
+			}
 			if err := validateConcreteHostPath(action.Target); err != nil || containsControl(action.Target) {
 				return fmt.Errorf("journal filesystem action[%d] has unsafe target", index)
 			}
@@ -120,7 +135,7 @@ func validateJournalActions(transactionRoot string, actions []JournalAction) err
 				action.Target != action.RegistryKey+`\`+action.RegistryValueName {
 				return fmt.Errorf("journal registry action[%d] has invalid exact identity", index)
 			}
-			if action.Prior.BackupPath != filepath.Join(actionRoot, "prior.registry") || action.Desired.BackupPath != "" ||
+			if len(action.MissingParents) != 0 || action.Prior.BackupPath != filepath.Join(actionRoot, "prior.registry") || action.Desired.BackupPath != "" ||
 				len(action.Prior.Entries) != 0 || len(action.Desired.Entries) != 0 || action.SourceDigest != "" ||
 				action.Prior.Mode != 0 || action.Desired.Mode != 0 {
 				return fmt.Errorf("journal registry action[%d] has inconsistent state", index)
@@ -137,6 +152,27 @@ func validateJournalActions(transactionRoot string, actions []JournalAction) err
 		default:
 			return fmt.Errorf("journal action[%d] has unsupported kind %q", index, action.Kind)
 		}
+	}
+	return nil
+}
+
+func validateJournalMissingParents(transactionRoot string, action JournalAction) error {
+	if len(action.MissingParents) == 0 {
+		return nil
+	}
+	for index, parent := range action.MissingParents {
+		if containsControl(parent) {
+			return fmt.Errorf("missing parent contains control characters")
+		}
+		if err := validateSnapshotPathSeparation(transactionRoot, parent); err != nil {
+			return err
+		}
+		if index > 0 && filepath.Dir(parent) != action.MissingParents[index-1] {
+			return fmt.Errorf("missing parent chain is not contiguous")
+		}
+	}
+	if action.MissingParents[len(action.MissingParents)-1] != filepath.Dir(action.Target) {
+		return fmt.Errorf("missing parent chain does not end at target parent")
 	}
 	return nil
 }

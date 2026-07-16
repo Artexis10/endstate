@@ -90,6 +90,7 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 			return nil, backupError(index, action.Target, err)
 		}
 	}
+	assignMissingParentOwnership(prepared)
 	if err := p.runCheckpoint(ctx, phaseBeforeFinalVerify, -1); err != nil {
 		return nil, backupError(-1, finalRoot, err)
 	}
@@ -190,6 +191,11 @@ func prepareSnapshotAction(
 	result := preparedInternal{record: record}
 	switch action.Kind {
 	case ActionCopy, ActionWriteFile, ActionDeleteFile:
+		missingParents, err := findMissingTransactionParents(action.Target)
+		if err != nil {
+			return result, err
+		}
+		result.record.missingParents = missingParents
 		prior, err := scanFilesystemState(ctx, action.Target)
 		if err != nil {
 			return result, err
@@ -280,6 +286,9 @@ func verifyPreparedAction(ctx context.Context, registryReader RegistryReader, pr
 	action := prepared.record.action
 	switch action.Kind {
 	case ActionCopy, ActionWriteFile, ActionDeleteFile:
+		if err := verifyMissingTransactionParents(prepared.record.missingParents); err != nil {
+			return err
+		}
 		if prepared.priorFS.Kind != StateAbsent {
 			backup, err := scanFilesystemState(ctx, prepared.temporaryBackupPath)
 			if err != nil {

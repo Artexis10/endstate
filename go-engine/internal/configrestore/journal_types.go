@@ -81,6 +81,7 @@ type JournalAction struct {
 	Target            string             `json:"target"`
 	RegistryKey       string             `json:"registryKey"`
 	RegistryValueName string             `json:"registryValueName"`
+	MissingParents    []string           `json:"missingParents"`
 	Prior             JournalActionState `json:"prior"`
 	Desired           JournalActionState `json:"desired"`
 	SourceDigest      string             `json:"sourceDigest"`
@@ -131,10 +132,34 @@ type journalCheckpointFunc func(context.Context, journalPhase, string) error
 
 // JournalWriter owns private durability checkpoints used by failure tests.
 type JournalWriter struct {
-	checkpoint journalCheckpointFunc
+	checkpoint    journalCheckpointFunc
+	publish       func(string, string) (publicationState, error)
+	syncFile      func(string) error
+	syncDirectory func(string) error
 }
 
 func NewJournalWriter() *JournalWriter { return &JournalWriter{} }
+
+func (w *JournalWriter) publishNoReplace(temporary, destination string) (publicationState, error) {
+	if w != nil && w.publish != nil {
+		return w.publish(temporary, destination)
+	}
+	return publishFileNoReplace(temporary, destination)
+}
+
+func (w *JournalWriter) syncReconciledFile(path string) error {
+	if w != nil && w.syncFile != nil {
+		return w.syncFile(path)
+	}
+	return syncDurableFile(path)
+}
+
+func (w *JournalWriter) syncReconciledDirectory(path string) error {
+	if w != nil && w.syncDirectory != nil {
+		return w.syncDirectory(path)
+	}
+	return syncDurableDirectory(path)
+}
 
 func (i *JournalIntent) Path() string {
 	if i == nil {
@@ -187,6 +212,7 @@ func cloneJournalActions(actions []JournalAction) []JournalAction {
 	result := make([]JournalAction, len(actions))
 	for index, action := range actions {
 		result[index] = action
+		result[index].MissingParents = append([]string{}, action.MissingParents...)
 		result[index].Prior.Entries = append([]JournalFilesystemEntry{}, action.Prior.Entries...)
 		result[index].Desired.Entries = append([]JournalFilesystemEntry{}, action.Desired.Entries...)
 	}

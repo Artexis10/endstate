@@ -291,6 +291,100 @@ func TestReadJournalIntentReverifiesBackupArtifacts(t *testing.T) {
 	}
 }
 
+func TestPersistJournalIntentReconcilesReadableAmbiguousPublicationDurability(t *testing.T) {
+	tests := []struct {
+		name       string
+		syncFile   func(string) error
+		wantErr    bool
+		wantSynced bool
+	}{
+		{
+			name:       "reconciliation succeeds",
+			syncFile:   func(string) error { return nil },
+			wantSynced: true,
+		},
+		{
+			name:     "reconciliation fails",
+			syncFile: func(string) error { return errors.New("injected reconciliation sync failure") },
+			wantErr:  true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			transactionRoot, prepared, _ := prepareJournalDelete(t)
+			writer := NewJournalWriter()
+			writer.publish = ambiguousReadablePublication
+			fileSynced := false
+			writer.syncFile = func(path string) error {
+				fileSynced = true
+				return tt.syncFile(path)
+			}
+			writer.syncDirectory = func(string) error { return nil }
+			intent, err := writer.PersistIntent(context.Background(), JournalIntentRequest{
+				Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+			})
+			if tt.wantErr {
+				if intent != nil || CodeOf(err) != CodeJournalIntentFailed || !errors.Is(err, ErrPublicationAmbiguous) {
+					t.Fatalf("intent=%#v err=%v code=%q", intent, err, CodeOf(err))
+				}
+				return
+			}
+			if err != nil || intent == nil || !fileSynced {
+				t.Fatalf("intent=%#v err=%v fileSynced=%v", intent, err, fileSynced)
+			}
+		})
+	}
+}
+
+func TestPersistJournalIntentReconcilesExistingIdenticalRecordDurability(t *testing.T) {
+	transactionRoot, prepared, _ := prepareJournalDelete(t)
+	request := JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	}
+	if _, err := PersistJournalIntent(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	for _, failSync := range []bool{false, true} {
+		name := "success"
+		if failSync {
+			name = "sync failure"
+		}
+		t.Run(name, func(t *testing.T) {
+			writer := NewJournalWriter()
+			fileSynced := false
+			directorySynced := false
+			writer.syncFile = func(string) error {
+				fileSynced = true
+				if failSync {
+					return errors.New("injected existing intent sync failure")
+				}
+				return nil
+			}
+			writer.syncDirectory = func(string) error {
+				directorySynced = true
+				return nil
+			}
+			intent, err := writer.PersistIntent(context.Background(), request)
+			if failSync {
+				if intent != nil || CodeOf(err) != CodeJournalIntentFailed || !errors.Is(err, ErrPublicationAmbiguous) {
+					t.Fatalf("intent=%#v err=%v code=%q", intent, err, CodeOf(err))
+				}
+				return
+			}
+			if err != nil || intent == nil || !fileSynced || !directorySynced {
+				t.Fatalf("intent=%#v err=%v fileSynced=%v directorySynced=%v", intent, err, fileSynced, directorySynced)
+			}
+		})
+	}
+}
+
+func ambiguousReadablePublication(temporary, destination string) (publicationState, error) {
+	if err := os.Rename(temporary, destination); err != nil {
+		return publicationNotDurable, err
+	}
+	return publicationAmbiguous, errors.New("injected ambiguous publication")
+}
+
 func rewriteCanonicalJournalIntent(t *testing.T, path string, mutate func(*journalIntentDisk)) {
 	t.Helper()
 	data, err := os.ReadFile(path)

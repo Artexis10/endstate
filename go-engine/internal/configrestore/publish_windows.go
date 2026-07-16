@@ -5,7 +5,11 @@
 
 package configrestore
 
-import "golang.org/x/sys/windows"
+import (
+	"errors"
+
+	"golang.org/x/sys/windows"
+)
 
 func publishFileNoReplace(temporary, destination string) (publicationState, error) {
 	from, err := windows.UTF16PtrFromString(temporary)
@@ -17,7 +21,7 @@ func publishFileNoReplace(temporary, destination string) (publicationState, erro
 		return publicationNotDurable, err
 	}
 	if err := windows.MoveFileEx(from, to, windows.MOVEFILE_WRITE_THROUGH); err != nil {
-		return publicationAmbiguous, err
+		return publicationAmbiguous, errors.Join(ErrPublicationAmbiguous, err)
 	}
 	return publicationDurable, nil
 }

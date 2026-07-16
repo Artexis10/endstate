@@ -85,16 +85,20 @@ func (s StateRecord) Entries() []StateEntry {
 // PreparedAction is opaque so callers cannot mutate the action or state that
 // the later journal and commit layers will consume.
 type PreparedAction struct {
-	action       Action
-	prior        StateRecord
-	desired      StateRecord
-	sourceDigest string
+	action         Action
+	prior          StateRecord
+	desired        StateRecord
+	sourceDigest   string
+	missingParents []string
 }
 
 func (a PreparedAction) Action() Action       { return cloneAction(a.action) }
 func (a PreparedAction) Prior() StateRecord   { return cloneStateRecord(a.prior) }
 func (a PreparedAction) Desired() StateRecord { return cloneStateRecord(a.desired) }
 func (a PreparedAction) SourceDigest() string { return a.sourceDigest }
+func (a PreparedAction) MissingParents() []string {
+	return append([]string(nil), a.missingParents...)
+}
 
 // PreparedSet is the only output accepted by later transaction phases. Its
 // accessors return copies so the verified plan cannot be changed in place.
@@ -163,6 +167,7 @@ func clonePreparedAction(action PreparedAction) PreparedAction {
 	action.action = cloneAction(action.action)
 	action.prior = cloneStateRecord(action.prior)
 	action.desired = cloneStateRecord(action.desired)
+	action.missingParents = append([]string(nil), action.missingParents...)
 	return action
 }
 

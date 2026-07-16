@@ -6,6 +6,7 @@ package configrestore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,7 +53,11 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 		if existing.digest != disk.IntentDigest || !bytes.Equal(existingBytes, encoded) {
 			return nil, journalIntentError(intentPath, fmt.Errorf("conflicting journal intent already exists"))
 		}
-		return existing, nil
+		reconciled, reconcileErr := w.reconcileIntent(ctx, root, intentPath, encoded, disk.IntentDigest)
+		if reconcileErr != nil {
+			return nil, journalIntentError(intentPath, errors.Join(ErrPublicationAmbiguous, reconcileErr))
+		}
+		return reconciled, nil
 	} else if !os.IsNotExist(err) {
 		return nil, journalIntentError(intentPath, err)
 	}
@@ -84,21 +89,16 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 	if err := w.runCheckpoint(ctx, journalPhaseBeforeIntentPublish, intentPath); err != nil {
 		return nil, journalIntentError(intentPath, err)
 	}
-	_, publishErr := publishFileNoReplace(temporaryPath, intentPath)
-	if publishErr != nil {
-		existing, readErr := readJournalIntentFile(ctx, root, intentPath)
-		if readErr == nil {
-			existingBytes, bytesErr := os.ReadFile(intentPath)
-			if bytesErr == nil && existing.digest == disk.IntentDigest && bytes.Equal(existingBytes, encoded) {
-				return existing, nil
-			}
-			if bytesErr != nil {
-				readErr = bytesErr
-			} else {
-				readErr = fmt.Errorf("published journal intent conflicts with requested content")
-			}
+	publication, publishErr := w.publishNoReplace(temporaryPath, intentPath)
+	if publishErr != nil || publication != publicationDurable {
+		reconciled, reconcileErr := w.reconcileIntent(ctx, root, intentPath, encoded, disk.IntentDigest)
+		if reconcileErr == nil {
+			return reconciled, nil
 		}
-		return nil, journalIntentError(intentPath, publicationFailure(publishErr, readErr))
+		if publishErr == nil {
+			publishErr = fmt.Errorf("publisher returned non-durable success state %d", publication)
+		}
+		return nil, journalIntentError(intentPath, publicationFailure(publication, publishErr, reconcileErr))
 	}
 	if err := w.runCheckpoint(ctx, journalPhaseAfterIntentPublish, intentPath); err != nil {
 		return nil, journalIntentError(intentPath, err)
@@ -114,6 +114,40 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 		return nil, journalIntentError(intentPath, fmt.Errorf("journal intent readback identity changed"))
 	}
 	return verified, nil
+}
+
+func (w *JournalWriter) reconcileIntent(
+	ctx context.Context,
+	root string,
+	path string,
+	expectedBytes []byte,
+	expectedDigest string,
+) (*JournalIntent, error) {
+	reconcileContext := context.WithoutCancel(ctx)
+	check := func() (*JournalIntent, error) {
+		existing, err := readJournalIntentFile(reconcileContext, root, path)
+		if err != nil {
+			return nil, err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if existing.digest != expectedDigest || !bytes.Equal(data, expectedBytes) {
+			return nil, fmt.Errorf("published journal intent conflicts with requested content")
+		}
+		return existing, nil
+	}
+	if _, err := check(); err != nil {
+		return nil, err
+	}
+	if err := w.syncReconciledFile(path); err != nil {
+		return nil, err
+	}
+	if err := w.syncReconciledDirectory(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	return check()
 }
 
 // ReadJournalIntent reads and verifies the canonical pending intent beneath a
@@ -193,7 +227,8 @@ func validateJournalIntentRequest(
 		desired := prepared.Desired()
 		actions[index] = JournalAction{
 			Index: index, Kind: action.Kind, Strategy: action.Strategy, Target: action.Target,
-			Prior: journalActionState(prior), Desired: journalActionState(desired), SourceDigest: prepared.SourceDigest(),
+			MissingParents: prepared.MissingParents(),
+			Prior:          journalActionState(prior), Desired: journalActionState(desired), SourceDigest: prepared.SourceDigest(),
 		}
 		if action.RegistryValue != nil {
 			actions[index].RegistryKey = action.RegistryValue.Key

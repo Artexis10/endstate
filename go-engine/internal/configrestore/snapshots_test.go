@@ -238,8 +238,9 @@ func TestDesiredWriteStatePreservesExistingModeAndUsesCreateMode(t *testing.T) {
 	if preserved.Mode.Perm() != 0o600 || preserved.Entries["."].Mode.Perm() != 0o600 {
 		t.Fatalf("existing target desired mode = %#o, want 0600", preserved.Mode.Perm())
 	}
-	if created.Mode.Perm() != 0o644 || created.Entries["."].Mode.Perm() != 0o644 {
-		t.Fatalf("new target desired mode = %#o, want 0644", created.Mode.Perm())
+	wantCreatedMode := defaultCreatedFileMode()
+	if created.Mode.Perm() != wantCreatedMode || created.Entries["."].Mode.Perm() != wantCreatedMode {
+		t.Fatalf("new target desired mode = %#o, want %#o", created.Mode.Perm(), wantCreatedMode)
 	}
 	if preserved.Digest == created.Digest {
 		t.Fatal("desired write digest does not encode preserved versus create mode")
@@ -260,8 +261,9 @@ func TestDesiredDirectoryCopyUsesCommitRootModeRatherThanSourceRootMode(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if desired.Mode.Perm() != 0o755 || desired.Entries["."].Mode.Perm() != 0o755 {
-		t.Fatalf("new directory target root mode = %#o, want copy commit mode 0755", desired.Mode.Perm())
+	wantRootMode := defaultCreatedDirectoryMode()
+	if desired.Mode.Perm() != wantRootMode || desired.Entries["."].Mode.Perm() != wantRootMode {
+		t.Fatalf("new directory target root mode = %#o, want copy commit mode %#o", desired.Mode.Perm(), wantRootMode)
 	}
 }
 

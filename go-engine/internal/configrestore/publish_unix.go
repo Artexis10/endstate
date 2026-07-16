@@ -37,7 +37,7 @@ func publishFileNoReplaceUnix(temporary, destination string, ops unixPublication
 		if removeErr == nil && removeSyncErr == nil {
 			return publicationNotDurable, err
 		}
-		return publicationAmbiguous, errors.Join(err, removeErr, removeSyncErr)
+		return publicationAmbiguous, errors.Join(ErrPublicationAmbiguous, err, removeErr, removeSyncErr)
 	}
 
 	// The destination is authoritative once its directory entry is durable.

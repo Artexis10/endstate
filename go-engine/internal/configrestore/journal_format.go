@@ -199,8 +199,14 @@ func validateMarkerOutcome(state JournalState, validation ValidationStatus, roll
 		if validation != ValidationNotRun && validation != ValidationPassed && validation != ValidationFailed {
 			return fmt.Errorf("rolled-back marker has invalid validation status %q", validation)
 		}
-		if rollback != RollbackSucceeded {
-			return fmt.Errorf("rolled-back marker must record proven rollback")
+		switch rollback {
+		case RollbackSucceeded:
+		case RollbackNotRequired:
+			if validation != ValidationNotRun {
+				return fmt.Errorf("no-mutation marker must record validation not run")
+			}
+		default:
+			return fmt.Errorf("rolled-back marker must record proven or unnecessary rollback")
 		}
 	default:
 		return fmt.Errorf("unsupported terminal journal state %q", state)

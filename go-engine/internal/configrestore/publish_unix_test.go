@@ -47,7 +47,8 @@ func TestUnixPublicationContractAroundDestinationDurability(t *testing.T) {
 				return syncFailure
 			},
 		})
-		if state != publicationAmbiguous || !errors.Is(err, syncFailure) || !errors.Is(err, removeFailure) {
+		if state != publicationAmbiguous || !errors.Is(err, ErrPublicationAmbiguous) ||
+			!errors.Is(err, syncFailure) || !errors.Is(err, removeFailure) {
 			t.Fatalf("state=%v err=%v", state, err)
 		}
 	})

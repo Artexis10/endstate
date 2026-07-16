@@ -6,6 +6,7 @@ package configrestore
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -28,6 +29,14 @@ func PersistRolledBackMarker(
 	return NewJournalWriter().PersistRolledBack(ctx, intent, validation)
 }
 
+// PersistAbortedMarker durably closes a pending intent when the engine proves
+// that it performed no target mutation. The journal uses the rolled_back
+// terminal state with rollbackOutcome=not_required; envelope status remains
+// failed rather than rolled_back.
+func PersistAbortedMarker(ctx context.Context, intent *JournalIntent) (*JournalMarker, error) {
+	return NewJournalWriter().PersistAborted(ctx, intent)
+}
+
 func (w *JournalWriter) PersistCommitted(ctx context.Context, intent *JournalIntent) (*JournalMarker, error) {
 	return w.persistMarker(ctx, intent, JournalCommitted, ValidationPassed, RollbackNotRequired)
 }
@@ -38,6 +47,10 @@ func (w *JournalWriter) PersistRolledBack(
 	validation ValidationStatus,
 ) (*JournalMarker, error) {
 	return w.persistMarker(ctx, intent, JournalRolledBack, validation, RollbackSucceeded)
+}
+
+func (w *JournalWriter) PersistAborted(ctx context.Context, intent *JournalIntent) (*JournalMarker, error) {
+	return w.persistMarker(ctx, intent, JournalRolledBack, ValidationNotRun, RollbackNotRequired)
 }
 
 func (w *JournalWriter) persistMarker(
@@ -75,7 +88,11 @@ func (w *JournalWriter) persistMarker(
 		if existing.digest != disk.MarkerDigest || !bytes.Equal(existingBytes, encoded) {
 			return nil, journalCompletionError(path, fmt.Errorf("conflicting terminal journal marker exists"))
 		}
-		return existing, nil
+		reconciled, reconcileErr := w.reconcileMarker(root, path, verifiedIntent, encoded, disk.MarkerDigest)
+		if reconcileErr != nil {
+			return nil, journalCompletionError(path, errors.Join(ErrPublicationAmbiguous, reconcileErr))
+		}
+		return reconciled, nil
 	} else if !os.IsNotExist(err) {
 		return nil, journalCompletionError(path, err)
 	}
@@ -104,27 +121,55 @@ func (w *JournalWriter) persistMarker(
 	if err := w.runCheckpoint(ctx, journalPhaseBeforeMarkerPublish, path); err != nil {
 		return nil, journalCompletionError(path, err)
 	}
-	_, publishErr := publishFileNoReplace(temporaryPath, path)
-	if publishErr != nil {
-		existing, readErr := readJournalMarkerFile(root, path, verifiedIntent)
-		if readErr == nil {
-			existingBytes, bytesErr := os.ReadFile(path)
-			if bytesErr == nil && existing.digest == disk.MarkerDigest && bytes.Equal(existingBytes, encoded) {
-				return existing, nil
-			}
-			if bytesErr != nil {
-				readErr = bytesErr
-			} else {
-				readErr = fmt.Errorf("published terminal marker conflicts with requested content")
-			}
+	publication, publishErr := w.publishNoReplace(temporaryPath, path)
+	if publishErr != nil || publication != publicationDurable {
+		reconciled, reconcileErr := w.reconcileMarker(root, path, verifiedIntent, encoded, disk.MarkerDigest)
+		if reconcileErr == nil {
+			return reconciled, nil
 		}
-		return nil, journalCompletionError(path, publicationFailure(publishErr, readErr))
+		if publishErr == nil {
+			publishErr = fmt.Errorf("publisher returned non-durable success state %d", publication)
+		}
+		return nil, journalCompletionError(path, publicationFailure(publication, publishErr, reconcileErr))
 	}
 
 	// Publication is the terminal transition. The platform helper does not
 	// return success until the destination is durable, so no fallible work may
 	// follow that could tell the caller to roll back behind this marker.
 	return markerFromDisk(root, path, disk, verifiedIntent), nil
+}
+
+func (w *JournalWriter) reconcileMarker(
+	root string,
+	path string,
+	intent *JournalIntent,
+	expectedBytes []byte,
+	expectedDigest string,
+) (*JournalMarker, error) {
+	check := func() (*JournalMarker, error) {
+		existing, err := readJournalMarkerFile(root, path, intent)
+		if err != nil {
+			return nil, err
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		if existing.digest != expectedDigest || !bytes.Equal(data, expectedBytes) {
+			return nil, fmt.Errorf("published terminal marker conflicts with requested content")
+		}
+		return existing, nil
+	}
+	if _, err := check(); err != nil {
+		return nil, err
+	}
+	if err := w.syncReconciledFile(path); err != nil {
+		return nil, err
+	}
+	if err := w.syncReconciledDirectory(filepath.Dir(path)); err != nil {
+		return nil, err
+	}
+	return check()
 }
 
 func verifyIntentForMarker(ctx context.Context, intent *JournalIntent) (*JournalIntent, error) {
