@@ -20,10 +20,10 @@
 
 - [ ] 3.1 Preserve captured `App.Version` through module matching and add regression tests for the current version-dropping path.
 - [x] 3.2 Implement raw vendor-version preservation and the documented numeric dotted normalizer/comparator.
-- [ ] 3.3 Implement the package instance detector across engine-supported package backends with deterministic evidence and stable instance IDs.
-- [ ] 3.4 Implement the path instance detector with engine-owned glob expansion, named version extraction, deterministic ordering, and deduplication.
-- [ ] 3.5 Implement allowlisted `${instance.*}` expansion and reject missing values, absolute portable destinations, and traversal.
-- [ ] 3.6 Add side-by-side and irregular-version tests proving the engine never silently selects a newest instance.
+- [x] 3.3 Implement the package instance detector across engine-supported package backends with deterministic evidence and stable instance IDs.
+- [x] 3.4 Implement the path instance detector with engine-owned glob expansion, named version extraction, deterministic ordering, and deduplication.
+- [x] 3.5 Implement allowlisted `${instance.*}` expansion and reject missing values, absolute portable destinations, and traversal.
+- [x] 3.6 Add side-by-side and irregular-version tests proving the engine never silently selects a newest instance.
 
 ## 4. Bundle v2 and Capture Provenance
 
