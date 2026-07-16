@@ -95,9 +95,9 @@
 
 ## 10. Verification and Rollout
 
-- [ ] 10.1 Run targeted Go tests for modules, bundle, manifest, planner/resolution, migration operations, restore/journal/revert, commands, envelopes, and events.
-- [ ] 10.2 Run OpenSpec strict validation and contract/schema fixture validation.
+- [x] 10.1 Run targeted Go tests for modules, bundle, manifest, planner/resolution, migration operations, restore/journal/revert, commands, envelopes, and events.
+- [x] 10.2 Run OpenSpec strict validation and contract/schema fixture validation.
 - [x] 10.3 Run end-to-end v1 legacy, v2 direct, v2 forward-chain, side-by-side ambiguous/selected, tampered payload, and rollback scenarios in temporary roots.
-- [ ] 10.4 Run the full Go test suite after targeted suites pass and record any environment-specific exclusions.
+- [x] 10.4 Run the full Go test suite after targeted suites pass and record any environment-specific exclusions.
 - [x] 10.5 Document module-author guidance for generations, immutable IDs, version selectors, detectors, migration operations, validation, and unsupported formats.
 - [ ] 10.6 Release engine read support and structured contracts before enabling GUI v2 capture/restore; retain v2 read support if capture must be rolled back.
