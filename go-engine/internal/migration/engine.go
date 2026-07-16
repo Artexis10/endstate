@@ -15,7 +15,9 @@ import (
 // disposable staging root. It stops at the first error. Earlier operations are
 // not rolled back because the staging owner discards the isolated root when an
 // edge fails.
-type Engine struct{}
+type Engine struct {
+	stageCheckpoint stageCheckpointFunc
+}
 
 func NewEngine() *Engine { return &Engine{} }
 
