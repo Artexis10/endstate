@@ -17,9 +17,11 @@ type CompatibilityResolver struct {
 }
 
 type pinnedCompatibilityModule struct {
-	schemaVersion int
-	revision      string
-	sets          map[string]modules.ConfigSetDef
+	schemaVersion     int
+	revision          string
+	sets              map[string]modules.ConfigSetDef
+	instanceDetectors []modules.InstanceDetectorDef
+	processPatterns   []string
 }
 
 // NewCompatibilityResolver copies and indexes the supplied catalog snapshot
@@ -34,11 +36,13 @@ func NewCompatibilityResolver(catalog map[string]*modules.Module, diagnostics []
 			continue
 		}
 		pinned := pinnedCompatibilityModule{
-			schemaVersion: current.EffectiveSchemaVersion(),
-			revision:      current.Revision,
-			sets:          make(map[string]modules.ConfigSetDef),
+			schemaVersion:   current.EffectiveSchemaVersion(),
+			revision:        current.Revision,
+			sets:            make(map[string]modules.ConfigSetDef),
+			processPatterns: sortedUniqueStrings(current.Matches.Exe),
 		}
 		if current.Config != nil {
+			pinned.instanceDetectors = append([]modules.InstanceDetectorDef(nil), current.Config.InstanceDetectors...)
 			for _, set := range current.Config.Sets {
 				pinned.sets[set.ID] = cloneCompatibilitySet(set)
 			}
@@ -51,6 +55,91 @@ func NewCompatibilityResolver(catalog map[string]*modules.Module, diagnostics []
 		}
 	}
 	return resolver
+}
+
+// DiscoverTargets runs engine-owned discovery against the immutable detector
+// declarations pinned for this resolver. Package evidence and operating-system
+// boundaries are supplied by the command for each fresh detection pass.
+func (r *CompatibilityResolver) DiscoverTargets(
+	moduleID string,
+	packageEvidence []modules.PackageEvidence,
+	options modules.DiscoveryOptions,
+) ([]TargetInstance, error) {
+	if r == nil {
+		return []TargetInstance{}, nil
+	}
+	pinned, exists := r.modules[moduleID]
+	if !exists || pinned.schemaVersion != 2 || len(pinned.instanceDetectors) == 0 {
+		return []TargetInstance{}, nil
+	}
+
+	declarations := append([]modules.InstanceDetectorDef(nil), pinned.instanceDetectors...)
+	module := &modules.Module{
+		ModuleSchemaVersion: pinned.schemaVersion,
+		ID:                  moduleID,
+		Revision:            pinned.revision,
+		Config:              &modules.ConfigDef{InstanceDetectors: declarations},
+	}
+	instances, err := modules.DiscoverInstances(
+		module,
+		append([]modules.PackageEvidence(nil), packageEvidence...),
+		options,
+	)
+	if err != nil {
+		return nil, err
+	}
+	targets := make([]TargetInstance, len(instances))
+	for index, instance := range instances {
+		targets[index] = targetInstanceFromDiscovered(instance)
+	}
+	return targets, nil
+}
+
+// ProcessPatterns returns the deterministic sorted, deduplicated executable
+// patterns pinned from module Matches.Exe. The returned slice is caller-owned.
+func (r *CompatibilityResolver) ProcessPatterns(moduleID string) []string {
+	if r == nil {
+		return []string{}
+	}
+	pinned, exists := r.modules[moduleID]
+	if !exists {
+		return []string{}
+	}
+	return append([]string{}, pinned.processPatterns...)
+}
+
+func targetInstanceFromDiscovered(instance modules.ConfigInstance) TargetInstance {
+	return TargetInstance{
+		ID:                instance.ID,
+		ModuleID:          instance.ModuleID,
+		DetectorID:        instance.DetectorID,
+		RawVersion:        instance.Version.Raw,
+		NormalizedVersion: instance.Version.Normalized,
+		Evidence: InstanceEvidence{
+			Type:     instance.Evidence.Type,
+			AppID:    instance.Evidence.AppID,
+			Backend:  instance.Evidence.Backend,
+			Platform: instance.Evidence.Platform,
+			Ref:      instance.Evidence.Ref,
+			Driver:   instance.Evidence.Driver,
+		},
+		Root: instance.Root,
+	}
+}
+
+func sortedUniqueStrings(values []string) []string {
+	if len(values) == 0 {
+		return []string{}
+	}
+	ordered := append([]string(nil), values...)
+	sort.Strings(ordered)
+	result := ordered[:0]
+	for _, value := range ordered {
+		if len(result) == 0 || result[len(result)-1] != value {
+			result = append(result, value)
+		}
+	}
+	return result
 }
 
 // ResolveCandidate resolves one already-selected target candidate. Target

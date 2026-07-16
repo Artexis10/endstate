@@ -28,7 +28,10 @@ func TestNewConfigRestoreRuntimeLoadsAndPinsCatalogExactlyOnce(t *testing.T) {
 		ID:                  "apps.pinned",
 		Revision:            "restore-revision",
 		FilePath:            moduleFile,
-		Config: &modules.ConfigDef{Sets: []modules.ConfigSetDef{{
+		Matches:             modules.MatchCriteria{Exe: []string{"Pinned.exe"}},
+		Config: &modules.ConfigDef{InstanceDetectors: []modules.InstanceDetectorDef{{
+			ID: "profiles", Type: "path", Glob: "pinned/*",
+		}}, Sets: []modules.ConfigSetDef{{
 			ID: "preferences", Generations: []modules.GenerationDef{{
 				ID: "g1", Order: 1, Fingerprint: capture.SourceGenerationFingerprint,
 			}},
@@ -63,6 +66,8 @@ func TestNewConfigRestoreRuntimeLoadsAndPinsCatalogExactlyOnce(t *testing.T) {
 	delete(catalog, "apps.pinned")
 	module.Revision = "mutated-revision"
 	module.Config.Sets[0].Generations[0].ID = "mutated-generation"
+	module.Config.InstanceDetectors[0].Glob = "mutated/*"
+	module.Matches.Exe[0] = "Mutated.exe"
 	diagnostics[0].Code = "MUTATED"
 	if err := os.WriteFile(moduleFile, []byte(`{"revision":"mutated"}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -77,6 +82,18 @@ func TestNewConfigRestoreRuntimeLoadsAndPinsCatalogExactlyOnce(t *testing.T) {
 	}
 	if runtime.catalog.diagnostics[0].Code != "ORIGINAL" {
 		t.Fatalf("diagnostics alias loader memory: %+v", runtime.catalog.diagnostics)
+	}
+	if patterns := runtime.catalog.resolver.ProcessPatterns("apps.pinned"); len(patterns) != 1 || patterns[0] != "Pinned.exe" {
+		t.Fatalf("process patterns were not pinned: %v", patterns)
+	}
+	seenGlob := ""
+	if _, err := runtime.catalog.resolver.DiscoverTargets("apps.pinned", nil, modules.DiscoveryOptions{
+		Glob: func(pattern string) ([]string, error) {
+			seenGlob = pattern
+			return []string{}, nil
+		},
+	}); err != nil || seenGlob != "pinned/*" || loadCount != 1 {
+		t.Fatalf("detectors were not pinned: glob=%q err=%v loadCount=%d", seenGlob, err, loadCount)
 	}
 }
 
