@@ -97,7 +97,11 @@ func ReadJournal(path string) (*Journal, error) {
 	if err != nil {
 		return nil, fmt.Errorf("cannot read journal: %w", err)
 	}
+	return ParseJournal(data)
+}
 
+// ParseJournal parses restore journal bytes already pinned by a trusted reader.
+func ParseJournal(data []byte) (*Journal, error) {
 	// Strip UTF-8 BOM if present (PowerShell 5.1 adds this)
 	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
 

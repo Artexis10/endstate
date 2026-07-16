@@ -14,7 +14,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
@@ -47,6 +49,14 @@ type durableLegacyRevertCompleted struct {
 	Action      string `json:"action"`
 }
 
+type durableLegacyRegistryReplaceStarted struct {
+	Version     int                      `json:"version"`
+	EntryIndex  int                      `json:"entryIndex"`
+	EntryDigest string                   `json:"entryDigest"`
+	Target      string                   `json:"target"`
+	Desired     durableLegacyRevertState `json:"desired"`
+}
+
 // RunRevertDurable reverts legacy filesystem entries with an immutable
 // per-entry before-state record. A retry may continue only from the exact
 // state recorded before undo or from the verified desired prior state; any
@@ -66,6 +76,9 @@ func RunRevertDurable(journal *Journal, backupDir, workRoot string) ([]RevertRes
 	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
 		return nil, fmt.Errorf("legacy revert work root is not a safe directory")
 	}
+	if err := prepareDurableLegacyRevertEntries(journal, workRoot); err != nil {
+		return nil, err
+	}
 
 	results := make([]RevertResult, 0, len(journal.Entries))
 	for index := len(journal.Entries) - 1; index >= 0; index-- {
@@ -80,6 +93,11 @@ func RunRevertDurable(journal *Journal, backupDir, workRoot string) ([]RevertRes
 				return results, err
 			}
 			results = append(results, result)
+			if result.Action != "skipped" {
+				if err := durableRevertCheckpoint("after_entry_completed", index); err != nil {
+					return results, err
+				}
+			}
 			continue
 		}
 		result, err := runDurableFilesystemRevertEntry(entry, index, workRoot)
@@ -87,8 +105,132 @@ func RunRevertDurable(journal *Journal, backupDir, workRoot string) ([]RevertRes
 			return results, err
 		}
 		results = append(results, result)
+		if result.Action != "skipped" {
+			if err := durableRevertCheckpoint("after_entry_completed", index); err != nil {
+				return results, err
+			}
+		}
 	}
 	return results, nil
+}
+
+// prepareDurableLegacyRevertEntries durably records the complete undo plan
+// before the first target mutation. For repeated targets, the next reverse
+// entry expects the prior entry's desired state rather than rescanning the
+// still-current final state.
+func prepareDurableLegacyRevertEntries(journal *Journal, workRoot string) error {
+	virtual := make(map[string]durableLegacyRevertState)
+	for index := len(journal.Entries) - 1; index >= 0; index-- {
+		entry := journal.Entries[index]
+		if entry.Action != "restored" {
+			continue
+		}
+		entryDigest, err := durableLegacyJournalEntryDigest(entry)
+		if err != nil {
+			return err
+		}
+		preparedPath := filepath.Join(workRoot, fmt.Sprintf("entry-%06d.json", index))
+		prepared, found, err := readDurableLegacyPrepared(preparedPath)
+		if err != nil {
+			return err
+		}
+
+		if entry.RestoreType == "registry-import" || entry.RestoreType == "registry-set" {
+			if !entry.BackupCreated && entry.TargetExistedBefore {
+				continue
+			}
+			actual, desired, err := durableLegacyRegistryStates(entry, workRoot)
+			if err != nil {
+				return err
+			}
+			key := durableLegacyVirtualTarget(entry)
+			before, chained := virtual[key]
+			if !chained {
+				before = actual
+			}
+			expected := durableLegacyRevertPrepared{
+				Version: durableLegacyRevertVersion, EntryIndex: index, EntryDigest: entryDigest,
+				Target: entry.TargetPath, Before: before, Desired: desired, DesiredSource: entry.BackupPath,
+			}
+			if !found {
+				if err := writeImmutableDurableJSON(preparedPath, expected); err != nil {
+					return err
+				}
+				prepared = expected
+			} else if err := validateDurableLegacyPrepared(prepared, expected, chained); err != nil {
+				return fmt.Errorf("legacy registry revert prepared record differs from journal entry %d: %w", index, err)
+			}
+			virtual[key] = prepared.Desired
+			continue
+		}
+
+		desired, desiredSource, mutates, err := durableLegacyDesiredState(entry)
+		if err != nil {
+			return err
+		}
+		if !mutates {
+			continue
+		}
+		key := durableLegacyVirtualTarget(entry)
+		before, chained := virtual[key]
+		if !chained {
+			before, err = scanDurableLegacyFilesystemState(entry.TargetPath)
+			if err != nil {
+				return fmt.Errorf("capture revert target %q: %w", entry.TargetPath, err)
+			}
+		}
+		suffix := entryDigest[:16]
+		base := filepath.Base(entry.TargetPath)
+		parent := filepath.Dir(entry.TargetPath)
+		expected := durableLegacyRevertPrepared{
+			Version: durableLegacyRevertVersion, EntryIndex: index, EntryDigest: entryDigest,
+			Target: filepath.Clean(entry.TargetPath), Before: before, Desired: desired, DesiredSource: desiredSource,
+			StagePath: filepath.Join(parent, "."+base+".endstate-revert-"+suffix+"-stage"),
+			HeldPath:  filepath.Join(parent, "."+base+".endstate-revert-"+suffix+"-held"),
+		}
+		if !found {
+			for _, path := range []string{expected.StagePath, expected.HeldPath} {
+				if _, err := os.Lstat(path); !os.IsNotExist(err) {
+					if err == nil {
+						err = fmt.Errorf("path already exists")
+					}
+					return fmt.Errorf("legacy revert scratch path %q is unavailable: %w", path, err)
+				}
+			}
+			if err := writeImmutableDurableJSON(preparedPath, expected); err != nil {
+				return err
+			}
+			prepared = expected
+		} else if err := validateDurableLegacyPrepared(prepared, expected, chained); err != nil {
+			return fmt.Errorf("legacy revert prepared record differs from journal entry %d: %w", index, err)
+		}
+		virtual[key] = prepared.Desired
+	}
+	return nil
+}
+
+func validateDurableLegacyPrepared(actual, expected durableLegacyRevertPrepared, compareBefore bool) error {
+	if actual.Version != expected.Version || actual.EntryIndex != expected.EntryIndex ||
+		actual.EntryDigest != expected.EntryDigest || actual.Target != expected.Target ||
+		actual.Desired != expected.Desired || actual.DesiredSource != expected.DesiredSource ||
+		actual.StagePath != expected.StagePath || actual.HeldPath != expected.HeldPath {
+		return fmt.Errorf("identity or desired state changed")
+	}
+	if compareBefore && actual.Before != expected.Before {
+		return fmt.Errorf("chained before-state changed")
+	}
+	return nil
+}
+
+func durableLegacyVirtualTarget(entry JournalEntry) string {
+	if entry.RestoreType == "registry-import" || entry.RestoreType == "registry-set" {
+		return "registry\x00" + strings.ToLower(entry.TargetPath)
+	}
+	target := filepath.Clean(entry.TargetPath)
+	if runtime.GOOS == "windows" {
+		target = strings.ToLower(target)
+	}
+	return "filesystem\x00" + target
 }
 
 func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot string) (RevertResult, error) {
@@ -107,7 +249,7 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 		return RevertResult{Target: entry.TargetPath, Action: completed.Action, BackupUsed: entry.BackupPath}, nil
 	}
 
-	before, desired, err := durableLegacyRegistryStates(entry, workRoot)
+	_, desired, err := durableLegacyRegistryStates(entry, workRoot)
 	if err != nil {
 		return RevertResult{}, err
 	}
@@ -116,14 +258,9 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 		return RevertResult{}, err
 	}
 	if !found {
-		prepared = durableLegacyRevertPrepared{
-			Version: durableLegacyRevertVersion, EntryIndex: index, EntryDigest: entryDigest,
-			Target: entry.TargetPath, Before: before, Desired: desired, DesiredSource: entry.BackupPath,
-		}
-		if err := writeImmutableDurableJSON(preparedPath, prepared); err != nil {
-			return RevertResult{}, err
-		}
-	} else if prepared.Version != durableLegacyRevertVersion || prepared.EntryIndex != index ||
+		return RevertResult{}, fmt.Errorf("legacy registry revert entry %d was not durably prepared", index)
+	}
+	if prepared.Version != durableLegacyRevertVersion || prepared.EntryIndex != index ||
 		prepared.EntryDigest != entryDigest || prepared.Target != entry.TargetPath || prepared.Desired != desired ||
 		prepared.DesiredSource != entry.BackupPath {
 		return RevertResult{}, fmt.Errorf("legacy registry revert prepared record differs from journal entry %d", index)
@@ -134,10 +271,16 @@ func runDurableRegistryRevertEntry(entry JournalEntry, index int, workRoot strin
 		return RevertResult{}, err
 	}
 	if current != prepared.Desired {
-		if current != prepared.Before {
+		replaceStarted, err := durableLegacyRegistryReplaceInProgress(entry, index, entryDigest, prepared, workRoot)
+		if err != nil {
+			return RevertResult{}, err
+		}
+		intermediate := entry.RestoreType == "registry-import" && entry.BackupCreated && entry.BackupPath != "" &&
+			current == absentDurableRegistryState("registry-key") && replaceStarted
+		if current != prepared.Before && !intermediate {
 			return RevertResult{}, fmt.Errorf("legacy registry revert target %q changed after its durable before-state was recorded", entry.TargetPath)
 		}
-		if err := applyDurableLegacyRegistryRevert(entry); err != nil {
+		if err := applyDurableLegacyRegistryRevert(entry, index, entryDigest, prepared, workRoot); err != nil {
 			return RevertResult{}, err
 		}
 		if err := durableRevertCheckpoint("after_target_replaced", index); err != nil {
@@ -190,31 +333,9 @@ func runDurableFilesystemRevertEntry(entry JournalEntry, index int, workRoot str
 		return RevertResult{}, err
 	}
 	if !found {
-		before, err := scanDurableLegacyFilesystemState(entry.TargetPath)
-		if err != nil {
-			return RevertResult{}, fmt.Errorf("capture revert target %q: %w", entry.TargetPath, err)
-		}
-		suffix := entryDigest[:16]
-		base := filepath.Base(entry.TargetPath)
-		parent := filepath.Dir(entry.TargetPath)
-		prepared = durableLegacyRevertPrepared{
-			Version: durableLegacyRevertVersion, EntryIndex: index, EntryDigest: entryDigest,
-			Target: filepath.Clean(entry.TargetPath), Before: before, Desired: desired, DesiredSource: desiredSource,
-			StagePath: filepath.Join(parent, "."+base+".endstate-revert-"+suffix+"-stage"),
-			HeldPath:  filepath.Join(parent, "."+base+".endstate-revert-"+suffix+"-held"),
-		}
-		for _, path := range []string{prepared.StagePath, prepared.HeldPath} {
-			if _, err := os.Lstat(path); !os.IsNotExist(err) {
-				if err == nil {
-					err = fmt.Errorf("path already exists")
-				}
-				return RevertResult{}, fmt.Errorf("legacy revert scratch path %q is unavailable: %w", path, err)
-			}
-		}
-		if err := writeImmutableDurableJSON(preparedPath, prepared); err != nil {
-			return RevertResult{}, err
-		}
-	} else if prepared.Version != durableLegacyRevertVersion || prepared.EntryIndex != index ||
+		return RevertResult{}, fmt.Errorf("legacy revert entry %d was not durably prepared", index)
+	}
+	if prepared.Version != durableLegacyRevertVersion || prepared.EntryIndex != index ||
 		prepared.EntryDigest != entryDigest || prepared.Target != filepath.Clean(entry.TargetPath) ||
 		prepared.Desired != desired || prepared.DesiredSource != desiredSource {
 		return RevertResult{}, fmt.Errorf("legacy revert prepared record differs from journal entry %d", index)
@@ -368,6 +489,12 @@ func ensureDurableLegacyStage(prepared durableLegacyRevertPrepared) error {
 	} else {
 		return fmt.Errorf("legacy revert backup has unsupported type")
 	}
+	if err := syncDurableLegacyTree(prepared.StagePath); err != nil {
+		return err
+	}
+	if err := syncDurableLegacyDirectory(filepath.Dir(prepared.StagePath)); err != nil {
+		return err
+	}
 	state, err := scanDurableLegacyFilesystemState(prepared.StagePath)
 	if err != nil {
 		return err
@@ -394,7 +521,18 @@ func renameDurableLegacyPath(source, destination string) error {
 	if err := os.Rename(source, destination); err != nil {
 		return err
 	}
-	return ValidateFilesystemTarget(destination)
+	if err := ValidateFilesystemTarget(destination); err != nil {
+		return err
+	}
+	sourceParent := filepath.Dir(source)
+	destinationParent := filepath.Dir(destination)
+	if err := syncDurableLegacyDirectory(sourceParent); err != nil {
+		return err
+	}
+	if destinationParent != sourceParent {
+		return syncDurableLegacyDirectory(destinationParent)
+	}
+	return nil
 }
 
 func removeDurableLegacyScratch(path string) error {
@@ -424,7 +562,33 @@ func removeDurableLegacyScratch(path string) error {
 	} else if !info.Mode().IsRegular() {
 		return fmt.Errorf("legacy revert scratch path %q has unsupported type", path)
 	}
-	return os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	return syncDurableLegacyDirectory(filepath.Dir(path))
+}
+
+func syncDurableLegacyTree(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return err
+	}
+	if info.Mode().IsRegular() {
+		return syncDurableLegacyFile(path)
+	}
+	if !info.IsDir() || isLinkOrReparse(info) {
+		return fmt.Errorf("durability path %q has unsupported type", path)
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if err := syncDurableLegacyTree(filepath.Join(path, entry.Name())); err != nil {
+			return err
+		}
+	}
+	return syncDurableLegacyDirectory(path)
 }
 
 func scanOptionalDurableLegacyState(path string) (durableLegacyRevertState, bool, error) {
@@ -543,15 +707,18 @@ func writeImmutableDurableJSON(path string, value any) (resultErr error) {
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if closeErr := file.Close(); resultErr == nil && closeErr != nil {
-			resultErr = closeErr
-		}
-	}()
 	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
 		return err
 	}
-	return file.Sync()
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return err
+	}
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return syncDurableLegacyDirectory(filepath.Dir(path))
 }
 
 func readDurableLegacyPrepared(path string) (durableLegacyRevertPrepared, bool, error) {

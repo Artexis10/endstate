@@ -54,7 +54,13 @@ func durableLegacyRegistryStates(entry JournalEntry, workRoot string) (durableLe
 	}
 }
 
-func applyDurableLegacyRegistryRevert(entry JournalEntry) error {
+func applyDurableLegacyRegistryRevert(
+	entry JournalEntry,
+	index int,
+	entryDigest string,
+	prepared durableLegacyRevertPrepared,
+	workRoot string,
+) error {
 	switch entry.RestoreType {
 	case "registry-set":
 		backup, err := readRegistrySetBackup(entry.BackupPath)
@@ -64,29 +70,73 @@ func applyDurableLegacyRegistryRevert(entry JournalEntry) error {
 		return revertRegistrySet(backup)
 	case "registry-import":
 		if entry.BackupCreated && entry.BackupPath != "" {
+			started := durableLegacyRegistryReplaceStarted{
+				Version: durableLegacyRevertVersion, EntryIndex: index, EntryDigest: entryDigest,
+				Target: entry.TargetPath, Desired: prepared.Desired,
+			}
+			path := durableLegacyRegistryReplacePath(workRoot, index)
+			if err := writeImmutableDurableJSON(path, started); err != nil {
+				return err
+			}
+			if err := deleteDurableLegacyRegistryKey(entry.TargetPath); err != nil {
+				return err
+			}
+			if err := durableRevertCheckpoint("after_registry_key_deleted", index); err != nil {
+				return err
+			}
 			if err := exec.Command("reg", "import", entry.BackupPath).Run(); err != nil {
 				return fmt.Errorf("cannot revert registry import from %s: %w", entry.BackupPath, err)
 			}
 			return nil
 		}
-		if err := exec.Command("reg", "delete", entry.TargetPath, "/f").Run(); err != nil {
-			hive, subkey, splitErr := splitHKCUKey(entry.TargetPath)
-			if splitErr != nil {
-				return splitErr
-			}
-			key, queryErr := registry.OpenKey(hive, subkey, registry.QUERY_VALUE)
-			if queryErr == nil {
-				_ = key.Close()
-				return fmt.Errorf("cannot delete registry key %s: %w", entry.TargetPath, err)
-			}
-			if queryErr != registry.ErrNotExist {
-				return fmt.Errorf("verify registry key deletion %s: %w", entry.TargetPath, queryErr)
-			}
-		}
-		return nil
+		return deleteDurableLegacyRegistryKey(entry.TargetPath)
 	default:
 		return fmt.Errorf("unsupported durable registry revert type %q", entry.RestoreType)
 	}
+}
+
+func durableLegacyRegistryReplacePath(workRoot string, index int) string {
+	return filepath.Join(workRoot, fmt.Sprintf("entry-%06d-registry-replace.json", index))
+}
+
+func durableLegacyRegistryReplaceInProgress(
+	entry JournalEntry,
+	index int,
+	entryDigest string,
+	prepared durableLegacyRevertPrepared,
+	workRoot string,
+) (bool, error) {
+	if entry.RestoreType != "registry-import" || !entry.BackupCreated || entry.BackupPath == "" {
+		return false, nil
+	}
+	var started durableLegacyRegistryReplaceStarted
+	found, err := readStrictDurableJSON(durableLegacyRegistryReplacePath(workRoot, index), &started)
+	if err != nil || !found {
+		return found, err
+	}
+	if started.Version != durableLegacyRevertVersion || started.EntryIndex != index ||
+		started.EntryDigest != entryDigest || started.Target != entry.TargetPath || started.Desired != prepared.Desired {
+		return false, fmt.Errorf("legacy registry replacement marker differs from journal entry %d", index)
+	}
+	return true, nil
+}
+
+func deleteDurableLegacyRegistryKey(target string) error {
+	if err := exec.Command("reg", "delete", target, "/f").Run(); err != nil {
+		hive, subkey, splitErr := splitHKCUKey(target)
+		if splitErr != nil {
+			return splitErr
+		}
+		key, queryErr := registry.OpenKey(hive, subkey, registry.QUERY_VALUE)
+		if queryErr == nil {
+			_ = key.Close()
+			return fmt.Errorf("cannot delete registry key %s: %w", target, err)
+		}
+		if queryErr != registry.ErrNotExist {
+			return fmt.Errorf("verify registry key deletion %s: %w", target, queryErr)
+		}
+	}
+	return nil
 }
 
 func captureDurableRegistryKey(target, workRoot string) (durableLegacyRevertState, error) {

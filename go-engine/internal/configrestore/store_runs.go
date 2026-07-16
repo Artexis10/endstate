@@ -170,47 +170,92 @@ func (g *Guard) RegisterLegacyJournal(path string) (*StoreMember, error) {
 // registered legacy journal. Repeated calls return the same directory; a
 // consumed member returns ErrStoreMemberReverted and cannot be replayed.
 func (g *Guard) LegacyMemberRevertRoot(ctx context.Context, member *StoreMember) (string, error) {
+	root, _, err := g.PrepareLegacyMemberRevert(ctx, member)
+	return root, err
+}
+
+// PrepareLegacyMemberRevert returns a stable engine-owned work directory and
+// the exact registered journal bytes whose digest was verified under the live
+// restore lease. Callers execute only these pinned bytes, never an earlier or
+// later read of the mutable journal path.
+func (g *Guard) PrepareLegacyMemberRevert(ctx context.Context, member *StoreMember) (string, []byte, error) {
 	if g == nil {
-		return "", fmt.Errorf("live config restore guard is nil")
+		return "", nil, fmt.Errorf("live config restore guard is nil")
 	}
 	if err := checkSnapshotContext(ctx); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	if err := g.requireLeaseLocked(); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	disk, err := g.loadLegacyMember(member)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	revertPath := filepath.Join(g.legacyReverts, disk.MemberID+".json")
 	if reverted, err := memberReverted(revertPath, StoreMemberLegacy, disk.MemberID, disk.MemberDigest); err != nil {
-		return "", err
+		return "", nil, err
 	} else if reverted {
-		return "", ErrStoreMemberReverted
+		return "", nil, ErrStoreMemberReverted
 	}
 	journalData, _, err := safepath.ReadRegularFile(disk.JournalPath)
 	if err != nil {
-		return "", fmt.Errorf("read registered legacy journal: %w", err)
+		return "", nil, fmt.Errorf("read registered legacy journal: %w", err)
 	}
 	journalHash := sha256.Sum256(journalData)
 	if hex.EncodeToString(journalHash[:]) != disk.JournalDigest {
-		return "", fmt.Errorf("registered legacy journal changed")
+		return "", nil, fmt.Errorf("registered legacy journal changed")
 	}
 	root := filepath.Join(g.legacyRevertWork, disk.MemberID)
 	if err := rejectExistingTargetLinks(root); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := os.Mkdir(root, 0o700); err != nil && !os.IsExist(err) {
-		return "", fmt.Errorf("create legacy revert work directory: %w", err)
+		return "", nil, fmt.Errorf("create legacy revert work directory: %w", err)
 	}
 	info, err := os.Lstat(root)
 	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
-		return "", fmt.Errorf("legacy revert work path is not a safe directory")
+		return "", nil, fmt.Errorf("legacy revert work path is not a safe directory")
 	}
-	return root, nil
+	return root, append([]byte(nil), journalData...), nil
+}
+
+// LegacyJournalConsumed reports whether the exact current bytes at path are
+// already bound to a durably consumed legacy member. It never registers new
+// history and is used to exclude completed standalone journals from ordering.
+func (g *Guard) LegacyJournalConsumed(ctx context.Context, path string) (bool, error) {
+	if g == nil {
+		return false, fmt.Errorf("live config restore guard is nil")
+	}
+	if err := checkSnapshotContext(ctx); err != nil {
+		return false, err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err := g.requireLeaseLocked(); err != nil {
+		return false, err
+	}
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return false, fmt.Errorf("legacy journal path must be a clean absolute path")
+	}
+	if err := rejectExistingTargetLinks(path); err != nil {
+		return false, fmt.Errorf("validate legacy journal path: %w", err)
+	}
+	data, _, err := safepath.ReadRegularFile(path)
+	if err != nil {
+		return false, fmt.Errorf("read legacy journal: %w", err)
+	}
+	digest := sha256.Sum256(data)
+	member, err := g.findLegacyJournalLocked(path, hex.EncodeToString(digest[:]))
+	if err != nil || member == nil {
+		return false, err
+	}
+	return memberReverted(
+		filepath.Join(g.legacyReverts, member.memberID+".json"), StoreMemberLegacy,
+		member.memberID, member.sourceDigest,
+	)
 }
 
 func (g *Guard) findLegacyJournalLocked(journalPath, journalDigest string) (*StoreMember, error) {

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -206,6 +207,63 @@ func TestEmitConfigRevertResultsUsesContractedRestoreLifecycle(t *testing.T) {
 	}
 }
 
+func TestRunRevertEmitsCompletedLegacyResultsBeforeFailure(t *testing.T) {
+	repoRoot := t.TempDir()
+	logsDir := filepath.Join(repoRoot, "logs")
+	if err := os.MkdirAll(logsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journal := restore.Journal{
+		RunID: "partial-legacy-revert", Timestamp: time.Now().UTC().Format(time.RFC3339),
+		Entries: []restore.JournalEntry{{TargetPath: filepath.Join(repoRoot, "settings.json"), Action: "restored", RestoreType: "copy"}},
+	}
+	data, err := json.Marshal(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(logsDir, "restore-journal-partial.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	originalRoot := resolveRepoRootFn
+	originalEmitter := newRevertEmitterFn
+	originalRevert := runDurableLegacyRevertFn
+	buffer := &bytes.Buffer{}
+	resolveRepoRootFn = func() string { return repoRoot }
+	newRevertEmitterFn = func(runID string, jsonl bool) *events.Emitter {
+		return events.NewEmitterWithWriter(runID, jsonl, buffer)
+	}
+	runDurableLegacyRevertFn = func(*restore.Journal, string, string) ([]restore.RevertResult, error) {
+		return []restore.RevertResult{{Target: "completed-target", Action: "reverted"}}, errors.New("later entry failed")
+	}
+	t.Cleanup(func() {
+		resolveRepoRootFn = originalRoot
+		newRevertEmitterFn = originalEmitter
+		runDurableLegacyRevertFn = originalRevert
+	})
+
+	if _, envErr := RunRevert(RevertFlags{Events: "jsonl"}); envErr == nil {
+		t.Fatal("partial legacy failure unexpectedly succeeded")
+	}
+	lines := bytes.Split(bytes.TrimSpace(buffer.Bytes()), []byte("\n"))
+	if len(lines) != 3 {
+		t.Fatalf("partial revert events = %s", buffer.String())
+	}
+	var item, summary map[string]any
+	if err := json.Unmarshal(lines[1], &item); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(lines[2], &summary); err != nil {
+		t.Fatal(err)
+	}
+	if item["id"] != "completed-target" || item["status"] != "installed" {
+		t.Fatalf("partial revert item = %#v", item)
+	}
+	if summary["total"] != float64(2) || summary["success"] != float64(1) || summary["failed"] != float64(1) {
+		t.Fatalf("partial revert summary = %#v", summary)
+	}
+}
+
 func TestDurableLegacyRevertCompletionClosesCrashBeforeConsumptionWindow(t *testing.T) {
 	ctx := context.Background()
 	repoRoot := t.TempDir()
@@ -342,6 +400,7 @@ func TestRunRevertChoosesNewerStandaloneLegacyJournalBeforeOlderStoreRun(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
+	validJournalData := append([]byte(nil), data...)
 	if err := os.MkdirAll(logsDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -428,5 +487,26 @@ func TestRunRevertChoosesNewerStandaloneLegacyJournalBeforeOlderStoreRun(t *test
 	}
 	if _, err := os.Stat(generationTarget); !os.IsNotExist(err) {
 		t.Fatalf("unreadable history mutated older generation target: %v", err)
+	}
+
+	// Once the original journal bytes are visible again, its durable consumed
+	// record must remove it from chronology selection. The next revert should
+	// continue to the older active generation run without replaying legacy data.
+	if err := os.WriteFile(filepath.Join(logsDir, "restore-journal-newer-standalone-legacy.json"), validJournalData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, envErr = RunRevert(RevertFlags{})
+	if envErr != nil {
+		t.Fatalf("second RunRevert: %+v", envErr)
+	}
+	result = got.(*RevertData)
+	if len(result.Results) != 1 || result.Results[0].Target != generationTarget {
+		t.Fatalf("next active history selection = %+v", result.Results)
+	}
+	if data, err := os.ReadFile(generationTarget); err != nil || string(data) != "generation-prior" {
+		t.Fatalf("older generation target = %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(legacyTarget); err != nil || string(data) != "legacy-desired-again" {
+		t.Fatalf("consumed legacy journal replayed = %q, %v", data, err)
 	}
 }

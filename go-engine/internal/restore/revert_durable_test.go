@@ -98,6 +98,74 @@ func TestRunRevertDurableFailsClosedOnEditAfterCrash(t *testing.T) {
 	}
 }
 
+func TestRunRevertDurablePreparesEveryEntryBeforeFirstMutation(t *testing.T) {
+	root := t.TempDir()
+	firstTarget := filepath.Join(root, "first.json")
+	firstBackup := filepath.Join(root, "first.backup.json")
+	secondTarget := filepath.Join(root, "second.json")
+	secondBackup := filepath.Join(root, "second.backup.json")
+	for path, content := range map[string]string{
+		firstTarget: "first-desired", firstBackup: "first-prior",
+		secondTarget: "second-desired", secondBackup: "second-prior",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	journal := &Journal{Entries: []JournalEntry{
+		{TargetPath: firstTarget, TargetExistedBefore: true, BackupCreated: true, BackupPath: firstBackup, Action: "restored", RestoreType: "copy"},
+		{TargetPath: secondTarget, TargetExistedBefore: true, BackupCreated: true, BackupPath: secondBackup, Action: "restored", RestoreType: "copy"},
+	}}
+	originalCheckpoint := durableRevertCheckpoint
+	durableRevertCheckpoint = func(phase string, index int) error {
+		if phase == "after_entry_completed" && index == 1 {
+			return errors.New("simulated crash between entries")
+		}
+		return nil
+	}
+	t.Cleanup(func() { durableRevertCheckpoint = originalCheckpoint })
+	workRoot := t.TempDir()
+	results, err := RunRevertDurable(journal, "", workRoot)
+	if err == nil || len(results) != 1 || results[0].Target != secondTarget {
+		t.Fatalf("first pass results = %+v, %v", results, err)
+	}
+	if err := os.WriteFile(firstTarget, []byte("user-edit-after-crash"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	durableRevertCheckpoint = originalCheckpoint
+	if _, err := RunRevertDurable(journal, "", workRoot); err == nil || !strings.Contains(err.Error(), "changed") {
+		t.Fatalf("retry error = %v", err)
+	}
+	if data, err := os.ReadFile(firstTarget); err != nil || string(data) != "user-edit-after-crash" {
+		t.Fatalf("retry overwrote unstarted entry edit = %q, %v", data, err)
+	}
+}
+
+func TestRunRevertDurablePreflightsRepeatedTargetAsStateChain(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "settings.json")
+	firstBackup := filepath.Join(root, "first.backup.json")
+	secondBackup := filepath.Join(root, "second.backup.json")
+	for path, content := range map[string]string{
+		target: "after-second", firstBackup: "original", secondBackup: "after-first",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	journal := &Journal{Entries: []JournalEntry{
+		{TargetPath: target, TargetExistedBefore: true, BackupCreated: true, BackupPath: firstBackup, Action: "restored", RestoreType: "copy"},
+		{TargetPath: target, TargetExistedBefore: true, BackupCreated: true, BackupPath: secondBackup, Action: "restored", RestoreType: "copy"},
+	}}
+	results, err := RunRevertDurable(journal, "", t.TempDir())
+	if err != nil || len(results) != 2 {
+		t.Fatalf("repeated-target results = %+v, %v", results, err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "original" {
+		t.Fatalf("repeated-target final state = %q, %v", data, err)
+	}
+}
+
 func TestRunRevertDurableResumesDirectorySwapAfterOriginalIsHeld(t *testing.T) {
 	root := t.TempDir()
 	target := filepath.Join(root, "settings")
