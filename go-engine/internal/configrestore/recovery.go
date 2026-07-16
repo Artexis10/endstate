@@ -81,6 +81,12 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 		}
 		intentPath := filepath.Join(root, "journal", "intent.json")
 		if _, err := os.Lstat(intentPath); os.IsNotExist(err) {
+			// No durable intent means no mutation was authorized. The root may be
+			// a normal unused preallocation or a crash residue from descriptor/
+			// snapshot preparation; under the global lease it is safe to reap.
+			if err := removeSafeTransactionPath(context.WithoutCancel(ctx), root); err != nil {
+				return nil, &RecoveryError{TransactionID: entry.Name(), Err: fmt.Errorf("remove no-intent transaction: %w", err)}
+			}
 			continue
 		} else if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}

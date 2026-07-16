@@ -105,6 +105,37 @@ func TestDiscardTransactionRootRemovesOnlyNoIntentPreallocation(t *testing.T) {
 	}
 }
 
+func TestBeginLiveReapsNoIntentCrashResidue(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	first, err := BeginLive(ctx, stateDir, "orphan-source", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	orphan, err := first.CreateTransactionRoot("capture-orphan")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(orphan, "snapshots", "large"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(orphan, "snapshots", "large", "prefs.bin"), []byte("snapshot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := BeginLive(ctx, stateDir, "orphan-reaper", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if _, err := os.Lstat(orphan); !os.IsNotExist(err) {
+		t.Fatalf("no-intent crash residue survived recovery: %v", err)
+	}
+}
+
 func TestBeginLiveHoldsOneStoreLockAcrossGuardsUntilClosed(t *testing.T) {
 	stateDir := t.TempDir()
 	first, err := BeginLive(context.Background(), stateDir, "apply-first", nil)
@@ -544,7 +575,7 @@ func TestBeginLiveRejectsLinkedMutationLock(t *testing.T) {
 	}
 }
 
-func TestBeginLiveLeavesPreIntentTransactionRootAsHarmlessOrphan(t *testing.T) {
+func TestBeginLiveReapsPreIntentTransactionRoot(t *testing.T) {
 	stateDir := t.TempDir()
 	first, err := BeginLive(context.Background(), stateDir, "apply-orphan", nil)
 	if err != nil {
@@ -562,8 +593,8 @@ func TestBeginLiveLeavesPreIntentTransactionRootAsHarmlessOrphan(t *testing.T) {
 		t.Fatalf("BeginLive() with pre-intent orphan: %v", err)
 	}
 	t.Cleanup(func() { _ = second.Close() })
-	if _, err := os.Stat(filepath.Join(root, "transaction.json")); err != nil {
-		t.Fatalf("orphan descriptor was removed: %v", err)
+	if _, err := os.Stat(root); !os.IsNotExist(err) {
+		t.Fatalf("pre-intent transaction survived reaping: %v", err)
 	}
 }
 

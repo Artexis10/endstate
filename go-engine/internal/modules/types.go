@@ -7,6 +7,11 @@
 // module.jsonc files under modules/apps/<id>/.
 package modules
 
+import (
+	"bytes"
+	"encoding/json"
+)
+
 // Module represents a parsed config module definition from module.jsonc.
 type Module struct {
 	ModuleSchemaVersion int           `json:"moduleSchemaVersion,omitempty"`
@@ -20,6 +25,7 @@ type Module struct {
 	Secrets             *SecretsDef   `json:"secrets,omitempty"`
 	Notes               string        `json:"notes,omitempty"`
 	Config              *ConfigDef    `json:"config,omitempty"`
+	Curation            *CurationDef  `json:"curation,omitempty"`
 
 	// FilePath is the absolute path to the module.jsonc file (set at load time).
 	FilePath string `json:"-"`
@@ -32,6 +38,20 @@ type Module struct {
 	// canonicalSnapshot pins the parsed declarative module bytes at catalog load.
 	// It is intentionally private so callers cannot mutate the catalog snapshot.
 	canonicalSnapshot []byte
+}
+
+// CurationDef carries repository-maintenance metadata used to reproduce and
+// audit curated module fixtures. It is declarative metadata, not executable
+// restore behavior.
+type CurationDef struct {
+	Seed            *CurationSeedDef `json:"seed,omitempty"`
+	SnapshotRoots   []string         `json:"snapshotRoots,omitempty"`
+	ExcludePatterns []string         `json:"excludePatterns,omitempty"`
+}
+
+type CurationSeedDef struct {
+	Type   string `json:"type"`
+	Script string `json:"script"`
 }
 
 // EffectiveSchemaVersion returns the module's interpreted schema version.
@@ -125,6 +145,46 @@ type MigrationOperationDef struct {
 	ToSection   string `json:"toSection,omitempty"`
 	ToKey       string `json:"toKey,omitempty"`
 	Value       any    `json:"value,omitempty"`
+	valueSet    bool
+}
+
+// UnmarshalJSON preserves whether value was explicitly supplied. JSON null is
+// a valid json-set value; an omitted value is malformed declarative intent.
+func (operation *MigrationOperationDef) UnmarshalJSON(data []byte) error {
+	type wire MigrationOperationDef
+	var decoded wire
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	if err := ensureJSONEOF(decoder); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*operation = MigrationOperationDef(decoded)
+	_, operation.valueSet = fields["value"]
+	return nil
+}
+
+// MarshalJSON retains an explicitly supplied null value in canonical module
+// snapshots and generation fingerprints.
+func (operation MigrationOperationDef) MarshalJSON() ([]byte, error) {
+	type wire MigrationOperationDef
+	data, err := json.Marshal(wire(operation))
+	if err != nil || !operation.valueSet || operation.Value != nil {
+		return data, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	fields["value"] = json.RawMessage("null")
+	return json.Marshal(fields)
 }
 
 // ValidationDef declares an engine-owned validation primitive for a staged or

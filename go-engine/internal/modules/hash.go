@@ -70,6 +70,15 @@ func ParseModuleJSON(data []byte) (*Module, error) {
 	if err := decodeModuleJSON(clean, &mod); err != nil {
 		return nil, err
 	}
+	// Schema v1 is the established legacy format and retains its permissive
+	// loader for backward compatibility. Schema v2 is a declarative engine
+	// contract: reject misspelled or unsupported fields instead of ignoring
+	// intent the engine cannot execute.
+	if mod.EffectiveSchemaVersion() == 2 {
+		if err := decodeStrictModuleJSON(clean, &mod); err != nil {
+			return nil, err
+		}
+	}
 
 	canonical, err := CanonicalizeModuleJSON(data)
 	if err != nil {
@@ -146,6 +155,16 @@ func computeParsedGenerationFingerprints(canonicalModule []byte) ([][]string, er
 func decodeModuleJSON(data []byte, destination any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.UseNumber()
+	if err := decoder.Decode(destination); err != nil {
+		return fmt.Errorf("parse module JSON: %w", err)
+	}
+	return ensureJSONEOF(decoder)
+}
+
+func decodeStrictModuleJSON(data []byte, destination any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(destination); err != nil {
 		return fmt.Errorf("parse module JSON: %w", err)
 	}

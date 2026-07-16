@@ -227,7 +227,7 @@ Tracks progress of individual restore actions during apply with `--EnableRestore
 **Fields:**
 - `id` (string, required): Restore entry identifier (e.g., `"vscode/settings.json"`)
 - `module` (string, required): Config module ID (e.g., `"vscode"`)
-- `restorer` (string, required): Restorer type: `"copy"` | `"merge-json"` | `"merge-ini"` | `"append"`
+- `restorer` (string, required): Engine restorer type: `"copy"` | `"merge-json"` | `"merge-ini"` | `"append"` | `"delete-glob"` | `"registry-import"` | `"registry-set"`
 - `source` (string, required): Portable source path
 - `target` (string, required): System target path
 - `status` (string, required): One of:

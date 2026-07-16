@@ -82,6 +82,52 @@ func TestParseModuleJSONPreservesMigrationOperationNumbers(t *testing.T) {
 	}
 }
 
+func TestParseModuleJSONRejectsUnknownFieldsAtEverySchemaLevel(t *testing.T) {
+	for name, content := range map[string]string{
+		"top level":           strings.Replace(validV2Module, `"moduleSchemaVersion": 2,`, `"moduleSchemaVersion": 2, "unknownTopLevel": true,`, 1),
+		"migration operation": strings.Replace(validV2Module, `"jsonPath": "$.theme", "value": "system"`, `"jsonPath": "$.theme", "value": "system", "shell": "nope"`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseModuleJSON([]byte(content)); err == nil || !strings.Contains(err.Error(), "unknown field") {
+				t.Fatalf("ParseModuleJSON error = %v", err)
+			}
+		})
+	}
+}
+
+func TestParseModuleJSONKeepsLegacyUnknownFieldsBackwardCompatible(t *testing.T) {
+	if _, err := ParseModuleJSON([]byte(`{
+		"id":"apps.legacy", "displayName":"Legacy", "matches":{"winget":["Vendor.Legacy"]},
+		"curation":{"status":"historical"}
+	}`)); err != nil {
+		t.Fatalf("legacy extension field rejected: %v", err)
+	}
+}
+
+func TestJSONSetDistinguishesOmittedValueFromExplicitNull(t *testing.T) {
+	omitted := strings.Replace(validV2Module, `, "value": "system"`, ``, 1)
+	omittedModule, err := ParseModuleJSON([]byte(omitted))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateModule(omittedModule, "module.jsonc"); err == nil || DiagnosticCode(err) != DiagnosticInvalidMigrationOperation {
+		t.Fatalf("omitted value validation = %v", err)
+	}
+
+	explicitNull := strings.Replace(validV2Module, `"value": "system"`, `"value": null`, 1)
+	nullModule, err := ParseModuleJSON([]byte(explicitNull))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := validateModule(nullModule, "module.jsonc"); err != nil {
+		t.Fatalf("explicit null validation = %v", err)
+	}
+	encoded, err := json.Marshal(nullModule.Config.Sets[0].Migrations[0].Operations[1])
+	if err != nil || !strings.Contains(string(encoded), `"value":null`) {
+		t.Fatalf("explicit null encoding = %s, %v", encoded, err)
+	}
+}
+
 func TestLoadedGenerationFingerprintDoesNotRoundLargeSemanticNumbers(t *testing.T) {
 	left := strings.Replace(validV2Module, `"order": 1`, `"order": 9007199254740992`, 1)
 	right := strings.Replace(validV2Module, `"order": 1`, `"order": 9007199254740993`, 1)
@@ -258,8 +304,8 @@ func TestGenerationFingerprint_TracksDefinitionButNotHistoryData(t *testing.T) {
 }
 
 func TestLoadedGenerationFingerprintIncludesCompleteParsedDefinition(t *testing.T) {
-	left := strings.Replace(validV2Module, `"id": "g1",`, `"id": "g1", "semanticTag": "one",`, 1)
-	right := strings.Replace(validV2Module, `"id": "g1",`, `"id": "g1", "semanticTag": "two",`, 1)
+	left := validV2Module
+	right := strings.Replace(validV2Module, `"id": "g1",`, `"id": "g1", "requiresAppClosed": true,`, 1)
 
 	leftModule, err := ParseModuleJSON([]byte(left))
 	if err != nil {
@@ -398,6 +444,8 @@ func TestValidateModuleV2_Rejections(t *testing.T) {
 			m.Config.Sets[0].Migrations[0].Operations[1] = MigrationOperationDef{Type: "ini-set", Path: "settings.ini", Section: "settings", Key: "theme", Value: json.Number("42")}
 		}, DiagnosticInvalidMigrationOperation},
 		{"absolute migration path", func(m *Module) { m.Config.Sets[0].Migrations[0].Operations[0].Source = `C:\\host\\prefs.json` }, DiagnosticUnsafePath},
+		{"volume relative migration path", func(m *Module) { m.Config.Sets[0].Migrations[0].Operations[0].Source = `C:host\prefs.json` }, DiagnosticUnsafePath},
+		{"embedded host expansion migration path", func(m *Module) { m.Config.Sets[0].Migrations[0].Operations[0].Source = `safe$HOME\prefs.json` }, DiagnosticUnsafePath},
 		{"migration missing validation", func(m *Module) { m.Config.Sets[0].Migrations[0].Validate = nil }, DiagnosticMissingMigrationValidation},
 		{"unknown validation", func(m *Module) { m.Config.Sets[0].Migrations[0].Validate[0].Type = "command" }, DiagnosticUnknownValidation},
 		{"validation traversal", func(m *Module) { m.Config.Sets[0].Generations[0].Validate[0].Path = "../prefs.json" }, DiagnosticUnsafePath},

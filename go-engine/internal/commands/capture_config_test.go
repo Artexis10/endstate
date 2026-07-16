@@ -40,6 +40,11 @@ func TestPlanCaptureConfigStrictlyPartitionsLegacyAndPlansPackageAndPathInstance
 		Sets:                []testCaptureSet{{ID: "preferences", Generations: []testCaptureGeneration{{ID: "g1", Capture: true}}}},
 		TopLevelCaptureTrap: true,
 	})
+	unmatchedPackageModule := testCaptureGenerationModule(t, captureGenerationModuleSpec{
+		ID: "apps.unmatched", WingetRef: "Unmatched.App",
+		Detectors: []modules.InstanceDetectorDef{{ID: "installed", Type: "package"}},
+		Sets:      []testCaptureSet{{ID: "preferences", Generations: []testCaptureGeneration{{ID: "g1", Capture: true}}}},
+	})
 	pathModule := testCaptureGenerationModule(t, captureGenerationModuleSpec{
 		ID: "apps.path-only", PathMatch: pathRoot,
 		Detectors: []modules.InstanceDetectorDef{{
@@ -58,7 +63,7 @@ func TestPlanCaptureConfigStrictlyPartitionsLegacyAndPlansPackageAndPathInstance
 	}
 
 	got := planCaptureConfig(map[string]*modules.Module{
-		legacy.ID: legacy, packageModule.ID: packageModule, pathModule.ID: pathModule,
+		legacy.ID: legacy, packageModule.ID: packageModule, pathModule.ID: pathModule, unmatchedPackageModule.ID: unmatchedPackageModule,
 	}, apps, nil)
 	if len(got.LegacyModules) != 1 || got.LegacyModules[0] != legacy {
 		t.Fatalf("legacy partition = %+v", got.LegacyModules)
@@ -128,13 +133,16 @@ func TestPlanCaptureConfigProjectsCatalogDiagnosticWithoutLegacyFallback(t *test
 	diagnostic := modules.CatalogDiagnostic{
 		Code: "INVALID_CONFIG_GENERATION", Severity: "error", ModuleID: "apps.invalid", FilePath: "invalid/module.jsonc", Message: "invalid generation",
 	}
-	got := planCaptureConfig(nil, nil, []modules.CatalogDiagnostic{diagnostic})
+	got := planCaptureConfig(nil, []manifest.App{{ID: "invalid", Installed: true}}, []modules.CatalogDiagnostic{diagnostic})
 	if len(got.Modules) != 0 || len(got.GenerationPlans) != 0 || len(got.PreplanningDiagnostics) != 1 {
 		t.Fatalf("catalog refusal = %+v", got)
 	}
 	projected := got.PreplanningDiagnostics[0]
 	if projected.ModuleID != diagnostic.ModuleID || projected.Code != diagnostic.Code || projected.Status != bundle.CaptureBundleStatusFailed || projected.Detail != diagnostic.Message {
 		t.Fatalf("catalog diagnostic projection = %+v", projected)
+	}
+	if unrelated := planCaptureConfig(nil, nil, []modules.CatalogDiagnostic{diagnostic}); len(unrelated.PreplanningDiagnostics) != 0 {
+		t.Fatalf("unrelated catalog diagnostic leaked into capture = %+v", unrelated.PreplanningDiagnostics)
 	}
 }
 

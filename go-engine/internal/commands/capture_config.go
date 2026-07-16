@@ -177,19 +177,14 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 	sort.Slice(planning.LegacyModules, func(left, right int) bool { return planning.LegacyModules[left].ID < planning.LegacyModules[right].ID })
 	sort.Slice(generationModules, func(left, right int) bool { return generationModules[left].ID < generationModules[right].ID })
 	planning.Modules = append(planning.Modules, planning.LegacyModules...)
-	planning.Modules = append(planning.Modules, generationModules...)
-	sort.Slice(planning.Modules, func(left, right int) bool { return planning.Modules[left].ID < planning.Modules[right].ID })
-
-	for _, diagnostic := range catalogDiagnostics {
-		planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, bundle.CaptureBundleDiagnostic{
-			ModuleID: diagnostic.ModuleID,
-			Status:   bundle.CaptureBundleStatusFailed,
-			Code:     diagnostic.Code,
-			Detail:   diagnostic.Message,
-		})
+	relevantModuleIDs := make(map[string]struct{}, len(planning.LegacyModules))
+	for _, mod := range planning.LegacyModules {
+		relevantModuleIDs[mod.ID] = struct{}{}
 	}
 
 	for _, mod := range generationModules {
+		candidateStart := len(planning.Candidates)
+		diagnosticStart := len(planning.PreplanningDiagnostics)
 		instances, err := modules.DiscoverInstances(mod, capturePackageEvidence(mod, apps), modules.DiscoveryOptions{})
 		if err != nil {
 			planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, bundle.CaptureBundleDiagnostic{
@@ -198,53 +193,74 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 				Code:     CapturePlanningDiscoveryFailed,
 				Detail:   err.Error(),
 			})
-			continue
-		}
-		for instanceIndex := range instances {
-			instance := instances[instanceIndex]
-			for setIndex := range mod.Config.Sets {
-				set := &mod.Config.Sets[setIndex]
-				candidate := captureConfigCandidate{
-					CaptureID: bundle.CaptureID(mod.ID, set.ID, instance.ID),
-					Module:    mod,
-					Set:       set,
-					Instance:  instance,
-					DisplayName: func() string {
-						if set.DisplayName != "" {
-							return set.DisplayName
-						}
-						return set.ID
-					}(),
-				}
-				generation, selectErr := modules.SelectGeneration(set, instance.Version)
-				if selectErr != nil {
-					code := modules.GenerationMatchCode(selectErr)
-					status := bundle.CaptureBundleStatusSkipped
-					if code == "" {
-						code = CapturePlanningSelectionFailed
-						status = bundle.CaptureBundleStatusFailed
+		} else {
+			for instanceIndex := range instances {
+				instance := instances[instanceIndex]
+				for setIndex := range mod.Config.Sets {
+					set := &mod.Config.Sets[setIndex]
+					candidate := captureConfigCandidate{
+						CaptureID: bundle.CaptureID(mod.ID, set.ID, instance.ID),
+						Module:    mod,
+						Set:       set,
+						Instance:  instance,
+						DisplayName: func() string {
+							if set.DisplayName != "" {
+								return set.DisplayName
+							}
+							return set.ID
+						}(),
 					}
+					generation, selectErr := modules.SelectGeneration(set, instance.Version)
+					if selectErr != nil {
+						code := modules.GenerationMatchCode(selectErr)
+						status := bundle.CaptureBundleStatusSkipped
+						if code == "" {
+							code = CapturePlanningSelectionFailed
+							status = bundle.CaptureBundleStatusFailed
+						}
+						planning.Candidates = append(planning.Candidates, candidate)
+						planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, planningDiagnostic(candidate, status, code, selectErr.Error()))
+						continue
+					}
+					candidate.Generation = generation
 					planning.Candidates = append(planning.Candidates, candidate)
-					planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, planningDiagnostic(candidate, status, code, selectErr.Error()))
-					continue
+					if generation.Capture == nil {
+						planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, planningDiagnostic(
+							candidate,
+							bundle.CaptureBundleStatusSkipped,
+							CapturePlanningNoCapture,
+							fmt.Sprintf("config set %q generation %q has no capture declaration", set.ID, generation.ID),
+						))
+						continue
+					}
+					planning.GenerationPlans = append(planning.GenerationPlans, bundle.ConfigSetCapturePlan{
+						Module: mod, Set: set, Generation: generation, Instance: instance,
+					})
 				}
-				candidate.Generation = generation
-				planning.Candidates = append(planning.Candidates, candidate)
-				if generation.Capture == nil {
-					planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, planningDiagnostic(
-						candidate,
-						bundle.CaptureBundleStatusSkipped,
-						CapturePlanningNoCapture,
-						fmt.Sprintf("config set %q generation %q has no capture declaration", set.ID, generation.ID),
-					))
-					continue
-				}
-				planning.GenerationPlans = append(planning.GenerationPlans, bundle.ConfigSetCapturePlan{
-					Module: mod, Set: set, Generation: generation, Instance: instance,
-				})
 			}
 		}
+		if len(planning.Candidates) > candidateStart || len(planning.PreplanningDiagnostics) > diagnosticStart {
+			planning.Modules = append(planning.Modules, mod)
+			relevantModuleIDs[mod.ID] = struct{}{}
+		}
 	}
+
+	for _, diagnostic := range catalogDiagnostics {
+		_, relevant := relevantModuleIDs[diagnostic.ModuleID]
+		if !relevant {
+			relevant = captureCatalogDiagnosticMatchesApp(diagnostic, apps)
+		}
+		if !relevant {
+			continue
+		}
+		planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, bundle.CaptureBundleDiagnostic{
+			ModuleID: diagnostic.ModuleID,
+			Status:   bundle.CaptureBundleStatusFailed,
+			Code:     diagnostic.Code,
+			Detail:   diagnostic.Message,
+		})
+	}
+	sort.Slice(planning.Modules, func(left, right int) bool { return planning.Modules[left].ID < planning.Modules[right].ID })
 
 	sort.Slice(planning.GenerationPlans, func(left, right int) bool {
 		return capturePlanID(planning.GenerationPlans[left]) < capturePlanID(planning.GenerationPlans[right])
@@ -256,6 +272,19 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 		return capturePlanningDiagnosticKey(planning.PreplanningDiagnostics[left]) < capturePlanningDiagnosticKey(planning.PreplanningDiagnostics[right])
 	})
 	return planning
+}
+
+func captureCatalogDiagnosticMatchesApp(diagnostic modules.CatalogDiagnostic, apps []manifest.App) bool {
+	shortID := moduleDirName(diagnostic.ModuleID)
+	if shortID == "" {
+		return false
+	}
+	for _, app := range apps {
+		if app.Installed && strings.EqualFold(app.ID, shortID) {
+			return true
+		}
+	}
+	return false
 }
 
 // finalizeCaptureConfig is the single config planning/publication seam used

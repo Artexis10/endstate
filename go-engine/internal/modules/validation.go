@@ -356,6 +356,9 @@ func validateMigrationOperation(operation MigrationOperationDef) error {
 		if operation.Type == "json-delete" && operation.JSONPath == "$" {
 			return fmt.Errorf("json-delete cannot delete the document root")
 		}
+		if operation.Type == "json-set" && !operation.valueSet && operation.Value == nil {
+			return fmt.Errorf("value is required for json-set")
+		}
 		return nil
 	case "json-move":
 		if err := require("path", operation.Path); err != nil {
@@ -571,7 +574,7 @@ func validateStagingPath(path string) error {
 	if err := validateTemplatePlaceholders(path); err != nil {
 		return err
 	}
-	if len(placeholderPattern.FindAllString(path, -1)) > 0 || containsHostExpansion(path) || isHostAbsolute(path) || hasTraversal(path) {
+	if len(placeholderPattern.FindAllString(path, -1)) > 0 || containsPortableHostExpansion(path) || isPortableAbsoluteOrVolume(path) || hasTraversal(path) {
 		return &pathValidationError{code: DiagnosticUnsafePath, detail: fmt.Sprintf("staging path %q must be relative and contained", path)}
 	}
 	return nil

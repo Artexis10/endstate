@@ -229,9 +229,17 @@ func (session *configRestoreExecutionSession) Execute(
 		item.transactionRoot = transactionRoot
 	}
 	defer func() {
+		var discardErrors []error
 		for _, item := range prepared {
 			if item.transactionRoot != "" {
-				_ = guard.DiscardTransactionRoot(item.transactionRoot)
+				if err := guard.DiscardTransactionRoot(item.transactionRoot); err != nil {
+					discardErrors = append(discardErrors, err)
+				}
+			}
+		}
+		if envErr == nil {
+			if err := errors.Join(discardErrors...); err != nil {
+				envErr = configRestoreInternalError("failed to discard unused configuration restore transactions: " + err.Error())
 			}
 		}
 	}()
