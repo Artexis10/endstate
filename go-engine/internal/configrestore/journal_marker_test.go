@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -33,7 +34,7 @@ func TestPersistCommittedMarkerWritesCanonicalVerifiedRecordAndIsIdempotent(t *t
 		t.Fatalf("committed marker = state %q validation %q rollback %q intent %q digest %q",
 			marker.State(), marker.ValidationStatus(), marker.RollbackOutcome(), marker.IntentDigest(), marker.Digest())
 	}
-	wantPath := filepath.Join(transactionRoot, "journal", "committed-"+intent.Digest()+".json")
+	wantPath := filepath.Join(transactionRoot, "journal", "terminal-"+intent.Digest()+".json")
 	if marker.Path() != wantPath {
 		t.Fatalf("marker path = %q, want %q", marker.Path(), wantPath)
 	}
@@ -80,12 +81,72 @@ func TestPersistRolledBackMarkerRecordsValidationAndRejectsOppositeTerminalState
 		CodeOf(err) != CodeJournalCompletionFailed {
 		t.Fatalf("opposite marker result=%#v err=%v code=%q", conflicting, err, CodeOf(err))
 	}
-	if _, err := os.Lstat(filepath.Join(transactionRoot, "journal", "committed-"+intent.Digest()+".json")); !os.IsNotExist(err) {
-		t.Fatalf("conflicting committed marker exists: %v", err)
+	if _, err := os.Lstat(marker.Path()); err != nil {
+		t.Fatalf("winning rolled-back marker disappeared: %v", err)
 	}
 	if result, err := PersistRolledBackMarker(context.Background(), intent, ValidationPending); result != nil ||
 		CodeOf(err) != CodeJournalCompletionFailed {
 		t.Fatalf("invalid validation result=%#v err=%v code=%q", result, err, CodeOf(err))
+	}
+}
+
+func TestJournalTerminalPublicationAllowsExactlyOneConcurrentOutcome(t *testing.T) {
+	transactionRoot, prepared, _ := prepareJournalDelete(t)
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ready := sync.WaitGroup{}
+	ready.Add(2)
+	release := make(chan struct{})
+	newWriter := func() *JournalWriter {
+		writer := NewJournalWriter()
+		writer.checkpoint = func(_ context.Context, phase journalPhase, _ string) error {
+			if phase == journalPhaseBeforeMarkerPublish {
+				ready.Done()
+				<-release
+			}
+			return nil
+		}
+		return writer
+	}
+	type outcome struct {
+		marker *JournalMarker
+		err    error
+	}
+	outcomes := make(chan outcome, 2)
+	go func() {
+		marker, publishErr := newWriter().PersistCommitted(context.Background(), intent)
+		outcomes <- outcome{marker: marker, err: publishErr}
+	}()
+	go func() {
+		marker, publishErr := newWriter().PersistRolledBack(context.Background(), intent, ValidationFailed)
+		outcomes <- outcome{marker: marker, err: publishErr}
+	}()
+	ready.Wait()
+	close(release)
+
+	succeeded := 0
+	failed := 0
+	for range 2 {
+		result := <-outcomes
+		if result.err == nil {
+			succeeded++
+			if result.marker == nil {
+				t.Fatal("successful terminal publication returned nil marker")
+			}
+		} else {
+			failed++
+			if result.marker != nil || CodeOf(result.err) != CodeJournalCompletionFailed {
+				t.Fatalf("failed terminal result=%#v err=%v code=%q", result.marker, result.err, CodeOf(result.err))
+			}
+		}
+	}
+	if succeeded != 1 || failed != 1 {
+		t.Fatalf("terminal outcomes succeeded=%d failed=%d, want 1/1", succeeded, failed)
 	}
 }
 
@@ -278,7 +339,7 @@ func TestPersistJournalMarkersFailClosedOnTamperAndConflictingMarkerArtifact(t *
 		if err != nil {
 			t.Fatal(err)
 		}
-		opposite := filepath.Join(transactionRoot, "journal", "rolled-back-"+intent.Digest()+".json")
+		opposite := filepath.Join(transactionRoot, "journal", "terminal-"+intent.Digest()+".json")
 		writeTestFile(t, opposite, "conflict")
 		if result, err := PersistCommittedMarker(context.Background(), intent); result != nil ||
 			CodeOf(err) != CodeJournalCompletionFailed {
@@ -358,8 +419,7 @@ func assertNoTerminalMarkersOrTemps(t *testing.T, transactionRoot, digest string
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.Contains(entry.Name(), ".tmp") || entry.Name() == "committed-"+digest+".json" ||
-			entry.Name() == "rolled-back-"+digest+".json" {
+		if strings.Contains(entry.Name(), ".tmp") || entry.Name() == "terminal-"+digest+".json" {
 			t.Fatalf("terminal marker artifact remains: %s", entry.Name())
 		}
 	}

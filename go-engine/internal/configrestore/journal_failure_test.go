@@ -458,7 +458,7 @@ func assertNoJournalRecordsOrTemps(t *testing.T, transactionRoot string) {
 	}
 	for _, entry := range entries {
 		if entry.Name() == "intent.json" || strings.Contains(entry.Name(), ".tmp") ||
-			strings.HasPrefix(entry.Name(), "committed-") || strings.HasPrefix(entry.Name(), "rolled-back-") {
+			strings.HasPrefix(entry.Name(), "terminal-") {
 			t.Fatalf("journal artifact remains after failure: %s", entry.Name())
 		}
 	}

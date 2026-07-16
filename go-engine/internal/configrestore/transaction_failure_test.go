@@ -264,9 +264,52 @@ func TestExecuteConfigSetTransactionRejectsPreparedIntentMismatch(t *testing.T) 
 	assertFileTransactionPrior(t, second)
 }
 
+func TestExecuteConfigSetTransactionRejectsClosedIntentBeforeMutation(t *testing.T) {
+	tests := []struct {
+		name  string
+		close func(context.Context, *JournalIntent) (*JournalMarker, error)
+	}{
+		{name: "committed", close: PersistCommittedMarker},
+		{name: "rolled back", close: PersistAbortedMarker},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := prepareFileTransactionFixture(t, true)
+			marker, err := tt.close(context.Background(), fixture.intent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(marker.Path())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var observations []TransactionObservation
+			result, executeErr := ExecuteConfigSetTransaction(context.Background(), TransactionRequest{
+				Prepared: fixture.prepared,
+				Intent:   fixture.intent,
+				Observer: TransactionObserverFunc(func(observation TransactionObservation) {
+					observations = append(observations, observation)
+				}),
+			})
+			if executeErr == nil || result.Status() != TransactionFailed || result.MutationBegan() ||
+				!result.FailStop() || len(observations) != 0 {
+				t.Fatalf("closed replay result=%#v err=%v observations=%#v", result, executeErr, observations)
+			}
+			after, err := os.ReadFile(marker.Path())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(after) != string(before) {
+				t.Fatal("closed marker changed during rejected replay")
+			}
+			assertFileTransactionPrior(t, fixture)
+		})
+	}
+}
+
 func assertNoCommittedMarker(t *testing.T, transactionRoot, digest string) {
 	t.Helper()
-	path := filepath.Join(transactionRoot, "journal", "committed-"+digest+".json")
+	path := filepath.Join(transactionRoot, "journal", "terminal-"+digest+".json")
 	if _, err := os.Lstat(path); !os.IsNotExist(err) {
 		t.Fatalf("committed marker exists: %v", err)
 	}

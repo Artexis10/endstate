@@ -146,6 +146,9 @@ func validateTransactionInputs(
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := requirePendingJournalIntent(verified); err != nil {
+		return nil, nil, err
+	}
 	root, lineage, expectedActions, expectedValidations, err := validateJournalIntentRequest(ctx, JournalIntentRequest{
 		Prepared: request.Prepared, TransactionRoot: verified.transactionRoot, Lineage: verified.Lineage(),
 	})

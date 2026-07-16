@@ -14,6 +14,8 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
+var errConflictingTerminalMarker = errors.New("conflicting terminal journal marker exists")
+
 // PersistCommittedMarker durably records a validated completed transaction.
 func PersistCommittedMarker(ctx context.Context, intent *JournalIntent) (*JournalMarker, error) {
 	return NewJournalWriter().PersistCommitted(ctx, intent)
@@ -74,19 +76,13 @@ func (w *JournalWriter) persistMarker(
 		return nil, journalCompletionError(journalDirectory, err)
 	}
 	path := journalMarkerPath(journalDirectory, state, verifiedIntent.digest)
-	oppositePath := journalMarkerPath(journalDirectory, oppositeJournalState(state), verifiedIntent.digest)
-	if exists, err := pathExistsNoLink(oppositePath); err != nil {
-		return nil, journalCompletionError(oppositePath, err)
-	} else if exists {
-		return nil, journalCompletionError(oppositePath, fmt.Errorf("conflicting terminal journal marker exists"))
-	}
 	if existing, err := readJournalMarkerFile(root, path, verifiedIntent); err == nil {
 		existingBytes, readErr := os.ReadFile(path)
 		if readErr != nil {
 			return nil, journalCompletionError(path, readErr)
 		}
 		if existing.digest != disk.MarkerDigest || !bytes.Equal(existingBytes, encoded) {
-			return nil, journalCompletionError(path, fmt.Errorf("conflicting terminal journal marker exists"))
+			return nil, journalCompletionError(path, errConflictingTerminalMarker)
 		}
 		reconciled, reconcileErr := w.reconcileMarker(root, path, verifiedIntent, encoded, disk.MarkerDigest)
 		if reconcileErr != nil {
@@ -127,6 +123,9 @@ func (w *JournalWriter) persistMarker(
 		if reconcileErr == nil {
 			return reconciled, nil
 		}
+		if errors.Is(reconcileErr, errConflictingTerminalMarker) {
+			return nil, journalCompletionError(path, reconcileErr)
+		}
 		if publishErr == nil {
 			publishErr = fmt.Errorf("publisher returned non-durable success state %d", publication)
 		}
@@ -156,7 +155,7 @@ func (w *JournalWriter) reconcileMarker(
 			return nil, err
 		}
 		if existing.digest != expectedDigest || !bytes.Equal(data, expectedBytes) {
-			return nil, fmt.Errorf("published terminal marker conflicts with requested content")
+			return nil, fmt.Errorf("%w: published content differs from requested content", errConflictingTerminalMarker)
 		}
 		return existing, nil
 	}
@@ -218,32 +217,23 @@ func readJournalMarkerFile(root, path string, intent *JournalIntent) (*JournalMa
 }
 
 func journalMarkerPath(directory string, state JournalState, digest string) string {
-	prefix := "committed-"
-	if state == JournalRolledBack {
-		prefix = "rolled-back-"
-	}
-	return filepath.Join(directory, prefix+digest+".json")
+	_ = state
+	return filepath.Join(directory, "terminal-"+digest+".json")
 }
 
-func oppositeJournalState(state JournalState) JournalState {
-	if state == JournalCommitted {
-		return JournalRolledBack
+func requirePendingJournalIntent(intent *JournalIntent) error {
+	if intent == nil || intent.transactionRoot == "" || intent.digest == "" {
+		return fmt.Errorf("verified journal intent is required")
 	}
-	return JournalCommitted
-}
-
-func pathExistsNoLink(path string) (bool, error) {
-	info, err := os.Lstat(path)
+	path := journalMarkerPath(filepath.Join(intent.transactionRoot, "journal"), JournalCommitted, intent.digest)
+	marker, err := readJournalMarkerFile(intent.transactionRoot, path, intent)
 	if os.IsNotExist(err) {
-		return false, nil
+		return nil
 	}
 	if err != nil {
-		return false, err
+		return fmt.Errorf("journal terminal state is invalid: %w", err)
 	}
-	if isLinkOrReparse(info) || !info.Mode().IsRegular() {
-		return false, fmt.Errorf("journal marker path is not a safe regular file")
-	}
-	return true, nil
+	return fmt.Errorf("journal intent is already closed as %q", marker.State())
 }
 
 func intentPathOrEmpty(intent *JournalIntent) string {
