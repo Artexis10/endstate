@@ -2,7 +2,7 @@
 
 - [x] 1.1 Update the config-portability, capture-artifact, capture-bundle, restore-safety, profile, CLI JSON, event, and GUI integration contracts for config generations, bundle/manifest v2, legacy warnings, and transactional migration semantics.
 - [ ] 1.2 Add canonical schema-v1 module, schema-v2 stable-generation, side-by-side path, forward-migration, invalid-graph, legacy bundle, and bundle-v2 fixtures.
-- [ ] 1.3 Add manifest/bundle dispatch tests proving the new loader accepts v1 and v2 and rejects versions greater than 2, plus frozen legacy-decoder safety tests proving generated v2 manifests expose no flat restore path to generation-aware payloads while application declarations and explicitly represented legacy lanes may remain visible.
+- [x] 1.3 Add manifest/bundle dispatch tests proving the new loader accepts v1 and v2 and rejects versions greater than 2, plus frozen legacy-decoder safety tests proving generated v2 manifests expose no flat restore path to generation-aware payloads while application declarations and explicitly represented legacy lanes may remain visible.
 - [ ] 1.4 Lock the new resolution/status/reason vocabulary in contract tests and confirm existing envelope fields remain backward compatible.
 
 ## 2. Module Schema v2 and Catalog Validation
@@ -27,7 +27,7 @@
 
 ## 4. Bundle v2 and Capture Provenance
 
-- [ ] 4.1 Add manifest-v2 `configCaptures[]` (including source-generation fingerprints) and metadata-schema-2 types with strict validation and v1/v2 loading dispatch.
+- [x] 4.1 Add manifest-v2 `configCaptures[]` (including source-generation fingerprints) and metadata-schema-2 types with strict validation and v1/v2 loading dispatch.
 - [ ] 4.2 Give each captured config set a deterministic capture ID and isolated `configs/<captureId>/` payload root.
 - [ ] 4.3 Preserve full nested relative paths during collection and reject duplicate destinations, fixing basename collapse and collision behavior.
 - [ ] 4.4 Generate per-file size/SHA-256 payload manifests and verify them before compatibility planning.
