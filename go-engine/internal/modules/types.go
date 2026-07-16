@@ -9,20 +9,132 @@ package modules
 
 // Module represents a parsed config module definition from module.jsonc.
 type Module struct {
-	ID          string        `json:"id"`
-	DisplayName string        `json:"displayName"`
-	Sensitivity string        `json:"sensitivity"`
-	Matches     MatchCriteria `json:"matches"`
-	Verify      []VerifyDef   `json:"verify,omitempty"`
-	Restore     []RestoreDef  `json:"restore,omitempty"`
-	Capture     *CaptureDef   `json:"capture,omitempty"`
-	Secrets     *SecretsDef   `json:"secrets,omitempty"`
-	Notes       string        `json:"notes,omitempty"`
+	ModuleSchemaVersion int           `json:"moduleSchemaVersion,omitempty"`
+	ID                  string        `json:"id"`
+	DisplayName         string        `json:"displayName"`
+	Sensitivity         string        `json:"sensitivity"`
+	Matches             MatchCriteria `json:"matches"`
+	Verify              []VerifyDef   `json:"verify,omitempty"`
+	Restore             []RestoreDef  `json:"restore,omitempty"`
+	Capture             *CaptureDef   `json:"capture,omitempty"`
+	Secrets             *SecretsDef   `json:"secrets,omitempty"`
+	Notes               string        `json:"notes,omitempty"`
+	Config              *ConfigDef    `json:"config,omitempty"`
 
 	// FilePath is the absolute path to the module.jsonc file (set at load time).
 	FilePath string `json:"-"`
 	// ModuleDir is the directory containing the module.jsonc file (set at load time).
 	ModuleDir string `json:"-"`
+	// Revision is the SHA-256 hash of the canonical parsed module JSON.
+	Revision string `json:"-"`
+	// Unversioned distinguishes schema-v1 modules from generation-aware modules.
+	Unversioned bool `json:"-"`
+	// canonicalSnapshot pins the parsed declarative module bytes at catalog load.
+	// It is intentionally private so callers cannot mutate the catalog snapshot.
+	canonicalSnapshot []byte
+}
+
+// EffectiveSchemaVersion returns the module's interpreted schema version.
+// Omitted moduleSchemaVersion is the backward-compatible schema-v1 form.
+func (m *Module) EffectiveSchemaVersion() int {
+	if m == nil || m.ModuleSchemaVersion == 0 {
+		return 1
+	}
+	return m.ModuleSchemaVersion
+}
+
+// CanonicalSnapshot returns a defensive copy of the immutable canonical module
+// definition pinned when this Module was parsed.
+func (m *Module) CanonicalSnapshot() []byte {
+	if m == nil {
+		return nil
+	}
+	return append([]byte(nil), m.canonicalSnapshot...)
+}
+
+// ConfigDef contains the optional generation-aware schema-v2 declarations.
+type ConfigDef struct {
+	InstanceDetectors []InstanceDetectorDef `json:"instanceDetectors,omitempty"`
+	Sets              []ConfigSetDef        `json:"sets"`
+}
+
+// InstanceDetectorDef declares one engine-owned source of application/config
+// instances. The first schema-v2 release supports package and path detectors.
+type InstanceDetectorDef struct {
+	ID             string `json:"id"`
+	Type           string `json:"type"`
+	Glob           string `json:"glob,omitempty"`
+	VersionPattern string `json:"versionPattern,omitempty"`
+}
+
+// ConfigSetDef is an independently evolving family of application settings.
+// Generation IDs are scoped to the containing module and config set.
+type ConfigSetDef struct {
+	ID          string             `json:"id"`
+	DisplayName string             `json:"displayName,omitempty"`
+	Generations []GenerationDef    `json:"generations"`
+	Migrations  []MigrationEdgeDef `json:"migrations,omitempty"`
+}
+
+// GenerationDef describes one stable configuration layout/meaning.
+type GenerationDef struct {
+	ID                        string               `json:"id"`
+	Order                     int                  `json:"order"`
+	Matches                   []VersionSelectorDef `json:"matches,omitempty"`
+	AcceptsSourceFingerprints []string             `json:"acceptsSourceFingerprints,omitempty"`
+	Capture                   *CaptureDef          `json:"capture,omitempty"`
+	Restore                   []RestoreDef         `json:"restore,omitempty"`
+	Validate                  []ValidationDef      `json:"validate,omitempty"`
+	RequiresAppClosed         bool                 `json:"requiresAppClosed,omitempty"`
+
+	// Fingerprint is computed from the canonical generation definition. The
+	// accepted-history list and other runtime/computed fields are excluded.
+	Fingerprint string `json:"-"`
+}
+
+// VersionSelectorDef maps preserved vendor-version evidence to a generation.
+// Exactly one of VersionRange and VersionPattern may be set per selector.
+type VersionSelectorDef struct {
+	VersionRange   string `json:"versionRange,omitempty"`
+	VersionPattern string `json:"versionPattern,omitempty"`
+}
+
+// MigrationEdgeDef declares an explicit forward edge within one config set.
+type MigrationEdgeDef struct {
+	From       string                  `json:"from"`
+	To         string                  `json:"to"`
+	Operations []MigrationOperationDef `json:"operations"`
+	Validate   []ValidationDef         `json:"validate"`
+}
+
+// MigrationOperationDef is the declarative data accepted by the engine-owned
+// migration operation registry. Fields are shared across the file/JSON/INI
+// operation families; validation enforces the allowlist and staging paths.
+type MigrationOperationDef struct {
+	Type        string `json:"type"`
+	Source      string `json:"source,omitempty"`
+	Target      string `json:"target,omitempty"`
+	Path        string `json:"path,omitempty"`
+	JSONPath    string `json:"jsonPath,omitempty"`
+	From        string `json:"from,omitempty"`
+	To          string `json:"to,omitempty"`
+	Section     string `json:"section,omitempty"`
+	Key         string `json:"key,omitempty"`
+	FromSection string `json:"fromSection,omitempty"`
+	FromKey     string `json:"fromKey,omitempty"`
+	ToSection   string `json:"toSection,omitempty"`
+	ToKey       string `json:"toKey,omitempty"`
+	Value       any    `json:"value,omitempty"`
+}
+
+// ValidationDef declares an engine-owned validation primitive for a staged or
+// committed generation.
+type ValidationDef struct {
+	Type     string `json:"type"`
+	Path     string `json:"path"`
+	JSONPath string `json:"jsonPath,omitempty"`
+	Section  string `json:"section,omitempty"`
+	Key      string `json:"key,omitempty"`
 }
 
 // MatchCriteria defines how a module is matched to installed applications.
