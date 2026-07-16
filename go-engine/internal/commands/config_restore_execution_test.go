@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -233,6 +234,12 @@ func TestWriteLegacyConfigRestoreJournalReturnsExactAbsolutePathWithoutConfigure
 	}
 	if err := os.Chdir(working); err != nil {
 		t.Fatal(err)
+	}
+	// Match testing.T.Chdir semantics while retaining Go 1.22 compatibility.
+	// On POSIX, filepath.Abs consults PWD before falling back to getcwd; keeping
+	// PWD in sync preserves lexical platform aliases such as macOS /var.
+	if runtime.GOOS != "windows" && runtime.GOOS != "plan9" {
+		t.Setenv("PWD", working)
 	}
 	t.Cleanup(func() {
 		if err := os.Chdir(originalWorkingDirectory); err != nil {
