@@ -36,6 +36,49 @@ func TestINIEditPreservesWhitespaceInUnrelatedValues(t *testing.T) {
 	}
 }
 
+func TestParseINIRejectsNonCanonicalSectionAndKeyNames(t *testing.T) {
+	invalid := [][]byte{
+		[]byte("[ section]\nkey=value\n"),
+		[]byte("[section ]\nkey=value\n"),
+		[]byte("[section]\n key=value\n"),
+		[]byte("[section]\nkey =value\n"),
+	}
+	for _, data := range invalid {
+		if _, err := ParseINI(data); CodeOf(err) != CodeMalformedINI {
+			t.Errorf("ParseINI(%q) error = %v, code = %q", data, err, CodeOf(err))
+		}
+	}
+}
+
+func TestINIKeyExistsUsesExactCaseAndCanonicalAddresses(t *testing.T) {
+	document, err := ParseINI([]byte("[Settings]\nTheme=dark\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	exists, err := INIKeyExists(document, "Settings", "Theme")
+	if err != nil || !exists {
+		t.Fatalf("INIKeyExists exact address = %v, %v; want true, nil", exists, err)
+	}
+	for _, address := range [][2]string{{"settings", "Theme"}, {"Settings", "theme"}} {
+		exists, err := INIKeyExists(document, address[0], address[1])
+		if err != nil || exists {
+			t.Errorf("INIKeyExists(%q, %q) = %v, %v; want false, nil", address[0], address[1], exists, err)
+		}
+	}
+	invalid := [][2]string{
+		{" Settings", "Theme"},
+		{"Settings", "Theme=alternate"},
+		{"Settings", ";Theme"},
+		{"Settings", "#Theme"},
+		{"Settings", string([]byte{0xff})},
+	}
+	for _, address := range invalid {
+		if _, err := INIKeyExists(document, address[0], address[1]); CodeOf(err) != CodeMalformedINI {
+			t.Errorf("non-canonical address (%q, %q) error = %v, code = %q", address[0], address[1], err, CodeOf(err))
+		}
+	}
+}
+
 func TestParseINIRejectsMalformedDocumentsAndDuplicates(t *testing.T) {
 	invalid := [][]byte{
 		append([]byte("key="), 0xff),

@@ -93,6 +93,17 @@ func JSONMove(document any, from, to string) (any, error) {
 	return setJSONValue(copy, toTokens, source, to)
 }
 
+// JSONPathExists reports whether path identifies a value in document. It uses
+// the same closed JSONPath subset as the mutation operations.
+func JSONPathExists(document any, path string) (bool, error) {
+	tokens, err := parseJSONPath(path)
+	if err != nil {
+		return false, err
+	}
+	_, exists := lookupJSONValue(document, tokens)
+	return exists, nil
+}
+
 func setJSONValue(document any, tokens []jsonPathToken, value any, path string) (any, error) {
 	if len(tokens) == 0 {
 		return value, nil

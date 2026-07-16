@@ -401,6 +401,15 @@ func TestValidateModuleV2_Rejections(t *testing.T) {
 		{"migration missing validation", func(m *Module) { m.Config.Sets[0].Migrations[0].Validate = nil }, DiagnosticMissingMigrationValidation},
 		{"unknown validation", func(m *Module) { m.Config.Sets[0].Migrations[0].Validate[0].Type = "command" }, DiagnosticUnknownValidation},
 		{"validation traversal", func(m *Module) { m.Config.Sets[0].Generations[0].Validate[0].Path = "../prefs.json" }, DiagnosticUnsafePath},
+		{"validation invalid json path", func(m *Module) {
+			m.Config.Sets[0].Generations[0].Validate[0] = ValidationDef{Type: "json-path-exists", Path: "settings.json", JSONPath: "$[*]"}
+		}, DiagnosticInvalidValidation},
+		{"validation non-canonical ini section", func(m *Module) {
+			m.Config.Sets[0].Generations[0].Validate[0] = ValidationDef{Type: "ini-key-exists", Path: "settings.ini", Section: " settings", Key: "theme"}
+		}, DiagnosticInvalidValidation},
+		{"validation invalid ini key", func(m *Module) {
+			m.Config.Sets[0].Generations[0].Validate[0] = ValidationDef{Type: "ini-key-exists", Path: "settings.ini", Section: "settings", Key: "theme=alternate"}
+		}, DiagnosticInvalidValidation},
 	}
 
 	for _, tt := range tests {

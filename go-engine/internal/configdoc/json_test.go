@@ -37,6 +37,26 @@ func TestValidateJSONPathAcceptsOnlyDocumentedSubset(t *testing.T) {
 	}
 }
 
+func TestJSONPathExistsUsesDocumentedSubset(t *testing.T) {
+	document, err := ParseJSON([]byte(`{"object":{"array":[{"quoted-key":true}]}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"$", `$.object.array[0]["quoted-key"]`} {
+		exists, err := JSONPathExists(document, path)
+		if err != nil || !exists {
+			t.Errorf("JSONPathExists(%q) = %v, %v; want true, nil", path, exists, err)
+		}
+	}
+	exists, err := JSONPathExists(document, "$.object.missing")
+	if err != nil || exists {
+		t.Fatalf("missing JSONPathExists = %v, %v; want false, nil", exists, err)
+	}
+	if _, err := JSONPathExists(document, "$[*]"); CodeOf(err) != CodeInvalidJSONPath {
+		t.Fatalf("invalid JSONPathExists error = %v, code = %q", err, CodeOf(err))
+	}
+}
+
 func TestJSONSetDeepCopiesValueAndPreservesNumbers(t *testing.T) {
 	document, err := ParseJSON([]byte(`{"large":900719925474099312345,"settings":{}}`))
 	if err != nil {

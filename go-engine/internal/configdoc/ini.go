@@ -34,8 +34,8 @@ func ParseINI(data []byte) (*INI, error) {
 			if !strings.HasSuffix(trimmed, "]") || strings.Count(trimmed, "[") != 1 || strings.Count(trimmed, "]") != 1 {
 				return nil, malformedINILine(lineNumber, "malformed section header")
 			}
-			section := strings.TrimSpace(trimmed[1 : len(trimmed)-1])
-			if section == "" || strings.ContainsAny(section, "[]\r\n") {
+			section := trimmed[1 : len(trimmed)-1]
+			if section == "" || section != strings.TrimSpace(section) || strings.ContainsAny(section, "[]\r\n") {
 				return nil, malformedINILine(lineNumber, "invalid section name")
 			}
 			if seenSections[section] {
@@ -50,8 +50,8 @@ func ParseINI(data []byte) (*INI, error) {
 		if equals <= 0 {
 			return nil, malformedINILine(lineNumber, "expected key=value assignment")
 		}
-		key := strings.TrimSpace(line[:equals])
-		if key == "" || strings.ContainsAny(key, "[]\r\n") {
+		key := line[:equals]
+		if key == "" || key != strings.TrimSpace(key) || strings.ContainsAny(key, "[]\r\n") {
 			return nil, malformedINILine(lineNumber, "invalid key")
 		}
 		if _, exists := document.sections[currentSection][key]; exists {
@@ -111,6 +111,28 @@ func ValidateINIValue(value string) error {
 		return documentError(CodeInvalidINIValue, "", fmt.Errorf("INI value must be one valid UTF-8 line"))
 	}
 	return nil
+}
+
+// ValidateINIAddress accepts only exact, non-empty section and key names that
+// can be addressed without normalization.
+func ValidateINIAddress(section, key string) error {
+	return validateINIAddress(section, key)
+}
+
+// INIKeyExists reports whether an exact-case section/key pair exists.
+func INIKeyExists(document *INI, section, key string) (bool, error) {
+	if err := validateINIAddress(section, key); err != nil {
+		return false, err
+	}
+	if document == nil {
+		return false, nil
+	}
+	values, exists := document.sections[section]
+	if !exists {
+		return false, nil
+	}
+	_, exists = values[key]
+	return exists, nil
 }
 
 func INIDelete(document *INI, section, key string) (*INI, error) {
@@ -186,7 +208,9 @@ func cloneINI(document *INI) *INI {
 func validateINIAddress(section, key string) error {
 	if strings.TrimSpace(section) == "" || strings.TrimSpace(key) == "" ||
 		section != strings.TrimSpace(section) || key != strings.TrimSpace(key) ||
-		strings.ContainsAny(section, "[]\r\n\x00") || strings.ContainsAny(key, "[]\r\n\x00") {
+		!utf8.ValidString(section) || !utf8.ValidString(key) ||
+		strings.ContainsAny(section, "[]\r\n\x00") || strings.ContainsAny(key, "[]=\r\n\x00") ||
+		strings.HasPrefix(key, ";") || strings.HasPrefix(key, "#") {
 		return documentError(CodeMalformedINI, section+"/"+key, fmt.Errorf("invalid INI section or key"))
 	}
 	return nil

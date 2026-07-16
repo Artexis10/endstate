@@ -443,20 +443,29 @@ func isAllowedMigrationOperation(operationType string) bool {
 }
 
 func validateValidation(validation ValidationDef) error {
+	if err := validateStagingPath(validation.Path); err != nil {
+		return err
+	}
 	switch validation.Type {
 	case "file-exists", "json-parse", "ini-parse":
 	case "json-path-exists":
 		if validation.JSONPath == "" {
 			return fmt.Errorf("jsonPath is required for json-path-exists")
 		}
+		if err := configdoc.ValidateJSONPath(validation.JSONPath); err != nil {
+			return fmt.Errorf("invalid jsonPath for json-path-exists: %w", err)
+		}
 	case "ini-key-exists":
 		if validation.Section == "" || validation.Key == "" {
 			return fmt.Errorf("section and key are required for ini-key-exists")
 		}
+		if err := configdoc.ValidateINIAddress(validation.Section, validation.Key); err != nil {
+			return fmt.Errorf("invalid INI address for ini-key-exists: %w", err)
+		}
 	default:
 		return fmt.Errorf("unsupported validation %q", validation.Type)
 	}
-	return validateStagingPath(validation.Path)
+	return nil
 }
 
 func validationDiagnosticCode(validationType string) string {
