@@ -14,6 +14,7 @@ func commitRegistryAction(
 	journal JournalAction,
 	registry RegistryMutator,
 	touch func(),
+	afterMutation func() error,
 ) error {
 	if registry == nil || prepared.RegistryValue == nil {
 		return fmt.Errorf("registry mutator and prepared desired value are required")
@@ -32,9 +33,12 @@ func commitRegistryAction(
 	if touch != nil {
 		touch()
 	}
-	return registry.SetValue(
+	if err := registry.SetValue(
 		ctx, desired.Key, desired.ValueName, desired.ValueType, append([]byte(nil), desired.Data...),
-	)
+	); err != nil {
+		return err
+	}
+	return runAfterTransactionMutation(afterMutation)
 }
 
 func rollbackRegistryAction(ctx context.Context, action JournalAction, registry RegistryMutator) error {

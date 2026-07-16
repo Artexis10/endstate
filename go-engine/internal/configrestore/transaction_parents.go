@@ -74,6 +74,7 @@ func createMissingTransactionParents(
 	ctx context.Context,
 	parents []string,
 	touch func(),
+	afterMutation func() error,
 ) error {
 	if err := verifyMissingTransactionParents(parents); err != nil {
 		return err
@@ -103,6 +104,9 @@ func createMissingTransactionParents(
 			return err
 		}
 		if err := syncDurableDirectory(container); err != nil {
+			return err
+		}
+		if err := runAfterTransactionMutation(afterMutation); err != nil {
 			return err
 		}
 	}

@@ -56,7 +56,10 @@ func (e *TransactionExecutor) Execute(ctx context.Context, request TransactionRe
 			touched[index] = true
 			mutationBegan = true
 		}
-		if err := executeTransactionAction(ctx, preparedActions[index], action, request.Registry, touch); err != nil {
+		afterMutation := func() error {
+			return e.runCheckpoint(ctx, transactionPhaseAfterCommitMutation, index, action.Target)
+		}
+		if err := executeTransactionAction(ctx, preparedActions[index], action, request.Registry, touch, afterMutation); err != nil {
 			e.observeFailure(request.Observer, TransactionStageCommit, index, -1, action.Target, ReasonCommitFailed, err)
 			return e.finishFailure(
 				ctx, request, verifiedIntent, actions, touched, mutationBegan,

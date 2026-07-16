@@ -69,6 +69,160 @@ func TestExecuteConfigSetTransactionInjectsEveryCommitActionFailure(t *testing.T
 	}
 }
 
+func TestExecuteConfigSetTransactionInjectsFailureAfterEachFileActionMutates(t *testing.T) {
+	for failedIndex := 0; failedIndex < 3; failedIndex++ {
+		t.Run(fmt.Sprintf("action-%d", failedIndex), func(t *testing.T) {
+			fixture := prepareFileTransactionFixture(t, true)
+			cause := fmt.Errorf("commit action %d failed after mutation", failedIndex)
+			executor := NewTransactionExecutor()
+			executor.checkpoint = func(_ context.Context, phase transactionPhase, index int, _ string) error {
+				if phase == transactionPhaseAfterCommitMutation && index == failedIndex {
+					return cause
+				}
+				return nil
+			}
+			result, err := executor.Execute(context.Background(), TransactionRequest{
+				Prepared: fixture.prepared, Intent: fixture.intent,
+			})
+			assertPrimaryCause(t, result, err, cause)
+			if result.Status() != TransactionRolledBack || result.Reason() != ReasonCommitFailed ||
+				!result.MutationBegan() || result.FailStop() {
+				t.Fatalf("result=status %q reason %q mutated %v failStop %v",
+					result.Status(), result.Reason(), result.MutationBegan(), result.FailStop())
+			}
+			assertFileTransactionPrior(t, fixture)
+		})
+	}
+}
+
+func TestExecuteConfigSetTransactionRollsBackInjectedPartialDirectoryCommit(t *testing.T) {
+	transactionRoot := t.TempDir()
+	source := filepath.Join(t.TempDir(), "source")
+	target := filepath.Join(t.TempDir(), "target")
+	writeTestFile(t, filepath.Join(source, "a-change.txt"), "desired")
+	writeTestFile(t, filepath.Join(source, "z-added.txt"), "added")
+	writeTestFile(t, filepath.Join(target, "a-change.txt"), "prior")
+	writeTestFile(t, filepath.Join(target, "untouched.txt"), "keep")
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{
+		Set: &MaterializedSet{Actions: []Action{{
+			Kind: ActionCopy, Strategy: "copy", Source: source, Target: target,
+			SourceIsDirectory: true, SnapshotRequired: true,
+		}}},
+		TransactionRoot: transactionRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("fail after first directory entry mutation")
+	executor := NewTransactionExecutor()
+	executor.checkpoint = func(_ context.Context, phase transactionPhase, _ int, _ string) error {
+		if phase == transactionPhaseAfterCommitMutation {
+			return cause
+		}
+		return nil
+	}
+	result, err := executor.Execute(context.Background(), TransactionRequest{Prepared: prepared, Intent: intent})
+	assertPrimaryCause(t, result, err, cause)
+	if result.Status() != TransactionRolledBack || result.FailStop() {
+		t.Fatalf("result status=%q failStop=%v rollback=%v", result.Status(), result.FailStop(), result.RollbackError())
+	}
+	assertTestFile(t, filepath.Join(target, "a-change.txt"), "prior")
+	assertTestFile(t, filepath.Join(target, "untouched.txt"), "keep")
+	if _, err := os.Lstat(filepath.Join(target, "z-added.txt")); !os.IsNotExist(err) {
+		t.Fatalf("later directory entry was committed: %v", err)
+	}
+}
+
+func TestExecuteConfigSetTransactionRollsBackInjectedTypeTransitionWindow(t *testing.T) {
+	transactionRoot := t.TempDir()
+	source := filepath.Join(t.TempDir(), "source")
+	target := filepath.Join(t.TempDir(), "target")
+	writeTestFile(t, target, "prior file")
+	writeTestFile(t, filepath.Join(source, "child.txt"), "desired child")
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{
+		Set: &MaterializedSet{Actions: []Action{{
+			Kind: ActionCopy, Strategy: "copy", Source: source, Target: target,
+			SourceIsDirectory: true, SnapshotRequired: true,
+		}}},
+		TransactionRoot: transactionRoot,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("fail after removing transition source kind")
+	executor := NewTransactionExecutor()
+	executor.checkpoint = func(_ context.Context, phase transactionPhase, _ int, _ string) error {
+		if phase == transactionPhaseAfterCommitMutation {
+			return cause
+		}
+		return nil
+	}
+	result, err := executor.Execute(context.Background(), TransactionRequest{Prepared: prepared, Intent: intent})
+	assertPrimaryCause(t, result, err, cause)
+	if result.Status() != TransactionRolledBack || result.FailStop() {
+		t.Fatalf("result status=%q failStop=%v rollback=%v", result.Status(), result.FailStop(), result.RollbackError())
+	}
+	assertTestFile(t, target, "prior file")
+}
+
+func TestExecuteConfigSetTransactionRollsBackInjectedRegistryMutation(t *testing.T) {
+	key := `HKCU\Software\Vendor\InjectedTransaction`
+	valueName := "Theme"
+	identity := key + "\x00" + valueName
+	prior := RegistryReadResult{Exists: true, ValueType: RegistryTypeSZ, Data: []byte{'o', 0, 'l', 0, 'd', 0, 0, 0}}
+	registry := &memoryRegistryMutator{values: map[string]RegistryReadResult{identity: prior}}
+	transactionRoot := t.TempDir()
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{
+		Set: &MaterializedSet{Actions: []Action{{
+			Kind: ActionRegistrySet, Strategy: "registry-set", Target: key + `\` + valueName,
+			RegistryValue:    &RegistryValue{Key: key, ValueName: valueName, ValueType: "REG_SZ", Data: "new"},
+			SnapshotRequired: true,
+		}}},
+		TransactionRoot: transactionRoot,
+		RegistryReader:  registry,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cause := errors.New("fail after registry mutation")
+	executor := NewTransactionExecutor()
+	executor.checkpoint = func(_ context.Context, phase transactionPhase, _ int, _ string) error {
+		if phase == transactionPhaseAfterCommitMutation {
+			return cause
+		}
+		return nil
+	}
+	result, err := executor.Execute(context.Background(), TransactionRequest{
+		Prepared: prepared, Intent: intent, Registry: registry,
+	})
+	assertPrimaryCause(t, result, err, cause)
+	if result.Status() != TransactionRolledBack || result.FailStop() {
+		t.Fatalf("result status=%q failStop=%v rollback=%v", result.Status(), result.FailStop(), result.RollbackError())
+	}
+	got := registry.values[identity]
+	if !got.Exists || got.ValueType != prior.ValueType || string(got.Data) != string(prior.Data) {
+		t.Fatalf("registry prior not restored: got %#v want %#v", got, prior)
+	}
+}
+
 func TestExecuteConfigSetTransactionNoMutationMarkerFailureIsFailStop(t *testing.T) {
 	fixture := prepareFileTransactionFixture(t, true)
 	primary := errors.New("first action failed before mutation")

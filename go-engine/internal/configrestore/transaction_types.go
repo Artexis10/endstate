@@ -201,6 +201,7 @@ type transactionPhase string
 
 const (
 	transactionPhaseBeforeCommitAction     transactionPhase = "before_commit_action"
+	transactionPhaseAfterCommitMutation    transactionPhase = "after_commit_mutation"
 	transactionPhaseBeforeValidation       transactionPhase = "before_validation"
 	transactionPhaseBeforeRollbackAction   transactionPhase = "before_rollback_action"
 	transactionPhaseBeforeCommittedMarker  transactionPhase = "before_committed_marker"
