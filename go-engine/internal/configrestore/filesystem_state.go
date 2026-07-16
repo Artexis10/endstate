@@ -12,6 +12,7 @@ import (
 	"hash"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -468,7 +469,84 @@ func statesEqual(left, right filesystemState) bool {
 }
 
 func stateRecord(state filesystemState, backupPath string) StateRecord {
-	return StateRecord{Kind: state.Kind, Digest: state.Digest, Mode: state.Mode.Perm(), BackupPath: backupPath}
+	paths := make([]string, 0, len(state.Entries))
+	for path := range state.Entries {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	entries := make([]StateEntry, 0, len(paths))
+	for _, path := range paths {
+		entry := state.Entries[path]
+		entries = append(entries, StateEntry{
+			Path: entry.Path, Kind: entry.Kind, Mode: entry.Mode.Perm(), Size: entry.Size, ContentHash: entry.ContentHash,
+		})
+	}
+	return StateRecord{
+		Kind: state.Kind, Digest: state.Digest, Mode: state.Mode.Perm(), BackupPath: backupPath, entries: entries,
+	}
+}
+
+func filesystemStateFromRecord(record StateRecord) (filesystemState, error) {
+	switch record.Kind {
+	case StateAbsent:
+		if len(record.entries) != 0 || record.Mode.Perm() != 0 {
+			return filesystemState{}, fmt.Errorf("absent filesystem state has mode or entries")
+		}
+		return absentFilesystemState(), nil
+	case StateFile, StateDirectory:
+	default:
+		return filesystemState{}, fmt.Errorf("state %q is not a filesystem state", record.Kind)
+	}
+	entries := make(map[string]filesystemEntry, len(record.entries))
+	previous := ""
+	for index, entry := range record.entries {
+		if entry.Path == "" || containsControl(entry.Path) || path.IsAbs(entry.Path) || path.Clean(entry.Path) != entry.Path || entry.Path == ".." ||
+			(entry.Path != "." && strings.HasPrefix(entry.Path, "../")) || strings.Contains(entry.Path, `\`) {
+			return filesystemState{}, fmt.Errorf("filesystem manifest entry[%d] has unsafe path %q", index, entry.Path)
+		}
+		if index > 0 && entry.Path <= previous {
+			return filesystemState{}, fmt.Errorf("filesystem manifest entries are not strictly ordered")
+		}
+		previous = entry.Path
+		if entry.Mode != entry.Mode.Perm() {
+			return filesystemState{}, fmt.Errorf("filesystem manifest entry %q has non-permission mode bits", entry.Path)
+		}
+		switch entry.Kind {
+		case StateFile:
+			if entry.Size < 0 || !isLowerHexDigest(entry.ContentHash) {
+				return filesystemState{}, fmt.Errorf("filesystem file entry %q has invalid size or content hash", entry.Path)
+			}
+		case StateDirectory:
+			if entry.Size != 0 || entry.ContentHash != "" {
+				return filesystemState{}, fmt.Errorf("filesystem directory entry %q has file content", entry.Path)
+			}
+		default:
+			return filesystemState{}, fmt.Errorf("filesystem manifest entry %q has kind %q", entry.Path, entry.Kind)
+		}
+		entries[entry.Path] = filesystemEntry{
+			Path: entry.Path, Kind: entry.Kind, Mode: entry.Mode.Perm(), Size: entry.Size, ContentHash: entry.ContentHash,
+		}
+	}
+	root, exists := entries["."]
+	if !exists || root.Kind != record.Kind || root.Mode.Perm() != record.Mode.Perm() {
+		return filesystemState{}, fmt.Errorf("filesystem manifest root does not match state summary")
+	}
+	if record.Kind == StateFile && len(entries) != 1 {
+		return filesystemState{}, fmt.Errorf("file manifest contains descendants")
+	}
+	for entryPath := range entries {
+		if entryPath == "." {
+			continue
+		}
+		parentPath := path.Dir(entryPath)
+		parent, exists := entries[parentPath]
+		if !exists || parent.Kind != StateDirectory {
+			return filesystemState{}, fmt.Errorf("filesystem manifest entry %q has no directory parent", entryPath)
+		}
+	}
+	state := filesystemState{Kind: record.Kind, Mode: record.Mode.Perm(), Entries: entries}
+	state.Digest = digestFilesystemState(state)
+	return state, nil
 }
 
 func checkSnapshotContext(ctx context.Context) error {

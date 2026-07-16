@@ -65,6 +65,21 @@ type StateRecord struct {
 	Digest     string
 	Mode       os.FileMode
 	BackupPath string
+	entries    []StateEntry
+}
+
+// StateEntry is one canonical filesystem manifest entry. Registry and absent
+// states have an empty manifest.
+type StateEntry struct {
+	Path        string
+	Kind        StateKind
+	Mode        os.FileMode
+	Size        int64
+	ContentHash string
+}
+
+func (s StateRecord) Entries() []StateEntry {
+	return append([]StateEntry(nil), s.entries...)
 }
 
 // PreparedAction is opaque so callers cannot mutate the action or state that
@@ -77,8 +92,8 @@ type PreparedAction struct {
 }
 
 func (a PreparedAction) Action() Action       { return cloneAction(a.action) }
-func (a PreparedAction) Prior() StateRecord   { return a.prior }
-func (a PreparedAction) Desired() StateRecord { return a.desired }
+func (a PreparedAction) Prior() StateRecord   { return cloneStateRecord(a.prior) }
+func (a PreparedAction) Desired() StateRecord { return cloneStateRecord(a.desired) }
 func (a PreparedAction) SourceDigest() string { return a.sourceDigest }
 
 // PreparedSet is the only output accepted by later transaction phases. Its
@@ -146,5 +161,12 @@ func cloneAction(action Action) Action {
 
 func clonePreparedAction(action PreparedAction) PreparedAction {
 	action.action = cloneAction(action.action)
+	action.prior = cloneStateRecord(action.prior)
+	action.desired = cloneStateRecord(action.desired)
 	return action
+}
+
+func cloneStateRecord(state StateRecord) StateRecord {
+	state.entries = append([]StateEntry(nil), state.entries...)
+	return state
 }

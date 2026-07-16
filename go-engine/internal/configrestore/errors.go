@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package configrestore turns one successful generation staging result into a
-// deterministic, transaction-ready set of concrete target actions and
-// verified pre-mutation snapshots. It does not journal or mutate targets.
+// deterministic set of concrete target actions, verified pre-mutation
+// snapshots, and durable transaction records. It does not mutate targets.
 package configrestore
 
 import (
@@ -15,21 +15,23 @@ import (
 type Code string
 
 const (
-	CodeInvalidRequest        Code = "invalid_request"
-	CodeUnsupportedRestore    Code = "unsupported_restore"
-	CodeUnsafePath            Code = "unsafe_path"
-	CodeSourceMissing         Code = "source_missing"
-	CodeUnsupportedFileType   Code = "unsupported_file_type"
-	CodeTargetOverlap         Code = "target_overlap"
-	CodeValidationMapping     Code = "validation_mapping"
-	CodeInvalidRegistryTarget Code = "invalid_registry_target"
-	CodeInvalidRegistryValue  Code = "invalid_registry_value"
-	CodeMalformedJSON         Code = "malformed_json"
-	CodeMaterialization       Code = "materialization_failed"
-	CodeAppClosureConfig      Code = "app_closure_config"
-	CodeProcessObservation    Code = "process_observation_failed"
-	CodeAppRunning            Code = "app_running"
-	CodeBackupFailed          Code = "backup_failed"
+	CodeInvalidRequest          Code = "invalid_request"
+	CodeUnsupportedRestore      Code = "unsupported_restore"
+	CodeUnsafePath              Code = "unsafe_path"
+	CodeSourceMissing           Code = "source_missing"
+	CodeUnsupportedFileType     Code = "unsupported_file_type"
+	CodeTargetOverlap           Code = "target_overlap"
+	CodeValidationMapping       Code = "validation_mapping"
+	CodeInvalidRegistryTarget   Code = "invalid_registry_target"
+	CodeInvalidRegistryValue    Code = "invalid_registry_value"
+	CodeMalformedJSON           Code = "malformed_json"
+	CodeMaterialization         Code = "materialization_failed"
+	CodeAppClosureConfig        Code = "app_closure_config"
+	CodeProcessObservation      Code = "process_observation_failed"
+	CodeAppRunning              Code = "app_running"
+	CodeBackupFailed            Code = "backup_failed"
+	CodeJournalIntentFailed     Code = "journal_intent_failed"
+	CodeJournalCompletionFailed Code = "journal_completion_failed"
 )
 
 // Error identifies the exact declarative item that failed. Indices are

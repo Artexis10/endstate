@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
@@ -135,6 +136,30 @@ func TestPrepareSnapshotsCopiesCompleteDirectoryAndDigestsOverlayDesiredState(t 
 	if record.Prior().Kind != StateDirectory || record.Desired().Kind != StateDirectory || record.SourceDigest() == "" {
 		t.Fatalf("directory record = %#v", record)
 	}
+	priorEntries := record.Prior().Entries()
+	desiredEntries := record.Desired().Entries()
+	if !stateEntryPathsEqual(priorEntries, []string{".", "empty", "excluded.tmp", "replace.txt", "unrelated.txt"}) {
+		t.Fatalf("prior manifest paths = %#v", priorEntries)
+	}
+	if !stateEntryPathsEqual(desiredEntries, []string{
+		".", "empty", "excluded.tmp", "nested", "nested/source.txt", "new.txt", "replace.txt", "unrelated.txt",
+	}) {
+		t.Fatalf("desired manifest paths = %#v", desiredEntries)
+	}
+	priorEntries[0] = StateEntry{}
+	desiredEntries[0] = StateEntry{}
+	if record.Prior().Entries()[0].Path != "." || record.Desired().Entries()[0].Path != "." {
+		t.Fatal("prepared state manifest was mutated through an accessor")
+	}
+	for _, state := range []StateRecord{record.Prior(), record.Desired()} {
+		reconstructed, err := filesystemStateFromRecord(state)
+		if err != nil {
+			t.Fatalf("reconstruct state manifest: %v", err)
+		}
+		if reconstructed.Digest != state.Digest {
+			t.Fatalf("manifest digest = %q, want %q", reconstructed.Digest, state.Digest)
+		}
+	}
 	backup := record.Prior().BackupPath
 	assertTestFile(t, filepath.Join(backup, "replace.txt"), "old")
 	assertTestFile(t, filepath.Join(backup, "unrelated.txt"), "preserved")
@@ -188,6 +213,20 @@ func TestPrepareSnapshotsCopiesCompleteDirectoryAndDigestsOverlayDesiredState(t 
 
 	assertTestFile(t, filepath.Join(target, "replace.txt"), "old")
 	assertTestFile(t, filepath.Join(source, "replace.txt"), "new")
+}
+
+func TestFilesystemStateFromRecordRejectsControlCharactersInManifestPaths(t *testing.T) {
+	record := StateRecord{
+		Kind: StateDirectory,
+		Mode: 0o755,
+		entries: []StateEntry{
+			{Path: ".", Kind: StateDirectory, Mode: 0o755},
+			{Path: "bad\x00name", Kind: StateFile, Mode: 0o600, ContentHash: strings.Repeat("0", 64)},
+		},
+	}
+	if _, err := filesystemStateFromRecord(record); err == nil {
+		t.Fatal("manifest path containing NUL was accepted")
+	}
 }
 
 func TestDesiredWriteStatePreservesExistingModeAndUsesCreateMode(t *testing.T) {
@@ -374,6 +413,18 @@ func copyTestTree(t *testing.T, source, target string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+func stateEntryPathsEqual(entries []StateEntry, paths []string) bool {
+	if len(entries) != len(paths) {
+		return false
+	}
+	for index := range entries {
+		if entries[index].Path != paths[index] {
+			return false
+		}
+	}
+	return true
 }
 
 func TestPreparedSetValidationAccessorsReturnCopies(t *testing.T) {
