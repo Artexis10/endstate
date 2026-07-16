@@ -141,9 +141,21 @@ migrationPath[]
 captureModuleRevision
 restoreModuleRevision
 resolvedTargets[]
+status
 ```
 
 `resolution` is one of `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. More precise causes live in `reason`, including `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, and `source_generation_definition_changed`.
+
+Resolution and execution status are independent. `resolution` describes source/target compatibility; terminal envelope `status` describes what happened to that config set in this invocation and is exactly one of `planned`, `restored`, `skipped`, `failed`, `rolled_back`, or `rollback_failed`. Envelope rows never use in-progress statuses; staging, commit, and rollback progress belongs to JSONL events. The statuses mean:
+
+- `planned`: dry-run only; the selected set passed compatibility, integrity, preflight, and staging validation and would enter the transaction in a live run.
+- `restored`: the live transaction reached and validated the desired target state and durably recorded completion.
+- `skipped`: no target mutation was attempted and non-execution was intentional or safely required, including filtering/consent, unknown or incompatible resolution, an absent or incompatible mapped target, `app_running`, or an already-up-to-date target.
+- `failed`: the selected set could not complete before any target mutation occurred, so rollback was unnecessary.
+- `rolled_back`: mutation began, execution failed, and rollback durably restored and verified the complete pre-run state.
+- `rollback_failed`: mutation began and rollback could not prove complete restoration; no later config-set mutation may begin in that run.
+
+For `failed`, `rolled_back`, and `rollback_failed`, `reason` records the primary failure such as staging validation, commit, final validation, or completion-record failure. Rollback outcome lives in `status`, so it does not overwrite that cause.
 
 Target detection runs before restore and, in rebuild, again after application installation because an unpinned or previously absent app may not have a knowable target generation earlier. Application installation is independent: incompatible, unknown, or ambiguous config sets are skipped before config mutation while app installation and unrelated config sets continue.
 
@@ -177,7 +189,7 @@ For each config set the engine then:
 4. Verifies the committed target generation.
 5. Atomically marks the journal entry complete.
 
-If commit, verification, or completion recording fails, the engine rolls that config set back immediately from the same journal before continuing with independent sets. A journal-intent write failure is fatal before the first target mutation.
+If commit, verification, or completion recording fails, the engine rolls that config set back immediately from the same journal. A successful rollback yields terminal status `rolled_back` and permits safe independent sets to continue. An incomplete rollback yields `rollback_failed` and stops all later config-set mutation in that run. A journal-intent write failure is terminal status `failed` before the first target mutation.
 
 Journal intents have explicit `pending`, `committed`, and `rolled_back` states. Before any later restore-capable mutation, the engine scans for `pending` intents and attempts idempotent rollback from the already-recorded backups/actions. If recovery cannot complete, the new run fails with `recovery_required` before any new config mutation. This covers process death at any point after intent persistence. Revert records both concrete target actions and the source/target generation path, source-generation fingerprint, capture-time module revision, and restore-time module revision.
 
@@ -191,7 +203,7 @@ A v2 bundle with invalid generation provenance never falls back to this legacy p
 
 ### 9. Engine output is detailed; GUI language is distilled
 
-JSON envelopes gain `configResolutions[]` and a config-level summary. Existing `restoreItems[]` remain concrete action results and gain optional capture/generation fields for v2 restores. JSONL adds config-resolution and config-migration progress without changing the existing app `items[]` contract.
+JSON envelopes gain `configResolutions[]` and a config-level summary. Existing `restoreItems[]` remain concrete action results and gain optional capture/generation fields for v2 restores. Summary `selected` counts `planned`, `restored`, `failed`, `rolled_back`, and `rollback_failed`; summary `skipped` counts `skipped`; summary `failed` counts `failed`, `rolled_back`, and `rollback_failed`. JSONL adds config-resolution and config-migration progress without changing the existing app `items[]` contract.
 
 The engine exposes stable machine states; the GUI maps them to four default labels:
 

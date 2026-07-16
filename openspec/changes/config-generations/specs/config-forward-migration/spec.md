@@ -62,16 +62,23 @@ After staging succeeds, the engine SHALL create all required backups, atomically
 - **AND** does not report the set as successfully committed
 
 ### Requirement: Failed Commit Rolls Back Its Config Set
-If a config-set commit or final validation fails after mutation begins, the engine SHALL immediately restore that set's pre-run state from its journal before continuing with independent sets. The result SHALL report both the original failure and rollback outcome.
+If a config-set commit or final validation fails after mutation begins, the engine SHALL immediately restore that set's pre-run state from its journal. A successful rollback SHALL permit safe independent sets to continue. An incomplete rollback SHALL stop all later config-set mutation in that run. The result SHALL retain the original failure as `reason` and SHALL report rollback outcome as terminal status `rolled_back` or `rollback_failed`.
 
 #### Scenario: Second target write fails
 - **WHEN** a config-set transaction commits its first target and fails on its second
 - **THEN** the engine restores the first target to its pre-run state
-- **AND** reports the config set as failed
+- **AND** reports terminal status `rolled_back`
+- **AND** retains the second-write failure as the primary reason
 
 #### Scenario: Independent set continues
 - **WHEN** one config-set transaction fails and rolls back successfully
 - **THEN** another non-overlapping config set with a valid plan may continue
+
+#### Scenario: Incomplete rollback blocks later sets
+- **WHEN** a config-set transaction fails after mutation begins
+- **AND** rollback cannot prove complete restoration
+- **THEN** the config set reports terminal status `rollback_failed`
+- **AND** the engine starts no later config-set mutation in that run
 
 ### Requirement: Pending Journal Intents Are Recovered Before New Mutation
 Before any restore-capable command performs new config mutation, the engine SHALL scan for pending migration intents and attempt idempotent rollback using their recorded backups and target actions. If recovery cannot complete, the command SHALL fail with `recovery_required` before any new config mutation.
