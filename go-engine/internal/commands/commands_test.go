@@ -1210,6 +1210,7 @@ func TestRunApply_RestoreModulesAvailable_FallbackToShortID(t *testing.T) {
 	// Need a manifest with this app. Create a temp fixture.
 	tmpDir := t.TempDir()
 	manifestContent := `{
+		"version": 1,
 		"name": "test-nodisplay",
 		"apps": [
 			{ "id": "nodisplay", "refs": { "windows": "Vendor.NoDisplay" } }

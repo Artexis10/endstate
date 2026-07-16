@@ -13,6 +13,7 @@ import (
 // driftManifest declares app "a" pinned to 1.2.0 with a windows ref, used with a
 // mockDriver that reports 1.1.0 installed (drift).
 const driftManifest = `{
+	"version": 1,
 	"name": "repin-test",
 	"apps": [ { "id": "a", "version": "1.2.0", "refs": { "windows": "Vendor.A" } } ]
 }`

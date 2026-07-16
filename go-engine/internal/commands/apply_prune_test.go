@@ -233,6 +233,7 @@ func TestRunApply_DriverPath_PruneUnsupported(t *testing.T) {
 
 	md := &mockDriver{installed: map[string]bool{}}
 	manifestContent := `{
+		"version": 1,
 		"name": "prune-driver-test",
 		"apps": [
 			{ "id": "a", "refs": { "windows": "Vendor.A" } }

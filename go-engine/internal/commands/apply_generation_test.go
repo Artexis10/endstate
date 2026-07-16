@@ -139,6 +139,7 @@ func TestRunApply_DriverPathWritesGeneration(t *testing.T) {
 	md := &mockDriver{installed: map[string]bool{}}
 
 	manifestContent := `{
+		"version": 1,
 		"name": "gen-driver-test",
 		"apps": [
 			{ "id": "a", "refs": { "windows": "Vendor.A" } }

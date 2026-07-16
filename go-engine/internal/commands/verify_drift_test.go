@@ -21,6 +21,7 @@ func writeVerifyManifest(t *testing.T, version string) string {
 		ver = `"version": "` + version + `", `
 	}
 	content := `{
+		"version": 1,
 		"name": "drift-test",
 		"apps": [ { "id": "a", ` + ver + `"refs": { "windows": "Vendor.A" } } ]
 	}`

@@ -324,11 +324,11 @@ func TestValidateProfileAppsObject(t *testing.T) {
 }
 
 // TestValidateProfileWrongVersion verifies UNSUPPORTED_VERSION is returned when
-// version is a number but not 1.
+// version is a numeric integer newer than this engine supports.
 func TestValidateProfileWrongVersion(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "wrong-version.json")
-	content := `{"version":2,"apps":[]}`
+	content := `{"version":3,"apps":[]}`
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}

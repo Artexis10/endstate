@@ -20,13 +20,15 @@ import (
 
 // BundleMetadata is the metadata.json content written into the zip bundle.
 type BundleMetadata struct {
-	SchemaVersion        string   `json:"schemaVersion"`
-	CapturedAt           string   `json:"capturedAt"`
-	MachineName          string   `json:"machineName"`
-	EndstateVersion      string   `json:"endstateVersion"`
-	ConfigModulesIncluded []string `json:"configModulesIncluded"`
-	ConfigModulesSkipped  []string `json:"configModulesSkipped"`
-	CaptureWarnings      []string `json:"captureWarnings"`
+	SchemaVersion          string   `json:"schemaVersion"`
+	ManifestVersion        int      `json:"manifestVersion,omitempty"`
+	CapturedAt             string   `json:"capturedAt"`
+	MachineName            string   `json:"machineName"`
+	EndstateVersion        string   `json:"endstateVersion"`
+	ConfigCapturesIncluded []string `json:"configCapturesIncluded,omitempty"`
+	ConfigModulesIncluded  []string `json:"configModulesIncluded"`
+	ConfigModulesSkipped   []string `json:"configModulesSkipped"`
+	CaptureWarnings        []string `json:"captureWarnings"`
 }
 
 // payloadPathPattern matches ./payload/apps/<id>/ style source paths in
@@ -168,13 +170,13 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 	hostname, _ := os.Hostname()
 
 	metadata := BundleMetadata{
-		SchemaVersion:        "1.0",
-		CapturedAt:           time.Now().UTC().Format(time.RFC3339),
-		MachineName:          hostname,
-		EndstateVersion:      version,
+		SchemaVersion:         "1.0",
+		CapturedAt:            time.Now().UTC().Format(time.RFC3339),
+		MachineName:           hostname,
+		EndstateVersion:       version,
 		ConfigModulesIncluded: included,
 		ConfigModulesSkipped:  skipped,
-		CaptureWarnings:      captureWarnings,
+		CaptureWarnings:       captureWarnings,
 	}
 	// Ensure empty slices serialize as [] not null.
 	if metadata.ConfigModulesIncluded == nil {

@@ -11,23 +11,74 @@ import (
 )
 
 // Manifest represents a fully-loaded Endstate provisioning manifest. The
-// Version field is declared as interface{} so the validator can distinguish
-// between a missing field, a wrong type, and the correct numeric 1.
+// Version field is declared as interface{} so callers can distinguish a
+// missing field, a wrong type, and the supported numeric versions 1 and 2.
 type Manifest struct {
-	Version        interface{}    `json:"version"`
-	Name           string         `json:"name,omitempty"`
-	Captured       string         `json:"captured,omitempty"`
-	Apps           []App          `json:"apps"`
-	Includes       []string       `json:"includes,omitempty"`
-	Restore        []RestoreEntry `json:"restore,omitempty"`
-	Verify         []VerifyEntry  `json:"verify,omitempty"`
-	ConfigModules  []string       `json:"configModules,omitempty"`
-	ExcludeConfigs []string       `json:"excludeConfigs,omitempty"`
+	Version        interface{}     `json:"version"`
+	Name           string          `json:"name,omitempty"`
+	Captured       string          `json:"captured,omitempty"`
+	Apps           []App           `json:"apps"`
+	Includes       []string        `json:"includes,omitempty"`
+	Restore        []RestoreEntry  `json:"restore,omitempty"`
+	Verify         []VerifyEntry   `json:"verify,omitempty"`
+	ConfigModules  []string        `json:"configModules,omitempty"`
+	ExcludeConfigs []string        `json:"excludeConfigs,omitempty"`
+	ConfigCaptures []ConfigCapture `json:"configCaptures,omitempty"`
 
 	// HomeManager declares a home-manager configuration the Nix realizer activates
 	// as a config stage of apply (opt-in via --enable-restore). Absent ⇒ no config
 	// stage (default apply unchanged). Realizer-only; the winget path ignores it.
 	HomeManager *HomeManagerConfig `json:"homeManager,omitempty"`
+}
+
+// ConfigCapture is the immutable manifest-v2 provenance and payload index for
+// one captured application config set.
+type ConfigCapture struct {
+	CaptureID                   string                  `json:"captureId"`
+	ModuleID                    string                  `json:"moduleId"`
+	ConfigSetID                 string                  `json:"configSetId"`
+	SourceInstance              ConfigSourceInstance    `json:"sourceInstance"`
+	SourceGeneration            string                  `json:"sourceGeneration"`
+	SourceGenerationFingerprint string                  `json:"sourceGenerationFingerprint"`
+	CaptureModule               CaptureModuleProvenance `json:"captureModule"`
+	PayloadRoot                 string                  `json:"payloadRoot"`
+	PayloadManifest             []PayloadManifestEntry  `json:"payloadManifest"`
+}
+
+// ConfigSourceInstance records the source instance identity and its preserved
+// raw/normalized version evidence.
+type ConfigSourceInstance struct {
+	ID                string                        `json:"id"`
+	DetectorID        string                        `json:"detectorId"`
+	RawVersion        string                        `json:"rawVersion"`
+	NormalizedVersion string                        `json:"normalizedVersion"`
+	Evidence          *ConfigSourceInstanceEvidence `json:"evidence"`
+}
+
+// ConfigSourceInstanceEvidence is portable discovery evidence. Machine-local
+// roots are intentionally absent from the persisted shape.
+type ConfigSourceInstanceEvidence struct {
+	Type     string `json:"type"`
+	AppID    string `json:"appId,omitempty"`
+	Backend  string `json:"backend,omitempty"`
+	Platform string `json:"platform,omitempty"`
+	Ref      string `json:"ref,omitempty"`
+	Driver   string `json:"driver,omitempty"`
+}
+
+// CaptureModuleProvenance identifies the exact declarative source module used
+// at capture time and its inspectable bundle snapshot.
+type CaptureModuleProvenance struct {
+	SchemaVersion int    `json:"schemaVersion"`
+	ContentHash   string `json:"contentHash"`
+	SnapshotPath  string `json:"snapshotPath"`
+}
+
+// PayloadManifestEntry is one hierarchy-preserving config payload record.
+type PayloadManifestEntry struct {
+	RelativePath string `json:"relativePath"`
+	Size         int64  `json:"size"`
+	SHA256       string `json:"sha256"`
 }
 
 // HomeManagerConfig is the manifest input to the home-manager config stage.

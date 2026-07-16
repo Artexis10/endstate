@@ -757,6 +757,7 @@ func TestRunApply_WingetPath_NeverActivatesHome(t *testing.T) {
 	tmpDir := t.TempDir()
 	manifestPath := tmpDir + "/m.jsonc"
 	manifestContent := `{
+		"version": 1,
 		"name": "winget-hm-test",
 		"apps": [ { "id": "a", "refs": { "windows": "Vendor.A" } } ],
 		"homeManager": { "flake": "/home/me/dotfiles#hugo" }
@@ -910,6 +911,7 @@ func TestRunApply_WingetPath_ConfigNeverGenerates(t *testing.T) {
 	}
 	manifestPath := filepath.Join(tmpDir, "m.jsonc")
 	manifestContent := `{
+		"version": 1,
 		"name": "winget-hm-cfg-test",
 		"apps": [ { "id": "a", "refs": { "windows": "Vendor.A" } } ],
 		"homeManager": { "config": "home.nix" }
