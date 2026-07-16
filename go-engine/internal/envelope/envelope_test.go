@@ -102,6 +102,7 @@ func TestErrorCodeSerialization(t *testing.T) {
 		{envelope.ErrCaptureBlocked, "CAPTURE_BLOCKED"},
 		{envelope.ErrInstallFailed, "INSTALL_FAILED"},
 		{envelope.ErrRestoreFailed, "RESTORE_FAILED"},
+		{envelope.ErrInvalidRestoreTarget, "INVALID_RESTORE_TARGET"},
 		{envelope.ErrVerifyFailed, "VERIFY_FAILED"},
 		{envelope.ErrPermissionDenied, "PERMISSION_DENIED"},
 		{envelope.ErrInternalError, "INTERNAL_ERROR"},
