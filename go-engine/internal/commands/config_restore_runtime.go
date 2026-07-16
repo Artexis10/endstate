@@ -58,7 +58,7 @@ func newConfigRestoreRuntimeWithCatalogSource(
 ) (*configRestoreRuntime, *envelope.Error) {
 	inputs, envErr := buildConfigRestoreInputs(request)
 	runtime := newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot())
-	if envErr != nil || !inputs.hasConfigPayloads {
+	if envErr != nil || len(inputs.generationSources) == 0 {
 		return runtime, envErr
 	}
 
@@ -84,7 +84,7 @@ func newConfigRestoreRuntimeWithCatalogSnapshot(
 	catalog configCatalogSnapshot,
 ) (*configRestoreRuntime, *envelope.Error) {
 	inputs, envErr := buildConfigRestoreInputs(request)
-	if envErr != nil || !inputs.hasConfigPayloads {
+	if envErr != nil || len(inputs.generationSources) == 0 {
 		return newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()), envErr
 	}
 	if catalog.resolver == nil {

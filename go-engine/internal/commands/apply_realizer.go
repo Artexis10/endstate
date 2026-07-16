@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -268,8 +269,24 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	brewPresent, brewToInstall := brew.planBrew()
 	totalApps := len(actions) + len(brew.brewActions())
 	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, 0, toInstallCount+brewToInstall)
+	configSession, configSessionErr := prepareApplyConfigRestore(
+		context.Background(),
+		flags,
+		newRealizerConfigRestoreEvidenceSource(r, brewDrv, append(append([]manifest.App{}, mf.Apps...), brewApps...)),
+	)
+	if configSessionErr != nil {
+		return nil, configSessionErr
+	}
+	var configFields *ConfigResultFields
 
 	if flags.DryRun {
+		var configErr *envelope.Error
+		configFields, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession,
+		)
+		if configErr != nil {
+			return nil, configErr
+		}
 		// --prune --dry-run previews the prune set without mutating anything and
 		// without requiring --confirm.
 		var pruned []string
@@ -307,6 +324,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			RestoreModulesAvailable: restoreModulesAvailable,
 			Pruned:                  pruned,
 			HomeManager:             hmPreview,
+			ConfigResultFields:      configFields,
 		}, nil
 	}
 
@@ -425,6 +443,13 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	failedCount += brewFailed
 
 	emitter.EmitSummary("apply", successCount+skippedCount+failedCount, successCount, skippedCount, failedCount)
+	var configErr *envelope.Error
+	configFields, configErr = executePreparedApplyConfigRestore(
+		context.Background(), flags, runID, emitter, configSession,
+	)
+	if configErr != nil {
+		return nil, configErr
+	}
 
 	// --- Phase 3: Verify (read current generation) ---
 	emitter.EmitPhase("verify")
@@ -553,5 +578,6 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		RestoreModulesAvailable: restoreModulesAvailable,
 		Pruned:                  removed,
 		HomeManager:             homeResult,
+		ConfigResultFields:      configFields,
 	}, nil
 }

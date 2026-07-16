@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
@@ -94,8 +95,24 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	// Plan-phase convention (mirrors runApplyRealizer): present→success slot,
 	// to_install→failed slot, skipped not counted in the slots (only in total).
 	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, 0, brewToInstall)
+	evidence := newFilesystemConfigRestoreEvidenceSource()
+	if brewDrv != nil {
+		evidence = newDriverConfigRestoreEvidenceSource(brewDrv, brewApps)
+	}
+	configSession, configSessionErr := prepareApplyConfigRestore(context.Background(), flags, evidence)
+	if configSessionErr != nil {
+		return nil, configSessionErr
+	}
+	var configFields *ConfigResultFields
 
 	if flags.DryRun {
+		var configErr *envelope.Error
+		configFields, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession,
+		)
+		if configErr != nil {
+			return nil, configErr
+		}
 		dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
 		return &ApplyResult{
 			DryRun:                  true,
@@ -104,6 +121,7 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 			Actions:                 dryActions,
 			ConfigModuleMap:         configModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
+			ConfigResultFields:      configFields,
 		}, nil
 	}
 
@@ -133,6 +151,13 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	skippedCount += brewSkipped
 	failedCount += brewFailed
 	emitter.EmitSummary("apply", successCount+skippedCount+failedCount, successCount, skippedCount, failedCount)
+	var configErr *envelope.Error
+	configFields, configErr = executePreparedApplyConfigRestore(
+		context.Background(), flags, runID, emitter, configSession,
+	)
+	if configErr != nil {
+		return nil, configErr
+	}
 
 	// --- Phase 3: Verify ---
 	emitter.EmitPhase("verify")
@@ -169,5 +194,6 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 		Actions:                 actions,
 		ConfigModuleMap:         configModuleMap,
 		RestoreModulesAvailable: restoreModulesAvailable,
+		ConfigResultFields:      configFields,
 	}, nil
 }

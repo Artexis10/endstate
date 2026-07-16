@@ -4,15 +4,16 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/state"
 )
 
 // RestoreFlags holds the parsed CLI flags for the restore command.
@@ -55,18 +56,19 @@ func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
-	// This is the command-boundary preflight until generation planning is wired.
-	// The command coordinator must reuse or replace it, not normalize inputs twice.
-	if _, configInputErr := buildConfigRestoreInputs(configRestoreBuildRequest{
+	repoRoot := resolveRepoRootFn()
+	configRuntime, configInputErr := newConfigRestoreRuntime(configRestoreBuildRequest{
 		Manifest:       mf,
 		ManifestPath:   flags.Manifest,
+		RepoRoot:       repoRoot,
 		RestoreFilter:  flags.RestoreFilter,
 		RestoreTargets: flags.RestoreTargets,
-	}); configInputErr != nil {
+	})
+	if configInputErr != nil {
 		return nil, configInputErr
 	}
 
-	if len(mf.Restore) == 0 {
+	if !configRuntime.inputs.hasConfigPayloads && len(mf.Restore) == 0 {
 		return &RestoreData{
 			Results: []restore.RestoreResult{},
 			DryRun:  flags.DryRun,
@@ -74,92 +76,71 @@ func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 	}
 
 	// Check opt-in.
-	if !flags.EnableRestore {
+	if !flags.EnableRestore && !configRuntime.inputs.hasConfigPayloads {
 		return nil, envelope.NewError(
 			envelope.ErrRestoreFailed,
 			"Restore entries found but --enable-restore not specified.",
 		).WithRemediation("Add --enable-restore to enable restore operations.")
 	}
 
-	emitter.EmitPhase("restore")
+	evidence := newStandaloneConfigRestoreEvidenceSource(mf.Apps)
+	session := newConfigRestoreExecutionSession(configRuntime, evidence)
+	if _, previewErr := session.Preview(context.Background()); previewErr != nil {
+		return nil, configRestoreInternalError(previewErr.Error())
+	}
+	if flags.EnableRestore {
+		emitter.EmitPhase("restore")
+	}
+	options := restoreConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter)
+	execution, executeErr := session.Execute(context.Background(), options)
+	if executeErr != nil {
+		return nil, executeErr
+	}
+	if flags.EnableRestore {
+		emitConfigRestoreSummary(emitter, execution.Results)
+	}
+	var configFields *ConfigResultFields
+	if configRuntime.inputs.hasConfigPayloads {
+		configFields = NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems)
+	}
 
-	// --- 2. Convert manifest entries to restore actions ---
-	manifestDir := filepath.Dir(flags.Manifest)
-	absManifestDir, _ := filepath.Abs(manifestDir)
+	return &RestoreData{
+		Results:            execution.Results,
+		JournalPath:        execution.JournalPath,
+		DryRun:             flags.DryRun,
+		ConfigResultFields: configFields,
+	}, nil
+}
 
-	actions := convertToActions(mf.Restore, flags.RestoreFilter)
-
-	// Resolve export path.
+func restoreConfigRestoreExecutionOptions(
+	flags RestoreFlags,
+	runID string,
+	repoRoot string,
+	emitter *events.Emitter,
+) configRestoreExecutionOptions {
+	manifestDir, _ := filepath.Abs(filepath.Dir(flags.Manifest))
 	exportRoot := ""
 	if flags.Export != "" {
 		exportRoot, _ = filepath.Abs(flags.Export)
 	}
-
-	// Resolve backup directory.
-	repoRoot := config.ResolveRepoRoot()
-	backupDir := ""
+	stateDir := state.StateDir()
 	if repoRoot != "" {
-		backupDir = filepath.Join(repoRoot, "state", "backups", runID)
+		stateDir = filepath.Join(repoRoot, "state")
 	}
-
-	// --- 3. Run restore ---
-	opts := restore.RestoreOptions{
-		DryRun:      flags.DryRun,
-		BackupDir:   backupDir,
-		ManifestDir: absManifestDir,
-		ExportRoot:  exportRoot,
-		RunID:       runID,
+	stateDir, _ = filepath.Abs(stateDir)
+	logsDir := ""
+	if repoRoot != "" {
+		logsDir = filepath.Join(repoRoot, "logs")
 	}
-
-	results, err := restore.RunRestore(actions, opts, emitter)
-	if err != nil {
-		return nil, envelope.NewError(envelope.ErrRestoreFailed, err.Error())
+	options := configRestoreExecutionOptions{
+		RestoreEnabled: flags.EnableRestore, DryRun: flags.DryRun,
+		RunID: runID, StateDir: stateDir, ManifestPath: flags.Manifest,
+		ManifestDir: manifestDir, ExportRoot: exportRoot,
+		BackupDir: filepath.Join(stateDir, "backups", runID), JournalLogsDir: logsDir,
+		Emitter: emitter,
 	}
-
-	// --- 4. Tally results for summary event (item events emitted inside RunRestore) ---
-	restoredCount := 0
-	skippedCount := 0
-	failedCount := 0
-	for _, r := range results {
-		switch r.Status {
-		case "restored":
-			restoredCount++
-		case "skipped_up_to_date", "skipped_missing_source":
-			skippedCount++
-		case "failed":
-			failedCount++
-		default:
-			skippedCount++
-		}
-	}
-
-	emitter.EmitSummary("restore", len(results), restoredCount, skippedCount, failedCount)
-
-	// --- 5. Write journal (non-dry-run only) ---
-	journalPath := ""
-	if !flags.DryRun {
-		logsDir := ""
-		if repoRoot != "" {
-			logsDir = filepath.Join(repoRoot, "logs")
-		} else {
-			logsDir = "logs"
-		}
-
-		absManifest, _ := filepath.Abs(flags.Manifest)
-		journalErr := restore.WriteJournal(logsDir, runID, absManifest, absManifestDir, exportRoot, results)
-		if journalErr == nil {
-			latest, findErr := restore.FindLatestJournal(logsDir)
-			if findErr == nil {
-				journalPath = latest
-			}
-		}
-	}
-
-	return &RestoreData{
-		Results:     results,
-		JournalPath: journalPath,
-		DryRun:      flags.DryRun,
-	}, nil
+	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
+	return options
 }
 
 // convertToActions converts manifest RestoreEntry items to

@@ -44,8 +44,8 @@
 - [x] 5.4 Implement downgrade rejection, missing-path handling, unsupported-module-schema handling, payload-integrity failure, missing catalog module/set/generation, and changed/unaccepted source-generation fingerprint outcomes.
 - [x] 5.5 Implement deterministic target selection: unique target, unique exact-version preference, explicit mapping, and ambiguous-target refusal.
 - [x] 5.6 Detect exact and parent/child target collisions plus multiple captured sources competing for one target.
-- [ ] 5.7 Re-run target detection after rebuild installs and ensure final resolution replaces stale pre-install evidence before restore.
-- [ ] 5.8 Adapt legacy bundle/module restores to emit `legacy_unverified` without fabricating versions or generations.
+- [x] 5.7 Re-run target detection after rebuild installs and ensure final resolution replaces stale pre-install evidence before restore.
+- [x] 5.8 Adapt legacy bundle/module restores to emit `legacy_unverified` without fabricating versions or generations.
 - [x] 5.9 Add planner tests for every resolution/reason, generation-fingerprint acceptance/rejection, side-by-side mapping, post-install version changes, collisions, per-set isolation, no legacy fallback, and catalog pinning.
 
 ## 6. Forward Migration Engine
@@ -63,25 +63,25 @@
 
 - [x] 7.1 Convert a resolved direct/migrated config set into concrete restore actions only after staging and preflight succeed.
 - [x] 7.2 Pre-create all required backups for a config-set transaction before its first target write.
-- [ ] 7.3 Add atomic journal-intent persistence before mutation and make journal write failure fatal for the config set/command.
+- [x] 7.3 Add atomic journal-intent persistence before mutation and make journal write failure fatal for the config set/command.
 - [x] 7.4 Implement config-set commit, final target validation, atomic completion recording, and immediate rollback on partial commit, validation failure, or completion-record failure.
 - [x] 7.5 Extend journal entries with capture/target IDs, source/target generations, migration path, both module revisions, validation status, and rollback outcome.
-- [ ] 7.6 Update revert to consume concrete journal actions without attempting a reverse generation migration.
+- [x] 7.6 Update revert to consume concrete journal actions without attempting a reverse generation migration.
 - [x] 7.7 Enforce application-closure requirements by returning `app_running` without killing processes or mutating the set.
 - [x] 7.8 Add failure-injection tests for backup, intent write, each commit action, final validation, rollback, and completion write.
-- [ ] 7.9 Add multi-set tests proving a failed set rolls back while safe non-overlapping sets continue.
-- [ ] 7.10 Detect pending journal intents before new mutation, perform idempotent recovery rollback, and block with `recovery_required` when recovery cannot complete.
-- [ ] 7.11 Add crash-window and next-run recovery tests for process death before/during/after commit and incomplete completion records.
+- [x] 7.9 Add multi-set tests proving a failed set rolls back while safe non-overlapping sets continue.
+- [x] 7.10 Detect pending journal intents before new mutation, perform idempotent recovery rollback, and block with `recovery_required` when recovery cannot complete.
+- [x] 7.11 Add crash-window and next-run recovery tests for process death before/during/after commit and incomplete completion records.
 
 ## 8. CLI, Envelopes, Events, and Capabilities
 
-- [ ] 8.1 Add repeatable `--restore-target <captureId>=<targetInstanceId>` parsing to apply, restore, and rebuild, with input errors for malformed/duplicate/unknown-capture mappings and per-set skips for post-install absent/incompatible targets.
-- [ ] 8.2 Advertise `--restore-target` through capabilities and preserve module-level `--restore-filter` precedence.
-- [ ] 8.3 Add identical `configResolutions[]` and `configResolutionSummary` semantics to apply, standalone restore, and rebuild dry-run/live JSON output, including legacy warning states and source-generation fingerprints.
-- [ ] 8.4 Link concrete `restoreItems[]` to capture IDs, config sets, target instances, and generations without changing app `items[]`.
-- [ ] 8.5 Emit ordered `config-resolution` and `config-migration` JSONL events before target mutation, including validation/commit/rollback outcomes.
-- [ ] 8.6 Add stable error/reason codes and remediation for invalid mappings, integrity failures, ambiguous instances/generations, target collisions, unsupported downgrade/schema, journal failure, and app-running state.
-- [ ] 8.7 Add CLI, envelope, event-ordering, capabilities, dry-run, and legacy compatibility tests for all restore-capable commands.
+- [x] 8.1 Add repeatable `--restore-target <captureId>=<targetInstanceId>` parsing to apply, restore, and rebuild, with input errors for malformed/duplicate/unknown-capture mappings and per-set skips for post-install absent/incompatible targets.
+- [x] 8.2 Advertise `--restore-target` through capabilities and preserve module-level `--restore-filter` precedence.
+- [x] 8.3 Add identical `configResolutions[]` and `configResolutionSummary` semantics to apply, standalone restore, and rebuild dry-run/live JSON output, including legacy warning states and source-generation fingerprints.
+- [x] 8.4 Link concrete `restoreItems[]` to capture IDs, config sets, target instances, and generations without changing app `items[]`.
+- [x] 8.5 Emit ordered `config-resolution` and `config-migration` JSONL events before target mutation, including validation/commit/rollback outcomes.
+- [x] 8.6 Add stable error/reason codes and remediation for invalid mappings, integrity failures, ambiguous instances/generations, target collisions, unsupported downgrade/schema, journal failure, and app-running state.
+- [x] 8.7 Add CLI, envelope, event-ordering, capabilities, dry-run, and legacy compatibility tests for all restore-capable commands.
 
 ## 9. Representative Modules and GUI Consumption
 
@@ -97,7 +97,7 @@
 
 - [ ] 10.1 Run targeted Go tests for modules, bundle, manifest, planner/resolution, migration operations, restore/journal/revert, commands, envelopes, and events.
 - [ ] 10.2 Run OpenSpec strict validation and contract/schema fixture validation.
-- [ ] 10.3 Run end-to-end v1 legacy, v2 direct, v2 forward-chain, side-by-side ambiguous/selected, tampered payload, and rollback scenarios in temporary roots.
+- [x] 10.3 Run end-to-end v1 legacy, v2 direct, v2 forward-chain, side-by-side ambiguous/selected, tampered payload, and rollback scenarios in temporary roots.
 - [ ] 10.4 Run the full Go test suite after targeted suites pass and record any environment-specific exclusions.
 - [x] 10.5 Document module-author guidance for generations, immutable IDs, version selectors, detectors, migration operations, validation, and unsupported formats.
 - [ ] 10.6 Release engine read support and structured contracts before enabling GUI v2 capture/restore; retain v2 read support if capture must be rolled back.

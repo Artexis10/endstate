@@ -121,6 +121,30 @@ func TestNewConfigRestoreRuntimeLeavesConfigFreeInputPure(t *testing.T) {
 	}
 }
 
+func TestNewConfigRestoreRuntimeDoesNotRequireCatalogForLegacyOnlyInput(t *testing.T) {
+	loadCount := 0
+	originalLoader := loadConfigRestoreCatalogFn
+	loadConfigRestoreCatalogFn = func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+		loadCount++
+		return nil, nil, os.ErrNotExist
+	}
+	t.Cleanup(func() { loadConfigRestoreCatalogFn = originalLoader })
+
+	runtime, envErr := newConfigRestoreRuntime(configRestoreBuildRequest{
+		Manifest: &manifest.Manifest{Version: 1, Restore: []manifest.RestoreEntry{{
+			Type: "copy", Source: "settings.json", Target: filepath.Join(t.TempDir(), "settings.json"),
+			FromModule: "apps.legacy",
+		}}},
+		ManifestPath: filepath.Join(t.TempDir(), "manifest.jsonc"),
+	})
+	if envErr != nil {
+		t.Fatalf("legacy-only runtime should not depend on current catalog: %+v", envErr)
+	}
+	if loadCount != 0 || !runtime.inputs.hasConfigPayloads || len(runtime.inputs.legacyLanes) != 1 || runtime.catalog.resolver != nil {
+		t.Fatalf("runtime=%+v loadCount=%d", runtime, loadCount)
+	}
+}
+
 func TestNewConfigRestoreRuntimeReturnsDeterministicNonNilCollections(t *testing.T) {
 	manifestDir := t.TempDir()
 	zeta := commandTestConfigCapture(t, manifestDir, "capture-zeta", "apps.zeta", "preferences")

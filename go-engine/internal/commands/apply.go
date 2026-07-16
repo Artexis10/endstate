@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,9 +14,11 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/state"
 )
 
 // stringPtr returns a pointer to s.
@@ -88,6 +91,11 @@ type ApplyFlags struct {
 	// (plan, drivers, config-module expansion, restore scoping, verify, events,
 	// summary counts) sees only the selected apps. Incompatible with --prune.
 	Only string
+
+	// Prepared command-scoped restore facts are carried into alternate backend
+	// paths without reloading or renormalizing the manifest/catalog.
+	configRestoreRuntime  *configRestoreRuntime
+	configRestoreRepoRoot string
 }
 
 // parseOnlyIDs normalises the --only value into a deduplicated set of app IDs.
@@ -272,7 +280,8 @@ type ApplyAction struct {
 //   - Re-detect all apps with a fresh winget query.
 //   - Emit PhaseEvent("verify"), ItemEvents, SummaryEvent("verify").
 //
-// EnableRestore is accepted but logs a no-op notice; restore is Phase 2 work.
+// EnableRestore opts into configuration restore after package installation and
+// immediately before verification.
 func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("apply")
 	emitter := newApplyEmitterFn(runID, flags.Events == "jsonl")
@@ -287,22 +296,26 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
-	// This is the command-boundary preflight until generation planning is wired.
-	// The command coordinator must reuse or replace it, not normalize inputs twice.
-	if _, configInputErr := buildConfigRestoreInputs(configRestoreBuildRequest{
+	repoRoot := resolveRepoRootFn()
+	configRuntime, configInputErr := newConfigRestoreRuntime(configRestoreBuildRequest{
 		Manifest:       mf,
 		ManifestPath:   flags.Manifest,
+		RepoRoot:       repoRoot,
 		RestoreFilter:  flags.RestoreFilter,
 		RestoreTargets: flags.RestoreTargets,
-	}); configInputErr != nil {
+	})
+	if configInputErr != nil {
 		return nil, configInputErr
 	}
+	flags.configRestoreRuntime = configRuntime
+	flags.configRestoreRepoRoot = repoRoot
 
 	// Load the module catalog once; it is used for synthesis (pre-filter) and
 	// for module matching (post-filter). Non-fatal if unavailable.
 	var catalog map[string]*modules.Module
-	repoRoot := resolveRepoRootFn()
-	if repoRoot != "" {
+	if len(configRuntime.inputs.generationSources) > 0 {
+		catalog = configRuntime.catalog.ModuleCatalog()
+	} else if repoRoot != "" {
 		if cat, catalogErr := loadModuleCatalogFn(repoRoot); catalogErr == nil && len(cat) > 0 {
 			catalog = cat
 		}
@@ -332,8 +345,9 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// restoreModulesAvailable are scoped to the filtered app set.
 	var configModuleMap map[string]string
 	var restoreModulesAvailable []RestoreModuleRef
+	var matchedModules []*modules.Module
 	if catalog != nil {
-		matchedModules := modules.MatchModulesForApps(catalog, mf.Apps)
+		matchedModules = modules.MatchModulesForApps(catalog, mf.Apps)
 		if len(matchedModules) > 0 {
 			configModuleMap = make(map[string]string, len(matchedModules))
 			for _, mod := range matchedModules {
@@ -352,6 +366,9 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				})
 			}
 		}
+	}
+	if flags.Only != "" {
+		scopeConfigRestoreRuntimeForOnly(configRuntime, matchedModules)
 	}
 
 	// Platform realizer path (whole-set, e.g. Nix on linux/darwin). When a
@@ -546,6 +563,27 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	totalApps := len(planEntries)
 	emitter.EmitSummary("plan", totalApps, presentCount, 0, toInstallCount)
 
+	configSession := newConfigRestoreExecutionSession(
+		configRuntime,
+		newDriverConfigRestoreEvidenceSource(d, mf.Apps),
+	)
+	if _, previewErr := configSession.Preview(context.Background()); previewErr != nil {
+		return nil, configRestoreInternalError(previewErr.Error())
+	}
+	var configFields *ConfigResultFields
+	if flags.DryRun {
+		configExecution, executeErr := configSession.Execute(
+			context.Background(),
+			applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter),
+		)
+		if executeErr != nil {
+			return nil, executeErr
+		}
+		if configRuntime.inputs.hasConfigPayloads {
+			configFields = NewConfigResultFields(configExecution.Plan.Sets, configExecution.RestoreItems)
+		}
+	}
+
 	// ----------------------------------------------------------------
 	// Phase 2: Apply  (skip when dry-run)
 	// ----------------------------------------------------------------
@@ -679,60 +717,22 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		}
 
 		// ----------------------------------------------------------------
-		// Phase 2b: Restore  (when --enable-restore and manifest has entries)
+		// Phase 2b: Restore. Final target detection replaces the preview after
+		// installation and immediately precedes configuration mutation.
 		// ----------------------------------------------------------------
 
-		if flags.EnableRestore && len(mf.Restore) > 0 {
+		if configRuntime.inputs.hasConfigPayloads || (flags.EnableRestore && len(mf.Restore) > 0) {
 			emitter.EmitPhase("restore")
-
-			manifestDir := filepath.Dir(flags.Manifest)
-			absManifestDir, _ := filepath.Abs(manifestDir)
-			actions := convertToActions(mf.Restore, flags.RestoreFilter)
-
-			exportRoot := ""
-			if flags.Export != "" {
-				exportRoot, _ = filepath.Abs(flags.Export)
+			configExecution, executeErr := configSession.Execute(
+				context.Background(),
+				applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter),
+			)
+			if executeErr != nil {
+				return nil, executeErr
 			}
-
-			repoRoot := config.ResolveRepoRoot()
-			backupDir := ""
-			if repoRoot != "" {
-				backupDir = filepath.Join(repoRoot, "state", "backups", runID)
-			}
-
-			restoreOpts := restore.RestoreOptions{
-				DryRun:      false, // apply is non-dry-run at this point
-				BackupDir:   backupDir,
-				ManifestDir: absManifestDir,
-				ExportRoot:  exportRoot,
-				RunID:       runID,
-			}
-
-			restoreResults, restoreErr := restore.RunRestore(actions, restoreOpts, emitter)
-			if restoreErr != nil {
-				emitter.EmitError("engine", "Restore failed: "+restoreErr.Error(), "")
-			} else {
-				restoredCnt := 0
-				skippedCnt := 0
-				failedCnt := 0
-				for _, r := range restoreResults {
-					switch r.Status {
-					case "restored":
-						restoredCnt++
-					case "skipped_up_to_date", "skipped_missing_source":
-						skippedCnt++
-					case "failed":
-						failedCnt++
-					}
-				}
-				emitter.EmitSummary("restore", len(restoreResults), restoredCnt, skippedCnt, failedCnt)
-
-				// Write journal for restore phase.
-				if repoRoot != "" {
-					logsDir := filepath.Join(repoRoot, "logs")
-					absManifest, _ := filepath.Abs(flags.Manifest)
-					_ = restore.WriteJournal(logsDir, runID, absManifest, absManifestDir, exportRoot, restoreResults)
-				}
+			emitConfigRestoreSummary(emitter, configExecution.Results)
+			if configRuntime.inputs.hasConfigPayloads {
+				configFields = NewConfigResultFields(configExecution.Plan.Sets, configExecution.RestoreItems)
 			}
 		}
 
@@ -824,5 +824,82 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		Actions:                 finalActions,
 		ConfigModuleMap:         configModuleMap,
 		RestoreModulesAvailable: restoreModulesAvailable,
+		ConfigResultFields:      configFields,
 	}, nil
+}
+
+func scopeConfigRestoreRuntimeForOnly(runtime *configRestoreRuntime, matched []*modules.Module) {
+	if runtime == nil {
+		return
+	}
+	allowed := make(map[string]struct{}, len(matched))
+	for _, module := range matched {
+		if module != nil {
+			allowed[module.ID] = struct{}{}
+		}
+	}
+	for index := range runtime.inputs.generationSources {
+		source := &runtime.inputs.generationSources[index]
+		_, included := allowed[source.source.ModuleID]
+		source.selected = source.selected && included
+		if !source.selected {
+			delete(runtime.inputs.targetMappings, source.source.CaptureID)
+		}
+	}
+	for index := range runtime.inputs.legacyLanes {
+		lane := &runtime.inputs.legacyLanes[index]
+		_, included := allowed[lane.moduleID]
+		lane.selected = lane.selected && included
+	}
+}
+
+func applyConfigRestoreExecutionOptions(
+	flags ApplyFlags,
+	runID string,
+	repoRoot string,
+	emitter *events.Emitter,
+) configRestoreExecutionOptions {
+	manifestDir, _ := filepath.Abs(filepath.Dir(flags.Manifest))
+	exportRoot := ""
+	if flags.Export != "" {
+		exportRoot, _ = filepath.Abs(flags.Export)
+	}
+	stateDir := state.StateDir()
+	if repoRoot != "" {
+		stateDir = filepath.Join(repoRoot, "state")
+	}
+	stateDir, _ = filepath.Abs(stateDir)
+	logsDir := ""
+	if repoRoot != "" {
+		logsDir = filepath.Join(repoRoot, "logs")
+	}
+	options := configRestoreExecutionOptions{
+		RestoreEnabled: flags.EnableRestore,
+		DryRun:         flags.DryRun,
+		RunID:          runID,
+		StateDir:       stateDir,
+		ManifestPath:   flags.Manifest,
+		ManifestDir:    manifestDir,
+		ExportRoot:     exportRoot,
+		BackupDir:      filepath.Join(stateDir, "backups", runID),
+		JournalLogsDir: logsDir,
+	}
+	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
+	options.Emitter = emitter
+	return options
+}
+
+func emitConfigRestoreSummary(emitter *events.Emitter, results []restore.RestoreResult) {
+	restored, skipped, failed := 0, 0, 0
+	for _, result := range results {
+		switch result.Status {
+		case "restored":
+			restored++
+		case "skipped_up_to_date", "skipped_missing_source":
+			skipped++
+		case "failed":
+			failed++
+		}
+	}
+	emitter.EmitSummary("restore", len(results), restored, skipped, failed)
 }

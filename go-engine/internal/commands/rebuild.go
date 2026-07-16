@@ -177,15 +177,20 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		}
 		verifyResult = vr
 	}
+	var configFields *ConfigResultFields
+	if applied, ok := applyResult.(*ApplyResult); ok {
+		configFields = applied.ConfigResultFields
+	}
 
 	// --- 6. Assemble — success even when apply/verify summaries carry failures ---
 	return &RebuildResult{
-		From:    from,
-		Bundle:  bundleInfo,
-		DryRun:  flags.DryRun,
-		Restore: restoreState,
-		Apply:   applyResult,
-		Verify:  verifyResult,
+		From:               from,
+		Bundle:             bundleInfo,
+		DryRun:             flags.DryRun,
+		Restore:            restoreState,
+		Apply:              applyResult,
+		Verify:             verifyResult,
+		ConfigResultFields: configFields,
 	}, nil
 }
 

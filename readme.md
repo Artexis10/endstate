@@ -169,6 +169,8 @@ endstate rebuild --from MyProfile.zip --confirm
 
 Overwritten files are backed up first and can be undone with `endstate revert`. Use `--no-restore` to install and verify without touching configuration.
 
+When multiple installed app versions are valid configuration targets, `apply`, `restore`, and `rebuild` accept repeatable `--restore-target <captureId>=<targetInstanceId>` mappings. `--restore-filter` still selects modules first; Endstate never silently chooses the newest side-by-side version.
+
 ### CLI Commands
 
 | Command | Description |

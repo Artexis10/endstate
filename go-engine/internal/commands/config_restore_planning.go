@@ -14,6 +14,7 @@ import (
 // one detection pass. It is consumed immediately and never retained.
 type configRestoreDetectionEvidence struct {
 	PackagesByModule map[string][]modules.PackageEvidence
+	FailedModules    map[string]struct{}
 	Glob             func(pattern string) ([]string, error)
 }
 
@@ -66,8 +67,15 @@ func (session *configRestorePlanningSession) buildFreshPlan(evidence configResto
 	sources := selectedConfigRestoreSources(session.runtime.inputs.generationSources)
 	moduleIDs := selectedConfigRestoreModuleIDs(sources)
 	targetsByModule := make(map[string][]planner.TargetInstance, len(moduleIDs))
-	failedModules := make(map[string]struct{})
+	failedModules := make(map[string]struct{}, len(evidence.FailedModules))
+	for moduleID := range evidence.FailedModules {
+		failedModules[moduleID] = struct{}{}
+	}
 	for _, moduleID := range moduleIDs {
+		if _, failed := failedModules[moduleID]; failed {
+			targetsByModule[moduleID] = []planner.TargetInstance{}
+			continue
+		}
 		targets, err := session.runtime.catalog.resolver.DiscoverTargets(
 			moduleID,
 			evidence.PackagesByModule[moduleID],
