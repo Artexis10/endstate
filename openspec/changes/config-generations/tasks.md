@@ -63,7 +63,7 @@
 
 - [x] 7.1 Convert a resolved direct/migrated config set into concrete restore actions only after staging and preflight succeed.
 - [x] 7.2 Pre-create all required backups for a config-set transaction before its first target write.
-- [x] 7.3 Add atomic journal-intent persistence before mutation and make journal write failure fatal for the config set/command.
+- [ ] 7.3 Add atomic journal-intent persistence before mutation and make journal write failure fatal for the config set/command.
 - [ ] 7.4 Implement config-set commit, final target validation, atomic completion recording, and immediate rollback on partial commit, validation failure, or completion-record failure.
 - [x] 7.5 Extend journal entries with capture/target IDs, source/target generations, migration path, both module revisions, validation status, and rollback outcome.
 - [ ] 7.6 Update revert to consume concrete journal actions without attempting a reverse generation migration.
@@ -76,7 +76,7 @@
 ## 8. CLI, Envelopes, Events, and Capabilities
 
 - [ ] 8.1 Add repeatable `--restore-target <captureId>=<targetInstanceId>` parsing to apply, restore, and rebuild, with input errors for malformed/duplicate/unknown-capture mappings and per-set skips for post-install absent/incompatible targets.
-- [x] 8.2 Advertise `--restore-target` through capabilities and preserve module-level `--restore-filter` precedence.
+- [ ] 8.2 Advertise `--restore-target` through capabilities and preserve module-level `--restore-filter` precedence.
 - [ ] 8.3 Add identical `configResolutions[]` and `configResolutionSummary` semantics to apply, standalone restore, and rebuild dry-run/live JSON output, including legacy warning states and source-generation fingerprints.
 - [ ] 8.4 Link concrete `restoreItems[]` to capture IDs, config sets, target instances, and generations without changing app `items[]`.
 - [ ] 8.5 Emit ordered `config-resolution` and `config-migration` JSONL events before target mutation, including validation/commit/rollback outcomes.
