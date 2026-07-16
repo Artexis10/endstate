@@ -129,13 +129,9 @@ func (session *configRestoreExecutionSession) Execute(
 	}
 	result.Plan = plan
 	legacyPreview := previewLegacyConfigRestorePlan(session.runtime.inputs, options.RestoreEnabled)
-	for _, set := range legacyPreview.Sets {
-		if options.Emitter != nil {
-			options.Emitter.EmitConfigResolution(set)
-		}
-	}
 	if !options.RestoreEnabled {
 		emitGenerationConfigResolutions(options.Emitter, result.Plan)
+		emitGenerationConfigResolutions(options.Emitter, legacyPreview)
 		result.Plan = mergeConfigRestorePlans(result.Plan, legacyPreview)
 		return result, nil
 	}
@@ -143,7 +139,8 @@ func (session *configRestoreExecutionSession) Execute(
 	if options.DryRun {
 		prepared := session.stageAndMaterialize(ctx, &result.Plan, options)
 		defer closePreparedConfigRestoreExecutions(prepared)
-		applyConcreteConfigRestoreCollisions(&result.Plan, prepared)
+		collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
+		applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
 		prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 		dryRunOutcomes := make(map[int]configRestoreSetOutcome, len(prepared))
 		dryRunItems := make(map[int][]restore.RestoreResult, len(prepared))
@@ -157,6 +154,7 @@ func (session *configRestoreExecutionSession) Execute(
 			result.EventResults = append(result.EventResults, items...)
 		}
 		emitGenerationConfigResolutions(options.Emitter, result.Plan)
+		emitGenerationConfigResolutions(options.Emitter, legacyPreview)
 		for _, item := range prepared {
 			emitGenerationConfigRestoreStarts(
 				options.Emitter, result.Plan.Sets[item.setIndex], item.materialized, dryRunOutcomes[item.setIndex].Prepared,
@@ -164,7 +162,7 @@ func (session *configRestoreExecutionSession) Execute(
 			items := dryRunItems[item.setIndex]
 			emitConfigRestoreItems(options.Emitter, items, result.Plan.Sets[item.setIndex].Source.ModuleID)
 		}
-		legacy, ordinary, eventResults, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options)
+		legacy, ordinary, eventResults, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options, collisions)
 		if runErr != nil {
 			return result, runErr
 		}
@@ -214,7 +212,8 @@ func (session *configRestoreExecutionSession) Execute(
 	// merge and append strategies may read the live target to derive desired bytes.
 	prepared := session.stageAndMaterialize(ctx, &result.Plan, options)
 	defer closePreparedConfigRestoreExecutions(prepared)
-	applyConcreteConfigRestoreCollisions(&result.Plan, prepared)
+	collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
+	applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
 	for index := range prepared {
 		item := &prepared[index]
 		set := &result.Plan.Sets[item.setIndex]
@@ -235,6 +234,11 @@ func (session *configRestoreExecutionSession) Execute(
 		if !selectedConfigRestorePlanSet(set) {
 			emitGenerationConfigResolution(options.Emitter, set)
 			emittedResolutions[index] = true
+		}
+	}
+	for _, set := range legacyPreview.Sets {
+		if set.Resolution.Status != planner.StatusPlanned {
+			emitGenerationConfigResolution(options.Emitter, set)
 		}
 	}
 
@@ -282,6 +286,9 @@ func (session *configRestoreExecutionSession) Execute(
 				emittedResolutions[index] = true
 			}
 			recomputeConfigPlanSummary(&result.Plan)
+			legacyPreview = overlayLegacyRecoveryRequired(legacyPreview, session.runtime.inputs)
+			emitPlannedLegacyConfigResolutions(options.Emitter, legacyPreview)
+			result.Plan = mergeConfigRestorePlans(result.Plan, legacyPreview)
 			return result, envelope.NewError(envelope.ErrRestoreFailed, "Failed to persist configuration restore intent.").
 				WithDetail(map[string]string{"reason": planner.ReasonJournalIntentFailed.String(), "diagnostic": outcome.Err.Error()}).
 				WithRemediation("Review the journal storage failure, resolve its cause, and retry.")
@@ -304,9 +311,12 @@ func (session *configRestoreExecutionSession) Execute(
 		}
 	}
 	if failStop {
-		result.Plan = mergeConfigRestorePlans(result.Plan, overlayLegacyRecoveryRequired(legacyPreview, session.runtime.inputs))
+		legacyPreview = overlayLegacyRecoveryRequired(legacyPreview, session.runtime.inputs)
+		emitPlannedLegacyConfigResolutions(options.Emitter, legacyPreview)
+		result.Plan = mergeConfigRestorePlans(result.Plan, legacyPreview)
 	} else {
-		legacy, ordinary, eventResults, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options)
+		emitPlannedLegacyConfigResolutions(options.Emitter, legacyPreview)
+		legacy, ordinary, eventResults, runErr := executeLegacyAndOrdinaryConfigRestores(session.runtime.inputs, options, collisions)
 		if runErr != nil {
 			return result, runErr
 		}
@@ -344,6 +354,14 @@ func emitGenerationConfigResolutions(emitter *events.Emitter, plan planner.Confi
 func emitGenerationConfigResolution(emitter *events.Emitter, set planner.PlanSet) {
 	if emitter != nil {
 		emitter.EmitConfigResolution(set)
+	}
+}
+
+func emitPlannedLegacyConfigResolutions(emitter *events.Emitter, plan planner.ConfigPlan) {
+	for _, set := range plan.Sets {
+		if set.Resolution.Status == planner.StatusPlanned {
+			emitGenerationConfigResolution(emitter, set)
+		}
 	}
 }
 
@@ -563,55 +581,103 @@ func configRestoreResultsForSet(
 	return results
 }
 
-func applyConcreteConfigRestoreCollisions(plan *planner.ConfigPlan, prepared []preparedConfigRestoreExecution) {
-	claims := make(map[string]map[int]struct{})
+type configRestoreCollisionState struct {
+	legacyCaptures  map[string]bool
+	ordinaryActions map[int]bool
+}
+
+type ownedConfigRestoreClaim struct {
+	claim       string
+	kind        string
+	setIndex    int
+	captureID   string
+	actionIndex int
+}
+
+func (claim ownedConfigRestoreClaim) ownerKey() string {
+	switch claim.kind {
+	case "generation":
+		return fmt.Sprintf("generation:%d", claim.setIndex)
+	case "legacy":
+		return "legacy:" + claim.captureID
+	default:
+		return fmt.Sprintf("ordinary:%d", claim.actionIndex)
+	}
+}
+
+func applyUnifiedConcreteConfigRestoreCollisions(
+	plan *planner.ConfigPlan,
+	prepared []preparedConfigRestoreExecution,
+	inputs configRestoreInputs,
+	options configRestoreExecutionOptions,
+) configRestoreCollisionState {
+	state := configRestoreCollisionState{
+		legacyCaptures: make(map[string]bool), ordinaryActions: make(map[int]bool),
+	}
+	claims := []ownedConfigRestoreClaim{}
 	for _, item := range prepared {
 		for _, action := range item.materialized.Actions {
 			claim := concreteConfigRestoreClaim(action)
 			if claim == "" {
 				continue
 			}
-			if claims[claim] == nil {
-				claims[claim] = make(map[int]struct{})
-			}
-			claims[claim][item.setIndex] = struct{}{}
+			claims = append(claims, ownedConfigRestoreClaim{claim: claim, kind: "generation", setIndex: item.setIndex})
 		}
 	}
-	colliding := make(map[int]struct{})
-	keys := make([]string, 0, len(claims))
-	for key := range claims {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for left := 0; left < len(keys); left++ {
-		for right := left; right < len(keys); right++ {
-			if !concreteConfigRestoreClaimsOverlap(keys[left], keys[right]) {
-				continue
-			}
-			sets := make(map[int]struct{})
-			for index := range claims[keys[left]] {
-				sets[index] = struct{}{}
-			}
-			for index := range claims[keys[right]] {
-				sets[index] = struct{}{}
-			}
-			if len(sets) < 2 {
-				continue
-			}
-			for index := range sets {
-				colliding[index] = struct{}{}
+	restoreOptions := configRestoreActionOptions(options)
+	for _, lane := range inputs.legacyLanes {
+		if !lane.selected {
+			continue
+		}
+		for _, action := range convertToActions(lane.restoreEntries, "") {
+			if claim := concreteLegacyRestoreClaim(action, restoreOptions); claim != "" {
+				claims = append(claims, ownedConfigRestoreClaim{claim: claim, kind: "legacy", captureID: lane.captureID})
 			}
 		}
 	}
-	for index := range colliding {
+	for index, action := range convertToActions(inputs.ordinaryRestores, "") {
+		if claim := concreteLegacyRestoreClaim(action, restoreOptions); claim != "" {
+			claims = append(claims, ownedConfigRestoreClaim{claim: claim, kind: "ordinary", actionIndex: index})
+		}
+	}
+	blockedGeneration := make(map[int]bool)
+	for left := 0; left < len(claims); left++ {
+		for right := left + 1; right < len(claims); right++ {
+			if claims[left].ownerKey() == claims[right].ownerKey() ||
+				!concreteConfigRestoreClaimsOverlap(claims[left].claim, claims[right].claim) {
+				continue
+			}
+			for _, owner := range []ownedConfigRestoreClaim{claims[left], claims[right]} {
+				switch owner.kind {
+				case "generation":
+					blockedGeneration[owner.setIndex] = true
+				case "legacy":
+					state.legacyCaptures[owner.captureID] = true
+				case "ordinary":
+					state.ordinaryActions[owner.actionIndex] = true
+				}
+			}
+		}
+	}
+	for index := range blockedGeneration {
 		markConfigRestoreFailure(&plan.Sets[index], planner.ReasonTargetCollision, planner.StatusFailed)
+	}
+	recomputeConfigPlanSummary(plan)
+	return state
+}
+
+func applyLegacyConcreteConfigRestoreCollisions(plan *planner.ConfigPlan, state configRestoreCollisionState) {
+	for index := range plan.Sets {
+		if state.legacyCaptures[plan.Sets[index].Source.CaptureID] {
+			markConfigRestoreFailure(&plan.Sets[index], planner.ReasonTargetCollision, planner.StatusFailed)
+		}
 	}
 	recomputeConfigPlanSummary(plan)
 }
 
 func concreteConfigRestoreClaim(action configrestore.Action) string {
 	if action.Kind == configrestore.ActionRegistrySet && action.RegistryValue != nil {
-		return "registry\x00" + strings.ToLower(action.RegistryValue.Key) + "\x00" + strings.ToLower(action.RegistryValue.ValueName)
+		return "registry-value\x00" + normalizeConfigRestoreRegistryKey(action.RegistryValue.Key) + "\x00" + strings.ToLower(action.RegistryValue.ValueName)
 	}
 	if action.Target == "" {
 		return ""
@@ -624,12 +690,69 @@ func concreteConfigRestoreClaim(action configrestore.Action) string {
 }
 
 func concreteConfigRestoreClaimsOverlap(left, right string) bool {
-	if strings.HasPrefix(left, "registry\x00") || strings.HasPrefix(right, "registry\x00") {
-		return left == right
+	if strings.HasPrefix(left, "registry-") || strings.HasPrefix(right, "registry-") {
+		return registryConfigRestoreClaimsOverlap(left, right)
 	}
 	left = strings.TrimPrefix(left, "file\x00")
 	right = strings.TrimPrefix(right, "file\x00")
 	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+}
+
+func concreteLegacyRestoreClaim(action restore.RestoreAction, options restore.RestoreOptions) string {
+	restoreType := action.Type
+	if restoreType == "" {
+		restoreType = "copy"
+	}
+	switch restoreType {
+	case "registry-set":
+		return "registry-value\x00" + normalizeConfigRestoreRegistryKey(action.Key) + "\x00" + strings.ToLower(action.ValueName)
+	case "registry-import":
+		return "registry-key\x00" + normalizeConfigRestoreRegistryKey(action.Target)
+	default:
+		descriptor := restore.DescribeAction(action, options)
+		if descriptor.Target == "" {
+			return ""
+		}
+		claim := filepath.ToSlash(filepath.Clean(descriptor.Target))
+		if runtime.GOOS == "windows" {
+			claim = strings.ToLower(claim)
+		}
+		return "file\x00" + strings.TrimSuffix(claim, "/")
+	}
+}
+
+func normalizeConfigRestoreRegistryKey(value string) string {
+	value = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "/", "\\"))
+	value = strings.TrimPrefix(value, "hkey_current_user\\")
+	value = strings.TrimPrefix(value, "hkcu\\")
+	return strings.Trim(value, "\\")
+}
+
+func registryConfigRestoreClaimsOverlap(left, right string) bool {
+	type registryClaim struct{ kind, key, value string }
+	parse := func(value string) registryClaim {
+		parts := strings.Split(value, "\x00")
+		claim := registryClaim{kind: parts[0]}
+		if len(parts) > 1 {
+			claim.key = parts[1]
+		}
+		if len(parts) > 2 {
+			claim.value = parts[2]
+		}
+		return claim
+	}
+	l, r := parse(left), parse(right)
+	if l.kind == "registry-value" && r.kind == "registry-value" {
+		return l.key == r.key && l.value == r.value
+	}
+	if l.kind == "registry-key" && r.kind == "registry-key" {
+		return l.key == r.key || strings.HasPrefix(l.key, r.key+"\\") || strings.HasPrefix(r.key, l.key+"\\")
+	}
+	if l.kind == "registry-value" {
+		l, r = r, l
+	}
+	return l.kind == "registry-key" && r.kind == "registry-value" &&
+		(r.key == l.key || strings.HasPrefix(r.key, l.key+"\\"))
 }
 
 func configRestoreInternalError(reason string) *envelope.Error {
@@ -671,17 +794,20 @@ func previewLegacyConfigRestorePlan(inputs configRestoreInputs, restoreEnabled b
 func executeLegacyAndOrdinaryConfigRestores(
 	inputs configRestoreInputs,
 	options configRestoreExecutionOptions,
+	collisions configRestoreCollisionState,
 ) (configRestoreLegacyProjection, []restore.RestoreResult, []restore.RestoreResult, *envelope.Error) {
 	execution := configRestoreLegacyExecution{
 		DryRun: options.DryRun, ResultsByCaptureID: make(map[string][]restore.RestoreResult),
+		BlockedReasons: make(map[string]planner.ResolutionReason),
 	}
-	restoreOptions := restore.RestoreOptions{
-		DryRun: options.DryRun, BackupDir: options.BackupDir, ManifestDir: options.ManifestDir,
-		ExportRoot: options.ExportRoot, RunID: options.RunID,
-	}
+	restoreOptions := configRestoreActionOptions(options)
 	eventResults := []restore.RestoreResult{}
 	for _, lane := range inputs.legacyLanes {
 		if !lane.selected {
+			continue
+		}
+		if collisions.legacyCaptures[lane.captureID] {
+			execution.BlockedReasons[lane.captureID] = planner.ReasonTargetCollision
 			continue
 		}
 		lineage := configRestoreEventLineage{
@@ -709,9 +835,20 @@ func executeLegacyAndOrdinaryConfigRestores(
 	}
 	ordinary := []restore.RestoreResult{}
 	if len(inputs.ordinaryRestores) > 0 {
-		for _, action := range convertToActions(inputs.ordinaryRestores, "") {
+		for actionIndex, action := range convertToActions(inputs.ordinaryRestores, "") {
 			descriptor := restore.DescribeAction(action, restoreOptions)
 			emitRestoreActionStarts(options.Emitter, []restore.RestoreAction{action}, restoreOptions, configRestoreEventLineage{})
+			if collisions.ordinaryActions[actionIndex] {
+				result := restore.RestoreResult{
+					ID: descriptor.ID, Source: descriptor.Source, Target: descriptor.Target,
+					Status: "failed", Error: planner.ReasonTargetCollision.String(), RestoreType: descriptor.RestoreType,
+					TargetExistedBefore: descriptor.TargetExisted,
+				}
+				ordinary = append(ordinary, result)
+				eventResults = append(eventResults, result)
+				emitConfigRestoreItems(options.Emitter, []restore.RestoreResult{result}, "")
+				continue
+			}
 			results, runErr := restore.RunRestore([]restore.RestoreAction{action}, restoreOptions, nil)
 			if runErr != nil {
 				return configRestoreLegacyProjection{}, nil, nil, envelope.NewError(envelope.ErrRestoreFailed, runErr.Error())
@@ -723,6 +860,13 @@ func executeLegacyAndOrdinaryConfigRestores(
 		}
 	}
 	return legacy, ordinary, eventResults, nil
+}
+
+func configRestoreActionOptions(options configRestoreExecutionOptions) restore.RestoreOptions {
+	return restore.RestoreOptions{
+		DryRun: options.DryRun, BackupDir: options.BackupDir, ManifestDir: options.ManifestDir,
+		ExportRoot: options.ExportRoot, RunID: options.RunID,
+	}
 }
 
 type configRestoreEventLineage struct {
@@ -897,7 +1041,9 @@ func overlayLegacyRecoveryRequired(plan planner.ConfigPlan, inputs configRestore
 	}
 	for index := range plan.Sets {
 		if selected[plan.Sets[index].Source.CaptureID] {
-			markConfigRestoreRecoveryRequired(&plan.Sets[index])
+			if plan.Sets[index].Resolution.Status == planner.StatusPlanned {
+				markConfigRestoreRecoveryRequired(&plan.Sets[index])
+			}
 		}
 	}
 	recomputeConfigPlanSummary(&plan)

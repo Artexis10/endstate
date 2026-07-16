@@ -611,6 +611,166 @@ func TestConfigRestoreExecutionStreamsFinalPreflightCollisionResolutionOnce(t *t
 	}
 }
 
+func TestConfigRestoreExecutionBlocksGenerationAndLegacyCollisionBeforeEitherRuns(t *testing.T) {
+	runtime, final := configRestoreExecutionFixture(t, "capture-generation")
+	manifestDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(manifestDir, "legacy.json"), []byte("legacy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sharedTarget := filepath.Join(t.TempDir(), "settings.json")
+	runtime.inputs.hasConfigPayloads = true
+	runtime.inputs.legacyLanes = []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+		restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "legacy.json", Target: sharedTarget, FromModule: "apps.legacy"}},
+	}}
+	restoreExecutionSeams(t,
+		beginLiveConfigRestoreFn,
+		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+			return &migration.StageResult{Root: t.TempDir(), TargetGeneration: request.TargetGeneration.ID}, nil
+		},
+		func(_ context.Context, request configrestore.Request) (*configrestore.MaterializedSet, error) {
+			return &configrestore.MaterializedSet{Actions: []configrestore.Action{{
+				Kind: configrestore.ActionWriteFile, Strategy: "copy", Target: sharedTarget, SnapshotRequired: true,
+			}}}, nil
+		},
+		executeLiveConfigRestoreSet,
+	)
+	session := &configRestoreExecutionSession{
+		runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+	})
+	if envErr != nil {
+		t.Fatalf("execute: %+v", envErr)
+	}
+	if len(result.Plan.Sets) != 2 || len(result.RestoreItems) != 0 {
+		t.Fatalf("collision result = %+v", result)
+	}
+	for _, set := range result.Plan.Sets {
+		if set.Resolution.Status != planner.StatusFailed || set.Resolution.Reason == nil ||
+			*set.Resolution.Reason != planner.ReasonTargetCollision {
+			t.Fatalf("collision set = %+v", set.Resolution)
+		}
+	}
+	if _, err := os.Stat(sharedTarget); !os.IsNotExist(err) {
+		t.Fatalf("collision preflight changed target: %v", err)
+	}
+}
+
+func TestConfigRestoreExecutionUnifiedCollisionPreflightCoversLegacyOrdinaryAndRegistryScopes(t *testing.T) {
+	t.Run("legacy versus legacy", func(t *testing.T) {
+		manifestDir := t.TempDir()
+		for _, name := range []string{"alpha.json", "beta.json"} {
+			if err := os.WriteFile(filepath.Join(manifestDir, name), []byte(name), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sharedTarget := filepath.Join(t.TempDir(), "settings.json")
+		inputs := emptyConfigRestoreInputs()
+		inputs.hasConfigPayloads = true
+		for index, moduleID := range []string{"apps.alpha", "apps.beta"} {
+			inputs.legacyLanes = append(inputs.legacyLanes, configRestoreLegacyLane{
+				captureID: bundle.LegacyCaptureID(moduleID), moduleID: moduleID, configSetID: "legacy", selected: true,
+				restoreEntries: []manifest.RestoreEntry{{
+					Type: "copy", Source: []string{"alpha.json", "beta.json"}[index], Target: sharedTarget, FromModule: moduleID,
+				}},
+			})
+		}
+		session := &configRestoreExecutionSession{
+			runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+			coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+		}
+		result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+			RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+		})
+		if envErr != nil || len(result.Plan.Sets) != 2 || len(result.RestoreItems) != 0 {
+			t.Fatalf("result=%+v error=%+v", result, envErr)
+		}
+		for _, set := range result.Plan.Sets {
+			if set.Resolution.Status != planner.StatusFailed || set.Resolution.Reason == nil ||
+				*set.Resolution.Reason != planner.ReasonTargetCollision {
+				t.Fatalf("legacy collision = %+v", set.Resolution)
+			}
+		}
+	})
+
+	t.Run("generation versus ordinary", func(t *testing.T) {
+		runtime, final := configRestoreExecutionFixture(t, "capture-generation")
+		manifestDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(manifestDir, "ordinary.json"), []byte("ordinary"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sharedTarget := filepath.Join(t.TempDir(), "settings.json")
+		runtime.inputs.ordinaryRestores = []manifest.RestoreEntry{{Type: "copy", Source: "ordinary.json", Target: sharedTarget}}
+		restoreExecutionSeams(t, beginLiveConfigRestoreFn,
+			func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+				return &migration.StageResult{Root: t.TempDir(), TargetGeneration: request.TargetGeneration.ID}, nil
+			},
+			func(context.Context, configrestore.Request) (*configrestore.MaterializedSet, error) {
+				return &configrestore.MaterializedSet{Actions: []configrestore.Action{{
+					Kind: configrestore.ActionWriteFile, Strategy: "copy", Target: sharedTarget, SnapshotRequired: true,
+				}}}, nil
+			}, executeLiveConfigRestoreSet,
+		)
+		session := &configRestoreExecutionSession{
+			runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final},
+		}
+		result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+			RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+		})
+		if envErr != nil || len(result.Plan.Sets) != 1 || len(result.RestoreItems) != 1 ||
+			result.Plan.Sets[0].Resolution.Reason == nil || *result.Plan.Sets[0].Resolution.Reason != planner.ReasonTargetCollision ||
+			result.RestoreItems[0].Status != "failed" || result.RestoreItems[0].Error != planner.ReasonTargetCollision.String() {
+			t.Fatalf("result=%+v error=%+v", result, envErr)
+		}
+		if _, err := os.Stat(sharedTarget); !os.IsNotExist(err) {
+			t.Fatalf("ordinary collision changed target: %v", err)
+		}
+	})
+
+	t.Run("registry import subtree versus generation value", func(t *testing.T) {
+		runtime, final := configRestoreExecutionFixture(t, "capture-generation")
+		manifestDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(manifestDir, "settings.reg"), []byte("Windows Registry Editor Version 5.00\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		moduleID := "apps.legacy"
+		runtime.inputs.hasConfigPayloads = true
+		runtime.inputs.legacyLanes = []configRestoreLegacyLane{{
+			captureID: bundle.LegacyCaptureID(moduleID), moduleID: moduleID, configSetID: "legacy", selected: true,
+			restoreEntries: []manifest.RestoreEntry{{
+				Type: "registry-import", Source: "settings.reg", Target: `HKCU\Software\Vendor`, FromModule: moduleID,
+			}},
+		}}
+		restoreExecutionSeams(t, beginLiveConfigRestoreFn,
+			func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+				return &migration.StageResult{Root: t.TempDir(), TargetGeneration: request.TargetGeneration.ID}, nil
+			},
+			func(context.Context, configrestore.Request) (*configrestore.MaterializedSet, error) {
+				return &configrestore.MaterializedSet{Actions: []configrestore.Action{{
+					Kind: configrestore.ActionRegistrySet, Strategy: "registry-set", SnapshotRequired: true,
+					RegistryValue: &configrestore.RegistryValue{Key: `HKEY_CURRENT_USER\Software\Vendor\App`, ValueName: "Theme"},
+				}}}, nil
+			}, executeLiveConfigRestoreSet,
+		)
+		session := &configRestoreExecutionSession{
+			runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final},
+		}
+		result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+			RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+		})
+		if envErr != nil || len(result.Plan.Sets) != 2 {
+			t.Fatalf("result=%+v error=%+v", result, envErr)
+		}
+		for _, set := range result.Plan.Sets {
+			if set.Resolution.Reason == nil || *set.Resolution.Reason != planner.ReasonTargetCollision {
+				t.Fatalf("registry collision = %+v", set.Resolution)
+			}
+		}
+	})
+}
+
 func TestConfigRestoreExecutionReturnsStableRecoveryRequiredReason(t *testing.T) {
 	runtime, final := configRestoreExecutionFixture(t, "capture-a")
 	staged := false

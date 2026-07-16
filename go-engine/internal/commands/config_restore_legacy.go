@@ -18,6 +18,7 @@ import (
 type configRestoreLegacyExecution struct {
 	DryRun             bool
 	ResultsByCaptureID map[string][]restore.RestoreResult
+	BlockedReasons     map[string]planner.ResolutionReason
 }
 
 type configRestoreLegacyProjection struct {
@@ -75,6 +76,9 @@ func projectLegacyConfigRestores(
 			reason = legacyConfigReason(planner.ReasonRestoreFiltered)
 		case !restoreEnabled:
 			reason = legacyConfigReason(planner.ReasonRestoreNotEnabled)
+		case execution.BlockedReasons[lane.captureID] != "":
+			status = planner.StatusFailed
+			reason = legacyConfigReason(execution.BlockedReasons[lane.captureID])
 		default:
 			results, exists := execution.ResultsByCaptureID[lane.captureID]
 			if !exists || len(results) == 0 {
