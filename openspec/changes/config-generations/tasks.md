@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Update the config-portability, capture-artifact, capture-bundle, restore-safety, profile, CLI JSON, event, and GUI integration contracts for config generations, bundle/manifest v2, legacy warnings, and transactional migration semantics.
 - [ ] 1.2 Add canonical schema-v1 module, schema-v2 stable-generation, side-by-side path, forward-migration, invalid-graph, legacy bundle, and bundle-v2 fixtures.
-- [ ] 1.3 Add manifest/bundle compatibility-gate tests proving new engines accept v1 and v2 while a v1-only validator rejects generated v2 before mutation.
+- [ ] 1.3 Add manifest/bundle dispatch tests proving the new loader accepts v1 and v2 and rejects versions greater than 2, plus frozen legacy-decoder safety tests proving generated v2 manifests expose no flat restore path to generation-aware payloads while application declarations and explicitly represented legacy lanes may remain visible.
 - [ ] 1.4 Lock the new resolution/status/reason vocabulary in contract tests and confirm existing envelope fields remain backward compatible.
 
 ## 2. Module Schema v2 and Catalog Validation

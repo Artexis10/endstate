@@ -1,17 +1,19 @@
 ## ADDED Requirements
 
-### Requirement: Generation-Aware Capture Produces a Version-Gated Bundle
-A capture containing at least one generation-aware config set SHALL produce bundle metadata schema `2.0` and an embedded manifest version `2`. A generation-aware bundle SHALL NOT contain flat restore entries as an alternative execution path for those config sets. Engines that do not support manifest version 2 SHALL refuse the bundle before application or configuration mutation.
+### Requirement: Generation-Aware Capture Produces a Versioned, Structurally Isolated Bundle
+A capture containing at least one generation-aware config set SHALL produce bundle metadata schema `2.0` and an embedded manifest version `2`. A generation-aware bundle SHALL encode generation-aware payloads only through `configCaptures[]` and SHALL NOT contain flat restore entries as an alternative execution path for those config sets. The bundle SHALL be structured so an engine that does not understand `configCaptures[]` has no executable legacy restore path to any generation-aware payload. Such an engine MAY still process application declarations and explicitly represented legacy lanes.
 
-#### Scenario: Version-aware bundle is explicitly gated
+#### Scenario: Version-aware bundle declares its compatibility version
 - **WHEN** capture includes a schema-v2 config set
 - **THEN** the bundle metadata declares schema `2.0`
 - **AND** the embedded manifest declares version `2`
 - **AND** generation-aware payloads are referenced through `configCaptures[]`
 
-#### Scenario: Unsupported engine refuses safely
+#### Scenario: Legacy engine cannot execute generation-aware payloads
 - **WHEN** an engine supports manifest version 1 only and opens a generation-aware bundle
-- **THEN** manifest validation fails before application or configuration mutation
+- **THEN** the engine MAY process application declarations and explicitly represented legacy lanes
+- **AND** no flat restore entry references a generation-aware payload
+- **AND** the engine cannot execute that payload through its legacy configuration path
 
 ### Requirement: Bundle Records Immutable Per-Set Source Provenance
 Each generation-aware captured config set SHALL have one `configCaptures[]` record containing a stable capture ID, module ID, config-set ID, source instance evidence, raw and normalized source app versions, source generation and canonical generation fingerprint, capture-time module schema version and content hash, payload root, and payload manifest.

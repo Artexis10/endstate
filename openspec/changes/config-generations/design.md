@@ -99,9 +99,9 @@ The comparator operates on numeric dotted versions extracted by the detector. A 
 
 Side-by-side results remain separate. The engine automatically maps a captured config set only when there is one compatible target or one exact-version target. Multiple viable targets produce `ambiguous_target_instance` until the caller supplies an explicit target mapping.
 
-### 4. Generation-aware bundles use a v2 compatibility gate and immutable provenance
+### 4. Generation-aware bundles use v2 provenance and structural isolation
 
-A generation-aware capture writes bundle metadata schema `2.0` and an embedded manifest version `2`. New engines accept manifest/bundle v1 and v2. Existing engines already reject an unsupported manifest version, so they cannot blindly apply generation-aware config payloads. Version-aware bundles never fall back to flat blind restore.
+A generation-aware capture writes bundle metadata schema `2.0` and an embedded manifest version `2`. New engines explicitly dispatch and validate manifest/bundle v1 and v2. Released legacy engines do not reliably reject an unknown manifest version: they may still process application declarations and existing explicit legacy lanes. Safety for generation-aware configuration therefore comes from structural isolation, not legacy version rejection. Generation-aware payloads exist only in `configCaptures[]`, which legacy engines do not interpret, and never have a flat restore path. Legacy engines consequently cannot execute those payloads, while version-aware bundles never fall back to flat blind restore for them.
 
 The v2 manifest contains `configCaptures[]`. Each record is one captured config set and includes:
 
@@ -209,7 +209,7 @@ Advanced details may show source/target versions, generations, migration path, m
 - **[A bad migration could damage settings]** -> Restrict operations, transform only staging, validate every edge and final output, back up before commit, journal intent before mutation, and roll back the config set on failure.
 - **[Current catalogs can forget or redefine old generations]** -> Record source-generation fingerprints, require explicit acceptance of historical fingerprints, validate released history in CI, and surface missing/changed knowledge without fallback.
 - **[Editable hashes do not prove authenticity]** -> Describe hashes only as integrity checks; signing remains a separate feature.
-- **[Old engines cannot restore new bundles]** -> Manifest v2 makes them refuse safely. New engines continue to restore legacy bundles.
+- **[Released legacy engines may still process v2 bundles]** -> They may process application declarations and explicitly represented legacy lanes, but they cannot execute generation-aware payloads because those payloads exist only in `configCaptures[]` and have no flat restore path. New engines enforce strict v1/v2 dispatch and continue to restore legacy bundles.
 - **[Per-set transactions may overlap host paths]** -> Preflight rejects exact and parent/child target collisions.
 - **[Post-install resolution can differ from preview]** -> Pin the catalog for each run, re-detect immediately before restore, and emit the final resolution before any config mutation.
 - **[A process can die during commit]** -> Persist pending intent after backups and before mutation, recover pending intents before future mutation, and block with `recovery_required` when rollback cannot complete.
@@ -219,7 +219,7 @@ Advanced details may show source/target versions, generations, migration path, m
 1. Add schema-v2 module types, canonical module/generation hashing, released-generation history validation, strict catalog validation, and the schema-v1 adapter.
 2. Fix wildcard instance expansion and full relative-path preservation before enabling generation capture.
 3. Add instance detection, version normalization, generation matching, resolution planning, and dry-run/envelope reporting.
-4. Add manifest/bundle v2 capture with payload manifests, module snapshots, and v1/v2 loading gates.
+4. Add manifest/bundle v2 capture with payload manifests, module snapshots, and explicit v1/v2 loading dispatch.
 5. Add the staged migration operation registry, graph planner, validators, and config-set transaction/journal integration.
 6. Add explicit target selection, side-by-side/target-collision handling, events, capabilities, and GUI contract fields.
 7. Convert three representative modules: one stable-layout module, one versioned-path module, and one module requiring a forward JSON/INI migration. Existing modules remain v1.
