@@ -166,6 +166,13 @@ func (snapshot configCatalogSnapshot) modulesFor(moduleIDs []string) map[string]
 func cloneConfigCatalogDiagnostics(values []modules.CatalogDiagnostic) []modules.CatalogDiagnostic {
 	cloned := make([]modules.CatalogDiagnostic, len(values))
 	copy(cloned, values)
+	for index := range cloned {
+		cloned[index].WingetRefs = append([]string(nil), values[index].WingetRefs...)
+		cloned[index].InstanceDetectors = append(
+			[]modules.InstanceDetectorDef(nil),
+			values[index].InstanceDetectors...,
+		)
+	}
 	sort.Slice(cloned, func(left, right int) bool {
 		leftDiagnostic := cloned[left]
 		rightDiagnostic := cloned[right]

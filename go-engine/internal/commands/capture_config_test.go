@@ -146,6 +146,175 @@ func TestPlanCaptureConfigProjectsCatalogDiagnosticWithoutLegacyFallback(t *test
 	}
 }
 
+func TestPlanCaptureConfigProjectsParseDiagnosticForInstalledModule(t *testing.T) {
+	modulesRoot := t.TempDir()
+	moduleDir := filepath.Join(modulesRoot, "photoshop")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(moduleDir, "module.jsonc"),
+		[]byte(`{
+			"moduleSchemaVersion": 2,
+			"id": "apps.photoshop",
+			"displayName": "Adobe Photoshop",
+			"sensitivity": "low",
+			"matches": {"winget": ["Adobe.Photoshop"]},
+			"unexpected": true
+		}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, diagnostics, err := modules.LoadCatalogWithDiagnostics(modulesRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("parse diagnostics = %+v, want one", diagnostics)
+	}
+
+	got := planCaptureConfig(
+		nil,
+		[]manifest.App{{
+			ID: "adobe-photoshop", Refs: map[string]string{"windows": "Adobe.Photoshop"}, Installed: true,
+		}},
+		diagnostics,
+	)
+	if len(got.PreplanningDiagnostics) != 1 {
+		t.Fatalf("installed module parse diagnostic was suppressed: %+v", got)
+	}
+	projected := got.PreplanningDiagnostics[0]
+	if projected.ModuleID != "apps.photoshop" || projected.Code != modules.DiagnosticInvalidJSON {
+		t.Fatalf("projected parse diagnostic = %+v", projected)
+	}
+}
+
+func TestPlanCaptureConfigProjectsValidationDiagnosticByWingetRef(t *testing.T) {
+	modulesRoot := t.TempDir()
+	moduleDir := filepath.Join(modulesRoot, "vscode")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(moduleDir, "module.jsonc"),
+		[]byte(`{
+			"moduleSchemaVersion": 2,
+			"id": "apps.vscode",
+			"sensitivity": "low",
+			"matches": {"winget": ["Microsoft.VisualStudioCode"]}
+		}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, diagnostics, err := modules.LoadCatalogWithDiagnostics(modulesRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 1 {
+		t.Fatalf("validation diagnostics = %+v, want one", diagnostics)
+	}
+	apps := []manifest.App{{
+		ID:        "microsoft-visualstudiocode",
+		Refs:      map[string]string{"windows": "Microsoft.VisualStudioCode"},
+		Installed: true,
+	}}
+	got := planCaptureConfig(nil, apps, diagnostics)
+	if len(got.PreplanningDiagnostics) != 1 {
+		t.Fatalf("winget-associated catalog diagnostic was suppressed: %+v", got)
+	}
+	if got.PreplanningDiagnostics[0].ModuleID != "apps.vscode" {
+		t.Fatalf("projected catalog diagnostic = %+v", got.PreplanningDiagnostics[0])
+	}
+}
+
+func TestPlanCaptureConfigFailsVisibleForUnassociableMalformedModule(t *testing.T) {
+	modulesRoot := t.TempDir()
+	moduleDir := filepath.Join(modulesRoot, "vscode")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(moduleDir, "module.jsonc"),
+		[]byte(`{"id":"apps.vscode","matches":{"winget":["Microsoft.VisualStudioCode"]}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, diagnostics, err := modules.LoadCatalogWithDiagnostics(modulesRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 1 || !diagnostics[0].AssociationUnknown {
+		t.Fatalf("malformed diagnostics = %+v, want unknown association", diagnostics)
+	}
+	got := planCaptureConfig(nil, nil, diagnostics)
+	if len(got.PreplanningDiagnostics) != 1 {
+		t.Fatalf("unassociable malformed-module diagnostic was suppressed: %+v", got)
+	}
+	if got.PreplanningDiagnostics[0].ModuleID != "apps.vscode" || got.PreplanningDiagnostics[0].Code != modules.DiagnosticInvalidJSON {
+		t.Fatalf("projected malformed diagnostic = %+v", got.PreplanningDiagnostics[0])
+	}
+}
+
+func TestPlanCaptureConfigProjectsRejectedPathOnlyModule(t *testing.T) {
+	modulesRoot := t.TempDir()
+	moduleDir := filepath.Join(modulesRoot, "studio-one")
+	instanceRoot := filepath.Join(t.TempDir(), "Studio One 7")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(instanceRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	declaration, err := json.Marshal(map[string]any{
+		"moduleSchemaVersion": 2,
+		"id":                  "apps.studio-one",
+		"displayName":         "PreSonus Studio One",
+		"sensitivity":         "low",
+		"matches":             map[string]any{"pathExists": []string{instanceRoot}},
+		"config": map[string]any{
+			"instanceDetectors": []map[string]any{{
+				"id": "versions", "type": "path", "glob": filepath.Join(filepath.Dir(instanceRoot), "Studio One *"),
+			}},
+			"sets": []map[string]any{{
+				"id":          "preferences",
+				"generations": []map[string]any{{"id": "g1", "order": 1}},
+				"migrations": []map[string]any{{
+					"from": "g1", "to": "g2", "validate": []any{},
+					"operations": []map[string]any{{"type": "json-set", "path": "settings.json", "unexpected": true}},
+				}},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(moduleDir, "module.jsonc"), declaration, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, diagnostics, err := modules.LoadCatalogWithDiagnostics(modulesRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].AssociationUnknown || len(diagnostics[0].InstanceDetectors) != 1 {
+		t.Fatalf("path-only diagnostics = %+v, want preserved detector", diagnostics)
+	}
+
+	got := planCaptureConfig(nil, nil, diagnostics)
+	if len(got.PreplanningDiagnostics) != 1 {
+		t.Fatalf("rejected path-only module diagnostic was suppressed: %+v", got)
+	}
+	if got.PreplanningDiagnostics[0].ModuleID != "apps.studio-one" {
+		t.Fatalf("projected path-only diagnostic = %+v", got.PreplanningDiagnostics[0])
+	}
+}
+
 func TestCaptureResultLegacyJSONOmitsGenerationFieldsAndKeepsWarningsArray(t *testing.T) {
 	encoded, err := json.Marshal(CaptureResult{
 		AppsIncluded: []CaptureApp{}, ConfigModules: []CaptureModuleResult{}, ConfigModuleMap: map[string]string{},

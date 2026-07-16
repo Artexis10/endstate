@@ -248,7 +248,7 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 	for _, diagnostic := range catalogDiagnostics {
 		_, relevant := relevantModuleIDs[diagnostic.ModuleID]
 		if !relevant {
-			relevant = captureCatalogDiagnosticMatchesApp(diagnostic, apps)
+			relevant = captureCatalogDiagnosticIsRelevant(diagnostic, apps)
 		}
 		if !relevant {
 			continue
@@ -274,14 +274,36 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 	return planning
 }
 
-func captureCatalogDiagnosticMatchesApp(diagnostic modules.CatalogDiagnostic, apps []manifest.App) bool {
-	shortID := moduleDirName(diagnostic.ModuleID)
-	if shortID == "" {
-		return false
+func captureCatalogDiagnosticIsRelevant(diagnostic modules.CatalogDiagnostic, apps []manifest.App) bool {
+	if diagnostic.AssociationUnknown {
+		return true
 	}
-	for _, app := range apps {
-		if app.Installed && strings.EqualFold(app.ID, shortID) {
+	if len(diagnostic.InstanceDetectors) > 0 {
+		partialModule := &modules.Module{
+			ModuleSchemaVersion: 2,
+			ID:                  diagnostic.ModuleID,
+			Config: &modules.ConfigDef{
+				InstanceDetectors: append([]modules.InstanceDetectorDef(nil), diagnostic.InstanceDetectors...),
+			},
+		}
+		instances, err := modules.DiscoverInstances(partialModule, nil, modules.DiscoveryOptions{})
+		if err != nil || len(instances) > 0 {
 			return true
+		}
+	}
+	shortID := moduleDirName(diagnostic.ModuleID)
+	for _, app := range apps {
+		if !app.Installed {
+			continue
+		}
+		if shortID != "" && strings.EqualFold(app.ID, shortID) {
+			return true
+		}
+		windowsRef := app.Refs["windows"]
+		for _, diagnosticRef := range diagnostic.WingetRefs {
+			if windowsRef != "" && strings.EqualFold(windowsRef, diagnosticRef) {
+				return true
+			}
 		}
 	}
 	return false

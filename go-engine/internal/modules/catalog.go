@@ -4,9 +4,13 @@
 package modules
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
 // CatalogDiagnostic is a structured explanation for a module that the catalog
@@ -18,6 +22,12 @@ type CatalogDiagnostic struct {
 	ModuleID string `json:"moduleId,omitempty"`
 	FilePath string `json:"filePath"`
 	Message  string `json:"message"`
+	// Identity evidence is preserved even when strict module parsing or
+	// validation fails, so capture can scope diagnostics to package and path
+	// instances without treating the rejected module as executable authority.
+	WingetRefs         []string              `json:"wingetRefs,omitempty"`
+	InstanceDetectors  []InstanceDetectorDef `json:"instanceDetectors,omitempty"`
+	AssociationUnknown bool                  `json:"associationUnknown,omitempty"`
 }
 
 // LoadCatalog scans modulesRoot for */module.jsonc files, parses each with
@@ -65,11 +75,16 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 
 		mod, err := ParseModuleJSON(data)
 		if err != nil {
+			moduleID, wingetRefs, detectors, associationUnknown := catalogDiagnosticIdentity(data, entry.Name())
 			diagnostics = append(diagnostics, CatalogDiagnostic{
-				Code:     DiagnosticInvalidJSON,
-				Severity: "error",
-				FilePath: moduleFile,
-				Message:  fmt.Sprintf("invalid JSON in %s: %v", moduleFile, err),
+				Code:               DiagnosticInvalidJSON,
+				Severity:           "error",
+				ModuleID:           moduleID,
+				FilePath:           moduleFile,
+				Message:            fmt.Sprintf("invalid JSON in %s: %v", moduleFile, err),
+				WingetRefs:         wingetRefs,
+				InstanceDetectors:  detectors,
+				AssociationUnknown: associationUnknown,
 			})
 			continue
 		}
@@ -77,11 +92,13 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 		// Validate required fields.
 		if err := validateModule(mod, moduleFile); err != nil {
 			diagnostics = append(diagnostics, CatalogDiagnostic{
-				Code:     DiagnosticCode(err),
-				Severity: "error",
-				ModuleID: mod.ID,
-				FilePath: moduleFile,
-				Message:  err.Error(),
+				Code:              DiagnosticCode(err),
+				Severity:          "error",
+				ModuleID:          mod.ID,
+				FilePath:          moduleFile,
+				Message:           err.Error(),
+				WingetRefs:        append([]string(nil), mod.Matches.Winget...),
+				InstanceDetectors: diagnosticInstanceDetectors(mod),
 			})
 			continue
 		}
@@ -89,11 +106,13 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 		// Check for duplicate IDs.
 		if _, exists := catalog[mod.ID]; exists {
 			diagnostics = append(diagnostics, CatalogDiagnostic{
-				Code:     DiagnosticDuplicateModuleID,
-				Severity: "error",
-				ModuleID: mod.ID,
-				FilePath: moduleFile,
-				Message:  fmt.Sprintf("duplicate config module id %q found at %s, skipping", mod.ID, moduleFile),
+				Code:              DiagnosticDuplicateModuleID,
+				Severity:          "error",
+				ModuleID:          mod.ID,
+				FilePath:          moduleFile,
+				Message:           fmt.Sprintf("duplicate config module id %q found at %s, skipping", mod.ID, moduleFile),
+				WingetRefs:        append([]string(nil), mod.Matches.Winget...),
+				InstanceDetectors: diagnosticInstanceDetectors(mod),
 			})
 			continue
 		}
@@ -106,6 +125,36 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 	}
 
 	return catalog, diagnostics, nil
+}
+
+func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []string, []InstanceDetectorDef, bool) {
+	type diagnosticConfigIdentity struct {
+		InstanceDetectors []InstanceDetectorDef `json:"instanceDetectors"`
+	}
+	identity := struct {
+		ID      string                    `json:"id"`
+		Matches MatchCriteria             `json:"matches"`
+		Config  *diagnosticConfigIdentity `json:"config"`
+	}{}
+	moduleID := "apps." + directoryName
+	if err := json.Unmarshal(manifest.StripJsoncComments(data), &identity); err != nil {
+		return moduleID, nil, nil, true
+	}
+	if strings.TrimSpace(identity.ID) != "" {
+		moduleID = identity.ID
+	}
+	var detectors []InstanceDetectorDef
+	if identity.Config != nil {
+		detectors = append([]InstanceDetectorDef(nil), identity.Config.InstanceDetectors...)
+	}
+	return moduleID, append([]string(nil), identity.Matches.Winget...), detectors, false
+}
+
+func diagnosticInstanceDetectors(mod *Module) []InstanceDetectorDef {
+	if mod == nil || mod.Config == nil {
+		return nil
+	}
+	return append([]InstanceDetectorDef(nil), mod.Config.InstanceDetectors...)
 }
 
 // GetCatalog resolves the modules directory as repoRoot/modules/apps and
