@@ -232,6 +232,55 @@ Advanced details may show the engine-provided portable source instance, target c
 
 `config-migration` events use the closed stage vocabulary `staging`, `edge`, `validation`, `commit`, or `rollback`, and the closed progress status vocabulary `started`, `completed`, or `failed`. Event order, reason, message, and remediation are engine-authored; consumers do not interpret module migration operations.
 
+### 10. Package-driver integration and executable proof are part of the capability
+
+Configuration-generation evidence is driver-qualified. When the engine supports
+multiple package backends, generation capture and restore SHALL match package
+instances by `(driver, ref)` rather than assuming Winget identity. Capture SHALL
+consider evidence from every selected supported driver, post-install target
+detection SHALL refresh evidence through the same driver lanes, and diagnostics
+SHALL preserve the responsible driver. Existing compatibility output remains
+backward compatible: `configModuleMap` retains its existing shape while
+`packageModuleMap` carries driver-qualified package keys and all matched module
+IDs as required by the multi-driver contract.
+
+Integration with a newly supported package driver is semantic work, not merely a
+textual merge. The combined branch must prove that a Chocolatey-backed generation
+module captures `g1` from case-insensitively canonicalized Chocolatey identity,
+re-detects `g2` through Chocolatey after installation, resolves the explicit
+`g1` to `g2` migration path, and never falls back to Winget identity. The
+integration SHALL merge `origin/main` at
+`9dc00c8cc29f9768a9cac880267624a09f90e7cb` once in a disposable workspace and
+preserve both histories. It SHALL resolve and record inspection of the 16 known
+conflicts in the contracts, CLI, command orchestration, catalog, tests, and README,
+plus the 10 clean auto-merges in shared command tests, event types/emission,
+manifest loading/types/validation, and module types.
+
+Executable proof has two complementary lanes:
+
+- `TestConfigGenerationCaptureMigrationRestoreRevertRoundTrip` invokes
+  `RunCapture` and the real restore/revert command surfaces in a temporary root.
+  It produces a bundle-v2 artifact, migrates one config set from `g1` to `g2`,
+  commits it transactionally, and reverts it. The proof checks the stdout
+  envelope, stderr JSONL ordering and vocabulary, unchanged bundle hash, explicit
+  migration path, transformed target bytes, committed journal lineage, and exact
+  restoration of pre-run bytes.
+- `scripts/smoke/config-generation-windows-terminal.ps1` uses the installed
+  Microsoft Windows Terminal instance as an explicitly disposable target. It
+  requires Windows Terminal to be closed and gives the engine a temporary
+  `ENDSTATE_ROOT` whose catalog contains only the Windows Terminal module, so no
+  Alacritty module is loaded and no Alacritty configuration path is resolved.
+  Before mutation, the smoke copies `settings.json` to an independent backup and
+  proves the copy hash equals the source hash. It captures the real settings,
+  appends a behavior-neutral JSONC comment containing a unique demo sentinel,
+  restores the capture, proves engine revert returns the sentinel pre-run bytes,
+  and then restores the independent original backup. Final verification requires
+  the settings hash to equal the original hash and the sentinel to be absent.
+
+Neither proof installs an application or uses real credentials. Any failure in the
+live smoke restores the independent Windows Terminal backup before returning and
+retains that backup whenever final hash/sentinel verification does not pass.
+
 ## Risks / Trade-offs
 
 - **[Vendor versions are irregular]** -> Preserve raw values, use explicit detector extraction, and resolve zero/multiple matches as unknown rather than guessing.
@@ -253,7 +302,9 @@ Advanced details may show the engine-provided portable source instance, target c
 5. Add the staged migration operation registry, graph planner, validators, and config-set transaction/journal integration.
 6. Add explicit target selection, side-by-side/target-collision handling, events, capabilities, and GUI contract fields.
 7. Convert three representative modules: one stable-layout module, one versioned-path module, and one module requiring a forward JSON/INI migration. Existing modules remain v1.
-8. Release the engine before the GUI consumer. Rollback disables v2 capture while retaining v2 read support; already-created v2 bundles are never rewritten to v1.
+8. Integrate every engine-supported package backend through driver-qualified generation evidence and post-install re-detection.
+9. Prove the complete capture, migration, transactional restore, and revert lifecycle in a temporary root, then run the independently backed-up Windows Terminal direct-restore smoke.
+10. Release the engine before the GUI consumer. Rollback disables v2 capture while retaining v2 read support; already-created v2 bundles are never rewritten to v1.
 
 ## Open Questions
 

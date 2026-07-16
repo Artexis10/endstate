@@ -95,6 +95,12 @@ Rebuild SHALL perform final target instance and generation detection after appli
 - **THEN** final resolution uses the installed version
 - **AND** no stale pre-install generation decision is executed
 
+#### Scenario: Final package detection stays on the installing driver
+- **WHEN** Chocolatey installs or updates a package from source generation `g1` to target generation `g2`
+- **THEN** rebuild refreshes target evidence through the Chocolatey driver immediately before restore
+- **AND** resolves the captured config set along the explicit `g1` to `g2` migration path
+- **AND** does not substitute Winget evidence when Chocolatey evidence is missing, stale, or differently cased
+
 ### Requirement: Config Compatibility Does Not Block Independent Installation or Sets
 An incompatible, unknown, ambiguous, or failed config set SHALL be skipped before its mutation without undoing successful application installation or blocking unrelated config sets whose plans are safe.
 

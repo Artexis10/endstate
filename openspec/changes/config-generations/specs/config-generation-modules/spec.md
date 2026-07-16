@@ -59,6 +59,27 @@ Schema-v2 modules SHALL declare instance detectors from the engine-supported all
 - **WHEN** a path detector contains an engine-supported wildcard
 - **THEN** the engine expands the wildcard before existence checks and capture
 
+### Requirement: Package Generation Evidence Is Driver Qualified
+Package-backed generation detection SHALL identify installed instances by the
+tuple `(driver, canonical package ref)`. Capture SHALL aggregate fresh evidence
+from every package driver selected for the run, preserve the responsible driver
+in instance evidence and diagnostics, and apply each driver's canonical package
+reference rules. Chocolatey package references SHALL compare case-insensitively.
+
+#### Scenario: Chocolatey evidence selects the source generation
+- **WHEN** a module matches a Chocolatey package whose installed version maps to `g1`
+- **THEN** capture selects `g1` from Chocolatey-qualified evidence
+- **AND** does not use a matching or similarly named Winget package as fallback evidence
+
+#### Scenario: Selected drivers contribute independent evidence
+- **WHEN** a capture selects more than one supported package driver
+- **THEN** package detectors consider fresh installed-package evidence from every selected driver
+- **AND** deduplicate only records with the same driver-qualified package identity
+
+#### Scenario: Chocolatey reference case is canonicalized
+- **WHEN** Chocolatey detection and module metadata use different letter case for the same package reference
+- **THEN** the engine treats them as the same Chocolatey-qualified package identity
+
 ### Requirement: Version Evidence Selects Exactly One Generation
 Generation matching SHALL operate on preserved raw version evidence and an explicitly normalized numeric dotted version when available. A config set SHALL resolve only when exactly one generation rule matches. Declaration order SHALL NOT break ties.
 
