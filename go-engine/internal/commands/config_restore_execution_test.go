@@ -82,7 +82,18 @@ func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T
 
 func TestWriteLegacyConfigRestoreJournalReturnsExactAbsolutePathWithoutConfiguredLogsDir(t *testing.T) {
 	working := t.TempDir()
-	t.Chdir(working)
+	originalWorkingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(working); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWorkingDirectory); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 	logs := filepath.Join(working, "logs")
 	if err := os.MkdirAll(logs, 0o700); err != nil {
 		t.Fatal(err)
