@@ -18,7 +18,7 @@
 
 ## 3. Instance Discovery and Version Normalization
 
-- [ ] 3.1 Preserve captured `App.Version` through module matching and add regression tests for the current version-dropping path.
+- [x] 3.1 Preserve captured `App.Version` through module matching and add regression tests for the current version-dropping path.
 - [x] 3.2 Implement raw vendor-version preservation and the documented numeric dotted normalizer/comparator.
 - [x] 3.3 Implement the package instance detector across engine-supported package backends with deterministic evidence and stable instance IDs.
 - [x] 3.4 Implement the path instance detector with engine-owned glob expansion, named version extraction, deterministic ordering, and deduplication.
