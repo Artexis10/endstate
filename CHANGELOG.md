@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.23.0](https://github.com/Artexis10/endstate/compare/v2.22.0...v2.23.0) (2026-07-16)
+
+
+### Features
+
+* add multi-driver Chocolatey support ([#148](https://github.com/Artexis10/endstate/issues/148)) ([6ad067f](https://github.com/Artexis10/endstate/commit/6ad067fdfe143f27eb2f5287ee5dd3e534f52e43))
+
 ## [2.22.0](https://github.com/Artexis10/endstate/compare/v2.21.0...v2.22.0) (2026-07-10)
 
 
