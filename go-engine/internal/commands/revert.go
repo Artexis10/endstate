@@ -41,10 +41,14 @@ type configRestoreRevertMember struct {
 // RunRevert reverts the newest active restore run in exact reverse mutation
 // order. Generation transactions and registered legacy journals share one
 // store ordering; old unregistered journals remain supported.
-func RunRevert(flags RevertFlags) (interface{}, *envelope.Error) {
+func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 	runID := buildRunID("revert")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
-	emitter.EmitPhase("revert")
+	emitter.EmitPhase("restore")
+	results := []restore.RevertResult{}
+	defer func() {
+		emitConfigRevertResults(emitter, results, envErr != nil)
+	}()
 
 	repoRoot := resolveRepoRootFn()
 	logsDir := "logs"
@@ -84,7 +88,6 @@ func RunRevert(flags RevertFlags) (interface{}, *envelope.Error) {
 			WithDetail(map[string]string{"reason": activeErr.Error()})
 	}
 
-	results := []restore.RevertResult{}
 	journalUsed := ""
 	newerStandalone := false
 	if len(runs) > 0 {
@@ -108,19 +111,30 @@ func RunRevert(flags RevertFlags) (interface{}, *envelope.Error) {
 		for index := len(members) - 1; index >= 0; index-- {
 			member := members[index]
 			if member.legacyPath != "" {
+				if member.synthetic {
+					registered, registerErr := guard.RegisterLegacyJournal(member.legacyPath)
+					if registerErr != nil {
+						return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to register legacy restore journal: "+registerErr.Error())
+					}
+					member.member = registered
+					member.synthetic = false
+				}
 				journal, readErr := restore.ReadJournal(member.legacyPath)
 				if readErr != nil {
 					return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to read restore journal: "+readErr.Error())
 				}
-				legacyResults, revertErr := restore.RunRevert(journal, backupDir)
+				workRoot, workErr := guard.LegacyMemberRevertRoot(context.Background(), member.member)
+				if workErr != nil {
+					return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to prepare durable legacy configuration revert.").
+						WithDetail(map[string]string{"reason": workErr.Error()})
+				}
+				legacyResults, revertErr := restore.RunRevertDurable(journal, backupDir, workRoot)
 				if revertErr != nil {
 					return nil, envelope.NewError(envelope.ErrRestoreFailed, revertErr.Error())
 				}
-				if !member.synthetic {
-					if markErr := guard.MarkLegacyMemberReverted(context.Background(), member.member); markErr != nil {
-						return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to record legacy configuration revert.").
-							WithDetail(map[string]string{"reason": markErr.Error()})
-					}
+				if markErr := guard.MarkLegacyMemberReverted(context.Background(), member.member); markErr != nil {
+					return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to record legacy configuration revert.").
+						WithDetail(map[string]string{"reason": markErr.Error()})
 				}
 				results = append(results, legacyResults...)
 				journalUsed = member.legacyPath
@@ -154,14 +168,32 @@ func RunRevert(flags RevertFlags) (interface{}, *envelope.Error) {
 				return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to read restore journal: "+readErr.Error())
 			}
 		}
-		legacyResults, revertErr := restore.RunRevert(latestJournal, backupDir)
+		member, registerErr := guard.RegisterLegacyJournal(latestPath)
+		if registerErr != nil {
+			return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to register legacy restore journal: "+registerErr.Error())
+		}
+		workRoot, workErr := guard.LegacyMemberRevertRoot(context.Background(), member)
+		if errors.Is(workErr, configrestore.ErrStoreMemberReverted) {
+			return nil, envelope.NewError(
+				envelope.ErrRestoreFailed,
+				"No active restore journal found. Nothing to revert.",
+			).WithRemediation("Run another restore operation before attempting to revert again.")
+		}
+		if workErr != nil {
+			return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to prepare durable legacy configuration revert.").
+				WithDetail(map[string]string{"reason": workErr.Error()})
+		}
+		legacyResults, revertErr := restore.RunRevertDurable(latestJournal, backupDir, workRoot)
 		if revertErr != nil {
 			return nil, envelope.NewError(envelope.ErrRestoreFailed, revertErr.Error())
+		}
+		if markErr := guard.MarkLegacyMemberReverted(context.Background(), member); markErr != nil {
+			return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to record legacy configuration revert.").
+				WithDetail(map[string]string{"reason": markErr.Error()})
 		}
 		results, journalUsed = append(results, legacyResults...), latestPath
 	}
 
-	emitConfigRevertResults(emitter, results)
 	return &RevertData{Results: results, JournalUsed: journalUsed}, nil
 }
 
@@ -239,20 +271,24 @@ func newerStandaloneLegacyJournal(run *configrestore.StoreRun, journal *restore.
 	return timestamp.After(startedSecond), nil
 }
 
-func emitConfigRevertResults(emitter *events.Emitter, results []restore.RevertResult) {
+func emitConfigRevertResults(emitter *events.Emitter, results []restore.RevertResult, commandFailed bool) {
 	revertedCount, skippedCount := 0, 0
 	for _, result := range results {
 		switch result.Action {
 		case "reverted":
-			emitter.EmitItem(result.Target, "restore", "reverted", "", "Restored from backup", "")
+			emitter.EmitItem(result.Target, "restore", "installed", "", "Restored from backup", "")
 			revertedCount++
 		case "deleted":
-			emitter.EmitItem(result.Target, "restore", "deleted", "", "Deleted created target", "")
+			emitter.EmitItem(result.Target, "restore", "installed", "", "Deleted created target", "")
 			revertedCount++
 		default:
 			emitter.EmitItem(result.Target, "restore", "skipped", "", "Nothing to revert", "")
 			skippedCount++
 		}
 	}
-	emitter.EmitSummary("revert", len(results), revertedCount, skippedCount, 0)
+	failedCount := 0
+	if commandFailed {
+		failedCount = 1
+	}
+	emitter.EmitSummary("restore", len(results)+failedCount, revertedCount, skippedCount, failedCount)
 }

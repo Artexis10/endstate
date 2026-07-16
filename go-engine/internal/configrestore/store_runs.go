@@ -144,6 +144,11 @@ func (g *Guard) RegisterLegacyJournal(path string) (*StoreMember, error) {
 	}
 	journalHash := sha256.Sum256(data)
 	journalDigest := hex.EncodeToString(journalHash[:])
+	if existing, err := g.findLegacyJournalLocked(path, journalDigest); err != nil {
+		return nil, err
+	} else if existing != nil {
+		return existing, nil
+	}
 	memberID, err := newOpaqueStoreID()
 	if err != nil {
 		return nil, fmt.Errorf("create legacy member identity: %w", err)
@@ -159,6 +164,80 @@ func (g *Guard) RegisterLegacyJournal(path string) (*StoreMember, error) {
 	}
 	g.nextOrdinal++
 	return legacyHandle(g.storeRoot, disk), nil
+}
+
+// LegacyMemberRevertRoot returns the stable engine-owned work directory for a
+// registered legacy journal. Repeated calls return the same directory; a
+// consumed member returns ErrStoreMemberReverted and cannot be replayed.
+func (g *Guard) LegacyMemberRevertRoot(ctx context.Context, member *StoreMember) (string, error) {
+	if g == nil {
+		return "", fmt.Errorf("live config restore guard is nil")
+	}
+	if err := checkSnapshotContext(ctx); err != nil {
+		return "", err
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err := g.requireLeaseLocked(); err != nil {
+		return "", err
+	}
+	disk, err := g.loadLegacyMember(member)
+	if err != nil {
+		return "", err
+	}
+	revertPath := filepath.Join(g.legacyReverts, disk.MemberID+".json")
+	if reverted, err := memberReverted(revertPath, StoreMemberLegacy, disk.MemberID, disk.MemberDigest); err != nil {
+		return "", err
+	} else if reverted {
+		return "", ErrStoreMemberReverted
+	}
+	journalData, _, err := safepath.ReadRegularFile(disk.JournalPath)
+	if err != nil {
+		return "", fmt.Errorf("read registered legacy journal: %w", err)
+	}
+	journalHash := sha256.Sum256(journalData)
+	if hex.EncodeToString(journalHash[:]) != disk.JournalDigest {
+		return "", fmt.Errorf("registered legacy journal changed")
+	}
+	root := filepath.Join(g.legacyRevertWork, disk.MemberID)
+	if err := rejectExistingTargetLinks(root); err != nil {
+		return "", err
+	}
+	if err := os.Mkdir(root, 0o700); err != nil && !os.IsExist(err) {
+		return "", fmt.Errorf("create legacy revert work directory: %w", err)
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
+		return "", fmt.Errorf("legacy revert work path is not a safe directory")
+	}
+	return root, nil
+}
+
+func (g *Guard) findLegacyJournalLocked(journalPath, journalDigest string) (*StoreMember, error) {
+	if err := reconcileStorePublicationTemps(g.legacyMembers); err != nil {
+		return nil, fmt.Errorf("reconcile registered legacy publication temps: %w", err)
+	}
+	entries, err := os.ReadDir(g.legacyMembers)
+	if err != nil {
+		return nil, fmt.Errorf("read registered legacy member store: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		data, _, err := safepath.ReadRegularFile(filepath.Join(g.legacyMembers, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		disk, _, err := decodeLegacyMember(data)
+		if err != nil {
+			return nil, err
+		}
+		if disk.JournalPath == journalPath && disk.JournalDigest == journalDigest {
+			return legacyHandle(g.storeRoot, disk), nil
+		}
+	}
+	return nil, nil
 }
 
 // ActiveStoreRuns returns newest-first runs whose members have not been

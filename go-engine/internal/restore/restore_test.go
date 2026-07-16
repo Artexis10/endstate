@@ -3000,6 +3000,36 @@ func TestRestoreCopyAtomicallyReplacesHardLinkedTarget(t *testing.T) {
 	}
 }
 
+func TestDuplicateTargetBackupsRemainDistinctForExactReverse(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "settings.json")
+	if err := os.WriteFile(target, []byte("prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"one.json": "one", "two.json": "two"} {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	results, err := RunRestore([]RestoreAction{
+		{ID: "one", Type: "copy", Source: "one.json", Target: target, Backup: true},
+		{ID: "two", Type: "copy", Source: "two.json", Target: target, Backup: true},
+	}, RestoreOptions{ManifestDir: root, BackupDir: filepath.Join(root, "backups")}, nil)
+	if err != nil || len(results) != 2 || results[0].BackupPath == results[1].BackupPath {
+		t.Fatalf("duplicate restore results = %+v, %v", results, err)
+	}
+	journal := &Journal{Entries: []JournalEntry{
+		{TargetPath: target, TargetExistedBefore: true, BackupCreated: true, BackupPath: results[0].BackupPath, Action: "restored", RestoreType: "copy"},
+		{TargetPath: target, TargetExistedBefore: true, BackupCreated: true, BackupPath: results[1].BackupPath, Action: "restored", RestoreType: "copy"},
+	}}
+	if _, err := RunRevert(journal, filepath.Join(root, "backups")); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "prior" {
+		t.Fatalf("target after exact reverse = %q, %v", data, err)
+	}
+}
+
 func TestRestoreDeleteGlob_SkipsNonMatching(t *testing.T) {
 	tmp := t.TempDir()
 	targetDir := filepath.Join(tmp, "settings")

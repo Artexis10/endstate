@@ -52,6 +52,59 @@ func TestBeginLiveCreatesVersionedTransactionRootWithImmutableDescriptor(t *test
 	}
 }
 
+func TestDiscardTransactionRootRemovesOnlyNoIntentPreallocation(t *testing.T) {
+	ctx := context.Background()
+	guard, err := BeginLive(ctx, t.TempDir(), "discard-preallocation", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+
+	unused, err := guard.CreateTransactionRoot("capture-unused")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(unused, "snapshots", "large"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unused, "snapshots", "large", "prefs.bin"), []byte("snapshot"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.DiscardTransactionRoot(unused); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(unused); !os.IsNotExist(err) {
+		t.Fatalf("unused transaction root survived discard: %v", err)
+	}
+
+	started, err := guard.CreateTransactionRoot("capture-started")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "target.json")
+	if err := os.WriteFile(target, []byte("prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareSnapshots(ctx, SnapshotRequest{Set: &MaterializedSet{Actions: []Action{{
+		Kind: ActionDeleteFile, Strategy: "delete-glob", Target: target, SnapshotRequired: true,
+	}}}, TransactionRoot: started})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage := testJournalLineage()
+	lineage.RunID = "discard-preallocation"
+	lineage.CaptureID = "capture-started"
+	if _, err := PersistJournalIntent(ctx, JournalIntentRequest{Prepared: prepared, TransactionRoot: started, Lineage: lineage}); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.DiscardTransactionRoot(started); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(started); err != nil {
+		t.Fatalf("started transaction root was discarded: %v", err)
+	}
+}
+
 func TestBeginLiveHoldsOneStoreLockAcrossGuardsUntilClosed(t *testing.T) {
 	stateDir := t.TempDir()
 	first, err := BeginLive(context.Background(), stateDir, "apply-first", nil)

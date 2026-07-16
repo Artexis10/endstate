@@ -68,6 +68,20 @@ func CreateBackup(targetPath, backupDir string) (string, error) {
 
 	baseName := filepath.Base(targetPath)
 	dest := filepath.Join(backupDest, baseName)
+	if _, err := os.Lstat(dest); err == nil {
+		for ordinal := 1; ; ordinal++ {
+			actionDir := filepath.Join(backupDest, fmt.Sprintf("action-%06d", ordinal))
+			if err := os.Mkdir(actionDir, 0o755); os.IsExist(err) {
+				continue
+			} else if err != nil {
+				return "", fmt.Errorf("allocate unique backup directory: %w", err)
+			}
+			dest = filepath.Join(actionDir, baseName)
+			break
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect backup destination: %w", err)
+	}
 
 	if info.IsDir() {
 		if err := copyDirRecursive(targetPath, dest, nil); err != nil {

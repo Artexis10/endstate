@@ -23,18 +23,19 @@ const configMutationLockPoll = 50 * time.Millisecond
 // Guard is the live config-mutation capability. It retains the process-wide
 // store lock from pending recovery through journal completion.
 type Guard struct {
-	mu            sync.Mutex
-	lock          *flock.Flock
-	storeRoot     string
-	transactions  string
-	legacyMembers string
-	legacyReverts string
-	runID         string
-	restoreRunID  string
-	runStartedAt  time.Time
-	nextOrdinal   uint64
-	registry      RegistryMutator
-	closed        bool
+	mu               sync.Mutex
+	lock             *flock.Flock
+	storeRoot        string
+	transactions     string
+	legacyMembers    string
+	legacyReverts    string
+	legacyRevertWork string
+	runID            string
+	restoreRunID     string
+	runStartedAt     time.Time
+	nextOrdinal      uint64
+	registry         RegistryMutator
+	closed           bool
 }
 
 // BeginLive acquires the global config-mutation lock for stateDir, recovers
@@ -54,7 +55,8 @@ func BeginLive(ctx context.Context, stateDir, runID string, registry RegistryMut
 	transactions := filepath.Join(storeRoot, "transactions")
 	legacyMembers := filepath.Join(storeRoot, "legacy-members")
 	legacyReverts := filepath.Join(storeRoot, "legacy-reverts")
-	if err := ensureStoreDirectories(stateDir, configRoot, storeRoot, transactions, legacyMembers, legacyReverts); err != nil {
+	legacyRevertWork := filepath.Join(storeRoot, "legacy-revert-work")
+	if err := ensureStoreDirectories(stateDir, configRoot, storeRoot, transactions, legacyMembers, legacyReverts, legacyRevertWork); err != nil {
 		return nil, fmt.Errorf("initialize config restore store: %w", err)
 	}
 
@@ -90,7 +92,7 @@ func BeginLive(ctx context.Context, stateDir, runID string, registry RegistryMut
 	}
 	guard := &Guard{
 		lock: processLock, storeRoot: storeRoot, transactions: transactions,
-		legacyMembers: legacyMembers, legacyReverts: legacyReverts,
+		legacyMembers: legacyMembers, legacyReverts: legacyReverts, legacyRevertWork: legacyRevertWork,
 		runID: runID, restoreRunID: restoreRunID, runStartedAt: time.Now().UTC(), registry: registry,
 	}
 	if err := guard.recoverPending(ctx); err != nil {
@@ -144,6 +146,35 @@ func (g *Guard) CreateTransactionRoot(captureID string) (string, error) {
 		return root, nil
 	}
 	return "", fmt.Errorf("could not allocate a unique transaction identity")
+}
+
+// DiscardTransactionRoot removes a preallocated transaction only while it has
+// no durable journal intent. Once intent exists, recovery/history owns it.
+func (g *Guard) DiscardTransactionRoot(root string) error {
+	if g == nil {
+		return fmt.Errorf("live config restore guard is nil")
+	}
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if err := g.requireLeaseLocked(); err != nil {
+		return err
+	}
+	if root == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root || filepath.Dir(root) != g.transactions ||
+		!isOpaqueStoreID(filepath.Base(root)) {
+		return fmt.Errorf("valid transaction root is required")
+	}
+	if err := rejectExistingTargetLinks(root); err != nil {
+		return err
+	}
+	if _, err := os.Lstat(filepath.Join(root, "journal", "intent.json")); err == nil {
+		return nil
+	} else if !os.IsNotExist(err) {
+		return err
+	}
+	if _, _, err := readStoredTransactionDescriptor(root); err != nil {
+		return err
+	}
+	return removeSafeTransactionPath(context.Background(), root)
 }
 
 // Close releases the process-wide mutation lock. It is idempotent.

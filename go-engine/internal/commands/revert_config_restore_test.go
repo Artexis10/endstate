@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
 
@@ -155,7 +157,125 @@ func TestRunRevertInterleavesGenerationAndLegacyMembersInReverseOrdinalOrder(t *
 					t.Fatalf("first legacy target = %q", data)
 				}
 			}
+			if err := os.WriteFile(legacyTarget, []byte("user-edit-after-revert"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, secondErr := RunRevert(RevertFlags{}); secondErr == nil {
+				t.Fatal("consumed legacy journal was replayed")
+			}
+			if data, _ := os.ReadFile(legacyTarget); string(data) != "user-edit-after-revert" {
+				t.Fatalf("second revert overwrote user edit = %q", data)
+			}
 		})
+	}
+}
+
+func TestEmitConfigRevertResultsUsesContractedRestoreLifecycle(t *testing.T) {
+	buffer := &bytes.Buffer{}
+	emitter := events.NewEmitterWithWriter("revert-events", true, buffer)
+	emitter.EmitPhase("restore")
+	emitConfigRevertResults(emitter, []restore.RevertResult{
+		{Target: "restored-target", Action: "reverted"},
+		{Target: "deleted-target", Action: "deleted"},
+		{Target: "skipped-target", Action: "skipped"},
+	}, false)
+	lines := bytes.Split(bytes.TrimSpace(buffer.Bytes()), []byte("\n"))
+	if len(lines) != 5 {
+		t.Fatalf("events = %s", buffer.String())
+	}
+	decoded := make([]map[string]any, len(lines))
+	for index, line := range lines {
+		if err := json.Unmarshal(line, &decoded[index]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if decoded[0]["phase"] != "restore" || decoded[1]["status"] != "installed" ||
+		decoded[2]["status"] != "installed" || decoded[3]["status"] != "skipped" ||
+		decoded[4]["event"] != "summary" || decoded[4]["phase"] != "restore" {
+		t.Fatalf("revert lifecycle = %#v", decoded)
+	}
+
+	buffer.Reset()
+	emitConfigRevertResults(emitter, nil, true)
+	var summary map[string]any
+	if err := json.Unmarshal(bytes.TrimSpace(buffer.Bytes()), &summary); err != nil {
+		t.Fatal(err)
+	}
+	if summary["phase"] != "restore" || summary["total"] != float64(1) || summary["failed"] != float64(1) {
+		t.Fatalf("failed revert summary = %#v", summary)
+	}
+}
+
+func TestDurableLegacyRevertCompletionClosesCrashBeforeConsumptionWindow(t *testing.T) {
+	ctx := context.Background()
+	repoRoot := t.TempDir()
+	stateDir := filepath.Join(repoRoot, "state")
+	target := filepath.Join(repoRoot, "settings.json")
+	backup := filepath.Join(repoRoot, "settings.backup.json")
+	if err := os.WriteFile(target, []byte("desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journal := &restore.Journal{RunID: "apply-before-crash", Entries: []restore.JournalEntry{{
+		TargetPath: target, TargetExistedBefore: true, BackupCreated: true,
+		BackupPath: backup, Action: "restored", RestoreType: "copy",
+	}}}
+	journalData, err := json.Marshal(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(repoRoot, "restore-journal-apply-before-crash.json")
+	if err := os.WriteFile(journalPath, journalData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := configrestore.BeginLive(ctx, stateDir, "revert-crashes-before-consumption", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := first.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restore.RunRevertDurable(journal, "", workRoot); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate process death before MarkLegacyMemberReverted.
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("post-crash-user-edit"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := configrestore.BeginLive(ctx, stateDir, "revert-resume", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	runs, err := second.ActiveStoreRuns(ctx)
+	if err != nil || len(runs) != 1 || len(runs[0].Members()) != 1 {
+		t.Fatalf("active member after crash = %+v, %v", runs, err)
+	}
+	member = runs[0].Members()[0]
+	workRoot, err = second.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restore.RunRevertDurable(journal, "", workRoot); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "post-crash-user-edit" {
+		t.Fatalf("resume overwrote user edit = %q, %v", data, err)
+	}
+	if err := second.MarkLegacyMemberReverted(ctx, member); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -27,6 +27,7 @@ import (
 
 type liveConfigRestoreGuard interface {
 	CreateTransactionRoot(captureID string) (string, error)
+	DiscardTransactionRoot(root string) error
 	RegisterLegacyJournal(path string) (*configrestore.StoreMember, error)
 	Close() error
 }
@@ -227,6 +228,13 @@ func (session *configRestoreExecutionSession) Execute(
 		}
 		item.transactionRoot = transactionRoot
 	}
+	defer func() {
+		for _, item := range prepared {
+			if item.transactionRoot != "" {
+				_ = guard.DiscardTransactionRoot(item.transactionRoot)
+			}
+		}
+	}()
 	prepared = executablePreparedConfigRestoreSets(result.Plan, prepared)
 	emittedResolutions := make(map[int]bool, len(result.Plan.Sets))
 	for index, set := range result.Plan.Sets {

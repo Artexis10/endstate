@@ -76,6 +76,48 @@ func TestActiveStoreRunsOrdersGenerationAndRegisteredLegacyMembers(t *testing.T)
 	}
 }
 
+func TestRegisterLegacyJournalIsIdempotentAndRevertWorkIsOneShot(t *testing.T) {
+	ctx := context.Background()
+	guard, err := BeginLive(ctx, t.TempDir(), "apply-legacy-idempotent", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	journalPath := filepath.Join(t.TempDir(), "restore-legacy.json")
+	if err := os.WriteFile(journalPath, []byte("{\"runId\":\"legacy\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first, err := guard.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := guard.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Ordinal() != second.Ordinal() || first.LegacyJournalPath() != second.LegacyJournalPath() {
+		t.Fatalf("duplicate registration: first=%+v second=%+v", first, second)
+	}
+	runs, err := guard.ActiveStoreRuns(ctx)
+	if err != nil || len(runs) != 1 || len(runs[0].Members()) != 1 {
+		t.Fatalf("active runs = %+v, %v", runs, err)
+	}
+	firstRoot, err := guard.LegacyMemberRevertRoot(ctx, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondRoot, err := guard.LegacyMemberRevertRoot(ctx, second)
+	if err != nil || firstRoot != secondRoot {
+		t.Fatalf("revert roots = %q, %q, %v", firstRoot, secondRoot, err)
+	}
+	if err := guard.MarkLegacyMemberReverted(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := guard.LegacyMemberRevertRoot(ctx, second); !errors.Is(err, ErrStoreMemberReverted) {
+		t.Fatalf("consumed revert root error = %v", err)
+	}
+}
+
 func TestRevertGenerationMemberRejectsUnrelatedDriftWithoutConsumption(t *testing.T) {
 	ctx := context.Background()
 	guard, err := BeginLive(ctx, t.TempDir(), "apply-drift", nil)

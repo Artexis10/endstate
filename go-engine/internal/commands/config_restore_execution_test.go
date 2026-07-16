@@ -376,6 +376,10 @@ func (guard *recordingLiveConfigRestoreGuard) CreateTransactionRoot(captureID st
 	return root, os.Mkdir(root, 0o700)
 }
 
+func (guard *recordingLiveConfigRestoreGuard) DiscardTransactionRoot(root string) error {
+	return os.RemoveAll(root)
+}
+
 func (guard *recordingLiveConfigRestoreGuard) RegisterLegacyJournal(string) (*configrestore.StoreMember, error) {
 	return nil, nil
 }
