@@ -228,6 +228,12 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		// delete-glob: no source path, may produce multiple results.
 		if entry.Type == "delete-glob" {
 			target := resolveTarget(entry.Target)
+			if err := ValidateFilesystemTarget(target); err != nil {
+				r := RestoreResult{ID: id, Target: target, Status: "failed", Error: err.Error(), RestoreType: "delete-glob"}
+				emitRestoreItemEvent(emitter, entry, r)
+				results = append(results, r)
+				continue
+			}
 
 			// Check if target directory exists.
 			if _, err := os.Stat(target); os.IsNotExist(err) {
@@ -330,6 +336,12 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		// Resolve source and target paths.
 		source := resolveSource(entry.Source, opts)
 		target := resolveTarget(entry.Target)
+		if err := ValidateFilesystemTarget(target); err != nil {
+			r := RestoreResult{ID: id, Source: source, Target: target, Status: "failed", Error: err.Error(), RestoreType: entry.Type}
+			emitRestoreItemEvent(emitter, entry, r)
+			results = append(results, r)
+			continue
+		}
 
 		// Check if source exists.
 		sourceExists := true

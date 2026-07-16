@@ -114,25 +114,9 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 		result.BackupCreated = true
 	}
 
-	// Ensure target directory exists.
-	targetDir := filepath.Dir(target)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		result.Status = "failed"
-		result.Error = fmt.Sprintf("cannot create target directory: %v", err)
-		return result, nil
-	}
-
-	// Write atomically.
-	tmpPath := target + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(mergedContent), 0644); err != nil {
+	if err := atomicRestoreWrite(target, []byte(mergedContent), 0o644); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("write failed: %v", err)
-		return result, nil
-	}
-	if err := os.Rename(tmpPath, target); err != nil {
-		os.Remove(tmpPath)
-		result.Status = "failed"
-		result.Error = fmt.Sprintf("atomic rename failed: %v", err)
 		return result, nil
 	}
 

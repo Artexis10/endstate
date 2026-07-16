@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -582,8 +581,8 @@ func configRestoreResultsForSet(
 }
 
 type configRestoreCollisionState struct {
-	legacyCaptures  map[string]bool
-	ordinaryActions map[int]bool
+	legacyCaptures  map[string]planner.ResolutionReason
+	ordinaryActions map[int]planner.ResolutionReason
 }
 
 type ownedConfigRestoreClaim struct {
@@ -612,7 +611,7 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 	options configRestoreExecutionOptions,
 ) configRestoreCollisionState {
 	state := configRestoreCollisionState{
-		legacyCaptures: make(map[string]bool), ordinaryActions: make(map[int]bool),
+		legacyCaptures: make(map[string]planner.ResolutionReason), ordinaryActions: make(map[int]planner.ResolutionReason),
 	}
 	claims := []ownedConfigRestoreClaim{}
 	for _, item := range prepared {
@@ -629,14 +628,30 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 		if !lane.selected {
 			continue
 		}
+		laneClaims := []ownedConfigRestoreClaim{}
+		valid := true
 		for _, action := range convertToActions(lane.restoreEntries, "") {
-			if claim := concreteLegacyRestoreClaim(action, restoreOptions); claim != "" {
-				claims = append(claims, ownedConfigRestoreClaim{claim: claim, kind: "legacy", captureID: lane.captureID})
+			claim, err := concreteLegacyRestoreClaim(action, restoreOptions)
+			if err != nil {
+				state.legacyCaptures[lane.captureID] = planner.ReasonStagingValidationFailed
+				valid = false
+				break
 			}
+			if claim != "" {
+				laneClaims = append(laneClaims, ownedConfigRestoreClaim{claim: claim, kind: "legacy", captureID: lane.captureID})
+			}
+		}
+		if valid {
+			claims = append(claims, laneClaims...)
 		}
 	}
 	for index, action := range convertToActions(inputs.ordinaryRestores, "") {
-		if claim := concreteLegacyRestoreClaim(action, restoreOptions); claim != "" {
+		claim, err := concreteLegacyRestoreClaim(action, restoreOptions)
+		if err != nil {
+			state.ordinaryActions[index] = planner.ReasonStagingValidationFailed
+			continue
+		}
+		if claim != "" {
 			claims = append(claims, ownedConfigRestoreClaim{claim: claim, kind: "ordinary", actionIndex: index})
 		}
 	}
@@ -652,9 +667,9 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 				case "generation":
 					blockedGeneration[owner.setIndex] = true
 				case "legacy":
-					state.legacyCaptures[owner.captureID] = true
+					state.legacyCaptures[owner.captureID] = planner.ReasonTargetCollision
 				case "ordinary":
-					state.ordinaryActions[owner.actionIndex] = true
+					state.ordinaryActions[owner.actionIndex] = planner.ReasonTargetCollision
 				}
 			}
 		}
@@ -668,8 +683,8 @@ func applyUnifiedConcreteConfigRestoreCollisions(
 
 func applyLegacyConcreteConfigRestoreCollisions(plan *planner.ConfigPlan, state configRestoreCollisionState) {
 	for index := range plan.Sets {
-		if state.legacyCaptures[plan.Sets[index].Source.CaptureID] {
-			markConfigRestoreFailure(&plan.Sets[index], planner.ReasonTargetCollision, planner.StatusFailed)
+		if reason, blocked := state.legacyCaptures[plan.Sets[index].Source.CaptureID]; blocked {
+			markConfigRestoreFailure(&plan.Sets[index], reason, planner.StatusFailed)
 		}
 	}
 	recomputeConfigPlanSummary(plan)
@@ -682,10 +697,11 @@ func concreteConfigRestoreClaim(action configrestore.Action) string {
 	if action.Target == "" {
 		return ""
 	}
-	claim := filepath.ToSlash(filepath.Clean(action.Target))
-	if runtime.GOOS == "windows" {
-		claim = strings.ToLower(claim)
+	concrete, err := restore.ConcreteFilesystemTarget(action.Target)
+	if err != nil {
+		return ""
 	}
+	claim := filepath.ToSlash(concrete)
 	return "file\x00" + strings.TrimSuffix(claim, "/")
 }
 
@@ -698,26 +714,44 @@ func concreteConfigRestoreClaimsOverlap(left, right string) bool {
 	return left == right || strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
 }
 
-func concreteLegacyRestoreClaim(action restore.RestoreAction, options restore.RestoreOptions) string {
+func concreteLegacyRestoreClaim(action restore.RestoreAction, options restore.RestoreOptions) (string, error) {
 	restoreType := action.Type
 	if restoreType == "" {
 		restoreType = "copy"
 	}
 	switch restoreType {
 	case "registry-set":
-		return "registry-value\x00" + normalizeConfigRestoreRegistryKey(action.Key) + "\x00" + strings.ToLower(action.ValueName)
+		if err := restore.ValidateRegistryTarget(action.Key); err != nil {
+			return "", err
+		}
+		return "registry-value\x00" + normalizeConfigRestoreRegistryKey(action.Key) + "\x00" + strings.ToLower(action.ValueName), nil
 	case "registry-import":
-		return "registry-key\x00" + normalizeConfigRestoreRegistryKey(action.Target)
+		descriptor := restore.DescribeAction(action, options)
+		if err := restore.ValidateRegistryTarget(action.Target); err != nil {
+			return "", err
+		}
+		if err := restore.ValidateRegistryImportScope(descriptor.Source, action.Target); err != nil {
+			if !(action.Optional && os.IsNotExist(err)) {
+				return "", err
+			}
+		}
+		return "registry-key\x00" + normalizeConfigRestoreRegistryKey(action.Target), nil
 	default:
 		descriptor := restore.DescribeAction(action, options)
 		if descriptor.Target == "" {
-			return ""
+			return "", nil
 		}
-		claim := filepath.ToSlash(filepath.Clean(descriptor.Target))
-		if runtime.GOOS == "windows" {
-			claim = strings.ToLower(claim)
+		if restoreType == "delete-glob" {
+			if err := restore.ValidateDeleteGlobPattern(action.Pattern); err != nil {
+				return "", err
+			}
 		}
-		return "file\x00" + strings.TrimSuffix(claim, "/")
+		concrete, err := restore.ConcreteFilesystemTarget(descriptor.Target)
+		if err != nil {
+			return "", err
+		}
+		claim := filepath.ToSlash(concrete)
+		return "file\x00" + strings.TrimSuffix(claim, "/"), nil
 	}
 }
 
@@ -806,8 +840,8 @@ func executeLegacyAndOrdinaryConfigRestores(
 		if !lane.selected {
 			continue
 		}
-		if collisions.legacyCaptures[lane.captureID] {
-			execution.BlockedReasons[lane.captureID] = planner.ReasonTargetCollision
+		if reason, blocked := collisions.legacyCaptures[lane.captureID]; blocked {
+			execution.BlockedReasons[lane.captureID] = reason
 			continue
 		}
 		lineage := configRestoreEventLineage{
@@ -838,10 +872,10 @@ func executeLegacyAndOrdinaryConfigRestores(
 		for actionIndex, action := range convertToActions(inputs.ordinaryRestores, "") {
 			descriptor := restore.DescribeAction(action, restoreOptions)
 			emitRestoreActionStarts(options.Emitter, []restore.RestoreAction{action}, restoreOptions, configRestoreEventLineage{})
-			if collisions.ordinaryActions[actionIndex] {
+			if reason, blocked := collisions.ordinaryActions[actionIndex]; blocked {
 				result := restore.RestoreResult{
 					ID: descriptor.ID, Source: descriptor.Source, Target: descriptor.Target,
-					Status: "failed", Error: planner.ReasonTargetCollision.String(), RestoreType: descriptor.RestoreType,
+					Status: "failed", Error: reason.String(), RestoreType: descriptor.RestoreType,
 					TargetExistedBefore: descriptor.TargetExisted,
 				}
 				ordinary = append(ordinary, result)

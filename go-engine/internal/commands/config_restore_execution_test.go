@@ -732,7 +732,7 @@ func TestConfigRestoreExecutionUnifiedCollisionPreflightCoversLegacyOrdinaryAndR
 	t.Run("registry import subtree versus generation value", func(t *testing.T) {
 		runtime, final := configRestoreExecutionFixture(t, "capture-generation")
 		manifestDir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(manifestDir, "settings.reg"), []byte("Windows Registry Editor Version 5.00\n"), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(manifestDir, "settings.reg"), []byte("Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Vendor]\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		moduleID := "apps.legacy"
@@ -769,6 +769,115 @@ func TestConfigRestoreExecutionUnifiedCollisionPreflightCoversLegacyOrdinaryAndR
 			}
 		}
 	})
+}
+
+func TestConfigRestoreExecutionRejectsLegacyScopeEscapesDuringUnifiedPreflight(t *testing.T) {
+	t.Run("registry import outside declared subtree", func(t *testing.T) {
+		manifestDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(manifestDir, "settings.reg"), []byte(
+			"Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Sibling]\n",
+		), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		moduleID := "apps.legacy"
+		inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+			captureID: bundle.LegacyCaptureID(moduleID), moduleID: moduleID, configSetID: "legacy", selected: true,
+			restoreEntries: []manifest.RestoreEntry{{
+				Type: "registry-import", Source: "settings.reg", Target: `HKCU\Software\Vendor`, FromModule: moduleID,
+			}},
+		}}}
+		session := &configRestoreExecutionSession{
+			runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+			coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+		}
+		result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+			RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+		})
+		if envErr != nil || len(result.Plan.Sets) != 1 || len(result.RestoreItems) != 0 ||
+			result.Plan.Sets[0].Resolution.Status != planner.StatusFailed || result.Plan.Sets[0].Resolution.Reason == nil ||
+			*result.Plan.Sets[0].Resolution.Reason != planner.ReasonStagingValidationFailed {
+			t.Fatalf("result=%+v error=%+v", result, envErr)
+		}
+	})
+
+	t.Run("delete glob traversal", func(t *testing.T) {
+		root := t.TempDir()
+		target := filepath.Join(root, "settings")
+		outside := filepath.Join(root, "outside")
+		if err := os.MkdirAll(target, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(outside, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		victim := filepath.Join(outside, "victim.tmp")
+		if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		moduleID := "apps.legacy"
+		inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+			captureID: bundle.LegacyCaptureID(moduleID), moduleID: moduleID, configSetID: "legacy", selected: true,
+			restoreEntries: []manifest.RestoreEntry{{
+				Type: "delete-glob", Target: target, Pattern: `../outside/*.tmp`, FromModule: moduleID,
+			}},
+		}}}
+		session := &configRestoreExecutionSession{
+			runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+			coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+		}
+		result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{RestoreEnabled: true, DryRun: true})
+		if envErr != nil || len(result.Plan.Sets) != 1 || result.Plan.Sets[0].Resolution.Reason == nil ||
+			*result.Plan.Sets[0].Resolution.Reason != planner.ReasonStagingValidationFailed {
+			t.Fatalf("result=%+v error=%+v", result, envErr)
+		}
+		if _, err := os.Stat(victim); err != nil {
+			t.Fatalf("out-of-scope file changed: %v", err)
+		}
+	})
+}
+
+func TestConfigRestoreExecutionCollidesCaseAliasesOnInsensitiveVolume(t *testing.T) {
+	root := t.TempDir()
+	actualParent := filepath.Join(root, "Preferences")
+	if err := os.MkdirAll(actualParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasParent := filepath.Join(root, "pREFERENCES")
+	actualInfo, err := os.Lstat(actualParent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliasInfo, err := os.Lstat(aliasParent)
+	if err != nil || !os.SameFile(actualInfo, aliasInfo) {
+		t.Skip("test volume is case-sensitive")
+	}
+	manifestDir := t.TempDir()
+	for _, source := range []string{"one.json", "two.json"} {
+		if err := os.WriteFile(filepath.Join(manifestDir, source), []byte(source), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{
+		{captureID: bundle.LegacyCaptureID("apps.one"), moduleID: "apps.one", configSetID: "legacy", selected: true,
+			restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "one.json", Target: filepath.Join(actualParent, "Theme.JSON")}}},
+		{captureID: bundle.LegacyCaptureID("apps.two"), moduleID: "apps.two", configSetID: "legacy", selected: true,
+			restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "two.json", Target: filepath.Join(aliasParent, "tHEME.json")}}},
+	}}
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, DryRun: true, ManifestDir: manifestDir,
+	})
+	if envErr != nil || len(result.Plan.Sets) != 2 {
+		t.Fatalf("result=%+v error=%+v", result, envErr)
+	}
+	for _, set := range result.Plan.Sets {
+		if set.Resolution.Reason == nil || *set.Resolution.Reason != planner.ReasonTargetCollision {
+			t.Fatalf("case alias collision = %+v", set.Resolution)
+		}
+	}
 }
 
 func TestConfigRestoreExecutionReturnsStableRecoveryRequiredReason(t *testing.T) {

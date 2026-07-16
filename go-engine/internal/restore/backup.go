@@ -85,30 +85,7 @@ func CreateBackup(targetPath, backupDir string) (string, error) {
 // copyFile copies a single file from src to dst, creating parent directories
 // as needed.
 func copyFile(src, dst string) error {
-	dir := filepath.Dir(dst)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	return atomicRestoreCopy(src, dst)
 }
 
 // copyDirRecursive copies a directory tree from src to dst. If exclude is

@@ -2888,6 +2888,118 @@ func TestRestoreDeleteGlob_DeletesMatchingFiles(t *testing.T) {
 	}
 }
 
+func TestRestoreDeleteGlobRejectsPatternTraversal(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "settings")
+	outside := filepath.Join(root, "outside")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	victim := filepath.Join(outside, "victim.tmp")
+	if err := os.WriteFile(victim, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := RestoreDeleteGlob(RestoreAction{Type: "delete-glob", Pattern: `../outside/*.tmp`}, target, RestoreOptions{})
+	if err == nil || !strings.Contains(err.Error(), "portable relative glob") {
+		t.Fatalf("RestoreDeleteGlob() error = %v", err)
+	}
+	if _, err := os.Stat(victim); err != nil {
+		t.Fatalf("out-of-scope file was changed: %v", err)
+	}
+}
+
+func TestRunRestoreRejectsLinkedTargetComponent(t *testing.T) {
+	root := t.TempDir()
+	realTarget := filepath.Join(root, "real")
+	if err := os.MkdirAll(realTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "linked")
+	if err := os.Symlink(realTarget, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	source := filepath.Join(root, "source.json")
+	if err := os.WriteFile(source, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	results, err := RunRestore([]RestoreAction{{Type: "copy", Source: source, Target: filepath.Join(link, "prefs.json")}}, RestoreOptions{}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Status != "failed" || !strings.Contains(strings.ToLower(results[0].Error), "link") {
+		t.Fatalf("linked target results = %+v", results)
+	}
+	if _, err := os.Stat(filepath.Join(realTarget, "prefs.json")); !os.IsNotExist(err) {
+		t.Fatalf("linked target was mutated: %v", err)
+	}
+}
+
+func TestRestoreCopyDirectoryRejectsLinkedTargetDescendantBeforeMutation(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	target := filepath.Join(root, "target")
+	outside := filepath.Join(root, "outside")
+	for _, directory := range []string{filepath.Join(source, "prefs"), target, outside} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(source, "prefs", "settings.json"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideTarget := filepath.Join(outside, "settings.json")
+	if err := os.WriteFile(outsideTarget, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(target, "prefs")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	result, err := RestoreCopy(RestoreAction{Type: "copy"}, source, target, RestoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "failed" || !strings.Contains(strings.ToLower(result.Error), "link") {
+		t.Fatalf("directory copy result = %+v", result)
+	}
+	data, err := os.ReadFile(outsideTarget)
+	if err != nil || string(data) != "keep" {
+		t.Fatalf("linked descendant was mutated: data=%q err=%v", data, err)
+	}
+}
+
+func TestRestoreCopyAtomicallyReplacesHardLinkedTarget(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source.json")
+	target := filepath.Join(root, "target.json")
+	alias := filepath.Join(root, "alias.json")
+	if err := os.WriteFile(source, []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(target, alias); err != nil {
+		t.Skipf("hard links unavailable: %v", err)
+	}
+	result, err := RestoreCopy(RestoreAction{Type: "copy"}, source, target, RestoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "restored" {
+		t.Fatalf("copy result = %+v", result)
+	}
+	targetData, targetErr := os.ReadFile(target)
+	aliasData, aliasErr := os.ReadFile(alias)
+	if targetErr != nil || aliasErr != nil || string(targetData) != "new" || string(aliasData) != "old" {
+		t.Fatalf("target=%q (%v) alias=%q (%v)", targetData, targetErr, aliasData, aliasErr)
+	}
+}
+
 func TestRestoreDeleteGlob_SkipsNonMatching(t *testing.T) {
 	tmp := t.TempDir()
 	targetDir := filepath.Join(tmp, "settings")
