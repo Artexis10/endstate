@@ -59,7 +59,7 @@ func applyFileCopy(root string, operation modules.MigrationOperationDef) error {
 		return localError(CodeUnsupportedFileType, fmt.Errorf("destination is not a regular file"))
 	}
 	if err := safepath.AtomicCopyFile(source, target, info.Mode()); err != nil {
-		return localError(CodeIO, err)
+		return mapPathError(err)
 	}
 	return nil
 }
@@ -192,6 +192,11 @@ func copyDirectoryTree(source, target string, entries []sourceTreeEntry) (result
 			_ = os.RemoveAll(temporary)
 		}
 	}()
+	if len(entries) > 0 {
+		if err := os.Chmod(temporary, entries[0].mode.Perm()); err != nil {
+			return localError(CodeIO, err)
+		}
+	}
 	for _, entry := range entries {
 		if entry.relative == "." {
 			continue
@@ -205,7 +210,7 @@ func copyDirectoryTree(source, target string, entries []sourceTreeEntry) (result
 			continue
 		}
 		if err := safepath.AtomicCopyFile(sourcePath, targetPath, entry.mode); err != nil {
-			return localError(CodeIO, err)
+			return mapPathError(err)
 		}
 	}
 	if err := safepath.AtomicRename(temporary, target); err != nil {
@@ -240,6 +245,8 @@ func mapPathError(err error) error {
 		return localError(CodeUnsafeRoot, err)
 	case errors.Is(err, safepath.ErrUnsafePath):
 		return localError(CodeUnsafePath, err)
+	case errors.Is(err, safepath.ErrSourceChanged):
+		return localError(CodeSourceChanged, err)
 	default:
 		return localError(CodeIO, err)
 	}

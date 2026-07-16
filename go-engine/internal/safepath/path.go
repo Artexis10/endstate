@@ -19,12 +19,14 @@ const (
 	CodeUnsafePath      Code = "unsafe_path"
 	CodeUnsafeRoot      Code = "unsafe_root"
 	CodeLinkUnsupported Code = "link_unsupported"
+	CodeSourceChanged   Code = "source_changed"
 )
 
 var (
 	ErrUnsafePath      = errors.New("unsafe portable path")
 	ErrUnsafeRoot      = errors.New("unsafe staging root")
 	ErrLinkUnsupported = errors.New("links and reparse points are unsupported")
+	ErrSourceChanged   = errors.New("source changed during copy")
 )
 
 type Error struct {
@@ -101,17 +103,40 @@ func validateRoot(root string) (string, error) {
 		return "", pathError(CodeUnsafeRoot, root, ErrUnsafeRoot)
 	}
 	clean := filepath.Clean(root)
-	info, err := os.Lstat(clean)
+	info, err := rejectRootChainLinks(clean)
 	if err != nil {
-		return "", pathError(CodeUnsafeRoot, root, errors.Join(ErrUnsafeRoot, err))
-	}
-	if isLinkOrReparse(info) {
-		return "", pathError(CodeLinkUnsupported, root, ErrLinkUnsupported)
+		return "", err
 	}
 	if !info.IsDir() {
 		return "", pathError(CodeUnsafeRoot, root, ErrUnsafeRoot)
 	}
 	return clean, nil
+}
+
+func rejectRootChainLinks(root string) (os.FileInfo, error) {
+	chain := make([]string, 0)
+	for current := root; ; current = filepath.Dir(current) {
+		chain = append(chain, current)
+		parent := filepath.Dir(current)
+		if parent == current {
+			break
+		}
+	}
+	var rootInfo os.FileInfo
+	for index := len(chain) - 1; index >= 0; index-- {
+		current := chain[index]
+		info, err := os.Lstat(current)
+		if err != nil {
+			return nil, pathError(CodeUnsafeRoot, root, errors.Join(ErrUnsafeRoot, err))
+		}
+		if isLinkOrReparse(info) {
+			return nil, pathError(CodeLinkUnsupported, current, ErrLinkUnsupported)
+		}
+		if current == root {
+			rootInfo = info
+		}
+	}
+	return rootInfo, nil
 }
 
 func normalizePortable(value string) (string, error) {

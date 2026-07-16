@@ -4,10 +4,13 @@
 package safepath
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
+
+var openAtomicCopySource = os.Open
 
 func AtomicWriteFile(destination string, data []byte, mode os.FileMode) error {
 	return atomicWrite(destination, mode, func(file *os.File) error {
@@ -17,15 +20,54 @@ func AtomicWriteFile(destination string, data []byte, mode os.FileMode) error {
 }
 
 func AtomicCopyFile(source, destination string, mode os.FileMode) error {
-	input, err := os.Open(source)
+	preOpenInfo, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if isLinkOrReparse(preOpenInfo) {
+		return pathError(CodeLinkUnsupported, source, ErrLinkUnsupported)
+	}
+	if !preOpenInfo.Mode().IsRegular() {
+		return pathError(CodeUnsafePath, source, ErrUnsafePath)
+	}
+	input, err := openAtomicCopySource(source)
 	if err != nil {
 		return err
 	}
 	defer input.Close()
-	return atomicWrite(destination, mode, func(file *os.File) error {
-		_, err := io.Copy(file, input)
+	openedInfo, err := input.Stat()
+	if err != nil {
 		return err
+	}
+	if !openedInfo.Mode().IsRegular() {
+		return pathError(CodeSourceChanged, source, ErrSourceChanged)
+	}
+	if err := verifyAtomicCopySource(source, openedInfo); err != nil {
+		return err
+	}
+	if !os.SameFile(preOpenInfo, openedInfo) {
+		return pathError(CodeSourceChanged, source, ErrSourceChanged)
+	}
+	return atomicWrite(destination, mode, func(file *os.File) error {
+		if _, err := io.Copy(file, input); err != nil {
+			return err
+		}
+		return verifyAtomicCopySource(source, openedInfo)
 	})
+}
+
+func verifyAtomicCopySource(source string, openedInfo os.FileInfo) error {
+	currentInfo, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if isLinkOrReparse(currentInfo) {
+		return pathError(CodeLinkUnsupported, source, ErrLinkUnsupported)
+	}
+	if !currentInfo.Mode().IsRegular() || !os.SameFile(currentInfo, openedInfo) {
+		return pathError(CodeSourceChanged, source, fmt.Errorf("%w: file identity differs", ErrSourceChanged))
+	}
+	return nil
 }
 
 func AtomicRename(source, destination string) error {

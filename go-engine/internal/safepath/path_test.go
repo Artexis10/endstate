@@ -101,3 +101,23 @@ func TestResolveRejectsLinkedRoot(t *testing.T) {
 		t.Fatalf("Resolve linked root error = %v, want ErrLinkUnsupported", err)
 	}
 }
+
+func TestResolveRejectsLinkInRootParentChain(t *testing.T) {
+	realParent := t.TempDir()
+	if err := os.Mkdir(filepath.Join(realParent, "staging"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	linkParent := filepath.Join(t.TempDir(), "linked-parent")
+	if err := os.Symlink(realParent, linkParent); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("creating Windows reparse-point symlink requires local privilege: %v", err)
+		}
+		t.Fatal(err)
+	}
+	root := filepath.Join(linkParent, "staging")
+
+	_, err := Resolve(root, "settings.json")
+	if !errors.Is(err, ErrLinkUnsupported) {
+		t.Fatalf("Resolve beneath linked parent error = %v, want ErrLinkUnsupported", err)
+	}
+}

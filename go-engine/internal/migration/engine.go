@@ -45,6 +45,8 @@ func (e *Engine) Apply(root string, operations []modules.MigrationOperationDef) 
 			err = applyFileMove(root, operation)
 		case "file-delete":
 			err = applyFileDelete(root, operation)
+		case "json-set", "json-delete", "json-move":
+			err = applyJSONOperation(root, operation)
 		default:
 			return operationError(
 				CodeUnsupportedOperation,

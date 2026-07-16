@@ -11,15 +11,22 @@ import (
 type ErrorCode string
 
 const (
-	CodeUnsupportedOperation ErrorCode = "unsupported_operation"
-	CodeUnsafeRoot           ErrorCode = "unsafe_root"
-	CodeUnsafePath           ErrorCode = "unsafe_path"
-	CodeLinkUnsupported      ErrorCode = "link_unsupported"
-	CodePathNotFound         ErrorCode = "path_not_found"
-	CodeUnsupportedFileType  ErrorCode = "unsupported_file_type"
-	CodeDestinationExists    ErrorCode = "destination_exists"
-	CodeSourceDescendant     ErrorCode = "source_descendant"
-	CodeIO                   ErrorCode = "io_error"
+	CodeUnsupportedOperation  ErrorCode = "unsupported_operation"
+	CodeUnsafeRoot            ErrorCode = "unsafe_root"
+	CodeUnsafePath            ErrorCode = "unsafe_path"
+	CodeLinkUnsupported       ErrorCode = "link_unsupported"
+	CodePathNotFound          ErrorCode = "path_not_found"
+	CodeUnsupportedFileType   ErrorCode = "unsupported_file_type"
+	CodeDestinationExists     ErrorCode = "destination_exists"
+	CodeSourceDescendant      ErrorCode = "source_descendant"
+	CodeSourceChanged         ErrorCode = "source_changed"
+	CodeMalformedJSON         ErrorCode = "malformed_json"
+	CodeInvalidJSONPath       ErrorCode = "invalid_json_path"
+	CodeInvalidJSONValue      ErrorCode = "invalid_json_value"
+	CodeJSONParentMissing     ErrorCode = "json_parent_missing"
+	CodeJSONSourceMissing     ErrorCode = "json_source_missing"
+	CodeJSONDestinationExists ErrorCode = "json_destination_exists"
+	CodeIO                    ErrorCode = "io_error"
 )
 
 type Error struct {

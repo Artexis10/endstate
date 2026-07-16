@@ -34,3 +34,26 @@ func TestEngineRejectsSpecialFilesWithoutCreatingPartialCopy(t *testing.T) {
 		t.Fatalf("partial copy exists or stat failed: %v", statErr)
 	}
 }
+
+func TestEngineDirectoryCopyPreservesRootMode(t *testing.T) {
+	root := t.TempDir()
+	source := filepath.Join(root, "source")
+	if err := os.Mkdir(source, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(source, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewEngine().Apply(root, []modules.MigrationOperationDef{{
+		Type: "file-copy", Source: "source", Target: "target",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(root, "target"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o750 {
+		t.Fatalf("copied root mode = %o, want 750", got)
+	}
+}
