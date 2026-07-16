@@ -157,15 +157,16 @@ func resolvePackageDriverLanesWithOverrides(apps []manifest.App, overrides map[s
 	return lanes, routed, nil
 }
 
-func computeDriverLanePlan(mf *manifest.Manifest) (*planner.Plan, error) {
+func computeDriverLanePlan(mf *manifest.Manifest) (*planner.Plan, []CommandWarning, error) {
 	return computeDriverLanePlanWithOverrides(mf, nil)
 }
 
-func computeDriverLanePlanWithOverrides(mf *manifest.Manifest, overrides map[string]driverLaneOverride) (*planner.Plan, error) {
+func computeDriverLanePlanWithOverrides(mf *manifest.Manifest, overrides map[string]driverLaneOverride) (*planner.Plan, []CommandWarning, error) {
 	lanes, routed, err := resolvePackageDriverLanesWithOverrides(mf.Apps, overrides)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	warnings := possibleDuplicatePackageWarnings(routed)
 	actionsByIndex := make(map[int]planner.PlanAction, len(routed))
 
 	for _, lane := range lanes {
@@ -192,7 +193,7 @@ func computeDriverLanePlanWithOverrides(mf *manifest.Manifest, overrides map[str
 		}
 		lanePlan, planErr := planner.ComputePlan(&laneManifest, lane.drv)
 		if planErr != nil {
-			return nil, planErr
+			return nil, nil, planErr
 		}
 		for i, action := range lanePlan.Actions {
 			actionsByIndex[lane.apps[i].index] = action
@@ -238,7 +239,7 @@ func computeDriverLanePlanWithOverrides(mf *manifest.Manifest, overrides map[str
 		}
 	}
 	plan.Summary.Total = len(plan.Actions)
-	return plan, nil
+	return plan, warnings, nil
 }
 
 // packageDriverReadOnlyOverrides probes optional selected package managers for
