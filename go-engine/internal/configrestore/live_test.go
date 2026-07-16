@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -51,7 +52,7 @@ func TestBeginLiveCreatesVersionedTransactionRootWithImmutableDescriptor(t *test
 	}
 }
 
-func TestBeginLiveHoldsOneCrossProcessStoreLockUntilClosed(t *testing.T) {
+func TestBeginLiveHoldsOneStoreLockAcrossGuardsUntilClosed(t *testing.T) {
 	stateDir := t.TempDir()
 	first, err := BeginLive(context.Background(), stateDir, "apply-first", nil)
 	if err != nil {
@@ -77,6 +78,88 @@ func TestBeginLiveHoldsOneCrossProcessStoreLockUntilClosed(t *testing.T) {
 	if _, err := os.Lstat(filepath.Join(stateDir, "config-restore", "mutation.lock")); err != nil {
 		t.Fatalf("persistent mutation lock file: %v", err)
 	}
+}
+
+func TestBeginLiveMutationLockExcludesSecondProcessUntilGuardClose(t *testing.T) {
+	stateDir := t.TempDir()
+	signalDir := t.TempDir()
+	readyPath := filepath.Join(signalDir, "ready")
+	releasePath := filepath.Join(signalDir, "release")
+	command := exec.Command(os.Args[0], "-test.run=^TestConfigRestoreLockHolderHelper$")
+	command.Env = append(os.Environ(),
+		"ENDSTATE_CONFIG_RESTORE_LOCK_HELPER=1",
+		"ENDSTATE_CONFIG_RESTORE_LOCK_STATE="+stateDir,
+		"ENDSTATE_CONFIG_RESTORE_LOCK_READY="+readyPath,
+		"ENDSTATE_CONFIG_RESTORE_LOCK_RELEASE="+releasePath,
+	)
+	if err := command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if command.Process != nil {
+			_ = command.Process.Kill()
+		}
+	})
+	if err := waitForTestPath(readyPath, 5*time.Second); err != nil {
+		_ = command.Process.Kill()
+		_ = command.Wait()
+		t.Fatalf("lock helper did not become ready: %v", err)
+	}
+
+	waitContext, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	second, err := BeginLive(waitContext, stateDir, "apply-parent-contended", nil)
+	cancel()
+	if err == nil || second != nil || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("contended cross-process BeginLive() = (%v, %v), want deadline error", second, err)
+	}
+	if err := os.WriteFile(releasePath, []byte("release"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := command.Wait(); err != nil {
+		t.Fatalf("lock helper exit: %v", err)
+	}
+
+	afterClose, err := BeginLive(context.Background(), stateDir, "apply-parent-after-close", nil)
+	if err != nil {
+		t.Fatalf("BeginLive() after child Guard.Close: %v", err)
+	}
+	if err := afterClose.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestConfigRestoreLockHolderHelper(t *testing.T) {
+	if os.Getenv("ENDSTATE_CONFIG_RESTORE_LOCK_HELPER") != "1" {
+		return
+	}
+	guard, err := BeginLive(
+		context.Background(), os.Getenv("ENDSTATE_CONFIG_RESTORE_LOCK_STATE"), "apply-child-holder", nil,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(os.Getenv("ENDSTATE_CONFIG_RESTORE_LOCK_READY"), []byte("ready"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitForTestPath(os.Getenv("ENDSTATE_CONFIG_RESTORE_LOCK_RELEASE"), 10*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitForTestPath(path string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return nil
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return fmt.Errorf("timed out waiting for %q", path)
 }
 
 func TestBeginLiveRecoversPendingIntentBeforeReturningGuard(t *testing.T) {

@@ -391,6 +391,9 @@ func (g *Guard) activeStoreRunsLocked(ctx context.Context) ([]*StoreRun, error) 
 		}
 	}
 
+	if err := reconcileStorePublicationTemps(g.legacyMembers); err != nil {
+		return nil, fmt.Errorf("reconcile registered legacy publication temps: %w", err)
+	}
 	legacyEntries, err := os.ReadDir(g.legacyMembers)
 	if err != nil {
 		return nil, fmt.Errorf("read registered legacy member store: %w", err)
@@ -472,6 +475,53 @@ func memberReverted(path string, kind StoreMemberKind, memberID, sourceDigest st
 		return false, fmt.Errorf("member revert record identifies a different member")
 	}
 	return true, nil
+}
+
+func reconcileStorePublicationTemps(directory string) error {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return err
+	}
+	removed := false
+	for _, entry := range entries {
+		if !isStorePublicationTemp(entry.Name()) {
+			continue
+		}
+		path := filepath.Join(directory, entry.Name())
+		if err := rejectExistingTargetLinks(path); err != nil {
+			return err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || isLinkOrReparse(info) {
+			return fmt.Errorf("store publication temp %q is not a safe regular file", path)
+		}
+		if err := os.Remove(path); err != nil {
+			return err
+		}
+		removed = true
+	}
+	if removed {
+		return syncDurableDirectory(directory)
+	}
+	return nil
+}
+
+func isStorePublicationTemp(name string) bool {
+	const prefix = ".store-record-"
+	const suffix = ".tmp"
+	if len(name) <= len(prefix)+len(suffix) || name[:len(prefix)] != prefix || name[len(name)-len(suffix):] != suffix {
+		return false
+	}
+	random := name[len(prefix) : len(name)-len(suffix)]
+	for _, character := range random {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func (g *Guard) loadActiveGenerationMember(ctx context.Context, member *StoreMember) (*JournalIntent, error) {
