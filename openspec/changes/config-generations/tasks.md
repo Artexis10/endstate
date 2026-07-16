@@ -42,8 +42,8 @@
 - [x] 5.2 Implement exactly-one generation matching and the `unknown_generation` / `ambiguous_generation` outcomes.
 - [x] 5.3 Implement same-generation direct resolution and forward-route lookup against one pinned trusted catalog snapshot.
 - [x] 5.4 Implement downgrade rejection, missing-path handling, unsupported-module-schema handling, payload-integrity failure, missing catalog module/set/generation, and changed/unaccepted source-generation fingerprint outcomes.
-- [ ] 5.5 Implement deterministic target selection: unique target, unique exact-version preference, explicit mapping, and ambiguous-target refusal.
-- [ ] 5.6 Detect exact and parent/child target collisions plus multiple captured sources competing for one target.
+- [x] 5.5 Implement deterministic target selection: unique target, unique exact-version preference, explicit mapping, and ambiguous-target refusal.
+- [x] 5.6 Detect exact and parent/child target collisions plus multiple captured sources competing for one target.
 - [ ] 5.7 Re-run target detection after rebuild installs and ensure final resolution replaces stale pre-install evidence before restore.
 - [ ] 5.8 Adapt legacy bundle/module restores to emit `legacy_unverified` without fabricating versions or generations.
 - [ ] 5.9 Add planner tests for every resolution/reason, generation-fingerprint acceptance/rejection, side-by-side mapping, post-install version changes, collisions, per-set isolation, no legacy fallback, and catalog pinning.
