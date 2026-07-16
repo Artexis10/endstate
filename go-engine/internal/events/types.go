@@ -9,6 +9,8 @@
 // authoritative stdout JSON envelope.
 package events
 
+import "github.com/Artexis10/endstate/go-engine/internal/planner"
+
 // BaseEvent contains the required fields that every event MUST include per
 // schema v1. Concrete event structs embed this type.
 type BaseEvent struct {
@@ -60,6 +62,31 @@ type ArtifactEvent struct {
 	Phase string `json:"phase"`
 	Kind  string `json:"kind"`
 	Path  string `json:"path"`
+}
+
+// ConfigResolutionEvent reports the final portable compatibility and target
+// decision for one captured config set. Terminal status and concrete resolved
+// host targets remain authoritative envelope-only data.
+type ConfigResolutionEvent struct {
+	BaseEvent
+	CaptureID                   string                    `json:"captureId"`
+	ModuleID                    string                    `json:"moduleId"`
+	ConfigSetID                 string                    `json:"configSetId"`
+	SourceInstance              *planner.SourceInstance   `json:"sourceInstance,omitempty"`
+	SourceInstanceID            string                    `json:"sourceInstanceId,omitempty"`
+	TargetInstanceID            string                    `json:"targetInstanceId,omitempty"`
+	TargetCandidates            []planner.TargetInstance  `json:"targetCandidates"`
+	SourceGeneration            string                    `json:"sourceGeneration,omitempty"`
+	SourceGenerationFingerprint string                    `json:"sourceGenerationFingerprint,omitempty"`
+	TargetGeneration            string                    `json:"targetGeneration,omitempty"`
+	Resolution                  planner.Resolution        `json:"resolution"`
+	Reason                      *planner.ResolutionReason `json:"reason"`
+	MigrationPath               []string                  `json:"migrationPath"`
+	CaptureModuleRevision       string                    `json:"captureModuleRevision,omitempty"`
+	RestoreModuleRevision       string                    `json:"restoreModuleRevision,omitempty"`
+	Label                       string                    `json:"label"`
+	Message                     string                    `json:"message"`
+	Remediation                 *string                   `json:"remediation"`
 }
 
 // ConfigMigrationStage is the closed engine-owned progress stage vocabulary.

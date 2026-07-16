@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
 // Emitter writes NDJSON events to an io.Writer (default: os.Stderr).
@@ -130,6 +132,40 @@ func (e *Emitter) EmitArtifact(phase, kind, path string) {
 		Phase:     phase,
 		Kind:      kind,
 		Path:      path,
+	})
+}
+
+// EmitConfigResolution projects the planner-owned result at the event boundary
+// so presentation and portable target scrubbing cannot drift from envelopes.
+func (e *Emitter) EmitConfigResolution(set planner.PlanSet) {
+	if !e.enabled {
+		return
+	}
+	resolution := planner.ProjectConfigResolution(set)
+	targetCandidates := append([]planner.TargetInstance{}, resolution.TargetCandidates...)
+	for index := range targetCandidates {
+		targetCandidates[index].Root = ""
+	}
+	e.emit(ConfigResolutionEvent{
+		BaseEvent:                   e.base("config-resolution"),
+		CaptureID:                   resolution.CaptureID,
+		ModuleID:                    resolution.ModuleID,
+		ConfigSetID:                 resolution.ConfigSetID,
+		SourceInstance:              resolution.SourceInstance,
+		SourceInstanceID:            resolution.SourceInstanceID,
+		TargetInstanceID:            resolution.TargetInstanceID,
+		TargetCandidates:            targetCandidates,
+		SourceGeneration:            resolution.SourceGeneration,
+		SourceGenerationFingerprint: resolution.SourceGenerationFingerprint,
+		TargetGeneration:            resolution.TargetGeneration,
+		Resolution:                  resolution.Resolution,
+		Reason:                      resolution.Reason,
+		MigrationPath:               append([]string{}, resolution.MigrationPath...),
+		CaptureModuleRevision:       resolution.CaptureModuleRevision,
+		RestoreModuleRevision:       resolution.RestoreModuleRevision,
+		Label:                       resolution.Label,
+		Message:                     resolution.Message,
+		Remediation:                 resolution.Remediation,
 	})
 }
 
