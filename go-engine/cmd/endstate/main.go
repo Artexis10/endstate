@@ -110,11 +110,12 @@ type parsedArgs struct {
 	events        string // "jsonl" or ""
 
 	// Per-command flags
-	manifest      string
-	dryRun        bool
-	enableRestore bool
-	export        string // --export <path>
-	restoreFilter string // --restore-filter <expr>
+	manifest       string
+	dryRun         bool
+	enableRestore  bool
+	export         string   // --export <path>
+	restoreFilter  string   // --restore-filter <expr>
+	restoreTargets []string // repeatable --restore-target <captureId>=<targetInstanceId>
 
 	// Rebuild flags
 	from      string // rebuild --from <bundle.zip|manifest.jsonc>
@@ -302,6 +303,15 @@ func parseArgs(args []string) parsedArgs {
 			if i+1 < len(args) {
 				p.restoreFilter = args[i+1]
 				i++
+			}
+		case "--restore-target":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				p.restoreTargets = append(p.restoreTargets, args[i+1])
+				i++
+			} else {
+				// Preserve the occurrence so command-level validation can return
+				// INVALID_RESTORE_TARGET after loading the known capture IDs.
+				p.restoreTargets = append(p.restoreTargets, "")
 			}
 		case "--from":
 			if i+1 < len(args) {
@@ -495,6 +505,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Events:            p.events,
 			Export:            p.export,
 			RestoreFilter:     p.restoreFilter,
+			RestoreTargets:    append([]string(nil), p.restoreTargets...),
 			Prune:             p.prune,
 			Confirm:           p.confirm,
 			Repin:             p.repin,
@@ -505,11 +516,13 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 
 	case "rebuild":
 		return commands.RunRebuild(commands.RebuildFlags{
-			From:      p.from,
-			DryRun:    p.dryRun,
-			Confirm:   p.confirm,
-			NoRestore: p.noRestore,
-			Events:    p.events,
+			From:           p.from,
+			DryRun:         p.dryRun,
+			Confirm:        p.confirm,
+			NoRestore:      p.noRestore,
+			Events:         p.events,
+			RestoreFilter:  p.restoreFilter,
+			RestoreTargets: append([]string(nil), p.restoreTargets...),
 		})
 
 	case "verify":
@@ -582,12 +595,13 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 
 	case "restore":
 		return commands.RunRestore(commands.RestoreFlags{
-			Manifest:      p.manifest,
-			EnableRestore: p.enableRestore,
-			DryRun:        p.dryRun,
-			Export:        p.export,
-			Events:        p.events,
-			RestoreFilter: p.restoreFilter,
+			Manifest:       p.manifest,
+			EnableRestore:  p.enableRestore,
+			DryRun:         p.dryRun,
+			Export:         p.export,
+			Events:         p.events,
+			RestoreFilter:  p.restoreFilter,
+			RestoreTargets: append([]string(nil), p.restoreTargets...),
 		})
 
 	case "revert":

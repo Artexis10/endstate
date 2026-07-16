@@ -29,6 +29,11 @@ type RebuildFlags struct {
 	NoRestore bool
 	// Events controls streaming event output. "jsonl" enables it; "" disables.
 	Events string
+	// RestoreFilter preserves module-level restore filtering through rebuild's
+	// composed apply pipeline.
+	RestoreFilter string
+	// RestoreTargets contains repeatable capture-to-target mappings.
+	RestoreTargets []string
 }
 
 // RebuildBundleInfo describes the extracted capture bundle. It is nil for a
@@ -145,10 +150,12 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		restoreState = "disabled"
 	}
 	applyResult, applyErr := RunApply(ApplyFlags{
-		Manifest:      manifestPath,
-		DryRun:        flags.DryRun,
-		EnableRestore: !flags.NoRestore,
-		Events:        flags.Events,
+		Manifest:       manifestPath,
+		DryRun:         flags.DryRun,
+		EnableRestore:  !flags.NoRestore,
+		Events:         flags.Events,
+		RestoreFilter:  flags.RestoreFilter,
+		RestoreTargets: append([]string(nil), flags.RestoreTargets...),
 	})
 	if applyErr != nil {
 		return nil, applyErr

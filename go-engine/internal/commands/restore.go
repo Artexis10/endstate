@@ -30,6 +30,9 @@ type RestoreFlags struct {
 	// RestoreFilter limits restore to entries matching specific module IDs
 	// (comma-separated).
 	RestoreFilter string
+	// RestoreTargets contains repeatable capture-to-target mappings. Command
+	// orchestration validates these against generation-aware capture IDs.
+	RestoreTargets []string
 }
 
 // RestoreData is the data payload for the restore command JSON envelope.

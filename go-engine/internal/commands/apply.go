@@ -61,6 +61,9 @@ type ApplyFlags struct {
 	// RestoreFilter limits restore to entries matching specific module IDs
 	// (comma-separated).
 	RestoreFilter string
+	// RestoreTargets contains repeatable capture-to-target mappings. Command
+	// orchestration validates these against generation-aware capture IDs.
+	RestoreTargets []string
 	// Prune enables convergence: after install, remove installed-but-undeclared
 	// packages ("drift") from the engine-managed set. Realizer-only; the winget
 	// driver path refuses with CONVERGENCE_UNSUPPORTED.
