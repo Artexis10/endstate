@@ -1,8 +1,5 @@
-# engine-backend-bootstrap Specification
+## MODIFIED Requirements
 
-## Purpose
-Defines consent-gated, verified bootstrap of absent optional package backends across macOS, Linux, and Windows: Nix and Homebrew use their official installers, Chocolatey uses its official Windows bootstrap, Winget is never bootstrapped, and installed backends are never silently removed.
-## Requirements
 ### Requirement: A missing backend is bootstrapped only with explicit consent
 The engine SHALL bootstrap a package backend a run needs (the Nix realizer, the Homebrew driver, or the Chocolatey driver) only after explicit, plain-language user consent. An already working backend SHALL be used without prompting or reinstalling it. When more than one backend is absent, the engine SHALL request consent once for the combined set rather than once per backend. The engine SHALL NOT install a backend silently or without consent. When consent is declined or unanswered, the engine SHALL skip each absent backend's lane visibly and continue any available lanes and configuration. Installation SHALL be attempted only during mutating apply/rebuild execution; read-only commands, including plan, verify, and dry-run, SHALL surface unavailability without installing or requesting consent.
 
@@ -25,28 +22,6 @@ The engine SHALL bootstrap a package backend a run needs (the Nix realizer, the 
 #### Scenario: Read-only command does not install an absent backend
 - **WHEN** verify, plan, or dry-run encounters an absent backend
 - **THEN** it SHALL NOT install the backend or request mutating consent
-
-### Requirement: A bootstrapped backend is verified working before use
-
-After installing a backend, the engine SHALL verify the backend actually works before provisioning any
-package or configuration through it. A backend whose installer completes but whose verification probe
-fails SHALL be treated as unavailable, and the engine SHALL surface a clear error rather than
-proceeding as if the backend were present. A bootstrap that fails SHALL NOT leave the run silently
-half-completed.
-
-#### Scenario: Post-install verification gates use
-
-- **WHEN** the engine has just installed a backend
-- **THEN** it SHALL run a verification probe (for example the backend's version command or an
-  evaluation) confirming the backend works
-- **AND** it SHALL provision through the backend only after that probe passes
-
-#### Scenario: Verification failure is surfaced, not silent
-
-- **WHEN** a backend installs but its verification probe fails
-- **THEN** the engine SHALL treat the backend as unavailable
-- **AND** it SHALL report a clear error
-- **AND** it SHALL NOT proceed as if the backend were available
 
 ### Requirement: The engine orchestrates the official installer, never a vendored fork
 When bootstrapping a backend, the engine SHALL orchestrate its official upstream installer: the Determinate installer for Nix, the upstream installer script for Homebrew, or Chocolatey's official PowerShell installation endpoint. It SHALL NOT vendor, fork, or reimplement those installers. The privileged, system-modifying step SHALL be inspectable. The engine SHALL NOT suppress or bypass operating-system credential or component prompts, such as the macOS administrator password or Xcode Command Line Tools installation, and SHALL NOT mutate Chocolatey source configuration.
