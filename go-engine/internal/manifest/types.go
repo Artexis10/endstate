@@ -316,6 +316,12 @@ type App struct {
 	Version     string            `json:"version,omitempty"`
 	Manual      *ManualApp        `json:"manual,omitempty"`
 	DisplayName string            `json:"displayName,omitempty"`
+
+	// Installed, InstalledVersion, and Backend are runtime detection evidence.
+	// They must never turn an unpinned manifest into a pinned declaration.
+	Installed        bool       `json:"-"`
+	InstalledVersion string     `json:"-"`
+	Backend          string     `json:"-"`
 }
 
 // ManualApp describes an app that cannot be installed automatically but can be

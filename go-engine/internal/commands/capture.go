@@ -125,14 +125,21 @@ var loadModuleCatalogFn = func(repoRoot string) (map[string]*modules.Module, err
 	return modules.GetCatalog(repoRoot)
 }
 
+// matchModulesForAppsFn is the narrow matching boundary used after capture.
+// Tests replace it to inspect the runtime evidence supplied to module matching.
+var matchModulesForAppsFn = modules.MatchModulesForApps
+
 // capturedApp is an internal representation of a captured application entry
 // before it is written to the output manifest.
 type capturedApp struct {
-	ID      string            `json:"id"`
-	Refs    map[string]string `json:"refs"`
-	Driver  string            `json:"driver,omitempty"`
-	Version string            `json:"version,omitempty"`
-	Name    string            `json:"_name,omitempty"`
+	ID               string            `json:"id"`
+	Refs             map[string]string `json:"refs"`
+	Driver           string            `json:"driver,omitempty"`
+	Version          string            `json:"version,omitempty"`
+	Name             string            `json:"_name,omitempty"`
+	Installed        bool              `json:"-"`
+	InstalledVersion string            `json:"-"`
+	Backend          string            `json:"-"`
 }
 
 // cleanApp is the sanitized version of capturedApp without underscore-prefixed fields.
@@ -252,9 +259,10 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	versionMap := make(map[string]string)
 	if installedRes.err == nil {
 		for _, app := range installedRes.apps {
-			displayNameMap[app.ID] = app.Name
+			key := wingetEvidenceKey(app.ID)
+			displayNameMap[key] = app.Name
 			if app.Version != "" {
-				versionMap[app.ID] = app.Version
+				versionMap[key] = app.Version
 			}
 		}
 	}
@@ -290,23 +298,26 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		}
 
 		appID := wingetIDToManifestID(sApp.ID)
+		installedVersion := versionMap[wingetEvidenceKey(sApp.ID)]
+		if installedVersion == "" {
+			installedVersion = sApp.Version
+		}
 
 		app := capturedApp{
 			ID: appID,
 			Refs: map[string]string{
 				"windows": sApp.ID,
 			},
-			Name: sApp.Name,
+			Name:             sApp.Name,
+			Installed:        true,
+			InstalledVersion: installedVersion,
+			Backend:          "winget",
 		}
 
 		// --pin records the installed version (best-effort). Empty stays empty
 		// and is dropped by omitempty.
 		if flags.Pin {
-			ver := versionMap[sApp.ID]
-			if ver == "" {
-				ver = sApp.Version
-			}
-			app.Version = ver
+			app.Version = installedVersion
 		}
 
 		captured = append(captured, app)
@@ -315,7 +326,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	// --- 4. Emit item events for each included app ---
 	for _, app := range captured {
 		wingetID := app.Refs["windows"]
-		name := displayNameMap[wingetID]
+		name := displayNameMap[wingetEvidenceKey(wingetID)]
 		if name == "" {
 			name = app.Name
 		}
@@ -333,7 +344,13 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		existingRefs := make(map[string]bool)
 		for _, app := range existingMf.Apps {
 			if ref, ok := app.Refs["windows"]; ok {
-				existingRefs[ref] = true
+				existingRefs[wingetEvidenceKey(ref)] = true
+			}
+		}
+		currentlyDetected := make(map[string]capturedApp, len(captured))
+		for _, app := range captured {
+			if ref := app.Refs["windows"]; ref != "" {
+				currentlyDetected[wingetEvidenceKey(ref)] = app
 			}
 		}
 
@@ -348,12 +365,16 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 				Driver:  app.Driver,
 				Version: app.Version,
 			}
-			// Under --pin, refresh an existing app's version from the installed-
-			// apps snapshot only when it exposes a non-empty version — absence of
-			// evidence never blanks a declared pin.
-			if flags.Pin {
-				if ver := versionMap[app.Refs["windows"]]; ver != "" {
-					ca.Version = ver
+			// Desired-only entries remain serialized but carry no installed
+			// evidence. A current export match supplies runtime evidence and,
+			// under --pin, may refresh the declared pin without blanking it.
+			if detected, ok := currentlyDetected[wingetEvidenceKey(app.Refs["windows"])]; ok {
+				ca.Name = detected.Name
+				ca.Installed = detected.Installed
+				ca.InstalledVersion = detected.InstalledVersion
+				ca.Backend = detected.Backend
+				if flags.Pin && detected.InstalledVersion != "" {
+					ca.Version = detected.InstalledVersion
 				}
 			}
 			merged = append(merged, ca)
@@ -362,7 +383,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		// Append newly discovered apps that aren't already present.
 		for _, app := range captured {
 			winRef := app.Refs["windows"]
-			if !existingRefs[winRef] {
+			if !existingRefs[wingetEvidenceKey(winRef)] {
 				merged = append(merged, app)
 			}
 		}
@@ -476,16 +497,8 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		if repoRoot != "" {
 			catalog, catalogErr := loadModuleCatalogFn(repoRoot)
 			if catalogErr == nil && len(catalog) > 0 {
-				// Build manifest.App slice for matching.
-				manifestApps := make([]manifest.App, 0, len(captured))
-				for _, ca := range captured {
-					manifestApps = append(manifestApps, manifest.App{
-						ID:   ca.ID,
-						Refs: ca.Refs,
-					})
-				}
-
-				matchedModules := modules.MatchModulesForApps(catalog, manifestApps)
+				manifestApps := buildModuleMatchApps(captured)
+				matchedModules := matchModulesForAppsFn(catalog, manifestApps)
 
 				if len(matchedModules) > 0 {
 					// Build configModuleMap from matched modules.
@@ -569,6 +582,34 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	}, nil
 }
 
+// buildModuleMatchApps keeps desired manifest pins separate from runtime
+// installed-version evidence. Matchers see the current detected version and
+// backend, while desired-only update entries remain explicitly not installed.
+func buildModuleMatchApps(apps []capturedApp) []manifest.App {
+	result := make([]manifest.App, 0, len(apps))
+	for _, app := range apps {
+		driver := app.Driver
+		installedVersion := ""
+		if app.Installed {
+			installedVersion = app.InstalledVersion
+			if driver == "" {
+				driver = app.Backend
+			}
+		}
+		result = append(result, manifest.App{
+			ID:               app.ID,
+			Refs:             app.Refs,
+			Driver:           driver,
+			Version:          installedVersion,
+			Installed:        app.Installed,
+			InstalledVersion: installedVersion,
+			Backend:          app.Backend,
+			DisplayName:      app.Name,
+		})
+	}
+	return result
+}
+
 // buildAppsIncluded converts internal captured apps to the CaptureApp slice
 // expected by the GUI. Display names are looked up in displayNameMap (winget
 // ID -> display name). If a display name is not in the map, the name captured
@@ -584,7 +625,13 @@ func buildAppsIncluded(apps []capturedApp, displayNameMap map[string]string) []C
 			Source: "winget",
 			ID:     wingetID,
 		}
-		if name, ok := displayNameMap[wingetID]; ok && name != "" {
+		name := displayNameMap[wingetEvidenceKey(wingetID)]
+		if name == "" {
+			// Keep this helper compatible with direct callers that supply an
+			// exact-cased map rather than capture's normalized evidence map.
+			name = displayNameMap[wingetID]
+		}
+		if name != "" {
 			entry.Name = name
 		} else if ca.Name != "" {
 			entry.Name = ca.Name
@@ -760,4 +807,11 @@ func resolveOutputPath(flags CaptureFlags) string {
 // Example: "Microsoft.VisualStudioCode" -> "microsoft-visualstudiocode"
 func wingetIDToManifestID(wingetID string) string {
 	return strings.ToLower(strings.ReplaceAll(wingetID, ".", "-"))
+}
+
+// wingetEvidenceKey normalizes only identity joins. Callers keep the original
+// package ref for output and evidence because Winget identity is
+// case-insensitive even though its display casing is useful provenance.
+func wingetEvidenceKey(ref string) string {
+	return strings.ToLower(strings.TrimSpace(ref))
 }
