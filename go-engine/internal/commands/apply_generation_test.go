@@ -92,7 +92,7 @@ func TestRunApplyRealizer_WritesGenerationOnFullSuccess(t *testing.T) {
 	mf := &manifest.Manifest{Apps: []manifest.App{nixApp("ripgrep", "nixpkgs#ripgrep")}}
 	emitter := events.NewEmitter("apply-test", false)
 
-	_, eerr := runApplyRealizer(ApplyFlags{Manifest: "m.jsonc"}, mf, r, emitter, "apply-test", nil, nil, nil, nil)
+	_, eerr := runApplyRealizer(ApplyFlags{Manifest: "m.jsonc"}, mf, r, emitter, "apply-test", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -122,7 +122,7 @@ func TestRunApplyRealizer_NoGenerationWhenGenerationDidNotAdvance(t *testing.T) 
 	mf := &manifest.Manifest{Apps: []manifest.App{nixApp("ripgrep", "nixpkgs#ripgrep")}}
 	emitter := events.NewEmitter("apply-test", false)
 
-	_, _ = runApplyRealizer(ApplyFlags{Manifest: "m.jsonc"}, mf, r, emitter, "apply-test", nil, nil, nil, nil)
+	_, _ = runApplyRealizer(ApplyFlags{Manifest: "m.jsonc"}, mf, r, emitter, "apply-test", nil, nil, nil, nil, nil)
 
 	gens, _ := provision.List()
 	if len(gens) != 0 {

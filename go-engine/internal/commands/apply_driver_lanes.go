@@ -207,7 +207,7 @@ func runApplyDriverLanes(
 	configSession, configSessionErr := prepareApplyConfigRestore(
 		context.Background(),
 		flags,
-		legacyDriverLaneConfigRestoreEvidence(lanes, mf.Apps),
+		newDriverLaneConfigRestoreEvidenceSource(lanes),
 	)
 	if configSessionErr != nil {
 		return nil, configSessionErr
@@ -444,22 +444,6 @@ func runApplyDriverLanes(
 		RestoreModulesAvailable: restoreModulesAvailable,
 		ConfigResultFields:      configFields,
 	}, nil
-}
-
-// legacyDriverLaneConfigRestoreEvidence preserves the pre-multi-driver
-// generation detector boundary on the driver path. Driver-qualified evidence
-// fan-out is intentionally deferred to the separate generalization change.
-func legacyDriverLaneConfigRestoreEvidence(lanes []packageDriverLane, apps []manifest.App) configRestoreEvidenceSource {
-	for _, lane := range lanes {
-		if lane.drv == nil || !strings.EqualFold(lane.name, "winget") {
-			continue
-		}
-		return newDriverConfigRestoreEvidenceSource(lane.drv, apps)
-	}
-	if backend, err := newDriverFn(); err == nil && backend != nil {
-		return newDriverConfigRestoreEvidenceSource(backend, apps)
-	}
-	return newFilesystemConfigRestoreEvidenceSource()
 }
 
 func writePackageDriverGenerations(runID string, lanes []packageDriverLane, actions []ApplyAction) {

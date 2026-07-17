@@ -50,7 +50,7 @@ func TestRunApplyRealizer_UnsupportedDriverIsVisibleSkip(t *testing.T) {
 
 	raw, envelopeErr := runApplyRealizer(
 		ApplyFlags{Manifest: "test", DryRun: true},
-		nixManifest(), fr, noopEmitter(), "run", nil, nil, nil, nil, unsupported,
+		nixManifest(), fr, noopEmitter(), "run", nil, nil, nil, nil, nil, unsupported,
 	)
 	if envelopeErr != nil {
 		t.Fatalf("runApplyRealizer returned error: %v", envelopeErr)

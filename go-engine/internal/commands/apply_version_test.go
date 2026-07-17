@@ -178,7 +178,7 @@ func TestRunApplyRealizer_IgnoresAppVersion(t *testing.T) {
 		realizeResult: realizer.Result{Advanced: true, ToGeneration: 2},
 	}
 
-	if _, eerr := runApplyRealizer(ApplyFlags{Manifest: "m.jsonc"}, mf, fr, noopEmitter(), "rz-ver", nil, nil, nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(ApplyFlags{Manifest: "m.jsonc"}, mf, fr, noopEmitter(), "rz-ver", nil, nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("realizer must ignore App.Version, got error: %v", eerr)
 	}
 	if fr.realizeCalls != 1 {

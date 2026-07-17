@@ -5,6 +5,8 @@ package commands
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -37,6 +39,9 @@ func newStandaloneConfigRestoreEvidenceSource(manifestApps []manifest.App) confi
 			brewBackend = candidate
 		}
 		return newRealizerConfigRestoreEvidenceSource(backend, brewBackend, manifestApps)
+	}
+	if lanes, _, err := resolvePackageDriverLanes(manifestApps); err == nil && len(lanes) > 0 {
+		return newDriverLaneConfigRestoreEvidenceSource(lanes)
 	}
 	if backend, err := newDriverFn(); err == nil && backend != nil {
 		return newDriverConfigRestoreEvidenceSource(backend, manifestApps)
@@ -76,6 +81,84 @@ func newDriverConfigRestoreEvidenceSource(
 		return configRestoreDetectionEvidence{
 			PackagesByModule: packagesByModule, FailedModules: failedModules, Glob: filepath.Glob,
 		}, nil
+	})
+}
+
+// newDriverLaneConfigRestoreEvidenceSource combines authoritative package
+// driver lanes without allowing one lane to stand in for another. Each
+// Snapshot call re-queries every available lane and isolates a lane failure to
+// modules that actually declare ownership of an app routed through that lane.
+func newDriverLaneConfigRestoreEvidenceSource(
+	lanes []packageDriverLane,
+) configRestoreEvidenceSource {
+	type laneSource struct {
+		name   string
+		source configRestoreEvidenceSource
+		apps   []manifest.App
+		err    error
+	}
+	sources := make([]laneSource, 0, len(lanes))
+	for _, lane := range lanes {
+		laneApps := make([]manifest.App, 0, len(lane.apps))
+		for _, routed := range lane.apps {
+			if routed != nil {
+				laneApps = append(laneApps, routed.app)
+			}
+		}
+		entry := laneSource{name: lane.name, apps: cloneConfigRestoreEvidenceApps(laneApps), err: lane.err}
+		if lane.drv != nil && lane.err == nil {
+			entry.source = newDriverConfigRestoreEvidenceSource(lane.drv, laneApps)
+		} else if entry.err == nil {
+			entry.err = errors.New("package driver is unavailable")
+		}
+		sources = append(sources, entry)
+	}
+
+	return configRestoreEvidenceSourceFunc(func(
+		ctx context.Context,
+		request configRestoreDetectionRequest,
+	) (configRestoreDetectionEvidence, error) {
+		if err := ctx.Err(); err != nil {
+			return configRestoreDetectionEvidence{}, err
+		}
+		combined := configRestoreDetectionEvidence{
+			PackagesByModule: make(map[string][]modules.PackageEvidence, len(request.Modules)),
+			FailedModules:    make(map[string]struct{}),
+			Glob:             filepath.Glob,
+		}
+		for moduleID := range request.Modules {
+			combined.PackagesByModule[moduleID] = []modules.PackageEvidence{}
+		}
+		for _, lane := range sources {
+			if lane.source == nil {
+				for moduleID, module := range request.Modules {
+					if len(configRestoreEvidenceAppsForModule(module, lane.apps)) > 0 {
+						combined.FailedModules[moduleID] = struct{}{}
+					}
+				}
+				continue
+			}
+			evidence, err := lane.source.Snapshot(ctx, request)
+			if err != nil {
+				return configRestoreDetectionEvidence{}, fmt.Errorf("%s package detection: %w", lane.name, err)
+			}
+			for moduleID, packages := range evidence.PackagesByModule {
+				combined.PackagesByModule[moduleID] = append(combined.PackagesByModule[moduleID], packages...)
+			}
+			for moduleID := range evidence.FailedModules {
+				combined.FailedModules[moduleID] = struct{}{}
+			}
+		}
+		for moduleID := range combined.PackagesByModule {
+			sort.Slice(combined.PackagesByModule[moduleID], func(left, right int) bool {
+				leftEvidence := combined.PackagesByModule[moduleID][left]
+				rightEvidence := combined.PackagesByModule[moduleID][right]
+				leftKey := leftEvidence.Backend + "\x00" + leftEvidence.Ref + "\x00" + leftEvidence.AppID
+				rightKey := rightEvidence.Backend + "\x00" + rightEvidence.Ref + "\x00" + rightEvidence.AppID
+				return leftKey < rightKey
+			})
+		}
+		return combined, nil
 	})
 }
 
@@ -135,7 +218,7 @@ func newRealizerConfigRestoreEvidenceSource(
 					failedApps = append(failedApps, *app)
 					continue
 				}
-				app.Installed, app.Backend, app.Driver = installed, brewBackend.Name(), brewBackend.Name()
+				app.Installed, app.Backend = installed, brewBackend.Name()
 				if batch, ok := brewBackend.(driver.BatchDetector); ok {
 					if results, batchErr := batch.DetectBatch([]string{ref}); batchErr == nil {
 						app.InstalledVersion = results[ref].Version
@@ -146,6 +229,7 @@ func newRealizerConfigRestoreEvidenceSource(
 			if ref == "" {
 				continue
 			}
+			app.Backend = backend.Name()
 			if currentErr != nil {
 				failedApps = append(failedApps, *app)
 				continue
@@ -153,7 +237,7 @@ func newRealizerConfigRestoreEvidenceSource(
 			if !presentInSet(current, ref) {
 				continue
 			}
-			app.Installed, app.Backend, app.Driver = true, backend.Name(), backend.Name()
+			app.Installed = true
 			if element, ok := realizerElementForRef(current, ref); ok {
 				app.InstalledVersion = nix.StorePathVersion(element.Name, element.StorePaths)
 			}
@@ -230,7 +314,6 @@ func detectDriverConfigRestoreApps(backend driver.Driver, apps []manifest.App) (
 			current[index].Installed = installed
 		}
 		current[index].Backend = backend.Name()
-		current[index].Driver = backend.Name()
 	}
 	return current, nil
 }

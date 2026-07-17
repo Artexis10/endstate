@@ -704,12 +704,16 @@ func capturePackageEvidence(mod *modules.Module, apps []manifest.App) []modules.
 		if backend == "" || strings.TrimSpace(ref) == "" {
 			continue
 		}
+		driverName := strings.ToLower(strings.TrimSpace(app.Driver))
+		if driverName == "" {
+			driverName = backend
+		}
 		evidence = append(evidence, modules.PackageEvidence{
 			AppID:      app.ID,
 			Backend:    backend,
 			Platform:   platform,
 			Ref:        ref,
-			Driver:     app.Driver,
+			Driver:     driverName,
 			RawVersion: app.InstalledVersion,
 		})
 	}
@@ -726,10 +730,30 @@ func matchedPackageRef(mod *modules.Module, app manifest.App) (platform, ref str
 		return "", "", false
 	}
 	if windowsRef := app.Refs["windows"]; windowsRef != "" {
-		for _, declared := range mod.Matches.Winget {
-			if strings.EqualFold(strings.TrimSpace(declared), strings.TrimSpace(windowsRef)) {
-				return "windows", windowsRef, true
+		declaredRefs := mod.Matches.Winget
+		selectedDriver := strings.ToLower(strings.TrimSpace(app.Driver))
+		if selectedDriver == "" {
+			selectedDriver = strings.ToLower(strings.TrimSpace(app.Backend))
+			if selectedDriver != "brew" && selectedDriver != "nix" {
+				selectedDriver = "winget"
 			}
+		}
+		switch selectedDriver {
+		case "winget":
+		case "chocolatey":
+			declaredRefs = mod.Matches.Chocolatey
+		case "brew", "nix":
+			break
+		default:
+			return "", "", false
+		}
+		if selectedDriver == "winget" || selectedDriver == "chocolatey" {
+			for _, declared := range declaredRefs {
+				if strings.EqualFold(strings.TrimSpace(declared), strings.TrimSpace(windowsRef)) {
+					return "windows", windowsRef, true
+				}
+			}
+			return "", "", false
 		}
 	}
 	if app.ID != moduleDirName(mod.ID) {

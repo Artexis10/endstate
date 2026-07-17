@@ -242,7 +242,7 @@ func TestRunApply_NoBrewLane_ByteIdenticalToRealizerOnly(t *testing.T) {
 	if eerr != nil {
 		t.Fatalf("loadManifest: %v", eerr)
 	}
-	baseResult, baseErr := runApplyRealizer(ApplyFlags{Manifest: mfPath}, mfBase, frBase, baseEmitter, "apply-fixed", nil, nil, nil, nil)
+	baseResult, baseErr := runApplyRealizer(ApplyFlags{Manifest: mfPath}, mfBase, frBase, baseEmitter, "apply-fixed", nil, nil, nil, nil, nil)
 	if baseErr != nil {
 		t.Fatalf("baseline apply error: %v", baseErr)
 	}

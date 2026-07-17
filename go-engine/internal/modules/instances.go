@@ -177,7 +177,7 @@ func packageInstance(moduleID, detectorID string, evidence PackageEvidence) (Con
 
 func canonicalPackageRef(backend, ref string) string {
 	switch backend {
-	case "winget":
+	case "winget", "chocolatey":
 		return strings.ToLower(ref)
 	default:
 		return ref

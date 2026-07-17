@@ -116,7 +116,7 @@ func validateRequest(ctx context.Context, request Request) (planner.TargetInstan
 			matches++
 		}
 	}
-	if matches != 1 || selected.Root == "" || selected.Generation != generation.ID {
+	if matches != 1 || selected.Generation != generation.ID {
 		return planner.TargetInstance{}, nil, newError(CodeInvalidRequest, -1, "", fmt.Errorf("plan must pin exactly one matching target instance"))
 	}
 	if selected.ModuleID != request.Plan.Source.ModuleID ||

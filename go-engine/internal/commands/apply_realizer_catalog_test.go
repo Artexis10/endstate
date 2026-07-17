@@ -48,7 +48,7 @@ func TestRunApplyRealizer_HomeManagerSettings_GeneratesAndActivates(t *testing.T
 		homeGenNum: 7,
 	}
 	flags := ApplyFlags{Manifest: manifestPath, EnableRestore: true}
-	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cat1", nil, nil, nil, nil)
+	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cat1", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -97,7 +97,7 @@ func TestRunApplyRealizer_HomeManagerSettings_DryRunRevealsNoActivate(t *testing
 
 	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
 	flags := ApplyFlags{Manifest: manifestPath, EnableRestore: true, DryRun: true}
-	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cat2", nil, nil, nil, nil)
+	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cat2", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}

@@ -225,6 +225,7 @@ func cloneConfigModule(value *modules.Module) *modules.Module {
 func cloneConfigModuleMatches(value modules.MatchCriteria) modules.MatchCriteria {
 	return modules.MatchCriteria{
 		Winget:               append([]string(nil), value.Winget...),
+		Chocolatey:           append([]string(nil), value.Chocolatey...),
 		Exe:                  append([]string(nil), value.Exe...),
 		UninstallDisplayName: append([]string(nil), value.UninstallDisplayName...),
 		PathExists:           append([]string(nil), value.PathExists...),

@@ -436,9 +436,9 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		if nixNeeded && avail[bootstrap.BackendNix] {
 			rzMf := *mf
 			rzMf.Apps = restApps
-			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, restoreModulesAvailable, brewApps, brewDrv, unsupportedApps)
+			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable, brewApps, brewDrv, unsupportedApps)
 		}
-		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, restoreModulesAvailable, unsupportedApps)
+		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable, unsupportedApps)
 	}
 
 	return runApplyDriverLanes(flags, mf, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable)
