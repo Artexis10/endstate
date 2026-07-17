@@ -5,6 +5,7 @@ package envelope_test
 
 import (
 	"encoding/json"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -83,6 +84,17 @@ func TestNewFailure_AllFieldsPresent(t *testing.T) {
 	}
 }
 
+func TestNewFailureWithDataPreservesPartialCommandResult(t *testing.T) {
+	partial := map[string]interface{}{"configResolutions": []interface{}{map[string]interface{}{"status": "failed"}}}
+	env := envelope.NewFailureWithData(
+		"restore", "restore-run", testSchema, testVersion, partial,
+		envelope.NewError(envelope.ErrRestoreFailed, "Restore failed."),
+	)
+	if env.Success || !reflect.DeepEqual(env.Data, partial) || env.Error == nil {
+		t.Fatalf("failure envelope = %+v", env)
+	}
+}
+
 // TestErrorCodeSerialization verifies that ErrorCode values round-trip through JSON
 // as their string representations.
 func TestErrorCodeSerialization(t *testing.T) {
@@ -102,6 +114,7 @@ func TestErrorCodeSerialization(t *testing.T) {
 		{envelope.ErrCaptureBlocked, "CAPTURE_BLOCKED"},
 		{envelope.ErrInstallFailed, "INSTALL_FAILED"},
 		{envelope.ErrRestoreFailed, "RESTORE_FAILED"},
+		{envelope.ErrInvalidRestoreTarget, "INVALID_RESTORE_TARGET"},
 		{envelope.ErrVerifyFailed, "VERIFY_FAILED"},
 		{envelope.ErrPermissionDenied, "PERMISSION_DENIED"},
 		{envelope.ErrInternalError, "INTERNAL_ERROR"},

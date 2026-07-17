@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "name": "Config generation legacy fixture",
+  "apps": [],
+  "configModules": ["apps.fixture-legacy"],
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./configs/fixture-legacy/settings.json",
+      "target": "%APPDATA%\\Fixture Legacy\\settings.json",
+      "backup": true,
+      "optional": true,
+      "fromModule": "apps.fixture-legacy"
+    }
+  ]
+}

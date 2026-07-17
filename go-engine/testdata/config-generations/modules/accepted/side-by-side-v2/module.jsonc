@@ -1,0 +1,55 @@
+{
+  "moduleSchemaVersion": 2,
+  "id": "apps.fixture-side-by-side",
+  "displayName": "Fixture Side by Side",
+  "sensitivity": "low",
+  "matches": {
+    "pathExists": ["%APPDATA%\\Fixture\\Studio 7"]
+  },
+  "config": {
+    "instanceDetectors": [
+      {
+        "id": "profiles",
+        "type": "path",
+        "glob": "%APPDATA%\\Fixture\\Studio *",
+        "versionPattern": "^Studio (?P<version>[0-9]+)$"
+      }
+    ],
+    "sets": [
+      {
+        "id": "preferences",
+        "displayName": "Preferences",
+        "generations": [
+          {
+            "id": "g1",
+            "order": 1,
+            "matches": [
+              { "versionRange": ">=5 <8" }
+            ],
+            "capture": {
+              "files": [
+                {
+                  "source": "${instance.root}",
+                  "dest": "settings",
+                  "optional": true
+                }
+              ]
+            },
+            "restore": [
+              {
+                "type": "copy",
+                "source": "settings",
+                "target": "${instance.root}",
+                "backup": true,
+                "optional": true
+              }
+            ],
+            "validate": [
+              { "type": "file-exists", "path": "settings/options.json" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

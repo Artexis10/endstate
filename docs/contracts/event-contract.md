@@ -1,8 +1,8 @@
 # Endstate Event Contract v1
 
-**Status:** Locked  
-**Version:** 1  
-**Last Updated:** 2025-12-31
+**Status:** Locked
+**Version:** 1
+**Last Updated:** 2026-07-16
 
 ## Purpose
 
@@ -46,7 +46,7 @@ Every event **MUST** include:
 | `version` | integer | Event schema version (always `1` for this contract) |
 | `runId` | string | Run identifier (e.g., `"apply-20250101-120000-MACHINE"`) |
 | `timestamp` | string | RFC3339 UTC timestamp (informational; NDJSON line order is authoritative) |
-| `event` | string | Event type: `"phase"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"` |
+| `event` | string | Event type: `"phase"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"`, `"config-resolution"`, `"config-migration"` |
 
 ### Event Types
 
@@ -229,7 +229,7 @@ Tracks progress of individual restore actions during apply with `--EnableRestore
 **Fields:**
 - `id` (string, required): Restore entry identifier (e.g., `"vscode/settings.json"`)
 - `module` (string, required): Config module ID (e.g., `"vscode"`)
-- `restorer` (string, required): Restorer type: `"copy"` | `"merge-json"` | `"merge-ini"` | `"append"`
+- `restorer` (string, required): Engine restorer type: `"copy"` | `"merge-json"` | `"merge-ini"` | `"append"` | `"delete-glob"` | `"registry-import"` | `"registry-set"`
 - `source` (string, required): Portable source path
 - `target` (string, required): System target path
 - `status` (string, required): One of:
@@ -242,6 +242,11 @@ Tracks progress of individual restore actions during apply with `--EnableRestore
 - `backupPath` (string | null, required): Path to backup if created, or null
 - `targetExisted` (boolean, required): Whether the target file existed before restore
 - `message` (string, required): Human-readable message
+- `captureId` (string, optional): Owning generation-aware config capture
+- `configSetId` (string, optional): Owning config set
+- `targetInstanceId` (string, optional): Selected target instance
+- `sourceGeneration` (string, optional): Captured source generation
+- `targetGeneration` (string, optional): Resolved target generation
 
 **Guarantees:**
 - Same `id` appears twice per restore action: first with `"restoring"`, then with terminal status
@@ -336,6 +341,113 @@ One event covers the **combined** set of backends a run needs and lacks, so the 
 **Consumer notes:**
 - The GUI renders `message` as the dialog body and may reveal `details` behind a "show details" affordance; on the user's affirmative it re-invokes apply or rebuild with the existing `--bootstrap-backends` flag.
 - A consumer built against an older engine that does not emit `consent` is unaffected (forward compatibility — unknown event types are ignored).
+
+---
+
+#### 9. Config-Resolution Event
+
+Reports the engine's final compatibility/target decision for one captured config set after final target detection and before the first target mutation for that set. This is an additive event type; schema remains version `1`.
+
+```json
+{
+  "version": 1,
+  "runId": "apply-20260716-120000-MACHINE",
+  "timestamp": "2026-07-16T12:00:01.000Z",
+  "event": "config-resolution",
+  "captureId": "apps.example-preferences-instance-a",
+  "moduleId": "apps.example",
+  "configSetId": "preferences",
+  "sourceInstance": {
+    "id": "instance-a",
+    "detectorId": "photoshop-install",
+    "rawVersion": "25.0.0",
+    "normalizedVersion": "25.0.0",
+    "evidence": { "kind": "installed-app", "value": "Adobe Photoshop 2024" }
+  },
+  "sourceInstanceId": "instance-a",
+  "targetInstanceId": "instance-b",
+  "targetCandidates": [
+    {
+      "id": "instance-b",
+      "moduleId": "apps.example",
+      "detectorId": "photoshop-install",
+      "rawVersion": "26.0.0",
+      "normalizedVersion": "26.0.0",
+      "evidence": { "kind": "installed-app", "value": "Adobe Photoshop 2025" },
+      "targetGeneration": "g2",
+      "restoreModuleRevision": "<sha256-b>"
+    }
+  ],
+  "sourceGeneration": "g1",
+  "sourceGenerationFingerprint": "<sha256>",
+  "targetGeneration": "g2",
+  "resolution": "migrate",
+  "reason": null,
+  "migrationPath": ["g1", "g2"],
+  "captureModuleRevision": "<sha256-a>",
+  "restoreModuleRevision": "<sha256-b>",
+  "label": "Will be upgraded",
+  "message": "Settings will be upgraded from g1 to g2 before restore.",
+  "remediation": null
+}
+```
+
+**Fields:**
+
+- Identity fields (`captureId`, `moduleId`, `configSetId`) are required.
+- `sourceInstance` preserves portable, non-secret capture identity and version evidence. `targetCandidates` is a required, non-null array of portable, non-secret target identity and version evidence; it is `[]` when no candidate exists. Host-local roots and locators remain internal and are never emitted.
+- Instance, generation, fingerprint, and module-revision fields are present when known; legacy payloads omit unknown generation fields.
+- `resolution` (required) is `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`.
+- `reason` is a stable machine reason or `null`; the GUI does not derive it from module data.
+- `migrationPath` is the ordered generation path and is `[]` unless a migration is planned.
+- `label`, `message`, nullable `remediation`, and all technical detail are engine-authored. Consumers render them verbatim and do not recompute copy, compatibility, or evidence.
+
+**Guarantees:**
+
+- Exactly one final config-resolution event is emitted per captured config set in restore-capable input.
+- It precedes any mutating `restore-item` or commit-stage `config-migration` event for the same capture ID.
+- `incompatible` and `unknown` resolutions have no corresponding mutating event.
+- An explicit legacy module lane uses `configSetId: "legacy"` and the deterministic capture ID returned by `bundle.LegacyCaptureID(moduleId)`, and emits `legacy_unverified` before any corresponding legacy restore-item event.
+- Anonymous inline restore actions without a module-lane association remain ordinary restore-item events and do not receive fabricated config-resolution events, instances, versions, or generations.
+
+---
+
+#### 10. Config-Migration Event
+
+Reports engine-owned progress for staging, each ordered migration edge, validation, commit, and rollback. Module and bundle data never provide executable event behavior.
+
+```json
+{
+  "version": 1,
+  "runId": "apply-20260716-120000-MACHINE",
+  "timestamp": "2026-07-16T12:00:02.000Z",
+  "event": "config-migration",
+  "captureId": "apps.example-preferences-instance-a",
+  "configSetId": "preferences",
+  "stage": "edge",
+  "fromGeneration": "g1",
+  "toGeneration": "g2",
+  "status": "completed",
+  "reason": null,
+  "message": "migration edge validated",
+  "remediation": null
+}
+```
+
+**Fields:**
+
+- `captureId` and `configSetId` are required correlation identities.
+- `stage` is exactly `staging`, `edge`, `validation`, `commit`, or `rollback`.
+- `fromGeneration` and `toGeneration` are present for an edge.
+- `status` is exactly `started`, `completed`, or `failed`.
+- `reason` and `remediation` are nullable and serialize as `null` when absent. `status`, `reason`, `message`, and `remediation` are engine-derived; consumers render them verbatim and do not interpret migration operations.
+
+**Guarantees:**
+
+- Multi-edge paths emit edges in declared plan order and validation completes before commit begins.
+- When failure occurs after target mutation, rollback start and terminal outcome are emitted for the same capture ID.
+- Streaming progress may be in-progress; authoritative envelope terminal status remains exactly `planned`, `restored`, `skipped`, `failed`, `rolled_back`, or `rollback_failed`.
+- A `rollback_failed` outcome is followed by no later config-set mutation in that run.
 
 ---
 

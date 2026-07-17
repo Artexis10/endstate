@@ -92,6 +92,7 @@ When `success` is `false`, the `error` field contains:
 | `CAPTURE_BLOCKED` | Capture blocked by guardrail |
 | `INSTALL_FAILED` | Package installation failed |
 | `RESTORE_FAILED` | Configuration restore failed |
+| `INVALID_RESTORE_TARGET` | A `--restore-target` mapping is malformed, duplicates a capture mapping, or names an unknown/non-targetable capture. Raised before installation or config mutation and includes engine-authored remediation. |
 | `VERIFY_FAILED` | Verification check failed |
 | `PERMISSION_DENIED` | Insufficient permissions |
 | `INTERNAL_ERROR` | Unexpected internal error |
@@ -182,7 +183,7 @@ endstate capabilities --json
       },
       "apply": {
         "supported": true,
-        "flags": ["--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--only", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"]
+        "flags": ["--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--restore-target", "--only", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"]
       },
       "verify": {
         "supported": true,
@@ -198,7 +199,11 @@ endstate capabilities --json
       },
       "restore": {
         "supported": true,
-        "flags": ["--manifest", "--restore-filter", "--json", "--events", "--filter"]
+        "flags": ["--manifest", "--restore-filter", "--restore-target", "--json", "--events", "--filter"]
+      },
+      "rebuild": {
+        "supported": true,
+        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"]
       },
       "report": {
         "supported": true,
@@ -215,10 +220,6 @@ endstate capabilities --json
       "bootstrap": {
         "supported": true,
         "flags": ["--json"]
-      },
-      "rebuild": {
-        "supported": true,
-        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"]
       }
     },
     "features": {
@@ -278,6 +279,8 @@ endstate capture --profile "Chocolatey-Only" --driver chocolatey --json
   "data": {
     "outputPath": "C:\\Users\\user\\Documents\\Endstate\\Profiles\\My-Desktop.zip",
     "outputFormat": "zip",
+    "bundleSchemaVersion": "2.0",
+    "manifestVersion": 2,
     "sanitized": false,
     "isExample": false,
     "counts": {
@@ -316,7 +319,30 @@ endstate capture --profile "Chocolatey-Only" --driver chocolatey --json
       "chocolatey:git.install": ["apps.git"]
     },
     "captureWarnings": [],
-    "warnings": []
+    "warnings": [],
+    "configCapture": {
+      "configSets": [
+        {
+          "captureId": "apps.vscode-preferences-instance-a",
+          "moduleId": "apps.vscode",
+          "configSetId": "preferences",
+          "displayName": "Preferences",
+          "sourceInstance": {
+            "id": "instance-a",
+            "detectorId": "installed-package",
+            "rawVersion": "1.92.0",
+            "normalizedVersion": "1.92.0",
+            "evidence": { "backend": "winget", "ref": "Microsoft.VisualStudioCode" }
+          },
+          "sourceGeneration": "g1",
+          "sourceGenerationFingerprint": "<sha256>",
+          "captureModuleRevision": "<sha256>",
+          "filesCaptured": 2,
+          "status": "captured",
+          "reason": null
+        }
+      ]
+    }
   },
   "error": null
 }
@@ -328,6 +354,8 @@ endstate capture --profile "Chocolatey-Only" --driver chocolatey --json
 |-------|------|----------|-------------|
 | `outputPath` | string | Yes | Absolute path to output file |
 | `outputFormat` | string | Yes | `"zip"` for bundle, `"jsonc"` for legacy |
+| `bundleSchemaVersion` | string | No | Bundle metadata schema (`"2.0"` for generation-aware capture) |
+| `manifestVersion` | integer | No | Embedded manifest version (`2` for generation-aware capture) |
 | `sanitized` | boolean | Yes | Whether output was sanitized |
 | `isExample` | boolean | Yes | Whether this is an example manifest |
 | `counts` | object | Yes | Capture statistics |
@@ -340,8 +368,11 @@ endstate capture --profile "Chocolatey-Only" --driver chocolatey --json
 | `packageModuleMap` | object | Yes | Maps namespaced `driver:ref` package identities to arrays of config module IDs (empty `{}` when no mappings) |
 | `captureWarnings` | array | No | General capture warnings |
 | `warnings` | array | No | Structured `CommandWarning` entries |
+| `configCapture.configSets` | array | No | Per-instance/per-config-set generation provenance and capture results |
 
 **Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`. Legacy `configModuleMap` remains Winget-only and always present. `packageModuleMap` is its driver-aware companion, uses `(driver, ref)` identity, and retains every matching module ID in a deterministic array. Capture never suppresses a cross-driver entry based on equal refs, versions, or display-name similarity; exact case-insensitive display-name equality emits `possible_duplicate` and retains both entries.
+
+Existing schema-v1 module fields remain backward compatible. Generation-aware fields are absent for schema-v1 payloads or explicitly identify them as unversioned; the engine never fabricates source versions or generations. A generation-aware artifact reports bundle schema `2.0` and manifest version `2` without changing this stdout envelope's additive schema `1.0` contract.
 
 ---
 
@@ -436,6 +467,97 @@ When a selected optional driver remains unavailable, `apply.data.warnings` inclu
 
 When routed package entries qualify for the runtime ownership advisory described under **Command Warnings**, `apply.data.warnings` appends `possible_duplicate` without suppressing either action. This applies equally to dry-run and live results.
 
+### Generation-Aware Configuration Output (Apply, Restore, and Rebuild)
+
+When restore-capable input contains configuration payloads, apply, standalone restore, and rebuild add `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]` to their command data. This is additive in stdout schema `1.0`. Application-install `items[]`/`actions[]` remain unchanged. If the input contains no config payloads, these config fields are omitted. If config payloads are present, no config field is omitted: all arrays are present and use `[]`, never `null`, when empty; `reason` and `remediation` use `null` when absent.
+
+```json
+{
+  "configResolutions": [
+    {
+      "captureId": "apps.example-preferences-instance-a",
+      "moduleId": "apps.example",
+      "configSetId": "preferences",
+      "sourceInstance": {
+        "id": "instance-a",
+        "detectorId": "photoshop-install",
+        "rawVersion": "25.0.0",
+        "normalizedVersion": "25.0.0",
+        "evidence": { "kind": "installed-app", "value": "Adobe Photoshop 2024" }
+      },
+      "sourceInstanceId": "instance-a",
+      "targetInstanceId": "instance-b",
+      "targetCandidates": [
+        {
+          "id": "instance-b",
+          "moduleId": "apps.example",
+          "detectorId": "photoshop-install",
+          "rawVersion": "26.0.0",
+          "normalizedVersion": "26.0.0",
+          "evidence": { "kind": "installed-app", "value": "Adobe Photoshop 2025" },
+          "targetGeneration": "g2",
+          "restoreModuleRevision": "<sha256-b>"
+        }
+      ],
+      "sourceGeneration": "g1",
+      "sourceGenerationFingerprint": "<sha256>",
+      "targetGeneration": "g2",
+      "resolution": "migrate",
+      "reason": null,
+      "migrationPath": ["g1", "g2"],
+      "captureModuleRevision": "<sha256-a>",
+      "restoreModuleRevision": "<sha256-b>",
+      "resolvedTargets": [],
+      "status": "restored",
+      "label": "Will be upgraded",
+      "message": "Settings will be upgraded from g1 to g2 before restore.",
+      "remediation": null
+    }
+  ],
+  "configResolutionSummary": {
+    "total": 1,
+    "direct": 0,
+    "migrate": 1,
+    "incompatible": 0,
+    "unknown": 0,
+    "legacyUnverified": 0,
+    "selected": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "restoreItems": []
+}
+```
+
+`sourceInstance` and every `targetCandidates[]` member carry portable, non-secret identity and version evidence. Host-local target roots and locators are internal engine data and never appear in command results. `targetCandidates[]`, `migrationPath[]`, `resolvedTargets[]`, and `restoreItems[]` are non-null arrays. The engine authors each row's distilled `label`, `message`, nullable `remediation`, and technical details. GUIs render those values verbatim and do not reconstruct them from versions, candidates, modules, or bundle data.
+
+`resolution` describes source/target compatibility and is exactly `direct`, `migrate`, `incompatible`, `unknown`, or `legacy_unverified`. Application versions are evidence for selecting config generations; they are not a pairwise compatibility result. Stable reasons include `downgrade_unsupported`, `migration_path_missing`, `ambiguous_target_instance`, `ambiguous_generation`, `target_not_detected`, `mapped_target_not_detected`, `mapped_target_incompatible`, `target_collision`, `app_running`, `payload_integrity_failed`, `unsupported_module_schema`, `catalog_module_missing`, `config_set_missing`, `source_generation_unknown`, `source_generation_definition_changed`, `recovery_required`, `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, and `already_up_to_date`.
+
+`status` is independent from `resolution` and is terminal in the envelope. It is exactly:
+
+| Status | Meaning |
+|--------|---------|
+| `planned` | Dry-run only; the selected set passed compatibility, integrity, preflight, staging, and validation |
+| `restored` | Live transaction reached and validated desired state and durably recorded completion |
+| `skipped` | No target mutation was attempted because non-execution was intentional or safely required, including filtering/consent, unknown/incompatible resolution, absent/incompatible mapped target, `app_running`, or already-up-to-date state |
+| `failed` | The selected set failed before any target mutation, so rollback was unnecessary |
+| `rolled_back` | Mutation began, failed, and rollback durably restored and verified complete pre-run state |
+| `rollback_failed` | Mutation began and complete restoration could not be proven; no later config-set mutation starts in the run |
+
+For `failed`, `rolled_back`, and `rollback_failed`, `reason` retains the primary execution failure. Rollback outcome is carried by `status`; it never overwrites that cause. `configResolutionSummary.selected` counts `planned`, `restored`, `failed`, `rolled_back`, and `rollback_failed`; `skipped` counts `skipped`; `failed` counts `failed`, `rolled_back`, and `rollback_failed`.
+
+Legacy manifest/bundle v1 payloads are represented as `legacy_unverified` with unknown generation fields omitted. Every explicit schema-v1 module lane uses `configSetId: "legacy"` and the deterministic, domain-separated capture ID returned by `bundle.LegacyCaptureID(moduleId)`. Anonymous inline restore actions without a module-lane association remain ordinary `restoreItems[]`; the engine does not fabricate config-resolution rows, instances, versions, or generations for them. Legacy lanes retain explicit restore consent, conflict handling, backup, journal, and revert. Invalid manifest-v2 generation provenance never becomes `legacy_unverified` and never falls back to a flat restore path.
+
+Concrete `restoreItems[]` retain all existing fields. Items produced from a generation-aware config set add optional `captureId`, `configSetId`, `targetInstanceId`, `sourceGeneration`, and `targetGeneration` fields so actions remain traceable to the resolution plan.
+
+If durable journal intent cannot be written, the affected config set is `failed` before mutation with `journal_intent_failed`. A completion-record failure uses `journal_completion_failed`; journal errors are never ignored or represented as successful restore. Before a new restore-capable mutation, an unrecoverable pending intent reports `recovery_required` and prevents all new config mutation.
+
+### Explicit Target Mapping
+
+Apply, standalone restore, and rebuild accept repeatable `--restore-target <captureId>=<targetInstanceId>`. Module-level `--restore-filter` applies first. Malformed mappings, duplicate mappings for one capture ID, and mappings to unknown or non-targetable capture IDs return `INVALID_RESTORE_TARGET` with engine-authored message and remediation before installation or configuration mutation. After final post-install detection, a well-formed mapping to an absent/incompatible target skips only that config set with `mapped_target_not_detected` or `mapped_target_incompatible`; successful installation is not rolled back.
+
+The engine automatically maps only one viable target or one unique exact-version target. Multiple viable side-by-side targets report `unknown` / `ambiguous_target_instance`; no newest-version rule exists.
+
 ### App-Subset Selection (`--only`)
 
 `apply --only <id[,id,...]>` limits the run to manifest apps whose `id` is in the comma-separated list. Filtering happens at the manifest level before planning, so every downstream stage (plan generation, driver execution, config-module expansion, restore scoping, verification, event emission, warning generation, and summary counts) behaves as if the manifest contained only the selected apps. Omitting `--only` leaves behaviour unchanged.
@@ -449,7 +571,7 @@ When routed package entries qualify for the runtime ownership advisory described
 
 ### Convergence (`--prune`)
 
-`apply --prune` converges the engine-managed set to *exactly* the manifest: after the install phase it removes installed-but-undeclared packages ("drift") in one atomic generation switch. Convergence is realizer-only (Nix on Linux/macOS); the winget driver refuses with `CONVERGENCE_UNSUPPORTED`, changing nothing. Package-stage only: prune never touches configuration restore, `state/backups/`, or the revert journal.
+`apply --prune` converges the engine-managed set to *exactly* the manifest: after the install phase it removes installed-but-undeclared packages ("drift") in one atomic generation switch. Convergence is realizer-only (Nix on Linux/macOS); Winget and Chocolatey driver lanes refuse with `CONVERGENCE_UNSUPPORTED`, changing nothing. Package-stage only: prune never touches configuration restore, `state/backups/`, or the revert journal.
 
 | Flag | Behavior |
 |------|----------|
@@ -586,7 +708,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 | `--no-restore` | Install and verify without restoring configuration. Non-destructive, so it needs no `--confirm`. The result reports `restore: "disabled"`. |
 | `--bootstrap-backends` | Propagated unchanged to the underlying apply stage; authorizes bootstrap and verification of selected missing optional backends. |
 | `--no-bootstrap` | Propagated unchanged to the underlying apply stage; unavailable backend lanes are visibly skipped. |
-| `--events jsonl` | Stream events to stderr. `rebuild` composes the apply and verify event streams unchanged (no new event types). |
+| `--events jsonl` | Stream events to stderr. `rebuild` composes the apply stream (including config-resolution/config-migration events when applicable) and verify stream unchanged; it defines no rebuild-only event type. |
 
 ### Response
 
@@ -606,7 +728,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
       "capturedAt": "2024-12-19T10:00:00Z",
       "machineName": "OLD-PC",
       "endstateVersion": "0.1.0",
-      "configModulesIncluded": ["vscode", "git"]
+      "configModulesIncluded": []
     },
     "dryRun": false,
     "restore": "enabled",
@@ -618,6 +740,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 ```
 
 - `bundle` is present only for a `.zip` input (with `extracted: true`); it is omitted for a bare-manifest rebuild. The metadata fields under `bundle` are best-effort (read from the bundle's `metadata.json`) and omitted when unavailable.
+- For bundle input containing config payloads, `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]` at the top level of rebuild `data` are canonical. The nested `apply` result may mirror them. Config-free input omits all three fields; payload-bearing input keeps the arrays present as `[]` when empty.
 - `apply` carries the underlying `apply` command result; `verify` carries the underlying `verify` command result and is omitted on `--dry-run`.
 - `restore` reflects the configured posture (`"enabled"` unless `--no-restore`), not whether restore executed — a `--dry-run` reports `"enabled"` while executing nothing.
 
@@ -1057,7 +1180,7 @@ When schema versions are incompatible, GUI must display:
 ```
 Endstate CLI Incompatible
 
-The installed Endstate CLI (v0.1.0, schema 1.0) is not compatible 
+The installed Endstate CLI (v0.1.0, schema 1.0) is not compatible
 with this version of Endstate GUI (requires schema 2.0).
 
 Please update Endstate CLI or use a compatible GUI version.

@@ -6,6 +6,7 @@ package bundle
 import (
 	"archive/zip"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,13 +21,15 @@ import (
 
 // BundleMetadata is the metadata.json content written into the zip bundle.
 type BundleMetadata struct {
-	SchemaVersion        string   `json:"schemaVersion"`
-	CapturedAt           string   `json:"capturedAt"`
-	MachineName          string   `json:"machineName"`
-	EndstateVersion      string   `json:"endstateVersion"`
-	ConfigModulesIncluded []string `json:"configModulesIncluded"`
-	ConfigModulesSkipped  []string `json:"configModulesSkipped"`
-	CaptureWarnings      []string `json:"captureWarnings"`
+	SchemaVersion          string   `json:"schemaVersion"`
+	ManifestVersion        int      `json:"manifestVersion,omitempty"`
+	CapturedAt             string   `json:"capturedAt"`
+	MachineName            string   `json:"machineName"`
+	EndstateVersion        string   `json:"endstateVersion"`
+	ConfigCapturesIncluded []string `json:"configCapturesIncluded,omitempty"`
+	ConfigModulesIncluded  []string `json:"configModulesIncluded"`
+	ConfigModulesSkipped   []string `json:"configModulesSkipped"`
+	CaptureWarnings        []string `json:"captureWarnings"`
 }
 
 // payloadPathPattern matches ./payload/apps/<id>/ style source paths in
@@ -168,13 +171,13 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 	hostname, _ := os.Hostname()
 
 	metadata := BundleMetadata{
-		SchemaVersion:        "1.0",
-		CapturedAt:           time.Now().UTC().Format(time.RFC3339),
-		MachineName:          hostname,
-		EndstateVersion:      version,
+		SchemaVersion:         "1.0",
+		CapturedAt:            time.Now().UTC().Format(time.RFC3339),
+		MachineName:           hostname,
+		EndstateVersion:       version,
 		ConfigModulesIncluded: included,
 		ConfigModulesSkipped:  skipped,
-		CaptureWarnings:      captureWarnings,
+		CaptureWarnings:       captureWarnings,
 	}
 	// Ensure empty slices serialize as [] not null.
 	if metadata.ConfigModulesIncluded == nil {
@@ -197,24 +200,8 @@ func CreateBundle(manifestPath string, matchedModules []*modules.Module, outputP
 	}
 
 	// --- Stage 4: Create zip atomically ---
-	outDir := filepath.Dir(outputPath)
-	if outDir != "" && outDir != "." {
-		if err := os.MkdirAll(outDir, 0755); err != nil {
-			return fmt.Errorf("failed to create output directory: %w", err)
-		}
-	}
-
-	tempZip := outputPath + ".tmp"
-	if err := createZipFromDir(stagingDir, tempZip); err != nil {
-		os.Remove(tempZip)
+	if err := writeCaptureZipAtomically(stagingDir, outputPath); err != nil {
 		return fmt.Errorf("failed to create zip: %w", err)
-	}
-
-	// Atomic rename.
-	os.Remove(outputPath) // Remove existing if present.
-	if err := os.Rename(tempZip, outputPath); err != nil {
-		os.Remove(tempZip)
-		return fmt.Errorf("failed to move zip to final location: %w", err)
 	}
 
 	return nil
@@ -242,18 +229,28 @@ func createZipFromDir(srcDir, zipPath string) error {
 	if err != nil {
 		return err
 	}
-	defer zipFile.Close()
+	return createZipFromDirFile(srcDir, zipFile)
+}
 
+// createZipFromDirFile writes a zip to an already-created file and owns the
+// file from entry through Sync and Close. Every finalization error participates
+// in the returned error so callers never publish a partially finalized zip.
+func createZipFromDirFile(srcDir string, zipFile *os.File) error {
 	w := zip.NewWriter(zipFile)
-	defer w.Close()
 
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+	walkErr := filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if isLinkOrReparse(info) {
+			return fmt.Errorf("zip entry %q is a link or reparse point", path)
 		}
 
 		// Skip the root directory itself.
 		if path == srcDir {
+			if !info.IsDir() {
+				return fmt.Errorf("zip source root %q is not a directory", path)
+			}
 			return nil
 		}
 
@@ -269,6 +266,9 @@ func createZipFromDir(srcDir, zipPath string) error {
 			// Add trailing slash for directories in zip.
 			_, err := w.Create(zipEntryName + "/")
 			return err
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("zip entry %q is not a regular file", path)
 		}
 
 		// Create file entry in zip.
@@ -288,9 +288,12 @@ func createZipFromDir(srcDir, zipPath string) error {
 		if err != nil {
 			return err
 		}
-		defer file.Close()
-
-		_, err = io.Copy(writer, file)
-		return err
+		_, copyErr := io.Copy(writer, file)
+		closeErr := file.Close()
+		return errors.Join(copyErr, closeErr)
 	})
+	writerCloseErr := w.Close()
+	syncErr := zipFile.Sync()
+	fileCloseErr := zipFile.Close()
+	return errors.Join(walkErr, writerCloseErr, syncErr, fileCloseErr)
 }

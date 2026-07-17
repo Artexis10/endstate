@@ -108,24 +108,9 @@ func RestoreMergeJson(entry RestoreAction, source, target string, opts RestoreOp
 		}
 	}
 
-	// Write merged JSON atomically.
-	targetDir := filepath.Dir(target)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		result.Status = "failed"
-		result.Error = fmt.Sprintf("cannot create target directory: %v", err)
-		return result, nil
-	}
-
-	tmpPath := target + ".tmp"
-	if err := os.WriteFile(tmpPath, append(mergedBytes, '\n'), 0644); err != nil {
+	if err := atomicRestoreWrite(target, append(mergedBytes, '\n'), 0o644); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("write failed: %v", err)
-		return result, nil
-	}
-	if err := os.Rename(tmpPath, target); err != nil {
-		os.Remove(tmpPath)
-		result.Status = "failed"
-		result.Error = fmt.Sprintf("atomic rename failed: %v", err)
 		return result, nil
 	}
 

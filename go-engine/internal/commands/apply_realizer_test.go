@@ -244,7 +244,7 @@ func TestRunApplyRealizer_AllToAdd_Success(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
-	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-1", nil, nil, nil, nil)
+	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-1", nil, nil, nil, nil, nil)
 
 	if envelopeErr != nil {
 		t.Fatalf("runApplyRealizer returned envelope error: %v", envelopeErr)
@@ -299,7 +299,7 @@ func TestRunApplyRealizer_SystemicError(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
-	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-2", nil, nil, nil, nil)
+	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-2", nil, nil, nil, nil, nil)
 
 	if envelopeErr == nil {
 		t.Fatal("expected envelope error for systemic realizer failure, got nil")
@@ -353,7 +353,7 @@ func TestRunApplyRealizer_InstallError(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
-	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-3", nil, nil, nil, nil)
+	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-3", nil, nil, nil, nil, nil)
 
 	// Non-systemic: envelope error must be nil.
 	if envelopeErr != nil {
@@ -406,7 +406,7 @@ func TestRunApplyRealizer_AllPresent_NoRealize(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
-	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-4", nil, nil, nil, nil)
+	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-4", nil, nil, nil, nil, nil)
 
 	if envelopeErr != nil {
 		t.Fatalf("runApplyRealizer returned envelope error: %v", envelopeErr)
@@ -446,7 +446,7 @@ func TestRunApplyRealizer_DryRun(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", DryRun: true}
-	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-dry", nil, nil, nil, nil)
+	raw, envelopeErr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-dry", nil, nil, nil, nil, nil)
 
 	if envelopeErr != nil {
 		t.Fatalf("runApplyRealizer dry-run returned envelope error: %v", envelopeErr)
@@ -543,7 +543,7 @@ func TestRunApplyRealizer_HomeManager_ActivatesAndRecords(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
-	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm1", nil, nil, nil, nil)
+	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm1", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -590,7 +590,7 @@ func TestRunApplyRealizer_HomeManager_Config_RecordsDeclaredConfig(t *testing.T)
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
-	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hmcfg", nil, nil, nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hmcfg", nil, nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
 	gens, _ := provision.List()
@@ -618,7 +618,7 @@ func TestRunApplyRealizer_HomeManager_NoFlag_NoActivation(t *testing.T) {
 	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
 
 	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: false}
-	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm2", nil, nil, nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm2", nil, nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
 	if fr.activateCalls != 0 {
@@ -634,7 +634,7 @@ func TestRunApplyRealizer_HomeManager_NoField_NoActivation(t *testing.T) {
 	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
 
 	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
-	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm3", nil, nil, nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm3", nil, nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
 	if fr.activateCalls != 0 {
@@ -651,7 +651,7 @@ func TestRunApplyRealizer_HomeManager_EmptyFlake_NoActivation(t *testing.T) {
 	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
 
 	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
-	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm4", nil, nil, nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm4", nil, nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
 	if fr.activateCalls != 0 {
@@ -672,7 +672,7 @@ func TestRunApplyRealizer_HomeManager_SystemicError(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
-	data, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm5", nil, nil, nil, nil)
+	data, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm5", nil, nil, nil, nil, nil)
 	if eerr == nil {
 		t.Fatal("expected envelope error for systemic activation failure, got nil")
 	}
@@ -701,7 +701,7 @@ func TestRunApplyRealizer_HomeManager_ActivationFailed(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
-	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm6", nil, nil, nil, nil)
+	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm6", nil, nil, nil, nil, nil)
 	if eerr == nil {
 		t.Fatal("expected envelope error for activation failure, got nil")
 	}
@@ -731,7 +731,7 @@ func TestRunApplyRealizer_HomeManager_ConfigOnlyRecordsGeneration(t *testing.T) 
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", EnableRestore: true}
-	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm7", nil, nil, nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-hm7", nil, nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
 	if fr.activateCalls != 1 {
@@ -757,6 +757,7 @@ func TestRunApply_WingetPath_NeverActivatesHome(t *testing.T) {
 	tmpDir := t.TempDir()
 	manifestPath := tmpDir + "/m.jsonc"
 	manifestContent := `{
+		"version": 1,
 		"name": "winget-hm-test",
 		"apps": [ { "id": "a", "refs": { "windows": "Vendor.A" } } ],
 		"homeManager": { "flake": "/home/me/dotfiles#hugo" }
@@ -816,7 +817,7 @@ func TestRunApplyRealizer_HomeManagerConfig_GeneratesAndActivates(t *testing.T) 
 	}
 
 	flags := ApplyFlags{Manifest: manifestPath, EnableRestore: true}
-	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cfg1", nil, nil, nil, nil)
+	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cfg1", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -873,7 +874,7 @@ func TestRunApplyRealizer_HomeManagerConfig_DryRunRevealsNoActivate(t *testing.T
 	fr := &fakeRealizer{planDiff: realizer.Diff{Present: []realizer.Installable{{ID: "ripgrep", Ref: hostRef(app)}}}}
 
 	flags := ApplyFlags{Manifest: manifestPath, EnableRestore: true, DryRun: true}
-	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cfg2", nil, nil, nil, nil)
+	raw, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-cfg2", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -910,6 +911,7 @@ func TestRunApply_WingetPath_ConfigNeverGenerates(t *testing.T) {
 	}
 	manifestPath := filepath.Join(tmpDir, "m.jsonc")
 	manifestContent := `{
+		"version": 1,
 		"name": "winget-hm-cfg-test",
 		"apps": [ { "id": "a", "refs": { "windows": "Vendor.A" } } ],
 		"homeManager": { "config": "home.nix" }
@@ -986,7 +988,7 @@ func TestRunApplyRealizer_VersionCapture_PresentPackage(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
-	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver1", nil, nil, nil, nil)
+	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver1", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -1035,7 +1037,7 @@ func TestRunApplyRealizer_VersionCapture_InstalledPackage(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
-	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver2", nil, nil, nil, nil)
+	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver2", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("unexpected envelope error: %v", eerr)
 	}
@@ -1085,7 +1087,7 @@ func TestRunApplyRealizer_VersionCapture_EmptyStorePaths(t *testing.T) {
 	}
 
 	flags := ApplyFlags{Manifest: "nix-test", DryRun: false}
-	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver3", nil, nil, nil, nil)
+	_, eerr := runApplyRealizer(flags, mf, fr, noopEmitter(), "run-ver3", nil, nil, nil, nil, nil)
 	if eerr != nil {
 		t.Fatalf("empty store paths must not fail apply: %v", eerr)
 	}

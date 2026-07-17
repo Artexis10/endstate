@@ -12,6 +12,42 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
+func TestParseArgsPreservesRepeatableRestoreTargets(t *testing.T) {
+	parsed := parseArgs([]string{
+		"rebuild",
+		"--from", "profile.zip",
+		"--restore-target", "capture-b=instance-2",
+		"--restore-target", "capture-a=instance-1",
+	})
+
+	want := []string{"capture-b=instance-2", "capture-a=instance-1"}
+	if !reflect.DeepEqual(parsed.restoreTargets, want) {
+		t.Fatalf("restoreTargets = %#v, want %#v", parsed.restoreTargets, want)
+	}
+}
+
+func TestParseArgsPreservesMissingRestoreTargetForValidation(t *testing.T) {
+	parsed := parseArgs([]string{"restore", "--restore-target", "--dry-run"})
+	if !reflect.DeepEqual(parsed.restoreTargets, []string{""}) {
+		t.Fatalf("restoreTargets = %#v, want one empty value", parsed.restoreTargets)
+	}
+	if !parsed.dryRun {
+		t.Fatal("following flag was consumed as a restore target")
+	}
+}
+
+func TestRestoreCapableCommandUsageAdvertisesRestoreTarget(t *testing.T) {
+	for _, command := range []string{"apply", "restore", "rebuild"} {
+		usage := commandUsage(command)
+		if !strings.Contains(usage, "--restore-target <captureId>=<targetInstanceId>") {
+			t.Fatalf("%s usage does not advertise --restore-target: %s", command, usage)
+		}
+	}
+	if !strings.Contains(usageText, "--restore-target <m>") {
+		t.Fatalf("top-level usage does not advertise repeatable --restore-target: %s", usageText)
+	}
+}
+
 func TestParseArgs_CaptureRepeatableDriver(t *testing.T) {
 	got := parseArgs([]string{"capture", "--driver", "winget", "--driver", "chocolatey", "--json"})
 	if want := []string{"winget", "chocolatey"}; !reflect.DeepEqual(got.drivers, want) {
@@ -87,11 +123,11 @@ func TestDispatch_ForwardsRebuildBootstrapFlags(t *testing.T) {
 		return struct{}{}, nil
 	}
 
-	parsed := parseArgs([]string{"rebuild", "--from", "machine.zip", "--bootstrap-backends", "--no-bootstrap", "--dry-run"})
+	parsed := parseArgs([]string{"rebuild", "--from", "machine.zip", "--bootstrap-backends", "--no-bootstrap", "--restore-filter", "apps.git", "--restore-target", "capture-a=instance-1", "--dry-run"})
 	if _, eerr := dispatch(parsed); eerr != nil {
 		t.Fatalf("dispatch error: %v", eerr)
 	}
-	if captured.From != "machine.zip" || !captured.BootstrapBackends || !captured.NoBootstrap || !captured.DryRun {
+	if captured.From != "machine.zip" || !captured.BootstrapBackends || !captured.NoBootstrap || !captured.DryRun || captured.RestoreFilter != "apps.git" || !reflect.DeepEqual(captured.RestoreTargets, []string{"capture-a=instance-1"}) {
 		t.Fatalf("forwarded rebuild flags = %+v", captured)
 	}
 }

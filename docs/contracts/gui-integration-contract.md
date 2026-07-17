@@ -154,7 +154,7 @@ When schema versions are incompatible, GUI must display:
 ```
 Endstate CLI Incompatible
 
-The installed Endstate CLI (v0.1.0, schema 1.0) is not compatible 
+The installed Endstate CLI (v0.1.0, schema 1.0) is not compatible
 with this version of Endstate GUI (requires schema 2.0).
 
 Please update Endstate CLI or use a compatible GUI version.
@@ -222,6 +222,8 @@ endstate capabilities --json
 > conditional auto-backup flow (`backup push --if-changed`). The GUI MUST check
 > this field rather than probing `commands.backup.flags` for `--if-changed`.
 
+For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, and `commands.rebuild.flags` advertise repeatable `--restore-target`. The GUI must capability-gate target selection rather than assuming a CLI version supports it.
+
 ### GUI Responsibilities
 
 1. Call `capabilities --json` on startup
@@ -250,12 +252,43 @@ The GUI renders the existing combined consent event and, after affirmative conse
 | Command | JSON Flag | Description |
 |---------|-----------|-------------|
 | `capabilities` | `--json` | Report CLI capabilities |
+| `capture` | `--json` | Capture apps and configuration into a profile artifact; supports repeatable `--driver` filters |
 | `apply` | `--json` | Execute provisioning |
-| `capture` | `--json` | Capture installed packages; supports repeatable `--driver` filters |
-| `rebuild` | `--json` | Apply and verify a capture bundle or manifest; propagates backend-bootstrap flags |
 | `restore` | `--json` | Restore configuration |
+| `rebuild` | `--json` | Install, restore, and verify from a capture artifact; propagates backend-bootstrap flags |
 | `verify` | `--json` | Verify machine state |
 | `report` | `--json` | Retrieve run history |
+
+---
+
+## Configuration Generation Presentation
+
+The CLI is the sole authority for application/config instance discovery, raw and normalized version evidence, config-generation selection, compatibility resolution, migration paths, target collisions, and transaction outcome. The GUI must not load module or bundle snapshots as rules and must not compare versions or reconstruct a migration graph.
+
+Restore-capable envelopes expose `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]`; streams expose `config-resolution` and `config-migration`. Each resolution preserves a portable, non-secret `sourceInstance` and a non-null `targetCandidates[]` of portable target identity and version evidence. Host-local target roots and locators remain internal to the engine. The GUI correlates rows by `captureId`, renders the engine-provided candidates, and sends a user choice back as `--restore-target <captureId>=<targetInstanceId>`. It never silently selects a highest/newest side-by-side instance.
+
+When input has no config payloads, envelopes omit all config fields. When config payloads are present, `configResolutions[]`, every row's `targetCandidates[]`, `migrationPath[]`, and `resolvedTargets[]`, and `restoreItems[]` are present and serialize as `[]`, never `null`, when empty. `reason` and `remediation` serialize as `null` when absent. Rebuild's canonical config fields are at the top level of command data; its nested apply result may mirror them.
+
+The new event types and optional restore-item fields remain event schema version `1`; consumers follow the existing rule of ignoring unknown additive fields/types they do not yet render.
+
+### Locked Default Labels
+
+The engine authors each row's distilled `label`, `message`, nullable `remediation`, and technical details. The GUI renders them verbatim and does not map resolutions to replacement copy or recompute details from versions, candidates, module rules, or bundle data. The default engine labels are:
+
+| Engine resolution | Default engine label |
+|-------------------|-------------------|
+| `direct` | **Compatible** |
+| `migrate` | **Will be upgraded** |
+| `unknown` or `legacy_unverified` | **Compatibility unknown** |
+| `incompatible` | **Not supported** |
+
+Advanced details display the engine-provided source/target instance versions, config-set and generation IDs, migration path, capture/restore module revisions, and stable reason verbatim. They are progressive disclosure of engine output, not inputs to GUI-side logic.
+
+Explicit legacy v1 module lanes remain usable through existing consent, use `configSetId: "legacy"` plus the deterministic capture ID returned by `bundle.LegacyCaptureID(moduleId)`, and receive the engine label **Compatibility unknown** (`legacy_unverified`), never falsely incompatible. Anonymous inline actions without a module-lane association appear only as ordinary restore items; the GUI must not invent config-resolution rows for them. Invalid v2 provenance is shown as the engine's `unknown`/failure reason and never offered through a legacy fallback.
+
+### Terminal Execution Status
+
+The GUI treats compatibility `resolution` and terminal execution `status` as separate fields. Envelope status is exactly `planned`, `restored`, `skipped`, `failed`, `rolled_back`, or `rollback_failed`. In-progress migration events use stage `staging`, `edge`, `validation`, `commit`, or `rollback` and status `started`, `completed`, or `failed`; no other stage/status value is inferred. For failure rows, the GUI preserves `reason` as the primary execution failure and uses `status` for rollback outcome. `rollback_failed` must be surfaced as requiring attention because the engine blocks later config-set mutation.
 
 ---
 
@@ -273,6 +306,7 @@ Standard error codes for programmatic handling:
 | `WINGET_NOT_AVAILABLE` | winget not installed |
 | `INSTALL_FAILED` | Package installation failed |
 | `RESTORE_FAILED` | Configuration restore failed |
+| `INVALID_RESTORE_TARGET` | Restore-target input is malformed, duplicated, unknown, or non-targetable; display the engine-authored message and remediation |
 | `VERIFY_FAILED` | Verification check failed |
 | `PERMISSION_DENIED` | Insufficient permissions |
 | `INTERNAL_ERROR` | Unexpected internal error |

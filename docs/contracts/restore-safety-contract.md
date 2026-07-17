@@ -2,7 +2,7 @@
 
 **Status:** Draft
 **Version:** 1.0
-**Last Updated:** 2026-02-21
+**Last Updated:** 2026-07-16
 
 ## Purpose
 
@@ -23,6 +23,34 @@ If a restore target already exists on the machine, the default behavior is to sk
 ---
 
 ## Engine Contract
+
+### Compatibility Resolution Precedes Mutation
+
+For every captured config set, the engine resolves compatibility before any target write as exactly one of:
+
+| Resolution | Meaning |
+|------------|---------|
+| `direct` | Source and selected target use the same config generation |
+| `migrate` | The pinned current catalog provides one explicit forward migration path |
+| `incompatible` | The target is known but no supported direction/path exists |
+| `unknown` | Required source, catalog, version, generation, or target knowledge is absent or ambiguous |
+| `legacy_unverified` | Schema-v1 payload has no trustworthy generation provenance |
+
+Application versions are evidence used to select config generations; they are not themselves compatibility. Schema-v2 modules may contain independently evolving config sets, so one application can restore `preferences/g2` while `presets/g1` is skipped.
+
+Same-generation transfer is direct. Different generations require one explicit, uniquely resolvable forward migration path in the same config set. Generation `order` proves direction but never creates an edge; a lower-order target is an unsupported downgrade. No path, ambiguous path, changed/unaccepted source fingerprint, or missing current-catalog knowledge remains incompatible/unknown rather than guessed.
+
+The engine never chooses a newest side-by-side instance. It auto-selects only one viable target or one unique exact-version target. Otherwise it reports `ambiguous_target_instance` until the caller supplies `--restore-target <captureId>=<targetInstanceId>`. Module-level `--restore-filter` applies first. Invalid mapping syntax, duplicate capture mappings, and unknown/non-targetable capture IDs return `INVALID_RESTORE_TARGET` with engine-authored message and remediation before installation or config mutation; a mapped target absent/incompatible after final post-install detection skips only that set.
+
+Source provenance comes from the bundle and remains immutable. Target discovery, current generation definitions, and migration edges come only from the trusted catalog snapshot pinned for the run. Bundle-supplied module snapshots are inspectable but never executable or authoritative.
+
+Every result preserves a portable, non-secret `sourceInstance` and a non-null `targetCandidates[]` containing portable target identity and version evidence. Host-local target roots and locators remain internal engine data. The engine authors `label`, `message`, nullable `remediation`, and all technical detail; GUI consumers render those values verbatim and never reconstruct them from application versions, candidates, module rules, or bundle data.
+
+Stable per-set reasons include compatibility causes plus `restore_filtered`, `restore_not_enabled`, `target_detection_failed`, `staging_validation_failed`, `backup_failed`, `journal_intent_failed`, `commit_failed`, `target_validation_failed`, `journal_completion_failed`, and `already_up_to_date`. A missing reason or remediation is serialized as `null`.
+
+Preflight rejects selected config sets whose concrete target paths are equal or overlap by parent/child containment, and rejects multiple captured sets competing for one target instance/config set. Neither colliding set mutates its target.
+
+Host-path validation canonicalizes fixed operating-system root aliases before walking path components. In particular, macOS `/var` is validated and compared through its standard `/private/var` identity; links below that canonical root remain rejected.
 
 ### onConflict Field
 
@@ -80,7 +108,41 @@ Each restore entry emits a result with:
 
 - `--enable-restore` — required to activate restore (existing, unchanged)
 - `--restore-overwrite` — override `onConflict` to `backup-and-overwrite` for all entries
+- `--restore-target <captureId>=<targetInstanceId>` — repeatable explicit target selection for side-by-side generation-aware captures
 - No flag exists for `overwrite` without backup. Backup is always created when overwriting.
+
+### Generation-Aware Staging and Config-Set Transactions
+
+Before host mutation, the engine verifies the payload manifest, copies one config set to fresh staging, applies only allowlisted forward migration operations inside staging, validates every migration edge, and validates the final target generation. Captured bytes are read-only. The initial operation allowlist is `file-copy`, `file-move`, `file-delete`, `json-set`, `json-delete`, `json-move`, `ini-set`, `ini-delete`, and `ini-move`; validation is limited to `file-exists`, `json-parse`, `json-path-exists`, `ini-parse`, and `ini-key-exists`. Unsupported formats are reported; modules and bundles cannot run shell, PowerShell, batch, executables, dynamic plugins, generic regex replacements, or host-absolute migration writes.
+
+After staging succeeds, each config set commits transactionally:
+
+1. Create all required backups.
+2. Atomically persist a `pending` journal intent with concrete actions and backup locations.
+3. Commit the resolved restore actions.
+4. Validate the committed target generation.
+5. Atomically mark the intent `committed`.
+
+Staging validation uses `staging_validation_failed`; backup failure uses `backup_failed`; intent persistence failure occurs before mutation and uses `journal_intent_failed`. Commit, final target validation, or completion-record failure uses `commit_failed`, `target_validation_failed`, or `journal_completion_failed` respectively and triggers immediate rollback of that config set after mutation. A verified rollback allows safe non-overlapping sets to continue. Incomplete rollback stops all later config-set mutation. Before any future restore-capable mutation, pending intents are recovered idempotently; unrecoverable state fails the new run with `recovery_required` before new writes.
+
+If a generation requires its application closed, a running app produces `app_running`; the engine never stops or kills it.
+
+### Config-Set Terminal Status
+
+Envelope status is independent from compatibility resolution and is exactly one of:
+
+| Status | Contract meaning |
+|--------|------------------|
+| `planned` | Dry-run only: selected set passed compatibility, integrity, preflight, staging, and validation |
+| `restored` | Live transaction reached and validated desired state and durably recorded completion |
+| `skipped` | No mutation was attempted because non-execution was intentional or safely required, including filtering/consent, unknown/incompatible resolution, absent/incompatible mapped target, `app_running`, or already-up-to-date state |
+| `failed` | Selected set failed before any target mutation, so rollback was unnecessary |
+| `rolled_back` | Mutation began, failed, and rollback durably restored and verified complete pre-run state |
+| `rollback_failed` | Mutation began and complete restoration could not be proven; later config-set mutation is blocked |
+
+For failure statuses, `reason` retains the primary integrity, staging, backup, journal, commit, or validation failure. Rollback outcome is represented by `status`, not by replacing that cause.
+
+When restore-capable input contains config payloads, command data includes `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]`; every result's `targetCandidates[]`, `migrationPath[]`, and `resolvedTargets[]` is also present. These arrays serialize as `[]`, never `null`, when empty. Config-free input omits the config fields entirely. Rebuild's canonical config fields are top-level command data; its nested apply result may mirror them.
 
 ---
 
@@ -117,6 +179,15 @@ The default flow presents one toggle per app:
 3. When toggled ON with existing targets: brief inline note — "Existing files will be skipped. Use Advanced to choose which to overwrite."
 4. Default behavior: `onConflict: skip` — only restores files that don't exist yet
 5. No jargon, no file paths, no technical detail
+
+For generation-aware payloads, the engine may expose multiple config sets or side-by-side target choices beneath one app. The GUI renders those engine-provided rows, labels, messages, remediation, technical details, and mappings verbatim; it does not inspect module rules, compare app versions, select generations, infer compatibility, or author replacement copy.
+
+Engine-authored default compatibility labels are locked:
+
+- `direct` → **Compatible**
+- `migrate` → **Will be upgraded**
+- `unknown` or `legacy_unverified` → **Compatibility unknown**
+- `incompatible` → **Not supported**
 
 ### Default Restore Behavior
 
@@ -228,7 +299,7 @@ When global Advanced Mode is disabled:
 
 ### Revert
 
-Revert uses the existing journal-based revert system (see config-portability-contract.md). No changes needed — just surface it prominently in the GUI.
+Revert uses the journal-based revert system (see config-portability-contract.md). Generation-aware journals record concrete target actions and generation lineage; revert restores concrete pre-run state and never tries to reverse the migration graph. The GUI surfaces the engine-provided outcome prominently.
 
 Revert button available from:
 - Result screen (immediately after restore)
@@ -265,18 +336,34 @@ If no `onConflict` is specified and no user override is active, existing files a
 
 All core restore functionality works without entering advanced mode. Advanced mode reveals detail and control — it never unlocks behavior that should be default.
 
+### INV-RESTORE-SAFETY-6: No Mutation Before Resolution and Integrity
+
+Every selected generation-aware config set has a final resolution, verified payload, collision-free concrete targets, and validated staging output before its first target mutation. Unknown/incompatible sets are skipped without undoing successful application installation or blocking safe independent sets.
+
+### INV-RESTORE-SAFETY-7: Config-Set Atomicity and Recovery
+
+All backups and a durable pending intent precede target mutation. A partially committed set is rolled back immediately; `rollback_failed` blocks later set mutation. Pending intents are recovered before any later restore-capable mutation.
+
+### INV-RESTORE-SAFETY-8: No Hidden Target or Migration Choice
+
+No declaration order, lexically newest path, highest app version, implicit generation order edge, bundle snapshot, or GUI heuristic may choose a target or migration. Ambiguity remains explicit until the engine can resolve it uniquely or the caller supplies a valid target mapping.
+
 ---
 
 ## Module Integration
 
 ### How Modules Feed the GUI
 
-The GUI reads module definitions to populate the per-app advanced view:
+For schema-v1 lanes, existing module-derived restore metadata may populate the per-app advanced view. For schema-v2 lanes, the GUI consumes engine preflight/envelope data only:
 
-1. Module `restore` entries → list of config paths per app
-2. Module `capture.files` entries → determines what's in the bundle
-3. Engine pre-scans targets → reports which exist on the machine
-4. GUI renders three groups: NEW, EXISTS, MISSING FROM BUNDLE
+1. Engine `configResolutions[]` → compatibility, portable source instance, non-null target candidates, generations, reasons, presentation, and migration path
+2. Engine `restoreItems[]`/preflight → concrete path actions and conflict state
+3. Engine target candidates → side-by-side choices keyed by target instance ID
+4. GUI renders the supplied data and passes user selections back through documented CLI flags
+
+The GUI never loads a capture-time module snapshot as rules and never recomputes a generation, migration path, target evidence, technical detail, or presentation copy.
+
+Every explicit schema-v1 module lane uses `configSetId: "legacy"` and the deterministic, domain-separated capture ID returned by `bundle.LegacyCaptureID(moduleId)`. Anonymous inline restore actions without a module-lane association remain ordinary restore items; they do not receive fabricated config-resolution rows, instances, versions, or generations.
 
 ### Module Display Names
 

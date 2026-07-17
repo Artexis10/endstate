@@ -32,6 +32,9 @@ type mockDriver struct {
 	installErr error
 	// versions maps ref -> installed version reported by DetectBatch (capture).
 	versions map[string]string
+	// afterInstall observes a successful plain install (used by command-level
+	// tests where installation makes a versioned config root detectable).
+	afterInstall func(string)
 
 	// --- version pinning (Phase 6) observation/scripting ---
 	installCalls         int                   // plain Install (latest) call count
@@ -125,6 +128,9 @@ func (m *mockDriver) Install(ref string) (*driver.InstallResult, error) {
 		m.installed = make(map[string]bool)
 	}
 	m.installed[ref] = true
+	if m.afterInstall != nil {
+		m.afterInstall(ref)
+	}
 	return &driver.InstallResult{
 		Status:  driver.StatusInstalled,
 		Message: "Installed successfully",
@@ -1210,6 +1216,7 @@ func TestRunApply_RestoreModulesAvailable_FallbackToShortID(t *testing.T) {
 	// Need a manifest with this app. Create a temp fixture.
 	tmpDir := t.TempDir()
 	manifestContent := `{
+		"version": 1,
 		"name": "test-nodisplay",
 		"apps": [
 			{ "id": "nodisplay", "refs": { "windows": "Vendor.NoDisplay" } }

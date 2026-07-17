@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
 // Emitter writes NDJSON events to an io.Writer (default: os.Stderr).
@@ -147,6 +149,147 @@ func (e *Emitter) EmitArtifact(phase, kind, path string) {
 		Kind:      kind,
 		Path:      path,
 	})
+}
+
+// EmitConfigResolution projects the planner-owned result at the event boundary
+// so presentation and portable target scrubbing cannot drift from envelopes.
+func (e *Emitter) EmitConfigResolution(set planner.PlanSet) {
+	if !e.enabled {
+		return
+	}
+	resolution := planner.ProjectConfigResolution(set)
+	targetCandidates := append([]planner.TargetInstance{}, resolution.TargetCandidates...)
+	for index := range targetCandidates {
+		targetCandidates[index].Root = ""
+	}
+	e.emit(ConfigResolutionEvent{
+		BaseEvent:                   e.base("config-resolution"),
+		CaptureID:                   resolution.CaptureID,
+		ModuleID:                    resolution.ModuleID,
+		ConfigSetID:                 resolution.ConfigSetID,
+		SourceInstance:              resolution.SourceInstance,
+		SourceInstanceID:            resolution.SourceInstanceID,
+		TargetInstanceID:            resolution.TargetInstanceID,
+		TargetCandidates:            targetCandidates,
+		SourceGeneration:            resolution.SourceGeneration,
+		SourceGenerationFingerprint: resolution.SourceGenerationFingerprint,
+		TargetGeneration:            resolution.TargetGeneration,
+		Resolution:                  resolution.Resolution,
+		Reason:                      resolution.Reason,
+		MigrationPath:               append([]string{}, resolution.MigrationPath...),
+		CaptureModuleRevision:       resolution.CaptureModuleRevision,
+		RestoreModuleRevision:       resolution.RestoreModuleRevision,
+		Label:                       resolution.Label,
+		Message:                     resolution.Message,
+		Remediation:                 resolution.Remediation,
+	})
+}
+
+// ConfigMigrationProgress contains one engine-owned config migration progress
+// transition. Reason and Remediation are nil when the wire value is null.
+type ConfigMigrationProgress struct {
+	CaptureID      string
+	ConfigSetID    string
+	Stage          ConfigMigrationStage
+	FromGeneration string
+	ToGeneration   string
+	Status         ConfigProgressStatus
+	Reason         *string
+	Message        string
+	Remediation    *string
+}
+
+// EmitConfigMigration emits a config-migration event. Invalid enum values are
+// refused rather than leaking an open-ended wire vocabulary.
+func (e *Emitter) EmitConfigMigration(progress ConfigMigrationProgress) {
+	if !e.enabled || !validConfigMigrationStage(progress.Stage) || !validConfigProgressStatus(progress.Status) {
+		return
+	}
+	e.emit(ConfigMigrationEvent{
+		BaseEvent:      e.base("config-migration"),
+		CaptureID:      progress.CaptureID,
+		ConfigSetID:    progress.ConfigSetID,
+		Stage:          progress.Stage,
+		FromGeneration: progress.FromGeneration,
+		ToGeneration:   progress.ToGeneration,
+		Status:         progress.Status,
+		Reason:         progress.Reason,
+		Message:        progress.Message,
+		Remediation:    progress.Remediation,
+	})
+}
+
+// RestoreItemProgress contains one concrete restore action transition.
+type RestoreItemProgress struct {
+	ID               string
+	Module           string
+	Restorer         string
+	Source           string
+	Target           string
+	Status           RestoreItemStatus
+	Reason           *string
+	BackupPath       *string
+	TargetExisted    bool
+	Message          string
+	CaptureID        string
+	ConfigSetID      string
+	TargetInstanceID string
+	SourceGeneration string
+	TargetGeneration string
+}
+
+// EmitRestoreItem emits a restore-item event and refuses unknown status values.
+func (e *Emitter) EmitRestoreItem(progress RestoreItemProgress) {
+	if !e.enabled || !validRestoreItemStatus(progress.Status) {
+		return
+	}
+	e.emit(RestoreItemEvent{
+		BaseEvent:        e.base("restore-item"),
+		ID:               progress.ID,
+		Module:           progress.Module,
+		Restorer:         progress.Restorer,
+		Source:           progress.Source,
+		Target:           progress.Target,
+		Status:           progress.Status,
+		Reason:           progress.Reason,
+		BackupPath:       progress.BackupPath,
+		TargetExisted:    progress.TargetExisted,
+		Message:          progress.Message,
+		CaptureID:        progress.CaptureID,
+		ConfigSetID:      progress.ConfigSetID,
+		TargetInstanceID: progress.TargetInstanceID,
+		SourceGeneration: progress.SourceGeneration,
+		TargetGeneration: progress.TargetGeneration,
+	})
+}
+
+func validConfigMigrationStage(stage ConfigMigrationStage) bool {
+	switch stage {
+	case ConfigMigrationStaging, ConfigMigrationEdge, ConfigMigrationValidation,
+		ConfigMigrationCommit, ConfigMigrationRollback:
+		return true
+	default:
+		return false
+	}
+}
+
+func validConfigProgressStatus(status ConfigProgressStatus) bool {
+	switch status {
+	case ConfigProgressStarted, ConfigProgressCompleted, ConfigProgressFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+func validRestoreItemStatus(status RestoreItemStatus) bool {
+	switch status {
+	case RestoreItemRestoring, RestoreItemRestored, RestoreItemSkippedUpToDate,
+		RestoreItemSkippedMissingSource, RestoreItemFailed:
+		return true
+	default:
+		return false
+	}
 }
 
 // EmitConsent emits a consent-request event for one or more absent backends the

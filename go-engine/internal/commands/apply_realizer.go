@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -170,7 +171,7 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 // stream so the event contract is preserved. Package install ONLY — config and
 // verify stages keep their own concerns. Raw backend text is confined to
 // error.detail.
-func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, restoreModulesAvailable []RestoreModuleRef, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
+func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, packageModuleMap map[string][]string, restoreModulesAvailable []RestoreModuleRef, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	driverName := r.Name()
 
 	// Brew lane (driver:"brew" apps) runs interleaved INSIDE the realizer's
@@ -270,8 +271,37 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	unsupportedActions := planUnsupportedDriverApply(firstAppSlice(unsupportedApps), emitter)
 	totalApps := len(actions) + len(brew.brewActions()) + len(unsupportedActions)
 	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, brewPlanSkipped+len(unsupportedActions), toInstallCount+brewToInstall)
+	configSession, configSessionErr := prepareApplyConfigRestore(
+		context.Background(),
+		flags,
+		newRealizerConfigRestoreEvidenceSourceWithBrewError(
+			r,
+			brewDrv,
+			flags.configRestoreBrewErr,
+			append(append(append([]manifest.App{}, mf.Apps...), brewApps...), firstAppSlice(unsupportedApps)...),
+		),
+	)
+	if configSessionErr != nil {
+		return nil, configSessionErr
+	}
+	var configFields *ConfigResultFields
 
 	if flags.DryRun {
+		var configErr *envelope.Error
+		configFields, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession,
+		)
+		if configErr != nil {
+			dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
+			dryActions = append(dryActions, unsupportedActions...)
+			return &ApplyResult{
+				DryRun: true, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+				Summary:         ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent + brewPlanSkipped + len(unsupportedActions)},
+				Actions:         dryActions,
+				ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+				ConfigResultFields: configFields,
+			}, configErr
+		}
 		// --prune --dry-run previews the prune set without mutating anything and
 		// without requiring --confirm.
 		var pruned []string
@@ -307,9 +337,11 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			Summary:                 ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent + brewPlanSkipped + len(unsupportedActions)},
 			Actions:                 dryActions,
 			ConfigModuleMap:         configModuleMap,
+			PackageModuleMap:        packageModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
 			Pruned:                  pruned,
 			HomeManager:             hmPreview,
+			ConfigResultFields:      configFields,
 		}, nil
 	}
 
@@ -429,6 +461,30 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	skippedCount += len(unsupportedActions)
 
 	emitter.EmitSummary("apply", successCount+skippedCount+failedCount, successCount, skippedCount, failedCount)
+	var configErr *envelope.Error
+	configFields, configErr = executePreparedApplyConfigRestore(
+		context.Background(), flags, runID, emitter, configSession,
+	)
+	if configErr != nil {
+		if installAdvanced || pruneAdvanced {
+			finalGen := installGen
+			if pruneAdvanced {
+				finalGen = pruneGen
+			}
+			writeProvisioningGeneration(runID, driverName, actions, removed, fmt.Sprintf("%d", finalGen), failedCount > 0, nil)
+		}
+		brewActions := brew.brewActions()
+		writeProvisioningGeneration(runID, "brew", brewActions, nil, "", brewFailed > 0, nil)
+		resultActions := append(append([]ApplyAction{}, actions...), brewActions...)
+		resultActions = append(resultActions, unsupportedActions...)
+		return &ApplyResult{
+			DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+			Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
+			Actions:         resultActions,
+			ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+			Pruned: removed, ConfigResultFields: configFields,
+		}, configErr
+	}
 
 	// --- Phase 3: Verify (read current generation) ---
 	emitter.EmitPhase("verify")
@@ -556,8 +612,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		Summary:                 ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
 		Actions:                 actions,
 		ConfigModuleMap:         configModuleMap,
+		PackageModuleMap:        packageModuleMap,
 		RestoreModulesAvailable: restoreModulesAvailable,
 		Pruned:                  removed,
 		HomeManager:             homeResult,
+		ConfigResultFields:      configFields,
 	}, nil
 }

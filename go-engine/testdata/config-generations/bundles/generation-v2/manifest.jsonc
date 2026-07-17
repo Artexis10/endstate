@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "name": "Config generation v2 fixture",
+  "apps": [],
+  "configCaptures": [
+    {
+      "captureId": "fixture-stable-preferences-installed",
+      "moduleId": "apps.fixture-stable",
+      "configSetId": "preferences",
+      "sourceInstance": {
+        "id": "installed",
+        "detectorId": "installed",
+        "rawVersion": "1.4.0",
+        "normalizedVersion": "1.4",
+        "evidence": {
+          "type": "package",
+          "backend": "winget",
+          "platform": "windows",
+          "ref": "Fixture.Stable"
+        }
+      },
+      "sourceGeneration": "g1",
+      "sourceGenerationFingerprint": "da190fe4fcbe22d2d49e60062fdd0b35bde8a3488390a2d8384dbf28792a2458",
+      "captureModule": {
+        "schemaVersion": 2,
+        "contentHash": "0c2c1430dcf9dd86c9bbd15945e342c40c28ea2117a8aee853dc7b5fcd485ed3",
+        "snapshotPath": "provenance/modules/apps.fixture-stable.json"
+      },
+      "payloadRoot": "configs/fixture-stable-preferences-installed",
+      "payloadManifest": [
+        {
+          "relativePath": "settings.json",
+          "size": 22,
+          "sha256": "27dafb2742d0da69a49cc8d206fc9cc429feff09cc3738addcf590d9c4358f97"
+        }
+      ]
+    }
+  ]
+}

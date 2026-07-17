@@ -6,8 +6,8 @@
 # Exercises the brew driver lane end-to-end ALONGSIDE the Nix realizer:
 #   build engine → write manifest with a driver:"brew" formula (and a tiny cask)
 #   → apply --json (assert the formula installed/present) → capture --json
-#   (assert the captured manifest round-trips: an app with "driver":"brew" and
-#   ref "hello") → brew uninstall in the cleanup trap.
+#   (assert the manifest inside the captured bundle round-trips an app with
+#   "driver":"brew" and ref "hello") → brew uninstall in the cleanup trap.
 #
 # This is the ONLY place brew's real-output anchors (brew leaves / list --cask /
 # list --versions columns, install idempotency exit codes) are confirmed — the
@@ -57,7 +57,8 @@ SMOKE_HOME="${TMP_ROOT}/home"
 SMOKE_STATE="${TMP_ROOT}/endstate-root"
 SMOKE_BIN="${TMP_ROOT}/bin"
 SMOKE_MANIFEST="${TMP_ROOT}/manifest.jsonc"
-CAPTURE_OUT="${TMP_ROOT}/captured.jsonc"
+CAPTURE_OUT="${TMP_ROOT}/captured.zip"
+CAPTURE_MANIFEST="${TMP_ROOT}/captured-manifest.jsonc"
 
 mkdir -p "${SMOKE_HOME}" "${SMOKE_STATE}" "${SMOKE_BIN}"
 
@@ -145,7 +146,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Phase 4: capture --json (round-trip — the captured manifest must carry the
+# Phase 4: capture --json (round-trip — the bundle's manifest must carry the
 # brew app with driver:"brew" and the formula ref).
 # ---------------------------------------------------------------------------
 
@@ -161,11 +162,15 @@ if [[ ! -f "${CAPTURE_OUT}" ]]; then
   fail "capture did not write ${CAPTURE_OUT}."
 fi
 
-echo "    --- captured manifest ---"; cat "${CAPTURE_OUT}"; echo "    --- end ---"
+if ! unzip -p "${CAPTURE_OUT}" manifest.jsonc > "${CAPTURE_MANIFEST}"; then
+  fail "capture bundle does not contain a readable manifest.jsonc."
+fi
+
+echo "    --- captured manifest ---"; cat "${CAPTURE_MANIFEST}"; echo "    --- end ---"
 
 # The captured manifest MUST contain an app with "driver":"brew" and the formula
 # ref — proving the brew capture lane ran and the round-trip survives.
-if grep -q '"driver": *"brew"' "${CAPTURE_OUT}" && grep -q "\"darwin\": *\"${FORMULA}\"" "${CAPTURE_OUT}"; then
+if grep -q '"driver": *"brew"' "${CAPTURE_MANIFEST}" && grep -q "\"darwin\": *\"${FORMULA}\"" "${CAPTURE_MANIFEST}"; then
   echo "    PASS: captured manifest round-trips ${FORMULA} as a driver:brew app"
 else
   fail "Captured manifest does not contain the brew-driver ${FORMULA} app — capture round-trip failed."

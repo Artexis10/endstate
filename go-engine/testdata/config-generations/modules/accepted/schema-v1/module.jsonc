@@ -1,0 +1,27 @@
+{
+  // Schema v1 is intentionally implicit for backward compatibility.
+  "id": "apps.fixture-legacy",
+  "displayName": "Fixture Legacy",
+  "sensitivity": "low",
+  "matches": {
+    "winget": ["Fixture.Legacy"]
+  },
+  "capture": {
+    "files": [
+      {
+        "source": "%APPDATA%\\Fixture Legacy\\settings.json",
+        "dest": "apps/fixture-legacy/settings.json",
+        "optional": true
+      }
+    ]
+  },
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/fixture-legacy/settings.json",
+      "target": "%APPDATA%\\Fixture Legacy\\settings.json",
+      "backup": true,
+      "optional": true
+    }
+  ]
+}

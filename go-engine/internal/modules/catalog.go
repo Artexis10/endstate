@@ -8,27 +8,58 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
+
+// CatalogDiagnostic is a structured explanation for a module that the catalog
+// could not load. LoadCatalogWithDiagnostics exposes these to commands and
+// envelopes while LoadCatalog retains the existing warning-based API.
+type CatalogDiagnostic struct {
+	Code     string `json:"code"`
+	Severity string `json:"severity"`
+	ModuleID string `json:"moduleId,omitempty"`
+	FilePath string `json:"filePath"`
+	Message  string `json:"message"`
+	// Identity evidence is preserved even when strict module parsing or
+	// validation fails, so capture can scope diagnostics to package and path
+	// instances without treating the rejected module as executable authority.
+	WingetRefs         []string              `json:"wingetRefs,omitempty"`
+	ChocolateyRefs     []string              `json:"chocolateyRefs,omitempty"`
+	InstanceDetectors  []InstanceDetectorDef `json:"instanceDetectors,omitempty"`
+	AssociationUnknown bool                  `json:"associationUnknown,omitempty"`
+}
 
 // LoadCatalog scans modulesRoot for */module.jsonc files, parses each with
 // JSONC comment stripping, validates required fields, and returns a map keyed
 // by module ID. Invalid modules are skipped with a warning to stderr. A missing
 // modulesRoot directory returns an empty map without error.
 func LoadCatalog(modulesRoot string) (map[string]*Module, error) {
+	catalog, diagnostics, err := LoadCatalogWithDiagnostics(modulesRoot)
+	for _, diagnostic := range diagnostics {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", diagnostic.Message)
+	}
+	return catalog, err
+}
+
+// LoadCatalogWithDiagnostics loads the same backward-compatible catalog as
+// LoadCatalog and also returns a structured diagnostic for every skipped
+// module. A missing modulesRoot retains the historical empty-catalog behavior.
+func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []CatalogDiagnostic, error) {
 	catalog := make(map[string]*Module)
+	var diagnostics []CatalogDiagnostic
 
 	// If modules directory doesn't exist, return empty catalog.
 	info, err := os.Stat(modulesRoot)
 	if err != nil || !info.IsDir() {
-		return catalog, nil
+		return catalog, diagnostics, nil
 	}
 
 	// Scan for subdirectories containing module.jsonc.
 	entries, err := os.ReadDir(modulesRoot)
 	if err != nil {
-		return catalog, nil
+		return catalog, diagnostics, nil
 	}
 
 	for _, entry := range entries {
@@ -43,23 +74,50 @@ func LoadCatalog(modulesRoot string) (map[string]*Module, error) {
 			continue
 		}
 
-		clean := manifest.StripJsoncComments(data)
-
-		var mod Module
-		if err := json.Unmarshal(clean, &mod); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: invalid JSON in %s: %v\n", moduleFile, err)
+		mod, err := ParseModuleJSON(data)
+		if err != nil {
+			moduleID, wingetRefs, chocolateyRefs, detectors, associationUnknown := catalogDiagnosticIdentity(data, entry.Name())
+			diagnostics = append(diagnostics, CatalogDiagnostic{
+				Code:               DiagnosticInvalidJSON,
+				Severity:           "error",
+				ModuleID:           moduleID,
+				FilePath:           moduleFile,
+				Message:            fmt.Sprintf("invalid JSON in %s: %v", moduleFile, err),
+				WingetRefs:         wingetRefs,
+				ChocolateyRefs:     chocolateyRefs,
+				InstanceDetectors:  detectors,
+				AssociationUnknown: associationUnknown,
+			})
 			continue
 		}
 
 		// Validate required fields.
-		if err := validateModule(&mod, moduleFile); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		if err := validateModule(mod, moduleFile); err != nil {
+			diagnostics = append(diagnostics, CatalogDiagnostic{
+				Code:              DiagnosticCode(err),
+				Severity:          "error",
+				ModuleID:          mod.ID,
+				FilePath:          moduleFile,
+				Message:           err.Error(),
+				WingetRefs:        append([]string(nil), mod.Matches.Winget...),
+				ChocolateyRefs:    append([]string(nil), mod.Matches.Chocolatey...),
+				InstanceDetectors: diagnosticInstanceDetectors(mod),
+			})
 			continue
 		}
 
 		// Check for duplicate IDs.
 		if _, exists := catalog[mod.ID]; exists {
-			fmt.Fprintf(os.Stderr, "Warning: duplicate config module id %q found at %s, skipping\n", mod.ID, moduleFile)
+			diagnostics = append(diagnostics, CatalogDiagnostic{
+				Code:              DiagnosticDuplicateModuleID,
+				Severity:          "error",
+				ModuleID:          mod.ID,
+				FilePath:          moduleFile,
+				Message:           fmt.Sprintf("duplicate config module id %q found at %s, skipping", mod.ID, moduleFile),
+				WingetRefs:        append([]string(nil), mod.Matches.Winget...),
+				ChocolateyRefs:    append([]string(nil), mod.Matches.Chocolatey...),
+				InstanceDetectors: diagnosticInstanceDetectors(mod),
+			})
 			continue
 		}
 
@@ -67,10 +125,44 @@ func LoadCatalog(modulesRoot string) (map[string]*Module, error) {
 		mod.FilePath = moduleFile
 		mod.ModuleDir = filepath.Dir(moduleFile)
 
-		catalog[mod.ID] = &mod
+		catalog[mod.ID] = mod
 	}
 
-	return catalog, nil
+	return catalog, diagnostics, nil
+}
+
+func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []string, []string, []InstanceDetectorDef, bool) {
+	type diagnosticConfigIdentity struct {
+		InstanceDetectors []InstanceDetectorDef `json:"instanceDetectors"`
+	}
+	identity := struct {
+		ID      string                    `json:"id"`
+		Matches MatchCriteria             `json:"matches"`
+		Config  *diagnosticConfigIdentity `json:"config"`
+	}{}
+	moduleID := "apps." + directoryName
+	if err := json.Unmarshal(manifest.StripJsoncComments(data), &identity); err != nil {
+		return moduleID, nil, nil, nil, true
+	}
+	if strings.TrimSpace(identity.ID) != "" {
+		moduleID = identity.ID
+	}
+	var detectors []InstanceDetectorDef
+	if identity.Config != nil {
+		detectors = append([]InstanceDetectorDef(nil), identity.Config.InstanceDetectors...)
+	}
+	return moduleID,
+		append([]string(nil), identity.Matches.Winget...),
+		append([]string(nil), identity.Matches.Chocolatey...),
+		detectors,
+		false
+}
+
+func diagnosticInstanceDetectors(mod *Module) []InstanceDetectorDef {
+	if mod == nil || mod.Config == nil {
+		return nil
+	}
+	return append([]InstanceDetectorDef(nil), mod.Config.InstanceDetectors...)
 }
 
 // GetCatalog resolves the modules directory as repoRoot/modules/apps and
@@ -80,13 +172,20 @@ func GetCatalog(repoRoot string) (map[string]*Module, error) {
 	return LoadCatalog(modulesDir)
 }
 
+// GetCatalogWithDiagnostics resolves the production catalog directory and
+// returns structured skip diagnostics.
+func GetCatalogWithDiagnostics(repoRoot string) (map[string]*Module, []CatalogDiagnostic, error) {
+	modulesDir := filepath.Join(repoRoot, "modules", "apps")
+	return LoadCatalogWithDiagnostics(modulesDir)
+}
+
 // validateModule checks that a module has all required fields.
 func validateModule(mod *Module, filePath string) error {
 	if mod.ID == "" {
-		return fmt.Errorf("invalid config module at %s: missing or empty 'id' field", filePath)
+		return validationError(mod, filePath, DiagnosticInvalidID, "missing or empty 'id' field")
 	}
 	if mod.DisplayName == "" {
-		return fmt.Errorf("invalid config module at %s: missing or empty 'displayName' field", filePath)
+		return validationError(mod, filePath, DiagnosticInvalidID, "missing or empty 'displayName' field")
 	}
 
 	// matches must have at least one matcher.
@@ -97,8 +196,8 @@ func validateModule(mod *Module, filePath string) error {
 	hasPathExists := len(mod.Matches.PathExists) > 0
 
 	if !hasWinget && !hasChocolatey && !hasExe && !hasUninstall && !hasPathExists {
-		return fmt.Errorf("invalid config module at %s: matches must have at least one of: winget, chocolatey, exe, uninstallDisplayName, pathExists", filePath)
+		return validationError(mod, filePath, DiagnosticInvalidID, "matches must have at least one of: winget, chocolatey, exe, uninstallDisplayName, pathExists")
 	}
 
-	return nil
+	return validateModuleV2(mod, filePath)
 }

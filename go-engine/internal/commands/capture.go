@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -59,6 +58,10 @@ type CaptureResult struct {
 	Sanitized            bool                  `json:"sanitized"`
 	IsExample            interface{}           `json:"isExample"`
 	Counts               CaptureCountsFull     `json:"counts"`
+	BundleSchemaVersion  string                `json:"bundleSchemaVersion,omitempty"`
+	ManifestVersion      int                   `json:"manifestVersion,omitempty"`
+	CaptureWarnings      []string              `json:"captureWarnings"`
+	ConfigCapture        *CaptureConfigSummary `json:"configCapture,omitempty"`
 
 	// Manifest identifies the manifest that was produced (kept for tooling
 	// and test compatibility).
@@ -131,15 +134,22 @@ var loadModuleCatalogFn = func(repoRoot string) (map[string]*modules.Module, err
 	return modules.GetCatalog(repoRoot)
 }
 
+// matchModulesForAppsFn is the narrow matching boundary used after capture.
+// Tests replace it to inspect the runtime evidence supplied to module matching.
+var matchModulesForAppsFn = modules.MatchModulesForApps
+
 // capturedApp is an internal representation of a captured application entry
 // before it is written to the output manifest.
 type capturedApp struct {
-	ID      string            `json:"id"`
-	Refs    map[string]string `json:"refs"`
-	Driver  string            `json:"driver,omitempty"`
-	Version string            `json:"version,omitempty"`
-	Name    string            `json:"_name,omitempty"`
-	Source  string            `json:"-"`
+	ID               string            `json:"id"`
+	Refs             map[string]string `json:"refs"`
+	Driver           string            `json:"driver,omitempty"`
+	Version          string            `json:"version,omitempty"`
+	Name             string            `json:"_name,omitempty"`
+	Installed        bool              `json:"-"`
+	InstalledVersion string            `json:"-"`
+	Backend          string            `json:"-"`
+	Source           string            `json:"-"`
 }
 
 type enumeratedCapturePackage struct {
@@ -203,12 +213,12 @@ func (legacy legacyWingetCaptureEnumerator) EnumerateInstalled() ([]driver.Insta
 	evidence := make(map[string]snapshot.SnapshotApp, len(listed.apps))
 	if listed.err == nil {
 		for _, app := range listed.apps {
-			evidence[app.ID] = app
+			evidence[wingetEvidenceKey(app.ID)] = app
 		}
 	}
 	packages := make([]driver.InstalledPackage, 0, len(exported.apps))
 	for _, app := range exported.apps {
-		listedApp := evidence[app.ID]
+		listedApp := evidence[wingetEvidenceKey(app.ID)]
 		name := listedApp.Name
 		if name == "" {
 			name = app.Name
@@ -342,7 +352,12 @@ func effectiveCaptureDriver(name string) string {
 }
 
 func captureIdentity(driverName, ref string) string {
-	return effectiveCaptureDriver(driverName) + "\x00" + strings.TrimSpace(ref)
+	driverName = effectiveCaptureDriver(driverName)
+	ref = strings.TrimSpace(ref)
+	if driverName == "winget" || driverName == "chocolatey" {
+		ref = strings.ToLower(ref)
+	}
+	return driverName + "\x00" + ref
 }
 
 func deterministicCaptureID(base, driverName string, used map[string]bool) string {
@@ -526,8 +541,11 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			Refs: map[string]string{
 				"windows": pkg.Ref,
 			},
-			Name:   pkg.DisplayName,
-			Source: item.Driver,
+			Name:             pkg.DisplayName,
+			Installed:        true,
+			InstalledVersion: pkg.Version,
+			Backend:          item.Driver,
+			Source:           item.Driver,
 		}
 		if item.Driver != "winget" {
 			app.Driver = item.Driver
@@ -565,9 +583,11 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 				existingRefs[captureIdentity(app.Driver, ref)] = true
 			}
 		}
-		versionMap := make(map[string]string, len(captured))
+		currentlyDetected := make(map[string]capturedApp, len(captured))
 		for _, app := range captured {
-			versionMap[captureIdentity(app.Driver, app.Refs["windows"])] = app.Version
+			if ref := app.Refs["windows"]; ref != "" {
+				currentlyDetected[captureIdentity(app.Driver, ref)] = app
+			}
 		}
 
 		// Convert existing apps to capturedApp format, preserving declared
@@ -582,12 +602,17 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 				Version: app.Version,
 				Source:  effectiveCaptureDriver(app.Driver),
 			}
-			// Under --pin, refresh an existing app's version from the installed-
-			// apps snapshot only when it exposes a non-empty version — absence of
-			// evidence never blanks a declared pin.
-			if flags.Pin {
-				if ver := versionMap[captureIdentity(app.Driver, app.Refs["windows"])]; ver != "" {
-					ca.Version = ver
+			// Desired-only entries remain serialized but carry no installed
+			// evidence. A current export match supplies runtime evidence and,
+			// under --pin, may refresh the declared pin without blanking it.
+			if detected, ok := currentlyDetected[captureIdentity(app.Driver, app.Refs["windows"])]; ok {
+				ca.Name = detected.Name
+				ca.Installed = detected.Installed
+				ca.InstalledVersion = detected.InstalledVersion
+				ca.Backend = detected.Backend
+				ca.Source = detected.Source
+				if flags.Pin && detected.InstalledVersion != "" {
+					ca.Version = detected.InstalledVersion
 				}
 			}
 			merged = append(merged, ca)
@@ -699,118 +724,80 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	// --- 9. Build appsIncluded with package-manager provenance ---
 	appsIncluded := buildAppsIncluded(captured, nil)
 
-	// --- 10. Module matching and optional bundle creation ---
-	configModules := []CaptureModuleResult{}
-	configModuleMap := map[string]string{}
-	packageModuleMap := map[string][]string{}
-	configsIncluded := []string{}
-	configsSkipped := []string{}
-	configsCaptureErrors := []string{}
-	configSecretsExcluded := 0
-
-	outputFormat := "jsonc"
-	finalOutputPath := absPath
-
-	if !flags.Sanitize {
-		repoRoot := resolveRepoRootFn()
-		if repoRoot != "" {
-			catalog, catalogErr := loadModuleCatalogFn(repoRoot)
-			if catalogErr == nil && len(catalog) > 0 {
-				// Build manifest.App slice for matching.
-				manifestApps := make([]manifest.App, 0, len(captured))
-				for _, ca := range captured {
-					manifestApps = append(manifestApps, manifest.App{
-						ID:     ca.ID,
-						Refs:   ca.Refs,
-						Driver: ca.Driver,
-					})
-				}
-
-				matchedModules := modules.MatchModulesForApps(catalog, manifestApps)
-
-				if len(matchedModules) > 0 {
-					// Build configModuleMap from matched modules.
-					configModuleMap = buildConfigModuleMap(matchedModules)
-					packageModuleMap = buildPackageModuleMap(matchedModules)
-
-					// Determine zip output path.
-					profileName := manifestName
-					if flags.Profile != "" {
-						profileName = flags.Profile
-					}
-					profilesDir := resolveProfileDirFn()
-					zipOutputPath := filepath.Join(profilesDir, profileName+".zip")
-
-					version := config.ReadVersion(repoRoot)
-
-					// Create zip bundle.
-					bundleErr := bundle.CreateBundle(absPath, matchedModules, zipOutputPath, version)
-
-					if bundleErr == nil {
-						// Bundle succeeded: zip is the deliverable.
-						// Remove intermediate .jsonc (zip is the canonical output).
-						os.Remove(absPath)
-						outputFormat = "zip"
-						finalOutputPath = zipOutputPath
-					} else {
-						// Bundle failed: keep the .jsonc as fallback.
-						configsCaptureErrors = append(configsCaptureErrors,
-							fmt.Sprintf("Bundle creation failed: %v", bundleErr))
-					}
-
-					// Build per-module results using a fresh staging pass so we
-					// have accurate file counts and paths.
-					configModules, configsIncluded, configsSkipped, configsCaptureErrors, configSecretsExcluded =
-						buildConfigModuleResults(matchedModules, configsCaptureErrors)
-				}
-			}
-		}
-	}
-
-	// Ensure slice fields are never null in JSON output.
-	if configModules == nil {
-		configModules = []CaptureModuleResult{}
-	}
-	if configsIncluded == nil {
-		configsIncluded = []string{}
-	}
-	if configsSkipped == nil {
-		configsSkipped = []string{}
-	}
-	if configsCaptureErrors == nil {
-		configsCaptureErrors = []string{}
+	// --- 10. Plan config capture and publish one canonical artifact ---
+	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		Flags: flags, ManifestPath: absPath,
+		Apps: buildModuleMatchApps(captured),
+	})
+	if finalizeErr != nil {
+		return nil, envelope.NewError(
+			envelope.ErrCaptureFailed,
+			fmt.Sprintf("Failed to create capture bundle: %v", finalizeErr),
+		)
 	}
 
 	// --- 11. Emit artifact and summary events ---
-	emitter.EmitArtifact("capture", "manifest", finalOutputPath)
+	emitter.EmitArtifact("capture", "manifest", finalization.OutputPath)
 	emitter.EmitSummary("capture", totalFound, included, skipped, 0)
 
 	return &CaptureResult{
 		AppsIncluded:         appsIncluded,
-		ConfigModules:        configModules,
-		ConfigModuleMap:      configModuleMap,
-		PackageModuleMap:     packageModuleMap,
+		ConfigModules:        finalization.ConfigModules,
+		ConfigModuleMap:      finalization.ConfigModuleMap,
+		PackageModuleMap:     finalization.PackageModuleMap,
 		Warnings:             warnings,
-		OutputPath:           finalOutputPath,
-		OutputFormat:         outputFormat,
-		ConfigsIncluded:      configsIncluded,
-		ConfigsSkipped:       configsSkipped,
-		ConfigsCaptureErrors: configsCaptureErrors,
+		OutputPath:           finalization.OutputPath,
+		OutputFormat:         finalization.OutputFormat,
+		ConfigsIncluded:      finalization.ConfigsIncluded,
+		ConfigsSkipped:       finalization.ConfigsSkipped,
+		ConfigsCaptureErrors: finalization.ConfigsCaptureErrors,
 		Sanitized:            flags.Sanitize,
 		IsExample:            false,
 		Counts: CaptureCountsFull{
 			FilteredRuntimes:       filteredRuntimes,
 			Included:               included,
 			TotalFound:             totalFound,
-			SensitiveExcludedCount: configSecretsExcluded,
+			SensitiveExcludedCount: finalization.SensitiveExcluded,
 			FilteredStoreApps:      filteredStore,
 			Skipped:                skipped,
 		},
 		Manifest: CaptureManifest{
 			Name: manifestName,
-			Path: finalOutputPath,
+			Path: finalization.OutputPath,
 		},
+		BundleSchemaVersion: generationBundleSchemaVersion(finalization),
+		ManifestVersion:     generationManifestVersion(finalization),
+		CaptureWarnings:     finalization.CaptureWarnings,
+		ConfigCapture:       captureConfigResultSummary(finalization),
 	}, nil
+}
+
+// buildModuleMatchApps keeps desired manifest pins separate from runtime
+// installed-version evidence. Matchers see the current detected version and
+// backend, while desired-only update entries remain explicitly not installed.
+func buildModuleMatchApps(apps []capturedApp) []manifest.App {
+	result := make([]manifest.App, 0, len(apps))
+	for _, app := range apps {
+		driver := app.Driver
+		installedVersion := ""
+		if app.Installed {
+			installedVersion = app.InstalledVersion
+			if driver == "" {
+				driver = app.Backend
+			}
+		}
+		result = append(result, manifest.App{
+			ID:               app.ID,
+			Refs:             app.Refs,
+			Driver:           driver,
+			Version:          installedVersion,
+			Installed:        app.Installed,
+			InstalledVersion: installedVersion,
+			Backend:          app.Backend,
+			DisplayName:      app.Name,
+		})
+	}
+	return result
 }
 
 // buildAppsIncluded converts internal captured apps to the CaptureApp slice
@@ -825,10 +812,22 @@ func buildAppsIncluded(apps []capturedApp, displayNameMap map[string]string) []C
 			wingetID = ca.ID
 		}
 		entry := CaptureApp{
-			Source: effectiveCaptureDriver(ca.Driver),
+			Source: ca.Source,
 			ID:     wingetID,
 		}
-		if name, ok := displayNameMap[wingetID]; ok && name != "" {
+		if entry.Source == "" {
+			entry.Source = ca.Backend
+		}
+		if entry.Source == "" {
+			entry.Source = effectiveCaptureDriver(ca.Driver)
+		}
+		name := displayNameMap[wingetEvidenceKey(wingetID)]
+		if name == "" {
+			// Keep this helper compatible with direct callers that supply an
+			// exact-cased map rather than capture's normalized evidence map.
+			name = displayNameMap[wingetID]
+		}
+		if name != "" {
 			entry.Name = name
 		} else if ca.Name != "" {
 			entry.Name = ca.Name
@@ -843,14 +842,23 @@ func buildAppsIncluded(apps []capturedApp, displayNameMap map[string]string) []C
 // configuration to the same package identity.
 func buildPackageModuleMap(matchedModules []*modules.Module) map[string][]string {
 	result := make(map[string][]string)
+	chocolateyOwners := make(map[string]map[string]struct{})
 	for _, mod := range matchedModules {
 		for _, ref := range mod.Matches.Winget {
 			key := "winget:" + ref
 			result[key] = append(result[key], mod.ID)
 		}
 		for _, ref := range mod.Matches.Chocolatey {
-			key := "chocolatey:" + ref
-			result[key] = append(result[key], mod.ID)
+			key := "chocolatey:" + strings.ToLower(strings.TrimSpace(ref))
+			if chocolateyOwners[key] == nil {
+				chocolateyOwners[key] = make(map[string]struct{})
+			}
+			chocolateyOwners[key][mod.ID] = struct{}{}
+		}
+	}
+	for key, moduleIDs := range chocolateyOwners {
+		for moduleID := range moduleIDs {
+			result[key] = append(result[key], moduleID)
 		}
 	}
 	for key := range result {
@@ -873,114 +881,6 @@ func buildConfigModuleMap(matchedModules []*modules.Module) map[string]string {
 		}
 	}
 	return m
-}
-
-// buildConfigModuleResults builds the CaptureModuleResult slice and collects
-// per-module file counts by running CollectConfigFiles against each matched
-// module in a temporary staging directory.
-func buildConfigModuleResults(matchedModules []*modules.Module, existingErrors []string) (
-	results []CaptureModuleResult,
-	included []string,
-	skipped []string,
-	captureErrors []string,
-	sensitiveExcluded int,
-) {
-	captureErrors = existingErrors
-
-	stagingDir, mkdirErr := os.MkdirTemp("", "endstate-capture-meta-")
-	if mkdirErr != nil {
-		captureErrors = append(captureErrors, fmt.Sprintf("failed to create staging dir: %v", mkdirErr))
-		for _, mod := range matchedModules {
-			dirName := moduleDirName(mod.ID)
-			skipped = append(skipped, dirName)
-			results = append(results, CaptureModuleResult{
-				ID:             mod.ID,
-				AppID:          dirName,
-				DisplayName:    mod.DisplayName,
-				WingetRefs:     safeStringSlice(mod.Matches.Winget),
-				ChocolateyRefs: safeStringSlice(mod.Matches.Chocolatey),
-				Paths:          []string{},
-				Status:         "skipped",
-			})
-		}
-		return
-	}
-	defer os.RemoveAll(stagingDir)
-
-	includedSet := make(map[string]bool)
-	moduleFileCounts := make(map[string]int)
-	moduleFilePaths := make(map[string][]string)
-	moduleErrors := make(map[string]bool)
-
-	for _, mod := range matchedModules {
-		dirName := moduleDirName(mod.ID)
-
-		fileCollected, secretsN, collectErr := bundle.CollectConfigFiles(mod, stagingDir)
-		sensitiveExcluded += secretsN
-		if collectErr != nil {
-			captureErrors = append(captureErrors, fmt.Sprintf("module %s: %v", mod.ID, collectErr))
-			moduleErrors[dirName] = true
-			moduleFileCounts[dirName] = 0
-			moduleFilePaths[dirName] = []string{}
-			continue
-		}
-
-		regCollected, regErr := bundle.CollectRegistryKeys(mod, stagingDir)
-		if regErr != nil {
-			captureErrors = append(captureErrors, fmt.Sprintf("module %s registry: %v", mod.ID, regErr))
-			// Don't mark the whole module as errored — file collection may have succeeded.
-		}
-
-		regValuesCollected, regValErr := bundle.CollectRegistryValues(mod, stagingDir)
-		if regValErr != nil {
-			captureErrors = append(captureErrors, fmt.Sprintf("module %s registry values: %v", mod.ID, regValErr))
-			// Don't mark the whole module as errored — other collection may have succeeded.
-		}
-
-		collected := append(fileCollected, regCollected...)
-		collected = append(collected, regValuesCollected...)
-
-		if len(collected) > 0 {
-			includedSet[dirName] = true
-			moduleFileCounts[dirName] = len(collected)
-			moduleFilePaths[dirName] = collected
-		} else {
-			moduleFileCounts[dirName] = 0
-			moduleFilePaths[dirName] = []string{}
-		}
-	}
-
-	for _, mod := range matchedModules {
-		dirName := moduleDirName(mod.ID)
-
-		status := "skipped"
-		if moduleErrors[dirName] {
-			status = "error"
-		} else if includedSet[dirName] {
-			status = "captured"
-			included = append(included, dirName)
-		} else {
-			skipped = append(skipped, dirName)
-		}
-
-		paths := moduleFilePaths[dirName]
-		if paths == nil {
-			paths = []string{}
-		}
-
-		results = append(results, CaptureModuleResult{
-			ID:             mod.ID,
-			AppID:          dirName,
-			DisplayName:    mod.DisplayName,
-			WingetRefs:     safeStringSlice(mod.Matches.Winget),
-			ChocolateyRefs: safeStringSlice(mod.Matches.Chocolatey),
-			Paths:          paths,
-			FilesCaptured:  moduleFileCounts[dirName],
-			Status:         status,
-		})
-	}
-
-	return
 }
 
 // moduleDirName strips the "apps." prefix from a module ID to get the
@@ -1027,4 +927,11 @@ func resolveOutputPath(flags CaptureFlags) string {
 // Example: "Microsoft.VisualStudioCode" -> "microsoft-visualstudiocode"
 func wingetIDToManifestID(wingetID string) string {
 	return strings.ToLower(strings.ReplaceAll(wingetID, ".", "-"))
+}
+
+// wingetEvidenceKey normalizes only identity joins. Callers keep the original
+// package ref for output and evidence because Winget identity is
+// case-insensitive even though its display casing is useful provenance.
+func wingetEvidenceKey(ref string) string {
+	return strings.ToLower(strings.TrimSpace(ref))
 }

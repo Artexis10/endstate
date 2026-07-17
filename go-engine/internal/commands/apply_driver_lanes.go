@@ -4,18 +4,16 @@
 package commands
 
 import (
+	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
-	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
-	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
 
 type packageAppPlan struct {
@@ -207,6 +205,30 @@ func runApplyDriverLanes(
 		finalActions[i] = planEntries[i].action
 		finalActions[i].WasPresent = planEntries[i].repin
 	}
+	configSession, configSessionErr := prepareApplyConfigRestore(
+		context.Background(),
+		flags,
+		newDriverLaneConfigRestoreEvidenceSource(lanes),
+	)
+	if configSessionErr != nil {
+		return nil, configSessionErr
+	}
+	var configFields *ConfigResultFields
+	if flags.DryRun {
+		var configErr *envelope.Error
+		configFields, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession,
+		)
+		if configErr != nil {
+			return &ApplyResult{
+				DryRun:   true,
+				Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+				Summary:  ApplySummary{Total: totalApps, Skipped: presentCount + planSkipped, Failed: planFailed},
+				Actions:  finalActions, ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap,
+				Warnings: warnings, RestoreModulesAvailable: restoreModulesAvailable, ConfigResultFields: configFields,
+			}, configErr
+		}
+	}
 
 	successCount, skippedCount, failedCount := 0, 0, 0
 	if !flags.DryRun {
@@ -314,43 +336,21 @@ func runApplyDriverLanes(
 				WithRemediation("Re-run with --repin --confirm, or use --repin --dry-run to preview.")
 		}
 
-		if flags.EnableRestore && len(mf.Restore) > 0 {
-			emitter.EmitPhase("restore")
-			manifestDir := filepath.Dir(flags.Manifest)
-			absManifestDir, _ := filepath.Abs(manifestDir)
-			actions := convertToActions(mf.Restore, flags.RestoreFilter)
-			exportRoot := ""
-			if flags.Export != "" {
-				exportRoot, _ = filepath.Abs(flags.Export)
-			}
-			repoRoot := config.ResolveRepoRoot()
-			backupDir := ""
-			if repoRoot != "" {
-				backupDir = filepath.Join(repoRoot, "state", "backups", runID)
-			}
-			restoreOpts := restore.RestoreOptions{BackupDir: backupDir, ManifestDir: absManifestDir, ExportRoot: exportRoot, RunID: runID}
-			restoreResults, restoreErr := restore.RunRestore(actions, restoreOpts, emitter)
-			if restoreErr != nil {
-				emitter.EmitError("engine", "Restore failed: "+restoreErr.Error(), "")
-			} else {
-				restoredCnt, skippedCnt, failedCnt := 0, 0, 0
-				for _, result := range restoreResults {
-					switch result.Status {
-					case "restored":
-						restoredCnt++
-					case "skipped_up_to_date", "skipped_missing_source":
-						skippedCnt++
-					case "failed":
-						failedCnt++
-					}
-				}
-				emitter.EmitSummary("restore", len(restoreResults), restoredCnt, skippedCnt, failedCnt)
-				if repoRoot != "" {
-					logsDir := filepath.Join(repoRoot, "logs")
-					absManifest, _ := filepath.Abs(flags.Manifest)
-					_ = restore.WriteJournal(logsDir, runID, absManifest, absManifestDir, exportRoot, restoreResults)
-				}
-			}
+		var configErr *envelope.Error
+		configFields, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession,
+		)
+		if configErr != nil {
+			// Package mutation already committed. Preserve backend rollback facts
+			// even when the transactional configuration stage refuses or fails.
+			writePackageDriverGenerations(runID, lanes, finalActions)
+			return &ApplyResult{
+				DryRun:   false,
+				Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+				Summary:  ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
+				Actions:  finalActions, ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap,
+				Warnings: warnings, RestoreModulesAvailable: restoreModulesAvailable, ConfigResultFields: configFields,
+			}, configErr
 		}
 
 		emitter.EmitPhase("verify")
@@ -443,6 +443,7 @@ func runApplyDriverLanes(
 		PackageModuleMap:        packageModuleMap,
 		Warnings:                warnings,
 		RestoreModulesAvailable: restoreModulesAvailable,
+		ConfigResultFields:      configFields,
 	}, nil
 }
 

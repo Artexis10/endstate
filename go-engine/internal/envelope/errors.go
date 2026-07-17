@@ -21,6 +21,7 @@ const (
 	ErrCaptureBlocked          ErrorCode = "CAPTURE_BLOCKED"
 	ErrInstallFailed           ErrorCode = "INSTALL_FAILED"
 	ErrRestoreFailed           ErrorCode = "RESTORE_FAILED"
+	ErrInvalidRestoreTarget    ErrorCode = "INVALID_RESTORE_TARGET"
 	ErrVerifyFailed            ErrorCode = "VERIFY_FAILED"
 	ErrPermissionDenied        ErrorCode = "PERMISSION_DENIED"
 	ErrInternalError           ErrorCode = "INTERNAL_ERROR"

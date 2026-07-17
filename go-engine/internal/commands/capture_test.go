@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
@@ -132,14 +133,19 @@ func withMockInstalledApps(t *testing.T, apps []snapshot.SnapshotApp) {
 // VERSION file is present in the test binary's directory hierarchy).
 func withMockCatalog(catalog map[string]*modules.Module, err error, f func()) {
 	origCatalog := loadModuleCatalogFn
+	origCaptureCatalog := loadCaptureModuleCatalogFn
 	origRoot := resolveRepoRootFn
 	loadModuleCatalogFn = func(_ string) (map[string]*modules.Module, error) {
 		return catalog, err
+	}
+	loadCaptureModuleCatalogFn = func(_ string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+		return catalog, []modules.CatalogDiagnostic{}, err
 	}
 	// Return a non-empty sentinel so the "if repoRoot != """ guard passes.
 	resolveRepoRootFn = func() string { return "/test-repo-root" }
 	defer func() {
 		loadModuleCatalogFn = origCatalog
+		loadCaptureModuleCatalogFn = origCaptureCatalog
 		resolveRepoRootFn = origRoot
 	}()
 	f()
@@ -181,10 +187,7 @@ func sampleInstalledApps() []snapshot.SnapshotApp {
 // maps so tests can assert on the raw JSON shape (presence/absence of keys).
 func readManifestApps(t *testing.T, path string) []map[string]interface{} {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("failed to read output: %v", err)
-	}
+	data := readCaptureManifestBytes(t, path)
 	var mf struct {
 		Apps []map[string]interface{} `json:"apps"`
 	}
@@ -192,6 +195,39 @@ func readManifestApps(t *testing.T, path string) []map[string]interface{} {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
 	return mf.Apps
+}
+
+// readCaptureManifestBytes transparently reads sanitized JSONC output or the
+// embedded manifest from the canonical ZIP produced by every other capture.
+func readCaptureManifestBytes(t *testing.T, requestedPath string) []byte {
+	t.Helper()
+	zipPath := requestedPath
+	if !strings.EqualFold(filepath.Ext(requestedPath), ".zip") {
+		if data, err := os.ReadFile(requestedPath); err == nil {
+			return data
+		}
+		zipPath = strings.TrimSuffix(zipPath, filepath.Ext(zipPath)) + ".zip"
+	}
+	extractedManifest, err := bundle.ExtractBundle(zipPath)
+	if err != nil {
+		t.Fatalf("read capture artifact %s: %v", zipPath, err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(filepath.Dir(extractedManifest)) })
+	data, err := os.ReadFile(extractedManifest)
+	if err != nil {
+		t.Fatalf("read embedded manifest %s: %v", extractedManifest, err)
+	}
+	return data
+}
+
+func captureOutputPathForTest(requestedPath string) string {
+	if _, err := os.Stat(requestedPath); err == nil {
+		return requestedPath
+	}
+	if strings.EqualFold(filepath.Ext(requestedPath), ".zip") {
+		return requestedPath
+	}
+	return strings.TrimSuffix(requestedPath, filepath.Ext(requestedPath)) + ".zip"
 }
 
 // manifestAppVersion returns the version field for the app whose refs.windows
@@ -316,12 +352,12 @@ func TestRunCapture_BasicCapture_ReturnsCorrectResult(t *testing.T) {
 	if result.Counts.Skipped != 0 {
 		t.Errorf("expected skipped=0, got %d", result.Counts.Skipped)
 	}
-	if result.OutputFormat != "jsonc" {
-		t.Errorf("expected outputFormat=jsonc, got %q", result.OutputFormat)
+	if result.OutputFormat != "zip" {
+		t.Errorf("expected outputFormat=zip, got %q", result.OutputFormat)
 	}
 
 	// Verify file was written and is non-empty.
-	info, statErr := os.Stat(outPath)
+	info, statErr := os.Stat(result.OutputPath)
 	if statErr != nil {
 		t.Fatalf("output file does not exist: %v", statErr)
 	}
@@ -348,10 +384,7 @@ func TestRunCapture_OutputManifestContainsCorrectStructure(t *testing.T) {
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output file: %v", readErr)
-	}
+	data := readCaptureManifestBytes(t, outPath)
 
 	var mf map[string]interface{}
 	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
@@ -496,10 +529,7 @@ func TestRunCapture_Sanitize_StripsMeta_SortsByID(t *testing.T) {
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
+	data := readCaptureManifestBytes(t, outPath)
 
 	var mf map[string]json.RawMessage
 	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
@@ -562,41 +592,32 @@ func TestRunCapture_NonSanitized_IncludesDisplayName(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "test-non-sanitized.jsonc")
 
+	var result *CaptureResult
 	withMockSnapshot(sampleApps(), nil, func() {
 		noopDisplayNames(func() {
 			emptyCatalog(func() {
-				_, err := RunCapture(CaptureFlags{
+				raw, err := RunCapture(CaptureFlags{
 					Out: outPath,
 				})
 				if err != nil {
 					t.Fatalf("RunCapture returned unexpected error: %+v", err)
 				}
+				result = raw.(*CaptureResult)
 			})
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
-
-	var mf struct {
-		Apps []map[string]interface{} `json:"apps"`
-	}
-	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
-		t.Fatalf("output is not valid JSON: %v", jsonErr)
-	}
-
-	// At least one app should have _name.
+	// The canonical bundle manifest drops capture-only underscore metadata, but
+	// the command result retains display names for GUI consumers.
 	hasName := false
-	for _, app := range mf.Apps {
-		if _, ok := app["_name"]; ok {
+	for _, app := range result.AppsIncluded {
+		if app.Name != "" {
 			hasName = true
 			break
 		}
 	}
 	if !hasName {
-		t.Error("expected _name field in non-sanitized output")
+		t.Error("expected display name in non-sanitized capture result")
 	}
 }
 
@@ -770,10 +791,7 @@ func TestRunCapture_AppID_LowercasedDotsToHyphens(t *testing.T) {
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
+	data := readCaptureManifestBytes(t, outPath)
 
 	var mf struct {
 		Apps []struct {
@@ -815,10 +833,7 @@ func TestRunCapture_RefsWindowsPreservesOriginalCasing(t *testing.T) {
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
+	data := readCaptureManifestBytes(t, outPath)
 
 	var mf struct {
 		Apps []struct {
@@ -858,7 +873,7 @@ func TestRunCapture_INV_CAPTURE_2_FileExistsAndNonEmpty(t *testing.T) {
 		})
 	})
 
-	info, statErr := os.Stat(outPath)
+	info, statErr := os.Stat(captureOutputPathForTest(outPath))
 	if statErr != nil {
 		t.Fatalf("INV-CAPTURE-2 violated: output file does not exist: %v", statErr)
 	}
@@ -1306,10 +1321,7 @@ func TestRunCapture_AppsSortedByID(t *testing.T) {
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
+	data := readCaptureManifestBytes(t, outPath)
 
 	var mf struct {
 		Apps []struct {
@@ -1524,10 +1536,7 @@ func TestRunCapture_Update_MergedAppsSortedByID(t *testing.T) {
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
+	data := readCaptureManifestBytes(t, outPath)
 
 	var mf struct {
 		Apps []struct {
@@ -1601,10 +1610,7 @@ func TestRunCapture_DeterministicOutput_SameInputSameOrder(t *testing.T) {
 			})
 		})
 
-		data, readErr := os.ReadFile(outPath)
-		if readErr != nil {
-			t.Fatalf("failed to read output: %v", readErr)
-		}
+		data := readCaptureManifestBytes(t, outPath)
 
 		var mf struct {
 			Apps []struct {
@@ -1650,10 +1656,7 @@ func TestRunCapture_CapturedTimestamp_IsRFC3339(t *testing.T) {
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
+	data := readCaptureManifestBytes(t, outPath)
 
 	var mf map[string]interface{}
 	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {
@@ -1716,10 +1719,7 @@ func TestRunCapture_ManifestNeverEmptyObject(t *testing.T) {
 		})
 	})
 
-	data, readErr := os.ReadFile(outPath)
-	if readErr != nil {
-		t.Fatalf("failed to read output: %v", readErr)
-	}
+	data := readCaptureManifestBytes(t, outPath)
 
 	var mf map[string]interface{}
 	if jsonErr := json.Unmarshal(data, &mf); jsonErr != nil {

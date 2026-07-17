@@ -53,10 +53,7 @@ func readCapturedManifestBrew(t *testing.T, path string) []struct {
 	Version string            `json:"version"`
 } {
 	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read manifest: %v", err)
-	}
+	data := readCaptureManifestBytes(t, path)
 	var mf struct {
 		Apps []struct {
 			ID      string            `json:"id"`

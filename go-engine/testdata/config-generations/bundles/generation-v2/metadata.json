@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "2.0",
+  "manifestVersion": 2,
+  "capturedAt": "2026-07-16T00:00:00Z",
+  "machineName": "fixture-host",
+  "endstateVersion": "fixture",
+  "configCapturesIncluded": ["fixture-stable-preferences-installed"],
+  "configModulesIncluded": [],
+  "configModulesSkipped": [],
+  "captureWarnings": []
+}

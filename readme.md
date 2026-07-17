@@ -6,7 +6,7 @@
 
 Website: <https://substratesystems.io/endstate> · Download: <https://substratesystems.io/download>
 
-**Author:** Hugo Ander Kivi  
+**Author:** Hugo Ander Kivi
 **Primary Language:** Go
 **Status:** v1.0.0 — Stable
 
@@ -169,6 +169,8 @@ endstate rebuild --from MyProfile.zip --confirm
 
 Overwritten files are backed up first and can be undone with `endstate revert`. Use `--no-restore` to install and verify without touching configuration.
 
+When multiple installed app versions are valid configuration targets, `apply`, `restore`, and `rebuild` accept repeatable `--restore-target <captureId>=<targetInstanceId>` mappings. `--restore-filter` still selects modules first; Endstate never silently chooses the newest side-by-side version.
+
 ### CLI Commands
 
 | Command | Description |
@@ -244,7 +246,7 @@ Large manifests can be split into reusable modules:
 {
   "version": 1,
   "name": "dev-workstation",
-  
+
   // Include other manifest files (resolved relative to this file)
   "includes": [
     "./includes/dev-tools.jsonc",
@@ -415,4 +417,3 @@ See the [LICENSE](LICENSE) file for details.
 Copyright © 2025–2026 Substrate Systems OÜ
 
 Created by Hugo Ander Kivi at Substrate Systems OÜ.
-

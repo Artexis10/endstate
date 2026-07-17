@@ -120,7 +120,7 @@ func (d *detectErrorDriver) Install(string) (*driver.InstallResult, error) {
 func writeLaneManifest(t *testing.T, apps string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "manifest.jsonc")
-	contents := `{"name":"driver-lanes","apps":[` + apps + `]}`
+	contents := `{"version":1,"name":"driver-lanes","apps":[` + apps + `]}`
 	if err := os.WriteFile(path, []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
 	}

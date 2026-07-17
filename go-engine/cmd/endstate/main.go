@@ -68,7 +68,8 @@ Per-command flags:
   --bootstrap-backends Authorize setup of selected absent backends (apply, rebuild)
   --no-bootstrap       Skip selected absent backend lanes (apply, rebuild)
   --export <path>      Export directory path (restore, export-config, validate-export)
-  --restore-filter <e> Filter restore entries by module ID (restore, apply)
+  --restore-filter <e> Filter restore entries by module ID (restore, apply, rebuild)
+  --restore-target <m> Map capture ID to target instance; repeatable (restore, apply, rebuild)
   --from <path>        Bundle (.zip) or manifest (.jsonc) to rebuild from (rebuild)
   --no-restore         Install without restoring configuration (rebuild)
   --latest             Most recent run (report)
@@ -113,11 +114,12 @@ type parsedArgs struct {
 	events        string // "jsonl" or ""
 
 	// Per-command flags
-	manifest      string
-	dryRun        bool
-	enableRestore bool
-	export        string // --export <path>
-	restoreFilter string // --restore-filter <expr>
+	manifest       string
+	dryRun         bool
+	enableRestore  bool
+	export         string   // --export <path>
+	restoreFilter  string   // --restore-filter <expr>
+	restoreTargets []string // repeatable --restore-target <captureId>=<targetInstanceId>
 
 	// Rebuild flags
 	from      string // rebuild --from <bundle.zip|manifest.jsonc>
@@ -315,6 +317,15 @@ func parseArgs(args []string) parsedArgs {
 				p.restoreFilter = args[i+1]
 				i++
 			}
+		case "--restore-target":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				p.restoreTargets = append(p.restoreTargets, args[i+1])
+				i++
+			} else {
+				// Preserve the occurrence so command-level validation can return
+				// INVALID_RESTORE_TARGET after loading the known capture IDs.
+				p.restoreTargets = append(p.restoreTargets, "")
+			}
 		case "--from":
 			if i+1 < len(args) {
 				p.from = args[i+1]
@@ -380,9 +391,9 @@ func commandUsage(cmd string) string {
 	case "capabilities":
 		return "Usage: endstate capabilities [--json]\n\nReport CLI capabilities for GUI handshake.\n"
 	case "apply":
-		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--only <id[,id...]>] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. With --only, limit the run to the comma-separated list of manifest app ids (filtering happens before planning so only the selected apps are installed, restored, and verified). With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (supported versioned drivers). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. --only and --prune cannot be combined. When a selected optional package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
+		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--only <id[,id...]>] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. With --only, limit the run to the comma-separated list of manifest app ids (filtering happens before planning so only the selected apps are installed, restored, and verified). With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (supported versioned drivers). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. --only and --prune cannot be combined. When a selected optional package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
 	case "rebuild":
-		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--dry-run] [--confirm] [--no-restore] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. The existing backend-bootstrap flags are propagated to apply. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
+		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--dry-run] [--confirm] [--no-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. Backend-bootstrap flags are propagated to apply. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
@@ -390,7 +401,7 @@ func commandUsage(cmd string) string {
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
-		return "Usage: endstate restore [--manifest <path>] [--enable-restore] [--dry-run] [--export <path>] [--restore-filter <expr>] [--json] [--events jsonl]\n\nRestore configuration files.\n"
+		return "Usage: endstate restore [--manifest <path>] [--enable-restore] [--dry-run] [--export <path>] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--json] [--events jsonl]\n\nRestore configuration files. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence.\n"
 	case "revert":
 		return "Usage: endstate revert [--json] [--events jsonl]\n\nRevert last restore operation using journal.\n"
 	case "export-config":
@@ -448,7 +459,7 @@ func main() {
 	if p.jsonMode {
 		var env *envelope.Envelope
 		if cmdErr != nil {
-			env = envelope.NewFailure(p.command, runID, schemaVersion, cliVersion, cmdErr)
+			env = envelope.NewFailureWithData(p.command, runID, schemaVersion, cliVersion, data, cmdErr)
 		} else {
 			env = envelope.NewSuccess(p.command, runID, schemaVersion, cliVersion, data)
 		}
@@ -512,6 +523,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Events:            p.events,
 			Export:            p.export,
 			RestoreFilter:     p.restoreFilter,
+			RestoreTargets:    append([]string(nil), p.restoreTargets...),
 			Prune:             p.prune,
 			Confirm:           p.confirm,
 			Repin:             p.repin,
@@ -527,6 +539,8 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Confirm:           p.confirm,
 			NoRestore:         p.noRestore,
 			Events:            p.events,
+			RestoreFilter:     p.restoreFilter,
+			RestoreTargets:    append([]string(nil), p.restoreTargets...),
 			BootstrapBackends: p.bootstrapBackends,
 			NoBootstrap:       p.noBootstrap,
 		})
@@ -608,12 +622,13 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 
 	case "restore":
 		return commands.RunRestore(commands.RestoreFlags{
-			Manifest:      p.manifest,
-			EnableRestore: p.enableRestore,
-			DryRun:        p.dryRun,
-			Export:        p.export,
-			Events:        p.events,
-			RestoreFilter: p.restoreFilter,
+			Manifest:       p.manifest,
+			EnableRestore:  p.enableRestore,
+			DryRun:         p.dryRun,
+			Export:         p.export,
+			Events:         p.events,
+			RestoreFilter:  p.restoreFilter,
+			RestoreTargets: append([]string(nil), p.restoreTargets...),
 		})
 
 	case "revert":

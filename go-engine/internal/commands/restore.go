@@ -4,15 +4,16 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
 
-	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/state"
 )
 
 // RestoreFlags holds the parsed CLI flags for the restore command.
@@ -30,6 +31,9 @@ type RestoreFlags struct {
 	// RestoreFilter limits restore to entries matching specific module IDs
 	// (comma-separated).
 	RestoreFilter string
+	// RestoreTargets contains repeatable capture-to-target mappings. Command
+	// orchestration validates these against generation-aware capture IDs.
+	RestoreTargets []string
 }
 
 // RestoreData is the data payload for the restore command JSON envelope.
@@ -37,6 +41,7 @@ type RestoreData struct {
 	Results     []restore.RestoreResult `json:"results"`
 	JournalPath string                  `json:"journalPath,omitempty"`
 	DryRun      bool                    `json:"dryRun"`
+	*ConfigResultFields
 }
 
 // RunRestore executes the restore command: loads the manifest, converts
@@ -51,8 +56,19 @@ func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
+	repoRoot := resolveRepoRootFn()
+	configRuntime, configInputErr := newConfigRestoreRuntime(configRestoreBuildRequest{
+		Manifest:       mf,
+		ManifestPath:   flags.Manifest,
+		RepoRoot:       repoRoot,
+		RestoreFilter:  flags.RestoreFilter,
+		RestoreTargets: flags.RestoreTargets,
+	})
+	if configInputErr != nil {
+		return nil, configInputErr
+	}
 
-	if len(mf.Restore) == 0 {
+	if !configRuntime.inputs.hasConfigPayloads && len(mf.Restore) == 0 {
 		return &RestoreData{
 			Results: []restore.RestoreResult{},
 			DryRun:  flags.DryRun,
@@ -60,92 +76,63 @@ func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 	}
 
 	// Check opt-in.
-	if !flags.EnableRestore {
+	if !flags.EnableRestore && !configRuntime.inputs.hasConfigPayloads {
 		return nil, envelope.NewError(
 			envelope.ErrRestoreFailed,
 			"Restore entries found but --enable-restore not specified.",
 		).WithRemediation("Add --enable-restore to enable restore operations.")
 	}
 
-	emitter.EmitPhase("restore")
+	evidence := newStandaloneConfigRestoreEvidenceSource(mf.Apps)
+	session := newConfigRestoreExecutionSession(configRuntime, evidence)
+	if _, previewErr := session.Preview(context.Background()); previewErr != nil {
+		return nil, configRestoreInternalError(previewErr.Error())
+	}
+	options := restoreConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter)
+	execution, executeErr := session.Execute(context.Background(), options)
+	var configFields *ConfigResultFields
+	if configRuntime.inputs.hasConfigPayloads {
+		configFields = NewConfigResultFields(execution.Plan.Sets, execution.RestoreItems)
+	}
 
-	// --- 2. Convert manifest entries to restore actions ---
-	manifestDir := filepath.Dir(flags.Manifest)
-	absManifestDir, _ := filepath.Abs(manifestDir)
+	data := &RestoreData{
+		Results:            execution.Results,
+		JournalPath:        execution.JournalPath,
+		DryRun:             flags.DryRun,
+		ConfigResultFields: configFields,
+	}
+	return data, executeErr
+}
 
-	actions := convertToActions(mf.Restore, flags.RestoreFilter)
-
-	// Resolve export path.
+func restoreConfigRestoreExecutionOptions(
+	flags RestoreFlags,
+	runID string,
+	repoRoot string,
+	emitter *events.Emitter,
+) configRestoreExecutionOptions {
+	manifestDir, _ := filepath.Abs(filepath.Dir(flags.Manifest))
 	exportRoot := ""
 	if flags.Export != "" {
 		exportRoot, _ = filepath.Abs(flags.Export)
 	}
-
-	// Resolve backup directory.
-	repoRoot := config.ResolveRepoRoot()
-	backupDir := ""
+	stateDir := state.StateDir()
 	if repoRoot != "" {
-		backupDir = filepath.Join(repoRoot, "state", "backups", runID)
+		stateDir = filepath.Join(repoRoot, "state")
 	}
-
-	// --- 3. Run restore ---
-	opts := restore.RestoreOptions{
-		DryRun:      flags.DryRun,
-		BackupDir:   backupDir,
-		ManifestDir: absManifestDir,
-		ExportRoot:  exportRoot,
-		RunID:       runID,
+	stateDir, _ = filepath.Abs(stateDir)
+	logsDir := ""
+	if repoRoot != "" {
+		logsDir = filepath.Join(repoRoot, "logs")
 	}
-
-	results, err := restore.RunRestore(actions, opts, emitter)
-	if err != nil {
-		return nil, envelope.NewError(envelope.ErrRestoreFailed, err.Error())
+	options := configRestoreExecutionOptions{
+		RestoreEnabled: flags.EnableRestore, DryRun: flags.DryRun,
+		RunID: runID, StateDir: stateDir, ManifestPath: flags.Manifest,
+		ManifestDir: manifestDir, ExportRoot: exportRoot,
+		BackupDir: filepath.Join(stateDir, "backups", runID), JournalLogsDir: logsDir,
+		Emitter: emitter,
 	}
-
-	// --- 4. Tally results for summary event (item events emitted inside RunRestore) ---
-	restoredCount := 0
-	skippedCount := 0
-	failedCount := 0
-	for _, r := range results {
-		switch r.Status {
-		case "restored":
-			restoredCount++
-		case "skipped_up_to_date", "skipped_missing_source":
-			skippedCount++
-		case "failed":
-			failedCount++
-		default:
-			skippedCount++
-		}
-	}
-
-	emitter.EmitSummary("restore", len(results), restoredCount, skippedCount, failedCount)
-
-	// --- 5. Write journal (non-dry-run only) ---
-	journalPath := ""
-	if !flags.DryRun {
-		logsDir := ""
-		if repoRoot != "" {
-			logsDir = filepath.Join(repoRoot, "logs")
-		} else {
-			logsDir = "logs"
-		}
-
-		absManifest, _ := filepath.Abs(flags.Manifest)
-		journalErr := restore.WriteJournal(logsDir, runID, absManifest, absManifestDir, exportRoot, results)
-		if journalErr == nil {
-			latest, findErr := restore.FindLatestJournal(logsDir)
-			if findErr == nil {
-				journalPath = latest
-			}
-		}
-	}
-
-	return &RestoreData{
-		Results:     results,
-		JournalPath: journalPath,
-		DryRun:      flags.DryRun,
-	}, nil
+	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
+	return options
 }
 
 // convertToActions converts manifest RestoreEntry items to
@@ -162,6 +149,7 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 	}
 
 	var actions []restore.RestoreAction
+	usedIDs := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
 		// Generate a deterministic ID.
 		restoreType := e.Type
@@ -194,7 +182,6 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 			ValueType:  e.ValueType,
 			Data:       e.Data,
 		}
-
 		// Apply filter: if filter is set, skip entries that don't match.
 		// Inline entries (no FromModule) always pass the filter.
 		if len(filterList) > 0 && action.FromModule != "" {
@@ -208,6 +195,14 @@ func convertToActions(entries []manifest.RestoreEntry, filter string) []restore.
 			if !matched {
 				continue
 			}
+		}
+		baseID := action.ID
+		for suffix := 2; ; suffix++ {
+			if _, exists := usedIDs[action.ID]; !exists {
+				usedIDs[action.ID] = struct{}{}
+				break
+			}
+			action.ID = fmt.Sprintf("%s#%d", baseID, suffix)
 		}
 
 		actions = append(actions, action)

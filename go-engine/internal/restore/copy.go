@@ -106,6 +106,15 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		Source: source,
 		Target: target,
 	}
+	excludePatterns := entry.Exclude
+	excludeFunc := func(relPath string) bool {
+		return isPathExcluded(relPath, excludePatterns)
+	}
+	if err := validateRestoreCopyTree(source, target, excludeFunc); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("unsafe directory copy: %v", err)
+		return result, nil
+	}
 
 	// Dry-run: report what would happen.
 	if opts.DryRun {
@@ -138,12 +147,6 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		return result, nil
 	}
 
-	// Build exclude checker.
-	excludePatterns := entry.Exclude
-	excludeFunc := func(relPath string) bool {
-		return isPathExcluded(relPath, excludePatterns)
-	}
-
 	// Walk source and copy.
 	var warnings []string
 	err := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
@@ -169,6 +172,9 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		}
 
 		destPath := filepath.Join(target, relPath)
+		if err := ValidateFilesystemTarget(destPath); err != nil {
+			return err
+		}
 
 		if info.IsDir() {
 			return os.MkdirAll(destPath, info.Mode())
@@ -196,6 +202,34 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 	result.Status = "restored"
 	result.Warnings = warnings
 	return result, nil
+}
+
+func validateRestoreCopyTree(source, target string, exclude func(string) bool) error {
+	if err := ValidateFilesystemTarget(target); err != nil {
+		return err
+	}
+	return filepath.Walk(source, func(sourcePath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if isLinkOrReparse(info) {
+			return fmt.Errorf("source path component %q is a link or reparse point", sourcePath)
+		}
+		relative, err := filepath.Rel(source, sourcePath)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		if exclude != nil && exclude(relative) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		return ValidateFilesystemTarget(filepath.Join(target, relative))
+	})
 }
 
 // isPathExcluded checks whether a relative path matches any of the exclude

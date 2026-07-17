@@ -52,6 +52,11 @@ type RestoreResult struct {
 	Error               string   `json:"error,omitempty"`
 	Warnings            []string `json:"warnings,omitempty"`
 	RestoreType         string   `json:"restoreType,omitempty"`
+	CaptureID           string   `json:"captureId,omitempty"`
+	ConfigSetID         string   `json:"configSetId,omitempty"`
+	TargetInstanceID    string   `json:"targetInstanceId,omitempty"`
+	SourceGeneration    string   `json:"sourceGeneration,omitempty"`
+	TargetGeneration    string   `json:"targetGeneration,omitempty"`
 }
 
 // RestoreOptions holds configuration for a restore run.
@@ -61,6 +66,45 @@ type RestoreOptions struct {
 	ManifestDir string
 	ExportRoot  string
 	RunID       string
+}
+
+// ActionDescriptor resolves the stable event identity and concrete paths for
+// one restore action without mutating the target.
+type ActionDescriptor struct {
+	ID            string
+	Source        string
+	Target        string
+	RestoreType   string
+	TargetExisted bool
+}
+
+// DescribeAction performs the same path resolution used by RunRestore so a
+// caller can emit an in-progress transition before the action mutates state.
+func DescribeAction(action RestoreAction, opts RestoreOptions) ActionDescriptor {
+	restoreType := action.Type
+	if restoreType == "" {
+		restoreType = "copy"
+	}
+	descriptor := ActionDescriptor{ID: generateID(action), RestoreType: restoreType}
+	switch restoreType {
+	case "registry-set":
+		descriptor.Target = registrySetTarget(action)
+		descriptor.TargetExisted = describeRegistryTargetExists(action)
+		return descriptor
+	case "registry-import":
+		descriptor.Source = resolveSource(action.Source, opts)
+		descriptor.Target = action.Target
+		descriptor.TargetExisted = describeRegistryTargetExists(action)
+		return descriptor
+	case "delete-glob":
+		descriptor.Target = resolveTarget(action.Target)
+	default:
+		descriptor.Source = resolveSource(action.Source, opts)
+		descriptor.Target = resolveTarget(action.Target)
+	}
+	_, err := os.Stat(descriptor.Target)
+	descriptor.TargetExisted = err == nil
+	return descriptor
 }
 
 // sensitiveSegments are path segments that trigger a warning when detected in
@@ -184,6 +228,12 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		// delete-glob: no source path, may produce multiple results.
 		if entry.Type == "delete-glob" {
 			target := resolveTarget(entry.Target)
+			if err := ValidateFilesystemTarget(target); err != nil {
+				r := RestoreResult{ID: id, Target: target, Status: "failed", Error: err.Error(), RestoreType: "delete-glob"}
+				emitRestoreItemEvent(emitter, entry, r)
+				results = append(results, r)
+				continue
+			}
 
 			// Check if target directory exists.
 			if _, err := os.Stat(target); os.IsNotExist(err) {
@@ -223,6 +273,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 
 			for i := range deleteResults {
 				deleteResults[i].ID = id
+				deleteResults[i].RestoreType = "delete-glob"
 				emitRestoreItemEvent(emitter, entry, deleteResults[i])
 			}
 			results = append(results, deleteResults...)
@@ -285,6 +336,12 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		// Resolve source and target paths.
 		source := resolveSource(entry.Source, opts)
 		target := resolveTarget(entry.Target)
+		if err := ValidateFilesystemTarget(target); err != nil {
+			r := RestoreResult{ID: id, Source: source, Target: target, Status: "failed", Error: err.Error(), RestoreType: entry.Type}
+			emitRestoreItemEvent(emitter, entry, r)
+			results = append(results, r)
+			continue
+		}
 
 		// Check if source exists.
 		sourceExists := true

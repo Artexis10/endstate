@@ -1,0 +1,85 @@
+{
+  "moduleSchemaVersion": 2,
+  "id": "apps.fixture-forward-json",
+  "displayName": "Fixture Forward JSON Migration",
+  "sensitivity": "low",
+  "matches": {
+    "winget": ["Fixture.ForwardJSON"]
+  },
+  "config": {
+    "instanceDetectors": [
+      { "id": "installed", "type": "package" }
+    ],
+    "sets": [
+      {
+        "id": "preferences",
+        "displayName": "Preferences",
+        "generations": [
+          {
+            "id": "g1",
+            "order": 1,
+            "matches": [
+              { "versionRange": "<2" }
+            ],
+            "capture": {
+              "files": [
+                { "source": "%APPDATA%\\Fixture JSON\\settings.json", "dest": "settings.json" }
+              ]
+            },
+            "restore": [
+              {
+                "type": "copy",
+                "source": "settings.json",
+                "target": "%APPDATA%\\Fixture JSON\\settings.json",
+                "backup": true
+              }
+            ],
+            "validate": [
+              { "type": "json-path-exists", "path": "settings.json", "jsonPath": "$.theme" }
+            ]
+          },
+          {
+            "id": "g2",
+            "order": 2,
+            "matches": [
+              { "versionRange": ">=2" }
+            ],
+            "capture": {
+              "files": [
+                { "source": "%APPDATA%\\Fixture JSON\\settings.json", "dest": "settings.json" }
+              ]
+            },
+            "restore": [
+              {
+                "type": "copy",
+                "source": "settings.json",
+                "target": "%APPDATA%\\Fixture JSON\\settings.json",
+                "backup": true
+              }
+            ],
+            "validate": [
+              { "type": "json-path-exists", "path": "settings.json", "jsonPath": "$.appearance.theme" }
+            ]
+          }
+        ],
+        "migrations": [
+          {
+            "from": "g1",
+            "to": "g2",
+            "operations": [
+              {
+                "type": "json-move",
+                "path": "settings.json",
+                "from": "$.theme",
+                "to": "$.appearance.theme"
+              }
+            ],
+            "validate": [
+              { "type": "json-path-exists", "path": "settings.json", "jsonPath": "$.appearance.theme" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

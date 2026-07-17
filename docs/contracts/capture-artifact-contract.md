@@ -92,6 +92,8 @@ $env:ENDSTATE_PROVISIONING_CLI = "C:\nonexistent\cli.ps1"
 - Zip contains at minimum: `manifest.jsonc` + `metadata.json`
 - Config payloads are automatically bundled when config modules match captured apps
 - Sensitive files (listed in `module.secrets.files`) are NEVER included in the zip
+- A capture containing any schema-v2 config set uses bundle metadata schema `2.0` and embedded manifest version `2`
+- Generation-aware payloads exist only under `configs/<captureId>/` and are referenced only by `configCaptures[]`; they never receive a flat restore entry
 
 ### INV-CAPTURE-6: Config Capture Failures Don't Block
 
@@ -107,6 +109,41 @@ $env:ENDSTATE_PROVISIONING_CLI = "C:\nonexistent\cli.ps1"
 
 - No warnings, no errors for missing configs
 - Matches UX guardrail: install-only profiles are successful outcomes
+
+### INV-CAPTURE-8: Module Schemas Remain Distinct
+
+**Existing modules without `moduleSchemaVersion` remain schema v1 and retain flat capture/restore behavior.**
+
+- Generation-aware declarations require `moduleSchemaVersion: 2`
+- A schema-v1 payload is reported as unversioned/`legacy_unverified`; the engine never fabricates an application version or config generation for it
+- A manifest-v2 bundle may contain explicit schema-v1 flat lanes beside `configCaptures[]`, but a flat lane can never supply data or fallback behavior for an invalid schema-v2 capture
+
+### INV-CAPTURE-9: Per-Set Source Provenance Is Immutable
+
+Every successful generation-aware config-set capture records:
+
+- `captureId`, `moduleId`, and `configSetId`
+- source instance ID, detector ID, raw version evidence, and normalized numeric dotted version when available
+- source generation and canonical source-generation fingerprint
+- capture-time module schema version, canonical content hash, and inspectable snapshot path
+- payload root and a manifest of relative path, byte size, and SHA-256 for every payload entry
+
+Capture keeps side-by-side instances separate. It never labels one preferred/latest or silently collapses two detected roots into one record.
+
+### INV-CAPTURE-10: Payload Layout and Provenance Are Verifiable
+
+- Complete relative path hierarchy is preserved under `configs/<captureId>/`
+- Duplicate portable destinations reject the affected config-set capture rather than overwriting by basename
+- Canonical module snapshots live under `provenance/modules/`, are non-executable, and are verified against their recorded hash
+- Hashes detect bundle corruption or internal inconsistency; they do not provide authenticity or signing
+
+### INV-CAPTURE-11: Legacy Engines Cannot Reach V2 Payloads
+
+A released manifest-v1 engine may still process application declarations or explicitly represented legacy lanes in a v2 bundle. Structural isolation is therefore mandatory: because generation-aware bytes have no flat restore entry, an engine that does not understand `configCaptures[]` has no executable legacy path to them.
+
+### INV-CAPTURE-12: Capture Envelope Reports Compatibility Version
+
+Generation-aware capture JSON adds `configCapture.configSets[]` and reports bundle schema `2.0` plus manifest version `2`. Each config-set row includes its capture/source identity, source generation and fingerprint, capture module revision, file count, status, and reason. Existing `configCapture.modules`, `configModules`, and schema-v1 capture fields remain backward compatible.
 
 ## Related Documents
 

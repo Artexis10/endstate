@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "generations": [
+    {
+      "moduleId": "apps.owncloud",
+      "configSetId": "preferences",
+      "generationId": "g1",
+      "fingerprints": [
+        "1c4479cb88b97756a6d73c39f0435c93f1ed53c58337f8562790d8ef060e26e6"
+      ]
+    },
+    {
+      "moduleId": "apps.owncloud",
+      "configSetId": "preferences",
+      "generationId": "g2",
+      "fingerprints": [
+        "899536c068d45769a2292adc25ab331226c5fc8eb4c71f89da00b61a3a3cdfba"
+      ]
+    },
+    {
+      "moduleId": "apps.studio-one",
+      "configSetId": "preferences",
+      "generationId": "g1",
+      "fingerprints": [
+        "abc0141add2928b64ab8fd6b82319c2f57fb086c1ed4b16b776b991d22882444"
+      ]
+    },
+    {
+      "moduleId": "apps.windows-terminal",
+      "configSetId": "preferences",
+      "generationId": "g1",
+      "fingerprints": [
+        "97631ba2d2e55f7c7c9e8fe94e03865c131be253f0a8e205580e85ebb13fb637"
+      ]
+    }
+  ]
+}

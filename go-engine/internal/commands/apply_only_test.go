@@ -212,6 +212,7 @@ func stringContains(s, sub string) bool {
 func threeAppsManifest(t *testing.T) string {
 	t.Helper()
 	content := `{
+		"version": 1,
 		"name": "subset-test",
 		"apps": [
 			{ "id": "git",   "refs": { "windows": "Git.Git" } },
@@ -500,6 +501,7 @@ func TestRunCapabilities_ApplyFlags_IncludesOnly(t *testing.T) {
 func syntheticAppManifest(t *testing.T) string {
 	t.Helper()
 	content := `{
+		"version": 1,
 		"name": "synthesis-test",
 		"apps": [
 			{ "id": "git", "refs": { "windows": "Git.Git" } }

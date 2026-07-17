@@ -4,12 +4,81 @@
 package restore
 
 import (
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"unicode/utf16"
 )
+
+func TestValidateRegistryImportScopeAcceptsOnlyDeclaredHKCUSubtree(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		wantErr string
+	}{
+		{
+			name: "target and descendants",
+			content: "Windows Registry Editor Version 5.00\r\n\r\n" +
+				"[HKEY_CURRENT_USER\\Software\\Vendor]\r\n\"Root\"=\"ok\"\r\n\r\n" +
+				"[-HKCU\\Software\\Vendor\\Old]\r\n",
+		},
+		{
+			name:    "sibling",
+			content: "Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Other]\n",
+			wantErr: "outside declared target",
+		},
+		{
+			name:    "different hive",
+			content: "Windows Registry Editor Version 5.00\n\n[HKEY_LOCAL_MACHINE\\Software\\Vendor]\n",
+			wantErr: "only supports HKCU",
+		},
+		{
+			name:    "no key sections",
+			content: "Windows Registry Editor Version 5.00\n\n\"Value\"=\"orphaned\"\n",
+			wantErr: "no registry key sections",
+		},
+		{
+			name:    "malformed section",
+			content: "Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Vendor\n",
+			wantErr: "malformed registry key section",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "settings.reg")
+			if err := os.WriteFile(path, []byte(test.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			err := ValidateRegistryImportScope(path, `HKCU\Software\Vendor`)
+			if test.wantErr == "" && err != nil {
+				t.Fatalf("ValidateRegistryImportScope() error = %v", err)
+			}
+			if test.wantErr != "" && (err == nil || !strings.Contains(err.Error(), test.wantErr)) {
+				t.Fatalf("ValidateRegistryImportScope() error = %v, want %q", err, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestValidateRegistryImportScopeAcceptsUTF16LERegistryExport(t *testing.T) {
+	content := "Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\Vendor\\Child]\r\n"
+	encoded := utf16.Encode([]rune(content))
+	data := make([]byte, 2+len(encoded)*2)
+	data[0], data[1] = 0xff, 0xfe
+	for index, value := range encoded {
+		binary.LittleEndian.PutUint16(data[2+index*2:], value)
+	}
+	path := filepath.Join(t.TempDir(), "settings.reg")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateRegistryImportScope(path, `HKEY_CURRENT_USER\Software\Vendor`); err != nil {
+		t.Fatalf("ValidateRegistryImportScope() error = %v", err)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // ValidateRegistryTarget / isHKCUKey tests (platform-independent)

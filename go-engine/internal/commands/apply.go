@@ -6,14 +6,18 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/state"
 )
 
 // stringPtr returns a pointer to s.
@@ -59,6 +63,9 @@ type ApplyFlags struct {
 	// RestoreFilter limits restore to entries matching specific module IDs
 	// (comma-separated).
 	RestoreFilter string
+	// RestoreTargets contains repeatable capture-to-target mappings. Command
+	// orchestration validates these against generation-aware capture IDs.
+	RestoreTargets []string
 	// Prune enables convergence: after install, remove installed-but-undeclared
 	// packages ("drift") from the engine-managed set. Realizer-only; per-package
 	// drivers refuse with CONVERGENCE_UNSUPPORTED.
@@ -83,6 +90,12 @@ type ApplyFlags struct {
 	// (plan, drivers, config-module expansion, restore scoping, verify, events,
 	// summary counts) sees only the selected apps. Incompatible with --prune.
 	Only string
+
+	// Prepared command-scoped restore facts are carried into alternate backend
+	// paths without reloading or renormalizing the manifest/catalog.
+	configRestoreRuntime  *configRestoreRuntime
+	configRestoreRepoRoot string
+	configRestoreBrewErr  error
 }
 
 // parseOnlyIDs normalises the --only value into a deduplicated set of app IDs.
@@ -208,6 +221,7 @@ type ApplyResult struct {
 	// from a homeManager.config (vs a direct homeManager.flake). Omitted when no
 	// config stage ran.
 	HomeManager *ApplyHomeManager `json:"homeManager,omitempty"`
+	*ConfigResultFields
 }
 
 // ApplyHomeManager surfaces the home-manager configuration stage in the apply
@@ -272,7 +286,8 @@ type ApplyAction struct {
 //   - Re-detect all apps with a fresh winget query.
 //   - Emit PhaseEvent("verify"), ItemEvents, SummaryEvent("verify").
 //
-// EnableRestore is accepted but logs a no-op notice; restore is Phase 2 work.
+// EnableRestore opts into configuration restore after package installation and
+// immediately before verification.
 func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("apply")
 	emitter := newApplyEmitterFn(runID, flags.Events == "jsonl")
@@ -287,12 +302,26 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
+	repoRoot := resolveRepoRootFn()
+	configRuntime, configInputErr := newConfigRestoreRuntime(configRestoreBuildRequest{
+		Manifest:       mf,
+		ManifestPath:   flags.Manifest,
+		RepoRoot:       repoRoot,
+		RestoreFilter:  flags.RestoreFilter,
+		RestoreTargets: flags.RestoreTargets,
+	})
+	if configInputErr != nil {
+		return nil, configInputErr
+	}
+	flags.configRestoreRuntime = configRuntime
+	flags.configRestoreRepoRoot = repoRoot
 
 	// Load the module catalog once; it is used for synthesis (pre-filter) and
 	// for module matching (post-filter). Non-fatal if unavailable.
 	var catalog map[string]*modules.Module
-	repoRoot := resolveRepoRootFn()
-	if repoRoot != "" {
+	if len(configRuntime.inputs.generationSources) > 0 {
+		catalog = configRuntime.catalog.ModuleCatalog()
+	} else if repoRoot != "" {
 		if cat, catalogErr := loadModuleCatalogFn(repoRoot); catalogErr == nil && len(cat) > 0 {
 			catalog = cat
 		}
@@ -323,8 +352,9 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	var configModuleMap map[string]string
 	var packageModuleMap map[string][]string
 	var restoreModulesAvailable []RestoreModuleRef
+	var matchedModules []*modules.Module
 	if catalog != nil {
-		matchedModules := modules.MatchModulesForApps(catalog, mf.Apps)
+		matchedModules = modules.MatchModulesForApps(catalog, mf.Apps)
 		if len(matchedModules) > 0 {
 			packageModuleMap = buildPackageModuleMap(matchedModules)
 			configModuleMap = make(map[string]string, len(matchedModules))
@@ -344,6 +374,9 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 				})
 			}
 		}
+	}
+	if flags.Only != "" {
+		scopeConfigRestoreRuntimeForOnly(configRuntime, matchedModules)
 	}
 
 	// Platform realizer path (whole-set, e.g. Nix on linux/darwin). When a
@@ -392,6 +425,8 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		if brewNeeded && avail[bootstrap.BackendBrew] {
 			if d, derr := newBrewDriverFn(); derr == nil {
 				brewDrv = d
+			} else {
+				flags.configRestoreBrewErr = derr
 			}
 		}
 
@@ -404,10 +439,86 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		if nixNeeded && avail[bootstrap.BackendNix] {
 			rzMf := *mf
 			rzMf.Apps = restApps
-			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, restoreModulesAvailable, brewApps, brewDrv, unsupportedApps)
+			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable, brewApps, brewDrv, unsupportedApps)
 		}
-		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, restoreModulesAvailable, unsupportedApps)
+		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable, unsupportedApps)
 	}
 
 	return runApplyDriverLanes(flags, mf, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable)
+}
+
+func scopeConfigRestoreRuntimeForOnly(runtime *configRestoreRuntime, matched []*modules.Module) {
+	if runtime == nil {
+		return
+	}
+	allowed := make(map[string]struct{}, len(matched))
+	for _, module := range matched {
+		if module != nil {
+			allowed[module.ID] = struct{}{}
+		}
+	}
+	for index := range runtime.inputs.generationSources {
+		source := &runtime.inputs.generationSources[index]
+		_, included := allowed[source.source.ModuleID]
+		source.selected = source.selected && included
+		if !source.selected {
+			delete(runtime.inputs.targetMappings, source.source.CaptureID)
+		}
+	}
+	for index := range runtime.inputs.legacyLanes {
+		lane := &runtime.inputs.legacyLanes[index]
+		_, included := allowed[lane.moduleID]
+		lane.selected = lane.selected && included
+	}
+}
+
+func applyConfigRestoreExecutionOptions(
+	flags ApplyFlags,
+	runID string,
+	repoRoot string,
+	emitter *events.Emitter,
+) configRestoreExecutionOptions {
+	manifestDir, _ := filepath.Abs(filepath.Dir(flags.Manifest))
+	exportRoot := ""
+	if flags.Export != "" {
+		exportRoot, _ = filepath.Abs(flags.Export)
+	}
+	stateDir := state.StateDir()
+	if repoRoot != "" {
+		stateDir = filepath.Join(repoRoot, "state")
+	}
+	stateDir, _ = filepath.Abs(stateDir)
+	logsDir := ""
+	if repoRoot != "" {
+		logsDir = filepath.Join(repoRoot, "logs")
+	}
+	options := configRestoreExecutionOptions{
+		RestoreEnabled: flags.EnableRestore,
+		DryRun:         flags.DryRun,
+		RunID:          runID,
+		StateDir:       stateDir,
+		ManifestPath:   flags.Manifest,
+		ManifestDir:    manifestDir,
+		ExportRoot:     exportRoot,
+		BackupDir:      filepath.Join(stateDir, "backups", runID),
+		JournalLogsDir: logsDir,
+	}
+	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
+	options.Emitter = emitter
+	return options
+}
+
+func emitConfigRestoreSummary(emitter *events.Emitter, results []restore.RestoreResult) {
+	restored, skipped, failed := 0, 0, 0
+	for _, result := range results {
+		switch result.Status {
+		case "restored":
+			restored++
+		case "skipped_up_to_date", "skipped_missing_source":
+			skipped++
+		case "failed":
+			failed++
+		}
+	}
+	emitter.EmitSummary("restore", len(results), restored, skipped, failed)
 }

@@ -68,6 +68,20 @@ func CreateBackup(targetPath, backupDir string) (string, error) {
 
 	baseName := filepath.Base(targetPath)
 	dest := filepath.Join(backupDest, baseName)
+	if _, err := os.Lstat(dest); err == nil {
+		for ordinal := 1; ; ordinal++ {
+			actionDir := filepath.Join(backupDest, fmt.Sprintf("action-%06d", ordinal))
+			if err := os.Mkdir(actionDir, 0o755); os.IsExist(err) {
+				continue
+			} else if err != nil {
+				return "", fmt.Errorf("allocate unique backup directory: %w", err)
+			}
+			dest = filepath.Join(actionDir, baseName)
+			break
+		}
+	} else if !os.IsNotExist(err) {
+		return "", fmt.Errorf("inspect backup destination: %w", err)
+	}
 
 	if info.IsDir() {
 		if err := copyDirRecursive(targetPath, dest, nil); err != nil {
@@ -85,30 +99,7 @@ func CreateBackup(targetPath, backupDir string) (string, error) {
 // copyFile copies a single file from src to dst, creating parent directories
 // as needed.
 func copyFile(src, dst string) error {
-	dir := filepath.Dir(dst)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return err
-	}
-
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	srcInfo, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	return atomicRestoreCopy(src, dst)
 }
 
 // copyDirRecursive copies a directory tree from src to dst. If exclude is

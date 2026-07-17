@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"runtime"
 
@@ -34,7 +35,7 @@ func configStageApplies(flags ApplyFlags, mf *manifest.Manifest) bool {
 // evaluated; only true Nix-ref apps are skipped as backend-unavailable. The
 // home-manager config stage cannot run without the realizer and is therefore
 // skipped here.
-func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter, runID string, configModuleMap map[string]string, restoreModulesAvailable []RestoreModuleRef, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
+func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter, runID string, configModuleMap map[string]string, packageModuleMap map[string][]string, restoreModulesAvailable []RestoreModuleRef, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	brew := newBrewLane(brewDrv, emitter, brewApps)
 
 	// --- Phase 1: Plan ---
@@ -93,21 +94,36 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	brewPlanSkipped := len(brew.brewActions()) - brewPresent - brewToInstall
 	unsupportedActions := planUnsupportedDriverApply(firstAppSlice(unsupportedApps), emitter)
 	totalApps := len(actions) + len(brew.brewActions()) + len(unsupportedActions)
-	// Plan-phase convention (mirrors runApplyRealizer): present→success slot,
-	// visible unavailable lanes→skipped, and to_install→failed slot.
+	// Plan-phase convention mirrors the realizer path: present entries occupy
+	// the success slot, unavailable lanes are skipped, and installs are pending.
 	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, skippedRealizer+brewPlanSkipped+len(unsupportedActions), brewToInstall)
+	evidence := newBrewOnlyConfigRestoreEvidenceSource(
+		brewDrv, flags.configRestoreBrewErr, restApps, brewApps, firstAppSlice(unsupportedApps),
+	)
+	configSession, configSessionErr := prepareApplyConfigRestore(context.Background(), flags, evidence)
+	if configSessionErr != nil {
+		return nil, configSessionErr
+	}
+	var configFields *ConfigResultFields
 
 	if flags.DryRun {
+		var configErr *envelope.Error
+		configFields, configErr = executePreparedApplyConfigRestore(
+			context.Background(), flags, runID, emitter, configSession,
+		)
 		dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
 		dryActions = append(dryActions, unsupportedActions...)
-		return &ApplyResult{
+		result := &ApplyResult{
 			DryRun:                  true,
 			Manifest:                ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 			Summary:                 ApplySummary{Total: totalApps, Skipped: skippedRealizer + presentCount + brewPresent + brewPlanSkipped + len(unsupportedActions)},
 			Actions:                 dryActions,
 			ConfigModuleMap:         configModuleMap,
+			PackageModuleMap:        packageModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
-		}, nil
+			ConfigResultFields:      configFields,
+		}
+		return result, configErr
 	}
 
 	// --- Phase 2: Apply ---
@@ -136,6 +152,23 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	skippedCount += brewSkipped
 	failedCount += brewFailed
 	emitter.EmitSummary("apply", successCount+skippedCount+failedCount, successCount, skippedCount, failedCount)
+	var configErr *envelope.Error
+	configFields, configErr = executePreparedApplyConfigRestore(
+		context.Background(), flags, runID, emitter, configSession,
+	)
+	if configErr != nil {
+		brewActions := brew.brewActions()
+		writeProvisioningGeneration(runID, "brew", brewActions, nil, "", brewFailed > 0, nil)
+		resultActions := append(append([]ApplyAction{}, actions...), brewActions...)
+		resultActions = append(resultActions, unsupportedActions...)
+		return &ApplyResult{
+			DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
+			Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
+			Actions:         resultActions,
+			ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+			ConfigResultFields: configFields,
+		}, configErr
+	}
 
 	// --- Phase 3: Verify ---
 	emitter.EmitPhase("verify")
@@ -174,6 +207,8 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 		Summary:                 ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
 		Actions:                 actions,
 		ConfigModuleMap:         configModuleMap,
+		PackageModuleMap:        packageModuleMap,
 		RestoreModulesAvailable: restoreModulesAvailable,
+		ConfigResultFields:      configFields,
 	}, nil
 }

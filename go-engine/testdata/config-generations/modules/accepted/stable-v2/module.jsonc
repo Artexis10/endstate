@@ -1,0 +1,47 @@
+{
+  "moduleSchemaVersion": 2,
+  "id": "apps.fixture-stable",
+  "displayName": "Fixture Stable",
+  "sensitivity": "low",
+  "matches": {
+    "winget": ["Fixture.Stable"]
+  },
+  "config": {
+    "instanceDetectors": [
+      { "id": "installed", "type": "package" }
+    ],
+    "sets": [
+      {
+        "id": "preferences",
+        "displayName": "Preferences",
+        "generations": [
+          {
+            "id": "g1",
+            "order": 1,
+            "capture": {
+              "files": [
+                {
+                  "source": "%APPDATA%\\Fixture Stable\\settings.json",
+                  "dest": "settings.json",
+                  "optional": true
+                }
+              ]
+            },
+            "restore": [
+              {
+                "type": "copy",
+                "source": "settings.json",
+                "target": "%APPDATA%\\Fixture Stable\\settings.json",
+                "backup": true,
+                "optional": true
+              }
+            ],
+            "validate": [
+              { "type": "json-parse", "path": "settings.json" }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

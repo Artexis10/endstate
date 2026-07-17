@@ -48,6 +48,7 @@ func TestRunApply_DriverPath_CapturesVersion(t *testing.T) {
 		versions:  map[string]string{"Vendor.A": "3.4.5"}, // captured version
 	}
 	mPath := writeManifest(t, `{
+		"version": 1,
 		"name": "capture-test",
 		"apps": [
 			{ "id": "a", "refs": { "windows": "Vendor.A" } },
@@ -77,6 +78,7 @@ func TestRunApply_DriverPath_PinsDeclaredVersion(t *testing.T) {
 
 	md := &mockDriver{installed: map[string]bool{}}
 	mPath := writeManifest(t, `{
+		"version": 1,
 		"name": "pin-test",
 		"apps": [
 			{ "id": "a", "version": "1.2.0", "refs": { "windows": "Vendor.A" } }
@@ -110,6 +112,7 @@ func TestRunApply_DriverPath_NoVersion_InstallsLatest(t *testing.T) {
 
 	md := &mockDriver{installed: map[string]bool{}}
 	mPath := writeManifest(t, `{
+		"version": 1,
 		"name": "latest-test",
 		"apps": [ { "id": "a", "refs": { "windows": "Vendor.A" } } ]
 	}`)
@@ -138,6 +141,7 @@ func TestRunApply_DriverPath_UnavailablePin_Fails(t *testing.T) {
 		},
 	}
 	mPath := writeManifest(t, `{
+		"version": 1,
 		"name": "pin-unavailable",
 		"apps": [ { "id": "a", "version": "9.9.9", "refs": { "windows": "Vendor.A" } } ]
 	}`)
@@ -174,7 +178,7 @@ func TestRunApplyRealizer_IgnoresAppVersion(t *testing.T) {
 		realizeResult: realizer.Result{Advanced: true, ToGeneration: 2},
 	}
 
-	if _, eerr := runApplyRealizer(ApplyFlags{Manifest: "m.jsonc"}, mf, fr, noopEmitter(), "rz-ver", nil, nil, nil, nil); eerr != nil {
+	if _, eerr := runApplyRealizer(ApplyFlags{Manifest: "m.jsonc"}, mf, fr, noopEmitter(), "rz-ver", nil, nil, nil, nil, nil); eerr != nil {
 		t.Fatalf("realizer must ignore App.Version, got error: %v", eerr)
 	}
 	if fr.realizeCalls != 1 {

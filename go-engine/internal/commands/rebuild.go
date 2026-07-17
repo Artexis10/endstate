@@ -29,6 +29,11 @@ type RebuildFlags struct {
 	NoRestore bool
 	// Events controls streaming event output. "jsonl" enables it; "" disables.
 	Events string
+	// RestoreFilter preserves module-level restore filtering through rebuild's
+	// composed apply pipeline.
+	RestoreFilter string
+	// RestoreTargets contains repeatable capture-to-target mappings.
+	RestoreTargets []string
 	// BootstrapBackends authorizes installing and verifying selected absent
 	// package backends before package mutation.
 	BootstrapBackends bool
@@ -67,6 +72,7 @@ type RebuildResult struct {
 	Restore string             `json:"restore"` // "enabled" | "disabled"
 	Apply   interface{}        `json:"apply"`
 	Verify  interface{}        `json:"verify,omitempty"`
+	*ConfigResultFields
 }
 
 // RunRebuild executes the one-command fresh-machine flow: it resolves and
@@ -151,7 +157,14 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 	}
 	applyResult, applyErr := RunApply(rebuildApplyFlags(flags, manifestPath))
 	if applyErr != nil {
-		return nil, applyErr
+		var configFields *ConfigResultFields
+		if applied, ok := applyResult.(*ApplyResult); ok {
+			configFields = applied.ConfigResultFields
+		}
+		return &RebuildResult{
+			From: from, Bundle: bundleInfo, DryRun: flags.DryRun, Restore: restoreState,
+			Apply: applyResult, ConfigResultFields: configFields,
+		}, applyErr
 	}
 
 	// --- 5. Verify (skipped on dry-run) ---
@@ -169,15 +182,20 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		}
 		verifyResult = vr
 	}
+	var configFields *ConfigResultFields
+	if applied, ok := applyResult.(*ApplyResult); ok {
+		configFields = applied.ConfigResultFields
+	}
 
 	// --- 6. Assemble — success even when apply/verify summaries carry failures ---
 	return &RebuildResult{
-		From:    from,
-		Bundle:  bundleInfo,
-		DryRun:  flags.DryRun,
-		Restore: restoreState,
-		Apply:   applyResult,
-		Verify:  verifyResult,
+		From:               from,
+		Bundle:             bundleInfo,
+		DryRun:             flags.DryRun,
+		Restore:            restoreState,
+		Apply:              applyResult,
+		Verify:             verifyResult,
+		ConfigResultFields: configFields,
 	}, nil
 }
 
@@ -187,6 +205,8 @@ func rebuildApplyFlags(flags RebuildFlags, manifestPath string) ApplyFlags {
 		DryRun:            flags.DryRun,
 		EnableRestore:     !flags.NoRestore,
 		Events:            flags.Events,
+		RestoreFilter:     flags.RestoreFilter,
+		RestoreTargets:    append([]string(nil), flags.RestoreTargets...),
 		BootstrapBackends: flags.BootstrapBackends,
 		NoBootstrap:       flags.NoBootstrap,
 	}

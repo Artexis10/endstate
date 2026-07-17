@@ -6,6 +6,7 @@ package manifest
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -41,7 +42,7 @@ type ValidationError struct {
 //  2. PARSE_ERROR     - content must be valid JSON/JSONC
 //  3. MISSING_VERSION - "version" key must be present
 //  4. INVALID_VERSION_TYPE - "version" must be a JSON number
-//  5. UNSUPPORTED_VERSION  - "version" must equal 1
+//  5. UNSUPPORTED_VERSION  - "version" must be integer 1 or 2
 //  6. MISSING_APPS    - "apps" key must be present
 //  7. INVALID_APPS_TYPE    - "apps" must be a JSON array
 func ValidateProfile(path string) *ValidationResult {
@@ -78,6 +79,7 @@ func ValidateProfile(path string) *ValidationResult {
 	}
 
 	// 4 & 5. Validate version type and value only when the key exists.
+	supportedVersion := 0
 	if hasVersion {
 		// Attempt to unmarshal as float64 (all JSON numbers decode to float64).
 		var versionNum float64
@@ -89,11 +91,13 @@ func ValidateProfile(path string) *ValidationResult {
 			})
 		} else {
 			// Type is correct; check the value.
-			if versionNum != 1 {
+			if math.Trunc(versionNum) != versionNum || versionNum < 1 || versionNum > 2 {
 				res.Errors = append(res.Errors, ValidationError{
 					Code:    "UNSUPPORTED_VERSION",
-					Message: `"version" must be 1`,
+					Message: `"version" must be integer 1 or 2`,
 				})
+			} else {
+				supportedVersion = int(versionNum)
 			}
 		}
 	}
@@ -123,6 +127,20 @@ func ValidateProfile(path string) *ValidationResult {
 		var apps []App
 		if err := json.Unmarshal(appsRaw, &apps); err == nil {
 			res.Errors = append(res.Errors, ValidateManifestApps(&Manifest{Apps: apps})...)
+		}
+	}
+
+	// The signature checks above preserve their established diagnostic ordering.
+	// Once they pass, use the same version-dispatched loader as execution so v2
+	// provenance, include compatibility, and structural isolation cannot validate
+	// differently in profile discovery than they do at apply time.
+	if len(res.Errors) == 0 && supportedVersion != 0 {
+		if _, err := LoadManifest(path); err != nil {
+			code := ManifestDiagnosticCode(err)
+			if code == "" {
+				code = "MANIFEST_VALIDATION_ERROR"
+			}
+			res.Errors = append(res.Errors, ValidationError{Code: code, Message: err.Error()})
 		}
 	}
 
