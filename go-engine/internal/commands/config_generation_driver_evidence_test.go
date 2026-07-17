@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,8 +14,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
@@ -171,6 +174,130 @@ func TestRunApplyAndRebuild_ChocolateyMigrationUsesFinalDriverEvidence(t *testin
 				t.Fatalf("restored target = %q, %v", data, err)
 			}
 		})
+	}
+}
+
+func TestRunApply_BrewFactoryErrorDrivesFinalConfigDiagnosticWithoutFallback(t *testing.T) {
+	manifestPath, _, brewModule := postInstallGenerationFixture(t)
+	manifestDir := filepath.Dir(manifestPath)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var captured manifest.Manifest
+	if err := json.Unmarshal(data, &captured); err != nil {
+		t.Fatal(err)
+	}
+	captured.Apps[0].Driver = "brew"
+	captured.Apps[0].Refs = map[string]string{"darwin": "brew.package"}
+	captured.ConfigCaptures[0].SourceInstance.Evidence.Backend = "brew"
+	captured.ConfigCaptures[0].SourceInstance.Evidence.Driver = "brew"
+	captured.ConfigCaptures[0].SourceInstance.Evidence.Ref = "brew.package"
+	brewModule.Matches = modules.MatchCriteria{}
+	brewModule.Config.InstanceDetectors = []modules.InstanceDetectorDef{{ID: "installed", Type: "package"}}
+
+	unrelatedModule := planningTestModule(
+		"apps.unrelated",
+		modules.InstanceDetectorDef{ID: "profiles", Type: "path", Glob: filepath.Join(t.TempDir(), "missing", "*")},
+	)
+	unrelatedCapture := commandTestConfigCapture(t, manifestDir, "capture-unrelated", unrelatedModule.ID, "preferences")
+	unrelatedCapture.SourceInstance.RawVersion = "2.0"
+	unrelatedCapture.SourceInstance.NormalizedVersion = "2"
+	captured.ConfigCaptures = append(captured.ConfigCaptures, unrelatedCapture)
+	encoded, err := json.Marshal(captured)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := map[string]*modules.Module{brewModule.ID: brewModule, unrelatedModule.ID: unrelatedModule}
+	originalConfigCatalog := loadConfigRestoreCatalogFn
+	originalModuleCatalog := loadModuleCatalogFn
+	originalRoot := resolveRepoRootFn
+	originalDriver := newDriverFn
+	originalEmitter := newApplyEmitterFn
+	repoRoot := t.TempDir()
+	loadConfigRestoreCatalogFn = func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+		return catalog, nil, nil
+	}
+	loadModuleCatalogFn = func(string) (map[string]*modules.Module, error) { return catalog, nil }
+	resolveRepoRootFn = func() string { return repoRoot }
+	driverFallbackCalls := 0
+	newDriverFn = func() (driver.Driver, error) {
+		driverFallbackCalls++
+		return nil, errors.New("package driver fallback must not run")
+	}
+	var stream bytes.Buffer
+	newApplyEmitterFn = func(runID string, enabled bool) *events.Emitter {
+		return events.NewEmitterWithWriter(runID, enabled, &stream)
+	}
+	t.Cleanup(func() {
+		loadConfigRestoreCatalogFn = originalConfigCatalog
+		loadModuleCatalogFn = originalModuleCatalog
+		resolveRepoRootFn = originalRoot
+		newDriverFn = originalDriver
+		newApplyEmitterFn = originalEmitter
+	})
+
+	factoryErr := errors.New(`brew binary lookup failed; path="/home/alice/private/bin/brew": permission denied`)
+	var result *ApplyResult
+	withBootstrapAvail(map[bootstrap.Backend]bool{bootstrap.BackendBrew: true}, func() {
+		withRealizerAndBrew(&fakeRealizer{}, func() (driver.Driver, error) {
+			return nil, factoryErr
+		}, func() {
+			raw, envErr := RunApply(ApplyFlags{
+				Manifest: manifestPath, EnableRestore: true, DryRun: true, Events: "jsonl",
+			})
+			if envErr != nil {
+				t.Fatalf("RunApply: %+v", envErr)
+			}
+			result = raw.(*ApplyResult)
+		})
+	})
+	if driverFallbackCalls != 0 {
+		t.Fatalf("package driver fallback calls = %d, want 0", driverFallbackCalls)
+	}
+	if result == nil || result.ConfigResultFields == nil || len(result.ConfigResolutions) != 2 {
+		t.Fatalf("config result = %+v", result)
+	}
+	resolutions := make(map[string]planner.ConfigResolution, len(result.ConfigResolutions))
+	for _, resolution := range result.ConfigResolutions {
+		resolutions[resolution.CaptureID] = resolution
+	}
+	brewResolution := resolutions["capture-a"]
+	if brewResolution.Resolution != planner.ResolutionUnknown || brewResolution.Status != planner.StatusSkipped ||
+		brewResolution.Reason == nil || *brewResolution.Reason != planner.ReasonTargetDetectionFailed {
+		t.Fatalf("Brew resolution = %+v", brewResolution)
+	}
+	unrelatedResolution := resolutions["capture-unrelated"]
+	if unrelatedResolution.Reason == nil || *unrelatedResolution.Reason != planner.ReasonTargetNotDetected {
+		t.Fatalf("unrelated path resolution was poisoned: %+v", unrelatedResolution)
+	}
+
+	diagnostic := ""
+	for _, line := range strings.Split(strings.TrimSpace(stream.String()), "\n") {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("event: %v\n%s", err, line)
+		}
+		if event["event"] != "error" || event["scope"] != "item" {
+			continue
+		}
+		if event["id"] == unrelatedModule.ID {
+			t.Fatalf("unrelated module received detection error: %s", line)
+		}
+		if event["id"] == brewModule.ID {
+			diagnostic, _ = event["message"].(string)
+		}
+	}
+	if !strings.Contains(diagnostic, "driver=brew, ref=brew.package") ||
+		!strings.Contains(diagnostic, "brew binary lookup failed") ||
+		!strings.Contains(diagnostic, "permission denied") ||
+		!strings.Contains(diagnostic, "[local path]") ||
+		strings.Contains(diagnostic, "/home/alice") {
+		t.Fatalf("Brew factory diagnostic = %q", diagnostic)
 	}
 }
 
@@ -384,7 +511,7 @@ func TestBrewOnlyConfigRestoreEvidenceKeepsUnavailableNixAndUnsupportedDrivers(t
 	}}
 
 	evidence, err := newBrewOnlyConfigRestoreEvidenceSource(
-		brew, []manifest.App{nixPackage}, []manifest.App{brewPackage}, []manifest.App{unsupported},
+		brew, nil, []manifest.App{nixPackage}, []manifest.App{brewPackage}, []manifest.App{unsupported},
 	).Snapshot(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)

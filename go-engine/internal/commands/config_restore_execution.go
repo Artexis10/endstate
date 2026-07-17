@@ -12,11 +12,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
@@ -375,8 +375,6 @@ func emitGenerationConfigResolutions(emitter *events.Emitter, plan planner.Confi
 	}
 }
 
-var configRestoreHostPathPattern = regexp.MustCompile(`(?i)(?:[a-z]:[\\/][^\s]+|\\\\[^\s]+|~[\\/][^\s]+|(?:^|[\s(])\/[^\s]+)`)
-
 const configRestoreDetectionDetailLimit = 1024
 
 func emitConfigRestoreDetectionFailures(
@@ -412,13 +410,7 @@ func emitConfigRestoreDetectionFailures(
 
 func sanitizeConfigRestoreDetectionDetail(detail string) string {
 	detail = strings.Join(strings.Fields(strings.ToValidUTF8(detail, "�")), " ")
-	detail = configRestoreHostPathPattern.ReplaceAllStringFunc(detail, func(match string) string {
-		prefix := ""
-		if strings.HasPrefix(match, " ") || strings.HasPrefix(match, "(") {
-			prefix, match = match[:1], match[1:]
-		}
-		return prefix + "[local path]"
-	})
+	detail = redactConfigRestoreHostPaths(detail)
 	if len(detail) <= configRestoreDetectionDetailLimit {
 		return detail
 	}
@@ -428,6 +420,68 @@ func sanitizeConfigRestoreDetectionDetail(detail string) string {
 		cut--
 	}
 	return strings.TrimSpace(detail[:cut]) + suffix
+}
+
+func redactConfigRestoreHostPaths(detail string) string {
+	var redacted strings.Builder
+	last := 0
+	for index := 0; index < len(detail); {
+		if !configRestoreHostPathStartsAt(detail, index) {
+			_, width := utf8.DecodeRuneInString(detail[index:])
+			index += width
+			continue
+		}
+		end := index
+		for end < len(detail) {
+			r, width := utf8.DecodeRuneInString(detail[end:])
+			if unicode.IsSpace(r) || strings.ContainsRune("\"')]}>,;", r) {
+				break
+			}
+			end += width
+		}
+		redacted.WriteString(detail[last:index])
+		redacted.WriteString("[local path]")
+		last, index = end, end
+	}
+	if last == 0 {
+		return detail
+	}
+	redacted.WriteString(detail[last:])
+	return redacted.String()
+}
+
+func configRestoreHostPathStartsAt(detail string, index int) bool {
+	if index < 0 || index >= len(detail) || !configRestoreHostPathBoundary(detail, index) {
+		return false
+	}
+	remaining := detail[index:]
+	switch remaining[0] {
+	case '/':
+		return len(remaining) == 1 || remaining[1] != '/'
+	case '~':
+		return len(remaining) > 1 && (remaining[1] == '/' || remaining[1] == '\\')
+	case '\\':
+		return len(remaining) > 1 && remaining[1] == '\\'
+	default:
+		if len(remaining) < 3 || !isASCIIAlpha(remaining[0]) || remaining[1] != ':' ||
+			(remaining[2] != '/' && remaining[2] != '\\') {
+			return false
+		}
+		return len(remaining) == 3 || remaining[2] == '\\' || remaining[3] != '/'
+	}
+}
+
+func configRestoreHostPathBoundary(detail string, index int) bool {
+	if index == 0 {
+		return true
+	}
+	previous, _ := utf8.DecodeLastRuneInString(detail[:index])
+	return unicode.IsSpace(previous) || unicode.IsSymbol(previous) ||
+		(unicode.IsPunct(previous) && previous != '/' && previous != '\\')
+}
+
+func isASCIIAlpha(value byte) bool {
+	return value >= 'a' && value <= 'z' || value >= 'A' && value <= 'Z'
 }
 
 func emitGenerationConfigResolution(emitter *events.Emitter, set planner.PlanSet) {

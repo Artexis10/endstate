@@ -274,9 +274,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	configSession, configSessionErr := prepareApplyConfigRestore(
 		context.Background(),
 		flags,
-		newRealizerConfigRestoreEvidenceSource(
+		newRealizerConfigRestoreEvidenceSourceWithBrewError(
 			r,
 			brewDrv,
+			flags.configRestoreBrewErr,
 			append(append(append([]manifest.App{}, mf.Apps...), brewApps...), firstAppSlice(unsupportedApps)...),
 		),
 	)

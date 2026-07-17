@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
@@ -417,6 +418,54 @@ func TestConfigRestoreExecutionEmitsFinalSanitizedDriverDetectionFailure(t *test
 	}
 	if resolutionIndex < 0 || errorIndex > resolutionIndex {
 		t.Fatalf("diagnostic/config-resolution order = error:%d resolution:%d\n%s", errorIndex, resolutionIndex, buffer.String())
+	}
+}
+
+func TestSanitizeConfigRestoreDetectionDetailRedactsLocalPathsWithoutCorruptingURLs(t *testing.T) {
+	tests := []struct {
+		name      string
+		input     string
+		forbidden string
+		unchanged bool
+	}{
+		{name: "posix at start", input: `/home/alice/private: denied`, forbidden: "/home/alice"},
+		{name: "after whitespace", input: `open /var/lib/private: denied`, forbidden: "/var/lib"},
+		{name: "after parenthesis", input: `open (/srv/private): denied`, forbidden: "/srv/private"},
+		{name: "after closing parenthesis", input: `context)/srv/private`, forbidden: "/srv/private"},
+		{name: "double quoted", input: `open "/home/alice/private": denied`, forbidden: "/home/alice"},
+		{name: "single quoted", input: `open '/opt/private/data': denied`, forbidden: "/opt/private"},
+		{name: "assigned", input: `path=/home/alice/private`, forbidden: "/home/alice"},
+		{name: "after colon", input: `path:/home/alice/private`, forbidden: "/home/alice"},
+		{name: "after comma", input: `lookup failed,/home/alice/private`, forbidden: "/home/alice"},
+		{name: "after bracket", input: `roots=[/home/alice/private]`, forbidden: "/home/alice"},
+		{name: "after period", input: `context./home/alice/private`, forbidden: "/home/alice"},
+		{name: "after question mark", input: `path?/home/alice/private`, forbidden: "/home/alice"},
+		{name: "after at sign", input: `root@/home/alice/private`, forbidden: "/home/alice"},
+		{name: "windows", input: `open C:\Users\Alice\private\prefs.json: denied`, forbidden: `C:\Users\Alice`},
+		{name: "unc", input: `open \\server\private\prefs.json: denied`, forbidden: `\\server\private`},
+		{name: "home relative", input: `open ~/private/prefs.json: denied`, forbidden: `~/private`},
+		{name: "https url", input: `fetch https://example.com/private/path: denied`, unchanged: true},
+		{name: "file url", input: `fetch file:///home/alice/private: denied`, unchanged: true},
+		{name: "ordinary slash text", input: `package nixpkgs#hello ratio=a/b module/value`, unchanged: true},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got := sanitizeConfigRestoreDetectionDetail(test.input)
+			if test.unchanged {
+				if got != test.input {
+					t.Fatalf("sanitized ordinary text = %q, want unchanged %q", got, test.input)
+				}
+				return
+			}
+			if strings.Contains(got, test.forbidden) || !strings.Contains(got, "[local path]") {
+				t.Fatalf("sanitized detail = %q, leaked %q", got, test.forbidden)
+			}
+		})
+	}
+
+	bounded := sanitizeConfigRestoreDetectionDetail(`/home/alice/private ` + strings.Repeat("é", 2048))
+	if len(bounded) > configRestoreDetectionDetailLimit || !utf8.ValidString(bounded) || strings.Contains(bounded, "/home/alice") {
+		t.Fatalf("bounded UTF-8 detail invalid: bytes=%d valid=%v value=%q", len(bounded), utf8.ValidString(bounded), bounded)
 	}
 }
 

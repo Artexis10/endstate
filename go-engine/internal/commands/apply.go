@@ -95,6 +95,7 @@ type ApplyFlags struct {
 	// paths without reloading or renormalizing the manifest/catalog.
 	configRestoreRuntime  *configRestoreRuntime
 	configRestoreRepoRoot string
+	configRestoreBrewErr  error
 }
 
 // parseOnlyIDs normalises the --only value into a deduplicated set of app IDs.
@@ -424,6 +425,8 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		if brewNeeded && avail[bootstrap.BackendBrew] {
 			if d, derr := newBrewDriverFn(); derr == nil {
 				brewDrv = d
+			} else {
+				flags.configRestoreBrewErr = derr
 			}
 		}
 

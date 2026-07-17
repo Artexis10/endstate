@@ -298,6 +298,7 @@ func newRealizerConfigRestoreEvidenceSourceWithBrewError(
 
 func newBrewOnlyConfigRestoreEvidenceSource(
 	brewBackend driver.Driver,
+	brewBackendErr error,
 	realizerApps []manifest.App,
 	brewApps []manifest.App,
 	unsupportedApps []manifest.App,
@@ -310,10 +311,12 @@ func newBrewOnlyConfigRestoreEvidenceSource(
 		})
 	}
 	if len(brewApps) > 0 {
-		brewLane := configRestoreEvidenceLane{name: "brew", apps: cloneConfigRestoreEvidenceApps(brewApps)}
+		brewLane := configRestoreEvidenceLane{
+			name: "brew", apps: cloneConfigRestoreEvidenceApps(brewApps), err: brewBackendErr,
+		}
 		if brewBackend != nil {
 			brewLane.source = newDriverConfigRestoreEvidenceSource(brewBackend, brewApps)
-		} else {
+		} else if brewLane.err == nil {
 			brewLane.err = errors.New("brew package driver is unavailable")
 		}
 		sources = append(sources, brewLane)

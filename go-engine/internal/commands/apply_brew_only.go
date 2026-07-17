@@ -98,7 +98,7 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	// the success slot, unavailable lanes are skipped, and installs are pending.
 	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, skippedRealizer+brewPlanSkipped+len(unsupportedActions), brewToInstall)
 	evidence := newBrewOnlyConfigRestoreEvidenceSource(
-		brewDrv, restApps, brewApps, firstAppSlice(unsupportedApps),
+		brewDrv, flags.configRestoreBrewErr, restApps, brewApps, firstAppSlice(unsupportedApps),
 	)
 	configSession, configSessionErr := prepareApplyConfigRestore(context.Background(), flags, evidence)
 	if configSessionErr != nil {
