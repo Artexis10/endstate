@@ -103,16 +103,18 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 		} else if latestReadErr != nil {
 			return nil, configRestoreHistoryOrderError(latestReadErr)
 		}
-		var consumedErr error
-		latestConsumed, consumedErr = guard.LegacyJournalConsumed(context.Background(), latestPath)
-		if consumedErr != nil {
-			return nil, configRestoreHistoryOrderError(consumedErr)
-		}
-		if !latestConsumed {
-			var chronologyErr error
-			newerStandalone, chronologyErr = newerStandaloneLegacyJournal(runs[0], latestJournal)
-			if chronologyErr != nil {
-				return nil, configRestoreHistoryOrderError(chronologyErr)
+		if latestFindErr == nil {
+			var consumedErr error
+			latestConsumed, consumedErr = guard.LegacyJournalConsumed(context.Background(), latestPath)
+			if consumedErr != nil {
+				return nil, configRestoreHistoryOrderError(consumedErr)
+			}
+			if !latestConsumed {
+				var chronologyErr error
+				newerStandalone, chronologyErr = newerStandaloneLegacyJournal(runs[0], latestJournal)
+				if chronologyErr != nil {
+					return nil, configRestoreHistoryOrderError(chronologyErr)
+				}
 			}
 		}
 	}
