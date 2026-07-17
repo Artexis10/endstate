@@ -269,13 +269,7 @@ func TestConfigGenerationCaptureMigrationRestoreRevertRoundTrip(t *testing.T) {
 		!equalStrings(resolution.MigrationPath, []string{"g1", "g2"}) {
 		t.Fatalf("roundtrip resolution = %+v", resolution)
 	}
-	resolutionJSON, err := json.Marshal(resolution)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if bytes.Contains(bytes.ToLower(resolutionJSON), bytes.ToLower([]byte(targetRoot))) {
-		t.Fatalf("public resolution exposed host root %q: %s", targetRoot, resolutionJSON)
-	}
+	roundTripAssertResolutionTargets(t, resolution, targetPath)
 
 	restoredBytes, err := os.ReadFile(targetPath)
 	if err != nil {
@@ -297,7 +291,7 @@ func TestConfigGenerationCaptureMigrationRestoreRevertRoundTrip(t *testing.T) {
 	if bytes.ContainsAny(envelopeBytes, "\r\n") {
 		t.Fatalf("compact success envelope = %q", envelopeBytes)
 	}
-	roundTripAssertRestoreEnvelope(t, envelopeBytes, captureRow, parsedModule, targetRoot)
+	roundTripAssertRestoreEnvelope(t, envelopeBytes, captureRow, parsedModule, targetPath)
 
 	roundTripAssertRestoreEvents(t, restoreEvents, captureRow.CaptureID, targetRoot)
 	roundTripAssertCommittedJournal(t, filepath.Join(root, "state"), captureRow, parsedModule, resolution.TargetInstanceID)
@@ -439,7 +433,7 @@ func roundTripAssertRestoreEvents(t *testing.T, raw, captureID, hostRoot string)
 	}
 }
 
-func roundTripAssertRestoreEnvelope(t *testing.T, encoded []byte, capture CaptureConfigSetResult, module *modules.Module, hostRoot string) {
+func roundTripAssertRestoreEnvelope(t *testing.T, encoded []byte, capture CaptureConfigSetResult, module *modules.Module, targetPath string) {
 	t.Helper()
 	var wire struct {
 		SchemaVersion string          `json:"schemaVersion"`
@@ -469,10 +463,7 @@ func roundTripAssertRestoreEnvelope(t *testing.T, encoded []byte, capture Captur
 		resolution.CaptureModuleRevision != capture.CaptureModuleRevision || resolution.RestoreModuleRevision != module.Revision {
 		t.Fatalf("serialized config resolution = %+v", resolution)
 	}
-	resolutionJSON, _ := json.Marshal(resolution)
-	if bytes.Contains(bytes.ToLower(resolutionJSON), bytes.ToLower([]byte(hostRoot))) {
-		t.Fatalf("serialized config resolution exposed host root %q: %s", hostRoot, resolutionJSON)
-	}
+	roundTripAssertResolutionTargets(t, resolution, targetPath)
 	summary := wire.Data.ConfigResolutionSummary
 	if summary.Total != 1 || summary.Migrate != 1 || summary.Selected != 1 || summary.Direct != 0 || summary.Incompatible != 0 ||
 		summary.Unknown != 0 || summary.LegacyUnverified != 0 || summary.Skipped != 0 || summary.Failed != 0 {
@@ -482,6 +473,29 @@ func roundTripAssertRestoreEnvelope(t *testing.T, encoded []byte, capture Captur
 	if item.Status != "restored" || item.CaptureID != capture.CaptureID || item.ConfigSetID != capture.ConfigSetID ||
 		item.SourceGeneration != "g1" || item.TargetGeneration != "g2" || item.Target == "" {
 		t.Fatalf("serialized restore item = %+v", item)
+	}
+}
+
+func roundTripAssertResolutionTargets(t *testing.T, resolution planner.ConfigResolution, targetPath string) {
+	t.Helper()
+	if len(resolution.ResolvedTargets) != 1 {
+		t.Fatalf("resolved targets = %v, want one concrete action target", resolution.ResolvedTargets)
+	}
+	resolvedInfo, err := os.Stat(resolution.ResolvedTargets[0])
+	if err != nil {
+		t.Fatalf("stat resolved target %q: %v", resolution.ResolvedTargets[0], err)
+	}
+	targetInfo, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatalf("stat expected target %q: %v", targetPath, err)
+	}
+	if !os.SameFile(resolvedInfo, targetInfo) {
+		t.Fatalf("resolved target %q does not identify expected target %q", resolution.ResolvedTargets[0], targetPath)
+	}
+	for _, candidate := range resolution.TargetCandidates {
+		if candidate.Root != "" {
+			t.Fatalf("target candidate %q exposed host root %q", candidate.ID, candidate.Root)
+		}
 	}
 }
 
