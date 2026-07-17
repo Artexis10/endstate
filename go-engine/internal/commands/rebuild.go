@@ -34,6 +34,11 @@ type RebuildFlags struct {
 	RestoreFilter string
 	// RestoreTargets contains repeatable capture-to-target mappings.
 	RestoreTargets []string
+	// BootstrapBackends authorizes installing and verifying selected absent
+	// package backends before package mutation.
+	BootstrapBackends bool
+	// NoBootstrap forces selected absent backend lanes to be skipped.
+	NoBootstrap bool
 }
 
 // RebuildBundleInfo describes the extracted capture bundle. It is nil for a
@@ -150,14 +155,7 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 	if flags.NoRestore {
 		restoreState = "disabled"
 	}
-	applyResult, applyErr := RunApply(ApplyFlags{
-		Manifest:       manifestPath,
-		DryRun:         flags.DryRun,
-		EnableRestore:  !flags.NoRestore,
-		Events:         flags.Events,
-		RestoreFilter:  flags.RestoreFilter,
-		RestoreTargets: append([]string(nil), flags.RestoreTargets...),
-	})
+	applyResult, applyErr := RunApply(rebuildApplyFlags(flags, manifestPath))
 	if applyErr != nil {
 		var configFields *ConfigResultFields
 		if applied, ok := applyResult.(*ApplyResult); ok {
@@ -199,6 +197,19 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		Verify:             verifyResult,
 		ConfigResultFields: configFields,
 	}, nil
+}
+
+func rebuildApplyFlags(flags RebuildFlags, manifestPath string) ApplyFlags {
+	return ApplyFlags{
+		Manifest:          manifestPath,
+		DryRun:            flags.DryRun,
+		EnableRestore:     !flags.NoRestore,
+		Events:            flags.Events,
+		RestoreFilter:     flags.RestoreFilter,
+		RestoreTargets:    append([]string(nil), flags.RestoreTargets...),
+		BootstrapBackends: flags.BootstrapBackends,
+		NoBootstrap:       flags.NoBootstrap,
+	}
 }
 
 // readBundleMetadata best-effort reads metadata.json from an extracted bundle

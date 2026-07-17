@@ -182,12 +182,13 @@ func validateModule(mod *Module, filePath string) error {
 
 	// matches must have at least one matcher.
 	hasWinget := len(mod.Matches.Winget) > 0
+	hasChocolatey := len(mod.Matches.Chocolatey) > 0
 	hasExe := len(mod.Matches.Exe) > 0
 	hasUninstall := len(mod.Matches.UninstallDisplayName) > 0
 	hasPathExists := len(mod.Matches.PathExists) > 0
 
-	if !hasWinget && !hasExe && !hasUninstall && !hasPathExists {
-		return validationError(mod, filePath, DiagnosticInvalidID, "matches must have at least one of: winget, exe, uninstallDisplayName, pathExists")
+	if !hasWinget && !hasChocolatey && !hasExe && !hasUninstall && !hasPathExists {
+		return validationError(mod, filePath, DiagnosticInvalidID, "matches must have at least one of: winget, chocolatey, exe, uninstallDisplayName, pathExists")
 	}
 
 	return validateModuleV2(mod, filePath)

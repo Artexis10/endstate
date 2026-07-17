@@ -30,12 +30,13 @@ type PhaseEvent struct {
 // ItemEvent tracks progress of a single installable item.
 type ItemEvent struct {
 	BaseEvent
-	ID      string `json:"id"`
-	Driver  string `json:"driver"`
-	Name    string `json:"name,omitempty"`
-	Status  string `json:"status"`
-	Reason  string `json:"reason"`
-	Message string `json:"message,omitempty"`
+	ID             string `json:"id"`
+	Driver         string `json:"driver"`
+	Name           string `json:"name,omitempty"`
+	Status         string `json:"status"`
+	Reason         string `json:"reason"`
+	Message        string `json:"message,omitempty"`
+	RebootRequired bool   `json:"rebootRequired,omitempty"`
 }
 
 // SummaryEvent is emitted at the end of each phase with aggregate counts.

@@ -82,9 +82,10 @@ type VerifyManifestRef struct {
 
 // VerifySummary aggregates pass/fail counts across all checked items.
 type VerifySummary struct {
-	Total int `json:"total"`
-	Pass  int `json:"pass"`
-	Fail  int `json:"fail"`
+	Total   int `json:"total"`
+	Pass    int `json:"pass"`
+	Fail    int `json:"fail"`
+	Skipped int `json:"skipped,omitempty"`
 }
 
 // VerifyItem is a single result entry in the verify response. Fields that do
@@ -93,11 +94,12 @@ type VerifyItem struct {
 	Type    string `json:"type"`
 	ID      string `json:"id,omitempty"`
 	Ref     string `json:"ref,omitempty"`
+	Driver  string `json:"driver,omitempty"`
 	Name    string `json:"name,omitempty"`
 	Status  string `json:"status"`
 	Reason  string `json:"reason,omitempty"`
 	Message string `json:"message,omitempty"`
-	// Version is the installed version (winget; best-effort). Expected is the
+	// Version is the backend-reported installed version (best-effort). Expected is the
 	// version declared by the manifest. Both are set when a version is declared,
 	// so a consumer can render a version_drift mismatch.
 	Version  string `json:"version,omitempty"`
@@ -146,60 +148,47 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to
 	// the winget driver detect loop below, byte-identical to prior behavior.
 	if rz, rerr := newRealizerFn(); rerr == nil {
-		brewApps, restApps := partitionBrewLane(mf.Apps)
-		var brewDrv driver.Driver
-		if len(brewApps) > 0 {
-			if d, berr := newBrewDriverFn(); berr == nil {
-				brewDrv = d
-			}
-		}
+		brewApps, unsupportedApps, restApps := partitionRealizerLanes(mf.Apps)
+		brewDrv := resolveReadOnlyBrewDriver(len(brewApps) > 0, emitter)
 		rzMf := *mf
 		rzMf.Apps = restApps
-		return runVerifyRealizer(flags, &rzMf, rz, emitter, brewApps, brewDrv)
-	}
-
-	// --- 2. Create driver (platform-selected backend) ---
-	d, derr := newDriverFn()
-	if derr != nil {
-		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())
+		result, runErr := runVerifyRealizer(flags, &rzMf, rz, emitter, brewApps, brewDrv, unsupportedApps)
+		annotateVerifyPackageDrivers(result, restApps, brewApps, rz.Name())
+		return result, runErr
 	}
 
 	// --- 3. Emit phase event (first event in stream per event-contract.md) ---
 	emitter.EmitPhase("verify")
 
-	// Batch-detect all winget apps in one call for performance.
-	var wingetRefs []string
-	for _, app := range mf.Apps {
-		ref := resolveAppRef(app)
-		if ref != "" {
-			wingetRefs = append(wingetRefs, ref)
-		}
+	lanes, routed, derr := resolvePackageDriverLanesWithOverrides(mf.Apps, packageDriverReadOnlyOverrides(mf, emitter))
+	if derr != nil {
+		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())
 	}
-
-	var batchResults map[string]driver.DetectResult
-	if bd, ok := d.(driver.BatchDetector); ok && len(wingetRefs) > 0 {
-		batchResults, _ = bd.DetectBatch(wingetRefs)
+	detections := detectPackageDriverLanes(lanes)
+	routedByIndex := make(map[int]*routedDriverApp, len(routed))
+	for _, route := range routed {
+		routedByIndex[route.index] = route
 	}
 
 	var results []VerifyItem
 	passCount := 0
 	failCount := 0
+	skipCount := 0
 
-	for _, app := range mf.Apps {
-		ref := resolveAppRef(app)
-		isManual := ref == "" && app.Manual != nil && app.Manual.VerifyPath != ""
-
-		if ref == "" && !isManual {
+	for appIndex, app := range mf.Apps {
+		route, ok := routedByIndex[appIndex]
+		if !ok {
 			// No Windows ref and no manual verifyPath — skip silently.
 			continue
 		}
 
-		if isManual {
+		if route.isManual {
 			expanded, exists := checkVerifyPath(app.Manual.VerifyPath)
 			item := VerifyItem{
-				Type: "app",
-				ID:   app.ID,
-				Name: app.DisplayName,
+				Type:   "app",
+				ID:     app.ID,
+				Driver: "manual",
+				Name:   app.DisplayName,
 			}
 			if exists {
 				item.Status = "pass"
@@ -216,36 +205,55 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			results = append(results, item)
 			continue
 		}
+		ref := route.ref
+		itemName := resolveItemDisplayName("", app, ref)
+		item := VerifyItem{
+			Type:   "app",
+			ID:     app.ID,
+			Ref:    ref,
+			Driver: route.driverName,
+			Name:   itemName,
+		}
 
-		// Use batch results if available; fall back to per-ref Detect.
+		if route.err != nil || route.drv == nil {
+			item.Status = driver.StatusSkipped
+			item.Reason = driver.ReasonFiltered
+			item.Message = route.err.Error()
+			emitter.EmitItem(ref, route.driverName, driver.StatusSkipped, driver.ReasonFiltered, item.Message, itemName)
+			skipCount++
+			results = append(results, item)
+			continue
+		}
+
+		detection := detections[route.driverName]
 		var installed bool
 		var displayName string
 		var installedVersion string // best-effort; only the batch path exposes it
 		var detectErr error
-		if br, ok := batchResults[ref]; ok {
-			installed = br.Installed
-			displayName = br.DisplayName
-			installedVersion = br.Version
+		if detection.err != nil {
+			detectErr = detection.err
+		} else if detection.batchUsed {
+			if br, ok := detection.results[ref]; ok {
+				installed = br.Installed
+				displayName = br.DisplayName
+				installedVersion = br.Version
+			}
 		} else {
-			installed, displayName, detectErr = d.Detect(ref)
+			installed, displayName, detectErr = route.drv.Detect(ref)
 		}
 
-		itemName := resolveItemDisplayName(displayName, app, ref)
-
-		item := VerifyItem{
-			Type: "app",
-			ID:   app.ID,
-			Ref:  ref,
-			Name: itemName,
+		if displayName != "" {
+			itemName = displayName
+			item.Name = displayName
 		}
 
 		if detectErr != nil {
-			// Infrastructure error (e.g. winget not on PATH). Report as failed
-			// and continue checking remaining apps.
+			// Infrastructure error (e.g. package-manager database unavailable).
+			// It is not evidence that the package itself is missing.
 			item.Status = "fail"
-			item.Reason = driver.ReasonMissing
+			item.Reason = driver.ReasonInstallFailed
 			item.Message = detectErr.Error()
-			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, itemName)
+			emitter.EmitItem(ref, route.driverName, "failed", driver.ReasonInstallFailed, item.Message, itemName)
 			failCount++
 		} else if got, want := strings.TrimSpace(installedVersion), strings.TrimSpace(app.Version); installed && want != "" && got != "" && got != want {
 			// Installed, but at a version different from the one the manifest
@@ -256,18 +264,18 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Version = got
 			item.Expected = want
 			item.Message = fmt.Sprintf("installed %s, want %s", got, want)
-			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonVersionDrift, item.Message, itemName)
+			emitter.EmitItem(ref, route.driverName, "failed", driver.ReasonVersionDrift, item.Message, itemName)
 			failCount++
 		} else if installed {
 			item.Status = "pass"
 			item.Version = strings.TrimSpace(installedVersion)
-			emitter.EmitItem(ref, d.Name(), "present", "", "Verified installed", itemName)
+			emitter.EmitItem(ref, route.driverName, "present", "", "Verified installed", itemName)
 			passCount++
 		} else {
 			item.Status = "fail"
 			item.Reason = driver.ReasonMissing
 			item.Message = "Missing - not installed"
-			emitter.EmitItem(ref, d.Name(), "failed", driver.ReasonMissing, item.Message, itemName)
+			emitter.EmitItem(ref, route.driverName, "failed", driver.ReasonMissing, item.Message, itemName)
 			failCount++
 		}
 
@@ -293,10 +301,10 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		}
 	}
 
-	total := passCount + failCount
+	total := passCount + failCount + skipCount
 
 	// --- 5. Summary event (last event in stream per event-contract.md) ---
-	emitter.EmitSummary("verify", total, passCount, 0, failCount)
+	emitter.EmitSummary("verify", total, passCount, skipCount, failCount)
 
 	return &VerifyResult{
 		Manifest: VerifyManifestRef{
@@ -304,12 +312,43 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			Name: mf.Name,
 		},
 		Summary: VerifySummary{
-			Total: total,
-			Pass:  passCount,
-			Fail:  failCount,
+			Total:   total,
+			Pass:    passCount,
+			Fail:    failCount,
+			Skipped: skipCount,
 		},
 		Results: results,
 	}, nil
+}
+
+// annotateVerifyPackageDrivers adds result metadata at the RunVerify boundary
+// without changing the established Nix+Brew realizer orchestration or event
+// stream. Non-package verifier and home-manager items remain unqualified.
+func annotateVerifyPackageDrivers(raw interface{}, realizerApps, brewApps []manifest.App, realizerDriver string) {
+	result, ok := raw.(*VerifyResult)
+	if !ok || result == nil {
+		return
+	}
+
+	driverByID := make(map[string]string, len(realizerApps)+len(brewApps))
+	for _, app := range realizerApps {
+		switch {
+		case app.Refs[runtime.GOOS] != "":
+			driverByID[app.ID] = realizerDriver
+		case app.Manual != nil && app.Manual.VerifyPath != "":
+			driverByID[app.ID] = "manual"
+		}
+	}
+	for _, app := range brewApps {
+		driverByID[app.ID] = "brew"
+	}
+
+	for i := range result.Results {
+		item := &result.Results[i]
+		if item.Type == "app" && item.Driver == "" {
+			item.Driver = driverByID[item.ID]
+		}
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -330,6 +369,13 @@ func loadManifest(path string) (*manifest.Manifest, *envelope.Error) {
 
 	mf, err := manifest.LoadManifest(path)
 	if err != nil {
+		if errors.Is(err, manifest.ErrValidation) {
+			return nil, envelope.NewError(
+				envelope.ErrManifestValidationError,
+				"The manifest contains an unsupported or invalid app declaration.",
+			).WithDetail(map[string]string{"path": path, "error": err.Error()}).
+				WithRemediation("Correct the manifest validation error and try again.")
+		}
 		return nil, envelope.NewError(
 			envelope.ErrManifestParseError,
 			"Failed to parse the manifest file.",

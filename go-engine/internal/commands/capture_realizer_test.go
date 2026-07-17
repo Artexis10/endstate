@@ -116,6 +116,34 @@ func readCapturedManifest(t *testing.T, path string) capturedManifestFile {
 // runCaptureRealizer — core behavior
 // ---------------------------------------------------------------------------
 
+func TestRunCapture_DriverFilter_UnsupportedOrUnknownOnRealizerHostFails(t *testing.T) {
+	for _, driverName := range []string{"chocolatey", "mystery"} {
+		t.Run(driverName, func(t *testing.T) {
+			out := filepath.Join(t.TempDir(), "captured.jsonc")
+			fr := &fakeRealizer{currentSet: nixSet("ripgrep")}
+			origRz := newRealizerFn
+			origGOOS := captureGOOSFn
+			newRealizerFn = func() (realizer.Realizer, error) { return fr, nil }
+			captureGOOSFn = func() string { return "linux" }
+			defer func() {
+				newRealizerFn = origRz
+				captureGOOSFn = origGOOS
+			}()
+
+			_, eerr := RunCapture(CaptureFlags{Out: out, Drivers: []string{driverName}})
+			if eerr == nil || eerr.Code != envelope.ErrCaptureFailed {
+				t.Fatalf("RunCapture error = %+v, want CAPTURE_FAILED", eerr)
+			}
+			if fr.currentCalls != 0 {
+				t.Fatalf("realizer Current calls = %d, want 0", fr.currentCalls)
+			}
+			if _, err := os.Stat(out); !os.IsNotExist(err) {
+				t.Fatalf("explicit unsupported driver wrote output: stat error = %v", err)
+			}
+		})
+	}
+}
+
 // Each element is emitted as a manifest app whose only ref is host-keyed
 // (runtime.GOOS) and equal to the element's bare attr Name — NOT its AttrPath.
 // Apps are sorted by id; the manifest is version 1; no version is recorded; and

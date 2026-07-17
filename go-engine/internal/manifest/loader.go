@@ -7,11 +7,18 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// ErrValidation distinguishes a syntactically valid manifest that violates
+// schema or app constraints from malformed JSON. Command envelopes use this to
+// preserve MANIFEST_VALIDATION_ERROR instead of collapsing both cases into a
+// parse error.
+var ErrValidation = errors.New("manifest validation error")
 
 // LoadManifest reads the file at path, strips JSONC comments, unmarshals the
 // JSON into a Manifest, and recursively resolves any includes. The returned
@@ -79,7 +86,7 @@ func loadManifestInternal(absPath string, visited map[string]bool, inheritedVers
 
 	// Validate app-level constraints (e.g. manual.verifyPath required).
 	if errs := ValidateManifestApps(&m); len(errs) > 0 {
-		return nil, fmt.Errorf("manifest: validation error in %q: %s", absPath, errs[0].Message)
+		return nil, fmt.Errorf("manifest: validation error in %q: %w: %s", absPath, ErrValidation, errs[0].Message)
 	}
 
 	if len(m.Includes) > 0 {

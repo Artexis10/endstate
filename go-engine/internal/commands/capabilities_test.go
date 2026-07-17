@@ -5,8 +5,32 @@ package commands
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
+
+func TestPlatformInfoFor_UsesStableRegistryOrder(t *testing.T) {
+	tests := []struct {
+		goos    string
+		drivers []string
+	}{
+		{goos: "windows", drivers: []string{"winget", "chocolatey"}},
+		{goos: "linux", drivers: []string{"nix"}},
+		{goos: "darwin", drivers: []string{"nix", "brew"}},
+		{goos: "plan9", drivers: []string{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.goos, func(t *testing.T) {
+			got := platformInfoFor(tt.goos)
+			if got.OS != tt.goos {
+				t.Errorf("platformInfoFor(%q).OS = %q", tt.goos, got.OS)
+			}
+			if !reflect.DeepEqual(got.Drivers, tt.drivers) {
+				t.Errorf("platformInfoFor(%q).Drivers = %v, want %v", tt.goos, got.Drivers, tt.drivers)
+			}
+		})
+	}
+}
 
 // TestRunCapabilities_HostedBackupIfChangedAdvertised verifies that the
 // capabilities envelope includes features.hostedBackup.ifChanged = true,
@@ -75,6 +99,33 @@ func TestRunCapabilities_CaptureFlags_IncludesPin(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("commands.capture.flags does not contain --pin; got %v", captureCmd.Flags)
+	}
+}
+
+func TestRunCapabilities_MultiDriverCLIFlags(t *testing.T) {
+	result, err := RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities returned error: %v", err)
+	}
+	data := result.(CapabilitiesData)
+
+	for _, tc := range []struct {
+		command string
+		flags   []string
+	}{
+		{command: "apply", flags: []string{"--bootstrap-backends", "--no-bootstrap"}},
+		{command: "capture", flags: []string{"--driver"}},
+		{command: "rebuild", flags: []string{"--bootstrap-backends", "--no-bootstrap"}},
+	} {
+		got := map[string]bool{}
+		for _, flag := range data.Commands[tc.command].Flags {
+			got[flag] = true
+		}
+		for _, want := range tc.flags {
+			if !got[want] {
+				t.Errorf("commands.%s.flags missing %q: %v", tc.command, want, data.Commands[tc.command].Flags)
+			}
+		}
 	}
 }
 

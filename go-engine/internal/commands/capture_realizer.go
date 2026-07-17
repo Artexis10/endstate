@@ -10,9 +10,10 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strings"
 	"time"
 
-	"github.com/Artexis10/endstate/go-engine/internal/driver/brew"
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -36,7 +37,47 @@ var captureGOOSFn = func() string { return runtime.GOOS }
 // brew driver to this interface; a driver that does not implement it (or an
 // unavailable brew) yields no brew apps.
 type brewEnumerator interface {
-	EnumerateInstalled() ([]brew.InstalledApp, error)
+	EnumerateInstalled() ([]driver.InstalledPackage, error)
+}
+
+type realizerCaptureSelection struct {
+	nix      bool
+	brew     bool
+	explicit bool
+}
+
+func resolveRealizerCaptureSelection(flags CaptureFlags, goos string) (realizerCaptureSelection, *envelope.Error) {
+	if len(flags.Drivers) == 0 {
+		return realizerCaptureSelection{nix: true, brew: goos == "darwin"}, nil
+	}
+
+	supported := make(map[string]bool)
+	for _, name := range platformBackendsFor(goos).SupportedNames() {
+		supported[name] = true
+	}
+	selection := realizerCaptureSelection{explicit: true}
+	for _, requested := range flags.Drivers {
+		name := strings.ToLower(strings.TrimSpace(requested))
+		if name == "" {
+			return realizerCaptureSelection{}, envelope.NewError(
+				envelope.ErrCaptureFailed,
+				"Capture driver name must not be empty.",
+			)
+		}
+		if !supported[name] {
+			return realizerCaptureSelection{}, envelope.NewError(
+				envelope.ErrCaptureFailed,
+				fmt.Sprintf("Capture driver %s is not supported on %s.", name, goos),
+			)
+		}
+		switch name {
+		case "nix":
+			selection.nix = true
+		case "brew":
+			selection.brew = true
+		}
+	}
+	return selection, nil
 }
 
 // runCaptureRealizer is the capture path for a realizer backend (Nix on
@@ -51,19 +92,39 @@ type brewEnumerator interface {
 // across realizer hosts (no system tuple baked in). A capture therefore
 // round-trips: apply of the produced manifest re-installs the same set.
 func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events.Emitter) (interface{}, *envelope.Error) {
-	driverName := r.Name()
-
 	// --- 1. Emit phase event (first event per event-contract.md) ---
 	emitter.EmitPhase("capture")
+	selection, selectionErr := resolveRealizerCaptureSelection(flags, captureGOOSFn())
+	if selectionErr != nil {
+		return nil, selectionErr
+	}
+	return runCaptureRealizerSelected(flags, r, emitter, selection)
+}
+
+func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter *events.Emitter, selection realizerCaptureSelection) (interface{}, *envelope.Error) {
+	driverName := platformBackendsFor(captureGOOSFn()).RealizerName()
+	if driverName == "" {
+		driverName = "nix"
+	}
+	if r != nil {
+		driverName = r.Name()
+	}
 
 	// --- 2. Read the installed set ---
-	cur, cerr := r.Current()
-	if cerr != nil {
-		if rerr, ok := cerr.(*realizer.Error); ok && isSystemic(rerr.Code) {
-			return nil, realizerEnvelopeError(rerr)
+	cur := realizer.Set{Elements: map[string]realizer.Element{}}
+	if selection.nix {
+		if r == nil {
+			return nil, envelope.NewError(envelope.ErrCaptureFailed, "Explicit capture driver nix is unavailable.")
 		}
-		// Non-systemic read issue: treat as empty (capture an empty set),
-		// mirroring runVerifyRealizer.
+		var cerr error
+		cur, cerr = r.Current()
+		if cerr != nil {
+			if rerr, ok := cerr.(*realizer.Error); ok && isSystemic(rerr.Code) {
+				return nil, realizerEnvelopeError(rerr)
+			}
+			// Non-systemic read issue: treat as empty (capture an empty set),
+			// mirroring runVerifyRealizer.
+		}
 	}
 
 	// --- 3. Convert the set to captured apps (deterministic order) ---
@@ -75,7 +136,6 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 
 	goos := captureGOOSFn()
 	captured := make([]capturedApp, 0, len(names))
-	capturedIDs := make(map[string]bool, len(names))
 	for _, name := range names {
 		el := cur.Elements[name]
 		ref := el.Name // bare attr -> apply's ResolveInstallable expands against the pin
@@ -88,42 +148,61 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 			Installed:        true,
 			InstalledVersion: ver,
 			Backend:          driverName,
+			Source:           driverName,
 		})
-		capturedIDs[name] = true
 		emitter.EmitItem(ref, driverName, "captured", "", fmt.Sprintf("Captured %s", name), name)
 	}
 
 	// --- 3b. Brew capture lane (darwin-only) ---
 	// Enumerate installed brew formulae + casks and emit them as driver:"brew"
-	// apps (casks as cask: refs under the darwin key), deduped by ID against the
-	// realizer-captured set (a colliding ID keeps the realizer entry). The brew
+	// apps (casks as cask: refs under the darwin key). Package identity never
+	// crosses manager boundaries; colliding manifest IDs get stable suffixes. The brew
 	// driver is resolved additively; a non-darwin host or an unavailable/non-
 	// enumerating brew yields no brew apps (the realizer set stands unchanged).
-	if captureGOOSFn() == "darwin" {
+	if selection.brew && captureGOOSFn() == "darwin" {
 		if d, berr := newBrewDriverFn(); berr == nil {
 			if be, ok := d.(brewEnumerator); ok {
-				if brewApps, eerr := be.EnumerateInstalled(); eerr == nil {
+				brewApps, eerr := be.EnumerateInstalled()
+				if eerr == nil {
+					usedIDs := make(map[string]bool, len(captured)+len(brewApps))
+					for _, app := range captured {
+						usedIDs[strings.ToLower(app.ID)] = true
+					}
 					for _, ba := range brewApps {
-						if capturedIDs[ba.Name] {
-							continue // realizer already captured this ID; do not duplicate
+						name := ba.DisplayName
+						if name == "" {
+							name = strings.TrimPrefix(ba.Ref, "cask:")
 						}
 						captured = append(captured, capturedApp{
-							ID:               ba.Name,
+							ID:               deterministicCaptureID(name, "brew", usedIDs),
 							Refs:             map[string]string{"darwin": ba.Ref},
 							Driver:           "brew",
-							Name:             ba.Name,
+							Name:             name,
 							Version:          ba.Version,
 							Installed:        true,
 							InstalledVersion: ba.Version,
 							Backend:          "brew",
+							Source:           "brew",
 						})
-						capturedIDs[ba.Name] = true
-						emitter.EmitItem(ba.Ref, "brew", "captured", "", fmt.Sprintf("Captured %s", ba.Name), ba.Name)
+						emitter.EmitItem(ba.Ref, "brew", "captured", "", fmt.Sprintf("Captured %s", name), name)
 					}
+				}
+				if eerr != nil && selection.explicit {
+					return nil, envelope.NewError(
+						envelope.ErrCaptureFailed,
+						fmt.Sprintf("Failed to enumerate installed packages with brew: %v", eerr),
+					)
 				}
 				// An enumeration error is best-effort: brew capture is skipped, the
 				// realizer-captured set stands (package capture is unaffected).
+			} else if selection.explicit {
+				return nil, envelope.NewError(envelope.ErrCaptureFailed, "Explicit capture driver brew does not support installed-package enumeration.")
 			}
+		} else if selection.explicit {
+			return nil, envelope.NewError(
+				envelope.ErrCaptureFailed,
+				fmt.Sprintf("Explicit capture driver brew is unavailable: %v", berr),
+			)
 		}
 	}
 
@@ -141,32 +220,48 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 		existingRefs := make(map[string]bool)
 		for _, app := range existingMf.Apps {
 			if ref, ok := app.Refs[goos]; ok {
-				existingRefs[ref] = true
+				existingRefs[realizerCaptureIdentity(app.Driver, ref, driverName)] = true
 			}
 		}
 		currentlyDetected := make(map[string]capturedApp, len(captured))
 		for _, app := range captured {
 			if ref := app.Refs[goos]; ref != "" {
-				currentlyDetected[ref] = app
+				currentlyDetected[realizerCaptureIdentity(app.Driver, ref, driverName)] = app
 			}
 		}
 		merged := make([]capturedApp, 0, len(existingMf.Apps)+len(captured))
+		usedIDs := make(map[string]bool, len(existingMf.Apps)+len(captured))
 		for _, app := range existingMf.Apps {
 			// Preserve the existing app's driver (e.g. "brew") on re-read so a
 			// previously-captured brew app round-trips through --update unchanged,
 			// while attaching current installed evidence only when the backend
 			// actually enumerated the same host ref in this run.
-			mergedApp := capturedApp{ID: app.ID, Refs: app.Refs, Driver: app.Driver, Version: app.Version}
-			if detected, ok := currentlyDetected[app.Refs[goos]]; ok {
+			source := app.Driver
+			if source == "" {
+				source = driverName
+			}
+			mergedApp := capturedApp{ID: app.ID, Refs: app.Refs, Driver: app.Driver, Version: app.Version, Source: source}
+			identity := realizerCaptureIdentity(app.Driver, app.Refs[goos], driverName)
+			if detected, ok := currentlyDetected[identity]; ok {
 				mergedApp.Name = detected.Name
 				mergedApp.Installed = detected.Installed
 				mergedApp.InstalledVersion = detected.InstalledVersion
 				mergedApp.Backend = detected.Backend
+				mergedApp.Source = detected.Source
 			}
 			merged = append(merged, mergedApp)
+			usedIDs[strings.ToLower(strings.TrimSpace(app.ID))] = true
 		}
 		for _, app := range captured {
-			if !existingRefs[app.Refs[goos]] {
+			if !existingRefs[realizerCaptureIdentity(app.Driver, app.Refs[goos], driverName)] {
+				collisionDriver := strings.TrimSpace(app.Driver)
+				if collisionDriver == "" {
+					collisionDriver = strings.TrimSpace(app.Source)
+				}
+				if collisionDriver == "" {
+					collisionDriver = driverName
+				}
+				app.ID = deterministicCaptureID(app.ID, collisionDriver, usedIDs)
 				merged = append(merged, app)
 			}
 		}
@@ -245,7 +340,10 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 	// --- 9. Build appsIncluded (package-scoped; source is the backend name) ---
 	appsIncluded := make([]CaptureApp, 0, len(captured))
 	for _, ca := range captured {
-		source := ca.Backend
+		source := ca.Source
+		if source == "" {
+			source = ca.Backend
+		}
 		if source == "" {
 			source = driverName
 		}
@@ -272,6 +370,7 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 		AppsIncluded:         appsIncluded,
 		ConfigModules:        finalization.ConfigModules,
 		ConfigModuleMap:      finalization.ConfigModuleMap,
+		PackageModuleMap:     finalization.PackageModuleMap,
 		OutputPath:           finalization.OutputPath,
 		OutputFormat:         finalization.OutputFormat,
 		ConfigsIncluded:      finalization.ConfigsIncluded,
@@ -292,6 +391,14 @@ func runCaptureRealizer(flags CaptureFlags, r realizer.Realizer, emitter *events
 		CaptureWarnings:     finalization.CaptureWarnings,
 		ConfigCapture:       captureConfigResultSummary(finalization),
 	}, nil
+}
+
+func realizerCaptureIdentity(driverName, ref, defaultDriver string) string {
+	driverName = strings.ToLower(strings.TrimSpace(driverName))
+	if driverName == "" {
+		driverName = strings.ToLower(defaultDriver)
+	}
+	return driverName + "\x00" + strings.TrimSpace(ref)
 }
 
 // recoverHomeManager returns the home-manager configuration to record in the

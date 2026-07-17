@@ -126,14 +126,7 @@ func ValidateProfile(path string) *ValidationResult {
 	if hasApps {
 		var apps []App
 		if err := json.Unmarshal(appsRaw, &apps); err == nil {
-			for _, app := range apps {
-				if app.Manual != nil && app.Manual.VerifyPath == "" {
-					res.Errors = append(res.Errors, ValidationError{
-						Code:    "MANUAL_MISSING_VERIFY_PATH",
-						Message: fmt.Sprintf(`app %q: "manual.verifyPath" is required when "manual" is present`, app.ID),
-					})
-				}
-			}
+			res.Errors = append(res.Errors, ValidateManifestApps(&Manifest{Apps: apps})...)
 		}
 	}
 
@@ -160,7 +153,18 @@ func ValidateProfile(path string) *ValidationResult {
 // verifyPath, and for a homeManager block that declares both inputs.
 func ValidateManifestApps(m *Manifest) []ValidationError {
 	var errs []ValidationError
-	for _, app := range m.Apps {
+	for i := range m.Apps {
+		app := m.Apps[i]
+		canonicalDriver, known := normalizeAppDriver(app.Driver)
+		if !known {
+			errs = append(errs, ValidationError{
+				Code:    "UNSUPPORTED_APP_DRIVER",
+				Message: fmt.Sprintf("app %q: unsupported driver %q", app.ID, app.Driver),
+			})
+		} else {
+			m.Apps[i].Driver = canonicalDriver
+			app.Driver = canonicalDriver
+		}
 		if app.Manual != nil && app.Manual.VerifyPath == "" {
 			errs = append(errs, ValidationError{
 				Code:    "MANUAL_MISSING_VERIFY_PATH",
@@ -168,6 +172,7 @@ func ValidateManifestApps(m *Manifest) []ValidationError {
 			})
 		}
 		errs = append(errs, validateBrewApp(app)...)
+		errs = append(errs, validateChocolateyApp(app)...)
 	}
 	// home-manager: the three inputs — settings (a declarative catalog the engine
 	// compiles), config (a home.nix the engine wraps), and flake (a direct
@@ -192,6 +197,30 @@ func ValidateManifestApps(m *Manifest) []ValidationError {
 		errs = append(errs, validateHomeManagerSecrets(m.HomeManager)...)
 	}
 	return errs
+}
+
+// normalizeAppDriver canonicalizes the stable package-backend names while
+// keeping an omitted driver empty so platform defaults remain backward
+// compatible. Recognition is global and host-independent; platform support is
+// enforced later by the command-layer backend registry.
+func normalizeAppDriver(name string) (string, bool) {
+	canonical := strings.ToLower(strings.TrimSpace(name))
+	switch canonical {
+	case "", "winget", "chocolatey", "brew":
+		return canonical, true
+	default:
+		return canonical, false
+	}
+}
+
+func validateChocolateyApp(app App) []ValidationError {
+	if app.Driver == "chocolatey" && app.Refs["windows"] == "" {
+		return []ValidationError{{
+			Code:    "CHOCOLATEY_DRIVER_REQUIRES_WINDOWS_REF",
+			Message: fmt.Sprintf(`app %q: driver:"chocolatey" requires a "windows" ref`, app.ID),
+		}}
+	}
+	return nil
 }
 
 // validateBrewApp enforces the brew driver routing rules (host-independent, so a

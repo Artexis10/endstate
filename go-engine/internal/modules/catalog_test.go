@@ -4,6 +4,7 @@
 package modules
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -114,6 +115,39 @@ func TestLoadCatalog_MissingRequiredFields(t *testing.T) {
 	}
 }
 
+func TestLoadCatalog_ChocolateyOnlyMatcherIsValid(t *testing.T) {
+	dir := t.TempDir()
+	modDir := filepath.Join(dir, "chocolatey-module")
+	if err := os.MkdirAll(modDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	content := `{
+  "id": "apps.chocolatey-test",
+  "displayName": "Chocolatey Test",
+  "matches": {"chocolatey": ["test-package"]}
+}`
+	if err := os.WriteFile(filepath.Join(modDir, "module.jsonc"), []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog, err := LoadCatalog(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	mod := catalog["apps.chocolatey-test"]
+	if mod == nil {
+		t.Fatal("expected catalog to contain module with chocolatey-only matcher")
+	}
+
+	data, err := json.Marshal(mod.Matches)
+	if err != nil {
+		t.Fatalf("marshal matches: %v", err)
+	}
+	if got, want := string(data), `{"chocolatey":["test-package"]}`; got != want {
+		t.Errorf("marshaled matches = %s, want %s", got, want)
+	}
+}
+
 func TestLoadCatalog_DuplicateIDs(t *testing.T) {
 	dir := t.TempDir()
 
@@ -172,6 +206,126 @@ func TestMatchModulesForApps_WingetMatch(t *testing.T) {
 	}
 	if matched[0].ID != "apps.test" {
 		t.Errorf("matched[0].ID = %q, want %q", matched[0].ID, "apps.test")
+	}
+}
+
+func TestMatchModulesForApps_RoutesWindowsRefByDriver(t *testing.T) {
+	wingetModule := &Module{
+		ID:          "apps.winget-test",
+		DisplayName: "Winget Test",
+		Matches:     MatchCriteria{Winget: []string{"shared-ref"}},
+		Capture:     &CaptureDef{Files: []CaptureFile{{Source: "s", Dest: "d"}}},
+	}
+	var chocolateyModule Module
+	if err := json.Unmarshal([]byte(`{
+  "id": "apps.chocolatey-test",
+  "displayName": "Chocolatey Test",
+  "matches": {"chocolatey": ["shared-ref"]},
+  "capture": {"files": [{"source": "s", "dest": "d"}]}
+}`), &chocolateyModule); err != nil {
+		t.Fatalf("unmarshal chocolatey module: %v", err)
+	}
+	catalog := map[string]*Module{
+		wingetModule.ID:     wingetModule,
+		chocolateyModule.ID: &chocolateyModule,
+	}
+
+	tests := []struct {
+		name       string
+		driver     string
+		wantModule string
+	}{
+		{name: "omitted driver defaults to winget", driver: "", wantModule: wingetModule.ID},
+		{name: "explicit winget is case insensitive", driver: "WiNgEt", wantModule: wingetModule.ID},
+		{name: "explicit chocolatey is case insensitive", driver: "ChOcOlAtEy", wantModule: chocolateyModule.ID},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apps := []manifest.App{{
+				ID:     "test-app",
+				Driver: tt.driver,
+				Refs:   map[string]string{"windows": "shared-ref"},
+			}}
+
+			matched := MatchModulesForApps(catalog, apps)
+			if len(matched) != 1 {
+				t.Fatalf("expected exactly 1 driver-specific match, got %d", len(matched))
+			}
+			if matched[0].ID != tt.wantModule {
+				t.Errorf("matched module = %q, want %q", matched[0].ID, tt.wantModule)
+			}
+		})
+	}
+}
+
+func TestMatchModulesForApps_ChocolateyRefIsCaseInsensitive(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.git": {
+			ID:          "apps.git",
+			DisplayName: "Git",
+			Matches:     MatchCriteria{Chocolatey: []string{"git.install"}},
+			Capture:     &CaptureDef{Files: []CaptureFile{{Source: "s", Dest: "d"}}},
+		},
+	}
+	apps := []manifest.App{{
+		ID:     "git",
+		Driver: "chocolatey",
+		Refs:   map[string]string{"windows": "Git.Install"},
+	}}
+
+	matched := MatchModulesForApps(catalog, apps)
+	if len(matched) != 1 || matched[0].ID != "apps.git" {
+		t.Fatalf("Chocolatey case-variant ref did not match: %+v", matched)
+	}
+}
+
+func TestMatchModulesForApps_WingetRefRemainsCaseSensitive(t *testing.T) {
+	catalog := map[string]*Module{
+		"apps.git": {
+			ID:          "apps.git",
+			DisplayName: "Git",
+			Matches:     MatchCriteria{Winget: []string{"git.git"}},
+			Capture:     &CaptureDef{Files: []CaptureFile{{Source: "s", Dest: "d"}}},
+		},
+	}
+	apps := []manifest.App{{
+		ID:   "git",
+		Refs: map[string]string{"windows": "Git.Git"},
+	}}
+
+	if matched := MatchModulesForApps(catalog, apps); len(matched) != 0 {
+		t.Fatalf("Winget case semantics changed: %+v", matched)
+	}
+}
+
+func TestMatchModulesForApps_PathExistsRemainsDriverIndependent(t *testing.T) {
+	dir := t.TempDir()
+	testFile := filepath.Join(dir, "chocolatey-app.exe")
+	if err := os.WriteFile(testFile, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	catalog := map[string]*Module{
+		"apps.path-test": {
+			ID:          "apps.path-test",
+			DisplayName: "Path Test",
+			Matches: MatchCriteria{
+				Winget:     []string{"unrelated-winget-ref"},
+				PathExists: []string{testFile},
+			},
+			Capture: &CaptureDef{Files: []CaptureFile{{Source: "s", Dest: "d"}}},
+		},
+	}
+	apps := []manifest.App{{
+		ID:     "chocolatey-app",
+		Driver: "chocolatey",
+		Refs:   map[string]string{"windows": "chocolatey-ref"},
+	}}
+
+	matched := MatchModulesForApps(catalog, apps)
+	if len(matched) != 1 || matched[0].ID != "apps.path-test" {
+		t.Fatalf("expected pathExists match for Chocolatey app, got %+v", matched)
 	}
 }
 

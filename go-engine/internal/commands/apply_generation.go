@@ -23,17 +23,22 @@ import (
 func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, removed []string, native string, partial bool, home *provision.HomeGenRef) {
 	items := make([]provision.ProvItem, 0, len(actions))
 	added := make([]string, 0)
+	changedExisting := false
 	for _, a := range actions {
 		switch a.Status {
 		case "installed":
 			ref := derefRef(a.Ref)
 			items = append(items, provision.ProvItem{ID: a.ID, Ref: ref, Status: "installed", Version: a.Version})
-			added = append(added, ref)
+			if a.WasPresent {
+				changedExisting = true
+			} else {
+				added = append(added, ref)
+			}
 		case "present":
 			items = append(items, provision.ProvItem{ID: a.ID, Ref: derefRef(a.Ref), Status: "present", Version: a.Version})
 		}
 	}
-	if len(added) == 0 && len(removed) == 0 && home == nil {
+	if len(added) == 0 && len(removed) == 0 && home == nil && !changedExisting {
 		return // nothing added, removed, or activated → no new generation
 	}
 	_ = provision.Write(&provision.Generation{

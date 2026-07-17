@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -17,6 +19,107 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
+
+func TestRealEnsureBackends_JSONLEventsCaptureInstallerFailureOutput(t *testing.T) {
+	bs := &bootstrap.Bootstrapper{}
+	bs.Detect = func(bootstrap.Backend) (bool, error) { return false, nil }
+	bs.Install = func(bootstrap.Backend) error {
+		if bs.InstallerStdin != os.Stdin {
+			t.Fatalf("installer stdin = %v, want os.Stdin", bs.InstallerStdin)
+		}
+		_, _ = fmt.Fprint(bs.InstallerStdout, "raw installer stdout")
+		_, _ = fmt.Fprint(bs.InstallerStderr, "raw installer stderr")
+		return errors.New("installer failed")
+	}
+	bs.Verify = func(bootstrap.Backend) (bool, error) {
+		t.Fatal("verify must not run after installer failure")
+		return false, nil
+	}
+
+	emitter, eventBuf := captureBootstrapEmitter()
+	withBootstrapperOn("windows", bs, func() {
+		available, eerr := realEnsureBackends(
+			[]bootstrap.Backend{bootstrap.BackendChocolatey},
+			true,
+			Consent{Granted: true, StructuredEvents: true},
+			emitter,
+		)
+		if eerr != nil {
+			t.Fatalf("realEnsureBackends error = %v", eerr)
+		}
+		if available[bootstrap.BackendChocolatey] {
+			t.Fatal("failed installer must leave Chocolatey unavailable")
+		}
+	})
+
+	lines := strings.Split(strings.TrimSpace(eventBuf.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("event lines = %q, want one structured error", eventBuf.String())
+	}
+	var event map[string]interface{}
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("installer output corrupted JSONL: %v; raw=%q", err, eventBuf.String())
+	}
+	if event["event"] != "error" || event["scope"] != "engine" {
+		t.Fatalf("event = %v, want engine error", event)
+	}
+	message, _ := event["message"].(string)
+	if !strings.Contains(message, "installer failed") || !strings.Contains(message, "raw installer stdout") || !strings.Contains(message, "raw installer stderr") {
+		t.Fatalf("structured diagnostic message = %q", message)
+	}
+}
+
+func TestRealEnsureBackends_JSONLEventsSuppressSuccessfulInstallerChatter(t *testing.T) {
+	bs := &bootstrap.Bootstrapper{}
+	bs.Detect = func(bootstrap.Backend) (bool, error) { return false, nil }
+	bs.Install = func(bootstrap.Backend) error {
+		_, _ = fmt.Fprint(bs.InstallerStdout, "successful installer chatter")
+		return nil
+	}
+	bs.Verify = func(bootstrap.Backend) (bool, error) { return true, nil }
+
+	emitter, eventBuf := captureBootstrapEmitter()
+	withBootstrapperOn("windows", bs, func() {
+		available, _ := realEnsureBackends(
+			[]bootstrap.Backend{bootstrap.BackendChocolatey},
+			true,
+			Consent{Granted: true, StructuredEvents: true},
+			emitter,
+		)
+		if !available[bootstrap.BackendChocolatey] {
+			t.Fatal("successful installer and verifier must make Chocolatey available")
+		}
+	})
+	if eventBuf.Len() != 0 {
+		t.Fatalf("successful installer chatter must not enter JSONL events: %q", eventBuf.String())
+	}
+}
+
+func TestRealEnsureBackends_JSONLInstallerDiagnosticIsBounded(t *testing.T) {
+	bs := &bootstrap.Bootstrapper{}
+	bs.Detect = func(bootstrap.Backend) (bool, error) { return false, nil }
+	bs.Install = func(bootstrap.Backend) error {
+		_, _ = bs.InstallerStdout.Write(bytes.Repeat([]byte{0xff, 'x'}, installerDiagnosticLimit))
+		return errors.New("installer failed")
+	}
+	bs.Verify = func(bootstrap.Backend) (bool, error) { return false, nil }
+
+	emitter, eventBuf := captureBootstrapEmitter()
+	withBootstrapperOn("windows", bs, func() {
+		_, _ = realEnsureBackends(
+			[]bootstrap.Backend{bootstrap.BackendChocolatey},
+			true,
+			Consent{Granted: true, StructuredEvents: true},
+			emitter,
+		)
+	})
+	if eventBuf.Len() > installerDiagnosticLimit+1024 {
+		t.Fatalf("bounded diagnostic event is %d bytes", eventBuf.Len())
+	}
+	if !strings.Contains(eventBuf.String(), "truncated") {
+		t.Fatalf("bounded diagnostic must disclose truncation: %q", eventBuf.String())
+	}
+}
 
 // fakeBootstrapper builds a *bootstrap.Bootstrapper with scriptable seams and
 // records install/verify calls, so realEnsureBackends is exercised hermetically
@@ -231,6 +334,9 @@ func TestBootstrappableOn_HostMatrix(t *testing.T) {
 		{"darwin", bootstrap.BackendNix, true},
 		{"linux", bootstrap.BackendNix, true},
 		{"windows", bootstrap.BackendNix, false}, // winget ships with the OS
+		{"windows", bootstrap.BackendChocolatey, true},
+		{"linux", bootstrap.BackendChocolatey, false},
+		{"darwin", bootstrap.BackendChocolatey, false},
 	}
 	for _, c := range cases {
 		if got := bootstrappableOn(c.goos, c.b); got != c.want {
@@ -428,6 +534,45 @@ func TestRunApply_CombinedConsent_OneProbeForBothBackends(t *testing.T) {
 	}
 }
 
+// A Brew-only package manifest still needs Nix when the opt-in Home Manager
+// config stage is active. The combined bootstrap probe must therefore include
+// both backends instead of incorrectly taking the Brew-only path.
+func TestRunApply_BrewOnlyWithHomeManagerRestoreNeedsNixAndBrew(t *testing.T) {
+	manifestJSON := replaceGOOS(`{
+  "version": 1, "name": "brew-with-home-manager",
+  "apps": [
+    { "id": "hello", "displayName": "hello", "driver": "brew", "refs": { "darwin": "hello" } }
+  ],
+  "homeManager": { "flake": "github:example/dotfiles#me" }
+}`)
+	mfPath := writeTempManifest(t, manifestJSON)
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+
+	var captured []bootstrap.Backend
+	orig := bootstrapBackendsFn
+	bootstrapBackendsFn = func(needed []bootstrap.Backend, _ bool, _ Consent, _ *events.Emitter) (map[bootstrap.Backend]bool, *envelope.Error) {
+		captured = append([]bootstrap.Backend(nil), needed...)
+		return map[bootstrap.Backend]bool{}, nil
+	}
+	defer func() { bootstrapBackendsFn = orig }()
+
+	withRealizerAndBrew(&fakeRealizer{}, panicBrewDriverFn(t), func() {
+		if _, eerr := RunApply(ApplyFlags{Manifest: mfPath, EnableRestore: true, NoBootstrap: true}); eerr != nil {
+			t.Fatalf("RunApply error: %v", eerr)
+		}
+	})
+
+	want := map[bootstrap.Backend]bool{bootstrap.BackendNix: true, bootstrap.BackendBrew: true}
+	if len(captured) != len(want) {
+		t.Fatalf("needed backends = %v, want nix and brew", captured)
+	}
+	for _, backend := range captured {
+		if !want[backend] {
+			t.Fatalf("needed backends = %v, unexpected %q", captured, backend)
+		}
+	}
+}
+
 // TestRealEnsureBackends_CombinedConsentOneEventBothBackends validates the real
 // pre-step emits a SINGLE consent event covering both absent backends. It pins the
 // host to darwin (both nix and brew bootstrappable) so it runs on every CI OS.
@@ -464,5 +609,8 @@ func TestBootstrapConsent_FlagMapping(t *testing.T) {
 	}
 	if c := bootstrapConsent(ApplyFlags{}); c.Granted || c.Denied {
 		t.Fatalf("no flag → %+v, want neither", c)
+	}
+	if c := bootstrapConsent(ApplyFlags{Events: "jsonl"}); !c.StructuredEvents {
+		t.Fatalf("--events jsonl → %+v, want StructuredEvents", c)
 	}
 }

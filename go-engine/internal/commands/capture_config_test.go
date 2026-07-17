@@ -14,7 +14,6 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
-	"github.com/Artexis10/endstate/go-engine/internal/driver/brew"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -656,7 +655,7 @@ func TestRunCaptureRealizerSuppliesInstalledNixAndBrewPackageEvidence(t *testing
 	brewModule := makeModule("apps.hello")
 	withCaptureCatalogLoader(t, map[string]*modules.Module{nixModule.ID: nixModule, brewModule.ID: brewModule}, nil)
 	fr := &fakeRealizer{currentSet: nixSetWithVersion("ripgrep", "14.1.0")}
-	fbe := &fakeBrewEnumerator{apps: []brew.InstalledApp{{Name: "hello", Ref: "hello", Version: "2.12"}}}
+	fbe := &fakeBrewEnumerator{apps: []driver.InstalledPackage{{DisplayName: "hello", Ref: "hello", Version: "2.12"}}}
 	out := filepath.Join(dir, "realizer.jsonc")
 	var raw interface{}
 	var captureErr *envelope.Error

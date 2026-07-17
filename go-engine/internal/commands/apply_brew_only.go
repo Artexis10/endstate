@@ -35,7 +35,7 @@ func configStageApplies(flags ApplyFlags, mf *manifest.Manifest) bool {
 // evaluated; only true Nix-ref apps are skipped as backend-unavailable. The
 // home-manager config stage cannot run without the realizer and is therefore
 // skipped here.
-func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter, runID string, configModuleMap map[string]string, restoreModulesAvailable []RestoreModuleRef) (interface{}, *envelope.Error) {
+func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter, runID string, configModuleMap map[string]string, restoreModulesAvailable []RestoreModuleRef, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	brew := newBrewLane(brewDrv, emitter, brewApps)
 
 	// --- Phase 1: Plan ---
@@ -91,10 +91,12 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	}
 
 	brewPresent, brewToInstall := brew.planBrew()
-	totalApps := len(actions) + len(brew.brewActions())
-	// Plan-phase convention (mirrors runApplyRealizer): present→success slot,
-	// to_install→failed slot, skipped not counted in the slots (only in total).
-	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, 0, brewToInstall)
+	brewPlanSkipped := len(brew.brewActions()) - brewPresent - brewToInstall
+	unsupportedActions := planUnsupportedDriverApply(firstAppSlice(unsupportedApps), emitter)
+	totalApps := len(actions) + len(brew.brewActions()) + len(unsupportedActions)
+	// Plan-phase convention mirrors the realizer path: present entries occupy
+	// the success slot, unavailable lanes are skipped, and installs are pending.
+	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, skippedRealizer+brewPlanSkipped+len(unsupportedActions), brewToInstall)
 	evidence := newFilesystemConfigRestoreEvidenceSource()
 	if brewDrv != nil {
 		evidence = newDriverConfigRestoreEvidenceSource(brewDrv, brewApps)
@@ -111,10 +113,11 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 			context.Background(), flags, runID, emitter, configSession,
 		)
 		dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
+		dryActions = append(dryActions, unsupportedActions...)
 		result := &ApplyResult{
 			DryRun:                  true,
 			Manifest:                ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
-			Summary:                 ApplySummary{Total: totalApps, Skipped: skippedRealizer + presentCount + brewPresent},
+			Summary:                 ApplySummary{Total: totalApps, Skipped: skippedRealizer + presentCount + brewPresent + brewPlanSkipped + len(unsupportedActions)},
 			Actions:                 dryActions,
 			ConfigModuleMap:         configModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
@@ -142,7 +145,7 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 		}
 	}
 	// Skipped Nix-ref apps stay skipped through apply.
-	skippedCount += skippedRealizer
+	skippedCount += skippedRealizer + len(unsupportedActions)
 
 	brewInstalled, brewSkipped, brewFailed := brew.applyBrew()
 	successCount += brewInstalled
@@ -154,10 +157,14 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 		context.Background(), flags, runID, emitter, configSession,
 	)
 	if configErr != nil {
+		brewActions := brew.brewActions()
+		writeProvisioningGeneration(runID, "brew", brewActions, nil, "", brewFailed > 0, nil)
+		resultActions := append(append([]ApplyAction{}, actions...), brewActions...)
+		resultActions = append(resultActions, unsupportedActions...)
 		return &ApplyResult{
 			DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 			Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
-			Actions:         append(append([]ApplyAction{}, actions...), brew.brewActions()...),
+			Actions:         resultActions,
 			ConfigModuleMap: configModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
 			ConfigResultFields: configFields,
 		}, configErr
@@ -179,10 +186,12 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 			verifyFail++
 		}
 	}
-	brewPass, brewVerifyFail, _ := brew.verifyBrew()
+	brewPass, brewVerifyFail, brewVerifySkip := brew.verifyBrew()
 	verifyPass += brewPass
 	verifyFail += brewVerifyFail
-	emitter.EmitSummary("verify", verifyPass+verifyFail, verifyPass, 0, verifyFail)
+	verifyUnsupportedDrivers(firstAppSlice(unsupportedApps), emitter)
+	verifySkipped := brewVerifySkip + len(unsupportedActions)
+	emitter.EmitSummary("verify", verifyPass+verifyFail+verifySkipped, verifyPass, verifySkipped, verifyFail)
 
 	// Record ONLY the brew generation (the realizer lane committed nothing). It is
 	// append-only and no-ops when nothing was installed, so a declined-Nix run with
@@ -190,6 +199,7 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	brewActions := brew.brewActions()
 	writeProvisioningGeneration(runID, "brew", brewActions, nil, "", brewFailed > 0, nil)
 	actions = append(actions, brewActions...)
+	actions = append(actions, unsupportedActions...)
 
 	return &ApplyResult{
 		DryRun:                  false,

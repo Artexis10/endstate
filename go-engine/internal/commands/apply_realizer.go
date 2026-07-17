@@ -171,7 +171,7 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 // stream so the event contract is preserved. Package install ONLY — config and
 // verify stages keep their own concerns. Raw backend text is confined to
 // error.detail.
-func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, restoreModulesAvailable []RestoreModuleRef, brewApps []manifest.App, brewDrv driver.Driver) (interface{}, *envelope.Error) {
+func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, restoreModulesAvailable []RestoreModuleRef, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	driverName := r.Name()
 
 	// Brew lane (driver:"brew" apps) runs interleaved INSIDE the realizer's
@@ -267,8 +267,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	// Interleave the brew plan items into THIS plan phase, then fold the brew
 	// counts into the single plan summary (one summary per phase).
 	brewPresent, brewToInstall := brew.planBrew()
-	totalApps := len(actions) + len(brew.brewActions())
-	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, 0, toInstallCount+brewToInstall)
+	brewPlanSkipped := len(brew.brewActions()) - brewPresent - brewToInstall
+	unsupportedActions := planUnsupportedDriverApply(firstAppSlice(unsupportedApps), emitter)
+	totalApps := len(actions) + len(brew.brewActions()) + len(unsupportedActions)
+	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, brewPlanSkipped+len(unsupportedActions), toInstallCount+brewToInstall)
 	configSession, configSessionErr := prepareApplyConfigRestore(
 		context.Background(),
 		flags,
@@ -285,10 +287,12 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			context.Background(), flags, runID, emitter, configSession,
 		)
 		if configErr != nil {
+			dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
+			dryActions = append(dryActions, unsupportedActions...)
 			return &ApplyResult{
 				DryRun: true, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
-				Summary:         ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent},
-				Actions:         append(append([]ApplyAction{}, actions...), brew.brewActions()...),
+				Summary:         ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent + brewPlanSkipped + len(unsupportedActions)},
+				Actions:         dryActions,
 				ConfigModuleMap: configModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
 				ConfigResultFields: configFields,
 			}, configErr
@@ -321,10 +325,11 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 
 		// Append the brew plan actions; brew present apps add to the skipped count.
 		dryActions := append(append([]ApplyAction{}, actions...), brew.brewActions()...)
+		dryActions = append(dryActions, unsupportedActions...)
 		return &ApplyResult{
 			DryRun:                  true,
 			Manifest:                ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
-			Summary:                 ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent},
+			Summary:                 ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent + brewPlanSkipped + len(unsupportedActions)},
 			Actions:                 dryActions,
 			ConfigModuleMap:         configModuleMap,
 			RestoreModulesAvailable: restoreModulesAvailable,
@@ -447,6 +452,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	successCount += brewInstalled
 	skippedCount += brewSkipped
 	failedCount += brewFailed
+	skippedCount += len(unsupportedActions)
 
 	emitter.EmitSummary("apply", successCount+skippedCount+failedCount, successCount, skippedCount, failedCount)
 	var configErr *envelope.Error
@@ -454,10 +460,21 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		context.Background(), flags, runID, emitter, configSession,
 	)
 	if configErr != nil {
+		if installAdvanced || pruneAdvanced {
+			finalGen := installGen
+			if pruneAdvanced {
+				finalGen = pruneGen
+			}
+			writeProvisioningGeneration(runID, driverName, actions, removed, fmt.Sprintf("%d", finalGen), failedCount > 0, nil)
+		}
+		brewActions := brew.brewActions()
+		writeProvisioningGeneration(runID, "brew", brewActions, nil, "", brewFailed > 0, nil)
+		resultActions := append(append([]ApplyAction{}, actions...), brewActions...)
+		resultActions = append(resultActions, unsupportedActions...)
 		return &ApplyResult{
 			DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 			Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
-			Actions:         append(append([]ApplyAction{}, actions...), brew.brewActions()...),
+			Actions:         resultActions,
 			ConfigModuleMap: configModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
 			Pruned: removed, ConfigResultFields: configFields,
 		}, configErr
@@ -492,9 +509,10 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	brewPass, brewVerifyFail, brewVerifySkip := brew.verifyBrew()
 	verifyPass += brewPass
 	verifyFail += brewVerifyFail
-	_ = brewVerifySkip // unavailable-host skips are not pass/fail; tracked in apply skipped
+	verifyUnsupportedDrivers(firstAppSlice(unsupportedApps), emitter)
+	verifySkipped := brewVerifySkip + len(unsupportedActions)
 
-	emitter.EmitSummary("verify", verifyPass+verifyFail, verifyPass, 0, verifyFail)
+	emitter.EmitSummary("verify", verifyPass+verifyFail+verifySkipped, verifyPass, verifySkipped, verifyFail)
 
 	// --- Phase 4: Config (home-manager) ---
 	// Realizer-only config stage, gated by --enable-restore AND a declared
@@ -580,6 +598,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 
 	// Append the brew actions to the realizer actions for the result envelope.
 	actions = append(actions, brewActions...)
+	actions = append(actions, unsupportedActions...)
 
 	return &ApplyResult{
 		DryRun:                  false,

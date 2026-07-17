@@ -117,6 +117,7 @@ type captureConfigFinalization struct {
 	ManifestVersion      int
 	ConfigModules        []CaptureModuleResult
 	ConfigModuleMap      map[string]string
+	PackageModuleMap     map[string][]string
 	ConfigsIncluded      []string
 	ConfigsSkipped       []string
 	ConfigsCaptureErrors []string
@@ -361,6 +362,7 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		ManifestVersion:      bundleResult.ManifestVersion,
 		ConfigModules:        moduleResults,
 		ConfigModuleMap:      buildConfigModuleMap(planning.Modules),
+		PackageModuleMap:     buildPackageModuleMap(planning.Modules),
 		ConfigsIncluded:      included,
 		ConfigsSkipped:       skipped,
 		ConfigsCaptureErrors: captureErrors,
@@ -402,6 +404,7 @@ func emptyCaptureConfigFinalization(manifestPath string) *captureConfigFinalizat
 		ManifestVersion:      1,
 		ConfigModules:        []CaptureModuleResult{},
 		ConfigModuleMap:      map[string]string{},
+		PackageModuleMap:     map[string][]string{},
 		ConfigsIncluded:      []string{},
 		ConfigsSkipped:       []string{},
 		ConfigsCaptureErrors: []string{},

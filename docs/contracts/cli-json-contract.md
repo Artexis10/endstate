@@ -97,13 +97,40 @@ When `success` is `false`, the `error` field contains:
 | `PERMISSION_DENIED` | Insufficient permissions |
 | `INTERNAL_ERROR` | Unexpected internal error |
 | `SCHEMA_INCOMPATIBLE` | Schema version mismatch |
-| `ROLLBACK_UNSUPPORTED` | The host's package backend does not advertise native rollback (e.g. winget on Windows; any host with no realizer). Additive in schema 1.x. |
+| `ROLLBACK_UNSUPPORTED` | None of the selected provisioning generations has a backend that can perform native rollback or best-effort package uninstall. Additive in schema 1.x. |
 | `GENERATION_NOT_FOUND` | The `rollback --to <n>` target generation does not exist, or records no backend-native rollback anchor. Additive in schema 1.x. |
 | `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
-| `CONVERGENCE_UNSUPPORTED` | `apply --prune` was requested on a backend that cannot safely remove installed-but-undeclared packages (the winget driver, or any host with no realizer). Nothing is removed. Additive in schema 1.x. |
+| `CONVERGENCE_UNSUPPORTED` | `apply --prune` was requested on package-driver lanes that cannot safely remove installed-but-undeclared packages, or on a host with no realizer. Nothing is removed. Additive in schema 1.x. |
 | `CONFIRMATION_REQUIRED` | `rebuild` was invoked for a live run (restore on, not `--dry-run`) without `--confirm`. Raised before any mutation, so the refusal has no side effects. Additive in schema 1.x. |
 | `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows), or the input mode is unsupported (e.g. `rebuild --from <URL>`). Additive in schema 1.x. |
 | `TASK_REGISTRATION_FAILED` | `schedule enable` could not register the Windows Scheduled Task via `schtasks.exe`. Additive in schema 1.x. |
+
+### Command Warnings
+
+`capture` and `apply` MAY include an additive `data.warnings` array. Each warning has this stable shape:
+
+```json
+{
+  "code": "optional_driver_unavailable",
+  "message": "Optional driver chocolatey is unavailable; continuing with available drivers.",
+  "driver": "chocolatey",
+  "ref": "vscode"
+}
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `code` | string | Yes | Stable machine-readable warning code |
+| `message` | string | Yes | Human-readable explanation |
+| `driver` | string | No | Stable driver name related to the warning |
+| `ref` | string | No | Package reference related to the warning |
+
+The defined warning codes are:
+
+- `optional_driver_unavailable`: an optional driver could not participate; independent available lanes continue.
+- `possible_duplicate`: capture found equal non-empty display names, ignoring case, from different drivers. Both entries remain in the capture.
+
+`rebootRequired` is a successful item fact, not a warning.
 
 #### Hosted Backup error codes
 
@@ -152,7 +179,7 @@ endstate capabilities --json
       },
       "apply": {
         "supported": true,
-        "flags": ["--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--restore-target", "--only", "--json", "--events"]
+        "flags": ["--manifest", "--dry-run", "--enable-restore", "--restore-filter", "--restore-target", "--only", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"]
       },
       "verify": {
         "supported": true,
@@ -160,7 +187,7 @@ endstate capabilities --json
       },
       "capture": {
         "supported": true,
-        "flags": ["--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin"]
+        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin"]
       },
       "plan": {
         "supported": true,
@@ -172,7 +199,7 @@ endstate capabilities --json
       },
       "rebuild": {
         "supported": true,
-        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--restore-filter", "--restore-target", "--json", "--events"]
+        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"]
       },
       "report": {
         "supported": true,
@@ -198,7 +225,7 @@ endstate capabilities --json
     },
     "platform": {
       "os": "windows",
-      "drivers": ["winget"]
+      "drivers": ["winget", "chocolatey"]
     },
     "gitCommit": "a1b2c3d",
     "gitDirty": false,
@@ -220,7 +247,7 @@ endstate capabilities --json
 | `gitDirty` | boolean | Yes | `true` if working tree has uncommitted changes, `false` otherwise (defaults to `false` if git unavailable) |
 | `bootstrapTimestamp` | string\|null | Yes | ISO 8601 UTC timestamp of last bootstrap, or `null` if not bootstrapped |
 
-> **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the package-manager backends available on that host. On Windows this is `{ "os": "windows", "drivers": ["winget"] }`. On Linux and macOS with Nix available this is `["nix"]`. On a host with no implemented backend yet, `drivers` is an empty array (`[]`). This is additive: consumers MUST NOT assume a fixed `windows` / `winget` value.
+> **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the supported package backends in deterministic registry order. Windows reports `{ "os": "windows", "drivers": ["winget", "chocolatey"] }`; Winget remains its default. Linux reports the Nix realizer, and macOS reports Nix plus the additive Brew driver. On a host with no implemented backend, `drivers` is an empty array (`[]`). Consumers MUST NOT infer that every advertised optional driver is currently installed.
 
 ---
 
@@ -230,7 +257,10 @@ Captures current machine state into a zip bundle profile.
 
 ```powershell
 endstate capture --profile "My-Desktop" --json
+endstate capture --profile "Chocolatey-Only" --driver chocolatey --json
 ```
+
+`--driver <name>` is repeatable. With no filter, capture enumerates every available installed-package driver. An explicitly selected unavailable driver fails capture; an unavailable optional driver during unfiltered capture produces `optional_driver_unavailable` while available drivers continue.
 
 ### Response
 
@@ -258,7 +288,19 @@ endstate capture --profile "My-Desktop" --json
       "sensitiveExcludedCount": 3
     },
     "appsIncluded": [
-      { "id": "Microsoft.VisualStudioCode", "source": "winget" }
+      { "id": "Microsoft.VisualStudioCode", "source": "winget" },
+      { "id": "git.install", "source": "chocolatey" }
+    ],
+    "configModules": [
+      {
+        "id": "apps.git",
+        "appId": "git",
+        "displayName": "Git",
+        "status": "captured",
+        "filesCaptured": 1,
+        "wingetRefs": ["Git.Git"],
+        "chocolateyRefs": ["git.install"]
+      }
     ],
     "configsIncluded": ["vscode", "claude-desktop"],
     "configsSkipped": ["git"],
@@ -267,7 +309,13 @@ endstate capture --profile "My-Desktop" --json
       "Git.Git": "apps.git",
       "Microsoft.VisualStudioCode": "apps.vscode"
     },
+    "packageModuleMap": {
+      "winget:Git.Git": ["apps.git"],
+      "winget:Microsoft.VisualStudioCode": ["apps.vscode"],
+      "chocolatey:git.install": ["apps.git"]
+    },
     "captureWarnings": [],
+    "warnings": [],
     "configCapture": {
       "configSets": [
         {
@@ -308,14 +356,17 @@ endstate capture --profile "My-Desktop" --json
 | `isExample` | boolean | Yes | Whether this is an example manifest |
 | `counts` | object | Yes | Capture statistics |
 | `appsIncluded` | array | Yes | Apps included in manifest |
+| `configModules` | array | Yes | Per-module capture results; entries include legacy `wingetRefs` and additive `chocolateyRefs` arrays |
 | `configsIncluded` | array | No | Config module IDs bundled in zip |
 | `configsSkipped` | array | No | Config module IDs that matched but were skipped |
 | `configsCaptureErrors` | array | No | Config capture error descriptions |
 | `configModuleMap` | object | Yes | Maps winget package refs to config module IDs (empty `{}` when no mappings) |
+| `packageModuleMap` | object | Yes | Maps namespaced `driver:ref` package identities to arrays of config module IDs (empty `{}` when no mappings) |
 | `captureWarnings` | array | No | General capture warnings |
+| `warnings` | array | No | Structured `CommandWarning` entries |
 | `configCapture.configSets` | array | No | Per-instance/per-config-set generation provenance and capture results |
 
-**Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`. `configModuleMap` is always present (empty object when no config modules resolve to winget refs).
+**Note:** `configsIncluded`, `configsSkipped`, and `configsCaptureErrors` are only present when `outputFormat` is `"zip"`. Legacy `configModuleMap` remains Winget-only and always present. `packageModuleMap` is its driver-aware companion, uses `(driver, ref)` identity, and retains every matching module ID in a deterministic array. Capture never suppresses a cross-driver entry based on equal refs, versions, or display-name similarity; exact case-insensitive display-name equality emits `possible_duplicate` and retains both entries.
 
 Existing schema-v1 module fields remain backward compatible. Generation-aware fields are absent for schema-v1 payloads or explicitly identify them as unversioned; the engine never fabricates source versions or generations. A generation-aware artifact reports bundle schema `2.0` and manifest version `2` without changing this stdout envelope's additive schema `1.0` contract.
 
@@ -329,6 +380,7 @@ Executes provisioning plan.
 endstate apply --manifest ./manifest.jsonc --json
 endstate apply --manifest ./manifest.jsonc --dry-run --json
 endstate apply --manifest ./manifest.jsonc --only git,vscode --json
+endstate apply --manifest ./manifest.jsonc --bootstrap-backends --json
 ```
 
 ### Response
@@ -359,17 +411,28 @@ endstate apply --manifest ./manifest.jsonc --only git,vscode --json
         "type": "app",
         "id": "vscode",
         "ref": "Microsoft.VisualStudioCode",
+        "driver": "winget",
         "status": "success",
         "message": "Installed"
       },
       {
         "type": "app",
-        "id": "git",
-        "ref": "Git.Git",
-        "status": "skipped",
-        "message": "Already installed"
+        "id": "git-choco",
+        "ref": "git.install",
+        "driver": "chocolatey",
+        "status": "success",
+        "rebootRequired": true,
+        "message": "Installed; restart required"
       }
     ],
+    "configModuleMap": {
+      "Microsoft.VisualStudioCode": "apps.vscode"
+    },
+    "packageModuleMap": {
+      "winget:Microsoft.VisualStudioCode": ["apps.vscode"],
+      "chocolatey:git.install": ["apps.git"]
+    },
+    "warnings": [],
     "runId": "20241220-143052",
     "stateFile": "C:\\endstate\\state\\20241220-143052.json",
     "logFile": "C:\\endstate\\logs\\apply-20241220-143052.log",
@@ -380,6 +443,23 @@ endstate apply --manifest ./manifest.jsonc --only git,vscode --json
 ```
 
 **Note:** `eventsFile` is only included when `--events jsonl` is enabled. The engine persists events to `logs/<runId>.events.jsonl` in addition to streaming to stderr.
+
+### Driver Selection and Bootstrap
+
+Package items returned by plan, apply, and verify include the resolved lowercase `driver`. On Windows, an omitted app driver resolves to `winget`; an explicit `chocolatey` app uses its `refs.windows` value only with Chocolatey. The globally known manifest driver names are `winget`, `chocolatey`, and `brew` (recognized case-insensitively). A known driver unsupported on the host is a visible skipped item. A globally unknown driver fails manifest validation. An explicit driver is authoritative: unavailability or failure never falls back to another package manager.
+
+`apply` reuses the existing backend-bootstrap flags for required optional drivers:
+
+| Flag | Behavior |
+|------|----------|
+| `--bootstrap-backends` | Explicitly authorizes bootstrap of a selected missing optional backend, followed by executable verification before package mutation. |
+| `--no-bootstrap` | Never bootstrap; visibly skip unavailable lanes and continue independent lanes. |
+| neither | Emit the existing combined consent event, skip unavailable lanes, and continue independent lanes. |
+| `--dry-run` | Report unavailable prerequisites without installing a backend or requesting mutating consent. |
+
+Winget is operating-system provided and is never bootstrapped. A Chocolatey reboot-success remains a successful action with `rebootRequired: true`; the field is omitted when false and is not mirrored into `warnings`.
+
+When a selected optional driver remains unavailable, `apply.data.warnings` includes `{"code":"optional_driver_unavailable","message":"...","driver":"chocolatey"}` alongside the visible skipped or failed action. The warning never authorizes fallback and does not replace the action's own status and diagnostic.
 
 ### Generation-Aware Configuration Output (Apply, Restore, and Rebuild)
 
@@ -485,7 +565,7 @@ The engine automatically maps only one viable target or one unique exact-version
 
 ### Convergence (`--prune`)
 
-`apply --prune` converges the engine-managed set to *exactly* the manifest: after the install phase it removes installed-but-undeclared packages ("drift") in one atomic generation switch. Convergence is realizer-only (Nix on Linux/macOS); the winget driver refuses with `CONVERGENCE_UNSUPPORTED`, changing nothing. Package-stage only: prune never touches configuration restore, `state/backups/`, or the revert journal.
+`apply --prune` converges the engine-managed set to *exactly* the manifest: after the install phase it removes installed-but-undeclared packages ("drift") in one atomic generation switch. Convergence is realizer-only (Nix on Linux/macOS); Winget and Chocolatey driver lanes refuse with `CONVERGENCE_UNSUPPORTED`, changing nothing. Package-stage only: prune never touches configuration restore, `state/backups/`, or the revert journal.
 
 | Flag | Behavior |
 |------|----------|
@@ -509,11 +589,11 @@ The recorded Provisioning Generation reflects the converged set: `addedRefs` for
 ```json
 ```
 
-### Version capture and pinning (winget)
+### Version capture and pinning (Windows package drivers)
 
-On the winget backend, each Provisioning Generation item records the installed `version` of the package, captured from `winget list` (best-effort — empty when winget exposes none). The Nix realizer pins exact versions through its ref, so nix generations leave `version` empty.
+On Winget and Chocolatey, each Provisioning Generation item records the installed `version` reported by the selected driver (best-effort — empty when the manager exposes none). The Nix realizer pins exact versions through its ref, so Nix generations leave `version` empty.
 
-`capture --pin` writes each installed winget app's version into the emitted manifest's `version` field (best-effort — omitted when winget exposes none), producing a manifest that reproduces the exact installed set on `apply`.
+`capture --pin` writes each captured package driver's installed version into the emitted manifest's `version` field (best-effort — omitted when the manager exposes none), producing a manifest that reproduces the exact installed set on `apply`.
 
 A manifest app MAY declare a `version` to **pin** the install:
 
@@ -521,14 +601,14 @@ A manifest app MAY declare a `version` to **pin** the install:
 { "id": "vscode", "version": "1.89.0", "refs": { "windows": "Microsoft.VisualStudioCode" } }
 ```
 
-- When `version` is declared, the winget backend installs that exact version (`winget install --version`). The recorded generation item carries the pinned `version`.
+- When `version` is declared, Winget or Chocolatey installs that exact version through the selected driver. The recorded generation item carries the pinned `version`.
 - By default, pinning is **pin-on-install only**: a package already installed at a different version is left untouched (reported `present`). Use `--repin` (below) to converge a drifted version.
 - If the declared version is unavailable, that package fails as `INSTALL_FAILED` (the requested version appears in the message); no other version is installed in its place. Other packages in the run are unaffected.
-- Pinning applies only to backends that support versioned install (winget). The Nix realizer ignores `version` (it pins via its ref); this is not an error.
+- Pinning applies only to backends that support versioned install (Winget and Chocolatey). The Nix realizer ignores `version` because its ref is already the pin; this is not an error.
 
 ### Version convergence (`--repin`)
 
-`apply --repin` reinstalls a declared `version` when the installed version has drifted from it (`winget install --version <v> --force`) — the enforcement counterpart of pinning. Winget-only; the Nix realizer ignores it.
+`apply --repin` reinstalls a declared `version` when the installed version has drifted from it through the selected version-capable driver — the enforcement counterpart of pinning. Winget and Chocolatey support it; the Nix realizer ignores it.
 
 | Flag | Behavior |
 |------|----------|
@@ -620,6 +700,8 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 | `--confirm` | Required for a live run (restore on, not `--dry-run`). Without it a live rebuild refuses with `CONFIRMATION_REQUIRED` **before any mutation** (before extraction, planning, install, or restore). |
 | `--dry-run` | Preview only: previews the plan without installing, restoring, or verifying. Needs no `--confirm`. The result carries no `verify` data. |
 | `--no-restore` | Install and verify without restoring configuration. Non-destructive, so it needs no `--confirm`. The result reports `restore: "disabled"`. |
+| `--bootstrap-backends` | Propagated unchanged to the underlying apply stage; authorizes bootstrap and verification of selected missing optional backends. |
+| `--no-bootstrap` | Propagated unchanged to the underlying apply stage; unavailable backend lanes are visibly skipped. |
 | `--events jsonl` | Stream events to stderr. `rebuild` composes the apply stream (including config-resolution/config-migration events when applicable) and verify stream unchanged; it defines no rebuild-only event type. |
 
 ### Response
@@ -693,6 +775,7 @@ endstate verify --manifest ./manifest.jsonc --json
         "type": "app",
         "id": "vscode",
         "ref": "Microsoft.VisualStudioCode",
+        "driver": "winget",
         "status": "pass"
       },
       {
@@ -714,18 +797,21 @@ endstate verify --manifest ./manifest.jsonc --json
 
 **Note:** `eventsFile` is only included when `--events jsonl` is enabled.
 
+Every app `VerifyItem` includes its resolved `driver`; non-package verification items omit it. `packageModuleMap` may accompany `configModuleMap` using the same driver-aware and legacy shapes documented under `capture`.
+
 ```json
 ```
 
-### Version drift (winget)
+### Version drift (Windows package drivers)
 
-When a manifest app declares a `version` and the installed version (captured on the winget backend) differs, `verify` reports that item as a **failure** with reason **`version_drift`**, distinct from a missing package. The result item carries the installed `version` and the declared `expected` version:
+When a manifest app declares a `version` and the installed version reported by Winget or Chocolatey differs, `verify` reports that item as a **failure** with reason **`version_drift`**, distinct from a missing package. The result item carries the installed `version` and the declared `expected` version:
 
 ```json
 {
   "type": "app",
   "id": "vscode",
   "ref": "Microsoft.VisualStudioCode",
+  "driver": "winget",
   "status": "fail",
   "reason": "version_drift",
   "version": "1.92.0",
@@ -819,14 +905,14 @@ Lists recorded Provisioning Generations, newest first. Read-only. Additive in sc
 }
 ```
 
-`backend` is `"nix"` or `"winget"`. `native` is the backend-native generation number (the Nix generation) or empty for non-atomic backends. `partial` is true when a non-atomic backend (winget) committed only a subset of the requested set. `addedRefs` lists only refs installed in that run (status `installed`); already-present refs appear in `items` but not `addedRefs`. A generation is recorded when at least one package was installed in the run **or** a home-manager configuration was activated by the config stage. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`. `homeManager` (optional, omitted when absent; additive in schema 1.x) records a home-manager configuration activated by `apply --enable-restore`: `{ "flake": "<flakeref>", "generation": <hm generation number> }`.
+`backend` is the stable backend name (`"nix"`, `"winget"`, `"chocolatey"`, or `"brew"`). `native` is the backend-native generation number (the Nix generation) or empty for non-atomic drivers. `partial` is true when a non-atomic driver committed only a subset of the requested set. Mixed-driver applies write a separate backend-scoped generation per driver and give those generations the same apply `runId`; refs never cross backend records. `addedRefs` lists only refs installed in that run (status `installed`); already-present refs appear in `items` but not `addedRefs`. A generation is recorded when at least one package was installed in the run **or** a home-manager configuration was activated by the config stage. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`. `homeManager` (optional, omitted when absent; additive in schema 1.x) records a home-manager configuration activated by `apply --enable-restore`: `{ "flake": "<flakeref>", "generation": <hm generation number> }`.
 
 ## Command: `rollback`
 
 Reverts the installed package set to a prior Provisioning Generation. Two strategies, both keyed off the recorded generations and identified by **engine generation number** (as listed by `generations`): callers never reference a backend-native version directly. Additive in schema 1.x.
 
 - **Native** (the Nix realizer on Linux/macOS): an atomic rollback to the backend-native anchor (`native`) recorded in the target generation.
-- **Best-effort** (the winget driver on Windows): there is no native rollback, so the engine uninstalls the union of `addedRefs` of every generation recorded *after* the target. Per-package and non-atomic — it tolerates per-package failure (reporting `partial`), treats an already-absent package as removed, and **does not track package-manager-pulled transitive dependencies/co-installs** (which may remain — surfaced as a `warning`).
+- **Best-effort** (Winget, Chocolatey, and Brew drivers): there is no native rollback, so the engine uninstalls later `addedRefs` through the backend recorded on each generation. Per-package and non-atomic — it tolerates per-package failure (reporting `partial`), treats an already-absent package as removed, and **does not track package-manager-pulled transitive dependencies/co-installs** (which may remain — surfaced as a `warning`).
 
 A backend that can neither roll back natively nor uninstall refuses with `ROLLBACK_UNSUPPORTED`. Package-stage only: rollback never touches configuration restore, `state/backups/`, or the revert journal (that is `revert`'s concern).
 
@@ -834,7 +920,7 @@ A backend that can neither roll back natively nor uninstall refuses with `ROLLBA
 
 | Flag | Meaning |
 |------|---------|
-| `--to <n>` | Engine Provisioning Generation number to roll back to. Omitted ⇒ the immediately previous version. |
+| `--to <n>` | Engine Provisioning Generation number to roll back to. Every later generation participates, grouped by its recorded backend. |
 | `--confirm` | Required to execute (rollback changes the installed set). Without it the command refuses. |
 | `--dry-run` | Resolve and report the target without changing state; does not require `--confirm`. |
 
@@ -885,6 +971,8 @@ A backend that can neither roll back natively nor uninstall refuses with `ROLLBA
 ```
 
 For the best-effort path, `removedRefs` lists the refs uninstalled (on `--dry-run`, the refs that *would* be uninstalled — an already-absent package counts as removed). `failedRefs` lists refs whose uninstall failed (for example, another installed package still depends on one); `partial` is `true` when any failed. `newGeneration` is the appended rollback-marked generation (it records `removedRefs` and carries an empty `addedRefs`; omitted on `--dry-run` and when nothing was removed). `warning` is the untracked-dependency caveat. When **every** targeted uninstall fails the command returns `ROLLBACK_FAILED`; a missing winget binary returns `WINGET_NOT_AVAILABLE`; an unknown `--to` returns `GENERATION_NOT_FOUND`. No new error codes are introduced.
+
+With no `--to`, rollback finds the newest non-rollback generation and selects every generation sharing that generation's `runId`; this makes all backend generations written by one mixed-driver apply a single rollback unit. Backend groups run newest-generation first, with deterministic ref order inside each group. Each ref is sent only to the uninstaller named by its recorded `backend`; an unknown or unavailable recorded backend fails only that backend's refs, contributes to `partial`, and is never substituted with the platform default. Chocolatey rollback never requests recursive dependency removal. A result spanning more than one backend reports `backend: "mixed"`; `newGeneration` is the newest backend-scoped rollback generation written by that operation.
 
 ---
 

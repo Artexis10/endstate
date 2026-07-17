@@ -211,7 +211,7 @@ endstate capabilities --json
     },
     "platform": {
       "os": "windows",
-      "drivers": ["winget"]
+      "drivers": ["winget", "chocolatey"]
     }
   },
   "error": null
@@ -231,6 +231,19 @@ For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, 
 3. Cache capabilities for the session
 4. Use `commands` to determine available features
 5. Use `features` to enable/disable UI elements
+6. Treat `platform.drivers` as an ordered supported-backend list; on Windows Winget is the default and Chocolatey is additive
+
+### Multi-Driver Presentation
+
+- Package items use the CLI-resolved `driver`; the GUI never retries through a different package manager. Known unsupported-host drivers remain visible as skipped.
+- Capture may pass repeatable `--driver <name>` filters. With no filter, it captures all available drivers.
+- Prefer `packageModuleMap` (`driver:ref` keys, arrays of matching module IDs) for settings correlation; fall back to legacy Winget-only `configModuleMap`. Capture module metadata may add `chocolateyRefs` beside `wingetRefs`.
+- Parse additive warnings as `{code,message,driver?,ref?}`. `optional_driver_unavailable` keeps available lanes usable; `possible_duplicate` must show both captured entries.
+- `rebootRequired: true` on a successful apply item/item event is a restart-needed state, not a warning or failure.
+
+### Backend Bootstrap Consent
+
+The GUI renders the existing combined consent event and, after affirmative consent, reruns apply or rebuild with `--bootstrap-backends`. Explicit opt-out uses `--no-bootstrap`; rebuild propagates either flag to apply. The GUI never installs Chocolatey or another package backend directly.
 
 ---
 
@@ -239,10 +252,10 @@ For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, 
 | Command | JSON Flag | Description |
 |---------|-----------|-------------|
 | `capabilities` | `--json` | Report CLI capabilities |
-| `capture` | `--json` | Capture apps and configuration into a profile artifact |
+| `capture` | `--json` | Capture apps and configuration into a profile artifact; supports repeatable `--driver` filters |
 | `apply` | `--json` | Execute provisioning |
 | `restore` | `--json` | Restore configuration |
-| `rebuild` | `--json` | Install, restore, and verify from a capture artifact |
+| `rebuild` | `--json` | Install, restore, and verify from a capture artifact; propagates backend-bootstrap flags |
 | `verify` | `--json` | Verify machine state |
 | `report` | `--json` | Retrieve run history |
 

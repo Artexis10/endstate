@@ -4,9 +4,13 @@
 package commands
 
 import (
+	"fmt"
+	"os"
 	"runtime"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 )
@@ -20,14 +24,52 @@ import (
 // Denied is --no-bootstrap (force skip). Neither set means "not yet answered":
 // the engine emits a consent-request event and defaults to skipping the lane.
 type Consent struct {
-	Granted bool
-	Denied  bool
+	Granted          bool
+	Denied           bool
+	StructuredEvents bool
 }
 
 // bootstrapConsent derives the Consent from apply flags. An explicit --no-bootstrap
 // takes precedence over --bootstrap-backends (a conservative "no wins").
 func bootstrapConsent(flags ApplyFlags) Consent {
-	return Consent{Granted: flags.BootstrapBackends && !flags.NoBootstrap, Denied: flags.NoBootstrap}
+	return Consent{
+		Granted:          flags.BootstrapBackends && !flags.NoBootstrap,
+		Denied:           flags.NoBootstrap,
+		StructuredEvents: flags.Events == "jsonl",
+	}
+}
+
+const installerDiagnosticLimit = 4096
+
+type installerDiagnosticBuffer struct {
+	data      []byte
+	truncated bool
+}
+
+func (b *installerDiagnosticBuffer) Write(p []byte) (int, error) {
+	written := len(p)
+	remaining := installerDiagnosticLimit - len(b.data)
+	if remaining > 0 {
+		if len(p) > remaining {
+			p = p[:remaining]
+		}
+		b.data = append(b.data, p...)
+	}
+	if written > remaining {
+		b.truncated = true
+	}
+	return written, nil
+}
+
+func (b *installerDiagnosticBuffer) String() string {
+	text := strings.TrimSpace(strings.ToValidUTF8(string(b.data), "?"))
+	if b.truncated {
+		if text != "" {
+			text += "\n"
+		}
+		text += "[installer output truncated]"
+	}
+	return text
 }
 
 // bootstrapBackendsFn is the injectable pre-step seam run in front of the backend
@@ -45,12 +87,36 @@ var bootstrapBackendsFn = realEnsureBackends
 var newBootstrapperFn = bootstrap.New
 
 // bootstrapGOOSFn reports the host OS used to decide which backends are
-// bootstrappable (brew → darwin, nix → linux/darwin, none on Windows). It
+// bootstrappable (brew → darwin, nix → linux/darwin, chocolatey → Windows). It
 // defaults to runtime.GOOS and is a test seam (mirroring captureGOOSFn) so the
 // realEnsureBackends branch tests run host-independently on every CI OS — without
 // it, those tests short-circuit on a Windows runner where no backend is
 // bootstrappable.
 var bootstrapGOOSFn = func() string { return runtime.GOOS }
+
+// resolveReadOnlyBrewDriver probes Brew without installing or requesting
+// consent, then constructs the driver only when the backend is actually
+// available. Plan and verify use this to distinguish an absent package manager
+// from an installed manager reporting an absent package.
+func resolveReadOnlyBrewDriver(needed bool, emitter *events.Emitter) driver.Driver {
+	if !needed {
+		return nil
+	}
+	available, eerr := bootstrapBackendsFn(
+		[]bootstrap.Backend{bootstrap.BackendBrew},
+		false,
+		Consent{},
+		emitter,
+	)
+	if eerr != nil || !available[bootstrap.BackendBrew] {
+		return nil
+	}
+	drv, err := newBrewDriverFn()
+	if err != nil {
+		return nil
+	}
+	return drv
+}
 
 // realEnsureBackends is the production pre-step. For each needed backend that is
 // bootstrappable on the host OS it runs detect → (consent → install → verify):
@@ -62,8 +128,8 @@ var bootstrapGOOSFn = func() string { return runtime.GOOS }
 //   - absent + apply + no consent → emit ONE combined consent-request event and
 //     default to skipping (not available); explicit --no-bootstrap skips silently.
 //
-// A backend that is not bootstrappable on the host (e.g. brew off darwin, or any
-// backend on Windows) is simply absent from the returned map, so its lane falls
+// A backend that is not bootstrappable on the host (e.g. brew off darwin) is
+// simply absent from the returned map, so its lane falls
 // back to the existing factory gate (which no-ops it) unchanged.
 func realEnsureBackends(needed []bootstrap.Backend, mutating bool, consent Consent, emitter *events.Emitter) (map[bootstrap.Backend]bool, *envelope.Error) {
 	goos := bootstrapGOOSFn()
@@ -80,6 +146,9 @@ func realEnsureBackends(needed []bootstrap.Backend, mutating bool, consent Conse
 	}
 
 	bs := newBootstrapperFn()
+	// With JSONL events, stderr is a framed machine-readable stream. Keep stdin
+	// attached for official installer prompts, but capture both output streams so
+	// raw installer chatter cannot corrupt framing.
 	absent, present := bs.Probe(relevant)
 	for _, b := range present {
 		available[b] = true // present and working → use directly, never re-install
@@ -99,9 +168,29 @@ func realEnsureBackends(needed []bootstrap.Backend, mutating bool, consent Conse
 
 	switch {
 	case consent.Granted:
-		outcomes := bs.Provision(absent) // install + verify each, independently
-		for b, o := range outcomes {
+		for _, b := range absent {
+			var diagnostic *installerDiagnosticBuffer
+			if consent.StructuredEvents {
+				diagnostic = &installerDiagnosticBuffer{}
+				bs.ConfigureInstallerIO(os.Stdin, diagnostic, diagnostic)
+			}
+			o := bs.Provision([]bootstrap.Backend{b})[b] // each backend remains independent
 			available[b] = o.Available()
+			if diagnostic != nil && !o.Available() {
+				structuredDetail := &installerDiagnosticBuffer{}
+				if provisionErr := bs.ProvisionError(b); provisionErr != nil {
+					_, _ = structuredDetail.Write([]byte(provisionErr.Error()))
+				}
+				if output := diagnostic.String(); output != "" {
+					if len(structuredDetail.data) > 0 {
+						_, _ = structuredDetail.Write([]byte("\n"))
+					}
+					_, _ = structuredDetail.Write([]byte(output))
+				}
+				if detail := structuredDetail.String(); detail != "" {
+					emitter.EmitError("engine", fmt.Sprintf("%s backend setup failed: %s", b, detail), "")
+				}
+			}
 		}
 	case consent.Denied:
 		// Explicit skip: the user declined up front. Lane(s) skipped, run continues.
@@ -120,13 +209,15 @@ func realEnsureBackends(needed []bootstrap.Backend, mutating bool, consent Conse
 
 // bootstrappableOn reports whether a backend can be bootstrapped (and used) on the
 // given host OS. The Homebrew driver is darwin-only; the Nix realizer is
-// linux/darwin; Windows bootstraps nothing (winget ships with the OS).
+// linux/darwin; Windows may bootstrap Chocolatey while Winget ships with the OS.
 func bootstrappableOn(goos string, b bootstrap.Backend) bool {
 	switch b {
 	case bootstrap.BackendBrew:
 		return goos == "darwin"
 	case bootstrap.BackendNix:
 		return goos == "linux" || goos == "darwin"
+	case bootstrap.BackendChocolatey:
+		return goos == "windows"
 	default:
 		return false
 	}

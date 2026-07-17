@@ -4,7 +4,6 @@
 package commands
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -68,19 +67,19 @@ type ApplyFlags struct {
 	// orchestration validates these against generation-aware capture IDs.
 	RestoreTargets []string
 	// Prune enables convergence: after install, remove installed-but-undeclared
-	// packages ("drift") from the engine-managed set. Realizer-only; the winget
-	// driver path refuses with CONVERGENCE_UNSUPPORTED.
+	// packages ("drift") from the engine-managed set. Realizer-only; per-package
+	// drivers refuse with CONVERGENCE_UNSUPPORTED.
 	Prune bool
 	// Confirm authorizes the destructive prune. Without it, --prune refuses
 	// (unless --dry-run, which only previews).
 	Confirm bool
 	// Repin enables version convergence: reinstall a declared App.Version over an
-	// already-installed drifted version. Winget-only; requires --confirm (unless
-	// --dry-run). The realizer path ignores it (Nix pins via its ref).
+	// already-installed drifted version. Supported by version-aware package
+	// drivers; requires --confirm (unless --dry-run). The Nix realizer ignores it.
 	Repin bool
 	// BootstrapBackends (--bootstrap-backends) authorizes the engine to install an
-	// absent package backend (the Nix realizer / Homebrew driver) on macOS/Linux
-	// via its official installer. Consent for the backend-bootstrap pre-step.
+	// absent package backend (Nix, Homebrew, or Chocolatey where supported) via
+	// its official installer. Consent for the backend-bootstrap pre-step.
 	BootstrapBackends bool
 	// NoBootstrap (--no-bootstrap) forces the backend-bootstrap pre-step to skip an
 	// absent backend's lane rather than install it. Takes precedence over
@@ -204,12 +203,14 @@ type RestoreModuleRef struct {
 // ApplyResult is the data payload for the apply command JSON envelope.
 // Shape matches docs/contracts/cli-json-contract.md section "Command: apply".
 type ApplyResult struct {
-	DryRun                  bool               `json:"dryRun"`
-	Manifest                ApplyManifestRef   `json:"manifest"`
-	Summary                 ApplySummary       `json:"summary"`
-	Actions                 []ApplyAction      `json:"actions"`
-	ConfigModuleMap         map[string]string  `json:"configModuleMap,omitempty"`
-	RestoreModulesAvailable []RestoreModuleRef `json:"restoreModulesAvailable,omitempty"`
+	DryRun                  bool                `json:"dryRun"`
+	Manifest                ApplyManifestRef    `json:"manifest"`
+	Summary                 ApplySummary        `json:"summary"`
+	Actions                 []ApplyAction       `json:"actions"`
+	ConfigModuleMap         map[string]string   `json:"configModuleMap,omitempty"`
+	PackageModuleMap        map[string][]string `json:"packageModuleMap,omitempty"`
+	Warnings                []CommandWarning    `json:"warnings,omitempty"`
+	RestoreModulesAvailable []RestoreModuleRef  `json:"restoreModulesAvailable,omitempty"`
 	// Pruned lists the engine-managed element names removed by --prune
 	// convergence (or, on --dry-run, that would be removed). Omitted when empty.
 	Pruned []string `json:"pruned,omitempty"`
@@ -250,15 +251,19 @@ type ApplySummary struct {
 
 // ApplyAction records the planned or executed action for a single app entry.
 type ApplyAction struct {
-	ID      string              `json:"id"`
-	Ref     *string             `json:"ref"`
-	Driver  string              `json:"driver"`
-	Name    string              `json:"name,omitempty"`
-	Status  string              `json:"status"`
-	Reason  string              `json:"reason,omitempty"`
-	Message string              `json:"message,omitempty"`
-	Version string              `json:"version,omitempty"` // installed/pinned version (best-effort; winget path)
-	Manual  *manifest.ManualApp `json:"manual"`
+	ID             string              `json:"id"`
+	Ref            *string             `json:"ref"`
+	Driver         string              `json:"driver"`
+	Name           string              `json:"name,omitempty"`
+	Status         string              `json:"status"`
+	Reason         string              `json:"reason,omitempty"`
+	Message        string              `json:"message,omitempty"`
+	Version        string              `json:"version,omitempty"` // installed/pinned version (best-effort; backend-provided)
+	RebootRequired bool                `json:"rebootRequired,omitempty"`
+	Manual         *manifest.ManualApp `json:"manual"`
+	// WasPresent distinguishes a version convergence of an existing package from
+	// a newly added package. It is internal generation/rollback provenance only.
+	WasPresent bool `json:"-"`
 }
 
 // RunApply executes the apply command with the provided flags.
@@ -344,18 +349,20 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// Phase 1c: Module matching — runs AFTER --only so configModuleMap and
 	// restoreModulesAvailable are scoped to the filtered app set.
 	var configModuleMap map[string]string
+	var packageModuleMap map[string][]string
 	var restoreModulesAvailable []RestoreModuleRef
 	var matchedModules []*modules.Module
 	if catalog != nil {
 		matchedModules = modules.MatchModulesForApps(catalog, mf.Apps)
 		if len(matchedModules) > 0 {
+			packageModuleMap = buildPackageModuleMap(matchedModules)
 			configModuleMap = make(map[string]string, len(matchedModules))
 			for _, mod := range matchedModules {
 				if len(mod.Matches.Winget) > 0 {
 					for _, wingetRef := range mod.Matches.Winget {
 						configModuleMap[wingetRef] = mod.ID
 					}
-				} else {
+				} else if len(mod.Matches.Chocolatey) == 0 {
 					// pathExists-only modules: key by short app ID so the GUI can match.
 					shortID := strings.TrimPrefix(mod.ID, "apps.")
 					configModuleMap[shortID] = mod.ID
@@ -377,19 +384,24 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// newRealizerFn returns ErrNoRealizer, so control falls through to the winget
 	// driver loop below, byte-identical to prior behavior.
 	if rz, rerr := newRealizerFn(); rerr == nil {
+		// Backend preflight can emit consent. Open the mandatory first phase here;
+		// EmitPhase is idempotent, so the selected realizer helper may retain phase
+		// ownership for direct-call tests without producing a duplicate.
+		emitter.EmitPhase("plan")
 		// Two-lane split AT THE REALIZER GATE (not selectBackend, which returns
 		// ErrNoBackend on darwin). Partition AFTER SynthesizeAppsFromModules so
 		// synthesized manual apps land in the realizer (rest) lane. The realizer
 		// receives a shallow manifest copy carrying ONLY restApps — it never sees
 		// a brew/`cask:` ref.
-		brewApps, restApps := partitionBrewLane(mf.Apps)
+		brewApps, unsupportedApps, restApps := partitionRealizerLanes(mf.Apps)
 
 		// Backend-bootstrap pre-step IN FRONT of the factory gate, with ONE combined
 		// consent over every backend this run needs and lacks. The realizer (Nix) is
 		// needed when there is realizer-lane work (restApps) or a home-manager config
-		// stage; brew is needed when an app routes to the brew lane. apply is mutating,
-		// so an absent+consented backend is installed via its official installer and
-		// verified before use. A backend not bootstrappable on the host (brew off
+		// stage; brew is needed when an app routes to the brew lane. A live apply is
+		// mutating, so an absent+consented backend is installed via its official
+		// installer and verified before use; dry-run only probes availability. A
+		// backend not bootstrappable on the host (brew off
 		// darwin, anything on Windows) is filtered out by the pre-step and resolves via
 		// the existing factory gate (which no-ops it) unchanged.
 		nixNeeded := len(restApps) > 0 || configStageApplies(flags, mf)
@@ -401,7 +413,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		if brewNeeded {
 			needed = append(needed, bootstrap.BackendBrew)
 		}
-		avail, berr := bootstrapBackendsFn(needed, true, bootstrapConsent(flags), emitter)
+		avail, berr := bootstrapBackendsFn(needed, !flags.DryRun, bootstrapConsent(flags), emitter)
 		if berr != nil {
 			return nil, berr
 		}
@@ -424,420 +436,12 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		if nixNeeded && avail[bootstrap.BackendNix] {
 			rzMf := *mf
 			rzMf.Apps = restApps
-			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, restoreModulesAvailable, brewApps, brewDrv)
+			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, restoreModulesAvailable, brewApps, brewDrv, unsupportedApps)
 		}
-		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, restoreModulesAvailable)
+		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, restoreModulesAvailable, unsupportedApps)
 	}
 
-	// Convergence (--prune) is realizer-only. The driver path (winget) operates on
-	// the shared system, where removing undeclared packages is unsafe, so refuse
-	// and change nothing.
-	if flags.Prune {
-		return nil, envelope.NewError(
-			envelope.ErrConvergenceUnsupported,
-			"convergence (--prune) is not supported on this backend").
-			WithRemediation("Run on a host with the Nix realizer (Linux/macOS) to use --prune.")
-	}
-
-	d, derr := newDriverFn()
-	if derr != nil {
-		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())
-	}
-
-	// First event in stream MUST be a phase event per event-contract.md.
-	emitter.EmitPhase("plan")
-
-	type appPlan struct {
-		app         manifest.App
-		ref         string
-		isManual    bool
-		action      ApplyAction
-		displayName string
-		repin       bool // --repin: installed-but-drifted from the declared version
-	}
-
-	// Batch-detect all winget apps in one call for performance.
-	var wingetRefs []string
-	for _, app := range mf.Apps {
-		ref := resolveAppRef(app)
-		if ref != "" {
-			wingetRefs = append(wingetRefs, ref)
-		}
-	}
-
-	var batchResults map[string]driver.DetectResult
-	if bd, ok := d.(driver.BatchDetector); ok && len(wingetRefs) > 0 {
-		batchResults, _ = bd.DetectBatch(wingetRefs)
-		// Ignore error — fall back to per-ref Detect if batch fails.
-	}
-
-	var planEntries []appPlan
-	presentCount := 0
-	toInstallCount := 0
-
-	for _, app := range mf.Apps {
-		ref := resolveAppRef(app)
-		isManual := ref == "" && app.Manual != nil && app.Manual.VerifyPath != ""
-
-		if ref == "" && !isManual {
-			continue
-		}
-
-		if isManual {
-			// Manual app: check verifyPath existence.
-			expanded, exists := checkVerifyPath(app.Manual.VerifyPath)
-
-			var action ApplyAction
-			action.ID = app.ID
-			action.Ref = nil
-			action.Driver = "manual"
-			action.Name = app.DisplayName
-
-			if exists {
-				action.Status = "present"
-				action.Reason = driver.ReasonAlreadyInstalled
-				action.Message = fmt.Sprintf("Verified at %s", expanded)
-				emitter.EmitItem(app.ID, "manual", "present", driver.ReasonAlreadyInstalled, action.Message, app.DisplayName)
-				presentCount++
-			} else {
-				action.Status = "to_install"
-				action.Reason = "manual_required"
-				action.Message = fmt.Sprintf("Not found at %s", expanded)
-				action.Manual = app.Manual
-				emitter.EmitItem(app.ID, "manual", "to_install", "manual_required", action.Message, app.DisplayName)
-				toInstallCount++
-			}
-
-			planEntries = append(planEntries, appPlan{app: app, ref: "", isManual: true, action: action})
-			continue
-		}
-
-		// Winget app: detect via driver (use batch results if available).
-		var installed bool
-		var displayName string
-		var version string // best-effort installed version captured from the batch
-		if br, ok := batchResults[ref]; ok {
-			installed = br.Installed
-			displayName = br.DisplayName
-			version = br.Version
-		} else {
-			installed, displayName, _ = d.Detect(ref)
-		}
-
-		// Ensure a display name is always available for events and the envelope.
-		itemName := resolveItemDisplayName(displayName, app, ref)
-
-		var action ApplyAction
-		action.ID = app.ID
-		action.Ref = stringPtr(ref)
-		action.Driver = d.Name()
-		action.Name = itemName
-		action.Version = version // captured installed version for present packages
-
-		repin := false
-		if installed {
-			action.Status = "present"
-			if flags.Repin && app.Version != "" && version != "" &&
-				strings.TrimSpace(version) != strings.TrimSpace(app.Version) {
-				// Declared version has drifted from the installed one: mark for
-				// re-pin convergence (reinstalled in the apply loop, --confirm-gated).
-				repin = true
-				action.Reason = driver.ReasonVersionDrift
-				action.Message = fmt.Sprintf("Version drift: installed %s, want %s", version, app.Version)
-				emitter.EmitItem(ref, d.Name(), "present", driver.ReasonVersionDrift, action.Message, itemName)
-			} else {
-				action.Reason = driver.ReasonAlreadyInstalled
-				emitter.EmitItem(ref, d.Name(), "present", driver.ReasonAlreadyInstalled, "Already installed", itemName)
-			}
-			presentCount++
-		} else {
-			action.Status = "to_install"
-			action.Reason = driver.ReasonMissing
-			emitter.EmitItem(ref, d.Name(), "to_install", driver.ReasonMissing, "Will be installed", itemName)
-			toInstallCount++
-		}
-
-		planEntries = append(planEntries, appPlan{app: app, ref: ref, action: action, displayName: itemName, repin: repin})
-	}
-
-	totalApps := len(planEntries)
-	emitter.EmitSummary("plan", totalApps, presentCount, 0, toInstallCount)
-
-	configSession := newConfigRestoreExecutionSession(
-		configRuntime,
-		newDriverConfigRestoreEvidenceSource(d, mf.Apps),
-	)
-	if _, previewErr := configSession.Preview(context.Background()); previewErr != nil {
-		return nil, configRestoreInternalError(previewErr.Error())
-	}
-	var configFields *ConfigResultFields
-	if flags.DryRun {
-		dryActions := make([]ApplyAction, len(planEntries))
-		for index := range planEntries {
-			dryActions[index] = planEntries[index].action
-		}
-		configExecution, executeErr := configSession.Execute(
-			context.Background(),
-			applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter),
-		)
-		if configRuntime.inputs.hasConfigPayloads {
-			configFields = NewConfigResultFields(configExecution.Plan.Sets, configExecution.RestoreItems)
-		}
-		if executeErr != nil {
-			return &ApplyResult{
-				DryRun: true, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
-				Summary: ApplySummary{Total: totalApps, Skipped: presentCount}, Actions: dryActions,
-				ConfigModuleMap: configModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
-				ConfigResultFields: configFields,
-			}, executeErr
-		}
-	}
-
-	// ----------------------------------------------------------------
-	// Phase 2: Apply  (skip when dry-run)
-	// ----------------------------------------------------------------
-
-	successCount := 0
-	skippedCount := 0
-	failedCount := 0
-
-	// Initialise final action slice from plan (will be mutated below).
-	finalActions := make([]ApplyAction, len(planEntries))
-	for i, entry := range planEntries {
-		finalActions[i] = entry.action
-	}
-
-	if !flags.DryRun {
-		emitter.EmitPhase("apply")
-
-		for i, entry := range planEntries {
-			if entry.isManual {
-				// Manual apps: re-check verifyPath during apply.
-				if entry.action.Status == "present" {
-					successCount++
-				} else {
-					// Not present: status "skipped", reason "manual_required".
-					finalActions[i].Status = driver.StatusSkipped
-					finalActions[i].Reason = "manual_required"
-					emitter.EmitItem(entry.app.ID, "manual", "skipped", "manual_required", finalActions[i].Message, entry.app.DisplayName)
-					skippedCount++
-				}
-				continue
-			}
-
-			// Version convergence (--repin): a present app whose installed version
-			// drifted from its declared App.Version. Reinstall the declared version
-			// (force), gated by --confirm; without confirmation the drifted app is
-			// left present and the run refuses after the apply phase.
-			if entry.repin {
-				vi, ok := d.(driver.VersionedInstaller)
-				if !flags.Confirm || !ok {
-					skippedCount++
-					continue
-				}
-				emitter.EmitItem(entry.ref, d.Name(), "installing", "", fmt.Sprintf("Re-pinning %s to %s", entry.ref, entry.app.Version), entry.displayName)
-				result, rerr := vi.ReinstallVersion(entry.ref, entry.app.Version)
-				if rerr != nil {
-					finalActions[i].Status = driver.StatusFailed
-					finalActions[i].Reason = driver.ReasonInstallFailed
-					emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonInstallFailed, rerr.Error(), entry.displayName)
-					failedCount++
-					continue
-				}
-				if result.Status == driver.StatusInstalled {
-					finalActions[i].Status, finalActions[i].Reason = "installed", ""
-					finalActions[i].Version = entry.app.Version // converged version is now committed
-					emitter.EmitItem(entry.ref, d.Name(), "installed", "", result.Message, entry.displayName)
-					successCount++
-				} else {
-					finalActions[i].Status, finalActions[i].Reason = result.Status, result.Reason
-					emitter.EmitItem(entry.ref, d.Name(), result.Status, result.Reason, result.Message, entry.displayName)
-					failedCount++
-				}
-				continue
-			}
-
-			if entry.action.Status != "to_install" {
-				// Already present: counts as skipped in the apply phase.
-				skippedCount++
-				continue
-			}
-
-			emitter.EmitItem(entry.ref, d.Name(), "installing", "", fmt.Sprintf("Installing %s", entry.ref), entry.displayName)
-
-			// Honor a declared version (pin-on-install) when the driver supports
-			// versioned installation; otherwise install the latest, as before.
-			pinned := entry.app.Version != ""
-			var result *driver.InstallResult
-			var installErr error
-			if vi, ok := d.(driver.VersionedInstaller); ok && pinned {
-				result, installErr = vi.InstallVersion(entry.ref, entry.app.Version)
-			} else {
-				result, installErr = d.Install(entry.ref)
-			}
-			if installErr != nil {
-				// Infrastructure failure (e.g. winget not available).
-				finalActions[i].Status = driver.StatusFailed
-				finalActions[i].Reason = driver.ReasonInstallFailed
-				emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonInstallFailed, installErr.Error(), entry.displayName)
-				failedCount++
-				continue
-			}
-
-			finalActions[i].Status = result.Status
-			finalActions[i].Reason = result.Reason
-
-			switch result.Status {
-			case driver.StatusInstalled:
-				if pinned {
-					// The pinned version is now the committed version; record it
-					// (winget exposes no version on install for the unpinned path).
-					finalActions[i].Version = entry.app.Version
-				}
-				emitter.EmitItem(entry.ref, d.Name(), "installed", "", result.Message, entry.displayName)
-				successCount++
-			case driver.StatusPresent:
-				emitter.EmitItem(entry.ref, d.Name(), "present", result.Reason, result.Message, entry.displayName)
-				skippedCount++
-			default:
-				emitter.EmitItem(entry.ref, d.Name(), result.Status, result.Reason, result.Message, entry.displayName)
-				failedCount++
-			}
-		}
-
-		applyTotal := successCount + skippedCount + failedCount
-		emitter.EmitSummary("apply", applyTotal, successCount, skippedCount, failedCount)
-
-		// Record a Provisioning Generation for the install stage (best-effort,
-		// install-only). Written only when >=1 package was installed this run;
-		// Partial when any attempted install failed. Never touches restore state.
-		// Driver (winget) path: home-manager is realizer-only, so no config record.
-		writeProvisioningGeneration(runID, d.Name(), finalActions, nil, "", failedCount > 0, nil)
-
-		// Version convergence (--repin) is destructive (reinstall / possible
-		// downgrade), so it requires --confirm. Refuse without it — the install
-		// phase above stands; only the drifted re-pins were withheld. (--dry-run
-		// previews and never reaches here.)
-		if flags.Repin && !flags.Confirm {
-			return nil, envelope.NewError(
-				envelope.ErrInternalError,
-				"version convergence (--repin) requires --confirm (it reinstalls drifted packages)").
-				WithRemediation("Re-run with --repin --confirm, or use --repin --dry-run to preview.")
-		}
-
-		// ----------------------------------------------------------------
-		// Phase 2b: Restore. Final target detection replaces the preview after
-		// installation and immediately precedes configuration mutation.
-		// ----------------------------------------------------------------
-
-		if configRuntime.inputs.hasConfigPayloads || (flags.EnableRestore && len(mf.Restore) > 0) {
-			configExecution, executeErr := configSession.Execute(
-				context.Background(),
-				applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter),
-			)
-			if configRuntime.inputs.hasConfigPayloads {
-				configFields = NewConfigResultFields(configExecution.Plan.Sets, configExecution.RestoreItems)
-			}
-			if executeErr != nil {
-				return &ApplyResult{
-					DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
-					Summary: ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
-					Actions: finalActions, ConfigModuleMap: configModuleMap,
-					RestoreModulesAvailable: restoreModulesAvailable, ConfigResultFields: configFields,
-				}, executeErr
-			}
-		}
-
-		// ----------------------------------------------------------------
-		// Phase 3: Verify  (fresh re-detection)
-		// ----------------------------------------------------------------
-
-		emitter.EmitPhase("verify")
-
-		// Batch-detect for verify phase (fresh snapshot after installs).
-		var verifyBatchResults map[string]driver.DetectResult
-		if bd, ok := d.(driver.BatchDetector); ok {
-			var verifyRefs []string
-			for _, entry := range planEntries {
-				if !entry.isManual && entry.ref != "" {
-					verifyRefs = append(verifyRefs, entry.ref)
-				}
-			}
-			if len(verifyRefs) > 0 {
-				verifyBatchResults, _ = bd.DetectBatch(verifyRefs)
-			}
-		}
-
-		verifyPass := 0
-		verifyFail := 0
-
-		for i, entry := range planEntries {
-			if entry.isManual {
-				// Manual app verify: re-check verifyPath.
-				expanded, exists := checkVerifyPath(entry.app.Manual.VerifyPath)
-				if exists {
-					emitter.EmitItem(entry.app.ID, "manual", "present", "", fmt.Sprintf("Verified at %s", expanded), entry.app.DisplayName)
-					verifyPass++
-				} else {
-					emitter.EmitItem(entry.app.ID, "manual", "failed", driver.ReasonMissing, fmt.Sprintf("Missing at %s", expanded), entry.app.DisplayName)
-					verifyFail++
-				}
-				continue
-			}
-
-			var detected bool
-			var verifyName string
-			if br, ok := verifyBatchResults[entry.ref]; ok {
-				detected = br.Installed
-				verifyName = br.DisplayName
-			} else {
-				detected, verifyName, _ = d.Detect(entry.ref)
-			}
-			if detected {
-				emitter.EmitItem(entry.ref, d.Name(), "present", "", "Verified installed", resolveItemDisplayName(verifyName, entry.app, entry.ref))
-				if verifyName != "" {
-					finalActions[i].Name = verifyName
-				}
-				verifyPass++
-			} else {
-				emitter.EmitItem(entry.ref, d.Name(), "failed", driver.ReasonMissing, "Missing after apply", resolveItemDisplayName(entry.displayName, entry.app, entry.ref))
-				verifyFail++
-			}
-		}
-
-		verifyTotal := verifyPass + verifyFail
-		// Last event in stream is always a summary event per event-contract.md.
-		emitter.EmitSummary("verify", verifyTotal, verifyPass, 0, verifyFail)
-	}
-
-	// Build the return summary from the apply phase counters.
-	// When dry-run, we report the plan counts (present=skipped, to_install=pending).
-	var outSummary ApplySummary
-	outSummary.Total = totalApps
-	if flags.DryRun {
-		// Dry-run: no installs executed. Report plan state.
-		outSummary.Success = 0
-		outSummary.Skipped = presentCount // already-present apps are effectively "skipped"
-		outSummary.Failed = 0
-	} else {
-		outSummary.Success = successCount
-		outSummary.Skipped = skippedCount
-		outSummary.Failed = failedCount
-	}
-
-	return &ApplyResult{
-		DryRun: flags.DryRun,
-		Manifest: ApplyManifestRef{
-			Path: flags.Manifest,
-			Name: mf.Name,
-			Hash: "", // hash computation is Phase 2 work
-		},
-		Summary:                 outSummary,
-		Actions:                 finalActions,
-		ConfigModuleMap:         configModuleMap,
-		RestoreModulesAvailable: restoreModulesAvailable,
-		ConfigResultFields:      configFields,
-	}, nil
+	return runApplyDriverLanes(flags, mf, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable)
 }
 
 func scopeConfigRestoreRuntimeForOnly(runtime *configRestoreRuntime, matched []*modules.Module) {

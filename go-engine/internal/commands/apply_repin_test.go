@@ -47,6 +47,9 @@ func TestRunApply_Repin_Confirm_RepinsDrift(t *testing.T) {
 	if v := provItem(t, gens[0].Items, "a").Version; v != "1.2.0" {
 		t.Fatalf("generation item version = %q, want 1.2.0", v)
 	}
+	if len(gens[0].AddedRefs) != 0 {
+		t.Fatalf("repin generation addedRefs = %v, want empty because the package existed before the run", gens[0].AddedRefs)
+	}
 }
 
 // --repin --dry-run previews the drift without reinstalling or requiring confirm,

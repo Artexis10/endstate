@@ -1,6 +1,6 @@
 # Endstate
 
-**Set up a new Windows PC in minutes.** Endstate scans your current machine for installed apps and settings, saves them to one portable file you control, then reinstalls the apps and restores your settings on a fresh Windows install. Free, open source, local-first — no account, no telemetry. Windows today via [winget](https://learn.microsoft.com/windows/package-manager/winget/); the engine is cross-platform (Linux/macOS in progress).
+**Set up a new Windows PC in minutes.** Endstate scans your current machine for installed apps and settings, saves them to one portable file you control, then reinstalls the apps and restores your settings on a fresh Windows install. Free, open source, local-first — no account, no telemetry. Windows supports [Winget](https://learn.microsoft.com/windows/package-manager/winget/) by default plus optional Chocolatey lanes; Linux and macOS use Nix, with Homebrew available per app on macOS.
 
 ![Endstate demo: pick a starter pack, preview the real plan, apply](docs/media/endstate-demo.gif)
 
@@ -44,7 +44,7 @@ The loop that works today:
 2. Post the file anywhere (GitHub Gist, a repo, a message).
 3. The recipient drags it onto the Endstate GUI (or runs `endstate apply --profile my-setup.jsonc`) → previews the plan → applies.
 
-The sanitized manifest contains only app IDs and winget references — no machine-specific paths, timestamps, or credentials.
+The sanitized manifest contains only app IDs and package-manager references — no machine-specific paths, timestamps, or credentials.
 
 ---
 
@@ -378,7 +378,8 @@ so the GUI can gate hosted-backup UI on a single handshake.
 | Requirement | Version | Purpose |
 |-------------|---------|---------|
 | Go | 1.22+ | Build and development |
-| winget | Latest | App installation (Windows) |
+| Winget | Latest | Default app installation (Windows) |
+| Chocolatey | Current, optional | Additional Windows app catalog; Endstate can set it up with explicit consent |
 
 ---
 
@@ -416,4 +417,3 @@ See the [LICENSE](LICENSE) file for details.
 Copyright © 2025–2026 Substrate Systems OÜ
 
 Created by Hugo Ander Kivi at Substrate Systems OÜ.
-
