@@ -24,6 +24,7 @@ type PlanResult struct {
 	Manifest PlanManifestRef      `json:"manifest"`
 	Plan     planner.PlanSummary  `json:"plan"`
 	Actions  []planner.PlanAction `json:"actions"`
+	Warnings []CommandWarning     `json:"warnings,omitempty"`
 }
 
 // PlanManifestRef identifies the manifest used for the plan.
@@ -61,7 +62,7 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 	// --- 2. Resolve authoritative per-package driver lanes and compute plan ---
 	emitter.EmitPhase("plan")
 
-	p, planErr := computeDriverLanePlanWithOverrides(mf, packageDriverReadOnlyOverrides(mf, emitter))
+	p, warnings, planErr := computeDriverLanePlanWithOverrides(mf, packageDriverReadOnlyOverrides(mf, emitter))
 	if planErr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, planErr.Error())
 	}
@@ -82,5 +83,6 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 		Manifest: PlanManifestRef{Path: flags.Manifest, Name: mf.Name},
 		Plan:     p.Summary,
 		Actions:  p.Actions,
+		Warnings: warnings,
 	}, nil
 }
