@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.24.0](https://github.com/Artexis10/endstate/compare/v2.23.0...v2.24.0) (2026-07-17)
+
+
+### Features
+
+* **config:** add first-class configuration generations ([#149](https://github.com/Artexis10/endstate/issues/149)) ([5977987](https://github.com/Artexis10/endstate/commit/59779875eeb75cbe84195ea80695ff554d7c9df7))
+* **engine:** warn on cross-driver package ownership ([#151](https://github.com/Artexis10/endstate/issues/151)) ([d30a59f](https://github.com/Artexis10/endstate/commit/d30a59fe889d62d3e7832f70b580de7f5623e031))
+
 ## [2.23.0](https://github.com/Artexis10/endstate/compare/v2.22.0...v2.23.0) (2026-07-16)
 
 
