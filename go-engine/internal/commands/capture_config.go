@@ -293,15 +293,23 @@ func captureCatalogDiagnosticIsRelevant(diagnostic modules.CatalogDiagnostic, ap
 		}
 	}
 	shortID := moduleDirName(diagnostic.ModuleID)
+	hasPackageIdentity := len(diagnostic.WingetRefs) > 0 || len(diagnostic.ChocolateyRefs) > 0
 	for _, app := range apps {
 		if !app.Installed {
 			continue
 		}
-		if shortID != "" && strings.EqualFold(app.ID, shortID) {
+		if !hasPackageIdentity && shortID != "" && strings.EqualFold(app.ID, shortID) {
 			return true
 		}
 		windowsRef := app.Refs["windows"]
-		for _, diagnosticRef := range diagnostic.WingetRefs {
+		var diagnosticRefs []string
+		switch strings.ToLower(strings.TrimSpace(app.Driver)) {
+		case "chocolatey":
+			diagnosticRefs = diagnostic.ChocolateyRefs
+		case "", "winget":
+			diagnosticRefs = diagnostic.WingetRefs
+		}
+		for _, diagnosticRef := range diagnosticRefs {
 			if windowsRef != "" && strings.EqualFold(windowsRef, diagnosticRef) {
 				return true
 			}
@@ -617,7 +625,7 @@ func buildCaptureModuleResults(planning captureConfigPlanning, result *bundle.Ca
 			skipped = append(skipped, shortID)
 		}
 		moduleResults = append(moduleResults, CaptureModuleResult{
-			ID: mod.ID, AppID: shortID, DisplayName: mod.DisplayName, WingetRefs: safeStringSlice(mod.Matches.Winget),
+			ID: mod.ID, AppID: shortID, DisplayName: mod.DisplayName, WingetRefs: safeStringSlice(mod.Matches.Winget), ChocolateyRefs: safeStringSlice(mod.Matches.Chocolatey),
 			Paths: uniqueSortedStrings(paths), FilesCaptured: filesCaptured, Status: status,
 		})
 	}

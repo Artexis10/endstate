@@ -379,6 +379,62 @@ func TestLoadCatalogWithDiagnostics_ReportsInvalidV2WithoutBreakingLegacyAPI(t *
 	}
 }
 
+func TestLoadCatalogWithDiagnosticsPreservesChocolateyIdentityForParseAndValidationFailures(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		code    string
+	}{
+		{
+			name: "strict parse failure",
+			content: `{
+				"moduleSchemaVersion": 2,
+				"id": "apps.git",
+				"displayName": "Git",
+				"matches": {"chocolatey": ["git.install"]},
+				"unexpected": true
+			}`,
+			code: DiagnosticInvalidJSON,
+		},
+		{
+			name: "validation failure",
+			content: strings.Replace(
+				strings.Replace(validV2Module, `"matches": {"winget": ["Vendor.Versioned"]}`, `"matches": {"chocolatey": ["git.install"]}`, 1),
+				`"versionRange": ">=25 <28"`, `"versionRange": "not-a-range"`, 1,
+			),
+			code: DiagnosticInvalidVersionRange,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestModule(t, root, "git", tt.content)
+
+			_, diagnostics, err := LoadCatalogWithDiagnostics(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(diagnostics) != 1 || diagnostics[0].Code != tt.code {
+				t.Fatalf("diagnostics = %+v, want one %s", diagnostics, tt.code)
+			}
+			encoded, err := json.Marshal(diagnostics[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var identity struct {
+				ChocolateyRefs []string `json:"chocolateyRefs"`
+			}
+			if err := json.Unmarshal(encoded, &identity); err != nil {
+				t.Fatal(err)
+			}
+			if len(identity.ChocolateyRefs) != 1 || identity.ChocolateyRefs[0] != "git.install" {
+				t.Fatalf("Chocolatey diagnostic identity = %#v, want [git.install]; diagnostic JSON: %s", identity.ChocolateyRefs, encoded)
+			}
+		})
+	}
+}
+
 func TestValidateModuleV2_Rejections(t *testing.T) {
 	tests := []struct {
 		name string

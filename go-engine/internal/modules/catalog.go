@@ -26,6 +26,7 @@ type CatalogDiagnostic struct {
 	// validation fails, so capture can scope diagnostics to package and path
 	// instances without treating the rejected module as executable authority.
 	WingetRefs         []string              `json:"wingetRefs,omitempty"`
+	ChocolateyRefs     []string              `json:"chocolateyRefs,omitempty"`
 	InstanceDetectors  []InstanceDetectorDef `json:"instanceDetectors,omitempty"`
 	AssociationUnknown bool                  `json:"associationUnknown,omitempty"`
 }
@@ -75,7 +76,7 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 
 		mod, err := ParseModuleJSON(data)
 		if err != nil {
-			moduleID, wingetRefs, detectors, associationUnknown := catalogDiagnosticIdentity(data, entry.Name())
+			moduleID, wingetRefs, chocolateyRefs, detectors, associationUnknown := catalogDiagnosticIdentity(data, entry.Name())
 			diagnostics = append(diagnostics, CatalogDiagnostic{
 				Code:               DiagnosticInvalidJSON,
 				Severity:           "error",
@@ -83,6 +84,7 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 				FilePath:           moduleFile,
 				Message:            fmt.Sprintf("invalid JSON in %s: %v", moduleFile, err),
 				WingetRefs:         wingetRefs,
+				ChocolateyRefs:     chocolateyRefs,
 				InstanceDetectors:  detectors,
 				AssociationUnknown: associationUnknown,
 			})
@@ -98,6 +100,7 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 				FilePath:          moduleFile,
 				Message:           err.Error(),
 				WingetRefs:        append([]string(nil), mod.Matches.Winget...),
+				ChocolateyRefs:    append([]string(nil), mod.Matches.Chocolatey...),
 				InstanceDetectors: diagnosticInstanceDetectors(mod),
 			})
 			continue
@@ -112,6 +115,7 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 				FilePath:          moduleFile,
 				Message:           fmt.Sprintf("duplicate config module id %q found at %s, skipping", mod.ID, moduleFile),
 				WingetRefs:        append([]string(nil), mod.Matches.Winget...),
+				ChocolateyRefs:    append([]string(nil), mod.Matches.Chocolatey...),
 				InstanceDetectors: diagnosticInstanceDetectors(mod),
 			})
 			continue
@@ -127,7 +131,7 @@ func LoadCatalogWithDiagnostics(modulesRoot string) (map[string]*Module, []Catal
 	return catalog, diagnostics, nil
 }
 
-func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []string, []InstanceDetectorDef, bool) {
+func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []string, []string, []InstanceDetectorDef, bool) {
 	type diagnosticConfigIdentity struct {
 		InstanceDetectors []InstanceDetectorDef `json:"instanceDetectors"`
 	}
@@ -138,7 +142,7 @@ func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []str
 	}{}
 	moduleID := "apps." + directoryName
 	if err := json.Unmarshal(manifest.StripJsoncComments(data), &identity); err != nil {
-		return moduleID, nil, nil, true
+		return moduleID, nil, nil, nil, true
 	}
 	if strings.TrimSpace(identity.ID) != "" {
 		moduleID = identity.ID
@@ -147,7 +151,11 @@ func catalogDiagnosticIdentity(data []byte, directoryName string) (string, []str
 	if identity.Config != nil {
 		detectors = append([]InstanceDetectorDef(nil), identity.Config.InstanceDetectors...)
 	}
-	return moduleID, append([]string(nil), identity.Matches.Winget...), detectors, false
+	return moduleID,
+		append([]string(nil), identity.Matches.Winget...),
+		append([]string(nil), identity.Matches.Chocolatey...),
+		detectors,
+		false
 }
 
 func diagnosticInstanceDetectors(mod *Module) []InstanceDetectorDef {

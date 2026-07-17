@@ -230,6 +230,69 @@ func TestPlanCaptureConfigProjectsValidationDiagnosticByWingetRef(t *testing.T) 
 	}
 }
 
+func TestPlanCaptureConfigProjectsChocolateyCatalogDiagnosticOnlyForChocolateyApp(t *testing.T) {
+	modulesRoot := t.TempDir()
+	moduleDir := filepath.Join(modulesRoot, "git")
+	if err := os.MkdirAll(moduleDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(
+		filepath.Join(moduleDir, "module.jsonc"),
+		[]byte(`{
+			"moduleSchemaVersion": 2,
+			"id": "apps.git",
+			"displayName": "Git",
+			"matches": {"chocolatey": ["git.install"]},
+			"config": {
+				"instanceDetectors": [{"id": "installed", "type": "package"}],
+				"sets": [{
+					"id": "preferences",
+					"generations": [{"id": "g1", "order": 1, "matches": [{"versionRange": "not-a-range"}]}]
+				}]
+			}
+		}`),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	_, diagnostics, err := modules.LoadCatalogWithDiagnostics(modulesRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diagnostics) != 1 || diagnostics[0].Code != modules.DiagnosticInvalidVersionRange || len(diagnostics[0].InstanceDetectors) != 1 {
+		t.Fatalf("Chocolatey package-detector diagnostics = %+v", diagnostics)
+	}
+
+	tests := []struct {
+		name   string
+		driver string
+		ref    string
+		want   int
+	}{
+		{name: "matching explicit Chocolatey app", driver: "chocolatey", ref: "Git.Install", want: 1},
+		{name: "default driver does not cross-match", ref: "git.install", want: 0},
+		{name: "explicit Winget does not cross-match", driver: "winget", ref: "git.install", want: 0},
+		{name: "unrelated Chocolatey app", driver: "chocolatey", ref: "other.package", want: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := planCaptureConfig(nil, []manifest.App{{
+				ID: "git-client", Driver: tt.driver, Refs: map[string]string{"windows": tt.ref}, Installed: true,
+			}}, diagnostics)
+			if len(got.PreplanningDiagnostics) != tt.want {
+				t.Fatalf("preplanning diagnostics = %+v, want %d", got.PreplanningDiagnostics, tt.want)
+			}
+			if tt.want == 1 {
+				projected := got.PreplanningDiagnostics[0]
+				if projected.ModuleID != "apps.git" || projected.Code != modules.DiagnosticInvalidVersionRange || projected.Status != bundle.CaptureBundleStatusFailed {
+					t.Fatalf("projected Chocolatey diagnostic = %+v", projected)
+				}
+			}
+		})
+	}
+}
+
 func TestPlanCaptureConfigFailsVisibleForUnassociableMalformedModule(t *testing.T) {
 	modulesRoot := t.TempDir()
 	moduleDir := filepath.Join(modulesRoot, "vscode")
@@ -477,6 +540,53 @@ func TestFinalizeCaptureConfigBuildsSideBySideV2SummaryFromWrittenPayloadsWithou
 	}
 }
 
+func TestFinalizeCaptureConfigPreservesChocolateyRefsInCapturedModuleResult(t *testing.T) {
+	dir := t.TempDir()
+	configRoot := filepath.Join(dir, "config")
+	if err := os.MkdirAll(configRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configRoot, "prefs.json"), []byte("captured"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ENDSTATE_CAPTURE_CONFIG", configRoot)
+	mod := testCaptureGenerationModule(t, captureGenerationModuleSpec{
+		ID:            "apps.git",
+		ChocolateyRef: "git.install",
+		Detectors:     []modules.InstanceDetectorDef{{ID: "installed", Type: "package"}},
+		Sets:          []testCaptureSet{{ID: "preferences", Generations: []testCaptureGeneration{{ID: "g1", Capture: true}}}},
+		CaptureSource: captureTestEnvPath("ENDSTATE_CAPTURE_CONFIG", "prefs.json"),
+	})
+	withCaptureCatalogLoader(t, map[string]*modules.Module{mod.ID: mod}, nil)
+	manifestPath := writeCaptureInputManifest(t, dir)
+
+	got, err := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		Flags:        CaptureFlags{Out: manifestPath},
+		ManifestPath: manifestPath,
+		Apps: []manifest.App{{
+			ID:               "git",
+			Driver:           "chocolatey",
+			Backend:          "chocolatey",
+			Refs:             map[string]string{"windows": "Git.Install"},
+			Installed:        true,
+			InstalledVersion: "2.49.0",
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ConfigModules) != 1 {
+		t.Fatalf("captured modules = %+v", got.ConfigModules)
+	}
+	result := got.ConfigModules[0]
+	if result.Status != "captured" || result.FilesCaptured != 1 {
+		t.Fatalf("captured module result = %+v", result)
+	}
+	if result.ChocolateyRefs == nil || !equalStrings(result.ChocolateyRefs, []string{"git.install"}) {
+		t.Fatalf("Chocolatey refs = %#v, want non-nil [git.install]", result.ChocolateyRefs)
+	}
+}
+
 func TestFinalizeCaptureConfigDefaultsInstallOnlyToV1Zip(t *testing.T) {
 	dir := t.TempDir()
 	withCaptureCatalogLoader(t, map[string]*modules.Module{}, nil)
@@ -684,6 +794,7 @@ func TestRunCaptureRealizerSuppliesInstalledNixAndBrewPackageEvidence(t *testing
 type captureGenerationModuleSpec struct {
 	ID                  string
 	WingetRef           string
+	ChocolateyRef       string
 	PathMatch           string
 	Detectors           []modules.InstanceDetectorDef
 	Sets                []testCaptureSet
@@ -708,6 +819,9 @@ func testCaptureGenerationModule(t *testing.T, spec captureGenerationModuleSpec)
 	matches := map[string]any{}
 	if spec.WingetRef != "" {
 		matches["winget"] = []string{spec.WingetRef}
+	}
+	if spec.ChocolateyRef != "" {
+		matches["chocolatey"] = []string{spec.ChocolateyRef}
 	}
 	if spec.PathMatch != "" {
 		matches["pathExists"] = []string{spec.PathMatch}

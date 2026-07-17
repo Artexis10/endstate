@@ -168,6 +168,7 @@ func cloneConfigCatalogDiagnostics(values []modules.CatalogDiagnostic) []modules
 	copy(cloned, values)
 	for index := range cloned {
 		cloned[index].WingetRefs = append([]string(nil), values[index].WingetRefs...)
+		cloned[index].ChocolateyRefs = append([]string(nil), values[index].ChocolateyRefs...)
 		cloned[index].InstanceDetectors = append(
 			[]modules.InstanceDetectorDef(nil),
 			values[index].InstanceDetectors...,
