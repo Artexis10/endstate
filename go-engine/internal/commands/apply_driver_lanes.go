@@ -90,6 +90,7 @@ func runApplyDriverLanes(
 	if routeErr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, routeErr.Error())
 	}
+	warnings = append(warnings, possibleDuplicatePackageWarnings(routed)...)
 	routedByIndex := make(map[int]*routedDriverApp, len(routed))
 	for _, route := range routed {
 		routedByIndex[route.index] = route

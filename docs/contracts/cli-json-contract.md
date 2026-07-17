@@ -107,7 +107,7 @@ When `success` is `false`, the `error` field contains:
 
 ### Command Warnings
 
-`capture` and `apply` MAY include an additive `data.warnings` array. Each warning has this stable shape:
+`capture`, `plan`, `apply`, and `verify` MAY include an additive `data.warnings` array. Each warning has this stable shape:
 
 ```json
 {
@@ -128,7 +128,11 @@ When `success` is `false`, the `error` field contains:
 The defined warning codes are:
 
 - `optional_driver_unavailable`: an optional driver could not participate; independent available lanes continue.
-- `possible_duplicate`: capture found equal non-empty display names, ignoring case, from different drivers. Both entries remain in the capture.
+- `possible_duplicate`: different package drivers report or declare the same qualifying display name. Every entry remains present and independently routed.
+
+For `plan`, `apply`, and `verify`, `possible_duplicate` is an advisory ownership warning based only on routed, non-manual per-package entries. Two entries qualify when their resolved driver names differ and their non-empty explicit manifest `displayName` values are equal after trimming outer whitespace and case-insensitive comparison. Refs, IDs, versions, inferred or backend-detected labels, substrings, punctuation normalization, and fuzzy similarity are not duplicate evidence. Whole-set realizer and manual entries do not participate.
+
+Warnings follow manifest order. Each later colliding entry produces at most one warning whose `driver` and `ref` identify that later entry. The warning never deduplicates, reroutes, blocks, or changes an item status, reason, action, summary count, generation, rollback owner, or fallback behavior. `apply --only` considers only the selected entries. When there are no warnings, `warnings` is omitted.
 
 `rebootRequired` is a successful item fact, not a warning.
 
@@ -461,6 +465,8 @@ Winget is operating-system provided and is never bootstrapped. A Chocolatey rebo
 
 When a selected optional driver remains unavailable, `apply.data.warnings` includes `{"code":"optional_driver_unavailable","message":"...","driver":"chocolatey"}` alongside the visible skipped or failed action. The warning never authorizes fallback and does not replace the action's own status and diagnostic.
 
+When routed package entries qualify for the runtime ownership advisory described under **Command Warnings**, `apply.data.warnings` appends `possible_duplicate` without suppressing either action. This applies equally to dry-run and live results.
+
 ### Generation-Aware Configuration Output (Apply, Restore, and Rebuild)
 
 When restore-capable input contains configuration payloads, apply, standalone restore, and rebuild add `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]` to their command data. This is additive in stdout schema `1.0`. Application-install `items[]`/`actions[]` remain unchanged. If the input contains no config payloads, these config fields are omitted. If config payloads are present, no config field is omitted: all arrays are present and use `[]`, never `null`, when empty; `reason` and `remediation` use `null` when absent.
@@ -554,7 +560,7 @@ The engine automatically maps only one viable target or one unique exact-version
 
 ### App-Subset Selection (`--only`)
 
-`apply --only <id[,id,...]>` limits the run to manifest apps whose `id` is in the comma-separated list. Filtering happens at the manifest level before planning, so every downstream stage (plan generation, driver execution, config-module expansion, restore scoping, verification, event emission, and summary counts) behaves as if the manifest contained only the selected apps. Omitting `--only` leaves behaviour unchanged.
+`apply --only <id[,id,...]>` limits the run to manifest apps whose `id` is in the comma-separated list. Filtering happens at the manifest level before planning, so every downstream stage (plan generation, driver execution, config-module expansion, restore scoping, verification, event emission, warning generation, and summary counts) behaves as if the manifest contained only the selected apps. Omitting `--only` leaves behaviour unchanged.
 
 | Flag | Behavior |
 |------|----------|
@@ -798,6 +804,8 @@ endstate verify --manifest ./manifest.jsonc --json
 **Note:** `eventsFile` is only included when `--events jsonl` is enabled.
 
 Every app `VerifyItem` includes its resolved `driver`; non-package verification items omit it. `packageModuleMap` may accompany `configModuleMap` using the same driver-aware and legacy shapes documented under `capture`.
+
+`verify.data.warnings` may include the advisory `possible_duplicate` warning described under **Command Warnings**. Both verification results remain present, and the warning does not affect their statuses or summary counts.
 
 ```json
 ```

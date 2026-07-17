@@ -72,6 +72,7 @@ type VerifyResult struct {
 	Manifest VerifyManifestRef `json:"manifest"`
 	Summary  VerifySummary     `json:"summary"`
 	Results  []VerifyItem      `json:"results"`
+	Warnings []CommandWarning  `json:"warnings,omitempty"`
 }
 
 // VerifyManifestRef identifies the manifest that was verified.
@@ -164,6 +165,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	if derr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, derr.Error())
 	}
+	warnings := possibleDuplicatePackageWarnings(routed)
 	detections := detectPackageDriverLanes(lanes)
 	routedByIndex := make(map[int]*routedDriverApp, len(routed))
 	for _, route := range routed {
@@ -317,7 +319,8 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			Fail:    failCount,
 			Skipped: skipCount,
 		},
-		Results: results,
+		Results:  results,
+		Warnings: warnings,
 	}, nil
 }
 
