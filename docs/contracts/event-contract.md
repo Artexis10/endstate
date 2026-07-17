@@ -1,7 +1,7 @@
 # Endstate Event Contract v1
 
-**Status:** Locked  
-**Version:** 1  
+**Status:** Locked
+**Version:** 1
 **Last Updated:** 2026-07-16
 
 ## Purpose

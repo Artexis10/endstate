@@ -6,7 +6,7 @@
 
 Website: <https://substratesystems.io/endstate> · Download: <https://substratesystems.io/download>
 
-**Author:** Hugo Ander Kivi  
+**Author:** Hugo Ander Kivi
 **Primary Language:** Go
 **Status:** v1.0.0 — Stable
 
@@ -246,7 +246,7 @@ Large manifests can be split into reusable modules:
 {
   "version": 1,
   "name": "dev-workstation",
-  
+
   // Include other manifest files (resolved relative to this file)
   "includes": [
     "./includes/dev-tools.jsonc",

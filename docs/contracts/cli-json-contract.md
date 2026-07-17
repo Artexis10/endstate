@@ -1172,7 +1172,7 @@ When schema versions are incompatible, GUI must display:
 ```
 Endstate CLI Incompatible
 
-The installed Endstate CLI (v0.1.0, schema 1.0) is not compatible 
+The installed Endstate CLI (v0.1.0, schema 1.0) is not compatible
 with this version of Endstate GUI (requires schema 2.0).
 
 Please update Endstate CLI or use a compatible GUI version.
