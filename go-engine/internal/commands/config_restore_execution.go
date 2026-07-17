@@ -12,10 +12,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -52,6 +54,10 @@ var executeLiveConfigRestoreSetFn = executeLiveConfigRestoreSet
 type configRestoreExecutionSession struct {
 	runtime     *configRestoreRuntime
 	coordinator configRestoreCoordinator
+}
+
+type configRestoreDetectionFailureProvider interface {
+	DetectionFailures() []configRestoreDetectionFailure
 }
 
 type configRestoreExecutionOptions struct {
@@ -120,6 +126,9 @@ func (session *configRestoreExecutionSession) Execute(
 	plan, err := session.coordinator.Final(ctx, options.RestoreEnabled)
 	if err != nil {
 		return result, configRestoreInternalError(err.Error())
+	}
+	if provider, ok := session.coordinator.(configRestoreDetectionFailureProvider); ok {
+		emitConfigRestoreDetectionFailures(options.Emitter, provider.DetectionFailures())
 	}
 	markSelectedConfigRestoreSetsPlanned(&plan)
 	if !options.RestoreEnabled {
@@ -364,6 +373,61 @@ func emitGenerationConfigResolutions(emitter *events.Emitter, plan planner.Confi
 	for _, set := range plan.Sets {
 		emitGenerationConfigResolution(emitter, set)
 	}
+}
+
+var configRestoreHostPathPattern = regexp.MustCompile(`(?i)(?:[a-z]:[\\/][^\s]+|\\\\[^\s]+|~[\\/][^\s]+|(?:^|[\s(])\/[^\s]+)`)
+
+const configRestoreDetectionDetailLimit = 1024
+
+func emitConfigRestoreDetectionFailures(
+	emitter *events.Emitter,
+	failures []configRestoreDetectionFailure,
+) {
+	if emitter == nil {
+		return
+	}
+	for _, failure := range normalizedConfigRestoreDetectionFailures(failures) {
+		driverName := failure.Driver
+		if driverName == "" {
+			driverName = "unknown"
+		}
+		ref := failure.Ref
+		if ref == "" {
+			ref = "unknown"
+		}
+		detail := sanitizeConfigRestoreDetectionDetail(failure.Detail)
+		if detail == "" {
+			detail = "package driver is unavailable"
+		}
+		emitter.EmitError(
+			"item",
+			fmt.Sprintf(
+				"configuration target detection failed (driver=%s, ref=%s): %s",
+				driverName, ref, detail,
+			),
+			failure.ModuleID,
+		)
+	}
+}
+
+func sanitizeConfigRestoreDetectionDetail(detail string) string {
+	detail = strings.Join(strings.Fields(strings.ToValidUTF8(detail, "�")), " ")
+	detail = configRestoreHostPathPattern.ReplaceAllStringFunc(detail, func(match string) string {
+		prefix := ""
+		if strings.HasPrefix(match, " ") || strings.HasPrefix(match, "(") {
+			prefix, match = match[:1], match[1:]
+		}
+		return prefix + "[local path]"
+	})
+	if len(detail) <= configRestoreDetectionDetailLimit {
+		return detail
+	}
+	suffix := "…"
+	cut := configRestoreDetectionDetailLimit - len(suffix)
+	for cut > 0 && !utf8.ValidString(detail[:cut]) {
+		cut--
+	}
+	return strings.TrimSpace(detail[:cut]) + suffix
 }
 
 func emitGenerationConfigResolution(emitter *events.Emitter, set planner.PlanSet) {

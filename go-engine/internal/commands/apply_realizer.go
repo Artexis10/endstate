@@ -274,7 +274,11 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 	configSession, configSessionErr := prepareApplyConfigRestore(
 		context.Background(),
 		flags,
-		newRealizerConfigRestoreEvidenceSource(r, brewDrv, append(append([]manifest.App{}, mf.Apps...), brewApps...)),
+		newRealizerConfigRestoreEvidenceSource(
+			r,
+			brewDrv,
+			append(append(append([]manifest.App{}, mf.Apps...), brewApps...), firstAppSlice(unsupportedApps)...),
+		),
 	)
 	if configSessionErr != nil {
 		return nil, configSessionErr

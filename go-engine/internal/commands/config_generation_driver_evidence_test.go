@@ -26,6 +26,20 @@ type countedCaptureEnumerator struct {
 	packages []driver.InstalledPackage
 }
 
+type failingConfigRestoreDriver struct {
+	detail error
+}
+
+func (f failingConfigRestoreDriver) Name() string { return "chocolatey" }
+
+func (f failingConfigRestoreDriver) Detect(string) (bool, string, error) {
+	return false, "", f.detail
+}
+
+func (f failingConfigRestoreDriver) Install(string) (*driver.InstallResult, error) {
+	return nil, errors.New("must not install during configuration detection")
+}
+
 func TestRunApply_AlternatePackagePathsRetainPackageModuleMap(t *testing.T) {
 	matchPath := filepath.Join(t.TempDir(), "matched")
 	if err := os.WriteFile(matchPath, []byte("present"), 0o600); err != nil {
@@ -336,6 +350,124 @@ func TestDriverLaneConfigRestoreEvidenceIsolatesUnavailableLaneByOwnership(t *te
 	if len(got) != 1 || got[0].Driver != "winget" || got[0].RawVersion != "1.0" {
 		t.Fatalf("unrelated Winget evidence = %+v", got)
 	}
+}
+
+func TestDriverConfigRestoreEvidencePreservesResponsibleRefAndOriginalDetail(t *testing.T) {
+	detail := errors.New(`chocolatey unavailable at C:\Users\Alice\bin\choco.exe`)
+	source := newDriverConfigRestoreEvidenceSource(failingConfigRestoreDriver{detail: detail}, []manifest.App{{
+		ID: "git", Driver: "chocolatey", Refs: map[string]string{"windows": "Git.Install"},
+	}})
+	evidence, err := source.Snapshot(context.Background(), configRestoreDetectionRequest{Modules: map[string]*modules.Module{
+		"apps.git": {ID: "apps.git", Matches: modules.MatchCriteria{Chocolatey: []string{"git.install"}}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDriverDetectionFailure(t, evidence, "apps.git", "chocolatey", "git.install")
+	if len(evidence.Failures) != 1 || evidence.Failures[0].Detail != detail.Error() {
+		t.Fatalf("original driver detail was not preserved internally: %+v", evidence.Failures)
+	}
+}
+
+func TestBrewOnlyConfigRestoreEvidenceKeepsUnavailableNixAndUnsupportedDrivers(t *testing.T) {
+	brew := &laneTestDriver{
+		name: "brew", installed: map[string]bool{"brew.package": true}, versions: map[string]string{"brew.package": "1.0"},
+	}
+	nixPackage := nixApp("nixpkg", "nixpkgs#nixpkg")
+	brewPackage := manifest.App{ID: "brewpkg", Driver: "brew", Refs: map[string]string{"windows": "brew.package", "darwin": "brew.package"}}
+	unsupported := manifest.App{ID: "chocopkg", Driver: "chocolatey", Refs: map[string]string{"windows": "Choco.Package"}}
+	request := configRestoreDetectionRequest{Modules: map[string]*modules.Module{
+		"apps.nixpkg":  {ID: "apps.nixpkg"},
+		"apps.brewpkg": {ID: "apps.brewpkg"},
+		"apps.choco":   {ID: "apps.choco", Matches: modules.MatchCriteria{Chocolatey: []string{"choco.package"}}},
+		"apps.path":    {ID: "apps.path", Matches: modules.MatchCriteria{PathExists: []string{"unused"}}},
+	}}
+
+	evidence, err := newBrewOnlyConfigRestoreEvidenceSource(
+		brew, []manifest.App{nixPackage}, []manifest.App{brewPackage}, []manifest.App{unsupported},
+	).Snapshot(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDriverDetectionFailure(t, evidence, "apps.nixpkg", "nix", "nixpkgs#nixpkg")
+	assertDriverDetectionFailure(t, evidence, "apps.choco", "chocolatey", "choco.package")
+	if _, failed := evidence.FailedModules["apps.path"]; failed {
+		t.Fatalf("path-only module poisoned by unavailable package lanes: %+v", evidence.Failures)
+	}
+	if evidence.Glob == nil {
+		t.Fatal("path-only filesystem detection was omitted")
+	}
+	if got := evidence.PackagesByModule["apps.brewpkg"]; len(got) != 1 || got[0].Driver != "brew" || got[0].RawVersion != "1.0" {
+		t.Fatalf("usable Brew evidence = %+v", got)
+	}
+}
+
+func TestRealizerConfigRestoreEvidenceKeepsUnsupportedSelectedDriver(t *testing.T) {
+	nixPackage := nixApp("nixpkg", "nixpkgs#nixpkg")
+	unsupported := unsupportedHostDriverApp("chocolatey")
+	realizerBackend := &fakeRealizer{currentSet: realizer.Set{Elements: map[string]realizer.Element{
+		"nixpkg": {Name: "nixpkg", AttrPath: "nixpkg"},
+	}}}
+	request := configRestoreDetectionRequest{Modules: map[string]*modules.Module{
+		"apps.nixpkg":     {ID: "apps.nixpkg"},
+		"apps.chocolatey": {ID: "apps.chocolatey", Matches: modules.MatchCriteria{Chocolatey: []string{"chocolatey.package"}}},
+	}}
+
+	evidence, err := newRealizerConfigRestoreEvidenceSource(
+		realizerBackend, nil, []manifest.App{nixPackage, unsupported},
+	).Snapshot(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertDriverDetectionFailure(t, evidence, "apps.chocolatey", "chocolatey", "chocolatey.package")
+	if got := evidence.PackagesByModule["apps.nixpkg"]; len(got) != 1 || got[0].Driver != "nix" {
+		t.Fatalf("usable Nix evidence = %+v", got)
+	}
+}
+
+func TestStandaloneRealizerConfigRestoreEvidenceKeepsUnsupportedSelectedDriver(t *testing.T) {
+	nixPackage := nixApp("nixpkg", "nixpkgs#nixpkg")
+	unsupported := unsupportedHostDriverApp("chocolatey")
+	request := configRestoreDetectionRequest{Modules: map[string]*modules.Module{
+		"apps.nixpkg":     {ID: "apps.nixpkg"},
+		"apps.chocolatey": {ID: "apps.chocolatey", Matches: modules.MatchCriteria{Chocolatey: []string{"chocolatey.package"}}},
+	}}
+
+	withRealizerAndBrew(&fakeRealizer{currentSet: realizer.Set{Elements: map[string]realizer.Element{
+		"nixpkg": {Name: "nixpkg", AttrPath: "nixpkg"},
+	}}}, func() (driver.Driver, error) {
+		return nil, errors.New("brew unavailable")
+	}, func() {
+		evidence, err := newStandaloneConfigRestoreEvidenceSource(
+			[]manifest.App{nixPackage, unsupported},
+		).Snapshot(context.Background(), request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertDriverDetectionFailure(t, evidence, "apps.chocolatey", "chocolatey", "chocolatey.package")
+		if got := evidence.PackagesByModule["apps.nixpkg"]; len(got) != 1 || got[0].Driver != "nix" {
+			t.Fatalf("standalone usable Nix evidence = %+v", got)
+		}
+	})
+}
+
+func assertDriverDetectionFailure(
+	t *testing.T,
+	evidence configRestoreDetectionEvidence,
+	moduleID string,
+	driverName string,
+	ref string,
+) {
+	t.Helper()
+	if _, failed := evidence.FailedModules[moduleID]; !failed {
+		t.Fatalf("%s was not marked failed: %+v", moduleID, evidence.FailedModules)
+	}
+	for _, failure := range evidence.Failures {
+		if failure.ModuleID == moduleID && failure.Driver == driverName && failure.Ref == ref && failure.Detail != "" {
+			return
+		}
+	}
+	t.Fatalf("%s structured failure missing driver=%q ref=%q: %+v", moduleID, driverName, ref, evidence.Failures)
 }
 
 func TestRunCapture_ChocolateyGenerationUsesDriverQualifiedEvidence(t *testing.T) {

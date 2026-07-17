@@ -842,14 +842,23 @@ func buildAppsIncluded(apps []capturedApp, displayNameMap map[string]string) []C
 // configuration to the same package identity.
 func buildPackageModuleMap(matchedModules []*modules.Module) map[string][]string {
 	result := make(map[string][]string)
+	chocolateyOwners := make(map[string]map[string]struct{})
 	for _, mod := range matchedModules {
 		for _, ref := range mod.Matches.Winget {
 			key := "winget:" + ref
 			result[key] = append(result[key], mod.ID)
 		}
 		for _, ref := range mod.Matches.Chocolatey {
-			key := "chocolatey:" + ref
-			result[key] = append(result[key], mod.ID)
+			key := "chocolatey:" + strings.ToLower(strings.TrimSpace(ref))
+			if chocolateyOwners[key] == nil {
+				chocolateyOwners[key] = make(map[string]struct{})
+			}
+			chocolateyOwners[key][mod.ID] = struct{}{}
+		}
+	}
+	for key, moduleIDs := range chocolateyOwners {
+		for moduleID := range moduleIDs {
+			result[key] = append(result[key], moduleID)
 		}
 	}
 	for key := range result {

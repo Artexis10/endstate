@@ -300,6 +300,33 @@ func TestCapturePackageModuleMapIncludesDriverAndChocolateyRefs(t *testing.T) {
 	}
 }
 
+func TestCapturePackageModuleMapCanonicalizesChocolateyRefsAndDeduplicatesModules(t *testing.T) {
+	mods := []*modules.Module{{
+		ID: "apps.git",
+		Matches: modules.MatchCriteria{
+			Winget:     []string{"Git.Git", "Git.Git"},
+			Chocolatey: []string{"Git.Install", " git.install ", "GIT.INSTALL"},
+		},
+	}, {
+		ID:      "apps.git",
+		Matches: modules.MatchCriteria{Chocolatey: []string{"git.install"}},
+	}, {
+		ID:      "apps.shared",
+		Matches: modules.MatchCriteria{Chocolatey: []string{"GIT.INSTALL"}},
+	}}
+
+	got := buildPackageModuleMap(mods)
+	if _, exists := got["chocolatey:Git.Install"]; exists {
+		t.Fatalf("mixed-case Chocolatey key survived canonicalization: %+v", got)
+	}
+	if want := []string{"apps.git", "apps.shared"}; !reflect.DeepEqual(got["chocolatey:git.install"], want) {
+		t.Fatalf("canonical Chocolatey owners = %v, want %v", got["chocolatey:git.install"], want)
+	}
+	if want := []string{"apps.git", "apps.git"}; !reflect.DeepEqual(got["winget:Git.Git"], want) {
+		t.Fatalf("Winget key/value behavior changed: %v, want %v", got["winget:Git.Git"], want)
+	}
+}
+
 func TestLegacyConfigModuleMapExcludesChocolateyOnlyRefs(t *testing.T) {
 	mods := []*modules.Module{{
 		ID:      "apps.choco-only",

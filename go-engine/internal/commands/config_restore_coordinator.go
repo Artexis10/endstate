@@ -6,6 +6,8 @@ package commands
 import (
 	"context"
 	"errors"
+	"sort"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
@@ -47,6 +49,7 @@ type planningConfigRestoreCoordinator struct {
 	planning         *configRestorePlanningSession
 	evidence         configRestoreEvidenceSource
 	executionAllowed bool
+	finalFailures    []configRestoreDetectionFailure
 }
 
 func newConfigRestoreCoordinator(
@@ -64,6 +67,7 @@ func (coordinator *planningConfigRestoreCoordinator) Preview(
 	ctx context.Context,
 ) (planner.ConfigPlan, error) {
 	coordinator.executionAllowed = false
+	coordinator.finalFailures = nil
 	evidence, err := coordinator.freshEvidence(ctx, configRestoreDetectionPreview)
 	if err != nil {
 		return emptyConfigRestorePlan(), err
@@ -76,10 +80,12 @@ func (coordinator *planningConfigRestoreCoordinator) Final(
 	restoreEnabled bool,
 ) (planner.ConfigPlan, error) {
 	coordinator.executionAllowed = false
+	coordinator.finalFailures = nil
 	evidence, err := coordinator.freshEvidence(ctx, configRestoreDetectionFinal)
 	if err != nil {
 		return emptyConfigRestorePlan(), err
 	}
+	coordinator.finalFailures = normalizedConfigRestoreDetectionFailures(evidence.Failures)
 	plan := coordinator.planning.Final(evidence)
 	if !restoreEnabled {
 		overlayConfigRestoreNotEnabled(&plan)
@@ -87,6 +93,44 @@ func (coordinator *planningConfigRestoreCoordinator) Final(
 	}
 	coordinator.executionAllowed = true
 	return plan, nil
+}
+
+func (coordinator *planningConfigRestoreCoordinator) DetectionFailures() []configRestoreDetectionFailure {
+	if coordinator == nil {
+		return nil
+	}
+	return append([]configRestoreDetectionFailure(nil), coordinator.finalFailures...)
+}
+
+func normalizedConfigRestoreDetectionFailures(
+	failures []configRestoreDetectionFailure,
+) []configRestoreDetectionFailure {
+	normalized := make([]configRestoreDetectionFailure, 0, len(failures))
+	seen := make(map[string]struct{}, len(failures))
+	for _, failure := range failures {
+		failure.ModuleID = strings.TrimSpace(failure.ModuleID)
+		failure.Driver = strings.ToLower(strings.TrimSpace(failure.Driver))
+		failure.Ref = strings.TrimSpace(failure.Ref)
+		if failure.Driver == "chocolatey" {
+			failure.Ref = strings.ToLower(failure.Ref)
+		}
+		failure.Detail = strings.TrimSpace(failure.Detail)
+		if failure.ModuleID == "" {
+			continue
+		}
+		key := failure.ModuleID + "\x00" + failure.Driver + "\x00" + failure.Ref + "\x00" + failure.Detail
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		normalized = append(normalized, failure)
+	}
+	sort.Slice(normalized, func(left, right int) bool {
+		leftKey := normalized[left].ModuleID + "\x00" + normalized[left].Driver + "\x00" + normalized[left].Ref + "\x00" + normalized[left].Detail
+		rightKey := normalized[right].ModuleID + "\x00" + normalized[right].Driver + "\x00" + normalized[right].Ref + "\x00" + normalized[right].Detail
+		return leftKey < rightKey
+	})
+	return normalized
 }
 
 func (coordinator *planningConfigRestoreCoordinator) ExecutionPlan() (planner.ConfigPlan, bool) {

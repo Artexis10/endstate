@@ -354,6 +354,72 @@ func TestEnsureDurableConfigRestoreDirectoryCreatesNestedChain(t *testing.T) {
 	}
 }
 
+func TestConfigRestoreExecutionEmitsFinalSanitizedDriverDetectionFailure(t *testing.T) {
+	runtime, _ := planningTestRuntime(t, "", planningTestModule(
+		"apps.example", modules.InstanceDetectorDef{ID: "installed", Type: "package"},
+	))
+	finalDetail := "permission denied reading C:\\Users\\Alice\\private\\prefs.json " + strings.Repeat("opaque-detail ", 300)
+	source := configRestoreEvidenceSourceFunc(func(
+		_ context.Context,
+		request configRestoreDetectionRequest,
+	) (configRestoreDetectionEvidence, error) {
+		detail := "stale preview detail"
+		if request.Pass == configRestoreDetectionFinal {
+			detail = finalDetail
+		}
+		return configRestoreDetectionEvidence{
+			PackagesByModule: map[string][]modules.PackageEvidence{"apps.example": {}},
+			Failures: []configRestoreDetectionFailure{{
+				ModuleID: "apps.example", Driver: "Chocolatey", Ref: "Example.Package", Detail: detail,
+			}},
+		}, nil
+	})
+	session := newConfigRestoreExecutionSession(runtime, source)
+	if _, err := session.Preview(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	buffer := &bytes.Buffer{}
+	_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true,
+		DryRun:         true,
+		Emitter:        events.NewEmitterWithWriter("detection-failure", true, buffer),
+	})
+	if envErr != nil {
+		t.Fatalf("execute: %+v", envErr)
+	}
+
+	errorIndex, resolutionIndex := -1, -1
+	errorMessage := ""
+	for index, line := range strings.Split(strings.TrimSpace(buffer.String()), "\n") {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("event %d: %v\n%s", index, err, line)
+		}
+		switch event["event"] {
+		case "error":
+			if event["scope"] == "item" && event["id"] == "apps.example" {
+				errorIndex = index
+				errorMessage, _ = event["message"].(string)
+			}
+		case "config-resolution":
+			resolutionIndex = index
+		}
+	}
+	wantPrefix := "configuration target detection failed (driver=chocolatey, ref=example.package): "
+	if errorIndex < 0 || !strings.HasPrefix(errorMessage, wantPrefix) || !strings.Contains(errorMessage, "permission denied") {
+		t.Fatalf("final structured diagnostic missing: index=%d message=%q events=%s", errorIndex, errorMessage, buffer.String())
+	}
+	if strings.Contains(errorMessage, "stale preview") || strings.Contains(errorMessage, `C:\Users\Alice`) || !strings.Contains(errorMessage, "[local path]") {
+		t.Fatalf("diagnostic was stale or leaked a host root: %q", errorMessage)
+	}
+	if len(errorMessage) > 1200 {
+		t.Fatalf("diagnostic was not bounded: %d bytes", len(errorMessage))
+	}
+	if resolutionIndex < 0 || errorIndex > resolutionIndex {
+		t.Fatalf("diagnostic/config-resolution order = error:%d resolution:%d\n%s", errorIndex, resolutionIndex, buffer.String())
+	}
+}
+
 type staticConfigRestoreCoordinator struct {
 	preview planner.ConfigPlan
 	final   planner.ConfigPlan

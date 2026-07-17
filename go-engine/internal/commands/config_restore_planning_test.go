@@ -180,6 +180,26 @@ func TestConfigRestorePlanningSessionFinalDetectionFailureReplacesPreviewAndIsIs
 	assertFilteredPlanningSet(t, executable, "capture-filtered")
 }
 
+func TestConfigRestorePlanningSessionStructuredDriverFailureIsTargetDetectionFailure(t *testing.T) {
+	runtime, _ := planningTestRuntime(t, "", planningTestModule(
+		"apps.example", modules.InstanceDetectorDef{ID: "installed", Type: "package"},
+	))
+	session := newConfigRestorePlanningSession(runtime)
+	plan := session.Final(configRestoreDetectionEvidence{
+		PackagesByModule: map[string][]modules.PackageEvidence{"apps.example": {}},
+		Failures: []configRestoreDetectionFailure{{
+			ModuleID: "apps.example", Driver: "chocolatey", Ref: "example.package", Detail: "driver unavailable",
+		}},
+	})
+
+	set := planningSetByCapture(t, plan, "capture-example")
+	if set.Resolution.Resolution != planner.ResolutionUnknown || set.Resolution.Status != planner.StatusSkipped ||
+		set.Resolution.Reason == nil || *set.Resolution.Reason != planner.ReasonTargetDetectionFailed ||
+		len(set.TargetInstances) != 0 {
+		t.Fatalf("structured driver failure resolution = %+v", set)
+	}
+}
+
 func planningTestRuntime(t *testing.T, restoreFilter string, catalogModules ...*modules.Module) (*configRestoreRuntime, *int) {
 	t.Helper()
 	return planningTestRuntimeWithTargets(t, restoreFilter, nil, catalogModules...)

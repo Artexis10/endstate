@@ -97,10 +97,9 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 	// Plan-phase convention mirrors the realizer path: present entries occupy
 	// the success slot, unavailable lanes are skipped, and installs are pending.
 	emitter.EmitSummary("plan", totalApps, presentCount+brewPresent, skippedRealizer+brewPlanSkipped+len(unsupportedActions), brewToInstall)
-	evidence := newFilesystemConfigRestoreEvidenceSource()
-	if brewDrv != nil {
-		evidence = newDriverConfigRestoreEvidenceSource(brewDrv, brewApps)
-	}
+	evidence := newBrewOnlyConfigRestoreEvidenceSource(
+		brewDrv, restApps, brewApps, firstAppSlice(unsupportedApps),
+	)
 	configSession, configSessionErr := prepareApplyConfigRestore(context.Background(), flags, evidence)
 	if configSessionErr != nil {
 		return nil, configSessionErr

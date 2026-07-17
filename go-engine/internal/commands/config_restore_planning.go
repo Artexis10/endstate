@@ -15,7 +15,18 @@ import (
 type configRestoreDetectionEvidence struct {
 	PackagesByModule map[string][]modules.PackageEvidence
 	FailedModules    map[string]struct{}
+	Failures         []configRestoreDetectionFailure
 	Glob             func(pattern string) ([]string, error)
+}
+
+// configRestoreDetectionFailure preserves the authoritative package lane that
+// failed and the backend diagnostic needed to repair it. It is internal
+// evidence only; config-resolution status/reason vocabulary remains unchanged.
+type configRestoreDetectionFailure struct {
+	ModuleID string
+	Driver   string
+	Ref      string
+	Detail   string
 }
 
 // configRestorePlanningSession owns one command's latest plan. A preview
@@ -70,6 +81,11 @@ func (session *configRestorePlanningSession) buildFreshPlan(evidence configResto
 	failedModules := make(map[string]struct{}, len(evidence.FailedModules))
 	for moduleID := range evidence.FailedModules {
 		failedModules[moduleID] = struct{}{}
+	}
+	for _, failure := range evidence.Failures {
+		if failure.ModuleID != "" {
+			failedModules[failure.ModuleID] = struct{}{}
+		}
 	}
 	for _, moduleID := range moduleIDs {
 		if _, failed := failedModules[moduleID]; failed {

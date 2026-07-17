@@ -101,6 +101,7 @@ func TestRealizerEvidenceCurrentFailureDoesNotPoisonBrewOrPathOnlyModules(t *tes
 	if _, failed := evidence.FailedModules["apps.path-only"]; failed {
 		t.Fatalf("path-only module poisoned by nix failure: %+v", evidence.FailedModules)
 	}
+	assertDriverDetectionFailure(t, evidence, "apps.nix-tool", "nix", nixRef)
 	if got := evidence.PackagesByModule["apps.brew-tool"]; len(got) != 1 || got[0].RawVersion != "3.1" {
 		t.Fatalf("brew evidence = %+v", got)
 	}
