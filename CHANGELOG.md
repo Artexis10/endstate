@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.24.1](https://github.com/Artexis10/endstate/compare/v2.24.0...v2.24.1) (2026-07-18)
+
+
+### Bug Fixes
+
+* **bundle:** rewrite legacy directory-root capture sources ([cee36df](https://github.com/Artexis10/endstate/commit/cee36dfc42b157f76a9a0d769d35e5ab1c1e01e0))
+
 ## [2.24.0](https://github.com/Artexis10/endstate/compare/v2.23.0...v2.24.0) (2026-07-17)
 
 
