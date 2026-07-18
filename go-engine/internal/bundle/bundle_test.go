@@ -68,6 +68,16 @@ func TestRewriteSourcePath(t *testing.T) {
 			want:          "./configs/vscode/snippets",
 		},
 		{
+			source:        "./payload/apps/powertoys",
+			moduleDirName: "legacy-powertoys",
+			want:          "./configs/legacy-powertoys/powertoys",
+		},
+		{
+			source:        `.\payload\apps\powertoys`,
+			moduleDirName: "legacy-powertoys",
+			want:          "./configs/legacy-powertoys/powertoys",
+		},
+		{
 			source:        "%APPDATA%\\Code\\User\\settings.json",
 			moduleDirName: "vscode",
 			want:          "%APPDATA%\\Code\\User\\settings.json", // Not a payload path — unchanged.
@@ -83,6 +93,55 @@ func TestRewriteSourcePath(t *testing.T) {
 		got := rewriteSourcePath(tc.source, tc.moduleDirName)
 		if got != tc.want {
 			t.Errorf("rewriteSourcePath(%q, %q) = %q, want %q", tc.source, tc.moduleDirName, got, tc.want)
+		}
+	}
+}
+
+func TestRewriteSourcePathReleasedLegacyExactRootsStayContained(t *testing.T) {
+	repoRoot := filepath.Clean(filepath.Join("..", "..", ".."))
+	catalog, err := modules.GetCatalog(repoRoot)
+	if err != nil {
+		t.Fatalf("load released catalog: %v", err)
+	}
+
+	requiredShapes := map[string]bool{
+		"apps.powertoys": false,
+		"apps.mp3tag":    false,
+		"apps.peazip":    false,
+	}
+	foundExactRoots := 0
+	for _, mod := range catalog {
+		if mod.EffectiveSchemaVersion() != 1 {
+			continue
+		}
+		for _, restore := range mod.Restore {
+			normalized := strings.ReplaceAll(restore.Source, `\`, "/")
+			const payloadAppsPrefix = "./payload/apps/"
+			moduleSegment := strings.TrimPrefix(normalized, payloadAppsPrefix)
+			if moduleSegment == normalized || moduleSegment == "" || strings.Contains(moduleSegment, "/") {
+				continue
+			}
+			foundExactRoots++
+			if _, required := requiredShapes[mod.ID]; required {
+				requiredShapes[mod.ID] = true
+			}
+
+			layoutID := LegacyCaptureID(mod.ID)
+			payloadRoot := "./configs/" + layoutID
+			got := strings.ReplaceAll(rewriteSourcePath(restore.Source, layoutID), `\`, "/")
+			want := payloadRoot + "/" + moduleSegment
+			if got != want {
+				t.Errorf("rewriteSourcePath(%q, %q) = %q, want exact staged source %q", restore.Source, layoutID, got, want)
+			}
+		}
+	}
+
+	if foundExactRoots == 0 {
+		t.Fatal("released catalog contains no schema-v1 exact-root restore sources")
+	}
+	for moduleID, found := range requiredShapes {
+		if !found {
+			t.Errorf("released catalog exact-root shape missing for %s", moduleID)
 		}
 	}
 }

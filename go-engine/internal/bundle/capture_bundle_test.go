@@ -258,6 +258,57 @@ func TestCreateCaptureBundleMixedAssociatesOnlyLegacyFlatActions(t *testing.T) {
 	}
 }
 
+func TestCreateCaptureBundleMixedV2StagesLegacyDirectoryRootUnderLane(t *testing.T) {
+	dir := t.TempDir()
+	v2Root := filepath.Join(dir, "v2-root")
+	writeCaptureFile(t, filepath.Join(v2Root, "prefs.json"), []byte("generation"))
+	plan := testGenerationCapturePlan(t, "apps.v2", "instance-a", v2Root, false, false)
+
+	powerToysRoot := filepath.Join(dir, "powertoys-source")
+	writeCaptureFile(t, filepath.Join(powerToysRoot, "settings", "settings.json"), []byte("powertoys"))
+	legacy := &modules.Module{
+		ID:          "apps.powertoys",
+		DisplayName: "PowerToys",
+		Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{
+			Source: powerToysRoot, Dest: "apps/powertoys",
+		}}},
+		Restore: []modules.RestoreDef{{
+			Type: "copy", Source: "./payload/apps/powertoys", Target: `%LOCALAPPDATA%\Microsoft\PowerToys`, Backup: true,
+		}},
+	}
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{plan.Module, legacy}, []ConfigSetCapturePlan{plan})
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
+		t.Fatalf("CreateCaptureBundle: %v", err)
+	}
+	if result.ManifestVersion != 2 || result.BundleSchemaVersion != "2.0" || len(result.ConfigCaptures) != 1 {
+		t.Fatalf("mixed-v2 result = %+v", result)
+	}
+
+	legacyID := LegacyCaptureID("apps.powertoys")
+	manifestPath := extractCaptureBundle(t, request.OutputPath)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var frozen struct {
+		Restore []manifest.RestoreEntry `json:"restore"`
+	}
+	if err := json.Unmarshal(manifest.StripJsoncComments(data), &frozen); err != nil {
+		t.Fatal(err)
+	}
+	wantSource := "./configs/" + legacyID + "/powertoys"
+	if len(frozen.Restore) != 1 || frozen.Restore[0].Source != wantSource {
+		t.Fatalf("frozen restore = %+v, want source %q", frozen.Restore, wantSource)
+	}
+
+	wantPayload := "configs/" + legacyID + "/powertoys/settings/settings.json"
+	if entries := zipEntryNames(t, request.OutputPath); !containsString(entries, wantPayload) {
+		t.Fatalf("zip entries %v missing legacy directory payload %q", entries, wantPayload)
+	}
+}
+
 func TestCreateCaptureBundlePerSetFailureIsIsolatedAndSideBySideIDsRemainDistinct(t *testing.T) {
 	dir := t.TempDir()
 	rootA := filepath.Join(dir, "root-a")

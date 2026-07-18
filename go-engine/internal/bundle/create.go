@@ -32,9 +32,9 @@ type BundleMetadata struct {
 	CaptureWarnings        []string `json:"captureWarnings"`
 }
 
-// payloadPathPattern matches ./payload/apps/<id>/ style source paths in
-// restore entries for rewriting to the zip layout.
-var payloadPathPattern = regexp.MustCompile(`^\./payload/apps/([^/]+)/(.+)$`)
+// payloadPathPattern matches ./payload/apps/<id> sources with an optional
+// descendant in restore entries for rewriting to the zip layout.
+var payloadPathPattern = regexp.MustCompile(`^\./payload/apps/([^/]+)(?:/(.+))?$`)
 
 // CreateBundle creates a zip bundle containing the manifest, collected config
 // files, and metadata.
@@ -215,8 +215,11 @@ func rewriteSourcePath(source string, moduleDirName string) string {
 
 	matches := payloadPathPattern.FindStringSubmatch(normalized)
 	if matches != nil {
-		// matches[2] is the filename/path after the module ID directory.
-		leaf := filepath.Base(matches[2])
+		leaf := matches[1]
+		if matches[2] != "" {
+			// Descendants retain the existing basename mapping.
+			leaf = filepath.Base(matches[2])
+		}
 		return "./configs/" + moduleDirName + "/" + leaf
 	}
 
