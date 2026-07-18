@@ -150,7 +150,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 			Backend:          driverName,
 			Source:           driverName,
 		})
-		emitter.EmitItem(ref, driverName, "captured", "", fmt.Sprintf("Captured %s", name), name)
+		emitter.EmitItem(ref, driverName, "present", "detected", fmt.Sprintf("Captured %s", name), name)
 	}
 
 	// --- 3b. Brew capture lane (darwin-only) ---
@@ -184,7 +184,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 							Backend:          "brew",
 							Source:           "brew",
 						})
-						emitter.EmitItem(ba.Ref, "brew", "captured", "", fmt.Sprintf("Captured %s", name), name)
+						emitter.EmitItem(ba.Ref, "brew", "present", "detected", fmt.Sprintf("Captured %s", name), name)
 					}
 				}
 				if eerr != nil && selection.explicit {
