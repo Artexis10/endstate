@@ -4,6 +4,7 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,10 +15,45 @@ import (
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
+
+func TestRunCaptureRealizer_ProgressOrderingAndCanonicalItem(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "events.jsonc")
+	var buf bytes.Buffer
+	emitter := events.NewEmitterWithWriter("capture-events", true, &buf)
+
+	if _, eerr := runCaptureRealizer(CaptureFlags{Out: out}, &fakeRealizer{currentSet: nixSet("ripgrep")}, emitter); eerr != nil {
+		t.Fatalf("runCaptureRealizer: %+v", eerr)
+	}
+
+	var got []map[string]any
+	for _, line := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		var event map[string]any
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("invalid event %q: %v", line, err)
+		}
+		got = append(got, event)
+	}
+	if len(got) != 6 {
+		t.Fatalf("events = %+v, want phase, inventory, item, packaging, artifact, summary", got)
+	}
+	wantTypes := []string{"phase", "progress", "item", "progress", "artifact", "summary"}
+	for i, want := range wantTypes {
+		if got[i]["event"] != want {
+			t.Fatalf("event[%d] = %+v, want %s", i, got[i], want)
+		}
+	}
+	if got[1]["stage"] != "inventory" || got[3]["stage"] != "packaging" {
+		t.Fatalf("progress stages = %+v / %+v", got[1], got[3])
+	}
+	if got[2]["status"] != "present" || got[2]["reason"] != "detected" {
+		t.Fatalf("item = %+v, want present/detected", got[2])
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Helpers for the realizer capture path

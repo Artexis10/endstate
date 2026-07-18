@@ -111,10 +111,10 @@ When `success` is `false`, the `error` field contains:
 
 ```json
 {
-  "code": "optional_driver_unavailable",
-  "message": "Optional driver chocolatey is unavailable; continuing with available drivers.",
-  "driver": "chocolatey",
-  "ref": "vscode"
+  "code": "store_source_unavailable",
+  "message": "Microsoft Store source is unavailable; continuing with available sources.",
+  "driver": "winget",
+  "source": "msstore"
 }
 ```
 
@@ -123,6 +123,7 @@ When `success` is `false`, the `error` field contains:
 | `code` | string | Yes | Stable machine-readable warning code |
 | `message` | string | Yes | Human-readable explanation |
 | `driver` | string | No | Stable driver name related to the warning |
+| `source` | string | No | Stable WinGet source related to the warning (`winget` or `msstore`) |
 | `ref` | string | No | Package reference related to the warning |
 
 The defined warning codes are:
@@ -130,6 +131,9 @@ The defined warning codes are:
 - `optional_driver_unavailable`: an optional driver could not participate; independent available lanes continue.
 - `possible_duplicate`: different package drivers report or declare the same qualifying display name. Every entry remains present and independently routed.
 - `module_catalog_unavailable` (`capture`): no config module catalog could be reached, so the capture records installed apps but none of their settings. Emitted when no repo root resolves; a catalog that loads but contains no modules is a correctly configured install that matched nothing and does NOT warn, and an unreadable catalog is a hard `CAPTURE_FAILED` rather than a warning. Not emitted under `--sanitize`, which opts out of config modules deliberately.
+- `store_source_unavailable`: Store enumeration failed while another selected source produced usable inventory.
+- `winget_source_unavailable`: community-source enumeration failed while Store produced usable inventory.
+- `store_version_unpinned`: `capture --pin` omitted unreliable exact Store versions; one aggregate warning reports the affected count.
 
 For `plan`, `apply`, and `verify`, `possible_duplicate` is an advisory ownership warning based only on routed, non-manual per-package entries. Two entries qualify when their resolved driver names differ and their non-empty explicit manifest `displayName` values are equal after trimming outer whitespace and case-insensitive comparison. Refs, IDs, versions, inferred or backend-detected labels, substrings, punctuation normalization, and fuzzy similarity are not duplicate evidence. Whole-set realizer and manual entries do not participate.
 
@@ -192,7 +196,7 @@ endstate capabilities --json
       },
       "capture": {
         "supported": true,
-        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--only", "--share"]
+        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--exclude-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--only", "--share"]
       },
       "plan": {
         "supported": true,
@@ -267,6 +271,8 @@ endstate capture --profile "Chocolatey-Only" --driver chocolatey --json
 
 `--driver <name>` is repeatable. With no filter, capture enumerates every available installed-package driver. An explicitly selected unavailable driver fails capture; an unavailable optional driver during unfiltered capture produces `optional_driver_unavailable` while available drivers continue.
 
+WinGet capture enumerates the built-in `winget` and `msstore` sources concurrently by default. It does not sweep arbitrary configured sources. `--include-store-apps` remains accepted as a deprecated no-op; `--exclude-store-apps` prevents Store access and wins if both flags are supplied. If one selected source fails while the other provides inventory, capture continues with a structured source warning. If the combined selected-source inventory is empty after retry, capture fails even in discovery mode.
+
 ### Response
 
 ```json
@@ -289,11 +295,12 @@ endstate capture --profile "Chocolatey-Only" --driver chocolatey --json
       "included": 72,
       "skipped": 13,
       "filteredRuntimes": 8,
-      "filteredStoreApps": 5,
+      "filteredStoreApps": 0,
       "sensitiveExcludedCount": 3
     },
     "appsIncluded": [
       { "id": "Microsoft.VisualStudioCode", "source": "winget" },
+      { "id": "9NBLGGH4NNS1", "source": "msstore" },
       { "id": "git.install", "source": "chocolatey" }
     ],
     "configModules": [
@@ -718,7 +725,7 @@ The recorded Provisioning Generation reflects the converged set: `addedRefs` for
 
 On Winget and Chocolatey, each Provisioning Generation item records the installed `version` reported by the selected driver (best-effort — empty when the manager exposes none). The Nix realizer pins exact versions through its ref, so Nix generations leave `version` empty.
 
-`capture --pin` writes each captured package driver's installed version into the emitted manifest's `version` field (best-effort — omitted when the manager exposes none), producing a manifest that reproduces the exact installed set on `apply`.
+`capture --pin` writes each captured package driver's installed version into the emitted manifest's `version` field when portable. Microsoft Store packages omit exact pins and produce one aggregate `store_version_unpinned` warning; community WinGet and other supported drivers retain normal pinning.
 
 A manifest app MAY declare a `version` to **pin** the install:
 
@@ -1088,7 +1095,7 @@ Lists recorded Provisioning Generations, newest first. Read-only. Additive in sc
 }
 ```
 
-`backend` is the stable backend name (`"nix"`, `"winget"`, `"chocolatey"`, or `"brew"`). `native` is the backend-native generation number (the Nix generation) or empty for non-atomic drivers. `partial` is true when a non-atomic driver committed only a subset of the requested set. Mixed-driver applies write a separate backend-scoped generation per driver and give those generations the same apply `runId`; refs never cross backend records. `addedRefs` lists only refs installed in that run (status `installed`); already-present refs appear in `items` but not `addedRefs`. A generation is recorded when at least one package was installed in the run **or** a home-manager configuration was activated by the config stage. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`. `homeManager` (optional, omitted when absent; additive in schema 1.x) records a home-manager configuration activated by `apply --enable-restore`: `{ "flake": "<flakeref>", "generation": <hm generation number> }`.
+`backend` is the stable backend name (`"nix"`, `"winget"`, `"chocolatey"`, or `"brew"`). `native` is the backend-native generation number (the Nix generation) or empty for non-atomic drivers. `partial` is true when a non-atomic driver committed only a subset of the requested set. Mixed-driver applies write a separate backend-scoped generation per driver and give those generations the same apply `runId`; refs never cross backend records. `addedRefs` lists only refs installed in that run (status `installed`); additive `addedPackages` retains `{ref,source}` coordinates for source-aware WinGet rollback while keeping `addedRefs` for compatibility. Already-present refs appear in `items` but not the added arrays. A generation is recorded when at least one package was installed in the run **or** a home-manager configuration was activated by the config stage. `rollback` (optional, omitted when false; additive in schema 1.x) is `true` when the generation was produced by a `rollback` rather than an `apply`; such generations snapshot the now-active set and have an empty `addedRefs`. `homeManager` (optional, omitted when absent; additive in schema 1.x) records a home-manager configuration activated by `apply --enable-restore`: `{ "flake": "<flakeref>", "generation": <hm generation number> }`.
 
 ## Command: `rollback`
 
@@ -1153,7 +1160,7 @@ A backend that can neither roll back natively nor uninstall refuses with `ROLLBA
 }
 ```
 
-For the best-effort path, `removedRefs` lists the refs uninstalled (on `--dry-run`, the refs that *would* be uninstalled — an already-absent package counts as removed). `failedRefs` lists refs whose uninstall failed (for example, another installed package still depends on one); `partial` is `true` when any failed. `newGeneration` is the appended rollback-marked generation (it records `removedRefs` and carries an empty `addedRefs`; omitted on `--dry-run` and when nothing was removed). `warning` is the untracked-dependency caveat. When **every** targeted uninstall fails the command returns `ROLLBACK_FAILED`; a missing winget binary returns `WINGET_NOT_AVAILABLE`; an unknown `--to` returns `GENERATION_NOT_FOUND`. No new error codes are introduced.
+For the best-effort path, `removedRefs` lists the refs uninstalled (on `--dry-run`, the refs that *would* be uninstalled — an already-absent package counts as removed). Rollback generations also record additive `removedPackages` `{ref,source}` entries. Source-aware history is preferred; legacy WinGet `addedRefs` infer Store-format IDs as `msstore` and other refs as `winget`. `failedRefs` lists refs whose uninstall failed; `partial` is `true` when any failed. `newGeneration` is omitted on dry-run and when nothing was removed. `warning` is the untracked-dependency caveat. When **every** targeted uninstall fails the command returns `ROLLBACK_FAILED`; a missing winget binary returns `WINGET_NOT_AVAILABLE`; an unknown `--to` returns `GENERATION_NOT_FOUND`. No new error codes are introduced.
 
 With no `--to`, rollback finds the newest non-rollback generation and selects every generation sharing that generation's `runId`; this makes all backend generations written by one mixed-driver apply a single rollback unit. Backend groups run newest-generation first, with deterministic ref order inside each group. Each ref is sent only to the uninstaller named by its recorded `backend`; an unknown or unavailable recorded backend fails only that backend's refs, contributes to `partial`, and is never substituted with the platform default. Chocolatey rollback never requests recursive dependency removal. A result spanning more than one backend reports `backend: "mixed"`; `newGeneration` is the newest backend-scoped rollback generation written by that operation.
 

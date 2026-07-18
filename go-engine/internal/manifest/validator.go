@@ -165,6 +165,16 @@ func ValidateManifestApps(m *Manifest) []ValidationError {
 			m.Apps[i].Driver = canonicalDriver
 			app.Driver = canonicalDriver
 		}
+		canonicalSource := strings.ToLower(strings.TrimSpace(app.Source))
+		m.Apps[i].Source = canonicalSource
+		app.Source = canonicalSource
+		if canonicalSource != "" {
+			if canonicalDriver != "" && canonicalDriver != "winget" {
+				errs = append(errs, ValidationError{Code: "SOURCE_REQUIRES_WINGET_DRIVER", Message: fmt.Sprintf("SOURCE_REQUIRES_WINGET_DRIVER: app %q: source is supported only by driver winget", app.ID)})
+			} else if canonicalSource != "winget" && canonicalSource != "msstore" {
+				errs = append(errs, ValidationError{Code: "UNSUPPORTED_WINGET_SOURCE", Message: fmt.Sprintf("UNSUPPORTED_WINGET_SOURCE: app %q: unsupported winget source %q", app.ID, app.Source)})
+			}
+		}
 		if app.Manual != nil && app.Manual.VerifyPath == "" {
 			errs = append(errs, ValidationError{
 				Code:    "MANUAL_MISSING_VERIFY_PATH",

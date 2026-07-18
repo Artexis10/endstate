@@ -44,7 +44,7 @@ func TestUninstall_Success(t *testing.T) {
 		t.Errorf("Status = %q, want %q", res.Status, driver.StatusUninstalled)
 	}
 	joined := strings.Join(args, " ")
-	if !strings.Contains(joined, "uninstall --id Git.Git -e --silent --accept-source-agreements") {
+	if !strings.Contains(joined, "uninstall --id Git.Git --source winget -e --silent --accept-source-agreements") {
 		t.Errorf("unexpected winget argv: %q", joined)
 	}
 }

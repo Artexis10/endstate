@@ -6,6 +6,7 @@ package commands
 import (
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 )
 
@@ -23,6 +24,7 @@ import (
 func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, removed []string, native string, partial bool, home *provision.HomeGenRef) {
 	items := make([]provision.ProvItem, 0, len(actions))
 	added := make([]string, 0)
+	addedPackages := make([]provision.PackageRecord, 0)
 	changedExisting := false
 	for _, a := range actions {
 		switch a.Status {
@@ -33,6 +35,9 @@ func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, r
 				changedExisting = true
 			} else {
 				added = append(added, ref)
+				if backend == "winget" {
+					addedPackages = append(addedPackages, provision.PackageRecord{Ref: ref, Source: packagesource.ResolveWinget(ref, a.Source)})
+				}
 			}
 		case "present":
 			items = append(items, provision.ProvItem{ID: a.ID, Ref: derefRef(a.Ref), Status: "present", Version: a.Version})
@@ -42,15 +47,16 @@ func writeProvisioningGeneration(runID, backend string, actions []ApplyAction, r
 		return // nothing added, removed, or activated → no new generation
 	}
 	_ = provision.Write(&provision.Generation{
-		RunID:       runID,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Backend:     backend,
-		Items:       items,
-		AddedRefs:   added,
-		RemovedRefs: removed,
-		Native:      native,
-		Partial:     partial,
-		HomeManager: home,
+		RunID:         runID,
+		Timestamp:     time.Now().UTC().Format(time.RFC3339),
+		Backend:       backend,
+		Items:         items,
+		AddedRefs:     added,
+		AddedPackages: addedPackages,
+		RemovedRefs:   removed,
+		Native:        native,
+		Partial:       partial,
+		HomeManager:   home,
 	})
 }
 

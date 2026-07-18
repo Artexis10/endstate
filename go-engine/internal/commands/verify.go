@@ -227,7 +227,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			continue
 		}
 
-		detection := detections[route.driverName]
+		detection := detections[route.laneKey]
 		var installed bool
 		var displayName string
 		var installedVersion string // best-effort; only the batch path exposes it
@@ -240,6 +240,8 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 				displayName = br.DisplayName
 				installedVersion = br.Version
 			}
+		} else if sourceDriver, ok := route.drv.(driver.SourceDriver); ok && route.source != "" {
+			installed, displayName, detectErr = sourceDriver.DetectSource(ref, route.source)
 		} else {
 			installed, displayName, detectErr = route.drv.Detect(ref)
 		}

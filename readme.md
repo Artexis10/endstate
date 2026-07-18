@@ -1,6 +1,6 @@
 # Endstate
 
-**Set up a new Windows PC in minutes.** Endstate scans your current machine for installed apps and settings, saves them to one portable file you control, then reinstalls the apps and restores your settings on a fresh Windows install. Free, open source, local-first — no account, no telemetry. Windows supports [Winget](https://learn.microsoft.com/windows/package-manager/winget/) by default plus optional Chocolatey lanes; Linux and macOS use Nix, with Homebrew available per app on macOS.
+**Set up a new Windows PC in minutes.** Endstate scans your current machine for installed apps and settings, saves them to one portable file you control, then reinstalls the apps and restores your settings on a fresh Windows install. Free, open source, local-first — no account, no telemetry. Windows captures Winget community and Microsoft Store apps by default, with optional Chocolatey lanes; Linux and macOS use Nix, with Homebrew available per app on macOS.
 
 ![Endstate demo: pick a starter pack, preview the real plan, apply](docs/media/endstate-demo.gif)
 

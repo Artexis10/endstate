@@ -376,6 +376,7 @@ type App struct {
 	ID          string            `json:"id"`
 	Refs        map[string]string `json:"refs"`
 	Driver      string            `json:"driver,omitempty"`
+	Source      string            `json:"source,omitempty"`
 	Version     string            `json:"version,omitempty"`
 	Manual      *ManualApp        `json:"manual,omitempty"`
 	DisplayName string            `json:"displayName,omitempty"`

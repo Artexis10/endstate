@@ -132,6 +132,7 @@ func runApplyDriverLanes(
 			ID:     app.ID,
 			Ref:    stringPtr(route.ref),
 			Driver: route.driverName,
+			Source: route.source,
 			Name:   resolveItemDisplayName("", app, route.ref),
 		}
 		entry.displayName = entry.action.Name
@@ -152,7 +153,7 @@ func runApplyDriverLanes(
 			continue
 		}
 
-		detection := detections[route.driverName]
+		detection := detections[route.laneKey]
 		var installed bool
 		var displayName, version string
 		if detection.err != nil {
@@ -161,6 +162,8 @@ func runApplyDriverLanes(
 			if result, ok := detection.results[route.ref]; ok {
 				installed, displayName, version = result.Installed, result.DisplayName, result.Version
 			}
+		} else if sourceDriver, ok := route.drv.(driver.SourceDriver); ok && route.source != "" {
+			installed, displayName, entry.detectErr = sourceDriver.DetectSource(route.ref, route.source)
 		} else {
 			installed, displayName, entry.detectErr = route.drv.Detect(route.ref)
 		}
@@ -265,7 +268,13 @@ func runApplyDriverLanes(
 					continue
 				}
 				emitter.EmitItem(route.ref, route.driverName, "installing", "", fmt.Sprintf("Re-pinning %s to %s", route.ref, route.app.Version), entry.displayName)
-				result, err := vi.ReinstallVersion(route.ref, route.app.Version)
+				var result *driver.InstallResult
+				var err error
+				if sourceVI, sourceOK := route.drv.(driver.SourceVersionedInstaller); sourceOK && route.source != "" {
+					result, err = sourceVI.ReinstallVersionSource(route.ref, route.app.Version, route.source)
+				} else {
+					result, err = vi.ReinstallVersion(route.ref, route.app.Version)
+				}
 				if err != nil {
 					finalActions[i].Status, finalActions[i].Reason, finalActions[i].Message = driver.StatusFailed, driver.ReasonInstallFailed, err.Error()
 					emitter.EmitItem(route.ref, route.driverName, driver.StatusFailed, driver.ReasonInstallFailed, err.Error(), entry.displayName)
@@ -296,8 +305,12 @@ func runApplyDriverLanes(
 			pinned := route.app.Version != ""
 			var result *driver.InstallResult
 			var installErr error
-			if vi, ok := route.drv.(driver.VersionedInstaller); ok && pinned {
+			if sourceVI, ok := route.drv.(driver.SourceVersionedInstaller); ok && pinned && route.source != "" {
+				result, installErr = sourceVI.InstallVersionSource(route.ref, route.app.Version, route.source)
+			} else if vi, ok := route.drv.(driver.VersionedInstaller); ok && pinned {
 				result, installErr = vi.InstallVersion(route.ref, route.app.Version)
+			} else if sourceDriver, ok := route.drv.(driver.SourceDriver); ok && route.source != "" {
+				result, installErr = sourceDriver.InstallSource(route.ref, route.source)
 			} else {
 				result, installErr = route.drv.Install(route.ref)
 			}
@@ -381,7 +394,7 @@ func runApplyDriverLanes(
 				continue
 			}
 
-			detection := verifyDetections[route.driverName]
+			detection := verifyDetections[route.laneKey]
 			var detected bool
 			var verifyName, verifyVersion string
 			var detectErr error
@@ -391,6 +404,8 @@ func runApplyDriverLanes(
 				if result, ok := detection.results[route.ref]; ok {
 					detected, verifyName, verifyVersion = result.Installed, result.DisplayName, result.Version
 				}
+			} else if sourceDriver, ok := route.drv.(driver.SourceDriver); ok && route.source != "" {
+				detected, verifyName, detectErr = sourceDriver.DetectSource(route.ref, route.source)
 			} else {
 				detected, verifyName, detectErr = route.drv.Detect(route.ref)
 			}
@@ -449,7 +464,12 @@ func runApplyDriverLanes(
 }
 
 func writePackageDriverGenerations(runID string, lanes []packageDriverLane, actions []ApplyAction) {
+	written := map[string]bool{}
 	for _, lane := range lanes {
+		if written[lane.name] {
+			continue
+		}
+		written[lane.name] = true
 		laneActions := make([]ApplyAction, 0, len(lane.apps))
 		partial := false
 		for _, action := range actions {

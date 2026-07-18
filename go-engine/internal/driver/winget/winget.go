@@ -14,6 +14,7 @@ import (
 	"regexp"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 )
 
 // alreadyInstalledExitCode is the winget exit code that means the package is
@@ -66,7 +67,11 @@ func (w *WingetDriver) Name() string { return "winget" }
 //
 // If the winget binary is not found, Install returns (nil, ErrWingetNotAvailable).
 func (w *WingetDriver) Install(ref string) (*driver.InstallResult, error) {
-	return w.install(ref, "", false)
+	return w.InstallSource(ref, packagesource.ResolveWinget(ref, ""))
+}
+
+func (w *WingetDriver) InstallSource(ref, source string) (*driver.InstallResult, error) {
+	return w.install(ref, "", false, packagesource.ResolveWinget(ref, source))
 }
 
 // install is the shared winget-install implementation. When version is non-empty
@@ -75,10 +80,11 @@ func (w *WingetDriver) Install(ref string) (*driver.InstallResult, error) {
 // is reinstalled to the requested one (the `apply --repin` convergence path).
 // With version="" and force=false it installs the latest, byte-identical to the
 // historical Install behavior.
-func (w *WingetDriver) install(ref, version string, force bool) (*driver.InstallResult, error) {
+func (w *WingetDriver) install(ref, version string, force bool, source string) (*driver.InstallResult, error) {
 	args := []string{
 		"install",
 		"--id", ref,
+		"--source", source,
 		"--accept-source-agreements",
 		"--accept-package-agreements",
 		"-e",

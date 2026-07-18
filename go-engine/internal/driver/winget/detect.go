@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
 
@@ -32,10 +33,16 @@ var ErrWingetNotAvailable = errors.New("winget is not installed or not available
 // The display name is extracted from the Name column of the tabular output.
 // If the output cannot be parsed, the display name is returned as "".
 func (w *WingetDriver) Detect(ref string) (bool, string, error) {
+	return w.DetectSource(ref, packagesource.ResolveWinget(ref, ""))
+}
+
+func (w *WingetDriver) DetectSource(ref, source string) (bool, string, error) {
+	source = packagesource.ResolveWinget(ref, source)
 	cmd := w.ExecCommand(
 		"winget",
 		"list",
 		"--id", ref,
+		"--source", source,
 		"-e",
 		"--accept-source-agreements",
 	)
@@ -152,13 +159,53 @@ func allDashes(s string) bool {
 // var so tests can inject a fixture set of installed apps (with versions)
 // without spawning a real winget process.
 var takeSnapshotFn = snapshot.TakeSnapshot
+var takeSnapshotSourceFn = snapshot.TakeSnapshotSource
 
 // DetectBatch checks multiple package refs in a single winget list call.
 // It runs `winget list --source winget` once via snapshot.TakeSnapshot(),
 // then matches each ref against the results. This is dramatically faster
 // than calling Detect() per ref (1 process spawn vs N).
 func (w *WingetDriver) DetectBatch(refs []string) (map[string]driver.DetectResult, error) {
-	apps, err := takeSnapshotFn()
+	// Preserve the historical single-source seam for ordinary community refs.
+	allCommunity := true
+	for _, ref := range refs {
+		if packagesource.ResolveWinget(ref, "") != packagesource.Winget {
+			allCommunity = false
+			break
+		}
+	}
+	if allCommunity {
+		apps, err := takeSnapshotFn()
+		return detectBatchFromSnapshot(refs, apps, err)
+	}
+	results := make(map[string]driver.DetectResult, len(refs))
+	for _, source := range []string{packagesource.Winget, packagesource.MSStore} {
+		var sourceRefs []string
+		for _, ref := range refs {
+			if packagesource.ResolveWinget(ref, "") == source {
+				sourceRefs = append(sourceRefs, ref)
+			}
+		}
+		if len(sourceRefs) == 0 {
+			continue
+		}
+		part, err := w.DetectBatchSource(sourceRefs, source)
+		if err != nil {
+			return nil, err
+		}
+		for ref, result := range part {
+			results[ref] = result
+		}
+	}
+	return results, nil
+}
+
+func (w *WingetDriver) DetectBatchSource(refs []string, source string) (map[string]driver.DetectResult, error) {
+	apps, err := takeSnapshotSourceFn(packagesource.ResolveWinget("", source))
+	return detectBatchFromSnapshot(refs, apps, err)
+}
+
+func detectBatchFromSnapshot(refs []string, apps []snapshot.SnapshotApp, err error) (map[string]driver.DetectResult, error) {
 	if err != nil {
 		return nil, err
 	}

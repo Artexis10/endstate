@@ -80,6 +80,23 @@ func TestWriteProvisioningGeneration_WingetPartialSubset(t *testing.T) {
 	}
 }
 
+func TestWriteProvisioningGeneration_PreservesWingetSource(t *testing.T) {
+	t.Setenv("ENDSTATE_ROOT", t.TempDir())
+	actions := []ApplyAction{{ID: "store", Ref: stringPtr("9NBLGGH4NNS1"), Driver: "winget", Source: "msstore", Status: "installed"}}
+	writeProvisioningGeneration("apply-store", "winget", actions, nil, "", false, nil)
+	gens, err := provision.List()
+	if err != nil || len(gens) != 1 {
+		t.Fatalf("generations=%+v err=%v", gens, err)
+	}
+	g := gens[0]
+	if len(g.AddedPackages) != 1 || g.AddedPackages[0].Ref != "9NBLGGH4NNS1" || g.AddedPackages[0].Source != "msstore" {
+		t.Fatalf("addedPackages = %+v", g.AddedPackages)
+	}
+	if len(g.AddedRefs) != 1 || g.AddedRefs[0] != "9NBLGGH4NNS1" {
+		t.Fatalf("addedRefs = %v", g.AddedRefs)
+	}
+}
+
 // --- Realizer (nix) apply path wiring ---
 
 func TestRunApplyRealizer_WritesGenerationOnFullSuccess(t *testing.T) {

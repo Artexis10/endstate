@@ -40,6 +40,7 @@ type CaptureBundleRequest struct {
 	EndstateVersion string
 	Modules         []*modules.Module
 	GenerationPlans []ConfigSetCapturePlan
+	OnStage         func(Stage)
 	// PreplanningDiagnostics carries deterministic catalog/discovery/generation
 	// refusals that produced no executable collection plan. They are reported
 	// and persisted exactly like collection-time diagnostics.
@@ -119,6 +120,10 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		return nil, fmt.Errorf("capture bundle: create staging root: %w", err)
 	}
 	defer os.RemoveAll(stagingRoot)
+
+	if request.OnStage != nil && (len(request.Modules) > 0 || len(request.GenerationPlans) > 0) {
+		request.OnStage(StageSettings)
+	}
 
 	plans := append([]ConfigSetCapturePlan(nil), request.GenerationPlans...)
 	sort.SliceStable(plans, func(left, right int) bool {
@@ -231,6 +236,9 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	}
 	if err := os.WriteFile(filepath.Join(stagingRoot, "metadata.json"), metadataBytes, 0o644); err != nil {
 		return nil, fmt.Errorf("capture bundle: write metadata: %w", err)
+	}
+	if request.OnStage != nil {
+		request.OnStage(StagePackaging)
 	}
 	if err := writeCaptureZipAtomically(stagingRoot, request.OutputPath); err != nil {
 		return nil, err

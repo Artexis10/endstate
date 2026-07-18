@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
@@ -111,6 +112,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 	}
 
 	// --- 2. Read the installed set ---
+	emitter.EmitProgress("capture", "inventory")
 	cur := realizer.Set{Elements: map[string]realizer.Element{}}
 	if selection.nix {
 		if r == nil {
@@ -148,9 +150,8 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 			Installed:        true,
 			InstalledVersion: ver,
 			Backend:          driverName,
-			Source:           driverName,
 		})
-		emitter.EmitItem(ref, driverName, "present", "detected", fmt.Sprintf("Captured %s", name), name)
+		emitter.EmitItem(ref, driverName, "present", "detected", fmt.Sprintf("Detected %s", name), name)
 	}
 
 	// --- 3b. Brew capture lane (darwin-only) ---
@@ -182,9 +183,8 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 							Installed:        true,
 							InstalledVersion: ba.Version,
 							Backend:          "brew",
-							Source:           "brew",
 						})
-						emitter.EmitItem(ba.Ref, "brew", "present", "detected", fmt.Sprintf("Captured %s", name), name)
+						emitter.EmitItem(ba.Ref, "brew", "present", "detected", fmt.Sprintf("Detected %s", name), name)
 					}
 				}
 				if eerr != nil && selection.explicit {
@@ -245,11 +245,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 			// previously-captured brew app round-trips through --update unchanged,
 			// while attaching current installed evidence only when the backend
 			// actually enumerated the same host ref in this run.
-			source := app.Driver
-			if source == "" {
-				source = driverName
-			}
-			mergedApp := capturedApp{ID: app.ID, Refs: app.Refs, Driver: app.Driver, Version: app.Version, Source: source}
+			mergedApp := capturedApp{ID: app.ID, Refs: app.Refs, Driver: app.Driver, Version: app.Version, Source: app.Source}
 			identity := realizerCaptureIdentity(app.Driver, app.Refs[goos], driverName)
 			if detected, ok := currentlyDetected[identity]; ok {
 				mergedApp.Name = detected.Name
@@ -326,6 +322,9 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 			).WithRemediation("Check directory permissions and ensure the path is writable.")
 		}
 	}
+	if flags.Sanitize {
+		emitter.EmitProgress("capture", "packaging")
+	}
 	if writeErr := os.WriteFile(outputPath, data, 0644); writeErr != nil {
 		return nil, envelope.NewError(
 			envelope.ErrManifestWriteFailed,
@@ -354,6 +353,9 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 			source = ca.Backend
 		}
 		if source == "" {
+			source = ca.Driver
+		}
+		if source == "" {
 			source = driverName
 		}
 		// The realizer path's ref and manifest id coincide, but both are emitted so
@@ -366,6 +368,9 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		Flags: flags, ManifestPath: absPath,
 		Apps:      buildModuleMatchApps(captured),
 		Selection: appSelection,
+		OnStage: func(stage bundle.Stage) {
+			emitter.EmitProgress("capture", string(stage))
+		},
 	})
 	if finalizeErr != nil {
 		return nil, envelope.NewError(

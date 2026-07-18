@@ -7,6 +7,8 @@ Chocolatey package lanes; Linux and macOS use
 the Nix realizer (packages + home-manager configuration), with an additional per-app Homebrew driver
 lane on macOS (`driver: "brew"` opt-in; `cask:` darwin references auto-route to brew).
 
+Windows capture includes both built-in WinGet community and Microsoft Store sources by default. Store access can be explicitly excluded; third-party configured WinGet sources are not swept automatically.
+
 | Capability | Windows (Winget + Chocolatey) | Linux (Nix) | macOS (Nix + brew lane) |
 |------------|------------------|-------------|-------------------------|
 | Apply (packages) | ✅ | ✅ atomic generation | ✅ atomic generation + best-effort brew lane |

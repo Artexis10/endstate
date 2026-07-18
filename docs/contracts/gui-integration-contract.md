@@ -241,6 +241,12 @@ For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, 
 - Parse additive warnings from capture, plan, apply, and verify as `{code,message,driver?,ref?}`. `optional_driver_unavailable` keeps available lanes usable. Render `possible_duplicate` as an advisory ownership risk while keeping every affected item visible and actionable; never deduplicate, reroute, block, or rewrite item status or summary data in the GUI. Runtime warnings use exact trimmed case-insensitive equality of explicit manifest display names across different resolved per-package drivers, so the GUI must not add fuzzy matching or infer duplicates from refs, IDs, versions, fallback labels, or detected names.
 - `rebootRequired: true` on a successful apply item/item event is a restart-needed state, not a warning or failure.
 
+### Capture Progress and Store Sources
+
+Capture streams additive schema-v1 `progress` events for the applicable monotonic stages `inventory`, `settings`, and `packaging`. The GUI should keep an indeterminate activity indicator visible from the opening capture phase until terminal summary/error and use these stages as honest status copy; it must not invent percentages. Capture package items arrive as `present`/`detected`.
+
+WinGet capture includes `winget` and `msstore` by default. The GUI should expose explicit Store exclusion, treat the legacy include flag as a compatibility no-op, display `store_source_unavailable`/`winget_source_unavailable` as partial-coverage warnings, and explain `store_version_unpinned` without treating Store apps as failed.
+
 ### Backend Bootstrap Consent
 
 The GUI renders the existing combined consent event and, after affirmative consent, reruns apply or rebuild with `--bootstrap-backends`. Explicit opt-out uses `--no-bootstrap`; rebuild propagates either flag to apply. The GUI never installs Chocolatey or another package backend directly.

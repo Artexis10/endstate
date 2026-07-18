@@ -8,10 +8,12 @@ package planner
 import (
 	"os"
 	"runtime"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 )
 
 // statFn is the filesystem stat function used for manual app verification.
@@ -30,6 +32,7 @@ type PlanAction struct {
 	ID            string `json:"id"`
 	Ref           string `json:"ref"`
 	Driver        string `json:"driver"`
+	Source        string `json:"source,omitempty"`
 	CurrentStatus string `json:"currentStatus"`
 	PlannedAction string `json:"plannedAction"`
 	DisplayName   string `json:"displayName,omitempty"`
@@ -49,6 +52,7 @@ type PlanSummary struct {
 // silently skipped.
 func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 	var plan Plan
+	isWinget := strings.EqualFold(strings.TrimSpace(drv.Name()), "winget")
 
 	// Batch-detect all winget apps in one call for performance.
 	var wingetRefs []string
@@ -60,9 +64,32 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 	}
 
 	var batchResults map[string]driver.DetectResult
+	var sourceBatchResults map[string]map[string]driver.DetectResult
+	var sourceBatchErrors map[string]error
 	var batchErr error
 	batchUsed := false
-	if bd, ok := drv.(driver.BatchDetector); ok && len(wingetRefs) > 0 {
+	if sourceBD, ok := drv.(driver.SourceBatchDetector); ok && isWinget && len(wingetRefs) > 0 {
+		batchUsed = true
+		sourceBatchResults = map[string]map[string]driver.DetectResult{}
+		sourceBatchErrors = map[string]error{}
+		refsBySource := map[string][]string{}
+		var sourceOrder []string
+		for _, app := range mf.Apps {
+			ref := resolveRef(app)
+			if ref == "" {
+				continue
+			}
+			source := packagesource.ResolveWinget(ref, app.Source)
+			if _, exists := refsBySource[source]; !exists {
+				sourceOrder = append(sourceOrder, source)
+			}
+			refsBySource[source] = append(refsBySource[source], ref)
+		}
+		for _, source := range sourceOrder {
+			results, err := sourceBD.DetectBatchSource(refsBySource[source], source)
+			sourceBatchResults[source], sourceBatchErrors[source] = results, err
+		}
+	} else if bd, ok := drv.(driver.BatchDetector); ok && len(wingetRefs) > 0 {
 		batchUsed = true
 		batchResults, batchErr = bd.DetectBatch(wingetRefs)
 	}
@@ -113,16 +140,31 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 			plan.Summary.Skipped++
 			continue
 		}
+		source := ""
+		if isWinget {
+			source = packagesource.ResolveWinget(ref, app.Source)
+		}
+		if err := sourceBatchErrors[source]; err != nil {
+			plan.Actions = append(plan.Actions, PlanAction{Type: "app", ID: app.ID, Ref: ref, Driver: drv.Name(), Source: source, CurrentStatus: "failed", PlannedAction: "skip", DisplayName: resolveDisplayName("", app), Message: err.Error()})
+			plan.Summary.Skipped++
+			continue
+		}
 
 		// Use batch results if available; otherwise detect this ref directly.
 		var installed bool
 		var displayName string
 		var detectErr error
 		if batchUsed {
-			if br, ok := batchResults[ref]; ok {
+			results := batchResults
+			if sourceBatchResults != nil {
+				results = sourceBatchResults[source]
+			}
+			if br, ok := results[ref]; ok {
 				installed = br.Installed
 				displayName = br.DisplayName
 			}
+		} else if sourceDriver, ok := drv.(driver.SourceDriver); ok && isWinget {
+			installed, displayName, detectErr = sourceDriver.DetectSource(ref, source)
 		} else {
 			installed, displayName, detectErr = drv.Detect(ref)
 		}
@@ -146,6 +188,7 @@ func ComputePlan(mf *manifest.Manifest, drv driver.Driver) (*Plan, error) {
 			ID:          app.ID,
 			Ref:         ref,
 			Driver:      drv.Name(),
+			Source:      source,
 			DisplayName: resolveDisplayName(displayName, app),
 		}
 

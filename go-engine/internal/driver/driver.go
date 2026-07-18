@@ -78,6 +78,14 @@ type Driver interface {
 	Install(ref string) (*InstallResult, error)
 }
 
+// SourceDriver is implemented by package managers whose repositories are part
+// of package identity. Callers use these methods whenever a manifest preserves
+// a source; the core Driver interface remains backward compatible.
+type SourceDriver interface {
+	DetectSource(ref, source string) (bool, string, error)
+	InstallSource(ref, source string) (*InstallResult, error)
+}
+
 // Status values for UninstallResult.
 const (
 	// StatusUninstalled means the package was uninstalled this call.
@@ -110,6 +118,10 @@ type Uninstaller interface {
 	Uninstall(ref string) (*UninstallResult, error)
 }
 
+type SourceUninstaller interface {
+	UninstallSource(ref, source string) (*UninstallResult, error)
+}
+
 // VersionedInstaller is an optional interface that drivers can implement to
 // install a specific version of a package (version pinning). Callers
 // type-assert their Driver to VersionedInstaller, exactly like BatchDetector /
@@ -129,6 +141,11 @@ type VersionedInstaller interface {
 	// version is changed to the declared version rather than reported as already
 	// installed. Same failure contract as InstallVersion.
 	ReinstallVersion(ref, version string) (*InstallResult, error)
+}
+
+type SourceVersionedInstaller interface {
+	InstallVersionSource(ref, version, source string) (*InstallResult, error)
+	ReinstallVersionSource(ref, version, source string) (*InstallResult, error)
 }
 
 // DetectResult holds the outcome of a batch detection check for a single ref.
@@ -151,6 +168,10 @@ type BatchDetector interface {
 	DetectBatch(refs []string) (map[string]DetectResult, error)
 }
 
+type SourceBatchDetector interface {
+	DetectBatchSource(refs []string, source string) (map[string]DetectResult, error)
+}
+
 // InstalledPackage is the package-manager-neutral record returned by installed
 // package enumeration. Ref is the stable manager-specific package identifier;
 // DisplayName and Version are best-effort evidence exposed by that manager.
@@ -158,6 +179,7 @@ type InstalledPackage struct {
 	Ref         string
 	DisplayName string
 	Version     string
+	Source      string
 }
 
 // InstalledEnumerator is an optional driver capability for capture. It reports

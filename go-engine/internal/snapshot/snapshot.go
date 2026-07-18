@@ -100,7 +100,14 @@ func IsStoreID(wingetID string) bool {
 // TakeSnapshot runs `winget list --source winget --accept-source-agreements`
 // and parses the tabular output into a slice of SnapshotApp.
 func TakeSnapshot() ([]SnapshotApp, error) {
-	output, err := ExecCommand("winget", "list", "--source", "winget", "--accept-source-agreements")
+	return TakeSnapshotSource("winget")
+}
+
+// TakeSnapshotSource lists installed packages from one explicit built-in
+// WinGet source. It never enumerates third-party or font sources.
+func TakeSnapshotSource(source string) ([]SnapshotApp, error) {
+	source = strings.ToLower(strings.TrimSpace(source))
+	output, err := ExecCommand("winget", "list", "--source", source, "--accept-source-agreements")
 	if err != nil {
 		var execErr *exec.Error
 		if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {
@@ -173,6 +180,12 @@ func defaultExecCommandWithFile(outFile string, name string, args ...string) err
 // winget-sourced packages and excludes Microsoft Store apps, matching the
 // behaviour of the PowerShell reference implementation.
 func WingetExport() ([]SnapshotApp, error) {
+	return WingetExportSource("winget")
+}
+
+// WingetExportSource exports the installed ledger from one explicit source.
+func WingetExportSource(source string) ([]SnapshotApp, error) {
+	source = strings.ToLower(strings.TrimSpace(source))
 	// Create a temp file atomically so the path definitely exists before
 	// winget writes to it. Using os.CreateTemp avoids issues where
 	// os.TempDir() resolves to a different or unwritable path (e.g. when
@@ -186,7 +199,7 @@ func WingetExport() ([]SnapshotApp, error) {
 	defer os.Remove(tmpFile) //nolint:errcheck
 
 	err := ExecCommandWithFile(tmpFile, "winget", "export",
-		"--source", "winget",
+		"--source", source,
 		"--accept-source-agreements",
 		"--disable-interactivity",
 		"-o", tmpFile)
@@ -205,6 +218,9 @@ func WingetExport() ([]SnapshotApp, error) {
 			return nil, err
 		}
 		return nil, readErr
+	}
+	if err != nil && len(bytes.TrimSpace(data)) == 0 {
+		return nil, err
 	}
 
 	return parseWingetExport(data)
@@ -254,6 +270,7 @@ func parseWingetExport(data []byte) ([]SnapshotApp, error) {
 //  2. Records column start positions from the header
 //  3. Skips the separator line (dashes)
 //  4. Extracts fields by column positions for each data row
+//
 // cleanCR strips carriage-return based progress spinners from a line.
 // Winget writes progress animations using \r to overwrite the same line on a
 // terminal.  When captured programmatically the \r characters are preserved,
