@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.24.2](https://github.com/Artexis10/endstate/compare/v2.24.1...v2.24.2) (2026-07-18)
+
+
+### Bug Fixes
+
+* **capture:** restore package event contract ([#158](https://github.com/Artexis10/endstate/issues/158)) ([32caafb](https://github.com/Artexis10/endstate/commit/32caafb8c1cc8112993428055bedd939b2ac90c6))
+
 ## [2.24.1](https://github.com/Artexis10/endstate/compare/v2.24.0...v2.24.1) (2026-07-18)
 
 
