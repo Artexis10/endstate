@@ -736,6 +736,10 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		)
 	}
 
+	if finalization.CatalogUnavailable {
+		warnings = append(warnings, captureCatalogUnavailableWarning())
+	}
+
 	// --- 11. Emit artifact and summary events ---
 	emitter.EmitArtifact("capture", "manifest", finalization.OutputPath)
 	emitter.EmitSummary("capture", totalFound, included, skipped, 0)

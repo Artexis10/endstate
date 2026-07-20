@@ -362,6 +362,13 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		)
 	}
 
+	// The realizer path collects no other CommandWarnings, so this is the whole
+	// set rather than an append.
+	var warnings []CommandWarning
+	if finalization.CatalogUnavailable {
+		warnings = append(warnings, captureCatalogUnavailableWarning())
+	}
+
 	// --- 11. Emit artifact and summary events ---
 	emitter.EmitArtifact("capture", "manifest", finalization.OutputPath)
 	emitter.EmitSummary("capture", included, included, 0, 0)
@@ -390,6 +397,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		ManifestVersion:     generationManifestVersion(finalization),
 		CaptureWarnings:     finalization.CaptureWarnings,
 		ConfigCapture:       captureConfigResultSummary(finalization),
+		Warnings:            warnings,
 	}, nil
 }
 
