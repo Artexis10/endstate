@@ -206,6 +206,15 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		}
 	}
 
+	// Apply --only after BOTH lanes have contributed (realizer above, brew just
+	// now) and before the --update merge, matching the Windows path: a selection
+	// narrows what this run discovered, it never truncates an existing manifest.
+	appSelection, selectedApps, onlyErr := validateCaptureOnly(flags.Only, captured)
+	if onlyErr != nil {
+		return nil, onlyErr
+	}
+	captured = selectedApps
+
 	// --- 4. If --update and --manifest: merge with existing manifest (host-keyed) ---
 	if flags.Update && flags.Manifest != "" {
 		existingMf, loadErr := loadManifest(flags.Manifest)
@@ -353,7 +362,8 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 	// --- 10. Plan config capture and publish one canonical artifact ---
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
 		Flags: flags, ManifestPath: absPath,
-		Apps: buildModuleMatchApps(captured),
+		Apps:      buildModuleMatchApps(captured),
+		Selection: appSelection,
 	})
 	if finalizeErr != nil {
 		return nil, envelope.NewError(
