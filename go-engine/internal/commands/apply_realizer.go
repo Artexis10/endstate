@@ -171,7 +171,7 @@ func resolveHomeFlake(flags ApplyFlags, mf *manifest.Manifest) (flake string, ge
 // stream so the event contract is preserved. Package install ONLY — config and
 // verify stages keep their own concerns. Raw backend text is confined to
 // error.detail.
-func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, packageModuleMap map[string][]string, restoreModulesAvailable []RestoreModuleRef, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
+func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realizer, emitter *events.Emitter, runID string, configModuleMap map[string]string, packageModuleMap map[string][]string, restoreScope *restoreModuleScope, brewApps []manifest.App, brewDrv driver.Driver, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	driverName := r.Name()
 
 	// Brew lane (driver:"brew" apps) runs interleaved INSIDE the realizer's
@@ -298,7 +298,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 				DryRun: true, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 				Summary:         ApplySummary{Total: totalApps, Skipped: presentCount + brewPresent + brewPlanSkipped + len(unsupportedActions)},
 				Actions:         dryActions,
-				ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+				ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreScope.modules(),
 				ConfigResultFields: configFields,
 			}, configErr
 		}
@@ -338,7 +338,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			Actions:                 dryActions,
 			ConfigModuleMap:         configModuleMap,
 			PackageModuleMap:        packageModuleMap,
-			RestoreModulesAvailable: restoreModulesAvailable,
+			RestoreModulesAvailable: restoreScope.modules(),
 			Pruned:                  pruned,
 			HomeManager:             hmPreview,
 			ConfigResultFields:      configFields,
@@ -481,7 +481,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 			DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 			Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
 			Actions:         resultActions,
-			ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+			ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreScope.modules(),
 			Pruned: removed, ConfigResultFields: configFields,
 		}, configErr
 	}
@@ -613,7 +613,7 @@ func runApplyRealizer(flags ApplyFlags, mf *manifest.Manifest, r realizer.Realiz
 		Actions:                 actions,
 		ConfigModuleMap:         configModuleMap,
 		PackageModuleMap:        packageModuleMap,
-		RestoreModulesAvailable: restoreModulesAvailable,
+		RestoreModulesAvailable: restoreScope.modules(),
 		Pruned:                  removed,
 		HomeManager:             homeResult,
 		ConfigResultFields:      configFields,

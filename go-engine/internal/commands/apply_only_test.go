@@ -410,6 +410,33 @@ func TestRunApply_Only_WithPrune_Rejected(t *testing.T) {
 	}
 }
 
+// threeAppsWithRestoreManifest is threeAppsManifest plus restore payload for
+// each app. restoreModulesAvailable is scoped to what the manifest actually
+// carries, so the subset has to be observable in the restore entries for a
+// subset assertion to mean anything.
+func threeAppsWithRestoreManifest(t *testing.T) string {
+	t.Helper()
+	content := `{
+		"version": 1,
+		"name": "subset-test",
+		"apps": [
+			{ "id": "git",   "refs": { "windows": "Git.Git" } },
+			{ "id": "vscode","refs": { "windows": "Microsoft.VisualStudioCode" } },
+			{ "id": "7zip",  "refs": { "windows": "7zip.7zip" } }
+		],
+		"restore": [
+			{ "type": "copy", "source": "./configs/git/.gitconfig", "target": "%USERPROFILE%\\.gitconfig", "fromModule": "apps.git", "backup": true, "optional": true },
+			{ "type": "copy", "source": "./configs/vscode/settings.json", "target": "%APPDATA%\\Code\\User\\settings.json", "fromModule": "apps.vscode", "backup": true, "optional": true },
+			{ "type": "copy", "source": "./configs/7zip/7zip.ini", "target": "%APPDATA%\\7zip\\7zip.ini", "fromModule": "apps.7zip", "backup": true, "optional": true }
+		]
+	}`
+	path := filepath.Join(t.TempDir(), "m.jsonc")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // TestRunApply_Only_RestoreScopeFollowsSubset verifies that when --only is set
 // and --enable-restore is used, the config module map is scoped to the subset.
 // Uses withMockCatalog to inject a catalog that matches both git and vscode.
@@ -418,7 +445,7 @@ func TestRunApply_Only_RestoreScopeFollowsSubset(t *testing.T) {
 		"Git.Git":                    true,
 		"Microsoft.VisualStudioCode": true,
 	}}
-	path := threeAppsManifest(t)
+	path := threeAppsWithRestoreManifest(t)
 
 	catalog := map[string]*modules.Module{
 		"apps.git": {

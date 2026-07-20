@@ -1171,7 +1171,10 @@ func TestRunApply_RestoreModulesAvailable_DisplayNames(t *testing.T) {
 	withMockDriver(md, func() {
 		withMockCatalog(catalog, nil, func() {
 			r, err := RunApply(ApplyFlags{
-				Manifest: fixtureManifest("two-apps.jsonc"),
+				// Uses the with-restore fixture: restoreModulesAvailable is now scoped
+				// to modules the manifest carries restore payload for, so a catalog
+				// match alone no longer puts a module in the list.
+				Manifest: fixtureManifest("two-apps-with-restore.jsonc"),
 				DryRun:   true,
 			})
 			if err != nil {
@@ -1186,16 +1189,68 @@ func TestRunApply_RestoreModulesAvailable_DisplayNames(t *testing.T) {
 	}
 
 	// Build a lookup map for easy assertion.
-	byID := make(map[string]string)
+	byID := make(map[string]RestoreModuleRef)
 	for _, ref := range result.RestoreModulesAvailable {
-		byID[ref.ID] = ref.DisplayName
+		byID[ref.ID] = ref
 	}
 
-	if dn, ok := byID["apps.vscode"]; !ok || dn != "Visual Studio Code" {
-		t.Errorf("expected apps.vscode displayName=%q, got %q (present=%v)", "Visual Studio Code", dn, ok)
+	if ref, ok := byID["apps.vscode"]; !ok || ref.DisplayName != "Visual Studio Code" {
+		t.Errorf("expected apps.vscode displayName=%q, got %q (present=%v)", "Visual Studio Code", ref.DisplayName, ok)
 	}
-	if dn, ok := byID["apps.git"]; !ok || dn != "Git" {
-		t.Errorf("expected apps.git displayName=%q, got %q (present=%v)", "Git", dn, ok)
+	if ref, ok := byID["apps.git"]; !ok || ref.DisplayName != "Git" {
+		t.Errorf("expected apps.git displayName=%q, got %q (present=%v)", "Git", ref.DisplayName, ok)
+	}
+
+	// entryCount reflects how many restore entries resolved to each module.
+	if got := byID["apps.vscode"].EntryCount; got != 2 {
+		t.Errorf("expected apps.vscode entryCount=2, got %d", got)
+	}
+	if got := byID["apps.git"].EntryCount; got != 1 {
+		t.Errorf("expected apps.git entryCount=1, got %d", got)
+	}
+}
+
+// A manifest whose apps match catalog modules but which carries no restore
+// payload offers nothing to restore. This is the defect the scoping change
+// fixes: matching the catalog is not evidence that the profile carries settings.
+func TestRunApply_RestoreModulesAvailable_ExcludesModulesWithoutPayload(t *testing.T) {
+	md := &mockDriver{installed: map[string]bool{
+		"Microsoft.VisualStudioCode": true,
+		"Git.Git":                    true,
+	}}
+
+	catalog := map[string]*modules.Module{
+		"apps.vscode": {
+			ID:          "apps.vscode",
+			DisplayName: "Visual Studio Code",
+			Matches:     modules.MatchCriteria{Winget: []string{"Microsoft.VisualStudioCode"}},
+			Capture:     &modules.CaptureDef{Files: []modules.CaptureFile{{Source: "a", Dest: "b"}}},
+		},
+		"apps.git": {
+			ID:          "apps.git",
+			DisplayName: "Git",
+			Matches:     modules.MatchCriteria{Winget: []string{"Git.Git"}},
+			Capture:     &modules.CaptureDef{Files: []modules.CaptureFile{{Source: "a", Dest: "b"}}},
+		},
+	}
+
+	var result *ApplyResult
+	withMockDriver(md, func() {
+		withMockCatalog(catalog, nil, func() {
+			r, err := RunApply(ApplyFlags{
+				Manifest: fixtureManifest("two-apps.jsonc"), // carries no restore entries
+				DryRun:   true,
+			})
+			if err != nil {
+				t.Fatalf("RunApply returned unexpected error: %v", err)
+			}
+			result = r.(*ApplyResult)
+		})
+	})
+
+	if len(result.RestoreModulesAvailable) != 0 {
+		t.Fatalf("expected no restoreModulesAvailable entries for a manifest with no restore payload, got %d: %+v",
+			len(result.RestoreModulesAvailable), result.RestoreModulesAvailable)
 	}
 }
 
@@ -1215,11 +1270,22 @@ func TestRunApply_RestoreModulesAvailable_FallbackToShortID(t *testing.T) {
 
 	// Need a manifest with this app. Create a temp fixture.
 	tmpDir := t.TempDir()
+	// The restore entry is what puts the module in restoreModulesAvailable; the
+	// source path carries no fromModule, so this also exercises tier-2 resolution.
 	manifestContent := `{
 		"version": 1,
 		"name": "test-nodisplay",
 		"apps": [
 			{ "id": "nodisplay", "refs": { "windows": "Vendor.NoDisplay" } }
+		],
+		"restore": [
+			{
+				"type": "copy",
+				"source": "./configs/nodisplay/config.ini",
+				"target": "%APPDATA%\\NoDisplay\\config.ini",
+				"backup": true,
+				"optional": true
+			}
 		]
 	}`
 	manifestPath := filepath.Join(tmpDir, "test.jsonc")

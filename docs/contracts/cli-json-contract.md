@@ -436,6 +436,9 @@ endstate apply --manifest ./manifest.jsonc --bootstrap-backends --json
       "winget:Microsoft.VisualStudioCode": ["apps.vscode"],
       "chocolatey:git.install": ["apps.git"]
     },
+    "restoreModulesAvailable": [
+      { "id": "apps.vscode", "displayName": "Visual Studio Code", "entryCount": 3 }
+    ],
     "warnings": [],
     "runId": "20241220-143052",
     "stateFile": "C:\\endstate\\state\\20241220-143052.json",
@@ -447,6 +450,48 @@ endstate apply --manifest ./manifest.jsonc --bootstrap-backends --json
 ```
 
 **Note:** `eventsFile` is only included when `--events jsonl` is enabled. The engine persists events to `logs/<runId>.events.jsonl` in addition to streaming to stderr.
+
+### Apply result fields: `summary` and `actions`
+
+App results are carried by `actions[]`, aggregates by `summary`. The apply
+envelope has **no `items` field and no `counts` field** — `counts` belongs to
+`capture`, `items` to `generations`. A consumer reading either from an apply
+envelope reads a field that will never be present, and the failure is silent:
+an absent optional field disables whatever depends on it rather than erroring.
+Reconcile final per-app state against `actions[]`.
+
+`dryRun` reports whether the run changed anything. On a dry run an app that
+would be installed reports `status: "to_install"` and `summary.success` is `0`.
+`to_install` is a dry-run-only status and is never final on a real apply, where
+an app ends `installed`, `present`, or `failed`. Consumers presenting apply
+results MUST distinguish a dry run and MUST NOT report installs or completed
+setup for one.
+
+### `restoreModulesAvailable`
+
+Lists the config modules this manifest carries restorable payload for, so a
+consumer can offer a meaningful choice of which settings to restore. Each entry:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Qualified module ID (e.g. `apps.vscode`) |
+| `displayName` | string | Human-readable label; never empty |
+| `entryCount` | integer | Restore entries resolved to this module; always > 0 |
+
+Scoped to manifest contents, **not** to catalog modules matching the app list —
+a catalog match is not evidence that the profile carries settings, and the two
+diverge sharply in practice. A module appears only when at least one restore
+entry resolves to it: by `fromModule`, else by the entry's `source` path prefix
+(`./configs/<id>/…` or `./payload/apps/<id>/…`) validated against the catalog,
+else from the manifest's declared `configModules`. When `--only` is active the
+list is further restricted to the selected subset. Omitted when empty.
+
+When a manifest has restore entries but none can be attributed to a catalog
+module, the field is omitted and a `restore_entries_unattributed` warning is
+emitted, so an empty picker is distinguishable from a profile that genuinely
+carries no settings.
+
+`entryCount` is additive within schema 1.x.
 
 ### Driver Selection and Bootstrap
 

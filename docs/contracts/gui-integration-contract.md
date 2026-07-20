@@ -245,6 +245,22 @@ For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, 
 
 The GUI renders the existing combined consent event and, after affirmative consent, reruns apply or rebuild with `--bootstrap-backends`. Explicit opt-out uses `--no-bootstrap`; rebuild propagates either flag to apply. The GUI never installs Chocolatey or another package backend directly.
 
+### Dry-Run Disclosure
+
+A run that changed nothing must never be presented as one that did.
+
+- The GUI reads `data.dryRun` from the apply envelope and MUST NOT report installs, completion, or success for a dry run. "Setup complete" is reserved for a run that actually applied.
+- `to_install` is a dry-run-only status. After a completed real apply every item is `installed`, `present`, or `failed`; the GUI MUST reconcile against the envelope's `actions[]` rather than rendering a non-terminal streamed status as an outcome.
+- The GUI's primary provisioning action defaults to a real apply. Dry run is an explicit user opt-in, and when enabled the results surface must disclose it.
+
+### Envelope Field Discipline
+
+The GUI reads only fields the CLI JSON contract defines **for the command it invoked**.
+
+- Apply results come from `summary` and `actions[]`. The apply envelope has no `items` and no `counts` — those belong to `generations` and `capture` respectively. Reading a field defined for a different command fails silently, because an absent optional field disables the behavior that depends on it instead of erroring.
+- Reconciliation must not discard engine-supplied fields. An item's engine-supplied `name` survives into the reconciled record; the GUI never falls back to the raw package ref for an item the engine named.
+- Test doubles are bound by this contract too. A mock engine MUST emit the same envelope shape as the real engine, and mock-backed suites MUST NOT be the only verification of envelope handling — a mock written to satisfy the GUI's own types verifies only that the GUI agrees with itself.
+
 ---
 
 ## Supported Commands

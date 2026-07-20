@@ -35,7 +35,7 @@ func configStageApplies(flags ApplyFlags, mf *manifest.Manifest) bool {
 // evaluated; only true Nix-ref apps are skipped as backend-unavailable. The
 // home-manager config stage cannot run without the realizer and is therefore
 // skipped here.
-func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter, runID string, configModuleMap map[string]string, packageModuleMap map[string][]string, restoreModulesAvailable []RestoreModuleRef, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
+func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApps []manifest.App, brewDrv driver.Driver, emitter *events.Emitter, runID string, configModuleMap map[string]string, packageModuleMap map[string][]string, restoreScope *restoreModuleScope, unsupportedApps ...[]manifest.App) (interface{}, *envelope.Error) {
 	brew := newBrewLane(brewDrv, emitter, brewApps)
 
 	// --- Phase 1: Plan ---
@@ -120,7 +120,7 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 			Actions:                 dryActions,
 			ConfigModuleMap:         configModuleMap,
 			PackageModuleMap:        packageModuleMap,
-			RestoreModulesAvailable: restoreModulesAvailable,
+			RestoreModulesAvailable: restoreScope.modules(),
 			ConfigResultFields:      configFields,
 		}
 		return result, configErr
@@ -165,7 +165,7 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 			DryRun: false, Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 			Summary:         ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
 			Actions:         resultActions,
-			ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreModulesAvailable,
+			ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap, RestoreModulesAvailable: restoreScope.modules(),
 			ConfigResultFields: configFields,
 		}, configErr
 	}
@@ -208,7 +208,7 @@ func runApplyBrewOnly(flags ApplyFlags, mf *manifest.Manifest, restApps, brewApp
 		Actions:                 actions,
 		ConfigModuleMap:         configModuleMap,
 		PackageModuleMap:        packageModuleMap,
-		RestoreModulesAvailable: restoreModulesAvailable,
+		RestoreModulesAvailable: restoreScope.modules(),
 		ConfigResultFields:      configFields,
 	}, nil
 }
