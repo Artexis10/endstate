@@ -5,6 +5,7 @@ package commands
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
@@ -108,6 +110,68 @@ type captureConfigFinalizeRequest struct {
 	Flags        CaptureFlags
 	ManifestPath string
 	Apps         []manifest.App
+	// Selection is the parsed --only value. When active, the catalog is narrowed
+	// before planning so both module tiers are scoped from one place.
+	Selection captureSelection
+}
+
+// scopeCatalogToSelection narrows a catalog to the modules an explicit --only
+// selection permits: matched BY PACKAGE REF to a selected app, or named outright.
+//
+// Narrowing the catalog rather than filtering each tier is deliberate. Planning
+// has two tiers with different discovery rules — legacy modules match against
+// the app list, while generation-aware modules are discovered by detector
+// eligibility "even without an application match, so path-only instances remain
+// discoverable". That second rule is exactly what a selection must override: it
+// would attach configs for apps the user did not pick. Scoping the input catalog
+// constrains both tiers at once and leaves their internal logic untouched.
+func scopeCatalogToSelection(
+	catalog map[string]*modules.Module,
+	apps []manifest.App,
+	selection captureSelection,
+) (map[string]*modules.Module, error) {
+	scoped := make(map[string]*modules.Module)
+	for _, mod := range modules.MatchModulesForAppsSelective(catalog, apps) {
+		scoped[mod.ID] = mod
+	}
+
+	var unknown []string
+	for _, id := range selection.moduleIDs {
+		if _, already := scoped[id]; already {
+			continue
+		}
+		mod, ok := catalog[id]
+		if !ok {
+			unknown = append(unknown, id)
+			continue
+		}
+		scoped[id] = mod
+	}
+	if len(unknown) > 0 {
+		return nil, &captureSelectionError{err: envelope.NewError(
+			envelope.ErrManifestValidationError,
+			fmt.Sprintf("--only references config modules not present in the catalog: %s", strings.Join(unknown, ", "))).
+			WithRemediation("Use the canonical module id, e.g. --only apps.vscode. Run capture without --only to see which modules attach.")}
+	}
+	return scoped, nil
+}
+
+// captureSelectionError carries an envelope error through finalizeCaptureConfig's
+// plain-error return. A mistyped --only token is a user input mistake and should
+// surface as MANIFEST_VALIDATION_ERROR with remediation, not be flattened into
+// the generic CAPTURE_FAILED its caller applies to genuine bundle failures.
+type captureSelectionError struct{ err *envelope.Error }
+
+func (e *captureSelectionError) Error() string { return e.err.Message }
+
+// asCaptureSelectionError reports whether err carries a selection validation
+// envelope, returning it when so.
+func asCaptureSelectionError(err error) (*envelope.Error, bool) {
+	var selErr *captureSelectionError
+	if errors.As(err, &selErr) {
+		return selErr.err, true
+	}
+	return nil, false
 }
 
 type captureConfigFinalization struct {
@@ -345,6 +409,13 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		}
 		catalog = loaded
 		diagnostics = loadedDiagnostics
+	}
+	if request.Selection.active() {
+		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		catalog = scoped
 	}
 	planning := planCaptureConfig(catalog, request.Apps, diagnostics)
 	outputPath, err := captureBundleOutputPath(request.Flags, request.ManifestPath)

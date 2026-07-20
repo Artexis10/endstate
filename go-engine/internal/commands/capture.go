@@ -39,6 +39,111 @@ type CaptureFlags struct {
 	Pin              bool
 	Drivers          []string // repeatable explicit package drivers; empty uses platform capture defaults
 	Events           string   // "jsonl" or ""
+	// Only limits the capture to a comma-separated selection. Bare tokens are
+	// captured app IDs; tokens prefixed "apps." are config module IDs. Mirrors
+	// apply --only so a selection reads the same on both sides.
+	//
+	// Under a selection, config modules attach only when a selected app matches
+	// them BY PACKAGE REF, or when the module is named outright. A module that
+	// merely has a path on this filesystem is not part of the selection — see
+	// modules.MatchModulesForAppsSelective.
+	Only string
+}
+
+// captureSelection is a parsed --only value for capture.
+type captureSelection struct {
+	appIDs    []string
+	moduleIDs []string
+}
+
+// active reports whether a selection was supplied.
+func (s captureSelection) active() bool {
+	return len(s.appIDs) > 0 || len(s.moduleIDs) > 0
+}
+
+// parseCaptureOnly splits a --only value into app and module selections.
+//
+// Bare tokens are app IDs; "apps."-prefixed tokens are config module IDs. The
+// prefix is the canonical module ID form throughout the catalog and in a
+// manifest's configModules, and app IDs (produced by wingetIDToManifestID) never
+// contain it, so the two namespaces cannot collide.
+//
+// Note the deliberate asymmetry with --restore-filter, which also accepts a bare
+// short module ID: here bare always means app. Accepting bare module IDs would
+// make "vscode" ambiguous between an app and a module.
+func parseCaptureOnly(only string) captureSelection {
+	var sel captureSelection
+	for _, token := range parseOnlyIDs(only) {
+		if strings.HasPrefix(token, "apps.") {
+			sel.moduleIDs = append(sel.moduleIDs, token)
+			continue
+		}
+		sel.appIDs = append(sel.appIDs, token)
+	}
+	return sel
+}
+
+// validateCaptureOnly parses and validates --only against the captured app set,
+// returning the selection and the filtered apps. Mirrors validateOnly's posture:
+// every rejection happens before anything is written.
+func validateCaptureOnly(only string, captured []capturedApp) (captureSelection, []capturedApp, *envelope.Error) {
+	if only == "" {
+		return captureSelection{}, captured, nil
+	}
+
+	sel := parseCaptureOnly(only)
+
+	if !sel.active() {
+		return sel, nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only requires at least one id; the provided value is empty after normalisation").
+			WithRemediation("Provide one or more comma-separated ids, e.g. --only git-git,apps.vscode.")
+	}
+
+	// A module-only selection yields a manifest with no apps, which collides with
+	// the zero-apps capture failure and leaves nothing for module matching to work
+	// from. Reject it explicitly rather than failing later with a worse message.
+	if len(sel.appIDs) == 0 {
+		return sel, nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only selected config modules but no apps; a capture must contain at least one app").
+			WithRemediation("Add at least one app id, e.g. --only git-git,apps.vscode.")
+	}
+
+	allow := make(map[string]bool, len(sel.appIDs))
+	for _, id := range sel.appIDs {
+		allow[id] = true
+	}
+	matched := make(map[string]bool, len(sel.appIDs))
+	var filtered []capturedApp
+	for _, app := range captured {
+		if allow[app.ID] {
+			filtered = append(filtered, app)
+			matched[app.ID] = true
+		}
+	}
+
+	var unknown []string
+	for _, id := range sel.appIDs {
+		if !matched[id] {
+			unknown = append(unknown, id)
+		}
+	}
+	if len(unknown) > 0 {
+		return sel, nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			fmt.Sprintf("--only references app ids that were not detected on this machine: %s", strings.Join(unknown, ", "))).
+			WithRemediation("Run capture without --only to see the detected app ids, then select from those.")
+	}
+
+	if len(filtered) == 0 {
+		return sel, nil, envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--only produced an empty app selection; no apps would be captured").
+			WithRemediation("Provide ids matching at least one detected app.")
+	}
+
+	return sel, filtered, nil
 }
 
 // CaptureResult is the data payload for the capture command.
@@ -557,6 +662,28 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		captured = append(captured, app)
 	}
 	assignDeterministicCaptureIDs(captured, nil)
+
+	// Apply --only here, after IDs are final and before everything downstream.
+	//
+	// After ID assignment because the dedup suffixing above produces the IDs a
+	// user actually sees and selects by. Before the --update merge below because
+	// "capture --only git-git --update" must ADD git-git to an existing manifest,
+	// not truncate that manifest to git-git — filtering the newly discovered set
+	// pre-merge gives the former, post-merge would silently destroy the rest.
+	//
+	// One insertion point then scopes duplicate warnings, pin warnings, item
+	// events, counts, the manifest write, and module matching alike.
+	totalDetected := len(captured)
+	selection, selectedApps, onlyErr := validateCaptureOnly(flags.Only, captured)
+	if onlyErr != nil {
+		return nil, onlyErr
+	}
+	captured = selectedApps
+	// Deselected apps count as skipped so totalFound == included + skipped still
+	// holds. totalFound stays pre-filter: it reports what is on the machine, which
+	// is what makes the subset visible as a subset.
+	skipped += totalDetected - len(captured)
+
 	warnings = append(warnings, possibleDuplicateWarnings(captured)...)
 	if flags.Pin && !captureHasAnyVersion(captured) && flags.Events != "jsonl" {
 		fmt.Fprintln(os.Stderr, "Warning: --pin requested but installed-package enumeration exposed no versions; the manifest will be written without pins.")
@@ -727,9 +854,13 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	// --- 10. Plan config capture and publish one canonical artifact ---
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
 		Flags: flags, ManifestPath: absPath,
-		Apps: buildModuleMatchApps(captured),
+		Apps:      buildModuleMatchApps(captured),
+		Selection: selection,
 	})
 	if finalizeErr != nil {
+		if selErr, ok := asCaptureSelectionError(finalizeErr); ok {
+			return nil, selErr
+		}
 		return nil, envelope.NewError(
 			envelope.ErrCaptureFailed,
 			fmt.Sprintf("Failed to create capture bundle: %v", finalizeErr),

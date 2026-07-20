@@ -39,6 +39,10 @@ type RebuildFlags struct {
 	BootstrapBackends bool
 	// NoBootstrap forces selected absent backend lanes to be skipped.
 	NoBootstrap bool
+	// Only limits the rebuild to a comma-separated subset of the bundle's app
+	// ids, propagated to apply so installs, config restore, and verification all
+	// see the same selection. Lets a recipient take part of a shared setup.
+	Only string
 }
 
 // RebuildBundleInfo describes the extracted capture bundle. It is nil for a
@@ -209,6 +213,7 @@ func rebuildApplyFlags(flags RebuildFlags, manifestPath string) ApplyFlags {
 		RestoreTargets:    append([]string(nil), flags.RestoreTargets...),
 		BootstrapBackends: flags.BootstrapBackends,
 		NoBootstrap:       flags.NoBootstrap,
+		Only:              flags.Only,
 	}
 }
 

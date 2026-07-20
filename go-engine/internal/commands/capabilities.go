@@ -111,7 +111,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"capture": {
 				Supported: true,
-				Flags:     []string{"--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--driver"},
+				Flags:     []string{"--profile", "--out", "--name", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--driver", "--only"},
 			},
 			"plan": {
 				Supported: true,
@@ -119,7 +119,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"restore": {
 				Supported: true,
-				Flags:     []string{"--manifest", "--restore-filter", "--restore-target", "--json", "--events", "--filter"},
+				Flags:     []string{"--manifest", "--restore-filter", "--restore-target", "--json", "--events"},
 			},
 			"report": {
 				Supported: true,
@@ -163,7 +163,7 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 			"rebuild": {
 				Supported: true,
-				Flags:     []string{"--from", "--dry-run", "--confirm", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"},
+				Flags:     []string{"--from", "--dry-run", "--confirm", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events", "--only"},
 			},
 			"import": {
 				Supported: true,
