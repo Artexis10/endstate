@@ -52,6 +52,12 @@ The decision is made at capture time and encoded in the bundled restore `type`, 
 - `go-engine/cmd/endstate/main.go`, `capabilities.go`, `docs/contracts/cli-json-contract.md` — PROTECTED; modified under explicit instruction.
 - Backward-compatible: without `--share`, every path is unchanged. Bundles with no recorded `os` are still accepted. No schema bump.
 
-## Not in this change
+## Redaction
 
-**Redaction of identity-bearing values.** The design settles that a share bundle should strip identity (git `user.email`, absolute user paths, hostnames) while self-rebuild keeps full fidelity. `machineName` is omitted and that is all — payload contents are not yet inspected. Until redaction lands, **a share bundle can carry personal data from the captured config files**, and that limitation must be stated wherever `--share` is surfaced to users.
+A share bundle also has identity removed from its payloads, in three conservative layers: account-bound modules (mail clients, remote-access tools) are omitted whole and reported as warnings; a pattern pass replaces user-path segments, emails, and the capturing hostname; git config additionally loses `user.name`/`email`/`signingkey` while ordinary settings survive.
+
+`metadata.redaction` reports per-rule counts and names every payload that could **not** be decoded as text, so identity inside a binary or database is a known unknown rather than a silent pass. Encoding is preserved — UTF-16 registry exports are decoded, redacted, and written back with their BOM.
+
+Two shapes were found only by scanning real bundles, not by reasoning about the code: JSON stores paths escaped (`C:\Users\name`), and editors store file URIs with a percent-encoded drive colon (`file:///c%3A/Users/name/...`). A VSCodium `extensions.json` leaked the username in the second form after every plain path in the same bundle had been redacted.
+
+**Documented limits, asserted in tests so they stay visible:** bare usernames outside a path context, licence-key shapes, paths on drives without a `Users` directory, and anything inside an undecodable payload. Patterns aggressive enough to catch these corrupt functional configuration at an unacceptable rate, so the boundary is stated rather than pushed.
