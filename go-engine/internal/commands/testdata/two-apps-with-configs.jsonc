@@ -1,0 +1,22 @@
+{
+  // Fixture manifest for tests about which config modules a profile advertises.
+  // Same two apps as two-apps.jsonc, but declaring configModules — without that
+  // declaration nothing restores, so nothing should be advertised either.
+  "version": 1,
+  "name": "test-manifest",
+  "apps": [
+    {
+      "id": "vscode",
+      "refs": {
+        "windows": "Microsoft.VisualStudioCode"
+      }
+    },
+    {
+      "id": "git",
+      "refs": {
+        "windows": "Git.Git"
+      }
+    }
+  ],
+  "configModules": ["apps.vscode", "apps.git"]
+}

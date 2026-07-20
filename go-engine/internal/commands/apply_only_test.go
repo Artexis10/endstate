@@ -227,6 +227,29 @@ func threeAppsManifest(t *testing.T) string {
 	return path
 }
 
+// threeAppsManifestWithConfigs is threeAppsManifest plus configModules, for
+// tests that assert which modules are advertised as restorable. A manifest that
+// declares no configModules restores no module config, so it must advertise
+// none either.
+func threeAppsManifestWithConfigs(t *testing.T) string {
+	t.Helper()
+	content := `{
+		"version": 1,
+		"name": "subset-test",
+		"apps": [
+			{ "id": "git",   "refs": { "windows": "Git.Git" } },
+			{ "id": "vscode","refs": { "windows": "Microsoft.VisualStudioCode" } },
+			{ "id": "7zip",  "refs": { "windows": "7zip.7zip" } }
+		],
+		"configModules": ["apps.git", "apps.vscode", "apps.7zip"]
+	}`
+	path := filepath.Join(t.TempDir(), "m.jsonc")
+	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // TestRunApply_Only_SubsetFiltersActions verifies that --only limits the plan
 // and summary to the selected apps, and other apps are not in the actions list.
 func TestRunApply_Only_SubsetFiltersActions(t *testing.T) {
@@ -418,7 +441,7 @@ func TestRunApply_Only_RestoreScopeFollowsSubset(t *testing.T) {
 		"Git.Git":                    true,
 		"Microsoft.VisualStudioCode": true,
 	}}
-	path := threeAppsManifest(t)
+	path := threeAppsManifestWithConfigs(t)
 
 	catalog := map[string]*modules.Module{
 		"apps.git": {

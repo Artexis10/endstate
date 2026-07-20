@@ -194,6 +194,28 @@ func validateOnly(flags ApplyFlags, mf *manifest.Manifest) ([]manifest.App, *env
 	return filtered, nil
 }
 
+// configModuleRestorable reports whether this manifest can actually restore the
+// named module's configuration.
+//
+// A module is restorable only when the manifest declares it in configModules and
+// does not exclude it. Both conditions mirror ExpandConfigModules, which is the
+// only thing that turns a declared module into restore entries.
+func configModuleRestorable(mf *manifest.Manifest, moduleID string) bool {
+	if mf == nil || len(mf.ConfigModules) == 0 {
+		return false
+	}
+	if modules.IsExcluded(moduleID, mf.ExcludeConfigs) {
+		return false
+	}
+	short := strings.TrimPrefix(moduleID, "apps.")
+	for _, declared := range mf.ConfigModules {
+		if strings.TrimPrefix(declared, "apps.") == short {
+			return true
+		}
+	}
+	return false
+}
+
 // RestoreModuleRef identifies a config module available for restore, including
 // a human-readable display name resolved from the module catalog.
 type RestoreModuleRef struct {
@@ -368,10 +390,19 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 					shortID := strings.TrimPrefix(mod.ID, "apps.")
 					configModuleMap[shortID] = mod.ID
 				}
-				restoreModulesAvailable = append(restoreModulesAvailable, RestoreModuleRef{
-					ID:          mod.ID,
-					DisplayName: resolveModuleDisplayName(mod),
-				})
+				// Only advertise modules whose config this manifest actually carries.
+				// Matching answers "which modules could exist for these apps"; the
+				// client is asking "which settings does this profile have". Module
+				// restore is driven entirely by mf.ConfigModules (ExpandConfigModules
+				// returns immediately when it is empty), so a matched module absent
+				// from that list restores nothing and offering it produces a control
+				// that silently does nothing when selected.
+				if configModuleRestorable(mf, mod.ID) {
+					restoreModulesAvailable = append(restoreModulesAvailable, RestoreModuleRef{
+						ID:          mod.ID,
+						DisplayName: resolveModuleDisplayName(mod),
+					})
+				}
 			}
 		}
 	}

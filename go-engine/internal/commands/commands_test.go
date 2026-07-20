@@ -1171,7 +1171,10 @@ func TestRunApply_RestoreModulesAvailable_DisplayNames(t *testing.T) {
 	withMockDriver(md, func() {
 		withMockCatalog(catalog, nil, func() {
 			r, err := RunApply(ApplyFlags{
-				Manifest: fixtureManifest("two-apps.jsonc"),
+				// Declares configModules: a module is only advertised when the
+				// manifest actually carries its config, since that is what decides
+				// whether selecting it restores anything.
+				Manifest: fixtureManifest("two-apps-with-configs.jsonc"),
 				DryRun:   true,
 			})
 			if err != nil {
@@ -1220,7 +1223,8 @@ func TestRunApply_RestoreModulesAvailable_FallbackToShortID(t *testing.T) {
 		"name": "test-nodisplay",
 		"apps": [
 			{ "id": "nodisplay", "refs": { "windows": "Vendor.NoDisplay" } }
-		]
+		],
+		"configModules": ["apps.nodisplay"]
 	}`
 	manifestPath := filepath.Join(tmpDir, "test.jsonc")
 	os.WriteFile(manifestPath, []byte(manifestContent), 0644)

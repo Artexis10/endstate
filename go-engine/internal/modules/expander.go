@@ -77,6 +77,16 @@ func ExpandConfigModules(m *manifest.Manifest, catalog map[string]*Module) error
 // Both short IDs ("vscode") and qualified IDs ("apps.vscode") are matched
 // against the exclude list entries using the same short/qualified equivalence
 // used by the restore filter: "vscode" matches "apps.vscode" and vice-versa.
+// IsExcluded reports whether moduleID is excluded by a manifest's
+// excludeConfigs list, matching short and qualified ids alike.
+//
+// Exported so callers that advertise which modules will restore can use the
+// same rule that actually excludes them; a second implementation would drift
+// and re-introduce the mismatch between what is offered and what happens.
+func IsExcluded(moduleID string, excludeConfigs []string) bool {
+	return isExcluded(moduleID, excludeConfigs)
+}
+
 func isExcluded(moduleID string, excludeConfigs []string) bool {
 	if len(excludeConfigs) == 0 {
 		return false
