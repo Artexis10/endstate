@@ -165,6 +165,10 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				Supported: true,
 				Flags:     []string{"--from", "--dry-run", "--confirm", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"},
 			},
+			"import": {
+				Supported: true,
+				Flags:     []string{"--from", "--path", "--out", "--pin", "--json"},
+			},
 		},
 		Features: FeaturesInfo{
 			Streaming:       false,

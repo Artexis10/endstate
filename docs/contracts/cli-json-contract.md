@@ -102,7 +102,7 @@ When `success` is `false`, the `error` field contains:
 | `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
 | `CONVERGENCE_UNSUPPORTED` | `apply --prune` was requested on package-driver lanes that cannot safely remove installed-but-undeclared packages, or on a host with no realizer. Nothing is removed. Additive in schema 1.x. |
 | `CONFIRMATION_REQUIRED` | `rebuild` was invoked for a live run (restore on, not `--dry-run`) without `--confirm`. Raised before any mutation, so the refusal has no side effects. Additive in schema 1.x. |
-| `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows), or the input mode is unsupported (e.g. `rebuild --from <URL>`). Additive in schema 1.x. |
+| `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows), or the input mode is unsupported (e.g. `rebuild --from <URL>`, or `import --from <source>` for an unrecognised source). Additive in schema 1.x. |
 | `TASK_REGISTRATION_FAILED` | `schedule enable` could not register the Windows Scheduled Task via `schtasks.exe`. Additive in schema 1.x. |
 
 ### Command Warnings
@@ -790,6 +790,62 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 - `restore` reflects the configured posture (`"enabled"` unless `--no-restore`), not whether restore executed — a `--dry-run` reports `"enabled"` while executing nothing.
 
 **Note:** Verify failures are **data**, not a command error. A rebuild whose post-install verification reports drift (a missing app, a failed assertion, or version drift) still returns `success: true` and **exit 0**; the failures live in `data.verify.summary.fail`. Only infrastructure or input errors (e.g. `MANIFEST_PARSE_ERROR`, `CONFIRMATION_REQUIRED`) flip `success` to `false`.
+
+---
+
+## Command: `import`
+
+Imports an external package list into an Endstate manifest. The only supported source in v0 is `unigetui` — a [UniGetUI](https://github.com/marticliment/UniGetUI) `.ubundle` backup/bundle (JSON, `export_version: 3`). Winget-source packages become manifest apps; every other package (chocolatey, scoop, pip, ...) and every `incompatible_packages` entry is reported, never silently dropped. Import is a **pure transform**: no installs, no network access, deterministic (byte-identical) output. It imports the package list only — UniGetUI's own settings are not imported; config restore comes from Endstate's module catalog on a later `plan`/`apply`.
+
+```powershell
+endstate import --from unigetui --path "backup.ubundle" --json
+endstate import --from unigetui --path "backup.ubundle" --pin --out ./machine.jsonc --json
+```
+
+### Flags
+
+| Flag | Behavior |
+|------|----------|
+| `--from <source>` | Required. The source format. Only `unigetui` is supported; any other value returns `NOT_SUPPORTED` with remediation. An empty value returns `MANIFEST_VALIDATION_ERROR`. |
+| `--path <file>` | Required. The input bundle file. An empty value returns `MANIFEST_VALIDATION_ERROR`; a missing path returns `MANIFEST_NOT_FOUND`; a file that is not valid JSON returns `MANIFEST_PARSE_ERROR`; a well-formed JSON file that is not a UniGetUI bundle (no `export_version` and no `packages`) returns `MANIFEST_VALIDATION_ERROR`. |
+| `--out <path>` | Output manifest path. Defaults to `manifests/local/imported-unigetui.jsonc` (gitignored); outside a repo checkout the default lands next to the input bundle instead. The emitted JSONC must load through the manifest loader before it is written; a load failure returns `MANIFEST_VALIDATION_ERROR` and writes nothing. An existing file at the output path is replaced (the write is atomic: staged to a temp file, then renamed into place). A write failure returns `MANIFEST_WRITE_FAILED`. |
+| `--pin` | Record a `version` on each imported app: the package's `InstallationOptions.Version` pin when present (authored intent), otherwise the observed `Version`. Off by default (no version written). |
+| `--json` | Emit the standard envelope to stdout. |
+
+### Response
+
+```json
+{
+  "schemaVersion": "1.0",
+  "cliVersion": "0.1.0",
+  "command": "import",
+  "runId": "20241220-143052",
+  "timestampUtc": "2024-12-20T14:30:52Z",
+  "success": true,
+  "data": {
+    "source": "unigetui",
+    "input": "C:\\Users\\me\\backup.ubundle",
+    "output": "C:\\repo\\manifests\\local\\imported-unigetui.jsonc",
+    "exportVersion": 3,
+    "pinned": false,
+    "counts": { "imported": 3, "skipped": 3, "incompatible": 1 },
+    "imported": [
+      { "id": "visualstudiocode", "ref": "Microsoft.VisualStudioCode", "displayName": "Microsoft Visual Studio Code" }
+    ],
+    "skipped": [
+      { "id": "nodejs", "name": "Node.js", "manager": "Chocolatey", "reason": "unsupported package manager (Endstate installs via winget on Windows)" }
+    ],
+    "incompatible": [
+      { "id": "Contoso.LocalOnlyApp", "name": "Contoso Local Only App", "version": "1.0.0", "source": "Local PC" }
+    ]
+  },
+  "error": null
+}
+```
+
+- `imported`, `skipped`, and `incompatible` together account for every entry in the bundle — nothing is silently dropped. `counts` is their length summary.
+- `imported[].version` is present only under `--pin`. `warnings` carries the parser's version-mismatch note (a non-3 `export_version`) and any app-id collision de-duplication; it is omitted when empty.
+- Additive in schema 1.x; no schema bump.
 
 ---
 

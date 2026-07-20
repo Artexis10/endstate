@@ -1,0 +1,64 @@
+{
+  "export_version": 3,
+  "packages": [
+    {
+      "Id": "Microsoft.VisualStudioCode",
+      "Name": "Microsoft Visual Studio Code",
+      "Version": "1.85.1",
+      "Source": "winget",
+      "ManagerName": "WinGet",
+      "InstallationOptions": {
+        "OverridesNextLevelOpts": true,
+        "Version": "1.85.0"
+      }
+    },
+    {
+      "Id": "Git.Git",
+      "Name": "Git",
+      "Version": "2.43.0",
+      "Source": "winget",
+      "ManagerName": "WinGet"
+    },
+    {
+      "Id": "Mozilla.Firefox",
+      "Name": "Mozilla Firefox",
+      "Version": "",
+      "Source": "winget",
+      "ManagerName": "WinGet"
+    },
+    {
+      "Id": "nodejs",
+      "Name": "Node.js",
+      "Version": "20.10.0",
+      "Source": "chocolatey",
+      "ManagerName": "Chocolatey"
+    },
+    {
+      "Id": "neovim",
+      "Name": "Neovim",
+      "Version": "0.9.5",
+      "Source": "main",
+      "ManagerName": "Scoop"
+    },
+    {
+      "Id": "black",
+      "Name": "black",
+      "Version": "23.12.1",
+      "Source": "pip",
+      "ManagerName": "Pip",
+      "Updates": {
+        "UpdatesIgnored": true,
+        "IgnoredVersion": "24.0.0"
+      }
+    }
+  ],
+  "incompatible_packages_info": "Incompatible packages cannot be installed from UniGetUI, either because they came from a local source (for example Local PC) or because the package manager was unavailable. Nevertheless, they have been listed here for logging purposes.",
+  "incompatible_packages": [
+    {
+      "Id": "Contoso.LocalOnlyApp",
+      "Name": "Contoso Local Only App",
+      "Version": "1.0.0",
+      "Source": "Local PC"
+    }
+  ]
+}
