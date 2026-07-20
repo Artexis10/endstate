@@ -42,6 +42,9 @@ type BundleMetadata struct {
 	// Name is the human label given at capture time (--name), carried so a
 	// recipient can see what they were handed.
 	Name string `json:"name,omitempty"`
+	// Redaction records what share-mode redaction changed and, importantly, which
+	// payload files it could not read. Present only on share bundles.
+	Redaction *RedactionReport `json:"redaction,omitempty"`
 }
 
 // payloadPathPattern matches ./payload/apps/<id> sources with an optional
