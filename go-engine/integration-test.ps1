@@ -206,3 +206,8 @@ Write-Host "Cleaned: $testDir"
 Write-Host "`n========================================" -ForegroundColor Cyan
 Write-Host "  RESULTS: $passed/$total passed, $failed failed" -ForegroundColor $(if ($failed -eq 0) {"Green"} else {"Red"})
 Write-Host "========================================`n" -ForegroundColor Cyan
+
+# Exit non-zero when any test failed so this script can gate CI. An all-pass
+# run exits 0, unchanged from the prior (always-0) behaviour.
+if ($failed -gt 0) { exit 1 }
+exit 0

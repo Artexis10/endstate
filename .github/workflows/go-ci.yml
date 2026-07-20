@@ -29,6 +29,45 @@ jobs:
       - name: Test
         run: cd go-engine && go test ./...
 
+  # Real-execution smoke: builds the CLI and drives it end-to-end
+  # (apply / restore / verify / export-config / bootstrap / events) against
+  # throwaway fixtures under $env:TEMP. Complements the hermetic "Go Tests"
+  # unit suite by exercising the actually-shipped binary. Blocking on PRs.
+  #
+  # Runs under PowerShell 7 (pwsh): the script's `Set-Content -Encoding UTF8`
+  # emits a UTF-8 BOM under Windows PowerShell 5.1 that the jsonc manifest
+  # parser rejects; pwsh writes no BOM.
+  integration-windows:
+    name: Integration Test (windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache-dependency-path: go-engine/go.sum
+
+      - name: Build engine binary
+        run: cd go-engine && go build -o endstate.exe ./cmd/endstate
+
+      # Best-effort: satisfies the "Notepad++ already installed" precondition of
+      # the apply test so it exercises the present/skip path deterministically
+      # instead of a real network install. continue-on-error keeps a winget
+      # hiccup from failing the lane — the engine still attempts the install
+      # itself during the test if the package is absent.
+      - name: Pre-install Notepad++ (apply fixture)
+        continue-on-error: true
+        shell: pwsh
+        run: winget install --id Notepad++.Notepad++ -e --source winget --accept-source-agreements --accept-package-agreements --silent --disable-interactivity
+
+      - name: Run integration test
+        shell: pwsh
+        run: cd go-engine && ./integration-test.ps1
+
   # macOS + Linux exercise the Nix realizer / home-manager code paths
   # (GOOS=darwin/linux) that the Windows job cross-compiles but never runs.
   # Hermetic suite only — no real Nix. fail-fast:false so one OS failing still
