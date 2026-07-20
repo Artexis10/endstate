@@ -192,7 +192,7 @@ endstate capabilities --json
       },
       "capture": {
         "supported": true,
-        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--only"]
+        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--only", "--share"]
       },
       "plan": {
         "supported": true,
@@ -647,6 +647,32 @@ Counts keep their existing meaning: `totalFound` reports what was detected on th
 On a host using a platform realizer (Nix/brew), `--only` filters the captured app set the same way. That path attaches no config modules by design, so `apps.`-prefixed tokens select nothing there.
 
 > **Note.** `data.appsIncluded[].id` carries the package *reference* (e.g. `Git.Git`), which is not the token `--only` matches. Each entry additionally carries `manifestId` (e.g. `git-git`) — the app's id in the written manifest, and the value to pass to `capture --only`, `apply --only`, and `rebuild --only`. Clients building a selection UI should use `manifestId`. The field is additive; `id` is unchanged.
+
+### Share Mode (`capture --share`)
+
+`capture --share --only <ids>` produces a bundle intended to be handed to someone else rather than used to rebuild the capturing machine. It requires `--only` — an unscoped share would attach every matched module's config, the opposite of a curated setup — and cannot be combined with `--sanitize`, which attaches no config at all. Both combinations are rejected with `MANIFEST_VALIDATION_ERROR` before anything is captured.
+
+A share bundle differs from a self-rebuild bundle in three ways:
+
+| | Self-rebuild bundle | Share bundle |
+|---|---|---|
+| Collision behavior | restore entries replace the target | entries prefer merging onto the recipient's config |
+| Backup | per module declaration | forced on for every entry |
+| `metadata.machineName` | the capturing machine | omitted (it identifies the sender) |
+
+Merge preference is decided at capture time and encoded in the bundled restore `type`, so an engine older than this change still merges when applying a newer share bundle.
+
+Retyping is conservative, because a wrong merge silently corrupts a config file while an honest replace is backed up and revertable:
+
+- `copy` becomes `merge-json` only when the staged payload is a strict JSON **object**. JSONC (comments, trailing commas) is rejected by the merge restorer's parser, and arrays or scalars are replaced rather than merged by the deep-merge rule — so a JSON array such as a keybindings file stays `copy`.
+- `copy` becomes `merge-ini` only for `.ini` targets, never for git config: INI merging collapses duplicate keys, which git relies on.
+- Any other declared type is left alone. A module author who chose `append` or `registry-set` knows something the inspection does not.
+
+`metadata` additionally records `os` (the capture host), `share`, and `name` (from `--name`). All three are additive.
+
+### Cross-OS Bundles
+
+`rebuild` refuses a bundle whose recorded `metadata.os` differs from the host, with `NOT_SUPPORTED` naming both operating systems. Config modules carry no non-Windows package identity and their paths are OS-specific, so a cross-OS apply would install nothing and restore to paths that do not exist. A bundle with no recorded `os` predates the field and is accepted.
 
 ### Convergence (`--prune`)
 
