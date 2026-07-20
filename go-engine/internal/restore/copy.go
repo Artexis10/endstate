@@ -61,7 +61,7 @@ func restoreCopyFile(entry RestoreAction, source, target string, opts RestoreOpt
 		if _, statErr := os.Stat(target); statErr == nil {
 			backupDir := opts.BackupDir
 			if backupDir == "" {
-				backupDir = filepath.Join("state", "backups", opts.RunID)
+				backupDir = defaultBackupDir(opts.RunID)
 			}
 			backupPath, backupErr := CreateBackup(target, backupDir)
 			if backupErr != nil {
@@ -127,7 +127,7 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		if _, statErr := os.Stat(target); statErr == nil {
 			backupDir := opts.BackupDir
 			if backupDir == "" {
-				backupDir = filepath.Join("state", "backups", opts.RunID)
+				backupDir = defaultBackupDir(opts.RunID)
 			}
 			backupPath, backupErr := CreateBackup(target, backupDir)
 			if backupErr != nil {

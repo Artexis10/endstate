@@ -6,7 +6,6 @@ package restore
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 )
 
@@ -102,7 +101,7 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 	if entry.Backup && targetExists {
 		backupDir := opts.BackupDir
 		if backupDir == "" {
-			backupDir = filepath.Join("state", "backups", opts.RunID)
+			backupDir = defaultBackupDir(opts.RunID)
 		}
 		backupPath, backupErr := CreateBackup(target, backupDir)
 		if backupErr != nil {
