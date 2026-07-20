@@ -617,6 +617,12 @@ The engine automatically maps only one viable target or one unique exact-version
 
 `rebuild --only <ids>` accepts the same app-id list and propagates it to the underlying apply, so installs, config restore, and verification are scoped alike. This lets a recipient take part of a shared capture bundle.
 
+### Advertised Restorable Modules (`restoreModulesAvailable`)
+
+`data.restoreModulesAvailable` lists the config modules this run can actually restore. A module appears only when the manifest declares it in `configModules` and does not exclude it via `excludeConfigs` — module restore is driven entirely by that declaration, so a module matched from the catalog but absent from it restores nothing.
+
+Clients may render this list as a per-module selection. An entry that would restore nothing is never offered, so a control built from this list always corresponds to real work.
+
 ### Capture-Subset Selection (`capture --only`)
 
 `capture --only <id[,id,...]>` limits a capture to the listed items. The flag name and comma-separated shape match `apply --only`; the token grammar is namespaced because capture selects across two kinds of thing:
@@ -640,7 +646,7 @@ Counts keep their existing meaning: `totalFound` reports what was detected on th
 
 On a host using a platform realizer (Nix/brew), `--only` filters the captured app set the same way. That path attaches no config modules by design, so `apps.`-prefixed tokens select nothing there.
 
-> **Note.** `data.appsIncluded[].id` carries the package *reference* (e.g. `Git.Git`), while `--only` matches the manifest app *id* (e.g. `git-git`). Clients building a selection UI should source ids from the written manifest, not from `appsIncluded`.
+> **Note.** `data.appsIncluded[].id` carries the package *reference* (e.g. `Git.Git`), which is not the token `--only` matches. Each entry additionally carries `manifestId` (e.g. `git-git`) — the app's id in the written manifest, and the value to pass to `capture --only`, `apply --only`, and `rebuild --only`. Clients building a selection UI should use `manifestId`. The field is additive; `id` is unchanged.
 
 ### Convergence (`--prune`)
 

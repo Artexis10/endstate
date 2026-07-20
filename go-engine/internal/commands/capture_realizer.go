@@ -356,7 +356,9 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		if source == "" {
 			source = driverName
 		}
-		appsIncluded = append(appsIncluded, CaptureApp{Source: source, ID: ca.ID, Name: ca.Name})
+		// The realizer path's ref and manifest id coincide, but both are emitted so
+		// clients can read manifestId uniformly across capture paths.
+		appsIncluded = append(appsIncluded, CaptureApp{Source: source, ID: ca.ID, ManifestID: ca.ID, Name: ca.Name})
 	}
 
 	// --- 10. Plan config capture and publish one canonical artifact ---

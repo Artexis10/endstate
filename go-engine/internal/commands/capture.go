@@ -177,7 +177,14 @@ type CaptureResult struct {
 type CaptureApp struct {
 	Source string `json:"source"`
 	Name   string `json:"name,omitempty"`
-	ID     string `json:"id"`
+	// ID is the package reference (e.g. "Git.Git"), kept as-is because clients
+	// match evidence on it.
+	ID string `json:"id"`
+	// ManifestID is the app's id in the written manifest (e.g. "git-git") — the
+	// token `--only` and `apply --only` match. It differs from ID, so without it
+	// a client cannot turn capture output into a selection: nothing in the
+	// envelope showed the value the user has to pass.
+	ManifestID string `json:"manifestId,omitempty"`
 }
 
 // CaptureModuleResult holds per-module capture details for ConfigModules.
@@ -947,8 +954,9 @@ func buildAppsIncluded(apps []capturedApp, displayNameMap map[string]string) []C
 			wingetID = ca.ID
 		}
 		entry := CaptureApp{
-			Source: ca.Source,
-			ID:     wingetID,
+			Source:     ca.Source,
+			ID:         wingetID,
+			ManifestID: ca.ID,
 		}
 		if entry.Source == "" {
 			entry.Source = ca.Backend

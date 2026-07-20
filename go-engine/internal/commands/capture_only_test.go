@@ -37,12 +37,13 @@ func TestRunCapture_OnlySelectsNamedApps(t *testing.T) {
 			t.Fatalf("RunCapture: %v", eerr)
 		}
 		result := raw.(*CaptureResult)
-		// NOTE: CaptureApp.ID is the package REF (Git.Git), while --only matches
-		// the manifest app id (git-git). Assert on the ref here and on the manifest
-		// id below, because the envelope does not currently surface the token a
-		// user must actually pass to --only.
 		if len(result.AppsIncluded) != 1 || result.AppsIncluded[0].ID != "Git.Git" {
 			t.Fatalf("expected only Git, got %+v", result.AppsIncluded)
+		}
+		// CaptureApp.ID is the package ref; ManifestID is the token --only matches.
+		// Without the latter a client cannot turn capture output into a selection.
+		if result.AppsIncluded[0].ManifestID != "git-git" {
+			t.Errorf("ManifestID = %q, want %q (the selectable token)", result.AppsIncluded[0].ManifestID, "git-git")
 		}
 		// totalFound stays pre-filter — that is what makes a subset legible as a
 		// subset rather than looking like a machine with one app on it.
