@@ -48,6 +48,35 @@ type CaptureFlags struct {
 	// merely has a path on this filesystem is not part of the selection — see
 	// modules.MatchModulesForAppsSelective.
 	Only string
+	// Share produces a bundle intended to be handed to someone else rather than
+	// used to rebuild the capturing machine. A share bundle prefers merging config
+	// onto the recipient's existing settings instead of replacing them, and omits
+	// the capturing machine's name.
+	//
+	// Requires --only: an unscoped share would attach every matched module's
+	// config, which is the opposite of handing over a curated setup.
+	Share bool
+}
+
+// validateShareFlags rejects --share combinations that cannot produce a useful
+// artifact, before anything is captured or written.
+func validateShareFlags(flags CaptureFlags) *envelope.Error {
+	if !flags.Share {
+		return nil
+	}
+	if strings.TrimSpace(flags.Only) == "" {
+		return envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--share requires --only: a share bundle is a curated selection, and an unscoped share would attach every matched module's config").
+			WithRemediation("Add a selection, e.g. --share --only git-git,apps.vscode.")
+	}
+	if flags.Sanitize {
+		return envelope.NewError(
+			envelope.ErrManifestValidationError,
+			"--share and --sanitize cannot be combined: --sanitize attaches no config at all, leaving nothing to share").
+			WithRemediation("Drop --sanitize to share settings, or drop --share to capture an app list only.")
+	}
+	return nil
 }
 
 // captureSelection is a parsed --only value for capture.
@@ -575,6 +604,9 @@ type captureManifestOutput struct {
 //  10. Non-sanitized: create zip bundle, populate config module fields
 //  11. Emit artifact and summary events
 func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
+	if shareErr := validateShareFlags(flags); shareErr != nil {
+		return nil, shareErr
+	}
 	runID := buildRunID("capture")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
 

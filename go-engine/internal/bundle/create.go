@@ -30,6 +30,18 @@ type BundleMetadata struct {
 	ConfigModulesIncluded  []string `json:"configModulesIncluded"`
 	ConfigModulesSkipped   []string `json:"configModulesSkipped"`
 	CaptureWarnings        []string `json:"captureWarnings"`
+	// OS is the host the bundle was captured on (runtime.GOOS). Written on every
+	// bundle so a consumer can refuse a cross-OS apply: the module catalog has no
+	// non-Windows package identity and module paths are Windows-shaped, so a
+	// cross-OS apply would transfer almost nothing. Absent on bundles written
+	// before this field existed, which are accepted for compatibility.
+	OS string `json:"os,omitempty"`
+	// Share marks a bundle produced for sharing rather than self-rebuild. Share
+	// bundles prefer merging config onto the recipient's rather than replacing it.
+	Share bool `json:"share,omitempty"`
+	// Name is the human label given at capture time (--name), carried so a
+	// recipient can see what they were handed.
+	Name string `json:"name,omitempty"`
 }
 
 // payloadPathPattern matches ./payload/apps/<id> sources with an optional

@@ -65,6 +65,7 @@ Per-command flags:
   --include-store-apps Include Microsoft Store apps (capture)
   --minimize           Minimize manifest format (capture)
   --pin                Record installed versions into the manifest (capture)
+  --share              Produce a bundle to hand to someone else (capture; needs --only)
   --driver <name>      Limit capture to a package driver; repeatable (capture)
   --bootstrap-backends Authorize setup of selected absent backends (apply, rebuild)
   --no-bootstrap       Skip selected absent backend lanes (apply, rebuild)
@@ -142,6 +143,7 @@ type parsedArgs struct {
 	includeStoreApps   bool
 	minimize           bool
 	pin                bool
+	share              bool
 	drivers            []string
 	driverMissingValue bool // --driver was present without a following value
 
@@ -219,6 +221,8 @@ func parseArgs(args []string) parsedArgs {
 			p.minimize = true
 		case "--pin":
 			p.pin = true
+		case "--share":
+			p.share = true
 		case "--driver":
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				p.drivers = append(p.drivers, args[i+1])
@@ -410,7 +414,7 @@ func commandUsage(cmd string) string {
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
-		return "Usage: endstate capture [--only <id[,id...]>] [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Repeat --driver to select more than one package driver. With --only, capture just the listed items: a bare id selects a detected app, an 'apps.'-prefixed id selects a config module (e.g. --only git-git,apps.vscode). Under --only, a config module attaches only when a selected app matches it by package reference or the module is named outright, so unselected apps' settings are never bundled. Combining --only with --update adds the selection to an existing manifest rather than truncating it.\n"
+		return "Usage: endstate capture [--only <id[,id...]>] [--share] [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Repeat --driver to select more than one package driver. With --only, capture just the listed items: a bare id selects a detected app, an 'apps.'-prefixed id selects a config module (e.g. --only git-git,apps.vscode). Under --only, a config module attaches only when a selected app matches it by package reference or the module is named outright, so unselected apps' settings are never bundled. Combining --only with --update adds the selection to an existing manifest rather than truncating it. With --share, the bundle is produced for someone else: config restore prefers merging onto the recipient's existing settings rather than replacing them, and the capturing machine name is omitted. --share requires --only and cannot be combined with --sanitize.\n"
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
@@ -607,6 +611,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Drivers:          p.drivers,
 			Events:           p.events,
 			Only:             p.only,
+			Share:            p.share,
 		})
 
 	case "plan":
