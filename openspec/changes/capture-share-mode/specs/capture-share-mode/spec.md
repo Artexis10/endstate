@@ -95,3 +95,52 @@ A bundle that records no capture OS predates the field and SHALL be accepted.
 
 - **WHEN** a bundle predating the OS field is applied
 - **THEN** the rebuild proceeds
+
+### Requirement: Share bundles have identity redacted and report the boundary
+
+A share bundle SHALL have identity-bearing values removed from its configuration payloads. Self-rebuild bundles SHALL be unaffected.
+
+Config modules whose payloads are inherently account- or device-bound SHALL be omitted from a share bundle entirely, and each omission SHALL be reported as a capture warning.
+
+Payload text SHALL have Windows user-path segments, email addresses, and the capturing hostname replaced. Git configuration SHALL additionally have its user identity fields removed while other settings are preserved.
+
+Bundle metadata SHALL report per-rule replacement counts and SHALL name every payload that could not be decoded as text. Those payloads SHALL be left byte-identical. A payload's encoding SHALL be preserved when it is rewritten.
+
+#### Scenario: User paths, emails and hostname are replaced
+
+- **WHEN** a share bundle is produced from payloads containing a user path, an email address, and the capturing machine's hostname
+- **THEN** none of those values appear in the bundled payloads
+- **AND** the metadata reports a replacement count per rule
+
+#### Scenario: Escaped and percent-encoded paths are replaced
+
+- **WHEN** a payload stores a path escaped, or as a file URI with a percent-encoded drive letter
+- **THEN** the username segment is replaced in both forms
+
+#### Scenario: Git identity is stripped but preferences survive
+
+- **WHEN** a git configuration payload declares a user name, email, signing key, and an unrelated setting
+- **THEN** the identity fields are redacted
+- **AND** the unrelated setting is unchanged
+
+#### Scenario: Account-bound modules are omitted and reported
+
+- **WHEN** a selection includes a module whose configuration is account- or device-bound
+- **THEN** that module's configuration is absent from the bundle
+- **AND** a capture warning names it
+
+#### Scenario: Undecodable payloads are reported, not altered
+
+- **WHEN** a payload cannot be decoded as text
+- **THEN** it is listed as unscanned in the metadata
+- **AND** its bytes are unchanged
+
+#### Scenario: Encoding is preserved on rewrite
+
+- **WHEN** a UTF-16 payload with a byte-order mark is redacted
+- **THEN** the rewritten payload retains its encoding and byte-order mark
+
+#### Scenario: Redaction is idempotent
+
+- **WHEN** already-redacted text is redacted again
+- **THEN** it is unchanged and no further replacements are counted

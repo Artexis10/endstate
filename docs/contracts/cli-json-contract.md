@@ -625,6 +625,20 @@ Retyping is conservative, because a wrong merge silently corrupts a config file 
 
 `metadata` additionally records `os` (the capture host), `share`, and `name` (from `--name`). All three are additive.
 
+#### Redaction
+
+A share bundle has identity-bearing values removed from its payloads. Self-rebuild bundles are untouched — a rebuild wants full fidelity, including the values this strips.
+
+Three layers apply:
+
+- **Account-bound modules are omitted whole** rather than scrubbed (mail clients, remote-access tools). Each omission appears in `captureWarnings`.
+- **A pattern pass** over decoded payloads replaces Windows user-path segments (including escaped `C:\Users\name` and percent-encoded `file:///c%3A/Users/name/...` forms), email addresses, and the capturing hostname.
+- **Git config** additionally has `user.name`, `user.email` and `user.signingkey` stripped; ordinary settings are preserved.
+
+`metadata.redaction` reports what happened: per-rule replacement counts, files scanned and changed, and `unscanned` — the payloads that could not be decoded as text. Their contents were neither examined nor altered.
+
+**Known limits, by design.** Redaction does not replace: bare usernames outside a path context; licence-key or product-key shapes; paths on drives without a `Users` directory; or anything inside a payload listed in `unscanned`. A sharer should review the bundle before sending it. These limits are deliberate — patterns aggressive enough to catch them corrupt functional configuration at an unacceptable rate.
+
 ### Cross-OS Bundles
 
 `rebuild` refuses a bundle whose recorded `metadata.os` differs from the host, with `NOT_SUPPORTED` naming both operating systems. Config modules carry no non-Windows package identity and their paths are OS-specific, so a cross-OS apply would install nothing and restore to paths that do not exist. A bundle with no recorded `os` predates the field and is accepted.

@@ -44,10 +44,11 @@
 
 ## 6. Not in this change
 
-- [ ] 6.1 **Redaction.** A share bundle still carries whatever the captured config files
-      contain — git `user.email`, absolute user paths, hostnames inside payloads. Only
-      `machineName` is omitted. This limitation must be stated wherever `--share` is surfaced
-      until redaction lands.
+- [x] 6.1 **Redaction — DONE.** Three layers (account-bound module deny list, pattern pass,
+      git identity strip) plus a `metadata.redaction` report naming every payload that could
+      not be decoded. Known limits are documented in the contract and asserted in tests:
+      bare usernames outside a path context, licence-key shapes, non-`Users` drive paths,
+      and undecodable payloads.
 - [ ] 6.2 Recipient-side backup directory: when no repo root resolves, restorers fall back to a
       CWD-relative `state/backups/<runID>`, so a recipient's pre-overwrite backups land wherever
       they happened to run from. Share mode forces backup on, which makes this more visible.
