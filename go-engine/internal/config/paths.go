@@ -77,46 +77,6 @@ func walkUpFor(start string, match func(dir string) bool) string {
 	}
 }
 
-// StateRoot returns the directory Endstate writes run state into: backups, the
-// restore journal, and state.json.
-//
-// It is the repo root's state/ when a root resolves, and a stable user-scoped
-// directory otherwise. The fallback matters because the alternative — a
-// CWD-relative path — puts a recipient's pre-overwrite backups wherever they
-// happened to run the command from. Backups that cannot be found are not a
-// safety net, and "backup before overwrite" is an invariant, not a best effort.
-//
-// Returns an empty string only if neither a repo root nor a home directory can
-// be determined, leaving the decision to the caller.
-func StateRoot() string {
-	if root := ResolveRepoRoot(); root != "" {
-		return filepath.Join(root, "state")
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return stateRootFor(runtime.GOOS, home, os.Getenv("XDG_STATE_HOME"))
-}
-
-// stateRootFor computes the user-scoped state directory for the given OS.
-// Separators are written for the target OS so the result is host-independent
-// and unit-testable from any platform.
-func stateRootFor(goos, home, xdgStateHome string) string {
-	switch goos {
-	case "windows":
-		return home + `\AppData\Local\Endstate\state`
-	case "darwin":
-		return home + "/Library/Application Support/Endstate/state"
-	default:
-		base := xdgStateHome
-		if base == "" {
-			base = home + "/.local/state"
-		}
-		return base + "/endstate"
-	}
-}
-
 // ProfileDir returns the path to the Endstate profiles directory for the host
 // platform. On Windows this is <home>\Documents\Endstate\Profiles; on Linux it
 // follows the XDG Base Directory specification; on macOS it uses Application

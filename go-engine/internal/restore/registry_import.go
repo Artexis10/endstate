@@ -164,7 +164,7 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 		if keyExists {
 			backupDir := opts.BackupDir
 			if backupDir == "" {
-				backupDir = defaultBackupDir(opts.RunID)
+				backupDir = filepath.Join("state", "backups", opts.RunID)
 			}
 			if mkErr := os.MkdirAll(backupDir, 0755); mkErr != nil {
 				result.Status = "failed"

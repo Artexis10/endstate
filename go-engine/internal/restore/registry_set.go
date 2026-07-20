@@ -71,7 +71,7 @@ func validateRegistrySet(entry RestoreAction) error {
 func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (string, error) {
 	backupDir := opts.BackupDir
 	if backupDir == "" {
-		backupDir = defaultBackupDir(opts.RunID)
+		backupDir = filepath.Join("state", "backups", opts.RunID)
 	}
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return "", fmt.Errorf("cannot create backup directory: %w", err)

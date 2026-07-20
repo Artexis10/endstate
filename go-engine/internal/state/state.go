@@ -19,7 +19,7 @@ type State struct {
 	SchemaVersion string `json:"schemaVersion"`
 	LastRunID     string `json:"lastRunId"`
 	LastCommand   string `json:"lastCommand"`
-	LastTimestamp string `json:"lastTimestamp"`
+	LastTimestamp  string `json:"lastTimestamp"`
 	RunCount      int    `json:"runCount"`
 }
 
@@ -28,11 +28,10 @@ type State struct {
 // config.ResolveRepoRoot(). If the repo root cannot be determined it falls
 // back to a "state" directory relative to the current working directory.
 func StateDir() string {
-	if root := config.StateRoot(); root != "" {
-		return root
+	root := config.ResolveRepoRoot()
+	if root != "" {
+		return filepath.Join(root, "state")
 	}
-	// Neither a repo root nor a home directory resolved. Preserve the historical
-	// relative path rather than failing; callers already tolerate it.
 	return filepath.Join(".", "state")
 }
 

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 )
 
@@ -94,7 +95,7 @@ func RestoreMergeJson(entry RestoreAction, source, target string, opts RestoreOp
 		if _, statErr := os.Stat(target); statErr == nil {
 			backupDir := opts.BackupDir
 			if backupDir == "" {
-				backupDir = defaultBackupDir(opts.RunID)
+				backupDir = filepath.Join("state", "backups", opts.RunID)
 			}
 			backupPath, backupErr := CreateBackup(target, backupDir)
 			if backupErr != nil {

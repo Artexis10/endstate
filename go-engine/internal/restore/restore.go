@@ -479,17 +479,3 @@ func emitRestoreItemEvent(emitter *events.Emitter, entry RestoreAction, result R
 
 	emitter.EmitItem(eventID, driverName, itemStatus, reason, result.Error, name)
 }
-
-// defaultBackupDir resolves where to write backups when the caller supplied no
-// BackupDir.
-//
-// Routed through config.StateRoot so it lands in the repo's state/ when one
-// resolves and in a stable user-scoped directory otherwise. The previous
-// CWD-relative fallback put a recipient's pre-overwrite backups wherever they
-// happened to run from, which makes "backup before overwrite" unverifiable.
-func defaultBackupDir(runID string) string {
-	if root := config.StateRoot(); root != "" {
-		return filepath.Join(root, "backups", runID)
-	}
-	return filepath.Join("state", "backups", runID)
-}
