@@ -390,8 +390,16 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		}
 		for _, restore := range mod.Restore {
 			entry := rewriteLegacyRestore(restore, layoutID)
+			// Module provenance travels with every bundle, not just mixed-v2 ones.
+			// Restore input building routes an entry with an empty FromModule into
+			// ordinaryRestores, which is converted with an empty filter and is never
+			// reached by --only scoping — so a plain v1 bundle's entries were
+			// unfilterable, and a recipient running `apply --only <app>
+			// --enable-restore` got every module's config instead of the selection.
+			entry.FromModule = mod.ID
+			// LegacyCaptureID stays v2-only: the v1 input validator rejects a
+			// manifest that carries explicit v2 legacy identity.
 			if mixedV2 {
-				entry.FromModule = mod.ID
 				entry.LegacyCaptureID = legacyCaptureID
 			}
 			legacy.restores = append(legacy.restores, entry)
