@@ -3,7 +3,10 @@
 
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 // TestStateRootFor_IsUserScopedNotRelative is the regression for backups landing
 // in the working directory.
@@ -38,12 +41,17 @@ func TestStateRootFor_IsUserScopedNotRelative(t *testing.T) {
 
 // TestStateRoot_PrefersRepoRoot keeps development and repo-checkout behaviour
 // unchanged: state stays inside the checkout when one resolves.
+//
+// The root and the expectation are both built with the host's separator. An
+// earlier version hardcoded a Windows-shaped path and passed on Windows while
+// failing on Linux and macOS, where filepath.Join produces a mixed separator.
 func TestStateRoot_PrefersRepoRoot(t *testing.T) {
-	t.Setenv("ENDSTATE_ROOT", `C:\repo`)
+	root := filepath.Join(t.TempDir(), "repo")
+	t.Setenv("ENDSTATE_ROOT", root)
 
 	got := StateRoot()
 
-	if got != `C:\repo\state` && got != "C:/repo/state" {
-		t.Errorf("StateRoot() = %q, want the repo's state directory", got)
+	if want := filepath.Join(root, "state"); got != want {
+		t.Errorf("StateRoot() = %q, want %q", got, want)
 	}
 }
