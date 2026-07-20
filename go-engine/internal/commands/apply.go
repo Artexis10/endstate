@@ -199,6 +199,10 @@ func validateOnly(flags ApplyFlags, mf *manifest.Manifest) ([]manifest.App, *env
 type RestoreModuleRef struct {
 	ID          string `json:"id"`
 	DisplayName string `json:"displayName"`
+	// EntryCount is how many of the manifest's restore entries resolved to this
+	// module. Always > 0: a module with no resolved entries is omitted rather
+	// than reported as empty, so membership and count cannot disagree.
+	EntryCount int `json:"entryCount"`
 }
 
 // ApplyResult is the data payload for the apply command JSON envelope.
@@ -351,7 +355,6 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// restoreModulesAvailable are scoped to the filtered app set.
 	var configModuleMap map[string]string
 	var packageModuleMap map[string][]string
-	var restoreModulesAvailable []RestoreModuleRef
 	var matchedModules []*modules.Module
 	if catalog != nil {
 		matchedModules = modules.MatchModulesForApps(catalog, mf.Apps)
@@ -368,13 +371,26 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 					shortID := strings.TrimPrefix(mod.ID, "apps.")
 					configModuleMap[shortID] = mod.ID
 				}
-				restoreModulesAvailable = append(restoreModulesAvailable, RestoreModuleRef{
-					ID:          mod.ID,
-					DisplayName: resolveModuleDisplayName(mod),
-				})
 			}
 		}
 	}
+	// restoreModulesAvailable answers "which settings does this profile carry",
+	// not "which catalog modules match these apps" — the two diverge sharply
+	// (measured 41 vs 8 on a real profile), and the former is what a consumer
+	// offering settings to restore actually needs. Scoped from the manifest's
+	// restore entries, independent of the module match above.
+	//
+	// --only still applies: mf.Restore is not filtered by the subset (only
+	// mf.Apps is), so the modules matched to the already-filtered app set are
+	// passed as the allow-list to keep the offered settings inside the selection.
+	var onlyModuleIDs map[string]bool
+	if flags.Only != "" {
+		onlyModuleIDs = make(map[string]bool, len(matchedModules))
+		for _, mod := range matchedModules {
+			onlyModuleIDs[mod.ID] = true
+		}
+	}
+	restoreScope := scopeRestoreModules(mf, catalog, onlyModuleIDs)
 	if flags.Only != "" {
 		scopeConfigRestoreRuntimeForOnly(configRuntime, matchedModules)
 	}
@@ -439,12 +455,12 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 		if nixNeeded && avail[bootstrap.BackendNix] {
 			rzMf := *mf
 			rzMf.Apps = restApps
-			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable, brewApps, brewDrv, unsupportedApps)
+			return runApplyRealizer(flags, &rzMf, rz, emitter, runID, configModuleMap, packageModuleMap, restoreScope, brewApps, brewDrv, unsupportedApps)
 		}
-		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable, unsupportedApps)
+		return runApplyBrewOnly(flags, mf, restApps, brewApps, brewDrv, emitter, runID, configModuleMap, packageModuleMap, restoreScope, unsupportedApps)
 	}
 
-	return runApplyDriverLanes(flags, mf, emitter, runID, configModuleMap, packageModuleMap, restoreModulesAvailable)
+	return runApplyDriverLanes(flags, mf, emitter, runID, configModuleMap, packageModuleMap, restoreScope)
 }
 
 func scopeConfigRestoreRuntimeForOnly(runtime *configRestoreRuntime, matched []*modules.Module) {

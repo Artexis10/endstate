@@ -73,7 +73,7 @@ func runApplyDriverLanes(
 	runID string,
 	configModuleMap map[string]string,
 	packageModuleMap map[string][]string,
-	restoreModulesAvailable []RestoreModuleRef,
+	restoreScope *restoreModuleScope,
 ) (interface{}, *envelope.Error) {
 	if flags.Prune {
 		return nil, envelope.NewError(
@@ -91,6 +91,7 @@ func runApplyDriverLanes(
 		return nil, envelope.NewError(envelope.ErrInternalError, routeErr.Error())
 	}
 	warnings = append(warnings, possibleDuplicatePackageWarnings(routed)...)
+	warnings = append(warnings, restoreScope.warnings()...)
 	routedByIndex := make(map[int]*routedDriverApp, len(routed))
 	for _, route := range routed {
 		routedByIndex[route.index] = route
@@ -225,7 +226,7 @@ func runApplyDriverLanes(
 				Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 				Summary:  ApplySummary{Total: totalApps, Skipped: presentCount + planSkipped, Failed: planFailed},
 				Actions:  finalActions, ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap,
-				Warnings: warnings, RestoreModulesAvailable: restoreModulesAvailable, ConfigResultFields: configFields,
+				Warnings: warnings, RestoreModulesAvailable: restoreScope.modules(), ConfigResultFields: configFields,
 			}, configErr
 		}
 	}
@@ -349,7 +350,7 @@ func runApplyDriverLanes(
 				Manifest: ApplyManifestRef{Path: flags.Manifest, Name: mf.Name},
 				Summary:  ApplySummary{Total: totalApps, Success: successCount, Skipped: skippedCount, Failed: failedCount},
 				Actions:  finalActions, ConfigModuleMap: configModuleMap, PackageModuleMap: packageModuleMap,
-				Warnings: warnings, RestoreModulesAvailable: restoreModulesAvailable, ConfigResultFields: configFields,
+				Warnings: warnings, RestoreModulesAvailable: restoreScope.modules(), ConfigResultFields: configFields,
 			}, configErr
 		}
 
@@ -442,7 +443,7 @@ func runApplyDriverLanes(
 		ConfigModuleMap:         configModuleMap,
 		PackageModuleMap:        packageModuleMap,
 		Warnings:                warnings,
-		RestoreModulesAvailable: restoreModulesAvailable,
+		RestoreModulesAvailable: restoreScope.modules(),
 		ConfigResultFields:      configFields,
 	}, nil
 }

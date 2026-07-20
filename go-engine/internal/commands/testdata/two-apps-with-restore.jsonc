@@ -1,0 +1,47 @@
+{
+  // Fixture manifest for commands tests — two apps with Windows refs that also
+  // carry restore payload, so restoreModulesAvailable has something to scope to.
+  // vscode carries two entries and git one, so entryCount is distinguishable.
+  "version": 1,
+  "name": "test-manifest-with-restore",
+  "apps": [
+    {
+      "id": "vscode",
+      "refs": {
+        "windows": "Microsoft.VisualStudioCode"
+      }
+    },
+    {
+      "id": "git",
+      "refs": {
+        "windows": "Git.Git"
+      }
+    }
+  ],
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./configs/vscode/settings.json",
+      "target": "%APPDATA%\\Code\\User\\settings.json",
+      "fromModule": "apps.vscode",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./configs/vscode/keybindings.json",
+      "target": "%APPDATA%\\Code\\User\\keybindings.json",
+      "fromModule": "apps.vscode",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./configs/git/.gitconfig",
+      "target": "%USERPROFILE%\\.gitconfig",
+      "fromModule": "apps.git",
+      "backup": true,
+      "optional": true
+    }
+  ]
+}
