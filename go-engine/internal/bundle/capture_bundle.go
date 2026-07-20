@@ -145,13 +145,30 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		manifestVersion = 2
 		bundleSchemaVersion = "2.0"
 	}
-	legacy, err := collectLegacyCaptureLanes(request.Modules, stagingRoot, manifestVersion == 2)
+	captureModules := request.Modules
+	var deniedModules []string
+	if request.Share {
+		// Drop account- and device-bound modules whole rather than scrubbing them.
+		// Their value to a recipient is near zero and partially redacting a
+		// credential-shaped store is a bad trade.
+		captureModules, deniedModules = partitionShareDeniedModules(captureModules)
+	}
+	legacy, err := collectLegacyCaptureLanes(captureModules, stagingRoot, manifestVersion == 2)
 	if err != nil {
 		return nil, err
 	}
 
 	prepareCaptureManifest(baseManifest, manifestVersion, configCaptures, legacy)
+	var redaction RedactionReport
 	if request.Share {
+		// Redact before the merge sniff, because redaction rewrites payload bytes
+		// and the sniff decides on those bytes. Doing it the other way round could
+		// classify a file that redaction then changes.
+		var redactErr error
+		redaction, redactErr = redactShareTree(stagingRoot, captureHostname())
+		if redactErr != nil {
+			return nil, fmt.Errorf("capture bundle: redact share payloads: %w", redactErr)
+		}
 		// Decided at capture time and encoded in the restore types, so an older
 		// engine applying this bundle still merges. Runs after the manifest is
 		// assembled so it sees the final rewritten ./configs/ sources it needs to
@@ -175,6 +192,10 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		captureIDs = append(captureIDs, capture.CaptureID)
 	}
 	captureWarnings := append([]string(nil), legacy.warnings...)
+	for _, denied := range deniedModules {
+		captureWarnings = append(captureWarnings,
+			"share mode omitted "+denied+": its configuration is account- or device-bound and is not portable to another person")
+	}
 	for _, diagnostic := range diagnostics {
 		captureWarnings = append(captureWarnings, captureBundleDiagnosticWarning(diagnostic))
 	}
@@ -196,6 +217,9 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		OS:                    runtime.GOOS,
 		Share:                 request.Share,
 		Name:                  request.Name,
+	}
+	if request.Share {
+		metadata.Redaction = &redaction
 	}
 	if manifestVersion == 2 {
 		metadata.ManifestVersion = manifestVersion
@@ -599,4 +623,18 @@ func nonNilConfigCaptures(values []manifest.ConfigCapture) []manifest.ConfigCapt
 		return []manifest.ConfigCapture{}
 	}
 	return append([]manifest.ConfigCapture(nil), values...)
+}
+
+// partitionShareDeniedModules splits modules into those a share bundle may
+// carry and those it must not, preserving order.
+func partitionShareDeniedModules(mods []*modules.Module) (kept []*modules.Module, denied []string) {
+	for _, mod := range mods {
+		if mod != nil && ShareModuleDenied(mod.ID) {
+			denied = append(denied, mod.ID)
+			continue
+		}
+		kept = append(kept, mod)
+	}
+	sort.Strings(denied)
+	return kept, denied
 }

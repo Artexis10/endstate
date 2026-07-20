@@ -43,8 +43,8 @@ func TestIsOversizedInstaller(t *testing.T) {
 	}{
 		{"powertoysusersetup-0.98.1-x64.exe", big, true},
 		{"installer.msi", big, true},
-		{"app.MSIX", big, true},      // case-insensitive ext
-		{"helper.exe", small, false}, // small binary rides along
+		{"app.MSIX", big, true},       // case-insensitive ext
+		{"helper.exe", small, false},  // small binary rides along
 		{"settings.json", big, false}, // not an installer ext
 		{"notes.txt", big * 100, false},
 	}

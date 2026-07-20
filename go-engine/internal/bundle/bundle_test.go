@@ -527,14 +527,14 @@ func TestCollectConfigFiles_NoCaptureSection(t *testing.T) {
 
 func TestMatchesExcludeGlobs(t *testing.T) {
 	tests := []struct {
-		path    string
-		globs   []string
-		want    bool
+		path  string
+		globs []string
+		want  bool
 	}{
 		{"/path/to/Cache/data.bin", []string{"**/Cache/**"}, true},
 		{"/path/to/config.json", []string{"**/Cache/**"}, false},
-		{"/path/to/file.log", []string{"*.log"}, true},      // *.log matches file segment
-		{"/path/to/debug.log", []string{"*.log"}, true},    // *.log matches any .log file
+		{"/path/to/file.log", []string{"*.log"}, true},  // *.log matches file segment
+		{"/path/to/debug.log", []string{"*.log"}, true}, // *.log matches any .log file
 		{"/path/to/settings.json", []string{"*.log"}, false},
 		{"/path/to/file.txt", nil, false},
 		{"/path/to/file.txt", []string{}, false},
