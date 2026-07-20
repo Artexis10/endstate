@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.25.0](https://github.com/Artexis10/endstate/compare/v2.24.2...v2.25.0) (2026-07-20)
+
+
+### Features
+
+* **import:** UniGetUI .ubundle importer — manifest-import capability ([#147](https://github.com/Artexis10/endstate/issues/147)) ([4f15cd4](https://github.com/Artexis10/endstate/commit/4f15cd4980c5b330e61d98b6dae3de0e4e3ec3c5))
+
+
+### Bug Fixes
+
+* **apply:** scope restoreModulesAvailable to profile contents ([#161](https://github.com/Artexis10/endstate/issues/161)) ([a650f8f](https://github.com/Artexis10/endstate/commit/a650f8f22ffef9ea6207ad07a96b31b030394000))
+
 ## [2.24.2](https://github.com/Artexis10/endstate/compare/v2.24.1...v2.24.2) (2026-07-18)
 
 
