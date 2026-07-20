@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
@@ -78,6 +79,22 @@ func RunBootstrap(flags BootstrapFlags) (interface{}, *envelope.Error) {
 		)
 	}
 
+	// Install the module catalog alongside the binary. Without it a PATH-invoked
+	// endstate resolves no catalog and capture silently emits an app list with no
+	// settings. Non-fatal: a bare binary outside a repo or GUI layout has no
+	// source to copy from, and the shim is still worth installing.
+	sourceRoot := flags.RepoRoot
+	if sourceRoot == "" {
+		sourceRoot = config.ResolveRepoRoot()
+	}
+	catalogInstalled, catalogErr := installCatalog(sourceRoot, installDir)
+	if catalogErr != nil {
+		return nil, envelope.NewError(
+			envelope.ErrInternalError,
+			fmt.Sprintf("Failed to install module catalog: %s", catalogErr.Error()),
+		)
+	}
+
 	// Check if installDir is already in the user PATH and add it if not.
 	addedToPath := false
 	if !isInUserPath(installDir) {
@@ -91,9 +108,10 @@ func RunBootstrap(flags BootstrapFlags) (interface{}, *envelope.Error) {
 	}
 
 	return &BootstrapData{
-		InstallPath: installDir,
-		ShimPath:    shimPath,
-		AddedToPath: addedToPath,
+		InstallPath:      installDir,
+		ShimPath:         shimPath,
+		AddedToPath:      addedToPath,
+		CatalogInstalled: catalogInstalled,
 	}, nil
 }
 

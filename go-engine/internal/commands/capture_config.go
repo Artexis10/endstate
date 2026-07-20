@@ -124,6 +124,13 @@ type captureConfigFinalization struct {
 	CaptureWarnings      []string
 	ConfigCapture        CaptureConfigSummary
 	SensitiveExcluded    int
+	// CatalogUnavailable reports that no repo root resolved, so no config module
+	// catalog could be reached and this capture carries apps without their
+	// settings. Callers surface it as a warning: losing the settings is the
+	// difference between Endstate and a package-list export, and it must never be
+	// an invisible downgrade. A catalog that loads and is merely empty is a wired
+	// install that matched nothing, not a misconfiguration, so it is not flagged.
+	CatalogUnavailable bool
 }
 
 // captureConfigPlanning pins every capture decision to one catalog snapshot.
@@ -377,7 +384,18 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		CaptureWarnings:      nonNilCommandStrings(bundleResult.CaptureWarnings),
 		ConfigCapture:        configSummary,
 		SensitiveExcluded:    sensitiveExcluded,
+		CatalogUnavailable:   repoRoot == "",
 	}, nil
+}
+
+// captureCatalogUnavailableWarning is the warning surfaced when a capture could
+// not reach a config module catalog. Shared by the package and realizer capture
+// paths so the message and remediation stay identical.
+func captureCatalogUnavailableWarning() CommandWarning {
+	return CommandWarning{
+		Code:    "module_catalog_unavailable",
+		Message: "No config module catalog resolved; this capture records installed apps but none of their settings. Re-run 'endstate bootstrap' to install the catalog, or set ENDSTATE_ROOT to a checkout.",
+	}
 }
 
 func generationBundleSchemaVersion(finalization *captureConfigFinalization) string {

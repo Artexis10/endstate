@@ -16,8 +16,10 @@ import (
 //  1. ENDSTATE_ROOT environment variable (if set and non-empty).
 //  2. Walk up from the directory containing the running executable, looking for
 //     ".release-please-manifest.json" — the repo root is the directory that
-//     contains it.
-//  3. If neither source produces a result, returns an empty string and the caller
+//     contains it. This identifies a repo checkout.
+//  3. Walk up again looking for a "modules/apps" directory. This identifies an
+//     installed layout, which carries the module catalog but no repo marker.
+//  4. If no source produces a result, returns an empty string and the caller
 //     must handle the missing-root case.
 func ResolveRepoRoot() string {
 	if root := os.Getenv("ENDSTATE_ROOT"); root != "" {
@@ -35,21 +37,44 @@ func ResolveRepoRoot() string {
 		return ""
 	}
 
-	dir := filepath.Dir(exe)
+	start := filepath.Dir(exe)
+
+	if root := walkUpFor(start, func(dir string) bool {
+		_, err := os.Stat(filepath.Join(dir, ".release-please-manifest.json"))
+		return err == nil
+	}); root != "" {
+		return root
+	}
+
+	// Installed layout: no repo marker exists, because bootstrap does not write
+	// one. Fall back to the catalog itself — an install that carries modules is
+	// a usable root. From <install>\bin\lib\endstate.exe this resolves <install>\bin.
+	//
+	// Ordering is deliberate: this runs only where the marker walk already
+	// returned nothing, so a repo checkout and an ENDSTATE_ROOT override both
+	// still win and existing behaviour is unchanged. Without this step a
+	// PATH-invoked binary resolves no root at all, and capture silently emits an
+	// app-list-only manifest with none of the config modules that are the point.
+	return walkUpFor(start, func(dir string) bool {
+		info, err := os.Stat(filepath.Join(dir, "modules", "apps"))
+		return err == nil && info.IsDir()
+	})
+}
+
+// walkUpFor returns the nearest ancestor of start (inclusive) satisfying match,
+// or "" if the filesystem root is reached without a hit.
+func walkUpFor(start string, match func(dir string) bool) string {
+	dir := start
 	for {
-		candidate := filepath.Join(dir, ".release-please-manifest.json")
-		if _, err := os.Stat(candidate); err == nil {
+		if match(dir) {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached filesystem root without finding manifest.
-			break
+			return ""
 		}
 		dir = parent
 	}
-
-	return ""
 }
 
 // ProfileDir returns the path to the Endstate profiles directory for the host
