@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -43,6 +44,11 @@ type CaptureBundleRequest struct {
 	// refusals that produced no executable collection plan. They are reported
 	// and persisted exactly like collection-time diagnostics.
 	PreplanningDiagnostics []CaptureBundleDiagnostic
+	// Share marks this bundle as produced for sharing rather than self-rebuild.
+	// It makes restore entries merge-preferring and blanks the machine name.
+	Share bool
+	// Name is the human label for the bundle (--name), recorded in metadata.
+	Name string
 }
 
 // CaptureBundleDiagnostic records a non-fatal per-config-set capture outcome.
@@ -145,6 +151,13 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	}
 
 	prepareCaptureManifest(baseManifest, manifestVersion, configCaptures, legacy)
+	if request.Share {
+		// Decided at capture time and encoded in the restore types, so an older
+		// engine applying this bundle still merges. Runs after the manifest is
+		// assembled so it sees the final rewritten ./configs/ sources it needs to
+		// sniff.
+		baseManifest.Restore = preferMergeForShare(baseManifest.Restore, stagingRoot)
+	}
 	stagedManifest := filepath.Join(stagingRoot, "manifest.jsonc")
 	manifestBytes, err := json.MarshalIndent(baseManifest, "", "  ")
 	if err != nil {
@@ -166,14 +179,23 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		captureWarnings = append(captureWarnings, captureBundleDiagnosticWarning(diagnostic))
 	}
 	sort.Strings(captureWarnings)
+	machineName := captureHostname()
+	if request.Share {
+		// The hostname is an identifier of the sender, and a share bundle is
+		// handed to someone else.
+		machineName = ""
+	}
 	metadata := BundleMetadata{
 		SchemaVersion:         bundleSchemaVersion,
 		CapturedAt:            time.Now().UTC().Format(time.RFC3339),
-		MachineName:           captureHostname(),
+		MachineName:           machineName,
 		EndstateVersion:       request.EndstateVersion,
 		ConfigModulesIncluded: nonNilStrings(legacy.included),
 		ConfigModulesSkipped:  nonNilStrings(legacy.skipped),
 		CaptureWarnings:       nonNilStrings(captureWarnings),
+		OS:                    runtime.GOOS,
+		Share:                 request.Share,
+		Name:                  request.Name,
 	}
 	if manifestVersion == 2 {
 		metadata.ManifestVersion = manifestVersion

@@ -429,6 +429,8 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		Modules:                planning.Modules,
 		GenerationPlans:        planning.GenerationPlans,
 		PreplanningDiagnostics: planning.PreplanningDiagnostics,
+		Share:                  request.Flags.Share,
+		Name:                   request.Flags.Name,
 	})
 	if err != nil {
 		return nil, err
