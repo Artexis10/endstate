@@ -129,6 +129,7 @@ The defined warning codes are:
 
 - `optional_driver_unavailable`: an optional driver could not participate; independent available lanes continue.
 - `possible_duplicate`: different package drivers report or declare the same qualifying display name. Every entry remains present and independently routed.
+- `module_catalog_unavailable` (`capture`): no config module catalog could be reached, so the capture records installed apps but none of their settings. Emitted when no repo root resolves; a catalog that loads but contains no modules is a correctly configured install that matched nothing and does NOT warn, and an unreadable catalog is a hard `CAPTURE_FAILED` rather than a warning. Not emitted under `--sanitize`, which opts out of config modules deliberately.
 
 For `plan`, `apply`, and `verify`, `possible_duplicate` is an advisory ownership warning based only on routed, non-manual per-package entries. Two entries qualify when their resolved driver names differ and their non-empty explicit manifest `displayName` values are equal after trimming outer whitespace and case-insensitive comparison. Refs, IDs, versions, inferred or backend-detected labels, substrings, punctuation normalization, and fuzzy similarity are not duplicate evidence. Whole-set realizer and manual entries do not participate.
 
@@ -191,7 +192,7 @@ endstate capabilities --json
       },
       "capture": {
         "supported": true,
-        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin"]
+        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--only"]
       },
       "plan": {
         "supported": true,
@@ -199,11 +200,11 @@ endstate capabilities --json
       },
       "restore": {
         "supported": true,
-        "flags": ["--manifest", "--restore-filter", "--restore-target", "--json", "--events", "--filter"]
+        "flags": ["--manifest", "--restore-filter", "--restore-target", "--json", "--events"]
       },
       "rebuild": {
         "supported": true,
-        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"]
+        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events", "--only"]
       },
       "report": {
         "supported": true,
@@ -568,6 +569,33 @@ The engine automatically maps only one viable target or one unique exact-version
 | `--dry-run` | Can be combined with `--only` to preview the subset plan without executing. This is the GUI's per-app selection preview path. |
 
 `--only` cannot be combined with `--prune` — prune converges to the exact manifest set, and pruning against a deliberate subset would classify every unselected app as drift. The combination is rejected with `MANIFEST_VALIDATION_ERROR`.
+
+`rebuild --only <ids>` accepts the same app-id list and propagates it to the underlying apply, so installs, config restore, and verification are scoped alike. This lets a recipient take part of a shared capture bundle.
+
+### Capture-Subset Selection (`capture --only`)
+
+`capture --only <id[,id,...]>` limits a capture to the listed items. The flag name and comma-separated shape match `apply --only`; the token grammar is namespaced because capture selects across two kinds of thing:
+
+| Token form | Selects | Matched against |
+|------------|---------|-----------------|
+| `git-git` | a detected app | the captured app `id` |
+| `apps.vscode` | a config module | the catalog module `id` |
+
+A bare token is **always** an app id. Bare module ids are not accepted, because a value like `vscode` would otherwise be ambiguous between an app and a module. This is a deliberate asymmetry with `--restore-filter`, which does accept short module ids.
+
+Under an active selection, a config module attaches only when **(a)** a selected app matches it by package reference (`matches.winget` / `matches.chocolatey`), or **(b)** the module is named outright. A module matched solely by `matches.pathExists` is never pulled in by a selection: that matcher tests the filesystem without consulting the app list, so including it would attach configs for apps the user did not select.
+
+| Flag | Behavior |
+|------|----------|
+| `--only <ids>` | App ids not detected on the machine fail the run with `MANIFEST_VALIDATION_ERROR` naming them. Module ids absent from the catalog fail the same way. An empty or blank value is rejected. A selection naming only modules and no apps is rejected — a capture must contain at least one app. |
+| `--update` | Combining `--only` with `--update` **adds** the selection to the existing manifest; it never truncates that manifest to the selection. Filtering is applied to the newly discovered set before the merge. |
+| `--sanitize` | Unaffected: `--sanitize` already attaches no config modules, so a selection only narrows the app set. |
+
+Counts keep their existing meaning: `totalFound` reports what was detected on the machine (pre-filter), deselected apps are counted in `skipped`, and `totalFound == included + skipped` continues to hold.
+
+On a host using a platform realizer (Nix/brew), `--only` filters the captured app set the same way. That path attaches no config modules by design, so `apps.`-prefixed tokens select nothing there.
+
+> **Note.** `data.appsIncluded[].id` carries the package *reference* (e.g. `Git.Git`), while `--only` matches the manifest app *id* (e.g. `git-git`). Clients building a selection UI should source ids from the written manifest, not from `appsIncluded`.
 
 ### Convergence (`--prune`)
 
