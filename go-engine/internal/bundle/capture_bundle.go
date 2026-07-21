@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/configtarget"
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -31,6 +32,12 @@ const (
 	LegacyCaptureStatusSkipped    = "skipped"
 	LegacyCaptureStatusFailed     = "failed"
 )
+
+// captureTargetCollisionWarning is the friendly, jargon-free notice surfaced
+// when two captured modules claim the same restore target and the capture-time
+// collision guard keeps a single deterministic winner. See
+// collectLegacyCaptureLanes.
+const captureTargetCollisionWarning = "Some settings were captured by more than one app. Endstate kept a single clean copy so your restore won't conflict."
 
 // CaptureBundleRequest is the typed input for generation-aware bundle
 // creation. Modules contains the matched catalog modules; generation plans are
@@ -399,6 +406,7 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		return mods[left].ID < mods[right].ID
 	})
 	seen := make(map[string]struct{}, len(mods))
+	staged := make([]stagedLegacyRestores, 0, len(mods))
 	for _, mod := range mods {
 		if mod == nil || mod.EffectiveSchemaVersion() != 1 {
 			continue
@@ -490,19 +498,39 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1, PayloadRoot: path.Join("configs", legacyCaptureID),
 			})
 		}
-		for _, restore := range mod.Restore {
-			entry := rewriteLegacyRestore(restore, layoutID)
+		staged = append(staged, stagedLegacyRestores{mod: mod, layoutID: layoutID, legacyCaptureID: legacyCaptureID})
+	}
+
+	// Capture-time target-collision guard (defense-in-depth behind the
+	// catalog-integrity invariant): only successfully captured modules are staged
+	// above, so resolving collisions here — after collection, before emitting
+	// restore entries — keeps exactly one deterministic winner per overlapping
+	// target. Without this, two modules claiming the same target both ship a
+	// restore entry and the restore planner then fails BOTH sets
+	// (internal/planner/config_collision.go), leaving the colliding settings
+	// silently unrestorable.
+	dropped, collided := resolveLegacyTargetCollisions(staged)
+	if collided {
+		legacy.warnings = append(legacy.warnings, captureTargetCollisionWarning)
+	}
+	for _, stage := range staged {
+		dropSet := dropped[stage.mod.ID]
+		for restoreIndex, restore := range stage.mod.Restore {
+			if _, drop := dropSet[restoreIndex]; drop {
+				continue
+			}
+			entry := rewriteLegacyRestore(restore, stage.layoutID)
 			// Module provenance travels with every bundle, not just mixed-v2 ones.
 			// Restore input building routes an entry with an empty FromModule into
 			// ordinaryRestores, which is converted with an empty filter and is never
 			// reached by --only scoping — so a plain v1 bundle's entries were
 			// unfilterable, and a recipient running `apply --only <app>
 			// --enable-restore` got every module's config instead of the selection.
-			entry.FromModule = mod.ID
+			entry.FromModule = stage.mod.ID
 			// LegacyCaptureID stays v2-only: the v1 input validator rejects a
 			// manifest that carries explicit v2 legacy identity.
 			if mixedV2 {
-				entry.LegacyCaptureID = legacyCaptureID
+				entry.LegacyCaptureID = stage.legacyCaptureID
 			}
 			legacy.restores = append(legacy.restores, entry)
 		}
@@ -517,6 +545,129 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 	})
 	sort.Slice(legacy.modules, func(left, right int) bool { return legacy.modules[left].ModuleID < legacy.modules[right].ModuleID })
 	return legacy, nil
+}
+
+// stagedLegacyRestores holds a successfully captured schema-v1 module whose
+// restore entries are emitted only after the capture-time collision guard has
+// picked a winner for every overlapping target.
+type stagedLegacyRestores struct {
+	mod             *modules.Module
+	layoutID        string
+	legacyCaptureID string
+}
+
+// resolveLegacyTargetCollisions expands every staged module's restore targets to
+// canonical claims (the same host transform the restore planner applies) and,
+// for each cross-module overlap, drops the losing module's colliding restore
+// entry. It returns the per-module set of restore indices to drop and whether
+// any collision was resolved. Two entries within one module may legitimately
+// re-target the same path, so only cross-module overlaps are collisions.
+func resolveLegacyTargetCollisions(staged []stagedLegacyRestores) (map[string]map[int]struct{}, bool) {
+	type indexedClaim struct {
+		stageIndex   int
+		restoreIndex int
+		claim        configtarget.Claim
+	}
+	claims := make([]indexedClaim, 0)
+	for stageIndex, stage := range staged {
+		for restoreIndex, restore := range stage.mod.Restore {
+			claim, ok := legacyRestoreClaim(restore)
+			if !ok {
+				continue
+			}
+			claims = append(claims, indexedClaim{stageIndex: stageIndex, restoreIndex: restoreIndex, claim: claim})
+		}
+	}
+
+	dropped := make(map[string]map[int]struct{})
+	markDrop := func(moduleID string, restoreIndex int) {
+		set := dropped[moduleID]
+		if set == nil {
+			set = make(map[int]struct{})
+			dropped[moduleID] = set
+		}
+		set[restoreIndex] = struct{}{}
+	}
+
+	collided := false
+	for left := 0; left < len(claims); left++ {
+		for right := left + 1; right < len(claims); right++ {
+			leftClaim, rightClaim := claims[left], claims[right]
+			if leftClaim.stageIndex == rightClaim.stageIndex {
+				continue
+			}
+			if !configtarget.ClaimsOverlap(leftClaim.claim, rightClaim.claim) {
+				continue
+			}
+			leftMod := staged[leftClaim.stageIndex].mod
+			rightMod := staged[rightClaim.stageIndex].mod
+			if legacyModuleBeats(leftMod, rightMod) {
+				markDrop(rightMod.ID, rightClaim.restoreIndex)
+			} else {
+				markDrop(leftMod.ID, leftClaim.restoreIndex)
+			}
+			collided = true
+		}
+	}
+	return dropped, collided
+}
+
+// legacyRestoreClaim expands a schema-v1 restore target to its canonical claim
+// using the exact host transform resolveRestoreTarget applies in the planner.
+// Legacy modules carry no config instance, so an empty instance is used and only
+// environment variables in the module-authored target are expanded. Restore
+// types that declare no comparable target, or that fail to expand, are skipped
+// so the guard only ever acts on a positively detected overlap.
+func legacyRestoreClaim(restore modules.RestoreDef) (configtarget.Claim, bool) {
+	var instance modules.ConfigInstance
+	switch restore.Type {
+	case "copy", "merge-json", "merge-ini", "append", "delete-glob":
+		target, err := modules.ExpandInstancePath(restore.Target, instance, modules.HostPath)
+		if err != nil {
+			return configtarget.Claim{}, false
+		}
+		return configtarget.Claim{Kind: configtarget.Filesystem, Canonical: configtarget.CanonicalFilesystem(target)}, true
+	case "registry-set":
+		key, err := modules.ExpandInstanceTemplate(restore.Key, instance)
+		if err != nil {
+			return configtarget.Claim{}, false
+		}
+		valueName, err := modules.ExpandInstanceTemplate(restore.ValueName, instance)
+		if err != nil {
+			return configtarget.Claim{}, false
+		}
+		return configtarget.Claim{Kind: configtarget.Registry, Canonical: configtarget.CanonicalRegistry(key, valueName)}, true
+	default:
+		return configtarget.Claim{}, false
+	}
+}
+
+// legacyModulePrecedence scores a module's matcher identity for collision
+// tie-breaking. Higher wins: a package-identified module (winget/chocolatey)
+// beats an installed-application match (exe/uninstall display name), which beats
+// a pathExists-only module. This is the "more-specific matcher" ladder the
+// collision precedence rule refers to.
+func legacyModulePrecedence(mod *modules.Module) int {
+	switch {
+	case len(mod.Matches.Winget) > 0 || len(mod.Matches.Chocolatey) > 0:
+		return 3
+	case len(mod.Matches.Exe) > 0 || len(mod.Matches.UninstallDisplayName) > 0:
+		return 2
+	default:
+		return 1
+	}
+}
+
+// legacyModuleBeats reports whether left deterministically wins a target
+// collision over right: higher matcher precedence first, then the
+// lexicographically smaller module ID. Module IDs are unique, so this is a total
+// order and always yields a single winner.
+func legacyModuleBeats(left, right *modules.Module) bool {
+	leftScore, rightScore := legacyModulePrecedence(left), legacyModulePrecedence(right)
+	if leftScore != rightScore {
+		return leftScore > rightScore
+	}
+	return left.ID < right.ID
 }
 
 func rewriteLegacyCollectionPaths(values []string, oldLayoutID, newLayoutID string) []string {

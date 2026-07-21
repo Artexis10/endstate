@@ -1,0 +1,141 @@
+// Copyright 2025 Substrate Systems OU
+// SPDX-License-Identifier: Apache-2.0
+
+package bundle
+
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
+)
+
+// testCollisionModule builds a schema-v1 legacy module that captures one file
+// and restores it to target. matches sets the module's matcher identity so the
+// collision guard's precedence can be exercised deterministically.
+func testCollisionModule(t *testing.T, dir, moduleID, leaf, target string, matches modules.MatchCriteria) *modules.Module {
+	t.Helper()
+	source := filepath.Join(dir, leaf+".json")
+	writeCaptureFile(t, source, []byte("payload-"+leaf))
+	return &modules.Module{
+		ID:          moduleID,
+		DisplayName: moduleID,
+		Matches:     matches,
+		Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{
+			Source: source, Dest: "apps/" + leaf + "/" + leaf + ".json",
+		}}},
+		Restore: []modules.RestoreDef{{
+			Type: "copy", Source: "./payload/apps/" + leaf + "/" + leaf + ".json", Target: target, Backup: true,
+		}},
+	}
+}
+
+func restoresForTarget(loadedRestores []restoreTargetRow, target string) []restoreTargetRow {
+	var rows []restoreTargetRow
+	for _, row := range loadedRestores {
+		if row.Target == target {
+			rows = append(rows, row)
+		}
+	}
+	return rows
+}
+
+type restoreTargetRow struct {
+	Target     string
+	FromModule string
+}
+
+func loadedRestoreRows(t *testing.T, zipPath string) []restoreTargetRow {
+	t.Helper()
+	loaded, _ := loadCaptureBundle(t, zipPath)
+	rows := make([]restoreTargetRow, 0, len(loaded.Restore))
+	for _, entry := range loaded.Restore {
+		rows = append(rows, restoreTargetRow{Target: entry.Target, FromModule: entry.FromModule})
+	}
+	return rows
+}
+
+// TestCaptureCollisionPackageIdentifiedBeatsPathExists verifies that when two
+// captured modules claim the same restore target, the package-identified module
+// wins, the pathExists-only loser's colliding entry is dropped, and exactly one
+// friendly warning is surfaced.
+func TestCaptureCollisionPackageIdentifiedBeatsPathExists(t *testing.T) {
+	dir := t.TempDir()
+	target := `%USERPROFILE%\.wslconfig`
+	winner := testCollisionModule(t, dir, "apps.zeta-winget", "zeta", target, modules.MatchCriteria{Winget: []string{"Zeta.Pkg"}})
+	loser := testCollisionModule(t, dir, "apps.alpha-path", "alpha", target, modules.MatchCriteria{PathExists: []string{`%USERPROFILE%\.wslconfig`}})
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{loser, winner}, nil)
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
+		t.Fatalf("CreateCaptureBundle: %v", err)
+	}
+
+	rows := loadedRestoreRows(t, request.OutputPath)
+	claimants := restoresForTarget(rows, target)
+	if len(claimants) != 1 {
+		t.Fatalf("target %q claimed by %d restore entries, want 1: %+v", target, len(claimants), rows)
+	}
+	if claimants[0].FromModule != winner.ID {
+		t.Fatalf("winner = %q, want %q (package-identified beats pathExists-only)", claimants[0].FromModule, winner.ID)
+	}
+	if !containsString(result.CaptureWarnings, captureTargetCollisionWarning) {
+		t.Fatalf("capture warnings %q missing collision warning %q", result.CaptureWarnings, captureTargetCollisionWarning)
+	}
+	warningCount := 0
+	for _, warning := range result.CaptureWarnings {
+		if warning == captureTargetCollisionWarning {
+			warningCount++
+		}
+	}
+	if warningCount != 1 {
+		t.Fatalf("collision warning emitted %d times, want exactly 1: %q", warningCount, result.CaptureWarnings)
+	}
+}
+
+// TestCaptureCollisionTieBreaksByModuleID verifies that two same-tier
+// (pathExists-only) modules resolve deterministically to the lexicographically
+// smaller module ID.
+func TestCaptureCollisionTieBreaksByModuleID(t *testing.T) {
+	dir := t.TempDir()
+	target := `%USERPROFILE%\.bashrc`
+	pathMatch := modules.MatchCriteria{PathExists: []string{`%USERPROFILE%\.bashrc`}}
+	first := testCollisionModule(t, dir, "apps.aaa", "aaa", target, pathMatch)
+	second := testCollisionModule(t, dir, "apps.bbb", "bbb", target, pathMatch)
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{second, first}, nil)
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
+		t.Fatalf("CreateCaptureBundle: %v", err)
+	}
+	claimants := restoresForTarget(loadedRestoreRows(t, request.OutputPath), target)
+	if len(claimants) != 1 || claimants[0].FromModule != first.ID {
+		t.Fatalf("tie-break winner = %+v, want single entry from %q", claimants, first.ID)
+	}
+	if !containsString(result.CaptureWarnings, captureTargetCollisionWarning) {
+		t.Fatalf("capture warnings %q missing collision warning", result.CaptureWarnings)
+	}
+}
+
+// TestCaptureNoCollisionLeavesOutputUntouched verifies distinct targets are not
+// touched and no collision warning fires.
+func TestCaptureNoCollisionLeavesOutputUntouched(t *testing.T) {
+	dir := t.TempDir()
+	targetA := `%USERPROFILE%\.config-a`
+	targetB := `%USERPROFILE%\.config-b`
+	modA := testCollisionModule(t, dir, "apps.aaa", "aaa", targetA, modules.MatchCriteria{Winget: []string{"A.Pkg"}})
+	modB := testCollisionModule(t, dir, "apps.bbb", "bbb", targetB, modules.MatchCriteria{PathExists: []string{targetB}})
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{modA, modB}, nil)
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
+		t.Fatalf("CreateCaptureBundle: %v", err)
+	}
+	rows := loadedRestoreRows(t, request.OutputPath)
+	if len(restoresForTarget(rows, targetA)) != 1 || len(restoresForTarget(rows, targetB)) != 1 {
+		t.Fatalf("non-colliding restores altered: %+v", rows)
+	}
+	if containsString(result.CaptureWarnings, captureTargetCollisionWarning) {
+		t.Fatalf("collision warning fired without a collision: %q", result.CaptureWarnings)
+	}
+}

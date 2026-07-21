@@ -4,10 +4,10 @@
 package planner
 
 import (
-	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/configtarget"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
 
@@ -176,33 +176,18 @@ func markTargetCollision(set *PlanSet) {
 }
 
 func targetClaimsOverlap(left, right resolvedTargetClaim) bool {
-	if left.kind != right.kind {
-		return false
-	}
-	if left.kind == resolvedRegistryTarget {
-		return left.canonical == right.canonical
-	}
-	return filesystemTargetsOverlap(left.canonical, right.canonical)
+	return configtarget.ClaimsOverlap(
+		configtarget.Claim{Kind: configtarget.Kind(left.kind), Canonical: left.canonical},
+		configtarget.Claim{Kind: configtarget.Kind(right.kind), Canonical: right.canonical},
+	)
 }
 
 func canonicalFilesystemTarget(target string) string {
-	normalized := filepath.ToSlash(filepath.Clean(strings.TrimSpace(target)))
-	return strings.ToLower(normalized)
-}
-
-func filesystemTargetsOverlap(left, right string) bool {
-	if left == right {
-		return true
-	}
-	left = strings.TrimSuffix(left, "/")
-	right = strings.TrimSuffix(right, "/")
-	return strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+	return configtarget.CanonicalFilesystem(target)
 }
 
 func canonicalRegistryTarget(key, valueName string) string {
-	key = strings.ReplaceAll(strings.TrimSpace(key), "/", `\`)
-	key = strings.TrimRight(key, `\`)
-	return strings.ToLower(key) + "\x00" + strings.ToLower(valueName)
+	return configtarget.CanonicalRegistry(key, valueName)
 }
 
 func sortedResolvedTargetDisplays(displays map[resolvedTargetIdentity]string) []string {
