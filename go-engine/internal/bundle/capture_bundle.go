@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
@@ -131,6 +132,7 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	})
 	configCaptures := make([]manifest.ConfigCapture, 0, len(plans))
 	diagnostics := append([]CaptureBundleDiagnostic(nil), request.PreplanningDiagnostics...)
+	var payloadValidationWarnings []string
 	sensitiveExcluded := 0
 	for _, plan := range plans {
 		capture, excluded, diagnostic := collectGenerationCapture(plan, stagingRoot)
@@ -138,6 +140,9 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		if diagnostic != nil {
 			diagnostics = append(diagnostics, *diagnostic)
 			continue
+		}
+		if warning := validateCapturedPayload(plan, *capture, stagingRoot); warning != "" {
+			payloadValidationWarnings = append(payloadValidationWarnings, warning)
 		}
 		configCaptures = append(configCaptures, *capture)
 	}
@@ -197,6 +202,7 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		captureIDs = append(captureIDs, capture.CaptureID)
 	}
 	captureWarnings := append([]string(nil), legacy.warnings...)
+	captureWarnings = append(captureWarnings, payloadValidationWarnings...)
 	for _, denied := range deniedModules {
 		captureWarnings = append(captureWarnings,
 			"share mode omitted "+denied+": its configuration is account- or device-bound and is not portable to another person")
@@ -326,6 +332,48 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 		PayloadRoot:     collection.PayloadRoot,
 		PayloadManifest: payloadManifest,
 	}, collection.SecretsExcluded, nil
+}
+
+// validateCapturedPayload runs the target generation's own declarative
+// validations against the freshly staged payload — the identical rules restore
+// staging will later enforce (migration.Stage -> configvalidate.ValidateStaging,
+// configrestore -> ValidateResolved). Before this ran at capture time a payload
+// that could never pass those rules was still shipped, and the user only found
+// out when a restore refused it on another machine.
+//
+// A payload that fails is KEPT, not dropped: restore staging will refuse it
+// anyway, so dropping here would silently strip the user's settings with no
+// record, contrary to the invariant that losing settings must never be an
+// invisible downgrade. Instead the caller surfaces a friendly warning marking
+// the set as possibly-unrestorable, and returns "" when the payload is clean.
+func validateCapturedPayload(plan ConfigSetCapturePlan, capture manifest.ConfigCapture, stagingRoot string) string {
+	if plan.Generation == nil || len(plan.Generation.Validate) == 0 {
+		return ""
+	}
+	payloadHost, err := containedHostPath(stagingRoot, capture.PayloadRoot)
+	if err != nil {
+		return ""
+	}
+	if err := configvalidate.ValidateStaging(payloadHost, plan.Generation.Validate); err != nil {
+		return capturePayloadValidationWarning(plan.Module)
+	}
+	return ""
+}
+
+// capturePayloadValidationWarning renders the user-facing, jargon-free warning
+// for a captured set that cannot pass its module's restore-staging validations.
+func capturePayloadValidationWarning(mod *modules.Module) string {
+	name := ""
+	if mod != nil {
+		name = strings.TrimSpace(mod.DisplayName)
+		if name == "" {
+			name = legacyModuleDirName(mod.ID)
+		}
+	}
+	if name == "" {
+		name = "an app"
+	}
+	return fmt.Sprintf("Settings for %s were saved but may not restore cleanly on another machine.", name)
 }
 
 type legacyCaptureCollection struct {
