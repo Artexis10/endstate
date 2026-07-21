@@ -29,6 +29,13 @@ const (
 	// NOTE: per event-contract.md this detection is unreliable — winget provides
 	// no standardised exit code for user cancellation.
 	ReasonUserDenied = "user_denied"
+	// ReasonCancelledByUser means the install was aborted because the user
+	// declined or dismissed an elevation/permission prompt (e.g. UAC). Unlike
+	// ReasonUserDenied this is derived from a documented allowlist of Windows/MSI
+	// and winget exit codes — deterministic, not heuristic text matching. The
+	// status stays "failed" (an install did not complete); the reason lets a
+	// consumer present a calm "you cancelled this" instead of a scary failure.
+	ReasonCancelledByUser = "cancelled_by_user"
 	// ReasonMissing means the package was not detected during a verify check.
 	ReasonMissing = "missing"
 	// ReasonFiltered means the package was excluded by a filter/policy.

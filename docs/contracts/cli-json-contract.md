@@ -475,6 +475,17 @@ an app ends `installed`, `present`, or `failed`. Consumers presenting apply
 results MUST distinguish a dry run and MUST NOT report installs or completed
 setup for one.
 
+A `failed` action carries a `reason` describing the cause. Alongside
+`install_failed`, an install the user aborted by declining/dismissing an
+elevation prompt reports `reason: "cancelled_by_user"` with an engine-authored,
+jargon-free `message` a consumer can present verbatim. This is **additive**: the
+`failed` status vocabulary and its summary/counting are unchanged — only the
+reason code is new. It is derived from a documented allowlist of Windows/MSI and
+winget exit codes (see `event-contract.md` for the full table); exit codes
+outside the allowlist keep their prior `install_failed` classification. A
+consumer that does not recognize the reason still handles the action as a normal
+`failed` item.
+
 ### `restoreModulesAvailable`
 
 Lists the config modules this manifest carries restorable payload for, so a
