@@ -107,7 +107,7 @@ func TakeSnapshot() ([]SnapshotApp, error) {
 // WinGet source. It never enumerates third-party or font sources.
 func TakeSnapshotSource(source string) ([]SnapshotApp, error) {
 	source = strings.ToLower(strings.TrimSpace(source))
-	output, err := ExecCommand("winget", "list", "--source", source, "--accept-source-agreements")
+	output, err := ExecCommand("winget", "list", "--source", source, "--accept-source-agreements", "--disable-interactivity")
 	if err != nil {
 		var execErr *exec.Error
 		if errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound) {

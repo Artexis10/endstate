@@ -30,6 +30,28 @@ func withFakeExec(output []byte, err error) func() {
 	return func() { ExecCommand = orig }
 }
 
+// TestTakeSnapshotSource_UsesNonInteractiveFlags guards the winget list call
+// against interactive prompts (e.g. the msstore source agreement) that would
+// hang or fail on non-interactive stdin, and pins the source-scoped flag set.
+func TestTakeSnapshotSource_UsesNonInteractiveFlags(t *testing.T) {
+	orig := ExecCommand
+	t.Cleanup(func() { ExecCommand = orig })
+	var gotArgs []string
+	ExecCommand = func(name string, args ...string) ([]byte, error) {
+		gotArgs = append([]string{name}, args...)
+		return []byte(sampleWingetOutput), nil
+	}
+	if _, err := TakeSnapshotSource("msstore"); err != nil {
+		t.Fatalf("TakeSnapshotSource returned unexpected error: %v", err)
+	}
+	joined := strings.Join(gotArgs, " ")
+	for _, want := range []string{"list", "--source msstore", "--accept-source-agreements", "--disable-interactivity"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("args = %q, want to contain %q", joined, want)
+		}
+	}
+}
+
 func TestTakeSnapshot_ParsesCorrectly(t *testing.T) {
 	cleanup := withFakeExec([]byte(sampleWingetOutput), nil)
 	defer cleanup()
