@@ -8,9 +8,9 @@ Website: <https://substratesystems.io/endstate> · Download: <https://substrates
 
 **Author:** Hugo Ander Kivi
 **Primary Language:** Go
-**Status:** v1.0.0 — Stable
+**Status:** Stable — [latest release](https://github.com/Artexis10/endstate/releases/latest)
 
-[![CI](https://github.com/Artexis10/endstate/actions/workflows/ci.yml/badge.svg)](https://github.com/Artexis10/endstate/actions/workflows/ci.yml)
+[![CI](https://github.com/Artexis10/endstate/actions/workflows/go-ci.yml/badge.svg)](https://github.com/Artexis10/endstate/actions/workflows/go-ci.yml)
 
 ---
 
@@ -419,9 +419,9 @@ cd go-engine && go test -v ./...
 
 ## Status
 
-Endstate v1.0.0 is the first stable release. The CLI contract (JSON schema 1.0) is locked. Capture, apply, verify, restore, and drift detection are production-ready. Winget is the primary driver with planned expansion to macOS/Linux.
+Endstate is stable and actively released — see [Releases](https://github.com/Artexis10/endstate/releases) for the latest version. The CLI contract (JSON schema 1.0) is locked. Capture, apply, verify, restore, hosted backup, and drift detection are production-ready. Winget is the primary Windows driver, with macOS/Linux (Nix) in progress.
 
-> A desktop GUI is available as a separate commercial product built on top of Endstate's open-source core — [substratesystems.io/endstate](https://substratesystems.io/endstate)
+> A desktop GUI is available as a separate free, open-source app built on top of Endstate's core, with an optional paid hosted-backup tier — [substratesystems.io/endstate](https://substratesystems.io/endstate)
 
 ---
 
