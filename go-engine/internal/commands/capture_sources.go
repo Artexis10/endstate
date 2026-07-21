@@ -4,8 +4,10 @@
 package commands
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strings"
 	"sync"
@@ -15,6 +17,38 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
+
+// wingetSourceRetries is the number of additional attempts made for a single
+// winget source whose enumeration fails transiently (e.g. WinGet returning
+// exit status 0x8a150001 during a community-source outage) before it is
+// declared unavailable. A transient failure must not silently cost the user
+// their entire community app list.
+var wingetSourceRetries = 2
+
+// isWingetMissing reports whether err means the winget executable itself could
+// not be found, as opposed to a transient runtime failure. A missing binary is
+// never retried: doing so would slow every capture on winget-less machines for
+// no benefit.
+func isWingetMissing(err error) bool {
+	var execErr *exec.Error
+	return errors.As(err, &execErr) && errors.Is(execErr.Err, exec.ErrNotFound)
+}
+
+// enumerateWingetSourceWithRetry enumerates a single winget source, retrying a
+// transient failure up to wingetSourceRetries times with an increasing backoff
+// (snapshotRetryDelay, then doubled) before giving up. A "winget not installed"
+// error returns immediately without retry.
+func enumerateWingetSourceWithRetry(source string, structuredEvents bool) ([]driver.InstalledPackage, error) {
+	packages, err := enumerateWingetSourceFn(source, structuredEvents)
+	for attempt := 0; err != nil && attempt < wingetSourceRetries; attempt++ {
+		if isWingetMissing(err) {
+			return packages, err
+		}
+		time.Sleep(snapshotRetryDelay << attempt)
+		packages, err = enumerateWingetSourceFn(source, structuredEvents)
+	}
+	return packages, err
+}
 
 type sourceWingetCaptureEnumerator struct {
 	excludeStore     bool
@@ -86,7 +120,7 @@ func (e sourceWingetCaptureEnumerator) EnumerateInstalledWithWarnings() ([]drive
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				packages, err := enumerateWingetSourceFn(source, e.structuredEvents)
+				packages, err := enumerateWingetSourceWithRetry(source, e.structuredEvents)
 				results <- result{source, packages, err}
 			}()
 		}
@@ -107,7 +141,11 @@ func (e sourceWingetCaptureEnumerator) EnumerateInstalledWithWarnings() ([]drive
 		return packages, failures
 	}
 	packages, failures := run()
-	if len(packages) == 0 {
+	// Per-source retries above already handle transient enumeration failures.
+	// Only retry the whole batch for a pure-empty result (every source returned
+	// zero packages without erroring), so we don't re-run sources that already
+	// exhausted their retry budget.
+	if len(packages) == 0 && len(failures) == 0 {
 		if !e.structuredEvents {
 			fmt.Fprintf(os.Stderr, "Warning: selected winget sources returned 0 packages, retrying after %v...\n", snapshotRetryDelay)
 		}
