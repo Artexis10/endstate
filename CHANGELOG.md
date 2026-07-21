@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.26.0](https://github.com/Artexis10/endstate/compare/v2.25.1...v2.26.0) (2026-07-21)
+
+
+### Features
+
+* selective app+config transfer — capture --only, share mode, and the fixes underneath ([#160](https://github.com/Artexis10/endstate/issues/160)) ([50952c5](https://github.com/Artexis10/endstate/commit/50952c542fa0bf6e4b07656cb4020bfe8058b4ce))
+
 ## [2.25.1](https://github.com/Artexis10/endstate/compare/v2.25.0...v2.25.1) (2026-07-21)
 
 
