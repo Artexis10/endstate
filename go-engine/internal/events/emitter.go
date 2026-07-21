@@ -80,6 +80,19 @@ func (e *Emitter) EmitPhase(phase string) {
 	})
 }
 
+// EmitProgress emits an additive schema-v1 stage marker. Stage values are
+// phase-specific; capture currently uses inventory, settings, and packaging.
+func (e *Emitter) EmitProgress(phase, stage string) {
+	if !e.enabled {
+		return
+	}
+	e.emit(ProgressEvent{
+		BaseEvent: e.base("progress"),
+		Phase:     phase,
+		Stage:     stage,
+	})
+}
+
 // EmitItem emits an item progress event. reason and message may be empty
 // strings; reason is always serialised (including as "") to satisfy the
 // contract requirement that the field is present (set to null in PS engine

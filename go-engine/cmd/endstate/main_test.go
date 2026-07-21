@@ -114,6 +114,28 @@ func TestDispatch_ForwardsCaptureDrivers(t *testing.T) {
 	}
 }
 
+func TestCaptureStoreFlags_AreCompatibleAndExcludeWins(t *testing.T) {
+	orig := runCaptureFn
+	defer func() { runCaptureFn = orig }()
+	var captured commands.CaptureFlags
+	runCaptureFn = func(flags commands.CaptureFlags) (interface{}, *envelope.Error) {
+		captured = flags
+		return struct{}{}, nil
+	}
+
+	parsed := parseArgs([]string{"capture", "--include-store-apps", "--exclude-store-apps"})
+	if _, eerr := dispatch(parsed); eerr != nil {
+		t.Fatal(eerr)
+	}
+	if !captured.IncludeStoreApps || !captured.ExcludeStoreApps {
+		t.Fatalf("flags = %+v, want deprecated include accepted and explicit exclude forwarded", captured)
+	}
+	usage := commandUsage("capture")
+	if !strings.Contains(usage, "--exclude-store-apps") || !strings.Contains(usage, "deprecated") {
+		t.Fatalf("capture usage missing store compatibility details: %s", usage)
+	}
+}
+
 func TestDispatch_ForwardsRebuildBootstrapFlags(t *testing.T) {
 	orig := runRebuildFn
 	defer func() { runRebuildFn = orig }()

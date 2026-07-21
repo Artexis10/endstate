@@ -13,6 +13,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 	"github.com/Artexis10/endstate/go-engine/internal/provision"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 )
@@ -582,8 +583,8 @@ func appendRollbackGeneration(runID, backend string, set realizer.Set, native st
 }
 
 type rollbackDriverGroup struct {
-	backend string
-	refs    []string
+	backend  string
+	packages []provision.PackageRecord
 }
 
 // runDriverRollback performs a best-effort rollback using each selected
@@ -697,36 +698,46 @@ func runDriverRollback(flags RollbackFlags, d driver.Driver, un driver.Uninstall
 			if len(groups) == 1 && group.backend == "winget" {
 				return nil, wingetRollbackUnavailable(rerr)
 			}
-			failed = append(failed, group.refs...)
+			for _, pkg := range group.packages {
+				failed = append(failed, pkg.Ref)
+			}
 			continue
 		}
 
 		var groupRemoved, groupFailed []string
-		for _, ref := range group.refs {
-			res, uerr := groupUninstaller.Uninstall(ref)
+		var groupRemovedPackages []provision.PackageRecord
+		for _, pkg := range group.packages {
+			var res *driver.UninstallResult
+			var uerr error
+			if sourceUninstaller, ok := groupUninstaller.(driver.SourceUninstaller); ok && group.backend == "winget" {
+				res, uerr = sourceUninstaller.UninstallSource(pkg.Ref, packagesource.ResolveWinget(pkg.Ref, pkg.Source))
+			} else {
+				res, uerr = groupUninstaller.Uninstall(pkg.Ref)
+			}
 			if uerr != nil {
 				if len(groups) == 1 && group.backend == "winget" {
 					return nil, wingetRollbackUnavailable(uerr)
 				}
-				groupFailed = append(groupFailed, ref)
+				groupFailed = append(groupFailed, pkg.Ref)
 				continue
 			}
 			if res == nil {
-				groupFailed = append(groupFailed, ref)
+				groupFailed = append(groupFailed, pkg.Ref)
 				continue
 			}
 			switch res.Status {
 			case driver.StatusUninstalled, driver.StatusAbsent:
-				groupRemoved = append(groupRemoved, ref)
+				groupRemoved = append(groupRemoved, pkg.Ref)
+				groupRemovedPackages = append(groupRemovedPackages, pkg)
 			default:
-				groupFailed = append(groupFailed, ref)
+				groupFailed = append(groupFailed, pkg.Ref)
 			}
 		}
 
 		removed = append(removed, groupRemoved...)
 		failed = append(failed, groupFailed...)
 		if len(groupRemoved) > 0 {
-			newGen = appendRollbackGenerationRemoved(runID, group.backend, groupRemoved, len(groupFailed) > 0)
+			newGen = appendRollbackGenerationRemoved(runID, group.backend, groupRemoved, len(groupFailed) > 0, groupRemovedPackages)
 		}
 	}
 
@@ -768,19 +779,34 @@ func groupRollbackGenerations(gens []*provision.Generation) []rollbackDriverGrou
 			seen[backend] = map[string]bool{}
 			groups = append(groups, rollbackDriverGroup{backend: backend})
 		}
-		for _, ref := range g.AddedRefs {
-			if ref == "" || seen[backend][ref] {
+		packages := g.AddedPackages
+		if len(packages) == 0 {
+			packages = make([]provision.PackageRecord, 0, len(g.AddedRefs))
+			for _, ref := range g.AddedRefs {
+				source := ""
+				if backend == "winget" {
+					source = packagesource.ResolveWinget(ref, "")
+				}
+				packages = append(packages, provision.PackageRecord{Ref: ref, Source: source})
+			}
+		}
+		for _, pkg := range packages {
+			if backend == "winget" {
+				pkg.Source = packagesource.ResolveWinget(pkg.Ref, pkg.Source)
+			}
+			key := pkg.Source + "\x00" + pkg.Ref
+			if pkg.Ref == "" || seen[backend][key] {
 				continue
 			}
-			seen[backend][ref] = true
-			groups[idx].refs = append(groups[idx].refs, ref)
+			seen[backend][key] = true
+			groups[idx].packages = append(groups[idx].packages, pkg)
 		}
 	}
 
 	// Generations with no additions do not require a backend lane.
 	filtered := groups[:0]
 	for _, group := range groups {
-		if len(group.refs) > 0 {
+		if len(group.packages) > 0 {
 			filtered = append(filtered, group)
 		}
 	}
@@ -790,7 +816,9 @@ func groupRollbackGenerations(gens []*provision.Generation) []rollbackDriverGrou
 func flattenRollbackGroupRefs(groups []rollbackDriverGroup) []string {
 	var refs []string
 	for _, group := range groups {
-		refs = append(refs, group.refs...)
+		for _, pkg := range group.packages {
+			refs = append(refs, pkg.Ref)
+		}
 	}
 	return refs
 }
@@ -855,16 +883,21 @@ func wingetRollbackUnavailable(err error) *envelope.Error {
 // empty; RemovedRefs carries what was removed; Partial is set when any targeted
 // uninstall failed. Best-effort: a write error never fails the rollback. Returns
 // the assigned generation number, or 0 on write failure.
-func appendRollbackGenerationRemoved(runID, backend string, removed []string, partial bool) int {
+func appendRollbackGenerationRemoved(runID, backend string, removed []string, partial bool, sourceAware ...[]provision.PackageRecord) int {
+	var removedPackages []provision.PackageRecord
+	if len(sourceAware) > 0 {
+		removedPackages = sourceAware[0]
+	}
 	g := &provision.Generation{
-		RunID:       runID,
-		Timestamp:   time.Now().UTC().Format(time.RFC3339),
-		Backend:     backend,
-		Items:       []provision.ProvItem{},
-		AddedRefs:   []string{},
-		RemovedRefs: removed,
-		Rollback:    true,
-		Partial:     partial,
+		RunID:           runID,
+		Timestamp:       time.Now().UTC().Format(time.RFC3339),
+		Backend:         backend,
+		Items:           []provision.ProvItem{},
+		AddedRefs:       []string{},
+		RemovedRefs:     removed,
+		RemovedPackages: removedPackages,
+		Rollback:        true,
+		Partial:         partial,
 	}
 	if err := provision.Write(g); err != nil {
 		return 0

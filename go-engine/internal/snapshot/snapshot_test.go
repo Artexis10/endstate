@@ -302,8 +302,8 @@ func TestIsStoreID(t *testing.T) {
 		id   string
 		want bool
 	}{
-		{"9NKSQGP7F2NH", true},    // typical Store ID starting with 9
-		{"XPDCFJDKLZJLP8", true},  // typical Store ID starting with XP
+		{"9NKSQGP7F2NH", true},   // typical Store ID starting with 9
+		{"XPDCFJDKLZJLP8", true}, // typical Store ID starting with XP
 		{"Git.Git", false},
 		{"Microsoft.VisualStudioCode", false},
 	}
@@ -535,6 +535,20 @@ func TestWingetExport_NonZeroExitButFileWritten_StillParses(t *testing.T) {
 
 	if len(apps) != 3 {
 		t.Errorf("expected 3 apps, got %d", len(apps))
+	}
+}
+
+func TestWingetExport_NonZeroExitWithEmptyFile_ReturnsError(t *testing.T) {
+	cmdErr := errors.New("exit status 1")
+	cleanup := withFakeExecWithFile(nil, cmdErr)
+	defer cleanup()
+
+	apps, err := WingetExport()
+	if !errors.Is(err, cmdErr) {
+		t.Fatalf("WingetExport error = %v, want command error %v", err, cmdErr)
+	}
+	if apps != nil {
+		t.Fatalf("WingetExport apps = %v, want nil on command failure", apps)
 	}
 }
 

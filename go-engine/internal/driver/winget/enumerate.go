@@ -46,7 +46,7 @@ func (w *WingetDriver) EnumerateInstalled() ([]driver.InstalledPackage, error) {
 				version = listedApp.Version
 			}
 		}
-		packages = append(packages, driver.InstalledPackage{Ref: app.ID, DisplayName: name, Version: version})
+		packages = append(packages, driver.InstalledPackage{Ref: app.ID, DisplayName: name, Version: version, Source: app.Source})
 	}
 
 	sort.SliceStable(packages, func(i, j int) bool {

@@ -28,22 +28,31 @@ type ProvItem struct {
 	Version string `json:"version,omitempty"` // best-effort; "" when the backend exposes none
 }
 
+// PackageRecord is the source-aware package coordinate retained alongside
+// legacy ref-only arrays for rollback compatibility.
+type PackageRecord struct {
+	Ref    string `json:"ref"`
+	Source string `json:"source"`
+}
+
 // Generation is an engine-owned record of the package set committed by a
 // successful apply. AddedRefs lists only the refs installed this run (status
 // "installed"); already-present refs are recorded in Items but never in
 // AddedRefs.
 type Generation struct {
-	SchemaVersion string     `json:"schemaVersion"`
-	Number        int        `json:"number"`
-	RunID         string     `json:"runId"`
-	Timestamp     string     `json:"timestamp,omitempty"`
-	Backend       string     `json:"backend"` // "nix" | "winget" | "brew"
-	Items         []ProvItem `json:"items"`
-	AddedRefs     []string   `json:"addedRefs"`
-	Native        string     `json:"native,omitempty"`      // backend-native anchor (nix generation number); "" if none
-	Partial       bool       `json:"partial"`               // true when a non-atomic backend committed a partial set
-	Rollback      bool       `json:"rollback,omitempty"`    // true when this generation was produced by a rollback (AddedRefs is empty)
-	RemovedRefs   []string   `json:"removedRefs,omitempty"` // refs uninstalled by a best-effort (winget/brew) rollback; empty for native/apply generations
+	SchemaVersion   string          `json:"schemaVersion"`
+	Number          int             `json:"number"`
+	RunID           string          `json:"runId"`
+	Timestamp       string          `json:"timestamp,omitempty"`
+	Backend         string          `json:"backend"` // "nix" | "winget" | "brew"
+	Items           []ProvItem      `json:"items"`
+	AddedRefs       []string        `json:"addedRefs"`
+	AddedPackages   []PackageRecord `json:"addedPackages,omitempty"`
+	Native          string          `json:"native,omitempty"`      // backend-native anchor (nix generation number); "" if none
+	Partial         bool            `json:"partial"`               // true when a non-atomic backend committed a partial set
+	Rollback        bool            `json:"rollback,omitempty"`    // true when this generation was produced by a rollback (AddedRefs is empty)
+	RemovedRefs     []string        `json:"removedRefs,omitempty"` // refs uninstalled by a best-effort (winget/brew) rollback; empty for native/apply generations
+	RemovedPackages []PackageRecord `json:"removedPackages,omitempty"`
 
 	// HomeManager records a home-manager configuration activated by this apply's
 	// config stage (realizer-only, opt-in via --enable-restore). nil when no

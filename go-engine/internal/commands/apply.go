@@ -259,6 +259,7 @@ type ApplyAction struct {
 	ID             string              `json:"id"`
 	Ref            *string             `json:"ref"`
 	Driver         string              `json:"driver"`
+	Source         string              `json:"source,omitempty"`
 	Name           string              `json:"name,omitempty"`
 	Status         string              `json:"status"`
 	Reason         string              `json:"reason,omitempty"`

@@ -11,6 +11,7 @@ import (
 	"regexp"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 )
 
 // compile-time assertion: the winget driver implements driver.Uninstaller, so
@@ -48,10 +49,16 @@ var noPackageFoundPattern = regexp.MustCompile(`(?i)(no installed package found|
 //
 // If the winget binary is not found, Uninstall returns (nil, ErrWingetNotAvailable).
 func (w *WingetDriver) Uninstall(ref string) (*driver.UninstallResult, error) {
+	return w.UninstallSource(ref, packagesource.ResolveWinget(ref, ""))
+}
+
+func (w *WingetDriver) UninstallSource(ref, source string) (*driver.UninstallResult, error) {
+	source = packagesource.ResolveWinget(ref, source)
 	cmd := w.ExecCommand(
 		"winget",
 		"uninstall",
 		"--id", ref,
+		"--source", source,
 		"-e",
 		"--silent",
 		"--accept-source-agreements",

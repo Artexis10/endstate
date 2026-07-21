@@ -175,6 +175,39 @@ func TestEmitPhaseIsIdempotentAcrossPreflightEvents(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// Progress event
+// ---------------------------------------------------------------------------
+
+func TestEmitProgress(t *testing.T) {
+	em, buf := captureEmitter("capture-progress")
+	em.EmitProgress("capture", "inventory")
+
+	ev := parseEvent(t, lastLine(buf))
+	assertBaseFields(t, ev, "capture-progress", "progress")
+	if ev["phase"] != "capture" {
+		t.Errorf("phase = %v, want capture", ev["phase"])
+	}
+	if ev["stage"] != "inventory" {
+		t.Errorf("stage = %v, want inventory", ev["stage"])
+	}
+	if _, ok := ev["message"]; ok {
+		t.Errorf("progress events must not contain user-facing message text: %+v", ev)
+	}
+	if _, ok := ev["percent"]; ok {
+		t.Errorf("progress events must not invent percentages: %+v", ev)
+	}
+}
+
+func TestEmitProgressDisabledIsNoOp(t *testing.T) {
+	buf := &bytes.Buffer{}
+	em := NewEmitterWithWriter("capture-progress", false, buf)
+	em.EmitProgress("capture", "packaging")
+	if buf.Len() != 0 {
+		t.Fatalf("disabled emitter wrote %q, want nothing", buf.String())
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Item event
 // ---------------------------------------------------------------------------
 
@@ -378,6 +411,7 @@ func TestDisabledEmitterProducesNoOutput(t *testing.T) {
 	em.EmitSummary("apply", 1, 1, 0, 0)
 	em.EmitError("engine", "oops", "")
 	em.EmitArtifact("capture", "manifest", "/path")
+	em.EmitProgress("capture", "inventory")
 
 	if buf.Len() != 0 {
 		t.Errorf("disabled emitter produced output: %q", buf.String())

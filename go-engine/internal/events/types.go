@@ -17,7 +17,7 @@ type BaseEvent struct {
 	Version   int    `json:"version"` // Always 1
 	RunID     string `json:"runId"`
 	Timestamp string `json:"timestamp"` // RFC3339 UTC
-	Event     string `json:"event"`     // "phase" | "item" | "summary" | "error" | "artifact"
+	Event     string `json:"event"`     // "phase" | "progress" | "item" | "summary" | "error" | "artifact"
 }
 
 // PhaseEvent signals a transition between engine phases.
@@ -25,6 +25,14 @@ type BaseEvent struct {
 type PhaseEvent struct {
 	BaseEvent
 	Phase string `json:"phase"`
+}
+
+// ProgressEvent marks a truthful engine work boundary without promising a
+// percentage, item count, duration, or user-facing message.
+type ProgressEvent struct {
+	BaseEvent
+	Phase string `json:"phase"`
+	Stage string `json:"stage"`
 }
 
 // ItemEvent tracks progress of a single installable item.

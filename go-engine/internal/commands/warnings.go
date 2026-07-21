@@ -14,6 +14,7 @@ type CommandWarning struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Driver  string `json:"driver,omitempty"`
+	Source  string `json:"source,omitempty"`
 	Ref     string `json:"ref,omitempty"`
 }
 

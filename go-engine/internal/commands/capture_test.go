@@ -15,6 +15,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
@@ -249,7 +250,7 @@ func sampleAppsWithRuntimesAndStore() []snapshot.SnapshotApp {
 		{Name: "Visual Studio Code", ID: "Microsoft.VisualStudioCode", Version: "1.85.0", Source: "winget"},
 		{Name: "Git", ID: "Git.Git", Version: "2.43.0", Source: "winget"},
 		{Name: "VC++ 2015 Redist", ID: "Microsoft.VCRedist.2015+.x64", Version: "14.38.0", Source: "winget"},
-		{Name: "Some Store App", ID: "9NKSQGP7F2NH", Version: "1.0.0", Source: "winget"},
+		{Name: "Some Store App", ID: "9NKSQGP7F2NH", Version: "1.0.0", Source: "msstore"},
 	}
 }
 
@@ -435,21 +436,21 @@ func TestRunCapture_FiltersRuntimesByDefault(t *testing.T) {
 		})
 	})
 
-	// 4 total found, but runtime and store should be filtered.
+	// 4 total found; runtimes are filtered while Store apps are included by default.
 	if result.Counts.TotalFound != 4 {
 		t.Errorf("expected totalFound=4, got %d", result.Counts.TotalFound)
 	}
 	if result.Counts.FilteredRuntimes != 1 {
 		t.Errorf("expected filteredRuntimes=1, got %d", result.Counts.FilteredRuntimes)
 	}
-	if result.Counts.FilteredStoreApps != 1 {
-		t.Errorf("expected filteredStoreApps=1, got %d", result.Counts.FilteredStoreApps)
+	if result.Counts.FilteredStoreApps != 0 {
+		t.Errorf("expected filteredStoreApps=0, got %d", result.Counts.FilteredStoreApps)
 	}
-	if result.Counts.Included != 2 {
-		t.Errorf("expected included=2, got %d", result.Counts.Included)
+	if result.Counts.Included != 3 {
+		t.Errorf("expected included=3, got %d", result.Counts.Included)
 	}
-	if result.Counts.Skipped != 2 {
-		t.Errorf("expected skipped=2, got %d", result.Counts.Skipped)
+	if result.Counts.Skipped != 1 {
+		t.Errorf("expected skipped=1, got %d", result.Counts.Skipped)
 	}
 }
 
@@ -473,12 +474,12 @@ func TestRunCapture_IncludeRuntimes_KeepsRuntimePackages(t *testing.T) {
 		})
 	})
 
-	// Runtime should be included now; store still filtered.
+	// Runtime and Store packages are both included.
 	if result.Counts.FilteredRuntimes != 0 {
 		t.Errorf("expected filteredRuntimes=0 with --include-runtimes, got %d", result.Counts.FilteredRuntimes)
 	}
-	if result.Counts.Included != 3 {
-		t.Errorf("expected included=3, got %d", result.Counts.Included)
+	if result.Counts.Included != 4 {
+		t.Errorf("expected included=4, got %d", result.Counts.Included)
 	}
 }
 
@@ -1704,17 +1705,13 @@ func TestRunCapture_ManifestNeverEmptyObject(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "test-never-empty.jsonc")
 
-	// Discover mode allows an empty snapshot (fresh machine) — use it here
-	// since this test verifies manifest structure, not the empty-guard.
-	withRetryDelay(0, func() {
-		withMockSnapshot([]snapshot.SnapshotApp{}, nil, func() {
-			noopDisplayNames(func() {
-				emptyCatalog(func() {
-					_, err := RunCapture(CaptureFlags{Out: outPath, Discover: true})
-					if err != nil {
-						t.Fatalf("RunCapture returned unexpected error: %+v", err)
-					}
-				})
+	withMockSnapshot(sampleApps(), nil, func() {
+		noopDisplayNames(func() {
+			emptyCatalog(func() {
+				_, err := RunCapture(CaptureFlags{Out: outPath})
+				if err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
 			})
 		})
 	})
@@ -2208,7 +2205,7 @@ func TestRunCapture_UpdatePin_NewApp_CarriesVersion(t *testing.T) {
 	}
 }
 
-func TestRunCapture_Discover_EmptySnapshot_Succeeds(t *testing.T) {
+func TestRunCapture_Discover_EmptySnapshot_FailsAfterRetry(t *testing.T) {
 	tmpDir := t.TempDir()
 	outPath := filepath.Join(tmpDir, "test-discover-empty.jsonc")
 
@@ -2216,16 +2213,12 @@ func TestRunCapture_Discover_EmptySnapshot_Succeeds(t *testing.T) {
 		withMockSnapshot([]snapshot.SnapshotApp{}, nil, func() {
 			noopDisplayNames(func() {
 				emptyCatalog(func() {
-					r, err := RunCapture(CaptureFlags{
+					_, err := RunCapture(CaptureFlags{
 						Out:      outPath,
 						Discover: true,
 					})
-					if err != nil {
-						t.Fatalf("Discover mode should allow empty snapshot: %+v", err)
-					}
-					result := r.(*CaptureResult)
-					if result.Counts.Included != 0 {
-						t.Errorf("expected 0 included in discover mode with empty snapshot, got %d", result.Counts.Included)
+					if err == nil || err.Code != envelope.ErrCaptureFailed {
+						t.Fatalf("Discover mode empty snapshot error = %+v, want %s", err, envelope.ErrCaptureFailed)
 					}
 				})
 			})

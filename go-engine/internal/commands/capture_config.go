@@ -113,6 +113,9 @@ type captureConfigFinalizeRequest struct {
 	// Selection is the parsed --only value. When active, the catalog is narrowed
 	// before planning so both module tiers are scoped from one place.
 	Selection captureSelection
+	// OnStage, when set, receives truthful bundle work boundaries (settings,
+	// packaging) so capture can translate them into schema-v1 progress events.
+	OnStage func(bundle.Stage)
 }
 
 // scopeCatalogToSelection narrows a catalog to the modules an explicit --only
@@ -431,6 +434,7 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		PreplanningDiagnostics: planning.PreplanningDiagnostics,
 		Share:                  request.Flags.Share,
 		Name:                   request.Flags.Name,
+		OnStage:                request.OnStage,
 	})
 	if err != nil {
 		return nil, err

@@ -364,6 +364,137 @@ func TestCreateBundle_AtomicWrite(t *testing.T) {
 	}
 }
 
+func TestCreateBundleWithReport_ReportsSingleCollectionAndStages(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "manifest.jsonc")
+	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"report","apps":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(source, []byte(`{"theme":"dark"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mods := []*modules.Module{{
+		ID:          "apps.report",
+		DisplayName: "Report App",
+		Matches:     modules.MatchCriteria{Winget: []string{"Vendor.Report"}},
+		Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{
+			Source: source,
+			Dest:   "apps/report/settings.json",
+		}}},
+	}}
+
+	var stages []Stage
+	report, err := CreateBundleWithReport(manifestPath, mods, filepath.Join(dir, "report.zip"), "test", func(stage Stage) {
+		stages = append(stages, stage)
+	})
+	if err != nil {
+		t.Fatalf("CreateBundleWithReport: %v", err)
+	}
+	if got := strings.Join([]string{string(stages[0]), string(stages[1])}, ","); got != "settings,packaging" {
+		t.Fatalf("stages = %v, want settings then packaging", stages)
+	}
+	if len(report.Modules) != 1 {
+		t.Fatalf("modules = %+v, want one result", report.Modules)
+	}
+	mod := report.Modules[0]
+	if mod.ID != "apps.report" || mod.AppID != "report" || mod.Status != "captured" || mod.FilesCaptured != 1 {
+		t.Fatalf("module report = %+v", mod)
+	}
+	if len(mod.Paths) != 1 || mod.Paths[0] != "configs/report/settings.json" {
+		t.Fatalf("paths = %v", mod.Paths)
+	}
+	if len(report.Metadata.ConfigModulesIncluded) != 1 || report.Metadata.ConfigModulesIncluded[0] != "report" {
+		t.Fatalf("metadata/report disagree: %+v", report)
+	}
+}
+
+func TestCreateBundleWithReport_ReturnsPartialReportAfterPublicationFailure(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "manifest.jsonc")
+	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"partial","apps":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(source, []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	mods := []*modules.Module{{
+		ID:      "apps.partial",
+		Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{Source: source, Dest: "apps/partial/settings.json"}}},
+	}}
+	// A directory at the final output path makes the atomic rename fail after
+	// collection and zip creation, so the returned report must survive.
+	outputPath := filepath.Join(dir, "occupied.zip")
+	if err := os.Mkdir(outputPath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(outputPath, "keep"), []byte("occupied"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := CreateBundleWithReport(manifestPath, mods, outputPath, "test", nil)
+	if err == nil {
+		t.Fatal("expected publication failure")
+	}
+	if len(report.Modules) != 1 || report.Modules[0].Status != "captured" || report.Modules[0].FilesCaptured != 1 {
+		t.Fatalf("partial report lost collection evidence: %+v", report)
+	}
+}
+
+func TestCreateBundleWithReport_RetainsPartialFilesSensitiveCountAndLaterError(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "manifest.jsonc")
+	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"partial-module","apps":[]}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	settings := filepath.Join(dir, "settings.json")
+	secret := filepath.Join(dir, "token.txt")
+	if err := os.WriteFile(settings, []byte(`{}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(secret, []byte(`secret`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	missing := filepath.Join(dir, "missing-required.json")
+	mods := []*modules.Module{
+		{
+			ID: "apps.partial-error",
+			Capture: &modules.CaptureDef{Files: []modules.CaptureFile{
+				{Source: settings, Dest: "apps/partial-error/settings.json"},
+				{Source: secret, Dest: "apps/partial-error/token.txt"},
+				{Source: missing, Dest: "apps/partial-error/missing.json"},
+			}},
+			Secrets: &modules.SecretsDef{Files: []string{secret}},
+		},
+		{
+			ID: "apps.optional-only",
+			Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{
+				Source: filepath.Join(dir, "optional-missing.json"), Dest: "apps/optional-only/settings.json", Optional: true,
+			}}},
+		},
+	}
+
+	report, err := CreateBundleWithReport(manifestPath, mods, filepath.Join(dir, "partial.zip"), "test", nil)
+	if err != nil {
+		t.Fatalf("CreateBundleWithReport: %v", err)
+	}
+	if len(report.Modules) != 2 {
+		t.Fatalf("modules = %+v", report.Modules)
+	}
+	partial := report.Modules[0]
+	if partial.Status != "error" || partial.FilesCaptured != 1 || len(partial.Paths) != 1 || partial.Paths[0] != "configs/partial-error/settings.json" {
+		t.Fatalf("partial module evidence lost: %+v", partial)
+	}
+	if partial.SensitiveExcludedCount != 1 || report.SensitiveExcludedCount != 1 || len(partial.Errors) != 1 {
+		t.Fatalf("partial module sensitive/error evidence = %+v report=%+v", partial, report)
+	}
+	skipped := report.Modules[1]
+	if skipped.Status != "skipped" || skipped.FilesCaptured != 0 || len(skipped.Paths) != 0 || skipped.Paths == nil || skipped.Errors == nil || skipped.Warnings == nil {
+		t.Fatalf("skipped module = %+v, want non-null empty evidence arrays", skipped)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // CollectConfigFiles
 // ---------------------------------------------------------------------------

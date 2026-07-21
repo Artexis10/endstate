@@ -46,7 +46,7 @@ Every event **MUST** include:
 | `version` | integer | Event schema version (always `1` for this contract) |
 | `runId` | string | Run identifier (e.g., `"apply-20250101-120000-MACHINE"`) |
 | `timestamp` | string | RFC3339 UTC timestamp (informational; NDJSON line order is authoritative) |
-| `event` | string | Event type: `"phase"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"`, `"config-resolution"`, `"config-migration"` |
+| `event` | string | Event type: `"phase"`, `"progress"`, `"item"`, `"summary"`, `"error"`, `"artifact"`, `"restore-item"`, `"backup-chunk"`, `"consent"`, `"config-resolution"`, `"config-migration"` |
 
 ### Event Types
 
@@ -70,6 +70,30 @@ Signals transition between engine phases.
 **Guarantees:**
 - First event in stream is always a phase event
 - Phase events are monotonic (no backward transitions)
+
+---
+
+#### Capture Progress Event
+
+Capture MAY emit additive schema-v1 progress events with no invented percentage:
+
+```json
+{"version":1,"runId":"capture-...","timestamp":"2026-07-17T12:00:00Z","event":"progress","phase":"capture","stage":"inventory"}
+```
+
+`stage` is `inventory`, `settings`, or `packaging`. The applicable subset is monotonic: `inventory` precedes package-source enumeration; `settings` appears only when matched configuration collection begins; `packaging` precedes final artifact publication. The opening capture phase remains first and summary remains last. Capture package items use `status:"present"` and `reason:"detected"`.
+
+---
+
+#### Capture Source and Store Lifecycle
+
+Capture enumerates the WinGet community source and the Microsoft Store source concurrently by default. `--exclude-store-apps` opts out of Store access; `--include-store-apps` is a deprecated no-op (Store is included by default) and `--exclude-store-apps` wins when both are supplied.
+
+- **Item `driver` for Store packages.** A Store-sourced package is still managed through WinGet, so its `item` event carries `driver:"winget"` like any other WinGet package. The `msstore` distinction is a *source*, not a driver: it is preserved in the written manifest and the capture envelope's `apps[].source` (`winget` | `msstore`), and it is threaded through plan, apply, verify, provisioning history, rollback, and uninstall so a Store app is never rerouted to the community source. Store apps dropped by `--exclude-store-apps` are not emitted as item events; they are tallied in the capture envelope's `counts.filteredStoreApps`.
+- **Partial source coverage is reported honestly.** When one source fails but another yields usable inventory, capture succeeds and surfaces an envelope warning rather than silently under-reporting: `store_source_unavailable` (Store failed, community succeeded) or `winget_source_unavailable` (community failed, Store succeeded). Both sources failing is a hard `CAPTURE_FAILED`.
+- **Store version pins are omitted.** Store versions are not a reliable install coordinate, so `capture --pin` omits them and emits one aggregate `store_version_unpinned` warning counting the affected packages.
+
+These warnings are envelope-level `warnings[]` entries, not stream events; their codes, fields, and precise semantics are catalogued in `cli-json-contract.md`. This section is additive to schema v1 (no version bump): the progress, source, and warning fields are all optional and absent on engines or runs that do not produce them.
 
 ---
 

@@ -62,7 +62,8 @@ Per-command flags:
   --discover           Discover installed apps (capture)
   --update             Update existing manifest (capture)
   --include-runtimes   Include runtime packages (capture)
-  --include-store-apps Include Microsoft Store apps (capture)
+  --include-store-apps Deprecated no-op; Store apps are included by default (capture)
+  --exclude-store-apps Exclude Microsoft Store apps without accessing that source (capture)
   --minimize           Minimize manifest format (capture)
   --pin                Record installed versions into the manifest (capture)
   --share              Produce a bundle to hand to someone else (capture; needs --only)
@@ -141,6 +142,7 @@ type parsedArgs struct {
 	update             bool
 	includeRuntimes    bool
 	includeStoreApps   bool
+	excludeStoreApps   bool
 	minimize           bool
 	pin                bool
 	share              bool
@@ -217,6 +219,8 @@ func parseArgs(args []string) parsedArgs {
 			p.includeRuntimes = true
 		case "--include-store-apps":
 			p.includeStoreApps = true
+		case "--exclude-store-apps":
+			p.excludeStoreApps = true
 		case "--minimize":
 			p.minimize = true
 		case "--pin":
@@ -414,7 +418,7 @@ func commandUsage(cmd string) string {
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
-		return "Usage: endstate capture [--only <id[,id...]>] [--share] [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Repeat --driver to select more than one package driver. With --only, capture just the listed items: a bare id selects a detected app, an 'apps.'-prefixed id selects a config module (e.g. --only git-git,apps.vscode). Under --only, a config module attaches only when a selected app matches it by package reference or the module is named outright, so unselected apps' settings are never bundled. Combining --only with --update adds the selection to an existing manifest rather than truncating it. With --share, the bundle is produced for someone else: config restore prefers merging onto the recipient's existing settings rather than replacing them, and the capturing machine name is omitted. --share requires --only and cannot be combined with --sanitize.\n"
+		return "Usage: endstate capture [--only <id[,id...]>] [--share] [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--exclude-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Microsoft Store apps are included by default; --include-store-apps is a deprecated compatibility no-op and --exclude-store-apps wins when both are supplied. Repeat --driver to select more than one package driver. With --only, capture just the listed items: a bare id selects a detected app, an 'apps.'-prefixed id selects a config module (e.g. --only git-git,apps.vscode). Under --only, a config module attaches only when a selected app matches it by package reference or the module is named outright, so unselected apps' settings are never bundled. Combining --only with --update adds the selection to an existing manifest rather than truncating it. With --share, the bundle is produced for someone else: config restore prefers merging onto the recipient's existing settings rather than replacing them, and the capturing machine name is omitted. --share requires --only and cannot be combined with --sanitize.\n"
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
@@ -606,6 +610,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Update:           p.update,
 			IncludeRuntimes:  p.includeRuntimes,
 			IncludeStoreApps: p.includeStoreApps,
+			ExcludeStoreApps: p.excludeStoreApps,
 			Minimize:         p.minimize,
 			Pin:              p.pin,
 			Drivers:          p.drivers,

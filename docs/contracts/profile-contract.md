@@ -148,10 +148,13 @@ Each entry in the `apps` array must have:
 |-------|------|----------|-------------|
 | `id` | string | Yes | Stable cross-platform app identifier |
 | `driver` | string | No | Package driver selector: `winget`, `chocolatey`, or `brew` (case-insensitive) |
+| `source` | string | No | For WinGet apps only: `winget` or `msstore` (case-insensitive; normalized lowercase) |
 | `refs` | object | No | Platform-specific package references |
 | `refs.windows` | string | No | Windows package ID interpreted by the selected Windows driver |
 
 **Note:** For backward compatibility, app entries with missing `id` are accepted but flagged as warnings.
+
+On Windows, omitted `driver` means `winget`. For WinGet, an explicit valid `source` is authoritative. When source is omitted, recognized Microsoft Store IDs infer `msstore` for backward compatibility and other refs infer `winget`. Source on a non-WinGet driver, or any value outside `winget`/`msstore`, is invalid.
 
 On Windows, omitted `driver` means `winget`. An explicit driver never falls back to another manager. A globally known driver unsupported on the host is a visible skipped item; an unknown driver fails manifest validation before package mutation.
 

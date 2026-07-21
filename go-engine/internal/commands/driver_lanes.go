@@ -12,6 +12,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 )
 
@@ -27,6 +28,8 @@ type routedDriverApp struct {
 	app        manifest.App
 	ref        string
 	driverName string
+	source     string
+	laneKey    string
 	drv        driver.Driver
 	err        error
 	failed     bool
@@ -35,6 +38,8 @@ type routedDriverApp struct {
 
 type packageDriverLane struct {
 	name   string
+	source string
+	key    string
 	drv    driver.Driver
 	err    error
 	failed bool
@@ -51,20 +56,26 @@ func detectPackageDriverLanes(lanes []packageDriverLane) map[string]driverLaneDe
 	detections := make(map[string]driverLaneDetection, len(lanes))
 	for _, lane := range lanes {
 		if lane.err != nil || lane.drv == nil {
-			detections[lane.name] = driverLaneDetection{err: lane.err}
+			detections[lane.key] = driverLaneDetection{err: lane.err}
 			continue
 		}
-		bd, ok := lane.drv.(driver.BatchDetector)
-		if !ok || len(lane.apps) == 0 {
-			detections[lane.name] = driverLaneDetection{}
+		if len(lane.apps) == 0 {
+			detections[lane.key] = driverLaneDetection{}
 			continue
 		}
 		refs := make([]string, 0, len(lane.apps))
 		for _, route := range lane.apps {
 			refs = append(refs, route.ref)
 		}
-		results, err := bd.DetectBatch(refs)
-		detections[lane.name] = driverLaneDetection{results: results, err: err, batchUsed: true}
+		if sourceBD, ok := lane.drv.(driver.SourceBatchDetector); ok && lane.source != "" {
+			results, err := sourceBD.DetectBatchSource(refs, lane.source)
+			detections[lane.key] = driverLaneDetection{results: results, err: err, batchUsed: true}
+		} else if bd, ok := lane.drv.(driver.BatchDetector); ok {
+			results, err := bd.DetectBatch(refs)
+			detections[lane.key] = driverLaneDetection{results: results, err: err, batchUsed: true}
+		} else {
+			detections[lane.key] = driverLaneDetection{}
+		}
 	}
 	return detections
 }
@@ -83,18 +94,20 @@ func resolvePackageDriverLanes(apps []manifest.App) ([]packageDriverLane, []*rou
 
 func resolvePackageDriverLanesWithOverrides(apps []manifest.App, overrides map[string]driverLaneOverride) ([]packageDriverLane, []*routedDriverApp, error) {
 	lanes := make([]packageDriverLane, 0)
-	byName := make(map[string]int)
+	byKey := make(map[string]int)
+	resolvedDrivers := make(map[string]driver.Driver)
 	routed := make([]*routedDriverApp, 0, len(apps))
 	var defaultDriver driver.Driver
 	var defaultErr error
 	defaultResolved := false
 
-	addLane := func(name string, drv driver.Driver, err error, failed bool) int {
-		if i, ok := byName[name]; ok {
+	addLane := func(name, source string, drv driver.Driver, err error, failed bool) int {
+		key := name + "\x00" + source
+		if i, ok := byKey[key]; ok {
 			return i
 		}
-		byName[name] = len(lanes)
-		lanes = append(lanes, packageDriverLane{name: name, drv: drv, err: err, failed: failed})
+		byKey[key] = len(lanes)
+		lanes = append(lanes, packageDriverLane{name: name, source: source, key: key, drv: drv, err: err, failed: failed})
 		return len(lanes) - 1
 	}
 
@@ -128,17 +141,23 @@ func resolvePackageDriverLanesWithOverrides(apps []manifest.App, overrides map[s
 			name = strings.ToLower(strings.TrimSpace(drv.Name()))
 		} else if override, ok := overrides[requested]; ok {
 			err, failed = override.err, override.failed
-		} else if existing, ok := byName[requested]; ok {
-			drv, err = lanes[existing].drv, lanes[existing].err
-			failed = lanes[existing].failed
+		} else if existing, ok := resolvedDrivers[requested]; ok {
+			drv = existing
 		} else {
 			drv, err = newNamedDriverFn(requested)
+			if drv != nil {
+				resolvedDrivers[requested] = drv
+			}
 		}
 
 		if drv != nil {
 			name = strings.ToLower(strings.TrimSpace(drv.Name()))
 		}
-		laneIndex := addLane(name, drv, err, failed)
+		source := ""
+		if name == "winget" {
+			source = packagesource.ResolveWinget(ref, app.Source)
+		}
+		laneIndex := addLane(name, source, drv, err, failed)
 		if lanes[laneIndex].drv == nil && drv != nil {
 			lanes[laneIndex].drv = drv
 		}
@@ -147,6 +166,8 @@ func resolvePackageDriverLanesWithOverrides(apps []manifest.App, overrides map[s
 			app:        app,
 			ref:        ref,
 			driverName: name,
+			source:     source,
+			laneKey:    lanes[laneIndex].key,
 			drv:        lanes[laneIndex].drv,
 			err:        lanes[laneIndex].err,
 			failed:     lanes[laneIndex].failed,
@@ -177,6 +198,7 @@ func computeDriverLanePlanWithOverrides(mf *manifest.Manifest, overrides map[str
 					ID:            route.app.ID,
 					Ref:           route.ref,
 					Driver:        route.driverName,
+					Source:        route.source,
 					CurrentStatus: driver.StatusSkipped,
 					PlannedAction: "skip",
 					DisplayName:   resolveItemDisplayName("", route.app, route.ref),
