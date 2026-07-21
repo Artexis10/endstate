@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"strconv"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
@@ -31,6 +32,81 @@ const alreadyInstalledExitCodeUnsigned = 2316632107
 // denied the installation. This is heuristic and unreliable — winget provides
 // no standardised exit code for user cancellation (see event-contract.md).
 var userDeniedPattern = regexp.MustCompile(`(?i)(cancel(l?ed)?|denied|canceled|user.*abort|user.*decline|installation.*cancel)`)
+
+// cancelledExitHResults are winget/Windows process exit codes (HRESULTs) that
+// deterministically mean the user declined or dismissed an elevation/permission
+// prompt. This is a documented allowlist — unlike userDeniedPattern it does not
+// guess from output text. On Windows an HRESULT exit code may be reported by
+// Go's exec ExitCode() as either its signed int32 or unsigned uint32
+// interpretation (same as alreadyInstalledExitCode*), so both are listed.
+//
+// Sources:
+//   - 0x8A15010C APPINSTALLER_CLI_ERROR_INSTALL_CANCELLED_BY_USER
+//     ("You cancelled the installation.")
+//   - 0x8A150077 APPINSTALLER_CLI_ERROR_AUTHENTICATION_CANCELLED_BY_USER
+//     ("Authentication failed. User cancelled.")
+//     Both: microsoft/winget-cli doc/windows/package-manager/winget/returnCodes.md
+//   - 0x800704C7 HRESULT_FROM_WIN32(ERROR_CANCELLED) — the Windows "operation
+//     cancelled by the user" code (1223) surfaced as an HRESULT (UAC declined).
+var cancelledExitHResults = map[int]struct{}{
+	-1978334964: {}, 2316632332: {}, // 0x8A15010C INSTALL_CANCELLED_BY_USER
+	-1978335113: {}, 2316632183: {}, // 0x8A150077 AUTHENTICATION_CANCELLED_BY_USER
+	-2147023673: {}, 2147943623: {}, // 0x800704C7 HRESULT_FROM_WIN32(ERROR_CANCELLED)
+}
+
+// cancelledInstallerCodes are Windows/MSI installer exit codes — as reported by
+// winget's "Installer failed with exit code: <n>" output line, not winget's own
+// process exit code — that mean the user cancelled. When the user declines the
+// UAC prompt the bundled installer aborts with one of these while winget's
+// process exit stays a generic installer-failed HRESULT.
+//
+// Sources (Windows/MSI system error codes):
+//   - 1602 ERROR_INSTALL_USEREXIT   ("User cancel installation.")
+//   - 1223 ERROR_CANCELLED          ("The operation was canceled by the user.")
+var cancelledInstallerCodes = map[int]struct{}{
+	1602: {},
+	1223: {},
+}
+
+// installerExitCodeRe extracts <n> from winget's
+// "Installer failed with exit code: <n>" line.
+var installerExitCodeRe = regexp.MustCompile(`(?i)installer failed with exit code:\s*(-?\d+)`)
+
+// cancelledMessage is the engine-authored, jargon-free message surfaced for a
+// user-cancelled install. It carries no exit codes or CLI remediation so a GUI
+// can present it verbatim.
+const cancelledMessage = "Installation was cancelled before it finished — Windows asked for permission and the request was declined or dismissed."
+
+// isUserCancelled reports whether a non-zero winget outcome was the user
+// declining/dismissing an elevation or permission prompt, using the documented
+// exit-code allowlists (winget/Windows HRESULT process exit code, or the
+// installer exit code winget printed). It is deterministic — the heuristic
+// userDeniedPattern is a separate, weaker fallback for unclassified codes.
+func isUserCancelled(exitCode int, combined string) bool {
+	if _, ok := cancelledExitHResults[exitCode]; ok {
+		return true
+	}
+	if code, ok := parseInstallerExitCode(combined); ok {
+		if _, ok := cancelledInstallerCodes[code]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+// parseInstallerExitCode returns the <n> from a winget "Installer failed with
+// exit code: <n>" line, or (0, false) when the line is absent/unparseable.
+func parseInstallerExitCode(output string) (int, bool) {
+	m := installerExitCodeRe.FindStringSubmatch(output)
+	if m == nil {
+		return 0, false
+	}
+	code, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, false
+	}
+	return code, true
+}
 
 // WingetDriver implements driver.Driver using the winget CLI.
 // ExecCommand is an injection point so tests can substitute a fake command
@@ -60,10 +136,13 @@ func (w *WingetDriver) Name() string { return "winget" }
 // Exit code semantics:
 //   - 0                 → StatusInstalled
 //   - -1978335189 (0x8A15002B) → StatusPresent / ReasonAlreadyInstalled
+//   - a documented cancellation exit code → StatusFailed / ReasonCancelledByUser
+//     (user declined/dismissed an elevation prompt; see isUserCancelled)
 //   - other non-zero    → StatusFailed / ReasonInstallFailed
 //
-// If combined stdout+stderr contains cancellation keywords the reason is
-// overridden to ReasonUserDenied (heuristic, unreliable per event-contract.md).
+// For an unclassified non-zero exit, if combined stdout+stderr contains
+// cancellation keywords the reason is overridden to ReasonUserDenied
+// (heuristic, unreliable per event-contract.md).
 //
 // If the winget binary is not found, Install returns (nil, ErrWingetNotAvailable).
 func (w *WingetDriver) Install(ref string) (*driver.InstallResult, error) {
@@ -142,6 +221,16 @@ func (w *WingetDriver) install(ref, version string, force bool, source string) (
 			Status:  driver.StatusPresent,
 			Reason:  driver.ReasonAlreadyInstalled,
 			Message: "Already installed",
+		}, nil
+
+	case isUserCancelled(exitCode, combined):
+		// The user declined/dismissed an elevation prompt (documented exit-code
+		// allowlist). Status stays "failed" — the install did not complete — but
+		// the reason lets a consumer present a calm cancellation, not an error.
+		return &driver.InstallResult{
+			Status:  driver.StatusFailed,
+			Reason:  driver.ReasonCancelledByUser,
+			Message: cancelledMessage,
 		}, nil
 
 	default:

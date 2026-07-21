@@ -135,11 +135,24 @@ Tracks progress of individual items (apps, configs, etc.).
   - `"sensitive_excluded"`
   - `"detected"`
   - `"install_failed"`
+  - `"cancelled_by_user"` - Install aborted because the user declined/dismissed an elevation prompt (deterministic exit-code allowlist)
   - `"user_denied"` - User cancelled/denied installation (heuristic, unreliable)
   - `"missing"` - App not installed (verify phase)
   - `null` (no specific reason)
 
-**Note on `user_denied`:** Detection is heuristic and unreliable. Winget provides no standardized exit code for user cancellation. Pattern matching on output text may misclassify some user cancellations as `install_failed`.
+**Note on `cancelled_by_user` (additive, schema v1):** Distinct from `user_denied`, this reason is derived from a **documented allowlist of Windows/MSI and winget exit codes**, not heuristic text matching. It is emitted with `status="failed"` (an install did not complete) so the `failed` status vocabulary is unchanged; the reason simply lets a consumer present a calm "you cancelled this" instead of a hard error. The current (winget) allowlist is:
+
+  | Exit code | Symbol | Where |
+  |-----------|--------|-------|
+  | `1602` | `ERROR_INSTALL_USEREXIT` ("User cancel installation.") | Installer exit code in winget's `Installer failed with exit code: <n>` line |
+  | `1223` | `ERROR_CANCELLED` ("The operation was canceled by the user.") | Installer exit code (as above) |
+  | `0x800704C7` | `HRESULT_FROM_WIN32(ERROR_CANCELLED)` — UAC declined | winget process exit code |
+  | `0x8A15010C` | `APPINSTALLER_CLI_ERROR_INSTALL_CANCELLED_BY_USER` ("You cancelled the installation.") | winget process exit code |
+  | `0x8A150077` | `APPINSTALLER_CLI_ERROR_AUTHENTICATION_CANCELLED_BY_USER` ("Authentication failed. User cancelled.") | winget process exit code |
+
+  Exit codes outside this allowlist keep their prior classification unchanged. winget HRESULTs are documented at `microsoft/winget-cli` `doc/windows/package-manager/winget/returnCodes.md`.
+
+**Note on `user_denied`:** Detection is heuristic and unreliable. Winget provides no standardized exit code for user cancellation. Pattern matching on output text may misclassify some user cancellations as `install_failed`. It remains the weaker fallback for cancellations **not** covered by the `cancelled_by_user` allowlist.
 - `message` (string, optional): Human-readable message
 - `rebootRequired` (boolean, optional): `true` when a successful package operation requires a reboot; omitted otherwise. This is a success fact, not a warning or failure.
 
@@ -645,6 +658,7 @@ For **UI status/phase semantics** (how events map to labels, colors, and user-fa
 
 Key UI semantic rules not duplicated here:
 - `verify` + `status=failed` + `reason=missing` → UI displays **MISSING** (warn), not FAILED (error)
+- `apply` + `status=failed` + `reason=cancelled_by_user` → UI displays **CANCELLED** (warn), not FAILED (error) — the user declined an elevation prompt; the engine-authored `message` is safe to show verbatim
 - `apply` + `status=skipped` + `reason=user_denied` → UI displays **CANCELLED** (warn), not FAILED (error)
 - `verify` + `status=present` → UI displays **CONFIRMED**, not "Already present"
 - **INSTALLED** vs **CONFIRMED**: Installed = installed this run; Confirmed = verified present
