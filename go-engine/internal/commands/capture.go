@@ -741,6 +741,13 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	}
 	assignDeterministicCaptureIDs(captured, nil)
 
+	// Best-effort recovery of Microsoft Store display names before anything
+	// downstream reads app.Name (item events, appsIncluded, the written
+	// manifest). A Store entry whose enumeration evidence was lost arrives
+	// labelled with the bare product ID; this fills the human name when winget
+	// metadata can supply one and is a no-op otherwise.
+	enrichStoreDisplayNames(captured)
+
 	// Apply --only here, after IDs are final and before everything downstream.
 	//
 	// After ID assignment because the dedup suffixing above produces the IDs a
@@ -1196,4 +1203,78 @@ func wingetIDToManifestID(wingetID string) string {
 // case-insensitive even though its display casing is useful provenance.
 func wingetEvidenceKey(ref string) string {
 	return strings.ToLower(strings.TrimSpace(ref))
+}
+
+// resolveStoreDisplayNamesFn returns a best-effort winget-ID → display-name map
+// for Microsoft Store packages. It defaults to a single `winget list --source
+// msstore` snapshot and is replaceable in tests.
+var resolveStoreDisplayNamesFn = defaultResolveStoreDisplayNames
+
+// defaultResolveStoreDisplayNames resolves friendly Store names from winget
+// metadata in one non-interactive call. `winget list --source msstore` exposes
+// the human name ("PowerToys (Preview) x64") keyed by the same product ID that
+// `winget export` emits, so this recovers names that the concurrent enumeration
+// evidence lost. It is best-effort: any failure yields an empty map and the
+// caller keeps the raw ID. Entries whose name is missing or equals the ID carry
+// no usable name and are dropped from the map.
+func defaultResolveStoreDisplayNames() map[string]string {
+	apps, err := snapshot.TakeSnapshotSource(packagesource.MSStore)
+	if err != nil {
+		return nil
+	}
+	names := make(map[string]string, len(apps))
+	for _, app := range apps {
+		id := strings.TrimSpace(app.ID)
+		name := strings.TrimSpace(app.Name)
+		if id == "" || name == "" || strings.EqualFold(name, id) {
+			continue
+		}
+		names[wingetEvidenceKey(id)] = name
+	}
+	return names
+}
+
+// storeNameNeedsEnrichment reports whether a captured Store entry lacks a usable
+// human name — either empty or the bare product ID. Community winget entries are
+// never enriched.
+func storeNameNeedsEnrichment(app capturedApp) bool {
+	if effectiveCapturedSource(app) != packagesource.MSStore {
+		return false
+	}
+	ref := strings.TrimSpace(app.Refs["windows"])
+	name := strings.TrimSpace(app.Name)
+	return name == "" || strings.EqualFold(name, ref)
+}
+
+// enrichStoreDisplayNames fills in human display names for Microsoft Store
+// entries whose captured name is missing or is the raw product ID. Store names
+// are normally merged from `winget list --source msstore` during enumeration,
+// but that list runs concurrently with `winget export` and a lost or raced call
+// leaves the entry labelled with the bare ID (e.g. "XP89DCGQ3K6VLD" for
+// PowerToys). This best-effort pass re-resolves those names from a single
+// sequential metadata call. It never fails capture, makes no winget call when no
+// Store name is missing, and leaves the raw ID untouched when nothing resolves.
+func enrichStoreDisplayNames(apps []capturedApp) {
+	needs := false
+	for i := range apps {
+		if storeNameNeedsEnrichment(apps[i]) {
+			needs = true
+			break
+		}
+	}
+	if !needs {
+		return
+	}
+	names := resolveStoreDisplayNamesFn()
+	if len(names) == 0 {
+		return
+	}
+	for i := range apps {
+		if !storeNameNeedsEnrichment(apps[i]) {
+			continue
+		}
+		if name := names[wingetEvidenceKey(apps[i].Refs["windows"])]; name != "" {
+			apps[i].Name = name
+		}
+	}
 }
