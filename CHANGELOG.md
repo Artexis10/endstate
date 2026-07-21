@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.25.1](https://github.com/Artexis10/endstate/compare/v2.25.0...v2.25.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* **restore:** tolerate vanishing siblings during target resolution ([#165](https://github.com/Artexis10/endstate/issues/165)) ([1cee14d](https://github.com/Artexis10/endstate/commit/1cee14d017d71a25b7d4356de396e856f6188f88))
+
 ## [2.25.0](https://github.com/Artexis10/endstate/compare/v2.24.2...v2.25.0) (2026-07-20)
 
 
