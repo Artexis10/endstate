@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -17,8 +18,9 @@ import (
 )
 
 func TestSourceWingetCapture_DefaultDualSourceAndPartialWarning(t *testing.T) {
-	orig := enumerateWingetSourceFn
-	t.Cleanup(func() { enumerateWingetSourceFn = orig })
+	orig, origDelay := enumerateWingetSourceFn, snapshotRetryDelay
+	t.Cleanup(func() { enumerateWingetSourceFn = orig; snapshotRetryDelay = origDelay })
+	snapshotRetryDelay = 0
 	var mu sync.Mutex
 	var sources []string
 	enumerateWingetSourceFn = func(source string, _ bool) ([]driver.InstalledPackage, error) {
@@ -106,8 +108,9 @@ func TestSourceWingetCapture_SuccessfulEmptyStoreHasNoUnavailableWarning(t *test
 }
 
 func TestSourceWingetCapture_StoreOnlySuccessWarnsCommunityUnavailable(t *testing.T) {
-	orig := enumerateWingetSourceFn
-	t.Cleanup(func() { enumerateWingetSourceFn = orig })
+	orig, origDelay := enumerateWingetSourceFn, snapshotRetryDelay
+	t.Cleanup(func() { enumerateWingetSourceFn = orig; snapshotRetryDelay = origDelay })
+	snapshotRetryDelay = 0
 	enumerateWingetSourceFn = func(source string, _ bool) ([]driver.InstalledPackage, error) {
 		if source == "winget" {
 			return nil, errors.New("community source blocked")
@@ -117,6 +120,104 @@ func TestSourceWingetCapture_StoreOnlySuccessWarnsCommunityUnavailable(t *testin
 	packages, warnings, err := (sourceWingetCaptureEnumerator{}).EnumerateInstalledWithWarnings()
 	if err != nil || len(packages) != 1 || len(warnings) != 1 || warnings[0].Code != "winget_source_unavailable" || warnings[0].Source != "winget" {
 		t.Fatalf("packages=%+v warnings=%+v err=%v", packages, warnings, err)
+	}
+}
+
+// A transient community-source failure (e.g. exit status 0x8a150001) that
+// clears within the retry budget must recover the full community list and emit
+// no unavailable warning.
+func TestSourceWingetCapture_RetriesTransientCommunityFailureThenSucceeds(t *testing.T) {
+	orig, origDelay := enumerateWingetSourceFn, snapshotRetryDelay
+	t.Cleanup(func() { enumerateWingetSourceFn = orig; snapshotRetryDelay = origDelay })
+	snapshotRetryDelay = 0
+	calls := map[string]int{}
+	var mu sync.Mutex
+	enumerateWingetSourceFn = func(source string, _ bool) ([]driver.InstalledPackage, error) {
+		mu.Lock()
+		calls[source]++
+		n := calls[source]
+		mu.Unlock()
+		if source == "winget" && n < 3 {
+			return nil, errors.New("winget list --source winget failed: exit status 0x8a150001")
+		}
+		if source == "msstore" {
+			return []driver.InstalledPackage{{Ref: "9NBLGGH4NNS1", Source: source}}, nil
+		}
+		return []driver.InstalledPackage{{Ref: "Vendor.App", Source: source}}, nil
+	}
+	packages, warnings, err := (sourceWingetCaptureEnumerator{}).EnumerateInstalledWithWarnings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("warnings=%+v, want none after transient recovery", warnings)
+	}
+	var hasCommunity bool
+	for _, pkg := range packages {
+		if pkg.Ref == "Vendor.App" {
+			hasCommunity = true
+		}
+	}
+	if !hasCommunity {
+		t.Fatalf("packages=%+v, want community app recovered after retry", packages)
+	}
+	if calls["winget"] != 3 {
+		t.Fatalf("winget calls=%d, want 3 (initial + 2 retries)", calls["winget"])
+	}
+}
+
+// When every retry attempt fails, the community source is declared unavailable
+// exactly once — no duplicate warnings from the extra attempts.
+func TestSourceWingetCapture_CommunityUnavailableWarnsOnceAfterExhaustingRetries(t *testing.T) {
+	orig, origDelay := enumerateWingetSourceFn, snapshotRetryDelay
+	t.Cleanup(func() { enumerateWingetSourceFn = orig; snapshotRetryDelay = origDelay })
+	snapshotRetryDelay = 0
+	calls := map[string]int{}
+	var mu sync.Mutex
+	enumerateWingetSourceFn = func(source string, _ bool) ([]driver.InstalledPackage, error) {
+		mu.Lock()
+		calls[source]++
+		mu.Unlock()
+		if source == "winget" {
+			return nil, errors.New("exit status 0x8a150001")
+		}
+		return []driver.InstalledPackage{{Ref: "9NBLGGH4NNS1", Source: source}}, nil
+	}
+	packages, warnings, err := (sourceWingetCaptureEnumerator{}).EnumerateInstalledWithWarnings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packages) != 1 {
+		t.Fatalf("packages=%+v, want store-only survivor", packages)
+	}
+	if len(warnings) != 1 || warnings[0].Code != "winget_source_unavailable" || warnings[0].Source != "winget" {
+		t.Fatalf("warnings=%+v, want exactly one winget_source_unavailable", warnings)
+	}
+	if calls["winget"] != 3 {
+		t.Fatalf("winget calls=%d, want 3 (initial + 2 retries) before degrading", calls["winget"])
+	}
+}
+
+// A missing winget binary is not a transient failure and must never be retried:
+// doing so would slow every capture on winget-less machines for no benefit.
+func TestSourceWingetCapture_DoesNotRetryWhenWingetMissing(t *testing.T) {
+	orig, origDelay := enumerateWingetSourceFn, snapshotRetryDelay
+	t.Cleanup(func() { enumerateWingetSourceFn = orig; snapshotRetryDelay = origDelay })
+	snapshotRetryDelay = 0
+	calls := map[string]int{}
+	var mu sync.Mutex
+	enumerateWingetSourceFn = func(source string, _ bool) ([]driver.InstalledPackage, error) {
+		mu.Lock()
+		calls[source]++
+		mu.Unlock()
+		return nil, &exec.Error{Name: "winget", Err: exec.ErrNotFound}
+	}
+	_, _, err := (sourceWingetCaptureEnumerator{}).EnumerateInstalledWithWarnings()
+	if err == nil {
+		t.Fatal("expected error when winget binary is missing")
+	}
+	if calls["winget"] != 1 || calls["msstore"] != 1 {
+		t.Fatalf("calls=%v, want a single attempt per source (no retry on missing binary)", calls)
 	}
 }
 
@@ -133,8 +234,10 @@ func TestSourceWingetCapture_AllSourcesFailAfterRetry(t *testing.T) {
 		return nil, errors.New(source + " failed")
 	}
 	_, _, err := (sourceWingetCaptureEnumerator{}).EnumerateInstalledWithWarnings()
-	if err == nil || calls != 4 {
-		t.Fatalf("err=%v calls=%d, want structured failure after retry", err, calls)
+	// Two sources, each attempted three times (initial + 2 retries) before the
+	// aggregate is declared a structured failure.
+	if err == nil || calls != 6 {
+		t.Fatalf("err=%v calls=%d, want structured failure after per-source retries", err, calls)
 	}
 }
 
