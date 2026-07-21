@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.27.4](https://github.com/Artexis10/endstate/compare/v2.27.3...v2.27.4) (2026-07-21)
+
+
+### Bug Fixes
+
+* **capture:** keep one winner on config target collisions instead of shipping both ([#187](https://github.com/Artexis10/endstate/issues/187)) ([56c19ae](https://github.com/Artexis10/endstate/commit/56c19ae66dbce6821b6de675245dcc0edd6ed373))
+* **capture:** retry transient winget community enumeration before degrading ([#183](https://github.com/Artexis10/endstate/issues/183)) ([f0bc2c8](https://github.com/Artexis10/endstate/commit/f0bc2c80397061e6b101302a0eafe3a65640abc9)), closes [#176](https://github.com/Artexis10/endstate/issues/176)
+* **capture:** validate captured config payloads and warn on unrestorable sets ([#184](https://github.com/Artexis10/endstate/issues/184)) ([461a0f4](https://github.com/Artexis10/endstate/commit/461a0f4c8bff1b17c27c2ce3ad591811ad987fc5))
+* **catalog:** partition the three grandfathered restore-target overlaps + add Sigma File Manager module ([#186](https://github.com/Artexis10/endstate/issues/186)) ([3f1bbd8](https://github.com/Artexis10/endstate/commit/3f1bbd80f9fa59aa4201cea679f9872ebbac3427))
+
 ## [2.27.3](https://github.com/Artexis10/endstate/compare/v2.27.2...v2.27.3) (2026-07-21)
 
 
