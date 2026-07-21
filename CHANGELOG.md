@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.27.3](https://github.com/Artexis10/endstate/compare/v2.27.2...v2.27.3) (2026-07-21)
+
+
+### Bug Fixes
+
+* **capture:** stop false duplicate warning for one Store app across winget sources ([#177](https://github.com/Artexis10/endstate/issues/177)) ([363eb8c](https://github.com/Artexis10/endstate/commit/363eb8cc8c997274996bb1910306fd33b25b8cd6))
+* **catalog:** partition overlapping restore ownership (wsl, shell dotfiles) ([#180](https://github.com/Artexis10/endstate/issues/180)) ([a76054e](https://github.com/Artexis10/endstate/commit/a76054eee5d6cd9fc21285ed26caca19ba12d38b))
+
 ## [2.27.2](https://github.com/Artexis10/endstate/compare/v2.27.1...v2.27.2) (2026-07-21)
 
 
