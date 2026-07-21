@@ -9,8 +9,16 @@
 
   "matches": {
     "winget": ["Microsoft.WSL"],
-    "exe": ["wsl.exe"],
-    "uninstallDisplayName": ["^Windows Subsystem for Linux"]
+    "exe": ["wsl.exe", "wslservice.exe"],
+    "uninstallDisplayName": ["^Windows Subsystem for Linux"],
+    // Folded in from the former apps.wsl-config module (removed to eliminate an
+    // overlapping-restore-target collision on %USERPROFILE%\.wslconfig): the
+    // presence of a hand-tuned .wslconfig, or wsl.exe under System32, both
+    // signal WSL even when the winget/exe/uninstall matchers miss.
+    "pathExists": [
+      "%USERPROFILE%\\.wslconfig",
+      "%SystemRoot%\\System32\\wsl.exe"
+    ]
   },
 
   "verify": [

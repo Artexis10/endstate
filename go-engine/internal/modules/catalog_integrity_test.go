@@ -5,6 +5,7 @@ package modules
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -167,5 +168,247 @@ func TestCatalogIntegrity_ModuleInvariants(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// overlapAllowlistKey normalizes a module-ID pair into a stable, order-independent
+// allowlist key.
+func overlapAllowlistKey(a, b string) [2]string {
+	if a <= b {
+		return [2]string{a, b}
+	}
+	return [2]string{b, a}
+}
+
+// knownRestoreOverlapAllowlist enumerates module-ID pairs that are permitted to
+// declare overlapping restore targets. Two kinds of entries belong here:
+//
+//  1. Intentional shared-ownership designs (none today).
+//  2. GRANDFATHERED pre-existing overlaps that predate this invariant and are
+//     tracked for a follow-up ownership partition. These are latent bugs of the
+//     same class the invariant guards against (overlapping targets make the
+//     restore planner fail BOTH sets with ReasonTargetCollision — see
+//     internal/planner/config_collision.go), not deliberate designs. They are
+//     allowlisted only so this guard can block NEW regressions immediately while
+//     the known cases are triaged separately.
+//
+// Key entries via overlapAllowlistKey. Removing an entry (by partitioning the
+// overlap in the catalog) is always safe and preferred.
+var knownRestoreOverlapAllowlist = map[[2]string]string{
+	// Betterbird is a Thunderbird fork that reuses the same
+	// %APPDATA%\Thunderbird profile tree, so both modules target the same
+	// prefs/filters/extensions. Follow-up: decide single ownership of the
+	// shared Thunderbird profile (or make Betterbird non-owning).
+	overlapAllowlistKey("apps.betterbird", "apps.thunderbird"): "pre-existing: Betterbird reuses the Thunderbird profile dir; pending ownership partition",
+	// Gpg4win bundles Kleopatra (its matches include kleopatra.exe), so both
+	// modules restore %APPDATA%\gnupg\kleopatra\kleopatrarc and
+	// %APPDATA%\kleopatra\kleopatrarc. Follow-up: fold Kleopatra config into the
+	// Gpg4win bundle owner or gate double-matching.
+	overlapAllowlistKey("apps.gpg4win", "apps.kleopatra"): "pre-existing: Gpg4win bundles Kleopatra; overlapping kleopatrarc targets pending partition",
+	// IntelliJ IDEA Community and Ultimate both declare the identical
+	// %APPDATA%\JetBrains\IntelliJIdea* config glob. Follow-up: give each edition
+	// an edition-specific config path or a single shared owner.
+	overlapAllowlistKey("apps.intellij-idea", "apps.intellij-idea-ultimate"): "pre-existing: IDEA Community/Ultimate share the JetBrains IntelliJIdea* config glob; pending partition",
+}
+
+// restoreTargetKind distinguishes filesystem targets from registry targets so
+// overlap is only ever compared within a kind (mirrors the planner).
+type restoreTargetKind uint8
+
+const (
+	fsRestoreTarget restoreTargetKind = iota
+	registryRestoreTarget
+)
+
+// restoreTargetClaim is a single normalized restore target declared by a module.
+type restoreTargetClaim struct {
+	kind      restoreTargetKind
+	canonical string
+	display   string // original, human-readable target for failure messages
+}
+
+// homePrefixes are the env-var-style home-directory prefixes used across the
+// catalog. They are normalized to a single sentinel so that, e.g., "~/.bashrc"
+// and "%USERPROFILE%\\.bashrc" are recognized as the same target even though the
+// catalog test cannot expand env vars against a real host.
+var homePrefixes = []string{"%userprofile%/", "$home/", "${home}/", "~/"}
+
+// canonicalCatalogFilesystemTarget mirrors the overlap semantics of
+// internal/planner/config_collision.go (canonicalFilesystemTarget): it lower-cases
+// and path.Clean-normalizes the target. The planner runs on host-expanded paths;
+// this catalog-level test cannot expand env vars, so it first collapses the
+// known home-directory prefixes to a single "<home>" sentinel. It is a local
+// replica rather than a direct call because the planner imports this package, so
+// importing planner here would create an import cycle.
+func canonicalCatalogFilesystemTarget(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/")))
+	if s == "~" {
+		return "<home>"
+	}
+	for _, p := range homePrefixes {
+		if strings.HasPrefix(s, p) {
+			s = "<home>/" + s[len(p):]
+			break
+		}
+	}
+	return path.Clean(s)
+}
+
+// canonicalCatalogRegistryTarget mirrors internal/planner/config_collision.go
+// (canonicalRegistryTarget). valueName may be empty for whole-key operations.
+func canonicalCatalogRegistryTarget(key, valueName string) string {
+	key = strings.ReplaceAll(strings.TrimSpace(key), "/", `\`)
+	key = strings.TrimRight(key, `\`)
+	return strings.ToLower(key) + "\x00" + strings.ToLower(valueName)
+}
+
+// restoreClaimFor converts one RestoreDef into a normalized claim. It returns
+// false for restore types that declare no comparable target.
+func restoreClaimFor(r RestoreDef) (restoreTargetClaim, bool) {
+	switch r.Type {
+	case "copy", "merge-json", "merge-ini", "append", "delete-glob":
+		if strings.TrimSpace(r.Target) == "" {
+			return restoreTargetClaim{}, false
+		}
+		return restoreTargetClaim{
+			kind:      fsRestoreTarget,
+			canonical: canonicalCatalogFilesystemTarget(r.Target),
+			display:   r.Target,
+		}, true
+	case "registry-set":
+		return restoreTargetClaim{
+			kind:      registryRestoreTarget,
+			canonical: canonicalCatalogRegistryTarget(r.Key, r.ValueName),
+			display:   strings.TrimRight(r.Key, `\/`) + `\` + r.ValueName,
+		}, true
+	case "registry-import":
+		if strings.TrimSpace(r.Target) == "" {
+			return restoreTargetClaim{}, false
+		}
+		return restoreTargetClaim{
+			kind:      registryRestoreTarget,
+			canonical: canonicalCatalogRegistryTarget(r.Target, ""),
+			display:   r.Target,
+		}, true
+	default:
+		return restoreTargetClaim{}, false
+	}
+}
+
+// moduleRestoreClaims gathers the unique restore-target claims a module declares,
+// across both the schema-v1 top-level restore block and any schema-v2 config-set
+// generations. Generations within one module legitimately re-target the same
+// paths (they are version alternatives), so claims are de-duplicated per module;
+// only cross-module overlap is a collision.
+func moduleRestoreClaims(mod *Module) []restoreTargetClaim {
+	seen := make(map[[2]string]bool)
+	var claims []restoreTargetClaim
+	add := func(r RestoreDef) {
+		claim, ok := restoreClaimFor(r)
+		if !ok {
+			return
+		}
+		key := [2]string{string(rune(claim.kind)), claim.canonical}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		claims = append(claims, claim)
+	}
+	for _, r := range mod.Restore {
+		add(r)
+	}
+	if mod.Config != nil {
+		for _, set := range mod.Config.Sets {
+			for _, gen := range set.Generations {
+				for _, r := range gen.Restore {
+					add(r)
+				}
+			}
+		}
+	}
+	return claims
+}
+
+// restoreClaimsOverlap mirrors targetClaimsOverlap/filesystemTargetsOverlap from
+// internal/planner/config_collision.go: same-kind only; registry compares by
+// equality, filesystem by equal-or-nested paths.
+func restoreClaimsOverlap(a, b restoreTargetClaim) bool {
+	if a.kind != b.kind {
+		return false
+	}
+	if a.kind == registryRestoreTarget {
+		return a.canonical == b.canonical
+	}
+	left := strings.TrimSuffix(a.canonical, "/")
+	right := strings.TrimSuffix(b.canonical, "/")
+	if left == right {
+		return true
+	}
+	return strings.HasPrefix(left, right+"/") || strings.HasPrefix(right, left+"/")
+}
+
+// TestCatalogIntegrity_NoOverlappingRestoreTargets guards against two modules in
+// the catalog declaring overlapping restore targets (equal or nested filesystem
+// paths, or the same registry value). The restore planner fails BOTH colliding
+// sets with ReasonTargetCollision (internal/planner/config_collision.go), so a
+// real capture that selects two overlapping modules silently restores NEITHER.
+// This invariant keeps restore ownership partitioned at catalog-authoring time.
+func TestCatalogIntegrity_NoOverlappingRestoreTargets(t *testing.T) {
+	root := productionModulesRoot()
+	catalog, err := LoadCatalog(root)
+	if err != nil {
+		t.Fatalf("LoadCatalog: %v", err)
+	}
+
+	ids := make([]string, 0, len(catalog))
+	for id := range catalog {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	claimsByModule := make(map[string][]restoreTargetClaim, len(ids))
+	for _, id := range ids {
+		claimsByModule[id] = moduleRestoreClaims(catalog[id])
+	}
+
+	type collision struct {
+		left, right, target string
+	}
+	var collisions []collision
+	for i := 0; i < len(ids); i++ {
+		for j := i + 1; j < len(ids); j++ {
+			left, right := ids[i], ids[j]
+			if _, allowed := knownRestoreOverlapAllowlist[overlapAllowlistKey(left, right)]; allowed {
+				continue
+			}
+			for _, lc := range claimsByModule[left] {
+				for _, rc := range claimsByModule[right] {
+					if restoreClaimsOverlap(lc, rc) {
+						collisions = append(collisions, collision{left: left, right: right, target: lc.display})
+					}
+				}
+			}
+		}
+	}
+
+	if len(collisions) > 0 {
+		sort.Slice(collisions, func(a, b int) bool {
+			if collisions[a].left != collisions[b].left {
+				return collisions[a].left < collisions[b].left
+			}
+			if collisions[a].right != collisions[b].right {
+				return collisions[a].right < collisions[b].right
+			}
+			return collisions[a].target < collisions[b].target
+		})
+		var b strings.Builder
+		b.WriteString("catalog declares overlapping restore targets; the restore planner fails BOTH sets " +
+			"with ReasonTargetCollision (internal/planner/config_collision.go). Partition ownership so each " +
+			"target has exactly one owning module:\n")
+		for _, c := range collisions {
+			b.WriteString("  " + c.left + " <-> " + c.right + " both restore: " + c.target + "\n")
+		}
+		t.Fatal(b.String())
 	}
 }
