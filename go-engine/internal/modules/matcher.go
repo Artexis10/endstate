@@ -20,6 +20,23 @@ import (
 // Only modules with capture sections are returned. Results are sorted by
 // module ID for deterministic output.
 func MatchModulesForApps(catalog map[string]*Module, apps []manifest.App) []*Module {
+	return matchModulesForApps(catalog, apps, true)
+}
+
+// MatchModulesForAppsSelective matches apps against the catalog by package
+// reference only (winget/chocolatey), ignoring matches.pathExists.
+//
+// Under an explicit selection (--only), a module that merely has a path on this
+// filesystem is not part of the selection — it has to be named. 141 of 357
+// catalog modules declare pathExists, and the branch below checks it against the
+// filesystem without consulting the app list at all, so including it would pull
+// in configs for most installed apps regardless of what the user picked. That is
+// a payload leak precisely when the artifact is being handed to another person.
+func MatchModulesForAppsSelective(catalog map[string]*Module, apps []manifest.App) []*Module {
+	return matchModulesForApps(catalog, apps, false)
+}
+
+func matchModulesForApps(catalog map[string]*Module, apps []manifest.App, includePathExists bool) []*Module {
 	if len(catalog) == 0 || len(apps) == 0 {
 		return nil
 	}
@@ -70,7 +87,7 @@ func MatchModulesForApps(catalog map[string]*Module, apps []manifest.App) []*Mod
 		}
 
 		// Check pathExists matches (expand env vars, check filesystem).
-		if !isMatch {
+		if !isMatch && includePathExists {
 			for _, pathPattern := range mod.Matches.PathExists {
 				expandedPath := config.ExpandEnvVars(pathPattern)
 				expandedPath = os.ExpandEnv(expandedPath)

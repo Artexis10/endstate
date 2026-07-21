@@ -129,6 +129,7 @@ The defined warning codes are:
 
 - `optional_driver_unavailable`: an optional driver could not participate; independent available lanes continue.
 - `possible_duplicate`: different package drivers report or declare the same qualifying display name. Every entry remains present and independently routed.
+- `module_catalog_unavailable` (`capture`): no config module catalog could be reached, so the capture records installed apps but none of their settings. Emitted when no repo root resolves; a catalog that loads but contains no modules is a correctly configured install that matched nothing and does NOT warn, and an unreadable catalog is a hard `CAPTURE_FAILED` rather than a warning. Not emitted under `--sanitize`, which opts out of config modules deliberately.
 
 For `plan`, `apply`, and `verify`, `possible_duplicate` is an advisory ownership warning based only on routed, non-manual per-package entries. Two entries qualify when their resolved driver names differ and their non-empty explicit manifest `displayName` values are equal after trimming outer whitespace and case-insensitive comparison. Refs, IDs, versions, inferred or backend-detected labels, substrings, punctuation normalization, and fuzzy similarity are not duplicate evidence. Whole-set realizer and manual entries do not participate.
 
@@ -191,7 +192,7 @@ endstate capabilities --json
       },
       "capture": {
         "supported": true,
-        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin"]
+        "flags": ["--profile", "--out", "--name", "--driver", "--sanitize", "--discover", "--update", "--include-runtimes", "--include-store-apps", "--minimize", "--manifest", "--json", "--events", "--pin", "--only", "--share"]
       },
       "plan": {
         "supported": true,
@@ -199,11 +200,11 @@ endstate capabilities --json
       },
       "restore": {
         "supported": true,
-        "flags": ["--manifest", "--restore-filter", "--restore-target", "--json", "--events", "--filter"]
+        "flags": ["--manifest", "--restore-filter", "--restore-target", "--json", "--events"]
       },
       "rebuild": {
         "supported": true,
-        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events"]
+        "flags": ["--from", "--confirm", "--dry-run", "--no-restore", "--restore-filter", "--restore-target", "--bootstrap-backends", "--no-bootstrap", "--json", "--events", "--only"]
       },
       "report": {
         "supported": true,
@@ -613,6 +614,79 @@ The engine automatically maps only one viable target or one unique exact-version
 | `--dry-run` | Can be combined with `--only` to preview the subset plan without executing. This is the GUI's per-app selection preview path. |
 
 `--only` cannot be combined with `--prune` — prune converges to the exact manifest set, and pruning against a deliberate subset would classify every unselected app as drift. The combination is rejected with `MANIFEST_VALIDATION_ERROR`.
+
+`rebuild --only <ids>` accepts the same app-id list and propagates it to the underlying apply, so installs, config restore, and verification are scoped alike. This lets a recipient take part of a shared capture bundle.
+
+### Advertised Restorable Modules (`restoreModulesAvailable`)
+
+`data.restoreModulesAvailable` lists the config modules this run can actually restore. A module appears only when the manifest declares it in `configModules` and does not exclude it via `excludeConfigs` — module restore is driven entirely by that declaration, so a module matched from the catalog but absent from it restores nothing.
+
+Clients may render this list as a per-module selection. An entry that would restore nothing is never offered, so a control built from this list always corresponds to real work.
+
+### Capture-Subset Selection (`capture --only`)
+
+`capture --only <id[,id,...]>` limits a capture to the listed items. The flag name and comma-separated shape match `apply --only`; the token grammar is namespaced because capture selects across two kinds of thing:
+
+| Token form | Selects | Matched against |
+|------------|---------|-----------------|
+| `git-git` | a detected app | the captured app `id` |
+| `apps.vscode` | a config module | the catalog module `id` |
+
+A bare token is **always** an app id. Bare module ids are not accepted, because a value like `vscode` would otherwise be ambiguous between an app and a module. This is a deliberate asymmetry with `--restore-filter`, which does accept short module ids.
+
+Under an active selection, a config module attaches only when **(a)** a selected app matches it by package reference (`matches.winget` / `matches.chocolatey`), or **(b)** the module is named outright. A module matched solely by `matches.pathExists` is never pulled in by a selection: that matcher tests the filesystem without consulting the app list, so including it would attach configs for apps the user did not select.
+
+| Flag | Behavior |
+|------|----------|
+| `--only <ids>` | App ids not detected on the machine fail the run with `MANIFEST_VALIDATION_ERROR` naming them. Module ids absent from the catalog fail the same way. An empty or blank value is rejected. A selection naming only modules and no apps is rejected — a capture must contain at least one app. |
+| `--update` | Combining `--only` with `--update` **adds** the selection to the existing manifest; it never truncates that manifest to the selection. Filtering is applied to the newly discovered set before the merge. |
+| `--sanitize` | Unaffected: `--sanitize` already attaches no config modules, so a selection only narrows the app set. |
+
+Counts keep their existing meaning: `totalFound` reports what was detected on the machine (pre-filter), deselected apps are counted in `skipped`, and `totalFound == included + skipped` continues to hold.
+
+On a host using a platform realizer (Nix/brew), `--only` filters the captured app set the same way. That path attaches no config modules by design, so `apps.`-prefixed tokens select nothing there.
+
+> **Note.** `data.appsIncluded[].id` carries the package *reference* (e.g. `Git.Git`), which is not the token `--only` matches. Each entry additionally carries `manifestId` (e.g. `git-git`) — the app's id in the written manifest, and the value to pass to `capture --only`, `apply --only`, and `rebuild --only`. Clients building a selection UI should use `manifestId`. The field is additive; `id` is unchanged.
+
+### Share Mode (`capture --share`)
+
+`capture --share --only <ids>` produces a bundle intended to be handed to someone else rather than used to rebuild the capturing machine. It requires `--only` — an unscoped share would attach every matched module's config, the opposite of a curated setup — and cannot be combined with `--sanitize`, which attaches no config at all. Both combinations are rejected with `MANIFEST_VALIDATION_ERROR` before anything is captured.
+
+A share bundle differs from a self-rebuild bundle in three ways:
+
+| | Self-rebuild bundle | Share bundle |
+|---|---|---|
+| Collision behavior | restore entries replace the target | entries prefer merging onto the recipient's config |
+| Backup | per module declaration | forced on for every entry |
+| `metadata.machineName` | the capturing machine | omitted (it identifies the sender) |
+
+Merge preference is decided at capture time and encoded in the bundled restore `type`, so an engine older than this change still merges when applying a newer share bundle.
+
+Retyping is conservative, because a wrong merge silently corrupts a config file while an honest replace is backed up and revertable:
+
+- `copy` becomes `merge-json` only when the staged payload is a strict JSON **object**. JSONC (comments, trailing commas) is rejected by the merge restorer's parser, and arrays or scalars are replaced rather than merged by the deep-merge rule — so a JSON array such as a keybindings file stays `copy`.
+- `copy` becomes `merge-ini` only for `.ini` targets, never for git config: INI merging collapses duplicate keys, which git relies on.
+- Any other declared type is left alone. A module author who chose `append` or `registry-set` knows something the inspection does not.
+
+`metadata` additionally records `os` (the capture host), `share`, and `name` (from `--name`). All three are additive.
+
+#### Redaction
+
+A share bundle has identity-bearing values removed from its payloads. Self-rebuild bundles are untouched — a rebuild wants full fidelity, including the values this strips.
+
+Three layers apply:
+
+- **Account-bound modules are omitted whole** rather than scrubbed (mail clients, remote-access tools). Each omission appears in `captureWarnings`.
+- **A pattern pass** over decoded payloads replaces Windows user-path segments (including escaped `C:\Users\name` and percent-encoded `file:///c%3A/Users/name/...` forms), email addresses, and the capturing hostname.
+- **Git config** additionally has `user.name`, `user.email` and `user.signingkey` stripped; ordinary settings are preserved.
+
+`metadata.redaction` reports what happened: per-rule replacement counts, files scanned and changed, and `unscanned` — the payloads that could not be decoded as text. Their contents were neither examined nor altered.
+
+**Known limits, by design.** Redaction does not replace: bare usernames outside a path context; licence-key or product-key shapes; paths on drives without a `Users` directory; or anything inside a payload listed in `unscanned`. A sharer should review the bundle before sending it. These limits are deliberate — patterns aggressive enough to catch them corrupt functional configuration at an unacceptable rate.
+
+### Cross-OS Bundles
+
+`rebuild` refuses a bundle whose recorded `metadata.os` differs from the host, with `NOT_SUPPORTED` naming both operating systems. Config modules carry no non-Windows package identity and their paths are OS-specific, so a cross-OS apply would install nothing and restore to paths that do not exist. A bundle with no recorded `os` predates the field and is accepted.
 
 ### Convergence (`--prune`)
 

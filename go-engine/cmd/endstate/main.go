@@ -65,6 +65,7 @@ Per-command flags:
   --include-store-apps Include Microsoft Store apps (capture)
   --minimize           Minimize manifest format (capture)
   --pin                Record installed versions into the manifest (capture)
+  --share              Produce a bundle to hand to someone else (capture; needs --only)
   --driver <name>      Limit capture to a package driver; repeatable (capture)
   --bootstrap-backends Authorize setup of selected absent backends (apply, rebuild)
   --no-bootstrap       Skip selected absent backend lanes (apply, rebuild)
@@ -142,6 +143,7 @@ type parsedArgs struct {
 	includeStoreApps   bool
 	minimize           bool
 	pin                bool
+	share              bool
 	drivers            []string
 	driverMissingValue bool // --driver was present without a following value
 
@@ -219,6 +221,8 @@ func parseArgs(args []string) parsedArgs {
 			p.minimize = true
 		case "--pin":
 			p.pin = true
+		case "--share":
+			p.share = true
 		case "--driver":
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				p.drivers = append(p.drivers, args[i+1])
@@ -404,13 +408,13 @@ func commandUsage(cmd string) string {
 	case "apply":
 		return "Usage: endstate apply [--manifest <path>] [--dry-run] [--enable-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--only <id[,id...]>] [--prune] [--repin] [--confirm] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nExecute provisioning plan. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. With --only, limit the run to the comma-separated list of manifest app ids (filtering happens before planning so only the selected apps are installed, restored, and verified). With --prune, converge the engine-managed set to exactly the manifest by removing installed-but-undeclared packages (realizer backends only, e.g. Nix on Linux/macOS). With --repin, reinstall a declared app version when the installed version has drifted from it (supported versioned drivers). --prune and --repin both require --confirm to execute; use --dry-run to preview what would change. --only and --prune cannot be combined. When a selected optional package backend is absent, --bootstrap-backends authorizes the engine to install it via its official installer; --no-bootstrap forces skipping it. Without either flag the engine skips the lane and requests consent.\n"
 	case "rebuild":
-		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--dry-run] [--confirm] [--no-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. Backend-bootstrap flags are propagated to apply. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
+		return "Usage: endstate rebuild --from <bundle.zip|manifest.jsonc> [--only <id[,id...]>] [--dry-run] [--confirm] [--no-restore] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--bootstrap-backends] [--no-bootstrap] [--json] [--events jsonl]\n\nRebuild a machine from a capture bundle (.zip) or a bare manifest (.jsonc): install the declared apps, restore configuration, then verify. With --only, limit the rebuild to the listed app ids so a recipient can take part of a shared setup; the selection scopes installs, config restore, and verification alike. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence. Restore is ON by default, so a live run (not --dry-run, not --no-restore) requires --confirm. Use --dry-run to preview the plan without changing anything, or --no-restore to install and verify without touching configuration. Backend-bootstrap flags are propagated to apply. Overwritten files are backed up first and can be undone with 'endstate revert'. Local file input only — URL input is not supported.\n"
 	case "import":
 		return "Usage: endstate import --from unigetui --path <file> [--out <path>] [--pin] [--json]\n\nImport an external package list into an Endstate manifest. The only supported source is 'unigetui' (a UniGetUI .ubundle backup/bundle, JSON). Winget-source packages become manifest apps; every non-winget package (chocolatey, scoop, pip, ...) and every incompatible entry is reported, never silently dropped. With --pin, the app version is recorded (a package's InstallationOptions.Version pin wins over the observed version). Output defaults to manifests/local/imported-unigetui.jsonc (gitignored). This is a pure transform: no installs, no network. Scope: the package list only — UniGetUI's own settings are not imported; Endstate's module catalog restores app config on plan/apply.\n"
 	case "verify":
 		return "Usage: endstate verify [--manifest <path>] [--json] [--events jsonl]\n\nVerify machine state against manifest.\n"
 	case "capture":
-		return "Usage: endstate capture [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Repeat --driver to select more than one package driver.\n"
+		return "Usage: endstate capture [--only <id[,id...]>] [--share] [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Repeat --driver to select more than one package driver. With --only, capture just the listed items: a bare id selects a detected app, an 'apps.'-prefixed id selects a config module (e.g. --only git-git,apps.vscode). Under --only, a config module attaches only when a selected app matches it by package reference or the module is named outright, so unselected apps' settings are never bundled. Combining --only with --update adds the selection to an existing manifest rather than truncating it. With --share, the bundle is produced for someone else: config restore prefers merging onto the recipient's existing settings rather than replacing them, and the capturing machine name is omitted. --share requires --only and cannot be combined with --sanitize.\n"
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
 	case "restore":
@@ -546,6 +550,12 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 		})
 
 	case "rebuild":
+		if p.onlyMissingValue {
+			return nil, envelope.NewError(
+				envelope.ErrManifestValidationError,
+				"--only requires a value: no app id was provided").
+				WithRemediation("Provide one or more comma-separated app ids, e.g. --only git-git.")
+		}
 		return runRebuildFn(commands.RebuildFlags{
 			From:              p.from,
 			DryRun:            p.dryRun,
@@ -556,6 +566,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			RestoreTargets:    append([]string(nil), p.restoreTargets...),
 			BootstrapBackends: p.bootstrapBackends,
 			NoBootstrap:       p.noBootstrap,
+			Only:              p.only,
 		})
 
 	case "import":
@@ -579,6 +590,12 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 				"--driver requires a package driver name").
 				WithRemediation("Provide a driver name, e.g. --driver winget or --driver chocolatey.")
 		}
+		if p.onlyMissingValue {
+			return nil, envelope.NewError(
+				envelope.ErrManifestValidationError,
+				"--only requires a value: no id was provided").
+				WithRemediation("Provide one or more comma-separated ids, e.g. --only git-git,apps.vscode.")
+		}
 		return runCaptureFn(commands.CaptureFlags{
 			Manifest:         p.manifest,
 			Out:              p.out,
@@ -593,6 +610,8 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			Pin:              p.pin,
 			Drivers:          p.drivers,
 			Events:           p.events,
+			Only:             p.only,
+			Share:            p.share,
 		})
 
 	case "plan":

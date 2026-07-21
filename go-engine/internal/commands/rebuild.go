@@ -6,8 +6,10 @@ package commands
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
@@ -39,6 +41,10 @@ type RebuildFlags struct {
 	BootstrapBackends bool
 	// NoBootstrap forces selected absent backend lanes to be skipped.
 	NoBootstrap bool
+	// Only limits the rebuild to a comma-separated subset of the bundle's app
+	// ids, propagated to apply so installs, config restore, and verification all
+	// see the same selection. Lets a recipient take part of a shared setup.
+	Only string
 }
 
 // RebuildBundleInfo describes the extracted capture bundle. It is nil for a
@@ -147,6 +153,9 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 			bundleInfo.MachineName = md.MachineName
 			bundleInfo.EndstateVersion = md.EndstateVersion
 			bundleInfo.ConfigModulesIncluded = md.ConfigModulesIncluded
+			if refusal := refuseCrossOSBundle(md.OS, rebuildGOOSFn()); refusal != nil {
+				return nil, refusal
+			}
 		}
 	}
 
@@ -209,7 +218,31 @@ func rebuildApplyFlags(flags RebuildFlags, manifestPath string) ApplyFlags {
 		RestoreTargets:    append([]string(nil), flags.RestoreTargets...),
 		BootstrapBackends: flags.BootstrapBackends,
 		NoBootstrap:       flags.NoBootstrap,
+		Only:              flags.Only,
 	}
+}
+
+// rebuildGOOSFn reports the host OS for the cross-OS bundle check. Replaced in
+// tests so the refusal can be exercised from any host.
+var rebuildGOOSFn = func() string { return runtime.GOOS }
+
+// refuseCrossOSBundle rejects applying a bundle captured on a different OS.
+//
+// The refusal is honest rather than conservative: the module catalog carries no
+// non-Windows package identity (MatchCriteria has winget/chocolatey only) and
+// module paths are Windows-shaped, so a cross-OS apply would install nothing and
+// restore config to paths that do not exist. A report of "3 of 47 applied", with
+// every skip reading "wrong OS", is worse than saying so up front.
+//
+// A bundle with no recorded OS predates the field and is accepted.
+func refuseCrossOSBundle(bundleOS, hostOS string) *envelope.Error {
+	if bundleOS == "" || bundleOS == hostOS {
+		return nil
+	}
+	return envelope.NewError(
+		envelope.ErrNotSupported,
+		fmt.Sprintf("this bundle was captured on %s and cannot be applied on %s: app references and configuration paths are OS-specific, so almost nothing in it would transfer", bundleOS, hostOS)).
+		WithRemediation(fmt.Sprintf("Apply this bundle on %s, or capture a new one on %s.", bundleOS, hostOS))
 }
 
 // readBundleMetadata best-effort reads metadata.json from an extracted bundle

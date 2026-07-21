@@ -6,7 +6,6 @@ package restore
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -91,7 +90,7 @@ func RestoreMergeIni(entry RestoreAction, source, target string, opts RestoreOpt
 		if _, statErr := os.Stat(target); statErr == nil {
 			backupDir := opts.BackupDir
 			if backupDir == "" {
-				backupDir = filepath.Join("state", "backups", opts.RunID)
+				backupDir = defaultBackupDir(opts.RunID)
 			}
 			backupPath, backupErr := CreateBackup(target, backupDir)
 			if backupErr != nil {

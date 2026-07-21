@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -43,6 +44,11 @@ type CaptureBundleRequest struct {
 	// refusals that produced no executable collection plan. They are reported
 	// and persisted exactly like collection-time diagnostics.
 	PreplanningDiagnostics []CaptureBundleDiagnostic
+	// Share marks this bundle as produced for sharing rather than self-rebuild.
+	// It makes restore entries merge-preferring and blanks the machine name.
+	Share bool
+	// Name is the human label for the bundle (--name), recorded in metadata.
+	Name string
 }
 
 // CaptureBundleDiagnostic records a non-fatal per-config-set capture outcome.
@@ -139,12 +145,36 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		manifestVersion = 2
 		bundleSchemaVersion = "2.0"
 	}
-	legacy, err := collectLegacyCaptureLanes(request.Modules, stagingRoot, manifestVersion == 2)
+	captureModules := request.Modules
+	var deniedModules []string
+	if request.Share {
+		// Drop account- and device-bound modules whole rather than scrubbing them.
+		// Their value to a recipient is near zero and partially redacting a
+		// credential-shaped store is a bad trade.
+		captureModules, deniedModules = partitionShareDeniedModules(captureModules)
+	}
+	legacy, err := collectLegacyCaptureLanes(captureModules, stagingRoot, manifestVersion == 2)
 	if err != nil {
 		return nil, err
 	}
 
 	prepareCaptureManifest(baseManifest, manifestVersion, configCaptures, legacy)
+	var redaction RedactionReport
+	if request.Share {
+		// Redact before the merge sniff, because redaction rewrites payload bytes
+		// and the sniff decides on those bytes. Doing it the other way round could
+		// classify a file that redaction then changes.
+		var redactErr error
+		redaction, redactErr = redactShareTree(stagingRoot, captureHostname())
+		if redactErr != nil {
+			return nil, fmt.Errorf("capture bundle: redact share payloads: %w", redactErr)
+		}
+		// Decided at capture time and encoded in the restore types, so an older
+		// engine applying this bundle still merges. Runs after the manifest is
+		// assembled so it sees the final rewritten ./configs/ sources it needs to
+		// sniff.
+		baseManifest.Restore = preferMergeForShare(baseManifest.Restore, stagingRoot)
+	}
 	stagedManifest := filepath.Join(stagingRoot, "manifest.jsonc")
 	manifestBytes, err := json.MarshalIndent(baseManifest, "", "  ")
 	if err != nil {
@@ -162,18 +192,34 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		captureIDs = append(captureIDs, capture.CaptureID)
 	}
 	captureWarnings := append([]string(nil), legacy.warnings...)
+	for _, denied := range deniedModules {
+		captureWarnings = append(captureWarnings,
+			"share mode omitted "+denied+": its configuration is account- or device-bound and is not portable to another person")
+	}
 	for _, diagnostic := range diagnostics {
 		captureWarnings = append(captureWarnings, captureBundleDiagnosticWarning(diagnostic))
 	}
 	sort.Strings(captureWarnings)
+	machineName := captureHostname()
+	if request.Share {
+		// The hostname is an identifier of the sender, and a share bundle is
+		// handed to someone else.
+		machineName = ""
+	}
 	metadata := BundleMetadata{
 		SchemaVersion:         bundleSchemaVersion,
 		CapturedAt:            time.Now().UTC().Format(time.RFC3339),
-		MachineName:           captureHostname(),
+		MachineName:           machineName,
 		EndstateVersion:       request.EndstateVersion,
 		ConfigModulesIncluded: nonNilStrings(legacy.included),
 		ConfigModulesSkipped:  nonNilStrings(legacy.skipped),
 		CaptureWarnings:       nonNilStrings(captureWarnings),
+		OS:                    runtime.GOOS,
+		Share:                 request.Share,
+		Name:                  request.Name,
+	}
+	if request.Share {
+		metadata.Redaction = &redaction
 	}
 	if manifestVersion == 2 {
 		metadata.ManifestVersion = manifestVersion
@@ -390,8 +436,16 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		}
 		for _, restore := range mod.Restore {
 			entry := rewriteLegacyRestore(restore, layoutID)
+			// Module provenance travels with every bundle, not just mixed-v2 ones.
+			// Restore input building routes an entry with an empty FromModule into
+			// ordinaryRestores, which is converted with an empty filter and is never
+			// reached by --only scoping — so a plain v1 bundle's entries were
+			// unfilterable, and a recipient running `apply --only <app>
+			// --enable-restore` got every module's config instead of the selection.
+			entry.FromModule = mod.ID
+			// LegacyCaptureID stays v2-only: the v1 input validator rejects a
+			// manifest that carries explicit v2 legacy identity.
 			if mixedV2 {
-				entry.FromModule = mod.ID
 				entry.LegacyCaptureID = legacyCaptureID
 			}
 			legacy.restores = append(legacy.restores, entry)
@@ -569,4 +623,18 @@ func nonNilConfigCaptures(values []manifest.ConfigCapture) []manifest.ConfigCapt
 		return []manifest.ConfigCapture{}
 	}
 	return append([]manifest.ConfigCapture(nil), values...)
+}
+
+// partitionShareDeniedModules splits modules into those a share bundle may
+// carry and those it must not, preserving order.
+func partitionShareDeniedModules(mods []*modules.Module) (kept []*modules.Module, denied []string) {
+	for _, mod := range mods {
+		if mod != nil && ShareModuleDenied(mod.ID) {
+			denied = append(denied, mod.ID)
+			continue
+		}
+		kept = append(kept, mod)
+	}
+	sort.Strings(denied)
+	return kept, denied
 }

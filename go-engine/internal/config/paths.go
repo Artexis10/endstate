@@ -16,8 +16,10 @@ import (
 //  1. ENDSTATE_ROOT environment variable (if set and non-empty).
 //  2. Walk up from the directory containing the running executable, looking for
 //     ".release-please-manifest.json" — the repo root is the directory that
-//     contains it.
-//  3. If neither source produces a result, returns an empty string and the caller
+//     contains it. This identifies a repo checkout.
+//  3. Walk up again looking for a "modules/apps" directory. This identifies an
+//     installed layout, which carries the module catalog but no repo marker.
+//  4. If no source produces a result, returns an empty string and the caller
 //     must handle the missing-root case.
 func ResolveRepoRoot() string {
 	if root := os.Getenv("ENDSTATE_ROOT"); root != "" {
@@ -35,21 +37,84 @@ func ResolveRepoRoot() string {
 		return ""
 	}
 
-	dir := filepath.Dir(exe)
+	start := filepath.Dir(exe)
+
+	if root := walkUpFor(start, func(dir string) bool {
+		_, err := os.Stat(filepath.Join(dir, ".release-please-manifest.json"))
+		return err == nil
+	}); root != "" {
+		return root
+	}
+
+	// Installed layout: no repo marker exists, because bootstrap does not write
+	// one. Fall back to the catalog itself — an install that carries modules is
+	// a usable root. From <install>\bin\lib\endstate.exe this resolves <install>\bin.
+	//
+	// Ordering is deliberate: this runs only where the marker walk already
+	// returned nothing, so a repo checkout and an ENDSTATE_ROOT override both
+	// still win and existing behaviour is unchanged. Without this step a
+	// PATH-invoked binary resolves no root at all, and capture silently emits an
+	// app-list-only manifest with none of the config modules that are the point.
+	return walkUpFor(start, func(dir string) bool {
+		info, err := os.Stat(filepath.Join(dir, "modules", "apps"))
+		return err == nil && info.IsDir()
+	})
+}
+
+// walkUpFor returns the nearest ancestor of start (inclusive) satisfying match,
+// or "" if the filesystem root is reached without a hit.
+func walkUpFor(start string, match func(dir string) bool) string {
+	dir := start
 	for {
-		candidate := filepath.Join(dir, ".release-please-manifest.json")
-		if _, err := os.Stat(candidate); err == nil {
+		if match(dir) {
 			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			// Reached filesystem root without finding manifest.
-			break
+			return ""
 		}
 		dir = parent
 	}
+}
 
-	return ""
+// StateRoot returns the directory Endstate writes run state into: backups, the
+// restore journal, and state.json.
+//
+// It is the repo root's state/ when a root resolves, and a stable user-scoped
+// directory otherwise. The fallback matters because the alternative — a
+// CWD-relative path — puts a recipient's pre-overwrite backups wherever they
+// happened to run the command from. Backups that cannot be found are not a
+// safety net, and "backup before overwrite" is an invariant, not a best effort.
+//
+// Returns an empty string only if neither a repo root nor a home directory can
+// be determined, leaving the decision to the caller.
+func StateRoot() string {
+	if root := ResolveRepoRoot(); root != "" {
+		return filepath.Join(root, "state")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return stateRootFor(runtime.GOOS, home, os.Getenv("XDG_STATE_HOME"))
+}
+
+// stateRootFor computes the user-scoped state directory for the given OS.
+// Separators are written for the target OS so the result is host-independent
+// and unit-testable from any platform.
+func stateRootFor(goos, home, xdgStateHome string) string {
+	switch goos {
+	case "windows":
+		return home + `\AppData\Local\Endstate\state`
+	case "darwin":
+		return home + "/Library/Application Support/Endstate/state"
+	default:
+		base := xdgStateHome
+		if base == "" {
+			base = home + "/.local/state"
+		}
+		return base + "/endstate"
+	}
 }
 
 // ProfileDir returns the path to the Endstate profiles directory for the host

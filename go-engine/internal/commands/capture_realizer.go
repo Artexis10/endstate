@@ -206,6 +206,15 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		}
 	}
 
+	// Apply --only after BOTH lanes have contributed (realizer above, brew just
+	// now) and before the --update merge, matching the Windows path: a selection
+	// narrows what this run discovered, it never truncates an existing manifest.
+	appSelection, selectedApps, onlyErr := validateCaptureOnly(flags.Only, captured)
+	if onlyErr != nil {
+		return nil, onlyErr
+	}
+	captured = selectedApps
+
 	// --- 4. If --update and --manifest: merge with existing manifest (host-keyed) ---
 	if flags.Update && flags.Manifest != "" {
 		existingMf, loadErr := loadManifest(flags.Manifest)
@@ -347,19 +356,29 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		if source == "" {
 			source = driverName
 		}
-		appsIncluded = append(appsIncluded, CaptureApp{Source: source, ID: ca.ID, Name: ca.Name})
+		// The realizer path's ref and manifest id coincide, but both are emitted so
+		// clients can read manifestId uniformly across capture paths.
+		appsIncluded = append(appsIncluded, CaptureApp{Source: source, ID: ca.ID, ManifestID: ca.ID, Name: ca.Name})
 	}
 
 	// --- 10. Plan config capture and publish one canonical artifact ---
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
 		Flags: flags, ManifestPath: absPath,
-		Apps: buildModuleMatchApps(captured),
+		Apps:      buildModuleMatchApps(captured),
+		Selection: appSelection,
 	})
 	if finalizeErr != nil {
 		return nil, envelope.NewError(
 			envelope.ErrCaptureFailed,
 			fmt.Sprintf("Failed to create capture bundle: %v", finalizeErr),
 		)
+	}
+
+	// The realizer path collects no other CommandWarnings, so this is the whole
+	// set rather than an append.
+	var warnings []CommandWarning
+	if finalization.CatalogUnavailable {
+		warnings = append(warnings, captureCatalogUnavailableWarning())
 	}
 
 	// --- 11. Emit artifact and summary events ---
@@ -390,6 +409,7 @@ func runCaptureRealizerSelected(flags CaptureFlags, r realizer.Realizer, emitter
 		ManifestVersion:     generationManifestVersion(finalization),
 		CaptureWarnings:     finalization.CaptureWarnings,
 		ConfigCapture:       captureConfigResultSummary(finalization),
+		Warnings:            warnings,
 	}, nil
 }
 
