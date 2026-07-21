@@ -1,0 +1,101 @@
+{
+  // Config Module: Sigma File Manager
+  // Open-source Electron/Vue file manager by Aleksey Hoffman
+  // Curated module - captures the app-storage JSON settings only; excludes bundled
+  // binaries, media, thumbnails, search data, caches and telemetry
+
+  "id": "apps.sigma-file-manager",
+  "displayName": "Sigma File Manager",
+  "sensitivity": "low",
+
+  "matches": {
+    "winget": ["AlekseyHoffman.Sigma-File-Manager"],
+    "exe": ["Sigma file manager.exe"],
+    "uninstallDisplayName": ["^Sigma [Ff]ile [Mm]anager"],
+    "pathExists": [
+      "%APPDATA%\\Sigma file manager\\app storage\\settings.json"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Sigma file manager\\app storage\\settings.json" }
+  ],
+
+  "restore": [
+    {
+      // Main app settings (theme, navigator, date/time, text, app properties)
+      "type": "copy",
+      "source": "./payload/apps/sigma-file-manager/settings.json",
+      "target": "%APPDATA%\\Sigma file manager\\app storage\\settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Workspaces / tabs / per-workspace default paths
+      "type": "copy",
+      "source": "./payload/apps/sigma-file-manager/workspaces.json",
+      "target": "%APPDATA%\\Sigma file manager\\app storage\\workspaces.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Pinned directory/file list
+      "type": "copy",
+      "source": "./payload/apps/sigma-file-manager/pinned.json",
+      "target": "%APPDATA%\\Sigma file manager\\app storage\\pinned.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Protected-items list
+      "type": "copy",
+      "source": "./payload/apps/sigma-file-manager/protected.json",
+      "target": "%APPDATA%\\Sigma file manager\\app storage\\protected.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // User notes (text content authored in the Notes page)
+      "type": "copy",
+      "source": "./payload/apps/sigma-file-manager/notes.json",
+      "target": "%APPDATA%\\Sigma file manager\\app storage\\notes.json",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      { "source": "%APPDATA%\\Sigma file manager\\app storage\\settings.json", "dest": "apps/sigma-file-manager/settings.json", "optional": true },
+      { "source": "%APPDATA%\\Sigma file manager\\app storage\\workspaces.json", "dest": "apps/sigma-file-manager/workspaces.json", "optional": true },
+      { "source": "%APPDATA%\\Sigma file manager\\app storage\\pinned.json", "dest": "apps/sigma-file-manager/pinned.json", "optional": true },
+      { "source": "%APPDATA%\\Sigma file manager\\app storage\\protected.json", "dest": "apps/sigma-file-manager/protected.json", "optional": true },
+      { "source": "%APPDATA%\\Sigma file manager\\app storage\\notes.json", "dest": "apps/sigma-file-manager/notes.json", "optional": true }
+    ],
+    "excludeGlobs": [
+      // Usage/telemetry timeline - non-portable app state
+      "**\\stats.json",
+      // Bundled runtime binaries (ffmpeg, yt-dlp, 7-zip) - large, machine/arch-tied
+      "**\\bin\\**",
+      // Generated media: thumbnails, home-banner media, notes media
+      "**\\media\\**",
+      // Global-search index data
+      "**\\search data\\**",
+      // Electron / Chromium browser state and caches (userData root)
+      "**\\Cache\\**",
+      "**\\Code Cache\\**",
+      "**\\GPUCache\\**",
+      "**\\DawnCache\\**",
+      "**\\blob_storage\\**",
+      "**\\Local Storage\\**",
+      "**\\Session Storage\\**",
+      "**\\Local State",
+      "**\\Crashpad\\**",
+      "**\\logs\\**",
+      "**\\*.log",
+      "**\\*.lock"
+    ]
+  },
+
+  "notes": "Captures Sigma File Manager's app-storage settings JSON files under %APPDATA%\\Sigma file manager\\app storage\\ (Electron userData for productName \"Sigma file manager\"): settings.json (theme, navigator, date/time, text, app properties), workspaces.json (workspaces/tabs and default paths), pinned.json, protected.json, and notes.json (user notes). Verified against the aleksey-hoffman/sigma-file-manager v1.7.0 source: src/store.js persists each storageData entry to `${appPaths.storageDirectories.appStorage}/${fileName}` and src/appPaths.js defines appStorage = join(getPath('userData'), 'app storage'). stats.json (usage timeline) is excluded as non-portable telemetry, and the bundled bin/ binaries, media/ (thumbnails + home-banner + notes media), and search data/ index are excluded as large, machine-tied, rebuildable data. No credential or token files are written by this app, so no secrets block is declared; note that settings.json embeds an appPaths object of absolute machine paths that the app regenerates from the live environment on launch. Confidence: high for the v1.x layout (the only line shipped via winget, ids 1.0.0–1.7.0); the in-development v2 rewrite restructured storage and is not distributed through winget."
+}
