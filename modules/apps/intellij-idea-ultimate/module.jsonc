@@ -2,10 +2,10 @@
   // Config Module: IntelliJ IDEA Ultimate
   // Provides verify/restore/capture configuration for IntelliJ IDEA Ultimate (paid edition)
   // Curated module - captures IDE settings, keymaps, color schemes, templates, code styles
-  // Note: Config folder is version-specific (IntelliJIdea<version>); both Ultimate and
-  // modern Community Edition (2020.1+) use the IntelliJIdea prefix, with Community
-  // appending a CE suffix (e.g. IntelliJIdea2025.3CE). The winget/exe matchers gate
-  // this module to the Ultimate install.
+  // Note: Config folder is version-specific and uses the Ultimate "IntelliJIdea" prefix
+  // (e.g. %APPDATA%\JetBrains\IntelliJIdea2024.1). Community Edition uses a distinct
+  // "IdeaIC" prefix (IdeaIC<version>), so the two editions no longer share a config glob.
+  // The winget/exe matchers still gate this module to the Ultimate install.
 
   "id": "apps.intellij-idea-ultimate",
   "displayName": "IntelliJ IDEA Ultimate",
@@ -91,7 +91,7 @@
     "restorer": "warn-only"
   },
 
-  "notes": "Captures IntelliJ IDEA Ultimate settings (options/*.xml), keymaps, color schemes, code styles, and live templates. Config folder is version-specific (%APPDATA%\\JetBrains\\IntelliJIdea<version>\\); both Ultimate and modern Community (2020.1+) use the IntelliJIdea prefix, with Community appending a CE suffix (e.g. IntelliJIdea2025.3CE). This module is gated to Ultimate by the winget/exe matchers. Workspace-specific files (workspace.xml, tasks.xml), usage stats, recent projects, caches, index, and logs are excluded; credential stores (security.xml, github.xml) are excluded from capture and never auto-restored. License/activation state is not stored here and is not captured. Confidence: high - config layout and Ultimate directory naming confirmed by official JetBrains documentation and consistent with sibling JetBrains modules in this repo.",
+  "notes": "Captures IntelliJ IDEA Ultimate settings (options/*.xml), keymaps, color schemes, code styles, and live templates. Config folder is version-specific and uses the Ultimate prefix %APPDATA%\\JetBrains\\IntelliJIdea<version>\\; Community Edition uses the distinct IdeaIC<version> prefix (so apps.intellij-idea and this module no longer collide on a shared config glob). This module is gated to Ultimate by the winget/exe matchers. Workspace-specific files (workspace.xml, tasks.xml), usage stats, recent projects, caches, index, and logs are excluded; credential stores (security.xml, github.xml) are excluded from capture and never auto-restored. License/activation state is not stored here and is not captured. Confidence: high - config layout and Ultimate directory naming confirmed by official JetBrains documentation and consistent with sibling JetBrains modules in this repo.",
 
   "curation": {
     "seed": {

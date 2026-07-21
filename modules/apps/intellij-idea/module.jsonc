@@ -2,7 +2,9 @@
   // Config Module: IntelliJ IDEA Community
   // Provides verify/restore/capture configuration for IntelliJ IDEA
   // Curated module - captures IDE settings, keymaps, templates, code styles
-  // Note: Config folder is version-specific (IntelliJIdea<version>)
+  // Note: Config folder is version-specific and uses the Community "IdeaIC" prefix
+  // (e.g. %APPDATA%\JetBrains\IdeaIC2024.1), distinct from Ultimate's "IntelliJIdea"
+  // prefix - this keeps the two editions from colliding on restore.
 
   "id": "apps.intellij-idea",
   "displayName": "IntelliJ IDEA Community",
@@ -15,35 +17,35 @@
   },
 
   "verify": [
-    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\ide.general.xml" }
+    { "type": "file-exists", "path": "%APPDATA%\\JetBrains\\IdeaIC*\\options\\ide.general.xml" }
   ],
 
   "restore": [
     {
       "type": "copy",
       "source": "./payload/apps/intellij-idea/options",
-      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options",
+      "target": "%APPDATA%\\JetBrains\\IdeaIC*\\options",
       "backup": true,
       "optional": true
     },
     {
       "type": "copy",
       "source": "./payload/apps/intellij-idea/keymaps",
-      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\keymaps",
+      "target": "%APPDATA%\\JetBrains\\IdeaIC*\\keymaps",
       "backup": true,
       "optional": true
     },
     {
       "type": "copy",
       "source": "./payload/apps/intellij-idea/templates",
-      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\templates",
+      "target": "%APPDATA%\\JetBrains\\IdeaIC*\\templates",
       "backup": true,
       "optional": true
     },
     {
       "type": "copy",
       "source": "./payload/apps/intellij-idea/codestyles",
-      "target": "%APPDATA%\\JetBrains\\IntelliJIdea*\\codestyles",
+      "target": "%APPDATA%\\JetBrains\\IdeaIC*\\codestyles",
       "backup": true,
       "optional": true
     }
@@ -51,10 +53,10 @@
 
   "capture": {
     "files": [
-      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\options", "dest": "apps/intellij-idea/options", "optional": true },
-      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\keymaps", "dest": "apps/intellij-idea/keymaps", "optional": true },
-      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\templates", "dest": "apps/intellij-idea/templates", "optional": true },
-      { "source": "%APPDATA%\\JetBrains\\IntelliJIdea*\\codestyles", "dest": "apps/intellij-idea/codestyles", "optional": true }
+      { "source": "%APPDATA%\\JetBrains\\IdeaIC*\\options", "dest": "apps/intellij-idea/options", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IdeaIC*\\keymaps", "dest": "apps/intellij-idea/keymaps", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IdeaIC*\\templates", "dest": "apps/intellij-idea/templates", "optional": true },
+      { "source": "%APPDATA%\\JetBrains\\IdeaIC*\\codestyles", "dest": "apps/intellij-idea/codestyles", "optional": true }
     ],
     "excludeGlobs": [
       "**\\caches\\**",
@@ -71,14 +73,14 @@
 
   "secrets": {
     "files": [
-      "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\security.xml",
-      "%APPDATA%\\JetBrains\\IntelliJIdea*\\options\\github.xml"
+      "%APPDATA%\\JetBrains\\IdeaIC*\\options\\security.xml",
+      "%APPDATA%\\JetBrains\\IdeaIC*\\options\\github.xml"
     ],
     "warning": "JetBrains security.xml and github.xml may contain stored credentials and tokens. These MUST NOT be auto-restored.",
     "restorer": "warn-only"
   },
 
-  "notes": "Captures IntelliJ IDEA Community settings (options/*.xml), keymaps, live templates, and code styles. Config folder is version-specific (%APPDATA%\\JetBrains\\IntelliJIdea<version>\\). Workspace-specific files (workspace.xml, tasks.xml) and usage stats excluded. Caches and index excluded.",
+  "notes": "Captures IntelliJ IDEA Community settings (options/*.xml), keymaps, live templates, and code styles. Config folder is version-specific and uses the Community-edition prefix %APPDATA%\\JetBrains\\IdeaIC<version>\\ (e.g. IdeaIC2024.1), NOT the Ultimate %APPDATA%\\JetBrains\\IntelliJIdea<version>\\ path - this was corrected from an earlier IntelliJIdea* glob that both collided with apps.intellij-idea-ultimate and pointed at the wrong (Ultimate) directory. IdeaIC-prefixed folders are confirmed by widespread real-world config trees (JetBrains uses the IdeaIC selector for Community; the IntelliJIdea<version>CE variant does not exist on disk). Workspace-specific files (workspace.xml, tasks.xml) and usage stats excluded. Caches and index excluded.",
 
   "curation": {
     "seed": {
