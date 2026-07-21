@@ -1,5 +1,5 @@
 // Bundle: Developer Tools
-// 78 modules grouped for one-step manifest inclusion.
+// 77 modules grouped for one-step manifest inclusion.
 {
   "version": 1,
   "id": "dev-tools",
@@ -77,7 +77,6 @@
     "winscp",
     "wireshark",
     "wsl",
-    "wsl-config",
     "yarn",
     "yazi",
     "yt-dlp",

@@ -20,7 +20,7 @@
 
   "verify": [
     { "type": "command-exists", "command": "git" }
-    // .minttyrc and shell dotfiles are optional - the user may not have customized them yet
+    // MinTTY config files are optional - the user may not have customized them yet
   ],
 
   "restore": [
@@ -45,43 +45,15 @@
       "target": "%APPDATA%\\mintty\\config",
       "backup": true,
       "optional": true
-    },
-    // Bash shell startup dotfiles (aliases, prompt, PATH, readline bindings)
-    {
-      "type": "copy",
-      "source": "./payload/apps/git-bash/.bashrc",
-      "target": "~/.bashrc",
-      "backup": true,
-      "optional": true
-    },
-    {
-      "type": "copy",
-      "source": "./payload/apps/git-bash/.bash_profile",
-      "target": "~/.bash_profile",
-      "backup": true,
-      "optional": true
-    },
-    {
-      "type": "copy",
-      "source": "./payload/apps/git-bash/.bash_logout",
-      "target": "~/.bash_logout",
-      "backup": true,
-      "optional": true
-    },
-    {
-      "type": "copy",
-      "source": "./payload/apps/git-bash/.profile",
-      "target": "~/.profile",
-      "backup": true,
-      "optional": true
-    },
-    {
-      "type": "copy",
-      "source": "./payload/apps/git-bash/.inputrc",
-      "target": "~/.inputrc",
-      "backup": true,
-      "optional": true
     }
+    // Bash shell startup dotfiles (.bashrc, .bash_profile, .bash_logout,
+    // .profile, .inputrc) are owned solely by apps.bash-profile. They were
+    // removed here to eliminate an overlapping-restore-target collision: when
+    // both modules matched, the restore planner failed BOTH sets with
+    // ReasonTargetCollision (internal/planner/config_collision.go), so a Git
+    // Bash machine restored NEITHER the terminal nor the shell config. Git
+    // ships bash.exe and drops the dotfiles in %USERPROFILE%, both of which
+    // apps.bash-profile matches, so shell-dotfile coverage is unchanged.
   ],
 
   "capture": {
@@ -90,14 +62,11 @@
       // ~/.config/mintty/config, ~/.minttyrc per the mintty man page)
       { "source": "~/.minttyrc", "dest": "apps/git-bash/.minttyrc", "optional": true },
       { "source": "~/.config/mintty/config", "dest": "apps/git-bash/config", "optional": true },
-      { "source": "%APPDATA%\\mintty\\config", "dest": "apps/git-bash/mintty-appdata-config", "optional": true },
+      { "source": "%APPDATA%\\mintty\\config", "dest": "apps/git-bash/mintty-appdata-config", "optional": true }
 
-      // Bash shell startup dotfiles in the Git Bash home directory (%USERPROFILE%)
-      { "source": "~/.bashrc", "dest": "apps/git-bash/.bashrc", "optional": true },
-      { "source": "~/.bash_profile", "dest": "apps/git-bash/.bash_profile", "optional": true },
-      { "source": "~/.bash_logout", "dest": "apps/git-bash/.bash_logout", "optional": true },
-      { "source": "~/.profile", "dest": "apps/git-bash/.profile", "optional": true },
-      { "source": "~/.inputrc", "dest": "apps/git-bash/.inputrc", "optional": true }
+      // Bash shell startup dotfiles (.bashrc, .bash_profile, .bash_logout,
+      // .profile, .inputrc) are captured solely by apps.bash-profile to keep a
+      // single owner per target (see the restore block above).
     ],
     "excludeGlobs": [
       // Shell history may leak typed secrets/tokens
@@ -117,5 +86,5 @@
     "restorer": "warn-only"
   },
 
-  "notes": "Captures the MinTTY terminal config (~/.minttyrc, ~/.config/mintty/config, %APPDATA%\\mintty\\config) and Bash shell startup dotfiles (.bashrc, .bash_profile, .bash_logout, .profile, .inputrc) from the Git Bash home directory. Shell history and credential files are explicitly excluded. The terminal config search order is confirmed by the mintty man page; dotfile locations are standard Bash conventions in %USERPROFILE%. Confidence: high - MinTTY paths confirmed by official mintty docs, dotfiles are well-established Bash conventions."
+  "notes": "Captures the MinTTY terminal config (~/.minttyrc, ~/.config/mintty/config, %APPDATA%\\mintty\\config) from the Git Bash install. Shell startup dotfiles (.bashrc, .bash_profile, .bash_logout, .profile, .inputrc) are intentionally NOT owned here: apps.bash-profile is the sole owner of shell dotfiles (it matches bash.exe + the %USERPROFILE% dotfiles that Git for Windows drops), and declaring them in both modules caused an overlapping-restore-target collision that failed BOTH sets under the restore planner. Shell history and credential files are explicitly excluded. The terminal config search order is confirmed by the mintty man page. Confidence: high - MinTTY paths confirmed by official mintty docs."
 }
