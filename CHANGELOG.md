@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.27.1](https://github.com/Artexis10/endstate/compare/v2.27.0...v2.27.1) (2026-07-21)
+
+
+### Bug Fixes
+
+* classify user-cancelled installs distinctly from generic failures ([#169](https://github.com/Artexis10/endstate/issues/169)) ([fd95f6e](https://github.com/Artexis10/endstate/commit/fd95f6e97fec5f4e586ec838c4cdc1411cd5cab2))
+* recover Microsoft Store display names during capture ([#170](https://github.com/Artexis10/endstate/issues/170)) ([e773521](https://github.com/Artexis10/endstate/commit/e773521ff53b9b84244349c2f4b996ff84ae7a06))
+
 ## [2.27.0](https://github.com/Artexis10/endstate/compare/v2.26.0...v2.27.0) (2026-07-21)
 
 
