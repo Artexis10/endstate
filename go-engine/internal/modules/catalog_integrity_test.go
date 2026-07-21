@@ -194,22 +194,19 @@ func overlapAllowlistKey(a, b string) [2]string {
 //
 // Key entries via overlapAllowlistKey. Removing an entry (by partitioning the
 // overlap in the catalog) is always safe and preferred.
-var knownRestoreOverlapAllowlist = map[[2]string]string{
-	// Betterbird is a Thunderbird fork that reuses the same
-	// %APPDATA%\Thunderbird profile tree, so both modules target the same
-	// prefs/filters/extensions. Follow-up: decide single ownership of the
-	// shared Thunderbird profile (or make Betterbird non-owning).
-	overlapAllowlistKey("apps.betterbird", "apps.thunderbird"): "pre-existing: Betterbird reuses the Thunderbird profile dir; pending ownership partition",
-	// Gpg4win bundles Kleopatra (its matches include kleopatra.exe), so both
-	// modules restore %APPDATA%\gnupg\kleopatra\kleopatrarc and
-	// %APPDATA%\kleopatra\kleopatrarc. Follow-up: fold Kleopatra config into the
-	// Gpg4win bundle owner or gate double-matching.
-	overlapAllowlistKey("apps.gpg4win", "apps.kleopatra"): "pre-existing: Gpg4win bundles Kleopatra; overlapping kleopatrarc targets pending partition",
-	// IntelliJ IDEA Community and Ultimate both declare the identical
-	// %APPDATA%\JetBrains\IntelliJIdea* config glob. Follow-up: give each edition
-	// an edition-specific config path or a single shared owner.
-	overlapAllowlistKey("apps.intellij-idea", "apps.intellij-idea-ultimate"): "pre-existing: IDEA Community/Ultimate share the JetBrains IntelliJIdea* config glob; pending partition",
-}
+//
+// The three grandfathered overlaps from PR #180 have since been partitioned
+// (issue #181), so the allowlist is now empty:
+//   - betterbird/thunderbird: apps.thunderbird is the single owner of the shared
+//     Thunderbird-profile files (user.js, msgFilterRules.dat, extensions);
+//     apps.betterbird now owns only prefs.js, which Thunderbird does not manage.
+//   - gpg4win/kleopatra: apps.kleopatra is the canonical owner of all Kleopatra
+//     config; apps.gpg4win dropped its kleopatrarc/kleopatrastaterc targets and
+//     owns only the GnuPG home config.
+//   - intellij-idea/intellij-idea-ultimate: Community was pointing at the wrong
+//     glob; apps.intellij-idea now targets its real IdeaIC<version> folder,
+//     distinct from Ultimate's IntelliJIdea<version>.
+var knownRestoreOverlapAllowlist = map[[2]string]string{}
 
 // restoreTargetKind distinguishes filesystem targets from registry targets so
 // overlap is only ever compared within a kind (mirrors the planner).

@@ -1,7 +1,11 @@
 {
   // Config Module: Betterbird
-  // Thunderbird soft-fork email client - captures prefs, filters, add-ons
-  // Shares Thunderbird's profile directory; no credentials or mail data captured
+  // Thunderbird soft-fork email client - captures Betterbird's prefs.js only
+  // Shares Thunderbird's %APPDATA%\Thunderbird profile directory. To avoid
+  // restore-target collisions, apps.thunderbird is the single owner of the
+  // shared profile files (user.js, msgFilterRules.dat, extensions); this module
+  // owns only prefs.js, which the Thunderbird module intentionally does not
+  // manage. No credentials or mail data captured.
 
   "id": "apps.betterbird",
   "displayName": "Betterbird",
@@ -22,30 +26,12 @@
 
   "restore": [
     {
+      // prefs.js is Betterbird's live preference store. apps.thunderbird owns the
+      // shared user.js / msgFilterRules.dat / extensions targets in this same
+      // profile, so this module restores only prefs.js to avoid a target collision.
       "type": "copy",
       "source": "./payload/apps/betterbird/prefs.js",
       "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\prefs.js",
-      "backup": true,
-      "optional": true
-    },
-    {
-      "type": "copy",
-      "source": "./payload/apps/betterbird/user.js",
-      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\user.js",
-      "backup": true,
-      "optional": true
-    },
-    {
-      "type": "copy",
-      "source": "./payload/apps/betterbird/msgFilterRules.dat",
-      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\msgFilterRules.dat",
-      "backup": true,
-      "optional": true
-    },
-    {
-      "type": "copy",
-      "source": "./payload/apps/betterbird/extensions",
-      "target": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\extensions",
       "backup": true,
       "optional": true
     }
@@ -53,10 +39,7 @@
 
   "capture": {
     "files": [
-      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\prefs.js", "dest": "apps/betterbird/prefs.js", "optional": true },
-      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\user.js", "dest": "apps/betterbird/user.js", "optional": true },
-      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\msgFilterRules.dat", "dest": "apps/betterbird/msgFilterRules.dat", "optional": true },
-      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\extensions", "dest": "apps/betterbird/extensions", "optional": true }
+      { "source": "%APPDATA%\\Thunderbird\\Profiles\\*.default-release\\prefs.js", "dest": "apps/betterbird/prefs.js", "optional": true }
     ],
     "excludeGlobs": [
       "**\\cache2\\**",
@@ -86,5 +69,5 @@
     "restorer": "block"
   },
 
-  "notes": "Captures Betterbird user preferences (prefs.js, user.js), message filters (msgFilterRules.dat), and installed add-ons (extensions). Betterbird is a Thunderbird soft-fork and shares the %APPDATA%\\Thunderbird\\Profiles\\<profile>\\ directory. Mail data (Mail/, ImapMail/), rebuildable indexes (global-messages-db.sqlite, panacea.dat), caches, and credential/certificate stores are excluded per security guardrails. Confidence: high - profile layout and credential file names confirmed by Mozilla Thunderbird Help and multiple independent sources; winget id Betterbird.Betterbird confirmed via winget-pkgs."
+  "notes": "Captures Betterbird's live preference store prefs.js only. Betterbird is a Thunderbird soft-fork that shares the exact %APPDATA%\\Thunderbird\\Profiles\\<profile>\\ directory and profile format, so its user.js, msgFilterRules.dat and extensions targets collided with apps.thunderbird (both restoring into the same profile would fail BOTH sets with ReasonTargetCollision). Ownership is partitioned: apps.thunderbird is the single owner of the shared user.js / msgFilterRules.dat / extensions targets, and this module owns only prefs.js (which the Thunderbird module deliberately does not manage, preferring the user.js override file). On a Betterbird-only machine this still captures the bulk of user settings via prefs.js. Mail data (Mail/, ImapMail/), rebuildable indexes (global-messages-db.sqlite, panacea.dat), caches, and credential/certificate stores are excluded per security guardrails. Confidence: high - profile layout and shared %APPDATA%\\Thunderbird profile directory confirmed by Mozilla Thunderbird Help and the Betterbird blog; winget id Betterbird.Betterbird confirmed via winget-pkgs."
 }

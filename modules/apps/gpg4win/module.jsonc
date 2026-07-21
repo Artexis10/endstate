@@ -1,7 +1,8 @@
 {
   // Config Module: Gpg4win / GnuPG
   // Provides verify/restore/capture configuration for Gpg4win (GnuPG + Kleopatra)
-  // Curated module - captures GnuPG/Kleopatra CONFIG FILES only, never key material or keyrings
+  // Curated module - captures the GnuPG home CONFIG FILES only, never key material or
+  // keyrings. Kleopatra's own config is owned by apps.kleopatra to avoid overlap.
 
   "id": "apps.gpg4win",
   "displayName": "Gpg4win / GnuPG",
@@ -55,30 +56,13 @@
       "target": "%APPDATA%\\gnupg\\common.conf",
       "backup": true,
       "optional": true
-    },
-    // Kleopatra config files (current location: %APPDATA%\gnupg\kleopatra)
-    {
-      "type": "copy",
-      "source": "./payload/apps/gpg4win/kleopatra/kleopatrarc",
-      "target": "%APPDATA%\\gnupg\\kleopatra\\kleopatrarc",
-      "backup": true,
-      "optional": true
-    },
-    {
-      "type": "copy",
-      "source": "./payload/apps/gpg4win/kleopatra/kleopatrastaterc",
-      "target": "%APPDATA%\\gnupg\\kleopatra\\kleopatrastaterc",
-      "backup": true,
-      "optional": true
-    },
-    // Kleopatra config files (legacy location: %APPDATA%\kleopatra)
-    {
-      "type": "copy",
-      "source": "./payload/apps/gpg4win/kleopatra-legacy/kleopatrarc",
-      "target": "%APPDATA%\\kleopatra\\kleopatrarc",
-      "backup": true,
-      "optional": true
     }
+    // Kleopatra config (kleopatrarc/kleopatrastaterc, current + legacy locations) is
+    // owned by apps.kleopatra, the canonical Kleopatra config module (it also captures
+    // libkleopatrarc, kleopatragroupsrc, klanguageoverridesrc and HKCU settings). Gpg4win
+    // bundles Kleopatra and still matches kleopatra.exe for detection, but restoring the
+    // shared kleopatrarc from both modules would fail BOTH with ReasonTargetCollision, so
+    // this module owns only the GnuPG home config above.
   ],
 
   "capture": {
@@ -88,14 +72,8 @@
       { "source": "%APPDATA%\\gnupg\\gpg-agent.conf", "dest": "apps/gpg4win/gpg-agent.conf", "optional": true },
       { "source": "%APPDATA%\\gnupg\\dirmngr.conf", "dest": "apps/gpg4win/dirmngr.conf", "optional": true },
       { "source": "%APPDATA%\\gnupg\\scdaemon.conf", "dest": "apps/gpg4win/scdaemon.conf", "optional": true },
-      { "source": "%APPDATA%\\gnupg\\common.conf", "dest": "apps/gpg4win/common.conf", "optional": true },
-
-      // Kleopatra config (current location)
-      { "source": "%APPDATA%\\gnupg\\kleopatra\\kleopatrarc", "dest": "apps/gpg4win/kleopatra/kleopatrarc", "optional": true },
-      { "source": "%APPDATA%\\gnupg\\kleopatra\\kleopatrastaterc", "dest": "apps/gpg4win/kleopatra/kleopatrastaterc", "optional": true },
-
-      // Kleopatra config (legacy location, pre-migration installs)
-      { "source": "%APPDATA%\\kleopatra\\kleopatrarc", "dest": "apps/gpg4win/kleopatra-legacy/kleopatrarc", "optional": true }
+      { "source": "%APPDATA%\\gnupg\\common.conf", "dest": "apps/gpg4win/common.conf", "optional": true }
+      // Kleopatra config files are captured by apps.kleopatra (see restore note above).
     ],
     "excludeGlobs": [
       // Private key material - NEVER capture
@@ -135,5 +113,5 @@
     "restorer": "warn-only"
   },
 
-  "notes": "Captures GnuPG/Kleopatra preference files only: gpg.conf, gpg-agent.conf, dirmngr.conf, scdaemon.conf, common.conf under %APPDATA%\\gnupg\\, plus Kleopatra's kleopatrarc/kleopatrastaterc (current %APPDATA%\\gnupg\\kleopatra and legacy %APPDATA%\\kleopatra). All private key material (private-keys-v1.d, openpgp-revocs.d, secring.gpg), keyrings (pubring.kbx/.gpg), trust database (trustdb.gpg), random_seed, locks and sockets are explicitly excluded and never restored. A non-default GnuPG home set via HKCU\\Software\\GNU\\GnuPG:HomeDir is not captured. Confidence: high - paths confirmed by the official GnuPG manual (GPG-Configuration) and the Gpg4win Compendium."
+  "notes": "Captures the GnuPG home preference files only: gpg.conf, gpg-agent.conf, dirmngr.conf, scdaemon.conf, common.conf under %APPDATA%\\gnupg\\. Kleopatra's own config (kleopatrarc/kleopatrastaterc/libkleopatrarc/kleopatragroupsrc/klanguageoverridesrc plus HKCU\\Software\\GNU\\Kleopatra) is owned by the dedicated apps.kleopatra module: Gpg4win bundles Kleopatra and both modules match a Gpg4win install, so having both restore the shared %APPDATA%\\gnupg\\kleopatra\\kleopatrarc and legacy %APPDATA%\\kleopatra\\kleopatrarc would fail BOTH sets with ReasonTargetCollision. Ownership is therefore partitioned - this module keeps the GnuPG home config, apps.kleopatra keeps all Kleopatra config. All private key material (private-keys-v1.d, openpgp-revocs.d, secring.gpg), keyrings (pubring.kbx/.gpg), trust database (trustdb.gpg), random_seed, locks and sockets are explicitly excluded and never restored. A non-default GnuPG home set via HKCU\\Software\\GNU\\GnuPG:HomeDir is not captured. Confidence: high - paths confirmed by the official GnuPG manual (GPG-Configuration) and the Gpg4win Compendium."
 }
