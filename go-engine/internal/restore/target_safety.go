@@ -123,6 +123,16 @@ func actualFilesystemEntryName(parent, requested string, requestedInfo os.FileIn
 		}
 		info, err := entry.Info()
 		if err != nil {
+			// A sibling entry can vanish between ReadDir and Info() when the
+			// parent is a shared, high-churn directory — e.g. the system temp
+			// root while `go test ./...` runs package binaries concurrently, on
+			// platforms where Info() lstats lazily (Unix) rather than returning
+			// cached readdir data (Windows). Such an entry is not the component
+			// being resolved, so skip it rather than failing target resolution
+			// on an unrelated race.
+			if os.IsNotExist(err) {
+				continue
+			}
 			return "", err
 		}
 		if os.SameFile(info, requestedInfo) {
