@@ -562,7 +562,7 @@ func assignDeterministicCaptureIDs(apps []capturedApp, used map[string]bool) {
 }
 
 func possibleDuplicateWarnings(apps []capturedApp) []CommandWarning {
-	type prior struct{ coordinate string }
+	type prior struct{ driverName string }
 	seen := make(map[string][]prior)
 	var warnings []CommandWarning
 	for _, app := range apps {
@@ -572,25 +572,32 @@ func possibleDuplicateWarnings(apps []capturedApp) []CommandWarning {
 		}
 		driverName := effectiveCaptureDriver(app.Driver)
 		ref := app.Refs["windows"]
-		coordinate := captureIdentity(app.Driver, ref, app.Source)
 		key := strings.ToLower(name)
-		duplicate := false
+		// Only a genuinely different package manager sharing a display name is a
+		// real collision worth surfacing. Two rows from the same manager — most
+		// commonly one physical winget package listed under both the community
+		// and Microsoft Store sources, whose Store row enrichStoreDisplayNames
+		// relabels from its product ID to the same friendly name — are the same
+		// manager surfacing the app twice, not a duplicate. Mirror the
+		// apply/verify lane's possibleDuplicatePackageWarnings, which gates on
+		// differing driverName for exactly this reason.
+		otherManager := ""
 		for _, earlier := range seen[key] {
-			if earlier.coordinate != coordinate {
-				duplicate = true
+			if earlier.driverName != driverName {
+				otherManager = earlier.driverName
 				break
 			}
 		}
-		if duplicate {
+		if otherManager != "" {
 			warnings = append(warnings, CommandWarning{
 				Code:    "possible_duplicate",
-				Message: fmt.Sprintf("%s reports the same display name %q as another package driver; both entries were kept", driverName, name),
+				Message: fmt.Sprintf("%q was found in both %s and %s; both copies were captured", name, otherManager, driverName),
 				Driver:  driverName,
 				Source:  effectiveCapturedSource(app),
 				Ref:     ref,
 			})
 		}
-		seen[key] = append(seen[key], prior{coordinate: coordinate})
+		seen[key] = append(seen[key], prior{driverName: driverName})
 	}
 	return warnings
 }

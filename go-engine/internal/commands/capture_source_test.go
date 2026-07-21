@@ -157,13 +157,52 @@ func TestDedupeWingetSourcePackages_UsesRefSpecificSourcePrecedence(t *testing.T
 }
 
 func TestPossibleDuplicateWarnings_DifferentRefsAcrossSourcesAreRetained(t *testing.T) {
+	// Community + Store are both the winget manager. Two rows for one physical
+	// package (differing only by winget source) are the same manager surfacing
+	// the app twice, not a cross-manager collision, so no warning fires.
 	apps := []capturedApp{
 		{Refs: map[string]string{"windows": "Vendor.App"}, Name: "Same Name"},
 		{Driver: "winget", Source: "msstore", Refs: map[string]string{"windows": "9NBLGGH4NNS1"}, Name: "Same Name"},
 	}
+	if warnings := possibleDuplicateWarnings(apps); len(warnings) != 0 {
+		t.Fatalf("expected no warning for same-manager rows, got %+v", warnings)
+	}
+}
+
+func TestPossibleDuplicateWarnings_EnrichedStoreNameDoesNotCollideWithCommunity(t *testing.T) {
+	// A single Store-installed app surfaces as two winget rows — the community
+	// ref (Microsoft.PowerToys) and the msstore ref (XP89DCGQ3K6VLD) — and
+	// enrichStoreDisplayNames rewrites the Store row's raw product ID to the
+	// same friendly display name. Both rows share the effective winget manager,
+	// so this is one package captured twice, not a genuine duplicate, and must
+	// not warn (regression: false positive introduced by v2.27.1 enrichment).
+	apps := []capturedApp{
+		{Refs: map[string]string{"windows": "Microsoft.PowerToys"}, Name: "PowerToys (Preview) x64"},
+		{Driver: "winget", Source: "msstore", Refs: map[string]string{"windows": "XP89DCGQ3K6VLD"}, Name: "PowerToys (Preview) x64"},
+	}
+	if warnings := possibleDuplicateWarnings(apps); len(warnings) != 0 {
+		t.Fatalf("expected no possible_duplicate warning for one Store app across winget sources, got %+v", warnings)
+	}
+}
+
+func TestPossibleDuplicateWarnings_CrossManagerWarnsWithManagerNames(t *testing.T) {
+	// A genuine cross-manager collision: the same display name is captured from
+	// two different package managers. Both copies survive to the manifest, so a
+	// single warning is emitted naming both managers in friendly language.
+	apps := []capturedApp{
+		{Refs: map[string]string{"windows": "Vendor.App"}, Name: "Shared Name"},
+		{Driver: "chocolatey", Refs: map[string]string{"windows": "shared-app"}, Name: "Shared Name"},
+	}
 	warnings := possibleDuplicateWarnings(apps)
-	if len(warnings) != 1 || warnings[0].Code != "possible_duplicate" || warnings[0].Source != "msstore" {
-		t.Fatalf("warnings = %+v", warnings)
+	if len(warnings) != 1 || warnings[0].Code != "possible_duplicate" {
+		t.Fatalf("expected exactly one cross-manager warning, got %+v", warnings)
+	}
+	msg := warnings[0].Message
+	if !strings.Contains(msg, "winget") || !strings.Contains(msg, "chocolatey") {
+		t.Fatalf("message should name both managers, got %q", msg)
+	}
+	if strings.Contains(msg, "package driver") {
+		t.Fatalf("message should avoid jargon, got %q", msg)
 	}
 }
 
