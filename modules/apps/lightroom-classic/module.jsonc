@@ -272,7 +272,15 @@
       "**\\Settings\\*.dat"
     ]
   },
-  
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\Adobe\\Lightroom\\Preferences\\*.agprefs"
+    ],
+    "warning": "Lightroom Classic preferences (.agprefs) can embed publish-service authentication tokens (e.g. Flickr/SmugMug connections) and Adobe-account-linked settings. Review before sharing a bundle, and reconnect publish services after a restore if their connections are missing.",
+    "restorer": "warn-only"
+  },
+
   "notes": "Captures Lightroom Classic user preferences (both main and startup .agprefs), develop/export/filter/local-adjustment presets, keyword/label sets, smart collection templates, external editor presets, filename templates, metadata presets, watermarks, metadata panel config, saved map locations, CameraRaw defaults, and CameraRaw Settings (.xmp develop presets — binary .dat index excluded via excludeGlobs). Excludes catalogs (.lrcat), ModelZoo (~750MB AI models), and GPU cache. Installed via Adobe Creative Cloud (no winget ID).",
   
   "curation": {
