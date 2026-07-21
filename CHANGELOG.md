@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.27.0](https://github.com/Artexis10/endstate/compare/v2.26.0...v2.27.0) (2026-07-21)
+
+
+### Features
+
+* **capture:** add progress and Store source lifecycle ([#154](https://github.com/Artexis10/endstate/issues/154)) ([c273f66](https://github.com/Artexis10/endstate/commit/c273f661b705d6d5f0171025591a8bb92638b8d7))
+
 ## [2.26.0](https://github.com/Artexis10/endstate/compare/v2.25.1...v2.26.0) (2026-07-21)
 
 
