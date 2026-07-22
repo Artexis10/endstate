@@ -6,6 +6,7 @@
 package validationmode
 
 import (
+	"crypto/sha256"
 	"errors"
 	"reflect"
 	"strings"
@@ -93,6 +94,160 @@ func TestRegistrySnapshotBudgetRejectsValueBeforeAllocation(t *testing.T) {
 	budget := registrySnapshotBudget{limits: registryGuardLimits{values: 1, bytes: 3}, seenKeys: map[string]struct{}{}}
 	if err := budget.consumeValue(4); !errors.Is(err, ErrGuardBudget) {
 		t.Fatalf("consumeValue error = %v", err)
+	}
+}
+
+func TestRegistryGuardIncrementalProtectPreservesEarlierBaseline(t *testing.T) {
+	context := activeTestContext(t, "registry-incremental")
+	first := canonicalRegistryProtection{key: `HKCU\Software\Vendor\First`, valueName: "Value", label: "first"}
+	second := canonicalRegistryProtection{key: `HKCU\Software\Vendor\Second`, valueName: "Value", label: "second"}
+	state := map[string]byte{first.key: 1, second.key: 1}
+	var calls []int
+	snapshotter := func(values, exclusions []canonicalRegistryProtection, _ registryGuardLimits) (map[string]registrySnapshotEntry, map[string]string, error) {
+		calls = append(calls, len(values))
+		entries := map[string]registrySnapshotEntry{}
+		owners := map[string]string{}
+		for _, value := range values {
+			id := "v:" + strings.ToLower(value.key[len(`HKCU\`):]+"\x00"+value.valueName)
+			entries[id] = registrySnapshotEntry{kind: "value", hash: sha256.Sum256([]byte{state[value.key]})}
+			owners[id] = value.label
+		}
+		return entries, owners, nil
+	}
+	guard := newRegistryGuardWithSnapshotter(context, defaultRegistryGuardLimits, snapshotter)
+	if err := guard.Protect([]ProtectedRegistry{{Key: first.key, ValueName: first.valueName, Label: first.label}}); err != nil {
+		t.Fatal(err)
+	}
+	state[first.key] = 2
+	if err := guard.Protect([]ProtectedRegistry{{Key: second.key, ValueName: second.valueName, Label: second.label}}); err != nil {
+		t.Fatal(err)
+	}
+	guard.Seal()
+	changes, err := guard.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(calls, []int{1, 1, 2}) {
+		t.Fatalf("snapshot calls = %v, want only new protection on second registration", calls)
+	}
+	if len(changes) != 1 || changes[0] != (RegistryChange{Label: "first", Kind: ChangeContent}) {
+		t.Fatalf("changes = %#v", changes)
+	}
+}
+
+func TestRegistryGuardAncestorCompactionPreservesDescendantEvidence(t *testing.T) {
+	context := activeTestContext(t, "registry-compaction")
+	child := canonicalRegistryProtection{key: `HKCU\Software\Vendor\Child`, valueName: "Value", label: "child"}
+	sibling := canonicalRegistryProtection{key: `HKCU\Software\Vendor\Sibling`, valueName: "Value", label: "ancestor"}
+	ancestor := canonicalRegistryProtection{key: `HKCU\Software\Vendor`, label: "ancestor", whole: true}
+	identity := func(value canonicalRegistryProtection) string {
+		return "v:" + strings.ToLower(value.key[len(`HKCU\`):]+"\x00"+value.valueName)
+	}
+	state := map[string]byte{identity(child): 1, identity(sibling): 1}
+	snapshotter := func(values, exclusions []canonicalRegistryProtection, _ registryGuardLimits) (map[string]registrySnapshotEntry, map[string]string, error) {
+		entries := map[string]registrySnapshotEntry{}
+		owners := map[string]string{}
+		for _, protected := range values {
+			for _, candidate := range []canonicalRegistryProtection{child, sibling} {
+				if !registryProtectionCovers(protected, candidate) {
+					continue
+				}
+				excluded := false
+				for _, exclusion := range exclusions {
+					if registryProtectionCovers(exclusion, candidate) {
+						excluded = true
+						break
+					}
+				}
+				if excluded {
+					continue
+				}
+				id := identity(candidate)
+				entries[id] = registrySnapshotEntry{kind: "value", size: 1, hash: sha256.Sum256([]byte{state[id]})}
+				owners[id] = protected.label
+			}
+		}
+		return entries, owners, nil
+	}
+	guard := newRegistryGuardWithSnapshotter(context, defaultRegistryGuardLimits, snapshotter)
+	if err := guard.Protect([]ProtectedRegistry{{Key: child.key, ValueName: child.valueName, Label: child.label}}); err != nil {
+		t.Fatal(err)
+	}
+	state[identity(child)] = 2
+	if err := guard.Protect([]ProtectedRegistry{{Key: ancestor.key, WholeKey: true, Label: ancestor.label}}); err != nil {
+		t.Fatal(err)
+	}
+	if len(guard.protections) != 1 || !guard.protections[0].whole {
+		t.Fatalf("protections = %#v, want compacted ancestor", guard.protections)
+	}
+	changes, err := guard.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0] != (RegistryChange{Label: "child", Kind: ChangeContent}) {
+		t.Fatalf("ancestor compaction erased descendant mutation: %#v", changes)
+	}
+}
+
+func TestRegistryGuardFailedIncrementalProtectIsAtomic(t *testing.T) {
+	context := activeTestContext(t, "registry-atomic")
+	first := canonicalRegistryProtection{key: `HKCU\Software\Vendor\First`, valueName: "Value", label: "first"}
+	second := canonicalRegistryProtection{key: `HKCU\Software\Vendor\Second`, valueName: "Value", label: "second"}
+	state := map[string]byte{first.key: 1, second.key: 1}
+	snapshotErr := errors.New("snapshot failed")
+	snapshotter := func(values, _ []canonicalRegistryProtection, _ registryGuardLimits) (map[string]registrySnapshotEntry, map[string]string, error) {
+		entries := map[string]registrySnapshotEntry{}
+		owners := map[string]string{}
+		for _, value := range values {
+			if value.key == second.key {
+				return nil, nil, snapshotErr
+			}
+			id := "v:" + strings.ToLower(value.key[len(`HKCU\`):]+"\x00"+value.valueName)
+			entries[id] = registrySnapshotEntry{kind: "value", size: 1, hash: sha256.Sum256([]byte{state[value.key]})}
+			owners[id] = value.label
+		}
+		return entries, owners, nil
+	}
+	guard := newRegistryGuardWithSnapshotter(context, defaultRegistryGuardLimits, snapshotter)
+	if err := guard.Protect([]ProtectedRegistry{{Key: first.key, ValueName: first.valueName, Label: first.label}}); err != nil {
+		t.Fatal(err)
+	}
+	state[first.key] = 2
+	if err := guard.Protect([]ProtectedRegistry{{Key: second.key, ValueName: second.valueName, Label: second.label}}); !errors.Is(err, snapshotErr) {
+		t.Fatalf("Protect error = %v, want snapshot failure", err)
+	}
+	if len(guard.protections) != 1 || guard.protections[0].key != first.key {
+		t.Fatalf("protections = %#v, want failed registration to be atomic", guard.protections)
+	}
+	changes, err := guard.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) != 1 || changes[0] != (RegistryChange{Label: "first", Kind: ChangeContent}) {
+		t.Fatalf("failed registration changed earlier baseline: %#v", changes)
+	}
+}
+
+func TestBoundedRegistryNameEnumerationRejectsBeforeReaderAllocation(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		values, keys uint32
+		limits       registryGuardLimits
+	}{
+		{name: "values", values: 3, limits: registryGuardLimits{values: 2, keys: 10}},
+		{name: "keys", keys: 3, limits: registryGuardLimits{values: 10, keys: 2}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			called := false
+			budget := registrySnapshotBudget{limits: test.limits, seenKeys: map[string]struct{}{}}
+			_, _, err := boundedRegistryNames(test.values, test.keys, &budget, func(int) ([]string, error) { called = true; return nil, nil }, func(int) ([]string, error) { called = true; return nil, nil })
+			if !errors.Is(err, ErrGuardBudget) {
+				t.Fatalf("error = %v, want ErrGuardBudget", err)
+			}
+			if called {
+				t.Fatal("unbounded name reader called before budget rejection")
+			}
+		})
 	}
 }
 

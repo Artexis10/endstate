@@ -95,6 +95,36 @@ func TestContextValidatesAndDisplaysSandboxPathsWithoutRootLeakage(t *testing.T)
 	}
 }
 
+func TestValidateSandboxPathAllowsOnlyVirtualAndOwnedInternalTargets(t *testing.T) {
+	context := activeTestContext(t, "sandbox-authority")
+	appdata, _ := context.VirtualRoot("APPDATA")
+	allowed := []string{
+		appdata,
+		filepath.Join(appdata, "Vendor", "settings.json"),
+		filepath.Join(context.Root(), "manifests", "active.jsonc"),
+		filepath.Join(context.Root(), "state", "journals", "run.json"),
+		filepath.Join(context.Root(), "logs", "run.jsonl"),
+		filepath.Join(context.Root(), ".endstate", packageStateFilename),
+	}
+	for _, path := range allowed {
+		if err := context.ValidateSandboxPath(path); err != nil {
+			t.Errorf("allowed path rejected: %v", err)
+		}
+	}
+	rejected := []string{
+		filepath.Join(context.Root(), "control", "command.json"),
+		filepath.Join(context.Root(), ".endstate", descriptorFilename),
+		filepath.Join(context.Root(), ".endstate", "future-control.json"),
+		filepath.Join(context.Root(), "future-owned-someday", "value"),
+		filepath.Join(context.Root(), "modules", "apps", "target", "module.jsonc"),
+	}
+	for _, path := range rejected {
+		if err := context.ValidateSandboxPath(path); !errors.Is(err, ErrUnsafePath) {
+			t.Errorf("unowned path %q error = %v, want ErrUnsafePath", filepath.Base(path), err)
+		}
+	}
+}
+
 func TestDisplayPathPreservesDynamicAndInstanceProvenance(t *testing.T) {
 	context := activeTestContext(t, "display-provenance")
 	dynamic, _ := context.VirtualRoot("instance-home")

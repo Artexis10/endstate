@@ -144,17 +144,36 @@ func (guard *WriteGuard) Protect(values []ProtectedPath) error {
 	if len(compacted) > guard.limits.roots {
 		return fmt.Errorf("%w: protected root limit", ErrGuardBudget)
 	}
-	before := map[string]snapshotEntry{}
+	before := cloneSnapshot(guard.before)
 	labels := map[string]string{}
 	protected := make([]string, 0, len(compacted))
-	budget := snapshotBudget{entries: guard.limits.entries, bytes: guard.limits.bytes}
+	entryCount, byteCount := snapshotUsage(before)
+	if entryCount > guard.limits.entries || byteCount > guard.limits.bytes {
+		return fmt.Errorf("%w: existing snapshot exceeds limits", ErrGuardBudget)
+	}
+	budget := snapshotBudget{entries: guard.limits.entries - entryCount, bytes: guard.limits.bytes - byteCount}
 	for _, item := range compacted {
-		entries, err := snapshot(item.path, &budget)
-		if err != nil {
-			return err
+		alreadyCovered := false
+		for _, existing := range guard.protected {
+			if isAncestorOrSame(existing, item.path) {
+				alreadyCovered = true
+				break
+			}
 		}
-		for entryPath, entry := range entries {
-			before[entryPath] = entry
+		if !alreadyCovered {
+			exclusions := make([]string, 0)
+			for _, existing := range guard.protected {
+				if existing != item.path && isAncestorOrSame(item.path, existing) {
+					exclusions = append(exclusions, existing)
+				}
+			}
+			entries, err := snapshot(item.path, &budget, exclusions)
+			if err != nil {
+				return err
+			}
+			for entryPath, entry := range entries {
+				before[entryPath] = entry
+			}
 		}
 		protected = append(protected, item.path)
 		labels[pathComparisonKey(item.path)] = item.label
@@ -204,7 +223,7 @@ func (guard *WriteGuard) Check() ([]Change, error) {
 	after := make(map[string]snapshotEntry)
 	budget := snapshotBudget{entries: guard.limits.entries, bytes: guard.limits.bytes}
 	for _, path := range guard.protected {
-		entries, err := snapshot(path, &budget)
+		entries, err := snapshot(path, &budget, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -324,7 +343,7 @@ type snapshotBudget struct {
 	bytes   int64
 }
 
-func snapshot(root string, budget *snapshotBudget) (map[string]snapshotEntry, error) {
+func snapshot(root string, budget *snapshotBudget, exclusions []string) (map[string]snapshotEntry, error) {
 	if err := validateGuardPathChain(root); err != nil {
 		return nil, err
 	}
@@ -337,6 +356,15 @@ func snapshot(root string, budget *snapshotBudget) (map[string]snapshotEntry, er
 	err := filepath.Walk(root, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return fmt.Errorf("%w: protected tree is unavailable", ErrUnsafeGuardPath)
+		}
+		for _, excluded := range exclusions {
+			if pathComparisonKey(path) != pathComparisonKey(excluded) {
+				continue
+			}
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		if safepath.IsLinkOrReparse(info) || (!info.IsDir() && !info.Mode().IsRegular()) {
 			return fmt.Errorf("%w: protected tree contains a special or linked path", ErrUnsafeGuardPath)
@@ -371,6 +399,24 @@ func snapshot(root string, budget *snapshotBudget) (map[string]snapshotEntry, er
 		return nil, fmt.Errorf("%w: %w", ErrUnsafeGuardPath, err)
 	}
 	return result, nil
+}
+
+func cloneSnapshot(source map[string]snapshotEntry) map[string]snapshotEntry {
+	result := make(map[string]snapshotEntry, len(source))
+	for path, entry := range source {
+		result[path] = entry
+	}
+	return result
+}
+
+func snapshotUsage(values map[string]snapshotEntry) (int, int64) {
+	var bytes int64
+	for _, entry := range values {
+		if entry.kind == "file" {
+			bytes += entry.size
+		}
+	}
+	return len(values), bytes
 }
 
 func pathsOverlap(left, right string) bool {

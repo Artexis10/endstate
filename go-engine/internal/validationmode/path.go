@@ -157,7 +157,7 @@ func (context *Context) validateInstanceRoot(value string) (string, error) {
 }
 
 // ValidateSandboxPath accepts only link-free materialized paths under one
-// validation virtual root or an engine-owned internal directory.
+// validation virtual root or a narrowly owned engine runtime location.
 func (context *Context) ValidateSandboxPath(absolute string) error {
 	if context == nil || absolute == "" || !filepath.IsAbs(absolute) || absolute != filepath.Clean(absolute) {
 		return fmt.Errorf("%w: sandbox path must be canonical absolute", ErrUnsafePath)
@@ -166,17 +166,64 @@ func (context *Context) ValidateSandboxPath(absolute string) error {
 	if err != nil {
 		return fmt.Errorf("%w: sandbox path is invalid", ErrUnsafePath)
 	}
+	for _, virtual := range context.uniqueVirtualRoots() {
+		if !isAncestorOrSame(virtual, absolute) {
+			continue
+		}
+		relative, relErr := filepath.Rel(virtual, absolute)
+		if relErr != nil {
+			continue
+		}
+		if relative == "." {
+			if err := safepath.ValidateRoot(virtual); err != nil {
+				return fmt.Errorf("%w: virtual root is linked or unavailable", ErrUnsafePath)
+			}
+			return nil
+		}
+		if _, err := safepath.Resolve(virtual, filepath.ToSlash(relative)); err != nil {
+			return fmt.Errorf("%w: sandbox path contains a linked component", ErrUnsafePath)
+		}
+		return nil
+	}
 	if absolute == context.root || !isAncestorOrSame(context.root, absolute) {
-		return fmt.Errorf("%w: path is outside validation descendants", ErrUnsafePath)
+		return fmt.Errorf("%w: path is outside validation-owned locations", ErrUnsafePath)
 	}
 	relative, err := filepath.Rel(context.root, absolute)
 	if err != nil {
-		return fmt.Errorf("%w: path is outside validation descendants", ErrUnsafePath)
+		return fmt.Errorf("%w: path is outside validation-owned locations", ErrUnsafePath)
 	}
-	if _, err := safepath.Resolve(context.root, filepath.ToSlash(relative)); err != nil {
-		return fmt.Errorf("%w: sandbox path contains a linked component", ErrUnsafePath)
+	portable := filepath.ToSlash(relative)
+	owned := portable == ".endstate/"+packageStateFilename
+	if !owned {
+		for _, directory := range []string{"logs", "manifests", "state"} {
+			if portable == directory || strings.HasPrefix(portable, directory+"/") {
+				owned = true
+				break
+			}
+		}
+	}
+	if !owned {
+		return fmt.Errorf("%w: path is not an owned validation runtime target", ErrUnsafePath)
+	}
+	if _, err := safepath.Resolve(context.root, portable); err != nil {
+		return fmt.Errorf("%w: owned runtime path contains a linked component", ErrUnsafePath)
 	}
 	return nil
+}
+
+func (context *Context) uniqueVirtualRoots() []string {
+	seen := map[string]struct{}{}
+	roots := make([]string, 0, len(context.virtual))
+	for _, root := range context.virtual {
+		key := pathComparisonKey(root)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		roots = append(roots, root)
+	}
+	sort.Slice(roots, func(i, j int) bool { return pathComparisonKey(roots[i]) < pathComparisonKey(roots[j]) })
+	return roots
 }
 
 type displayRoot struct {

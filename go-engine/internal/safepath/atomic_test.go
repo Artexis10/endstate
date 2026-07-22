@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHashRegularFileHandlesMaximumBudgetWithoutOverflow(t *testing.T) {
@@ -34,6 +35,48 @@ func TestHashRegularFileRejectsByteLimitBeforeRead(t *testing.T) {
 	}
 	if _, _, err := HashRegularFile(path, 4); !errors.Is(err, ErrByteLimit) {
 		t.Fatalf("HashRegularFile error = %v, want ErrByteLimit", err)
+	}
+}
+
+func TestVerifyHashedFileReadRejectsTruncationAndMetadataChange(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "value")
+	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, 2); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyHashedFileRead(before, after, before.Size()); !errors.Is(err, ErrSourceChanged) {
+		t.Fatalf("truncate error = %v, want ErrSourceChanged", err)
+	}
+	if err := os.WriteFile(path, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	before, err = os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	future := before.ModTime().Add(2 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+	after, err = os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyHashedFileRead(before, after, before.Size()); !errors.Is(err, ErrSourceChanged) {
+		t.Fatalf("metadata error = %v, want ErrSourceChanged", err)
+	}
+	if err := verifyHashedFileRead(before, before, before.Size()-1); !errors.Is(err, ErrSourceChanged) {
+		t.Fatalf("short read error = %v, want ErrSourceChanged", err)
 	}
 }
 

@@ -48,6 +48,13 @@ func ReadRegularFile(source string) ([]byte, os.FileMode, error) {
 	if err != nil {
 		return nil, 0, err
 	}
+	postReadInfo, err := input.Stat()
+	if err != nil {
+		return nil, 0, err
+	}
+	if err := verifyHashedFileRead(openedInfo, postReadInfo, int64(len(data))); err != nil {
+		return nil, 0, err
+	}
 	if err := verifyAtomicCopySource(source, openedInfo); err != nil {
 		return nil, 0, err
 	}
@@ -78,12 +85,26 @@ func HashRegularFile(source string, maxBytes int64) ([sha256.Size]byte, int64, e
 	if written > maxBytes {
 		return zero, 0, ErrByteLimit
 	}
+	postReadInfo, err := input.Stat()
+	if err != nil {
+		return zero, 0, err
+	}
+	if err := verifyHashedFileRead(openedInfo, postReadInfo, written); err != nil {
+		return zero, 0, err
+	}
 	if err := verifyAtomicCopySource(source, openedInfo); err != nil {
 		return zero, 0, err
 	}
 	var result [sha256.Size]byte
 	copy(result[:], hash.Sum(nil))
 	return result, written, nil
+}
+
+func verifyHashedFileRead(before, after os.FileInfo, bytesRead int64) error {
+	if before == nil || after == nil || !os.SameFile(before, after) || before.Mode() != after.Mode() || before.Size() != after.Size() || bytesRead != before.Size() || !before.ModTime().Equal(after.ModTime()) {
+		return pathError(CodeSourceChanged, "", ErrSourceChanged)
+	}
+	return nil
 }
 
 func openVerifiedRegularFile(source string) (*os.File, os.FileInfo, error) {

@@ -171,6 +171,134 @@ func TestWriteGuardProtectsIncrementallyAndCompactsDescendants(t *testing.T) {
 	}
 }
 
+func TestWriteGuardIncrementalProtectPreservesEarlierBaseline(t *testing.T) {
+	base := t.TempDir()
+	allowed := filepath.Join(base, "allowed")
+	first := filepath.Join(base, "first")
+	second := filepath.Join(base, "second")
+	for _, dir := range []string{allowed, first, second} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firstFile := filepath.Join(first, "value.txt")
+	if err := os.WriteFile(firstFile, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := NewWriteGuard(allowed, []string{first})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(firstFile, []byte("after"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.Protect([]ProtectedPath{{Path: second, Label: "second"}}); err != nil {
+		t.Fatal(err)
+	}
+	guard.Seal()
+	changes, err := guard.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, change := range changes {
+		if change.Path == firstFile && change.Kind == ChangeContent {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("incremental registration erased first mutation: %#v", changes)
+	}
+}
+
+func TestWriteGuardAncestorCompactionPreservesDescendantEvidence(t *testing.T) {
+	base := t.TempDir()
+	allowed := filepath.Join(base, "allowed")
+	parent := filepath.Join(base, "protected")
+	child := filepath.Join(parent, "child")
+	for _, dir := range []string{allowed, child} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	file := filepath.Join(child, "value.txt")
+	if err := os.WriteFile(file, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := NewWriteGuard(allowed, []string{child})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(file, []byte("after"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.Protect([]ProtectedPath{{Path: parent, Label: "parent"}}); err != nil {
+		t.Fatal(err)
+	}
+	if guard.ProtectedCount() != 1 {
+		t.Fatalf("protected count = %d, want compacted ancestor", guard.ProtectedCount())
+	}
+	guard.Seal()
+	changes, err := guard.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, change := range changes {
+		if change.Path == file && change.Kind == ChangeContent {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ancestor compaction erased descendant mutation: %#v", changes)
+	}
+}
+
+func TestWriteGuardFailedIncrementalProtectIsAtomic(t *testing.T) {
+	base := t.TempDir()
+	allowed := filepath.Join(base, "allowed")
+	first := filepath.Join(base, "first")
+	second := filepath.Join(base, "second")
+	for _, dir := range []string{allowed, first, second} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	firstFile := filepath.Join(first, "value.txt")
+	if err := os.WriteFile(firstFile, []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := newWriteGuardWithLimits(allowed, []string{first}, guardLimits{roots: 3, entries: 3, bytes: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(firstFile, []byte("after!"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(second, "extra.txt"), []byte("extra"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.Protect([]ProtectedPath{{Path: second, Label: "second"}}); !errors.Is(err, ErrGuardBudget) {
+		t.Fatalf("Protect error = %v, want ErrGuardBudget", err)
+	}
+	if guard.ProtectedCount() != 1 {
+		t.Fatalf("protected count = %d, want failed registration to be atomic", guard.ProtectedCount())
+	}
+	changes, err := guard.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, change := range changes {
+		if change.Path == firstFile && change.Kind == ChangeContent {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("failed registration changed earlier baseline: %#v", changes)
+	}
+}
+
 func TestWriteGuardRejectsProtectedRootBudget(t *testing.T) {
 	base := t.TempDir()
 	allowed := filepath.Join(base, "allowed")
