@@ -254,6 +254,30 @@ func TestActivateFromEnvironmentCreatesAliasesAndRestoresEnvironment(t *testing.
 	}
 }
 
+func TestLoadedContextActivatesWithoutRereadingEnvironment(t *testing.T) {
+	root := makeValidationRoot(t, "loaded-context")
+	writeDescriptor(t, root, validDescriptor("loaded-context"))
+	t.Setenv(TestModeEnvironment, "1")
+	t.Setenv(RootEnvironment, root)
+	context, err := LoadFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The loaded context is the authority. A later environment change must not
+	// redirect activation to a different descriptor/root.
+	t.Setenv(RootEnvironment, filepath.Join(canonicalTempDir(t), "not-a-validation-root"))
+	restore, err := context.Activate()
+	if err != nil {
+		t.Fatalf("Context.Activate: %v", err)
+	}
+	defer func() { _ = restore() }()
+	appData, _ := context.VirtualRoot("APPDATA")
+	if got := os.Getenv("APPDATA"); got != appData {
+		t.Fatalf("APPDATA = %q, want loaded-context root %q", got, appData)
+	}
+}
+
 func TestContextDoesNotSerializeOrFormatHostPaths(t *testing.T) {
 	context := activeTestContext(t, "redaction")
 	encoded, err := json.Marshal(context)

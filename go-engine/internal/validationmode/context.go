@@ -98,8 +98,21 @@ func ActivateFromEnvironment() (*Context, func() error, error) {
 	if context == nil {
 		return nil, func() error { return nil }, nil
 	}
-	if err := context.createVirtualRoots(); err != nil {
+	restore, err := context.Activate()
+	if err != nil {
 		return nil, nil, err
+	}
+	return context, restore, nil
+}
+
+// Activate installs the already-loaded context's disposable environment
+// aliases without rereading activation variables or descriptor authority.
+func (context *Context) Activate() (func() error, error) {
+	if context == nil {
+		return nil, fmt.Errorf("%w: nil validation context", ErrInvalidActivation)
+	}
+	if err := context.createVirtualRoots(); err != nil {
+		return nil, err
 	}
 	names := context.environmentNames()
 	context.original = make(map[string]originalEnvironmentValue, len(names))
@@ -112,7 +125,7 @@ func ActivateFromEnvironment() (*Context, func() error, error) {
 		value, _ := context.VirtualRoot(name)
 		if err := setEnvironment(name, value); err != nil {
 			_ = restoreEnvironment(installed, context.original)
-			return nil, nil, fmt.Errorf("activate validation environment %s: %w", name, err)
+			return nil, fmt.Errorf("activate validation environment %s: %w", name, err)
 		}
 		installed = append(installed, name)
 	}
@@ -122,7 +135,7 @@ func ActivateFromEnvironment() (*Context, func() error, error) {
 		once.Do(func() { restoreErr = restoreEnvironment(names, context.original) })
 		return restoreErr
 	}
-	return context, restore, nil
+	return restore, nil
 }
 
 func newContext(root string, descriptor Descriptor) *Context {

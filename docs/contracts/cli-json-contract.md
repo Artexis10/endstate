@@ -44,6 +44,7 @@ Every JSON output includes this envelope:
 | `runId` | string | Yes | Unique run identifier (format: `yyyyMMdd-HHmmss`) |
 | `timestampUtc` | string | Yes | ISO 8601 UTC timestamp |
 | `success` | boolean | Yes | Whether the command succeeded |
+| `testMode` | object | No | Present only for the internal disposable CI validation mode. Contains exactly `active: true`, `scenarioId`, and `moduleId`; omitted for ordinary runs. |
 | `data` | object | Yes | Command-specific result data |
 | `error` | object | No | Error object if `success` is false |
 
@@ -97,6 +98,9 @@ When `success` is `false`, the `error` field contains:
 | `PERMISSION_DENIED` | Insufficient permissions |
 | `INTERNAL_ERROR` | Unexpected internal error |
 | `SCHEMA_INCOMPATIBLE` | Schema version mismatch |
+| `TESTMODE_INVALID` | Internal validation-mode activation, disposable root, descriptor, or package state is invalid. No command handler or production backend is run. Additive in schema 1.x. |
+| `TESTMODE_ISOLATION_VIOLATION` | An internal validation run attempted a package identity or boundary operation outside its descriptor-bound disposable authority. Additive in schema 1.x. |
+| `TESTMODE_COMMAND_FORBIDDEN` | A command outside the validation-mode allowlist was rejected before dispatch. Additive in schema 1.x. |
 | `ROLLBACK_UNSUPPORTED` | None of the selected provisioning generations has a backend that can perform native rollback or best-effort package uninstall. Additive in schema 1.x. |
 | `GENERATION_NOT_FOUND` | The `rollback --to <n>` target generation does not exist, or records no backend-native rollback anchor. Additive in schema 1.x. |
 | `ROLLBACK_FAILED` | The backend rollback failed (non-systemic). Raw backend text is confined to `error.detail`. Additive in schema 1.x. |
@@ -104,6 +108,23 @@ When `success` is `false`, the `error` field contains:
 | `CONFIRMATION_REQUIRED` | `rebuild` was invoked for a live run (restore on, not `--dry-run`) without `--confirm`. Raised before any mutation, so the refusal has no side effects. Additive in schema 1.x. |
 | `NOT_SUPPORTED` | The requested operation is not supported on the current platform (e.g. `schedule enable` on non-Windows), or the input mode is unsupported (e.g. `rebuild --from <URL>`, or `import --from <source>` for an unrecognised source). Additive in schema 1.x. |
 | `TASK_REGISTRATION_FAILED` | `schedule enable` could not register the Windows Scheduled Task via `schtasks.exe`. Additive in schema 1.x. |
+
+### Internal disposable validation mode
+
+The workflow-only validation mode is activated by the exact environment pair
+`ENDSTATE_TESTMODE=1` and `ENDSTATE_ROOT=<validated disposable root>`. It is not
+an end-user CLI capability and has no public flag. The executable accepts only
+`capture`, `plan`, `apply`, `rebuild`, `restore`, `verify`, and `revert` while
+active. Help remains data-only; every other command is rejected before its
+handler or any production package/backend factory can run.
+
+Every valid active-mode success and failure envelope includes `testMode`
+immediately before `data`. The object exposes scenario identity only. It never
+contains the disposable root, nonce, package source, original environment
+values, or other authority-bearing data. Paths beneath the disposable root in
+ordinary command results are rendered as `$ENDSTATE_ROOT/...`. Invalid
+activation emits `TESTMODE_INVALID` without a `testMode` claim because trusted
+descriptor identity was not established.
 
 ### Command Warnings
 

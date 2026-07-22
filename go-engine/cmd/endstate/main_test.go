@@ -4,13 +4,422 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
+
+func cliValidationRoot(t *testing.T) string {
+	t.Helper()
+	return cliValidationRootWithInventory(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", Source: "winget", InitialState: "present",
+	})
+}
+
+func cliValidationRootWithInventory(t *testing.T, inventory validationmode.Inventory) string {
+	t.Helper()
+	root, err := os.MkdirTemp(os.TempDir(), "endstate-validation-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	nonce := strings.TrimPrefix(filepath.Base(root), "endstate-validation-")
+	descriptor := validationmode.Descriptor{
+		SchemaVersion: 1,
+		ScenarioID:    "cli-validation",
+		Nonce:         nonce,
+		ModuleID:      "apps.notepad-plus-plus",
+		Inventory:     inventory,
+	}
+	data, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".endstate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".endstate", "validation-mode.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func decodeCLIEnvelope(t *testing.T, output string) map[string]interface{} {
+	t.Helper()
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	var decoded map[string]interface{}
+	if err := json.Unmarshal([]byte(lines[len(lines)-1]), &decoded); err != nil {
+		t.Fatalf("decode envelope %q: %v", output, err)
+	}
+	return decoded
+}
+
+func TestRunCLIInactiveOmitsTestModeAndPreservesDispatch(t *testing.T) {
+	t.Setenv(validationmode.TestModeEnvironment, "")
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	called := false
+	dispatchFn = func(p parsedArgs) (interface{}, *envelope.Error) {
+		called = true
+		return map[string]bool{"ok": true}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"plan", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	if !called {
+		t.Fatal("inactive run did not dispatch")
+	}
+	decoded := decodeCLIEnvelope(t, stdout.String())
+	if _, exists := decoded["testMode"]; exists {
+		t.Fatalf("inactive envelope included testMode: %s", stdout.String())
+	}
+}
+
+func TestRunCLIActiveSuccessAndFailureIncludeSafeIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		failure *envelope.Error
+		want    float64
+	}{
+		{name: "success", want: 0},
+		{name: "failure", failure: envelope.NewError(envelope.ErrManifestParseError, "bad manifest"), want: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := cliValidationRoot(t)
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			originalDispatch := dispatchFn
+			t.Cleanup(func() { dispatchFn = originalDispatch })
+			dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+				return map[string]string{"result": "ordinary-dispatch"}, tc.failure
+			}
+			var stdout, stderr bytes.Buffer
+			code := runCLI([]string{"plan", "--json"}, &stdout, &stderr)
+			if float64(code) != tc.want {
+				t.Fatalf("exit = %d stderr=%s stdout=%s", code, stderr.String(), stdout.String())
+			}
+			decoded := decodeCLIEnvelope(t, stdout.String())
+			identity, ok := decoded["testMode"].(map[string]interface{})
+			if !ok || identity["active"] != true || identity["scenarioId"] != "cli-validation" || identity["moduleId"] != "apps.notepad-plus-plus" {
+				t.Fatalf("testMode = %#v", decoded["testMode"])
+			}
+			for _, forbidden := range []string{"root", "nonce", "source"} {
+				if _, exists := identity[forbidden]; exists {
+					t.Fatalf("testMode leaked %s: %#v", forbidden, identity)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCLIActiveCaptureDefaultsToDescriptorDriver(t *testing.T) {
+	root := cliValidationRootWithInventory(t, validationmode.Inventory{
+		AppID: "tool", Driver: "chocolatey", Ref: "vendor-tool",
+		DisplayName: "Tool", InitialState: "present",
+	})
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	dispatchFn = func(p parsedArgs) (interface{}, *envelope.Error) {
+		if !reflect.DeepEqual(p.drivers, []string{"chocolatey"}) {
+			t.Fatalf("capture drivers = %v, want descriptor driver", p.drivers)
+		}
+		return struct{}{}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"capture", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestRunCLIInvalidActivationFailsBeforeDispatch(t *testing.T) {
+	t.Setenv(validationmode.TestModeEnvironment, "yes")
+	t.Setenv(validationmode.RootEnvironment, "")
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+		t.Fatal("dispatch ran after invalid activation")
+		return nil, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"plan", "--json"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	decoded := decodeCLIEnvelope(t, stdout.String())
+	if _, exists := decoded["testMode"]; exists {
+		t.Fatalf("untrusted activation claimed testMode: %s", stdout.String())
+	}
+	errorObject := decoded["error"].(map[string]interface{})
+	if errorObject["code"] != string(envelope.ErrTestModeInvalid) {
+		t.Fatalf("error code = %v", errorObject["code"])
+	}
+}
+
+func TestRunCLIActiveForbiddenCommandFailsBeforeDispatch(t *testing.T) {
+	root := cliValidationRoot(t)
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+		t.Fatal("forbidden command reached dispatch")
+		return nil, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"doctor", "--json"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	decoded := decodeCLIEnvelope(t, stdout.String())
+	errorObject := decoded["error"].(map[string]interface{})
+	if errorObject["code"] != string(envelope.ErrTestModeCommandForbidden) {
+		t.Fatalf("error code = %v", errorObject["code"])
+	}
+}
+
+func TestRunCLIHelpAndForbiddenCommandsDoNotActivateValidationMode(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		args     []string
+		wantCode int
+	}{
+		{name: "help", args: []string{"--help"}, wantCode: 0},
+		{name: "forbidden", args: []string{"doctor", "--json"}, wantCode: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := cliValidationRoot(t)
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			originalActivate := activateCommandValidationModeFn
+			t.Cleanup(func() { activateCommandValidationModeFn = originalActivate })
+			activateCommandValidationModeFn = func(*validationmode.Context) (*commands.ValidationModeSession, error) {
+				t.Fatal("help/forbidden command activated command validation mode")
+				return nil, nil
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runCLI(tc.args, &stdout, &stderr); code != tc.wantCode {
+				t.Fatalf("exit = %d, want %d stdout=%s stderr=%s", code, tc.wantCode, stdout.String(), stderr.String())
+			}
+			for _, forbiddenPath := range []string{
+				filepath.Join(root, "sandbox"),
+				filepath.Join(root, ".endstate", "validation-package-state.json"),
+			} {
+				if _, err := os.Lstat(forbiddenPath); !os.IsNotExist(err) {
+					t.Fatalf("read-only pre-dispatch path created %s (err=%v)", forbiddenPath, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCLIRestoresValidationEnvironmentAfterSuccessAndFailure(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "failure"}[fail], func(t *testing.T) {
+			root := cliValidationRoot(t)
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			t.Setenv("APPDATA", "original-appdata")
+			originalDispatch := dispatchFn
+			t.Cleanup(func() { dispatchFn = originalDispatch })
+			dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+				if os.Getenv("APPDATA") == "original-appdata" {
+					t.Fatal("validation environment was not active during dispatch")
+				}
+				if fail {
+					return nil, envelope.NewError(envelope.ErrInternalError, "boom")
+				}
+				return struct{}{}, nil
+			}
+			var stdout, stderr bytes.Buffer
+			_ = runCLI([]string{"verify", "--json"}, &stdout, &stderr)
+			if got := os.Getenv("APPDATA"); got != "original-appdata" {
+				t.Fatalf("APPDATA after run = %q", got)
+			}
+		})
+	}
+}
+
+func TestRunCLIMapsPackageIdentityViolationsAndDoesNotMutateState(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		driver string
+		ref    string
+		source string
+	}{
+		{name: "wrong driver", driver: "chocolatey", ref: "Notepad++.Notepad++", source: ""},
+		{name: "wrong ref", driver: "winget", ref: "Other.Package", source: "winget"},
+		{name: "wrong source", driver: "winget", ref: "Notepad++.Notepad++", source: "msstore"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := cliValidationRootWithInventory(t, validationmode.Inventory{
+				AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+				DisplayName: "Notepad++", Source: "winget", InitialState: "absent",
+			})
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			manifestPath := filepath.Join(root, "identity-violation.jsonc")
+			manifest := `{"version":1,"name":"identity-violation","apps":[{"id":"candidate","displayName":"Candidate","driver":"` + tc.driver + `","source":"` + tc.source + `","refs":{"windows":"` + tc.ref + `"}}]}`
+			if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runCLI([]string{"plan", "--manifest", manifestPath, "--json"}, &stdout, &stderr); code != 1 {
+				t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			decoded := decodeCLIEnvelope(t, stdout.String())
+			errorObject := decoded["error"].(map[string]interface{})
+			if errorObject["code"] != string(envelope.ErrTestModeIsolationViolation) {
+				t.Fatalf("error code = %v, envelope=%s", errorObject["code"], stdout.String())
+			}
+			stateData, err := os.ReadFile(filepath.Join(root, ".endstate", "validation-package-state.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var state struct {
+				Present bool `json:"present"`
+			}
+			if err := json.Unmarshal(stateData, &state); err != nil {
+				t.Fatal(err)
+			}
+			if state.Present {
+				t.Fatalf("identity violation mutated package state: %s", stateData)
+			}
+		})
+	}
+}
+
+func TestRunCLIActiveEnvelopeDoesNotSerializeDisposableRoot(t *testing.T) {
+	root := cliValidationRoot(t)
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	manifestPath := filepath.Join(root, "valid-plan.jsonc")
+	manifest := `{"version":1,"name":"valid-plan","apps":[{"id":"notepad-plus-plus","displayName":"Notepad++","driver":"winget","source":"winget","refs":{"windows":"Notepad++.Notepad++"}}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loadedContext, err := validationmode.LoadFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"plan", "--manifest", manifestPath, "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	rootForms := []string{root, loadedContext.Root(), strings.ReplaceAll(root, `\`, `\\`), strings.ReplaceAll(loadedContext.Root(), `\`, `\\`)}
+	for _, rootForm := range rootForms {
+		if !strings.Contains(strings.ToLower(stdout.String()), strings.ToLower(rootForm)) {
+			continue
+		}
+		t.Fatalf("active envelope serialized disposable root: %s", stdout.String())
+	}
+}
+
+func TestBuiltExecutableUsesDisposableEngineAcrossPlanApplyVerify(t *testing.T) {
+	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildRoot := t.TempDir()
+	binaryPath := filepath.Join(buildRoot, "endstate-validation-test.exe")
+	if !filepath.IsAbs(binaryPath) {
+		t.Fatalf("binary path is not absolute: %s", binaryPath)
+	}
+	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/endstate")
+	build.Dir = moduleRoot
+	build.Env = make([]string, 0, len(os.Environ())+1)
+	for _, item := range os.Environ() {
+		name := strings.SplitN(item, "=", 2)[0]
+		if !strings.EqualFold(name, "GOCACHE") {
+			build.Env = append(build.Env, item)
+		}
+	}
+	build.Env = append(build.Env, "GOCACHE="+filepath.Join(buildRoot, "gocache"))
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("fresh build failed: %v\n%s", err, output)
+	}
+
+	root := cliValidationRootWithInventory(t, validationmode.Inventory{
+		AppID: "vendor-notepadplusplus", Driver: "winget", Ref: "Vendor.NotepadPlusPlus",
+		DisplayName: "Notepad++", Version: "8.8.2", Source: "winget", InitialState: "absent",
+	})
+	moduleDir := filepath.Join(root, "modules", "apps", "notepad-plus-plus")
+	if err := os.MkdirAll(moduleDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	moduleJSON := `{"id":"apps.notepad-plus-plus","displayName":"Notepad++","sensitivity":"low","matches":{"winget":["Vendor.NotepadPlusPlus"]},"verify":[],"restore":[],"capture":{"files":[],"excludeGlobs":[]}}`
+	if err := os.WriteFile(filepath.Join(moduleDir, "module.jsonc"), []byte(moduleJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(root, "engine-flow.jsonc")
+	manifest := `{"version":1,"name":"engine-flow","apps":[{"id":"vendor-notepadplusplus","displayName":"Notepad++","driver":"winget","source":"winget","version":"8.8.2","refs":{"windows":"Vendor.NotepadPlusPlus"}}]}`
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	childEnvironment := make([]string, 0, len(os.Environ())+2)
+	for _, item := range os.Environ() {
+		name := strings.SplitN(item, "=", 2)[0]
+		if strings.EqualFold(name, validationmode.TestModeEnvironment) || strings.EqualFold(name, validationmode.RootEnvironment) {
+			continue
+		}
+		childEnvironment = append(childEnvironment, item)
+	}
+	childEnvironment = append(childEnvironment,
+		validationmode.TestModeEnvironment+"=1",
+		validationmode.RootEnvironment+"="+root,
+	)
+
+	run := func(command string) map[string]interface{} {
+		t.Helper()
+		cmd := exec.Command(binaryPath, command, "--manifest", manifestPath, "--json")
+		cmd.Dir = root
+		cmd.Env = childEnvironment
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout, cmd.Stderr = &stdout, &stderr
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("%s failed: %v\nstdout=%s\nstderr=%s", command, err, stdout.String(), stderr.String())
+		}
+		decoded := decodeCLIEnvelope(t, stdout.String())
+		if decoded["success"] != true {
+			t.Fatalf("%s envelope = %s", command, stdout.String())
+		}
+		identity, ok := decoded["testMode"].(map[string]interface{})
+		if !ok || identity["scenarioId"] != "cli-validation" || identity["moduleId"] != "apps.notepad-plus-plus" {
+			t.Fatalf("%s testMode = %#v", command, decoded["testMode"])
+		}
+		return decoded
+	}
+
+	planEnvelope := run("plan")
+	planData := planEnvelope["data"].(map[string]interface{})
+	planSummary := planData["plan"].(map[string]interface{})
+	if planSummary["toInstall"] != float64(1) {
+		t.Fatalf("initial plan = %#v", planSummary)
+	}
+	applyEnvelope := run("apply")
+	applyData := applyEnvelope["data"].(map[string]interface{})
+	applySummary := applyData["summary"].(map[string]interface{})
+	if applySummary["success"] != float64(1) {
+		t.Fatalf("apply summary = %#v", applySummary)
+	}
+	verifyEnvelope := run("verify")
+	verifyData := verifyEnvelope["data"].(map[string]interface{})
+	verifySummary := verifyData["summary"].(map[string]interface{})
+	if verifySummary["pass"] != float64(1) || verifySummary["fail"] != float64(0) {
+		t.Fatalf("verify summary = %#v", verifySummary)
+	}
+}
 
 func TestParseArgsPreservesRepeatableRestoreTargets(t *testing.T) {
 	parsed := parseArgs([]string{

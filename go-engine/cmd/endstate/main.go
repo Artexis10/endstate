@@ -9,6 +9,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // usageText is the top-level help text printed for --help or when no command is
@@ -451,31 +453,121 @@ func commandUsage(cmd string) string {
 }
 
 func main() {
-	// Skip the program name (args[0]).
-	p := parseArgs(os.Args[1:])
+	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+var dispatchFn = dispatch
+var activateCommandValidationModeFn = commands.ActivateValidationMode
+
+var validationModeCommands = map[string]struct{}{
+	"capture": {}, "plan": {}, "apply": {}, "rebuild": {},
+	"restore": {}, "verify": {}, "revert": {},
+}
+
+var knownCommands = map[string]struct{}{
+	"capabilities": {}, "apply": {}, "rebuild": {}, "import": {}, "verify": {},
+	"capture": {}, "plan": {}, "report": {}, "generations": {}, "rollback": {},
+	"doctor": {}, "profile": {}, "restore": {}, "revert": {}, "export-config": {},
+	"validate-export": {}, "bootstrap": {}, "backup": {}, "account": {}, "schedule": {},
+}
+
+// runCLI is the process entrypoint without os.Exit. Keeping cleanup visible
+// makes validation-mode environment and command-seam restoration testable.
+func runCLI(args []string, stdout, stderr io.Writer) int {
+	p := parseArgs(args)
 
 	// --debug-cli: print resolved command and flags to stderr.
 	if p.debugCLI {
-		fmt.Fprintf(os.Stderr, "[debug-cli] command=%q json=%v dryRun=%v enableRestore=%v manifest=%q events=%q\n",
+		fmt.Fprintf(stderr, "[debug-cli] command=%q json=%v dryRun=%v enableRestore=%v manifest=%q events=%q\n",
 			p.command, p.jsonMode, p.dryRun, p.enableRestore, p.manifest, p.events)
+	}
+
+	validationContext, activationErr := validationmode.LoadFromEnvironment()
+	var validationSession *commands.ValidationModeSession
+	if activationErr != nil {
+		return renderCLIResult(p, nil, envelope.NewError(
+			envelope.ErrTestModeInvalid,
+			"Validation mode activation is invalid.",
+		), nil, stdout, stderr)
 	}
 
 	// Handle --help / no command before doing any further work.
 	if p.helpRequested || p.command == "" {
-		fmt.Print(commandUsage(p.command))
-		os.Exit(0)
+		fmt.Fprint(stdout, commandUsage(p.command))
+		return 0
+	}
+
+	if validationContext != nil {
+		if _, allowed := validationModeCommands[p.command]; !allowed {
+			return renderCLIResult(p, nil, envelope.NewError(
+				envelope.ErrTestModeCommandForbidden,
+				fmt.Sprintf("Command %q is forbidden in validation mode.", p.command),
+			), validationContext, stdout, stderr)
+		}
+		if p.command == "capture" && len(p.drivers) == 0 {
+			p.drivers = []string{validationContext.Descriptor().Inventory.Driver}
+		}
+		// Validation mode never authorizes backend installation. The command-layer
+		// package seams still report the disposable backend as available.
+		p.bootstrapBackends = false
+		p.noBootstrap = true
+	}
+
+	if _, known := knownCommands[p.command]; !known {
+		fmt.Fprintf(stderr, "Unknown command: %q\n\n", p.command)
+		fmt.Fprint(stdout, usageText)
+		return 1
+	}
+
+	var restoreEnvironment func() error
+	if validationContext != nil {
+		restoreEnvironment, activationErr = validationContext.Activate()
+		if activationErr == nil {
+			validationSession, activationErr = activateCommandValidationModeFn(validationContext)
+		}
+		if activationErr != nil {
+			if restoreEnvironment != nil {
+				_ = restoreEnvironment()
+			}
+			return renderCLIResult(p, nil, envelope.NewError(
+				envelope.ErrTestModeInvalid,
+				"Validation mode activation is invalid.",
+			), nil, stdout, stderr)
+		}
+		defer func() {
+			_ = validationSession.Restore()
+			_ = restoreEnvironment()
+		}()
+	}
+
+	data, cmdErr := dispatchFn(p)
+	if validationSession != nil && validationSession.IsolationError() != nil {
+		data = nil
+		cmdErr = envelope.NewError(
+			envelope.ErrTestModeIsolationViolation,
+			"Validation mode rejected an operation outside its disposable authority.",
+		)
+	}
+	return renderCLIResult(p, data, cmdErr, validationContext, stdout, stderr)
+}
+
+func renderCLIResult(p parsedArgs, data interface{}, cmdErr *envelope.Error, validationContext *validationmode.Context, stdout, stderr io.Writer) int {
+	if validationContext != nil {
+		roots := []string{validationContext.Root(), os.Getenv(validationmode.RootEnvironment)}
+		data = redactCLIValue(data, roots)
+		cmdErr = redactCLIError(cmdErr, roots)
+	}
+	repoRoot := ""
+	if validationContext != nil || os.Getenv(validationmode.TestModeEnvironment) == "" {
+		repoRoot = config.ResolveRepoRoot()
 	}
 
 	// Resolve versions from repo root (best-effort; falls back gracefully).
-	repoRoot := config.ResolveRepoRoot()
 	schemaVersion := config.ReadSchemaVersion(repoRoot)
 	cliVersion := config.ReadVersion(repoRoot)
 
 	now := time.Now().UTC()
 	runID := envelope.BuildRunID(p.command, now)
-
-	// Dispatch to command handler.
-	data, cmdErr := dispatch(p)
 
 	if p.jsonMode {
 		var env *envelope.Envelope
@@ -484,38 +576,114 @@ func main() {
 		} else {
 			env = envelope.NewSuccess(p.command, runID, schemaVersion, cliVersion, data)
 		}
+		if validationContext != nil {
+			descriptor := validationContext.Descriptor()
+			env.TestMode = &envelope.TestModeIdentity{
+				Active: true, ScenarioID: descriptor.ScenarioID, ModuleID: descriptor.ModuleID,
+			}
+		}
 
 		b, marshalErr := envelope.Marshal(env)
 		if marshalErr != nil {
 			// Last-resort: write a minimal error envelope manually.
-			fmt.Fprintf(os.Stdout, `{"schemaVersion":%q,"cliVersion":%q,"command":%q,"runId":%q,"timestampUtc":%q,"success":false,"data":{},"error":{"code":"INTERNAL_ERROR","message":"failed to marshal response"}}`,
+			fmt.Fprintf(stdout, `{"schemaVersion":%q,"cliVersion":%q,"command":%q,"runId":%q,"timestampUtc":%q,"success":false,"data":{},"error":{"code":"INTERNAL_ERROR","message":"failed to marshal response"}}`,
 				schemaVersion, cliVersion, p.command, runID, now.Format(time.RFC3339))
-			fmt.Fprintln(os.Stdout)
-			os.Exit(1)
+			fmt.Fprintln(stdout)
+			return 1
 		}
 		// The JSON envelope is the LAST line of stdout.
-		fmt.Println(string(b))
+		fmt.Fprintln(stdout, string(b))
 	} else {
 		// Human-readable output.
 		if cmdErr != nil {
-			fmt.Fprintf(os.Stderr, "Error [%s]: %s\n", cmdErr.Code, cmdErr.Message)
+			fmt.Fprintf(stderr, "Error [%s]: %s\n", cmdErr.Code, cmdErr.Message)
 			if cmdErr.Remediation != "" {
-				fmt.Fprintf(os.Stderr, "Remediation: %s\n", cmdErr.Remediation)
+				fmt.Fprintf(stderr, "Remediation: %s\n", cmdErr.Remediation)
 			}
-			os.Exit(1)
+			return 1
 		}
 		// For commands with non-JSON output, pretty-print data as indented JSON as a
 		// readable fallback until each command has a bespoke human formatter.
 		if data != nil {
 			b, _ := json.MarshalIndent(data, "", "  ")
-			fmt.Println(string(b))
+			fmt.Fprintln(stdout, string(b))
 		}
 	}
 
 	if cmdErr != nil {
-		os.Exit(1)
+		return 1
 	}
-	os.Exit(0)
+	return 0
+}
+
+func redactCLIError(value *envelope.Error, roots []string) *envelope.Error {
+	if value == nil {
+		return nil
+	}
+	result := *value
+	result.Message = redactCLIString(result.Message, roots)
+	result.Remediation = redactCLIString(result.Remediation, roots)
+	result.Detail = redactCLIValue(result.Detail, roots)
+	return &result
+}
+
+func redactCLIValue(value interface{}, roots []string) interface{} {
+	if value == nil {
+		return nil
+	}
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return value
+	}
+	var decoded interface{}
+	decoder := json.NewDecoder(strings.NewReader(string(encoded)))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
+		return value
+	}
+	return redactDecodedCLIValue(decoded, roots)
+}
+
+func redactDecodedCLIValue(value interface{}, roots []string) interface{} {
+	switch typed := value.(type) {
+	case string:
+		return redactCLIString(typed, roots)
+	case []interface{}:
+		for index := range typed {
+			typed[index] = redactDecodedCLIValue(typed[index], roots)
+		}
+	case map[string]interface{}:
+		for key, item := range typed {
+			typed[key] = redactDecodedCLIValue(item, roots)
+		}
+	}
+	return value
+}
+
+func redactCLIString(value string, roots []string) string {
+	for _, root := range roots {
+		if strings.TrimSpace(root) == "" {
+			continue
+		}
+		forms := []string{root, strings.ReplaceAll(root, `\`, "/"), strings.ReplaceAll(root, "/", `\`)}
+		for _, form := range forms {
+			value = replaceFold(value, form, "$ENDSTATE_ROOT")
+		}
+	}
+	return value
+}
+
+func replaceFold(value, old, replacement string) string {
+	if old == "" {
+		return value
+	}
+	for {
+		index := strings.Index(strings.ToLower(value), strings.ToLower(old))
+		if index < 0 {
+			return value
+		}
+		value = value[:index] + replacement + value[index+len(old):]
+	}
 }
 
 // dispatch routes the parsed command to its handler and returns the data payload

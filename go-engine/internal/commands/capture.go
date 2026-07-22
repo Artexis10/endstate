@@ -489,6 +489,11 @@ func enumerateWindowsCapturePackages(flags CaptureFlags) ([]enumeratedCapturePac
 	return packages, warnings, nil
 }
 
+// enumerateCapturePackagesFn is the narrow installed-package boundary used by
+// RunCapture. Production delegates to the platform enumerators above; internal
+// validation mode replaces only this boundary with its disposable inventory.
+var enumerateCapturePackagesFn = enumerateWindowsCapturePackages
+
 func countCapturePackages(packages []enumeratedCapturePackage, driverName string) int {
 	count := 0
 	for _, item := range packages {
@@ -686,7 +691,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 
 	// --- 2. Enumerate selected package-manager ledgers ---
 	emitter.EmitProgress("capture", "inventory")
-	enumerated, warnings, enumErr := enumerateWindowsCapturePackages(flags)
+	enumerated, warnings, enumErr := enumerateCapturePackagesFn(flags)
 	if enumErr != nil {
 		return nil, enumErr
 	}
