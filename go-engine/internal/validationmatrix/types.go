@@ -34,6 +34,8 @@ const (
 	CodeInvalidSchemaV2Identity = "invalid_schema_v2_identity"
 )
 
+const CodeMissingProductionValidation = "missing_production_validation"
+
 type ScenarioKind string
 
 const (

@@ -26,6 +26,9 @@ The system SHALL maintain tracked, schema-versioned validation metadata for ever
 - **THEN** its validation record SHALL declare a `config-generation-v2` scenario for every alternative and a `config-migration-v2` scenario for every migration edge
 - **AND** every scenario SHALL select either literal capture/instance IDs or deterministic derivation from its fixture and a detector declared by the production module
 - **AND** every executed scenario SHALL assert the exact emitted capture ID, config-set/instance identity, generation/fingerprint, validation, and migration outcome where applicable
+- **AND** every target generation SHALL declare and execute production generation validation
+- **AND** migration scenarios SHALL prove both the declared edge validation and target-generation validation
+- **AND** a top-level app `verify` assertion SHALL be required only when the production module declares one
 
 #### Scenario: Capture target lacks restoration contract
 
@@ -78,6 +81,8 @@ The system SHALL run every production module and every required schema-v2 altern
 - **WHEN** a `config-generation-v2` or `config-migration-v2` scenario runs
 - **THEN** targeted capture SHALL produce the expected capture ID, config-set/instance identity, selected generation/fingerprint, and validation result
 - **AND** a `config-migration-v2` scenario SHALL traverse and prove its declared source-to-target migration edge
+- **AND** the scenario SHALL execute non-zero target-generation validation, plus non-zero edge validation for a migration
+- **AND** it SHALL execute and prove a top-level app verifier when the production module declares one and SHALL NOT fabricate a verifier minimum when none is declared
 - **AND** rebuild, nested-summary, independent content, immediate revert, recovery, and repeat-rebuild convergence assertions SHALL pass
 - **AND** a successful result SHALL emit the `config-roundtrip-v2` proof level
 

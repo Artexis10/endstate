@@ -67,6 +67,12 @@ func validateAssertions(record *ValidationRecord, mod *modules.Module, scenario 
 			return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q assertion %q cannot be negative", scenario.ID, name)
 		}
 	}
+	if (scenario.Mode == ScenarioConfigGenerationV2 || scenario.Mode == ScenarioConfigMigrationV2) && len(mod.Verify) == 0 && scenario.MinimumAssertions[AssertionVerify] > 0 {
+		return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q cannot require app-verifier assertions when the production module declares no top-level verifier", scenario.ID)
+	}
+	if err := validateSchemaV2ProductionValidation(record, mod, scenario); err != nil {
+		return err
+	}
 	required := requiredAssertions(scenario.Mode, len(mod.Verify) > 0)
 	for _, name := range required {
 		if scenario.MinimumAssertions[name] <= 0 {
@@ -79,15 +85,23 @@ func validateAssertions(record *ValidationRecord, mod *modules.Module, scenario 
 func requiredAssertions(kind ScenarioKind, hasProductionVerifier bool) []string {
 	roundtrip := []string{
 		AssertionCaptured, AssertionPayload, AssertionProvenance, AssertionRewrittenRestore,
-		AssertionContent, AssertionRebuild, AssertionVerify, AssertionNestedSummary, AssertionRevert,
+		AssertionContent, AssertionRebuild, AssertionNestedSummary, AssertionRevert,
 	}
 	switch kind {
 	case ScenarioConfigRoundtripV1:
-		return roundtrip
+		return append(roundtrip, AssertionVerify)
 	case ScenarioConfigGenerationV2:
-		return append(roundtrip, AssertionGeneration, AssertionValidation)
+		required := append(roundtrip, AssertionGeneration, AssertionValidation)
+		if hasProductionVerifier {
+			required = append(required, AssertionVerify)
+		}
+		return required
 	case ScenarioConfigMigrationV2:
-		return append(roundtrip, AssertionGeneration, AssertionValidation, AssertionMigration)
+		required := append(roundtrip, AssertionGeneration, AssertionValidation, AssertionMigration)
+		if hasProductionVerifier {
+			required = append(required, AssertionVerify)
+		}
+		return required
 	case ScenarioCaptureContract:
 		return []string{AssertionCaptured, AssertionPayload, AssertionProvenance, AssertionContent}
 	case ScenarioRestoreContract:
@@ -101,6 +115,39 @@ func requiredAssertions(kind ScenarioKind, hasProductionVerifier bool) []string 
 	default:
 		return nil
 	}
+}
+
+func validateSchemaV2ProductionValidation(record *ValidationRecord, mod *modules.Module, scenario *Scenario) error {
+	if (scenario.Mode != ScenarioConfigGenerationV2 && scenario.Mode != ScenarioConfigMigrationV2) || scenario.Expected == nil || mod == nil || mod.Config == nil {
+		return nil
+	}
+	expected := scenario.Expected
+	for setIndex := range mod.Config.Sets {
+		set := &mod.Config.Sets[setIndex]
+		if set.ID != expected.ConfigSetID {
+			continue
+		}
+		generationID := expected.GenerationID
+		if scenario.Mode == ScenarioConfigMigrationV2 {
+			generationID = expected.MigrationTo
+		}
+		for generationIndex := range set.Generations {
+			generation := &set.Generations[generationIndex]
+			if generation.ID == generationID && len(generation.Validate) == 0 {
+				return validationError(CodeMissingProductionValidation, record.ModuleID, record.FilePath, "scenario %q target generation %q has no production validation", scenario.ID, generationID)
+			}
+		}
+		if scenario.Mode == ScenarioConfigMigrationV2 {
+			for edgeIndex := range set.Migrations {
+				edge := &set.Migrations[edgeIndex]
+				if edge.From == expected.MigrationFrom && edge.To == expected.MigrationTo && len(edge.Validate) == 0 {
+					return validationError(CodeMissingProductionValidation, record.ModuleID, record.FilePath, "scenario %q migration %q -> %q has no production edge validation", scenario.ID, edge.From, edge.To)
+				}
+			}
+		}
+		return nil
+	}
+	return nil
 }
 
 func validateExpected(record *ValidationRecord, mod *modules.Module, scenario *Scenario) error {

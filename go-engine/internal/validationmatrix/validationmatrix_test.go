@@ -539,6 +539,95 @@ func TestSchemaV2ExpectationIdentityStrategies(t *testing.T) {
 	}
 }
 
+func TestSchemaV2UsesGenerationValidationAndConditionalAppVerification(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+
+	t.Run("generation validation without top-level app verifier", func(t *testing.T) {
+		root := t.TempDir()
+		content := mutateSchemaV2Module(t, schemaV2Module("apps.studio-like"), func(mod *modules.Module) {
+			mod.Verify = nil
+		})
+		mod := writeModule(t, root, "studio-like", content)
+		record := validV2Validation(t, mod)
+		for index := range record.Synthetic.Scenarios {
+			delete(record.Synthetic.Scenarios[index].MinimumAssertions, AssertionVerify)
+		}
+		writeValidation(t, root, "studio-like", record)
+		if _, err := LoadCatalog(root, now); err != nil {
+			t.Fatalf("LoadCatalog returned %v", err)
+		}
+	})
+
+	t.Run("top-level app verifier requires a verify minimum", func(t *testing.T) {
+		root := t.TempDir()
+		mod := writeModule(t, root, "with-app-verifier", schemaV2Module("apps.with-app-verifier"))
+		record := validV2Validation(t, mod)
+		delete(record.Synthetic.Scenarios[0].MinimumAssertions, AssertionVerify)
+		writeValidation(t, root, "with-app-verifier", record)
+		_, err := LoadCatalog(root, now)
+		if got := ErrorCode(err); got != CodeMissingAssertionMinimum {
+			t.Fatalf("LoadCatalog error = %v (code %q), want %q", err, got, CodeMissingAssertionMinimum)
+		}
+	})
+
+	t.Run("missing app verifier forbids a fabricated verify minimum", func(t *testing.T) {
+		root := t.TempDir()
+		content := mutateSchemaV2Module(t, schemaV2Module("apps.no-app-verifier"), func(mod *modules.Module) {
+			mod.Verify = nil
+		})
+		mod := writeModule(t, root, "no-app-verifier", content)
+		record := validV2Validation(t, mod)
+		writeValidation(t, root, "no-app-verifier", record)
+		_, err := LoadCatalog(root, now)
+		if got := ErrorCode(err); got != CodeInvalidSidecar {
+			t.Fatalf("LoadCatalog error = %v (code %q), want %q", err, got, CodeInvalidSidecar)
+		}
+	})
+
+	t.Run("generation cannot fabricate validation evidence", func(t *testing.T) {
+		root := t.TempDir()
+		content := mutateSchemaV2Module(t, schemaV2Module("apps.no-generation-validation"), func(mod *modules.Module) {
+			mod.Config.Sets[0].Generations[0].Validate = nil
+		})
+		mod := writeModule(t, root, "no-generation-validation", content)
+		record := validV2Validation(t, mod)
+		writeValidation(t, root, "no-generation-validation", record)
+		_, err := LoadCatalog(root, now)
+		if got := ErrorCode(err); got != CodeMissingProductionValidation {
+			t.Fatalf("LoadCatalog error = %v (code %q), want %q", err, got, CodeMissingProductionValidation)
+		}
+	})
+
+	t.Run("migration requires target generation validation", func(t *testing.T) {
+		root := t.TempDir()
+		content := mutateSchemaV2Module(t, schemaV2Module("apps.no-target-validation"), func(mod *modules.Module) {
+			mod.Config.Sets[0].Generations[1].Validate = nil
+		})
+		mod := writeModule(t, root, "no-target-validation", content)
+		record := validV2Validation(t, mod)
+		scenarios := record.Synthetic.Scenarios
+		record.Synthetic.Scenarios = append([]Scenario{scenarios[3]}, scenarios[:3]...)
+		writeValidation(t, root, "no-target-validation", record)
+		_, err := LoadCatalog(root, now)
+		if got := ErrorCode(err); got != CodeMissingProductionValidation {
+			t.Fatalf("LoadCatalog error = %v (code %q), want %q", err, got, CodeMissingProductionValidation)
+		}
+	})
+
+	t.Run("migration edge validation remains a production catalog requirement", func(t *testing.T) {
+		root := t.TempDir()
+		content := mutateSchemaV2Module(t, schemaV2Module("apps.no-edge-validation"), func(mod *modules.Module) {
+			mod.Config.Sets[0].Migrations[0].Validate = nil
+		})
+		mod := writeModule(t, root, "no-edge-validation", content)
+		writeValidation(t, root, "no-edge-validation", validV2Validation(t, mod))
+		_, err := LoadCatalog(root, now)
+		if got := ErrorCode(err); got != CodeInvalidModuleCatalog {
+			t.Fatalf("LoadCatalog error = %v (code %q), want %q", err, got, CodeInvalidModuleCatalog)
+		}
+	})
+}
+
 func TestInstallContractAcceptsEveryProductionAppReferenceFamily(t *testing.T) {
 	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -898,6 +987,20 @@ func schemaV2Module(id string) string {
     }]
   }
 }`, id, strings.Repeat("c", 64))
+}
+
+func mutateSchemaV2Module(t *testing.T, content string, mutate func(*modules.Module)) string {
+	t.Helper()
+	mod, err := modules.ParseModuleJSON([]byte(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mutate(mod)
+	data, err := json.Marshal(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
 }
 
 func cloneAssertions(source map[string]int) map[string]int {
