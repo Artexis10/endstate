@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"path"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -27,6 +28,7 @@ import (
 type validationProductionModulePreflight struct {
 	Context        *validationmode.Context
 	Session        *ValidationModeSession
+	Catalog        map[string]*modules.Module
 	Modules        []*modules.Module
 	Manifest       *manifest.Manifest
 	PortableRoot   string
@@ -58,7 +60,9 @@ func preflightValidationProductionModule(input validationProductionModulePreflig
 		return errors.New("validation production-module preflight requires context, session, and manifest")
 	}
 	descriptor := input.Context.Descriptor()
-	if len(input.Modules) != 1 || input.Modules[0] == nil || input.Modules[0].ID != descriptor.ModuleID {
+	authority := input.Catalog[descriptor.ModuleID]
+	if len(input.Modules) != 1 || input.Modules[0] == nil || authority == nil ||
+		input.Modules[0] != authority || authority.ID != descriptor.ModuleID || !validationModuleAuthorityIsPinned(authority) {
 		return validationPreflightFailure(input.Session, "modules", "module-selection", isolationReasonUnsafePath)
 	}
 	mod := input.Modules[0]
@@ -100,6 +104,24 @@ func preflightValidationProductionModule(input validationProductionModulePreflig
 	return nil
 }
 
+func validationModuleAuthorityIsPinned(mod *modules.Module) bool {
+	if mod == nil || len(mod.CanonicalSnapshot()) == 0 || mod.Revision == "" || mod.Unversioned != (mod.EffectiveSchemaVersion() == 1) {
+		return false
+	}
+	snapshotRevision, err := modules.ComputeModuleRevision(mod.CanonicalSnapshot())
+	if err != nil || snapshotRevision != mod.Revision {
+		return false
+	}
+	pinned, err := modules.ParseModuleJSON(mod.CanonicalSnapshot())
+	if err != nil {
+		return false
+	}
+	liveDeclarations, pinnedDeclarations := *mod, *pinned
+	liveDeclarations.FilePath, liveDeclarations.ModuleDir = "", ""
+	pinnedDeclarations.FilePath, pinnedDeclarations.ModuleDir = "", ""
+	return reflect.DeepEqual(liveDeclarations, pinnedDeclarations)
+}
+
 func deriveValidationInstancePolicies(context *validationmode.Context, session *ValidationModeSession, mod *modules.Module, instances []modules.ConfigInstance) (map[string]validationmode.HostPathPolicy, error) {
 	policies := make(map[string]validationmode.HostPathPolicy, len(instances))
 	for index, instance := range instances {
@@ -115,9 +137,16 @@ func deriveValidationInstancePolicies(context *validationmode.Context, session *
 		if err != nil || context.ValidateSandboxPath(instance.Root) != nil || !validationGlobContains(pattern, instance.Root) {
 			return nil, validationPreflightFailure(session, coordinate+".root", "instance-provenance", isolationReasonUnsafePath)
 		}
-		expectedLocator := validationPathInstanceLocator(instance.Root)
-		if instance.CanonicalLocator != expectedLocator || instance.ID != modules.StableInstanceID(mod.ID, detector.ID, expectedLocator) {
+		expected, err := validationDiscoveredPathInstance(mod, detector, pattern, instance.Root)
+		if err != nil || expected == nil {
 			return nil, validationPreflightFailure(session, coordinate+".id", "instance-provenance", isolationReasonUnsafePath)
+		}
+		if instance.ID != expected.ID || instance.ModuleID != expected.ModuleID || instance.DetectorID != expected.DetectorID ||
+			instance.Root != expected.Root || instance.Evidence != expected.Evidence || instance.CanonicalLocator != expected.CanonicalLocator {
+			return nil, validationPreflightFailure(session, coordinate+".id", "instance-provenance", isolationReasonUnsafePath)
+		}
+		if instance.Version != expected.Version {
+			return nil, validationPreflightFailure(session, coordinate+".version", "instance-provenance", isolationReasonUnsafePath)
 		}
 		policy := validationmode.HostPathPolicy{InstanceRoot: instance.Root, InstanceAlias: alias}
 		if _, err := context.ResolveHostPath(`${instance.root}\probe`, policy); err != nil {
@@ -143,20 +172,24 @@ func validationDetectorPattern(context *validationmode.Context, authored string)
 	if _, err := context.ResolveHostPath(validationHostProbe(authored), validationmode.HostPathPolicy{}); err != nil {
 		return "", "", err
 	}
-	if !strings.HasPrefix(authored, "%") {
+	normalized := authored
+	if strings.HasPrefix(authored, `~\`) || strings.HasPrefix(authored, "~/") {
+		normalized = `%USERPROFILE%\` + authored[2:]
+	}
+	if !strings.HasPrefix(normalized, "%") {
 		return "", "", validationmode.ErrUnsafePath
 	}
-	closing := strings.Index(authored[1:], "%")
+	closing := strings.Index(normalized[1:], "%")
 	if closing < 0 {
 		return "", "", validationmode.ErrUnsafePath
 	}
 	closing++
-	alias := authored[1:closing]
+	alias := normalized[1:closing]
 	root, ok := context.VirtualRoot(alias)
 	if !ok {
 		return "", "", validationmode.ErrUnsafePath
 	}
-	suffix := strings.TrimLeft(authored[closing+1:], `\/`)
+	suffix := strings.TrimLeft(normalized[closing+1:], `\/`)
 	return alias, filepath.Join(root, filepath.FromSlash(strings.ReplaceAll(suffix, `\`, "/"))), nil
 }
 
@@ -172,6 +205,29 @@ func validationGlobContains(pattern, root string) bool {
 		}
 	}
 	return false
+}
+
+func validationDiscoveredPathInstance(mod *modules.Module, detector *modules.InstanceDetectorDef, pattern, root string) (*modules.ConfigInstance, error) {
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+	discovered, err := modules.DiscoverInstances(mod, nil, modules.DiscoveryOptions{Glob: func(requested string) ([]string, error) {
+		if requested == detector.Glob || strings.EqualFold(filepath.Clean(requested), filepath.Clean(pattern)) {
+			return append([]string(nil), matches...), nil
+		}
+		return nil, nil
+	}})
+	if err != nil {
+		return nil, err
+	}
+	cleanRoot := filepath.Clean(root)
+	for index := range discovered {
+		if discovered[index].DetectorID == detector.ID && strings.EqualFold(filepath.Clean(discovered[index].Root), cleanRoot) {
+			return &discovered[index], nil
+		}
+	}
+	return nil, nil
 }
 
 func validateValidationManifestContracts(session *ValidationModeSession, mod *modules.Module, mf *manifest.Manifest, plans []validationProductionConfigPlan, portableRoot string) error {
@@ -667,6 +723,9 @@ func walkValidationRestore(context *validationmode.Context, session *ValidationM
 }
 
 func preflightHostPath(context *validationmode.Context, session *ValidationModeSession, coordinate, authored string, policy validationmode.HostPathPolicy) error {
+	if strings.EqualFold(authored, "${instance.root}") && policy.InstanceRoot != "" {
+		policy.AllowRoot = true
+	}
 	if _, err := context.ResolveHostPath(validationHostProbe(authored), policy); err != nil {
 		return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("path", authored), isolationReasonUnsafePath)
 	}

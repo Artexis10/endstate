@@ -19,6 +19,66 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
+func TestPreflightValidationProductionModuleRequiresCatalogAuthority(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(map[string]*modules.Module, **modules.Module)
+		wantErr bool
+	}{
+		{name: "actual catalog pointer"},
+		{name: "same-id clone", wantErr: true, mutate: func(catalog map[string]*modules.Module, candidate **modules.Module) {
+			clone, err := modules.ParseModuleJSON(catalog["apps.notepad-plus-plus"].CanonicalSnapshot())
+			if err != nil {
+				t.Fatal(err)
+			}
+			*candidate = clone
+		}},
+		{name: "same-id mutated clone", wantErr: true, mutate: func(catalog map[string]*modules.Module, candidate **modules.Module) {
+			clone, err := modules.ParseModuleJSON(catalog["apps.notepad-plus-plus"].CanonicalSnapshot())
+			if err != nil {
+				t.Fatal(err)
+			}
+			clone.Restore[0].Target = `%APPDATA%\forged\settings.xml`
+			*candidate = clone
+		}},
+		{name: "mutated catalog pointer", wantErr: true, mutate: func(_ map[string]*modules.Module, candidate **modules.Module) {
+			(*candidate).Restore[0].Target = `%APPDATA%\forged\settings.xml`
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			catalog, err := modules.GetCatalog(filepath.Join("..", "..", ".."))
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate := catalog["apps.notepad-plus-plus"]
+			if candidate == nil {
+				t.Fatal("production catalog missing notepad-plus-plus")
+			}
+			if tt.mutate != nil {
+				tt.mutate(catalog, &candidate)
+			}
+			context, session := validationPreflightSession(t)
+			err = preflightValidationProductionModule(validationProductionModulePreflight{
+				Context: context, Session: session, Catalog: catalog, Modules: []*modules.Module{candidate},
+				Manifest: manifestForValidationModule(candidate), PortableRoot: context.Root(),
+			})
+			if !tt.wantErr {
+				if err != nil {
+					t.Fatalf("catalog authority: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, validationmode.ErrUnsafePath) {
+				t.Fatalf("error = %v, want unsafe path", err)
+			}
+			if got := session.IsolationError(); got == nil || !strings.Contains(got.Error(), "coordinate=modules") {
+				t.Fatalf("isolation = %v", got)
+			}
+		})
+	}
+}
+
 func TestPreflightValidationProductionModuleAcceptsEstablishedCaptureProjection(t *testing.T) {
 	mod := loadValidationProductionModule(t, "notepad-plus-plus")
 	for _, mixedV2 := range []bool{false, true} {
@@ -41,7 +101,7 @@ func TestPreflightValidationProductionModuleAcceptsEstablishedCaptureProjection(
 			}
 			context, session := validationPreflightSessionFor(t, "notepad-plus-plus")
 			if err := preflightValidationProductionModule(validationProductionModulePreflight{
-				Context: context, Session: session, Modules: []*modules.Module{mod}, Manifest: mf, PortableRoot: context.Root(),
+				Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: mf, PortableRoot: context.Root(),
 			}); err != nil {
 				t.Fatalf("capture projection preflight: %v", err)
 			}
@@ -72,7 +132,7 @@ func TestPreflightValidationProductionModuleRejectsInvalidLegacyLaneProvenance(t
 			mf.LegacyConfigLanes = append([]manifest.LegacyConfigLane(nil), valid.LegacyConfigLanes...)
 			tt.mutate(&mf)
 			context, session := validationPreflightSession(t)
-			err := preflightValidationProductionModule(validationProductionModulePreflight{Context: context, Session: session, Modules: []*modules.Module{mod}, Manifest: &mf, PortableRoot: context.Root()})
+			err := preflightValidationProductionModule(validationProductionModulePreflight{Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: &mf, PortableRoot: context.Root()})
 			if !errors.Is(err, validationmode.ErrUnsafePath) {
 				t.Fatalf("error = %v", err)
 			}
@@ -135,7 +195,7 @@ func TestPreflightValidationProductionModuleValidatesV2CaptureProvenance(t *test
 			tt.mutate(&mf)
 			context, session := validationPreflightSessionFor(t, "owncloud")
 			err := preflightValidationProductionModule(validationProductionModulePreflight{
-				Context: context, Session: session, Modules: []*modules.Module{mod}, Manifest: &mf, PortableRoot: context.Root(),
+				Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: &mf, PortableRoot: context.Root(),
 				ConfigPlans: []validationProductionConfigPlan{validationConfigPlan(mod)},
 			})
 			if tt.coordinate == "" {
@@ -191,15 +251,16 @@ func TestPreflightValidationProductionModuleRejectsUnsafePathAndRegistryDialects
 		t.Run(tt.name, func(t *testing.T) {
 			var findings []string
 			for attempt := 0; attempt < 2; attempt++ {
-				mod := syntheticValidationModule(1)
+				mod := syntheticValidationModule(t, 1)
 				context, session := validationPreflightSession(t)
 				authored := tt.authored
 				if tt.setup != nil {
 					authored = tt.setup(t, context)
 				}
 				tt.mutate(mod, authored)
+				mod = repinValidationModule(t, mod)
 				err := preflightValidationProductionModule(validationProductionModulePreflight{
-					Context: context, Session: session, Modules: []*modules.Module{mod}, Manifest: manifestForValidationModule(mod), PortableRoot: context.Root(),
+					Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: manifestForValidationModule(mod), PortableRoot: context.Root(),
 				})
 				if !errors.Is(err, tt.reason) {
 					t.Fatalf("preflight error = %v, want %v", err, tt.reason)
@@ -223,9 +284,10 @@ func TestPreflightValidationProductionModuleRejectsUnsafePathAndRegistryDialects
 }
 
 func TestPreflightValidationProductionModuleDerivesInstanceRootsAndChecksSuppliedTargets(t *testing.T) {
-	mod := syntheticValidationModule(2)
+	mod := syntheticValidationModule(t, 2)
 	mod.Config.Sets[0].Generations[0].Capture.Files[0].Source = `${instance.root}\settings.json`
 	mod.Config.Sets[0].Generations[0].Restore[0].Target = `${instance.root}\settings.json`
+	mod = repinValidationModule(t, mod)
 	context, session := validationPreflightSession(t)
 	virtualAppData, _ := context.VirtualRoot("APPDATA")
 	instanceRoot := filepath.Join(virtualAppData, "Synthetic-One")
@@ -251,7 +313,7 @@ func TestPreflightValidationProductionModuleDerivesInstanceRootsAndChecksSupplie
 		Evidence: modules.InstanceEvidence{Type: "path", Path: instanceRoot}, CanonicalLocator: locator,
 	}
 	input := validationProductionModulePreflight{
-		Context: context, Session: session, Modules: []*modules.Module{mod}, Manifest: manifestForValidationModule(mod), PortableRoot: context.Root(),
+		Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: manifestForValidationModule(mod), PortableRoot: context.Root(),
 		Instances:      []modules.ConfigInstance{instance},
 		HostTargets:    []validationProductionHostTarget{{Coordinate: "planning.host", Authored: `${instance.root}\future.json`, InstanceID: instance.ID}},
 		SandboxTargets: []validationProductionSandboxTarget{{Coordinate: "planning.materialized", Path: materialized}},
@@ -321,6 +383,161 @@ func TestPreflightValidationProductionModuleDerivesInstanceRootsAndChecksSupplie
 	})
 }
 
+func TestPreflightValidationProductionModuleUsesDiscoverInstancesVersionSemantics(t *testing.T) {
+	tests := []struct {
+		name, directory, coordinate string
+		mutate                      func(*modules.ConfigInstance)
+		wantDiscovered              bool
+	}{
+		{name: "exact discovered instance", directory: "Studio One 7", wantDiscovered: true},
+		{name: "basename fails version pattern", directory: "Studio One current", coordinate: "instances[0].id"},
+		{name: "forged raw version", directory: "Studio One 7", coordinate: "instances[0].version", wantDiscovered: true, mutate: func(instance *modules.ConfigInstance) {
+			instance.Version = modules.NewVersionEvidence("8")
+		}},
+		{name: "forged normalized version", directory: "Studio One 7", coordinate: "instances[0].version", wantDiscovered: true, mutate: func(instance *modules.ConfigInstance) {
+			instance.Version.Normalized = "07"
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			catalog, err := modules.GetCatalog(filepath.Join("..", "..", ".."))
+			if err != nil {
+				t.Fatal(err)
+			}
+			mod := catalog["apps.studio-one"]
+			if mod == nil {
+				t.Fatal("production catalog missing studio-one")
+			}
+			beforeSnapshot := mod.CanonicalSnapshot()
+			context, session := validationPreflightSessionFor(t, "studio-one")
+			virtualAppData, _ := context.VirtualRoot("APPDATA")
+			root := filepath.Join(virtualAppData, "PreSonus", tt.directory)
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			originalAppData, _, _ := context.OriginalEnvironment("APPDATA")
+			if err := os.MkdirAll(filepath.Join(originalAppData, "PreSonus", tt.directory), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			discovered, err := modules.DiscoverInstances(mod, nil, modules.DiscoveryOptions{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.wantDiscovered && len(discovered) != 1 {
+				t.Fatalf("discovered = %+v", discovered)
+			}
+			if !tt.wantDiscovered && len(discovered) != 0 {
+				t.Fatalf("discovered = %+v, want none", discovered)
+			}
+			var instance modules.ConfigInstance
+			if len(discovered) == 1 {
+				instance = discovered[0]
+			} else {
+				locator := validationPathInstanceLocator(root)
+				instance = modules.ConfigInstance{ID: modules.StableInstanceID(mod.ID, "versions", locator), ModuleID: mod.ID, DetectorID: "versions", Root: root, CanonicalLocator: locator, Evidence: modules.InstanceEvidence{Type: "path", Path: root}}
+			}
+			if tt.mutate != nil {
+				tt.mutate(&instance)
+			}
+			err = preflightValidationProductionModule(validationProductionModulePreflight{
+				Context: context, Session: session, Catalog: catalog, Modules: []*modules.Module{mod}, Manifest: &manifest.Manifest{Version: 2},
+				PortableRoot: context.Root(), Instances: []modules.ConfigInstance{instance},
+			})
+			if tt.coordinate == "" {
+				if err != nil {
+					t.Fatalf("exact discovered instance: %v", err)
+				}
+			} else {
+				if !errors.Is(err, validationmode.ErrUnsafePath) {
+					t.Fatalf("error = %v, want unsafe path", err)
+				}
+				if got := session.IsolationError(); got == nil || !strings.Contains(got.Error(), "coordinate="+tt.coordinate) {
+					t.Fatalf("isolation = %v", got)
+				}
+			}
+			if !bytes.Equal(beforeSnapshot, mod.CanonicalSnapshot()) {
+				t.Fatal("preflight mutated production module")
+			}
+		})
+	}
+}
+
+func TestPreflightValidationProductionModuleAcceptsTildeDetectorGlob(t *testing.T) {
+	mod := syntheticValidationModule(t, 2)
+	mod.Config.InstanceDetectors[0].Glob = `~/Vendor/*`
+	mod.Config.Sets[0].Generations[0].Capture.Files[0].Source = `${instance.root}\settings.json`
+	mod.Config.Sets[0].Generations[0].Restore[0].Target = `${instance.root}\settings.json`
+	mod = repinValidationModule(t, mod)
+
+	originalUserProfile := t.TempDir()
+	t.Setenv("USERPROFILE", originalUserProfile)
+	context, session := validationPreflightSession(t)
+	virtualUserProfile, _ := context.VirtualRoot("USERPROFILE")
+	instanceRoot := filepath.Join(virtualUserProfile, "Vendor", "Profile")
+	if err := os.MkdirAll(instanceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(originalUserProfile, "Vendor", "Profile"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	discovered, err := modules.DiscoverInstances(mod, nil, modules.DiscoveryOptions{Glob: func(pattern string) ([]string, error) {
+		if pattern != `~/Vendor/*` {
+			t.Fatalf("discovery glob = %q", pattern)
+		}
+		return []string{instanceRoot}, nil
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(discovered) != 1 {
+		t.Fatalf("discovered = %+v", discovered)
+	}
+	guard := &recordingValidationFilesystemGuard{}
+	session.filesystemGuard = guard
+	if err := preflightValidationProductionModule(validationProductionModulePreflight{
+		Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod},
+		Manifest: manifestForValidationModule(mod), PortableRoot: context.Root(), Instances: discovered,
+	}); err != nil {
+		t.Fatalf("tilde detector preflight: %v", err)
+	}
+	wantProtected := filepath.Join(originalUserProfile, "Vendor", "Profile", "settings.json")
+	if !guard.protectedPath(wantProtected) {
+		t.Fatalf("protected paths = %v, want %s", guard.paths, wantProtected)
+	}
+}
+
+func TestPreflightValidationProductionModuleRejectsInvalidTildeDetectorGlobs(t *testing.T) {
+	for _, glob := range []string{"~", `~/Vendor/[`, `~/Vendor/**`} {
+		t.Run(glob, func(t *testing.T) {
+			mod := syntheticValidationModule(t, 2)
+			mod.Config.InstanceDetectors[0].Glob = glob
+			mod.Config.Sets[0].Generations[0].Capture.Files[0].Source = `${instance.root}\settings.json`
+			mod.Config.Sets[0].Generations[0].Restore[0].Target = `${instance.root}\settings.json`
+			mod = repinValidationModule(t, mod)
+			originalUserProfile := t.TempDir()
+			t.Setenv("USERPROFILE", originalUserProfile)
+			context, session := validationPreflightSession(t)
+			virtualUserProfile, _ := context.VirtualRoot("USERPROFILE")
+			root := filepath.Join(virtualUserProfile, "Vendor", "Profile")
+			if err := os.MkdirAll(root, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			locator := validationPathInstanceLocator(root)
+			instance := modules.ConfigInstance{
+				ID: modules.StableInstanceID(mod.ID, "profiles", locator), ModuleID: mod.ID, DetectorID: "profiles", Root: root,
+				Evidence: modules.InstanceEvidence{Type: "path", Path: root}, CanonicalLocator: locator,
+			}
+			err := preflightValidationProductionModule(validationProductionModulePreflight{
+				Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod},
+				Manifest: manifestForValidationModule(mod), PortableRoot: context.Root(), Instances: []modules.ConfigInstance{instance},
+			})
+			if !errors.Is(err, validationmode.ErrUnsafePath) {
+				t.Fatalf("glob %q error = %v, want unsafe path", glob, err)
+			}
+		})
+	}
+}
+
 type recordingValidationFilesystemGuard struct {
 	paths  []validationmode.ProtectedPath
 	sealed bool
@@ -355,6 +572,7 @@ func TestPreflightValidationProductionModuleRequiresExactTargetAndManifestContra
 	err := preflightValidationProductionModule(validationProductionModulePreflight{
 		Context:      context,
 		Session:      session,
+		Catalog:      validationCatalog(mod),
 		Modules:      []*modules.Module{mod},
 		Manifest:     mf,
 		PortableRoot: context.Root(),
@@ -432,7 +650,7 @@ func TestPreflightValidationProductionModuleRejectsNonExactProvenance(t *testing
 			mod := loadValidationProductionModule(t, "notepad-plus-plus")
 			context, session := validationPreflightSession(t)
 			input := validationProductionModulePreflight{
-				Context: context, Session: session, Modules: []*modules.Module{mod},
+				Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod},
 				Manifest: manifestForValidationModule(mod), PortableRoot: context.Root(),
 			}
 			tt.mutate(mod, &input)
@@ -545,12 +763,13 @@ func TestPreflightValidationProductionModuleRoutesEveryDeclarationField(t *testi
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mod := syntheticValidationModule(tt.schema)
+			mod := syntheticValidationModule(t, tt.schema)
 			mf := manifestForValidationModule(mod)
 			tt.mutate(mod, mf)
+			mod = repinValidationModule(t, mod)
 			context, session := validationPreflightSession(t)
 			err := preflightValidationProductionModule(validationProductionModulePreflight{
-				Context: context, Session: session, Modules: []*modules.Module{mod},
+				Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod},
 				Manifest: mf, PortableRoot: context.Root(),
 			})
 			if !errors.Is(err, tt.reason) {
@@ -563,7 +782,7 @@ func TestPreflightValidationProductionModuleRoutesEveryDeclarationField(t *testi
 	}
 }
 
-func syntheticValidationModule(schema int) *modules.Module {
+func syntheticValidationModule(t *testing.T, schema int) *modules.Module {
 	mod := &modules.Module{
 		ID: "apps.notepad-plus-plus", DisplayName: "Synthetic", Matches: modules.MatchCriteria{
 			PathExists: []string{`%APPDATA%\Synthetic\settings.json`},
@@ -584,7 +803,7 @@ func syntheticValidationModule(schema int) *modules.Module {
 		},
 	}
 	if schema != 2 {
-		return mod
+		return repinValidationModule(t, mod)
 	}
 	mod.ModuleSchemaVersion = 2
 	mod.Config = &modules.ConfigDef{
@@ -616,7 +835,7 @@ func syntheticValidationModule(schema int) *modules.Module {
 			}},
 		}},
 	}
-	return mod
+	return repinValidationModule(t, mod)
 }
 
 func loadValidationProductionModule(t *testing.T, shortID string) *modules.Module {
@@ -633,6 +852,23 @@ func loadValidationProductionModule(t *testing.T, shortID string) *modules.Modul
 	mod.FilePath = path
 	mod.ModuleDir = filepath.Dir(path)
 	return mod
+}
+
+func validationCatalog(mod *modules.Module) map[string]*modules.Module {
+	return map[string]*modules.Module{mod.ID: mod}
+}
+
+func repinValidationModule(t *testing.T, mod *modules.Module) *modules.Module {
+	t.Helper()
+	data, err := json.Marshal(mod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pinned, err := modules.ParseModuleJSON(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pinned
 }
 
 func manifestForValidationModule(mod *modules.Module) *manifest.Manifest {
