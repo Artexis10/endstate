@@ -1,0 +1,73 @@
+# Tasks: Verified Module Matrix
+
+## 1. Validation Metadata and Planning
+
+- [ ] 1.1 Define and validate schema v1 for `modules/apps/<id>/validation.jsonc`, including the canonical scenario-kind enum (`config-roundtrip-v1`, `config-generation-v2`, `config-migration-v2`, `capture-contract`, `restore-contract`, `install-contract`), multiple schema-specific scenarios, fixture/minimum assertions, live mode (`hosted`, `candidate`, `blocked`, `lab`, `manual`, `not-applicable`), driver/ref, PR/scheduled timeout, reason codes, trust hashes, and scoped quarantine metadata.
+- [ ] 1.2 Add a matrix planner that loads JSONC through the canonical parser, requires exactly one sidecar per production module, enumerates every schema-v2 generation/migration scenario, validates merge-base/head policy without allowing head self-authorization, and emits deterministic bounded synthetic/live shard JSON.
+- [ ] 1.3 Add planner tests for missing/stale/duplicate sidecars/scenarios, schema-v2 alternative or migration omissions, invalid downgrades, head-added live authorization/quarantine, expired quarantine, PR/scheduled/dispatch/release job/runner-minute/artifact caps, seven-day rotation, exact-commit chunking, path-based change selection, and stable shard assignment.
+- [ ] 1.4 Reconcile the 14 current `curation.seed`/`seed.ps1` metadata mismatches; identify the 30 intentional install-only modules; repair the 43 capture-only modules before they can earn config-roundtrip proof; and classify any genuinely one-way contract outside the config-roundtrip numerator with explicit review.
+- [ ] 1.5 Add a catalog policy check that rejects larger-runner labels, unpinned third-party Actions, permanent/ownerless/unscoped quarantine, PR timeouts above 25 minutes, scheduled timeouts above 45 minutes, and resource plans above the declared caps.
+
+## 2. Synthetic Production-Engine Harness
+
+- [ ] 2.1 Implement a fail-closed CLI test-mode inventory/detection seam that injects exactly one app for `capture --only <app>,apps.<module>`, is identified in output, and cannot bypass module matching, capture planning, bundle creation, restore, verifier, journal, revert, nested-summary, or event/envelope behavior.
+- [ ] 2.2 Build a harness around the workflow-built `endstate` executable and production module definitions; do not duplicate capture, bundle rewriting, generation/migration selection, restore, verifier, journal, or revert behavior in PowerShell.
+- [ ] 2.3 Virtualize APPDATA, LOCALAPPDATA, USERPROFILE, Program Files, Program Files (x86), ProgramData, Public, SystemRoot/Windows, Temp, dynamic roots, and HKCU; reject unresolved/unsafe/HKLM paths, disable synthetic package/network execution, and independently detect writes to original host/repo/task paths.
+- [ ] 2.4 Add deterministic contained declarative fixtures for copy/file, directory copy, merge-json, merge-ini, append, registry, optional-source, excluded-path, and custom dynamic-root behavior; do not permit arbitrary synthetic PowerShell fixtures.
+- [ ] 2.5 Implement schema-v1 assertions for targeted recovery-bundle capture, exact payload/provenance/rewritten restore entries, mutation, rebuild, nested summaries, hashes, backup/journal, immediate revert, recovery rebuild, and repeat-rebuild convergence.
+- [ ] 2.6 Implement one schema-v2 scenario for every generation/fingerprint alternative and migration edge, asserting capture/config-set/instance identity, validation, migration outcome, rebuild, revert, and convergence.
+- [ ] 2.7 Implement install-contract assertions for intentional no-config modules: production module resolution, plan contents, isolated installed-state fixture, and at least one production verifier.
+- [ ] 2.8 Implement reviewed `capture-contract` and `restore-contract` assertions with non-zero one-way operation/content/provenance or restore/revert assertions, emitting only `engine-contract` and never config-roundtrip proof.
+- [ ] 2.9 Fail zero-assertion, all-skipped, unknown-operation, missing schema-specific evidence, host escape, out-of-bound write, malformed output/events, nested apply/config/restore/verify failure, content mismatch, non-idempotence, and failed revert even when the outer rebuild envelope succeeds.
+- [ ] 2.10 Add deliberately good and deliberately broken harness fixtures covering inventory-selection failure, unresolved/escaped path, forbidden write/network, zero capture, malformed output, success-with-nested-failure, schema-v2 omission, mismatch, and failed revert.
+
+## 3. Bundle Contract Matrix
+
+- [ ] 3.1 Enumerate every tracked bundle and resolve it with the workflow-built engine.
+- [ ] 3.2 Assert all referenced modules/sidecars exist, resolution is deterministic, unintended duplicates are rejected, and a dry-run plan succeeds.
+- [ ] 3.3 Include bundle counts and failures in the aggregate proof result.
+
+## 4. Live Installed-Application Harness
+
+- [ ] 4.1 Add a one-module live runner that independently proves package absence, invokes production `endstate apply`, and reconciles the engine verifier/version with an exact package-manager query plus executable/uninstall-registry/version observer.
+- [ ] 4.2 For `live-config-roundtrip` modules, run the trusted seed, targeted production capture, independently prove app/settings absence, invoke production `rebuild`, reconcile the package observer, inspect every nested summary, compare known non-secret sentinels locally, immediately revert configuration targets to the wiped state while proving the package remains installed, then rebuild twice for configuration recovery/convergence.
+- [ ] 4.3 Make Notepad++ the first canary using its production module and seed; remove workflow-level pre-installation so the engine itself proves installation.
+- [ ] 4.4 Add classified one-time retry for recognized Winget source/network failures with `PASS_AFTER_RETRY`, retained attempts, and a two-in-ten flake budget keyed to a stable runner lane; never retry assertion or engine failures and never let a workflow rerun erase an earlier product/assertion failure.
+- [ ] 4.5 Emit useful diagnostics for absent package, install failure, seed failure, zero capture, unsuccessful wipe/uninstall, malformed envelope/events, nested-summary failure, restore mismatch, verifier failure, timeout, policy block, and upstream infrastructure failure.
+
+## 5. Evidence and Aggregation
+
+- [ ] 5.1 Define schema-versioned evidence with workflow run/attempt/event/ref/time/artifact digest; engine commit/version/binary hash; canonical module/seed/comparator/metadata/fixture hashes; scenario kind/proof mode/status; stable runner lane plus exact image; package driver/source/ref/version; timings/assertions; local comparator outcome; scheduled-attempt identity; retry/freshness/quarantine fields.
+- [ ] 5.2 Add an `always()` aggregator named `Verified Module Matrix` that rejects missing, skipped, cancelled, neutral, timed-out, duplicate, wrong-commit, and incompatible rows and enforces protected-main-approved quarantine semantics.
+- [ ] 5.3 Publish exact `passed / eligible` and `eligible / catalog` denominators plus scenario counts to the job summary and compact JSON; preserve candidate/blocked/deferred/stale/quarantined/retry/manual/N/A/missing rows.
+- [ ] 5.4 Add tests proving skipped, candidate, blocked, deferred/stale, manual, lab, quarantined, expired, pass-after-retry, infrastructure-failed, not-applicable, and missing states cannot become clean pass or shrink denominators.
+
+## 6. GitHub Actions
+
+- [ ] 6.1 Preserve the existing `Go Tests` required check and build the Windows engine once for reuse with one-day artifact retention.
+- [ ] 6.2 Add the all-module/all-schema-scenario synthetic and all-bundle PR matrix using 8 balanced shards, `fail-fast: false`, a 15-minute shard timeout, and the stable aggregate blocking result.
+- [ ] 6.3 Add the engine-change Notepad++ live canary with a 25-minute timeout.
+- [ ] 6.4 Select up to three changed live modules from merge-base-controlled policy; report overflow and head-added/materially changed live definitions as deferred/candidate and provide exact-commit trusted dispatch limited to one deterministic chunk of at most 64 jobs/2,880 runner-minutes with `max-parallel: 8` and a 100 MiB upload cap.
+- [ ] 6.5 Add scheduled rotation with `max-parallel: 8`, at most 64 jobs/2,880 runner-minutes per run, seven-day hosted attempt freshness, immediate stale-on-any-proof-identity-change semantics, per-module nightly-only timeout up to 45 minutes, complete aggregation, and no `continue-on-error` proof lanes.
+- [ ] 6.6 Use standard runners and immutable action SHAs; on forks use `pull_request`, read-only permissions, `persist-credentials: false`, no installer token/secrets, trusted live allowlists, no `pull_request_target` untrusted execution, and no self-hosted jobs.
+- [ ] 6.7 Enforce artifact caps/retention: engine one day; evidence 64 KiB each with PR retention at most seven days and scheduled-live retention 90 days; diagnostics 1 MiB per module/three days; 100 MiB total per run; never cache installers or upload captured configs.
+- [ ] 6.8 Measure representative cold engine-only, one-module, and harness-change PRs including build/transfer/planning/aggregation; require p95 critical path <=40 minutes and <=250 new runner-minutes before gating.
+- [ ] 6.9 Configure branch protection to require the exact stable `Verified Module Matrix` aggregate check after missing-job and cold-run acceptance pass.
+- [ ] 6.10 Add bounded release validation as at most six deterministic exact-commit chunks, each at most 64 jobs/2,880 runner-minutes with `max-parallel: 8` and 100 MiB uploads; cap the campaign at 17,280 runner-minutes and reject an oversized plan.
+- [ ] 6.11 Add a serialized repository artifact-budget reconciler with a 1 GiB rolling cap and at least 25% included-storage headroom; account for in-progress reservations, prune expired/superseded artifacts, compact verified scheduled history to ten attempts per module/lane, drop optional diagnostics first, and fail closed when required evidence cannot fit.
+
+## 7. Documentation and Public Proof
+
+- [ ] 7.1 Update `docs/VALIDATION.md` with proof levels, local synthetic/live commands, classification rules, failure interpretation, and the rule that legacy direct-copy Windows Sandbox results are curation-only evidence.
+- [ ] 7.2 Document the repository-owner zero-dollar Actions budget/stop-on-limit setting and the standard-runner-only policy.
+- [ ] 7.3 Add a protected-main publishing job that reconstructs the rolling ten-attempt history from 90-day compact evidence and deploys a per-row commit-bound seven-day-TTL compatibility ledger to GitHub Pages without executing PR code; attach only complete bounded exact-commit release evidence to its matching GitHub Release and add a badge only after stable evidence exists.
+- [ ] 7.4 Create a follow-up GUI-repository OpenSpec for Tauri/WebDriver happy and unhappy paths against an identified engine artifact; do not represent it as complete in this repository.
+
+## 8. Verification and Rollout
+
+- [ ] 8.1 Run targeted planner, harness, module, bundle, evidence, and failure-classification tests.
+- [ ] 8.2 Run `cd go-engine && go test ./...` after engine/harness integration changes.
+- [ ] 8.3 Run `npm run openspec:validate`.
+- [ ] 8.4 Produce a local all-catalog/all-schema-scenario synthetic summary with no missing/vacuous result and no capture-only module falsely counted as config-roundtrip.
+- [ ] 8.5 Produce a GitHub-hosted Notepad++ evidence record showing engine-driven install plus live config roundtrip on the tested commit.
+- [ ] 8.6 Observe repeated green cold blocking runs, validate p95/resource/artifact/freshness caps and stable aggregate behavior, then enable branch protection, scheduled live coverage, and trusted public proof surfaces in rollout order.
