@@ -18,6 +18,8 @@ import (
 
 const packageStateFilename = "validation-package-state.json"
 
+var writePackageState = safepath.AtomicWriteFile
+
 type packageState struct {
 	SchemaVersion int    `json:"schemaVersion"`
 	Driver        string `json:"driver"`
@@ -44,7 +46,7 @@ func (context *Context) NewPackageDriver() (*PackageDriver, error) {
 	}
 	value := &PackageDriver{inventory: context.descriptor.Inventory, statePath: statePath}
 	if _, err := os.Lstat(statePath); os.IsNotExist(err) {
-		value.state = packageState{
+		initial := packageState{
 			SchemaVersion: 1,
 			Driver:        value.inventory.Driver,
 			Ref:           value.inventory.Ref,
@@ -52,12 +54,13 @@ func (context *Context) NewPackageDriver() (*PackageDriver, error) {
 			Present:       value.inventory.InitialState == "present",
 			Version:       value.inventory.Version,
 		}
-		if !value.state.Present {
-			value.state.Version = ""
+		if !initial.Present {
+			initial.Version = ""
 		}
-		if err := value.persist(); err != nil {
+		if err := value.persist(initial); err != nil {
 			return nil, err
 		}
+		value.state = initial
 	} else if err != nil {
 		return nil, fmt.Errorf("%w: stat state: %v", ErrInvalidState, err)
 	} else if err := value.load(); err != nil {
@@ -143,17 +146,18 @@ func (value *PackageDriver) installVersion(version string, force bool) (*driver.
 func (value *PackageDriver) install(version string, force bool) (*driver.InstallResult, error) {
 	value.mu.Lock()
 	defer value.mu.Unlock()
-	wasPresent := value.state.Present
-	value.state.Present = true
-	if version != "" {
-		value.state.Version = version
-	}
-	if err := value.persist(); err != nil {
-		return nil, err
-	}
-	if wasPresent && !force {
+	if value.state.Present && !force {
 		return &driver.InstallResult{Status: driver.StatusPresent, Reason: driver.ReasonAlreadyInstalled, Message: "package already present in disposable inventory"}, nil
 	}
+	candidate := value.state
+	candidate.Present = true
+	if version != "" {
+		candidate.Version = version
+	}
+	if err := value.persist(candidate); err != nil {
+		return nil, err
+	}
+	value.state = candidate
 	return &driver.InstallResult{Status: driver.StatusInstalled, Message: "package installed in disposable inventory"}, nil
 }
 
@@ -177,11 +181,13 @@ func (value *PackageDriver) uninstall() (*driver.UninstallResult, error) {
 	if !value.state.Present {
 		return &driver.UninstallResult{Status: driver.StatusAbsent, Message: "package already absent from disposable inventory"}, nil
 	}
-	value.state.Present = false
-	value.state.Version = ""
-	if err := value.persist(); err != nil {
+	candidate := value.state
+	candidate.Present = false
+	candidate.Version = ""
+	if err := value.persist(candidate); err != nil {
 		return nil, err
 	}
+	value.state = candidate
 	return &driver.UninstallResult{Status: driver.StatusUninstalled, Message: "package uninstalled from disposable inventory"}, nil
 }
 
@@ -258,26 +264,28 @@ func (value *PackageDriver) load() error {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&value.state); err != nil {
+	var loaded packageState
+	if err := decoder.Decode(&loaded); err != nil {
 		return fmt.Errorf("%w: decode state: %v", ErrInvalidState, err)
 	}
 	var trailing any
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("%w: trailing state data", ErrInvalidState)
 	}
-	if value.state.SchemaVersion != 1 || value.state.Driver != value.inventory.Driver || value.state.Ref != value.inventory.Ref || value.state.Source != value.inventory.Source || (!value.state.Present && value.state.Version != "") || (value.state.Version != "" && !safeToken(value.state.Version)) {
+	if loaded.SchemaVersion != 1 || loaded.Driver != value.inventory.Driver || loaded.Ref != value.inventory.Ref || loaded.Source != value.inventory.Source || (!loaded.Present && loaded.Version != "") || (loaded.Version != "" && !safeToken(loaded.Version)) {
 		return fmt.Errorf("%w: state identity or fields do not match descriptor", ErrInvalidState)
 	}
+	value.state = loaded
 	return nil
 }
 
-func (value *PackageDriver) persist() error {
-	data, err := json.Marshal(value.state)
+func (value *PackageDriver) persist(state packageState) error {
+	data, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("%w: encode state: %v", ErrInvalidState, err)
 	}
 	data = append(data, '\n')
-	if err := safepath.AtomicWriteFile(value.statePath, data, 0o600); err != nil {
+	if err := writePackageState(value.statePath, data, 0o600); err != nil {
 		return fmt.Errorf("%w: persist state: %v", ErrInvalidState, err)
 	}
 	return nil

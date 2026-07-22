@@ -96,6 +96,96 @@ func TestPackageDriverLifecycleAndPersistence(t *testing.T) {
 	}
 }
 
+func TestPackageDriverRepeatedInstallPreservesInstalledVersionWithoutPersistence(t *testing.T) {
+	context := activeTestContext(t, "driver-repeat-no-write")
+	packageDriver, err := context.NewPackageDriver()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := packageDriver.ReinstallVersionSource("Notepad++.Notepad++", "9.0.0", "winget"); err != nil {
+		t.Fatal(err)
+	}
+	prior := packageDriver.state
+	writes := 0
+	restoreWriter := failPackageStateWrites(t, func() error {
+		writes++
+		return errors.New("unexpected persistence")
+	})
+	defer restoreWriter()
+
+	result, err := packageDriver.InstallSource("Notepad++.Notepad++", "winget")
+	if err != nil {
+		t.Fatalf("repeated InstallSource returned persistence error: %v", err)
+	}
+	if result.Status != driver.StatusPresent || result.Reason != driver.ReasonAlreadyInstalled {
+		t.Fatalf("repeated InstallSource = %#v", result)
+	}
+	if writes != 0 {
+		t.Fatalf("repeated install attempted %d state writes, want zero", writes)
+	}
+	if packageDriver.state != prior || packageDriver.state.Version != "9.0.0" {
+		t.Fatalf("repeated install state = %#v, want prior %#v", packageDriver.state, prior)
+	}
+}
+
+func TestPackageDriverPersistenceFailureDoesNotCommitMemory(t *testing.T) {
+	t.Run("install", func(t *testing.T) {
+		context := activeTestContext(t, "driver-failed-install")
+		packageDriver, err := context.NewPackageDriver()
+		if err != nil {
+			t.Fatal(err)
+		}
+		prior := packageDriver.state
+		restoreWriter := failPackageStateWrites(t, func() error { return errors.New("injected write failure") })
+		defer restoreWriter()
+
+		result, err := packageDriver.ReinstallVersionSource("Notepad++.Notepad++", "9.0.0", "winget")
+		if result != nil || !errors.Is(err, ErrInvalidState) {
+			t.Fatalf("failed install = %#v, %v; want nil, ErrInvalidState", result, err)
+		}
+		if packageDriver.state != prior {
+			t.Fatalf("failed install state = %#v, want prior %#v", packageDriver.state, prior)
+		}
+	})
+
+	t.Run("uninstall", func(t *testing.T) {
+		context := activeTestContext(t, "driver-failed-uninstall")
+		packageDriver, err := context.NewPackageDriver()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := packageDriver.ReinstallVersionSource("Notepad++.Notepad++", "9.0.0", "winget"); err != nil {
+			t.Fatal(err)
+		}
+		prior := packageDriver.state
+		restoreWriter := failPackageStateWrites(t, func() error { return errors.New("injected write failure") })
+		defer restoreWriter()
+
+		result, err := packageDriver.UninstallSource("Notepad++.Notepad++", "winget")
+		if result != nil || !errors.Is(err, ErrInvalidState) {
+			t.Fatalf("failed uninstall = %#v, %v; want nil, ErrInvalidState", result, err)
+		}
+		if packageDriver.state != prior {
+			t.Fatalf("failed uninstall state = %#v, want prior %#v", packageDriver.state, prior)
+		}
+	})
+}
+
+func TestNewPackageDriverReturnsInitializationPersistenceFailure(t *testing.T) {
+	context := activeTestContext(t, "driver-failed-initialize")
+	restoreWriter := failPackageStateWrites(t, func() error { return errors.New("injected write failure") })
+	defer restoreWriter()
+
+	packageDriver, err := context.NewPackageDriver()
+	if packageDriver != nil || !errors.Is(err, ErrInvalidState) {
+		t.Fatalf("NewPackageDriver = %#v, %v; want nil, ErrInvalidState", packageDriver, err)
+	}
+	statePath := filepath.Join(context.Root(), ".endstate", packageStateFilename)
+	if _, statErr := os.Lstat(statePath); !os.IsNotExist(statErr) {
+		t.Fatalf("failed initialization left state at %q: %v", statePath, statErr)
+	}
+}
+
 func TestPackageDriverFailsClosedOnWrongIdentity(t *testing.T) {
 	context := activeTestContext(t, "driver-identity")
 	packageDriver, err := context.NewPackageDriver()
@@ -163,4 +253,11 @@ func stringsReplaceOnce(t *testing.T, value, old, replacement string) string {
 		t.Fatalf("fixture substring %q not found", old)
 	}
 	return result
+}
+
+func failPackageStateWrites(t *testing.T, failure func() error) func() {
+	t.Helper()
+	previous := writePackageState
+	writePackageState = func(string, []byte, os.FileMode) error { return failure() }
+	return func() { writePackageState = previous }
 }
