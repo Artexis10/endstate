@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +36,10 @@ func TestResolveHostPathAllowsDeclaredAliasesAndDynamicRoot(t *testing.T) {
 	if want := filepath.Join(dynamic, "profiles", "default"); got != want {
 		t.Fatalf("dynamic path = %q, want %q", got, want)
 	}
+	got, err = context.ResolveHostPath(`%instance-home%\profiles\default`, HostPathPolicy{})
+	if err != nil || got != filepath.Join(dynamic, "profiles", "default") {
+		t.Fatalf("declared dynamic alias = %q, %v", got, err)
+	}
 
 	if _, err := context.ResolveHostPath(`%APPDATA%`, HostPathPolicy{}); !errors.Is(err, ErrUnsafePath) {
 		t.Fatalf("root path error = %v, want ErrUnsafePath", err)
@@ -45,6 +50,126 @@ func TestResolveHostPathAllowsDeclaredAliasesAndDynamicRoot(t *testing.T) {
 	}
 }
 
+func TestResolveHostPathAcceptsOnlyContainedConcreteInstanceRoot(t *testing.T) {
+	outside := t.TempDir()
+	context := activeTestContext(t, "instance-root")
+	appdata, _ := context.VirtualRoot("APPDATA")
+	instanceRoot := filepath.Join(appdata, "Vendor", "Profile-1")
+	if err := os.MkdirAll(instanceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got, err := context.ResolveHostPath(`${instance.root}\settings.json`, HostPathPolicy{InstanceRoot: instanceRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(instanceRoot, "settings.json"); got != want {
+		t.Fatalf("resolved instance path = %q, want %q", got, want)
+	}
+	for _, root := range []string{outside, filepath.Join(appdata, "missing", "..", "Profile-1")} {
+		if _, err := context.ResolveHostPath(`${instance.root}\settings.json`, HostPathPolicy{InstanceRoot: root}); !errors.Is(err, ErrUnsafePath) {
+			t.Fatalf("instance root %q error = %v, want ErrUnsafePath", root, err)
+		}
+	}
+}
+
+func TestContextValidatesAndDisplaysSandboxPathsWithoutRootLeakage(t *testing.T) {
+	outside := t.TempDir()
+	context := activeTestContext(t, "display-path")
+	appdata, _ := context.VirtualRoot("APPDATA")
+	path := filepath.Join(appdata, "Vendor", "settings.json")
+	if err := context.ValidateSandboxPath(path); err != nil {
+		t.Fatal(err)
+	}
+	display, err := context.DisplayPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if display != `%APPDATA%\Vendor\settings.json` {
+		t.Fatalf("display = %q", display)
+	}
+	if strings.Contains(strings.ToLower(display), strings.ToLower(context.Root())) {
+		t.Fatalf("display leaked root: %q", display)
+	}
+	if err := context.ValidateSandboxPath(outside); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("outside path error = %v, want ErrUnsafePath", err)
+	}
+}
+
+func TestDisplayPathPreservesDynamicAndInstanceProvenance(t *testing.T) {
+	context := activeTestContext(t, "display-provenance")
+	dynamic, _ := context.VirtualRoot("instance-home")
+	path := filepath.Join(dynamic, "Studio One", "Profile")
+	display, err := context.DisplayPath(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if display != `%instance-home%\Studio One\Profile` {
+		t.Fatalf("dynamic display = %q", display)
+	}
+	instanceDisplay, err := context.DisplayHostPath(path, HostPathPolicy{InstanceRoot: filepath.Join(dynamic, "Studio One"), InstanceAlias: "instance-home"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if instanceDisplay != `${instance.root}\Profile` {
+		t.Fatalf("instance display = %q", instanceDisplay)
+	}
+}
+
+func TestOriginalHostPathTransfersSuffixAndProtectsWildcardParent(t *testing.T) {
+	context := activeTestContext(t, "original-path")
+	original := filepath.Join(t.TempDir(), "host-appdata")
+	if err := os.MkdirAll(original, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	context.original["APPDATA"] = originalEnvironmentValue{value: original, set: true}
+	got, err := context.OriginalHostPath(`%APPDATA%\Vendor\settings.json`, HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(original, "Vendor", "settings.json"); got != want {
+		t.Fatalf("original target = %q, want %q", got, want)
+	}
+	got, err = context.OriginalHostPath(`%APPDATA%\Vendor\profiles-[0-9]\settings.json`, HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(original, "Vendor"); got != want {
+		t.Fatalf("wildcard protected target = %q, want %q", got, want)
+	}
+	got, err = context.OriginalHostPath(`%APPDATA%\Vendor\[0-9]\settings.json`, HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(original, "Vendor"); got != want {
+		t.Fatalf("component wildcard target = %q, want %q", got, want)
+	}
+}
+
+func TestOriginalHostPathTransfersConcreteInstanceProvenance(t *testing.T) {
+	context := activeTestContext(t, "original-instance")
+	virtual, _ := context.VirtualRoot("APPDATA")
+	original := filepath.Join(canonicalTempDir(t), "host-appdata-original-instance")
+	if err := os.MkdirAll(filepath.Join(original, "PreSonus", "Studio One 7"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(original) })
+	context.original["APPDATA"] = originalEnvironmentValue{value: original, set: true}
+	instance := filepath.Join(virtual, "PreSonus", "Studio One 7")
+	if err := os.MkdirAll(instance, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got, err := context.OriginalHostPath(`${instance.root}\Profiles\User-*\settings.xml`, HostPathPolicy{InstanceRoot: instance, InstanceAlias: "APPDATA"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(original, "PreSonus", "Studio One 7", "Profiles"); got != want {
+		t.Fatalf("instance original = %q, want %q", got, want)
+	}
+	if _, err := context.OriginalHostPath(`${instance.root}\settings.xml`, HostPathPolicy{InstanceRoot: instance, InstanceAlias: "LOCALAPPDATA"}); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("mismatched instance alias error = %v, want ErrUnsafePath", err)
+	}
+}
+
 func TestResolveHostPathRejectsUnsafeAuthoredPaths(t *testing.T) {
 	context := activeTestContext(t, "unsafe-paths")
 	unsafe := []string{
@@ -52,7 +177,7 @@ func TestResolveHostPathRejectsUnsafeAuthoredPaths(t *testing.T) {
 		`\\server\share\settings`, `//server/share/settings`, `\\?\C:\settings`,
 		`\\.\PhysicalDrive0`, `%APPDATA%\file.txt:stream`, `%APPDATA%\..\escape`,
 		`%APPDATA%\\empty`, `%APPDATA%\.\dot`, `%UNKNOWN%\settings`,
-		`$APPDATA/settings`, `${APPDATA}/settings`, `~/settings`,
+		`$APPDATA/settings`, `${APPDATA}/settings`,
 		`${instance.root}\settings`, `%APPDATA%\${instance.root}`,
 		`%APPDATA%\%TEMP%\mixed`, `%APPDATA%\<instance>\settings`,
 	}
@@ -65,6 +190,28 @@ func TestResolveHostPathRejectsUnsafeAuthoredPaths(t *testing.T) {
 	}
 	if _, err := context.ResolveHostPath(`${instance.root}\settings`, HostPathPolicy{DynamicRoot: "undeclared"}); !errors.Is(err, ErrUnsafePath) {
 		t.Fatalf("undeclared dynamic root error = %v, want ErrUnsafePath", err)
+	}
+}
+
+func TestResolveHostPathMapsSupportedProductionDialect(t *testing.T) {
+	context := activeTestContext(t, "production-dialect")
+	profile, _ := context.VirtualRoot("USERPROFILE")
+	for authored, want := range map[string]string{
+		`~/.config/tool/settings`: filepath.Join(profile, ".config", "tool", "settings"),
+	} {
+		got, err := context.ResolveHostPath(authored, HostPathPolicy{})
+		if err != nil {
+			t.Fatalf("ResolveHostPath(%q): %v", authored, err)
+		}
+		if got != want {
+			t.Fatalf("ResolveHostPath(%q) = %q, want %q", authored, got, want)
+		}
+	}
+	if _, err := context.ResolveHostPath(`C:\Program Files\Vendor\Tool.exe`, HostPathPolicy{}); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("raw Program Files error = %v, want ErrUnsafePath", err)
+	}
+	if _, err := context.ResolveHostPath(`D:\Program Files\Vendor\Tool.exe`, HostPathPolicy{}); !errors.Is(err, ErrUnsafePath) {
+		t.Fatalf("unknown drive error = %v, want ErrUnsafePath", err)
 	}
 }
 
@@ -81,6 +228,8 @@ func TestResolveHostPathAndPortablePathRejectLinks(t *testing.T) {
 	}
 	if _, err := context.ResolveHostPath(`%APPDATA%\linked\settings`, HostPathPolicy{}); !errors.Is(err, ErrUnsafePath) {
 		t.Fatalf("host link error = %v, want ErrUnsafePath", err)
+	} else if strings.Contains(strings.ToLower(err.Error()), strings.ToLower(context.Root())) || strings.Contains(strings.ToLower(err.Error()), strings.ToLower(outside)) {
+		t.Fatalf("host link error leaked absolute path: %v", err)
 	}
 
 	manifestRoot := filepath.Join(context.Root(), "manifest")
@@ -115,7 +264,7 @@ func TestResolvePortablePathRequiresCleanContainedRelativePath(t *testing.T) {
 func TestMapHKCU(t *testing.T) {
 	context := activeTestContext(t, "registry")
 	want := `HKCU\Software\Endstate\Validation\registry\Software\Vendor\App`
-	for _, input := range []string{`HKCU\Software\Vendor\App`, `HKEY_CURRENT_USER\Software\Vendor\App`, want} {
+	for _, input := range []string{`HKCU\Software\Vendor\App`, `HKCU:\Software\Vendor\App`, `HKEY_CURRENT_USER\Software\Vendor\App`, want} {
 		got, err := context.MapHKCU(input)
 		if err != nil {
 			t.Fatalf("MapHKCU(%q): %v", input, err)

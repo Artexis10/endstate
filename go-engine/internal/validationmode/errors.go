@@ -17,4 +17,6 @@ var (
 	ErrInvalidState      = errors.New("invalid validation package state")
 	ErrGuardOverlap      = errors.New("validation and protected paths overlap")
 	ErrUnsafeGuardPath   = errors.New("unsafe filesystem guard path")
+	ErrGuardBudget       = errors.New("validation guard budget exceeded")
+	ErrGuardChanged      = errors.New("protected validation target changed")
 )

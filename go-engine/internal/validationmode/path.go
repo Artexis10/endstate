@@ -5,6 +5,8 @@ package validationmode
 
 import (
 	"fmt"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
@@ -12,8 +14,10 @@ import (
 
 // HostPathPolicy controls the two deliberate host-path exceptions.
 type HostPathPolicy struct {
-	AllowRoot   bool
-	DynamicRoot string
+	AllowRoot     bool
+	DynamicRoot   string
+	InstanceRoot  string
+	InstanceAlias string
 }
 
 // ResolveHostPath resolves a Windows-authored path using only Context aliases.
@@ -24,23 +28,38 @@ func (context *Context) ResolveHostPath(authored string, policy HostPathPolicy) 
 	if authored == "" || authored != strings.TrimSpace(authored) || strings.ContainsRune(authored, '\x00') {
 		return fail("path is empty or malformed")
 	}
+	authored = normalizeProductionAuthoredPath(authored)
 	if strings.HasPrefix(authored, `\\`) || strings.HasPrefix(authored, "//") || hasWindowsDrivePrefix(authored) || strings.HasPrefix(authored, "~") {
 		return fail("raw host paths are forbidden")
 	}
 	var root, suffix string
 	if strings.HasPrefix(strings.ToLower(authored), "${instance.root}") {
-		if policy.DynamicRoot == "" {
-			return fail("dynamic root was not selected")
-		}
-		var declared bool
-		for _, name := range context.descriptor.DynamicRoots {
-			if strings.EqualFold(name, policy.DynamicRoot) {
-				root, declared = context.VirtualRoot(name)
-				break
+		if policy.InstanceRoot != "" {
+			var err error
+			root, err = context.validateInstanceRoot(policy.InstanceRoot)
+			if err != nil {
+				return "", err
 			}
-		}
-		if !declared {
-			return fail("dynamic root is not declared")
+			if policy.InstanceAlias != "" {
+				aliasRoot, ok := context.VirtualRoot(policy.InstanceAlias)
+				if !ok || !isAncestorOrSame(aliasRoot, root) {
+					return fail("instance alias provenance does not match root")
+				}
+			}
+		} else {
+			if policy.DynamicRoot == "" {
+				return fail("dynamic root was not selected")
+			}
+			var declared bool
+			for _, name := range context.descriptor.DynamicRoots {
+				if strings.EqualFold(name, policy.DynamicRoot) {
+					root, declared = context.VirtualRoot(name)
+					break
+				}
+			}
+			if !declared {
+				return fail("dynamic root is not declared")
+			}
 		}
 		suffix = authored[len("${instance.root}"):]
 	} else if strings.HasPrefix(authored, "%") {
@@ -50,7 +69,7 @@ func (context *Context) ResolveHostPath(authored string, policy HostPathPolicy) 
 		}
 		closing++
 		name := authored[1:closing]
-		if _, canonical := canonicalAlias(name); !canonical {
+		if !context.declaredAlias(name) {
 			return fail("unknown environment alias")
 		}
 		root, _ = context.VirtualRoot(name)
@@ -73,7 +92,256 @@ func (context *Context) ResolveHostPath(authored string, policy HostPathPolicy) 
 	}
 	resolved, err := safepath.Resolve(root, suffix)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrUnsafePath, err)
+		return "", fmt.Errorf("%w: resolved path is linked or outside its virtual root", ErrUnsafePath)
+	}
+	return resolved, nil
+}
+
+func (context *Context) declaredAlias(name string) bool {
+	if _, ok := canonicalAlias(name); ok {
+		return true
+	}
+	for _, dynamic := range context.descriptor.DynamicRoots {
+		if strings.EqualFold(dynamic, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeProductionAuthoredPath(value string) string {
+	if strings.HasPrefix(value, `~\`) || strings.HasPrefix(value, "~/") {
+		return `%USERPROFILE%\` + value[2:]
+	}
+	return value
+}
+
+func (context *Context) validateInstanceRoot(value string) (string, error) {
+	fail := func(message string) (string, error) { return "", fmt.Errorf("%w: %s", ErrUnsafePath, message) }
+	if value == "" || !filepath.IsAbs(value) || value != filepath.Clean(value) {
+		return fail("instance root must be canonical absolute")
+	}
+	absolute, err := filepath.Abs(value)
+	if err != nil {
+		return fail("instance root is invalid")
+	}
+	absolute, err = safepath.CanonicalizePlatformRootAlias(filepath.Clean(absolute))
+	if err != nil {
+		return fail("instance root is invalid")
+	}
+	unique := map[string]string{}
+	for _, virtual := range context.virtual {
+		key := pathComparisonKey(virtual)
+		unique[key] = virtual
+	}
+	contained := 0
+	for _, virtual := range unique {
+		if !isAncestorOrSame(virtual, absolute) {
+			continue
+		}
+		relative, relErr := filepath.Rel(virtual, absolute)
+		if relErr != nil {
+			continue
+		}
+		if relative != "." {
+			if _, resolveErr := safepath.Resolve(virtual, filepath.ToSlash(relative)); resolveErr != nil {
+				return fail("instance root contains a linked or unsafe component")
+			}
+		}
+		contained++
+	}
+	if contained != 1 {
+		return fail("instance root is not contained in exactly one virtual root")
+	}
+	return absolute, nil
+}
+
+// ValidateSandboxPath accepts only link-free materialized paths under one
+// validation virtual root or an engine-owned internal directory.
+func (context *Context) ValidateSandboxPath(absolute string) error {
+	if context == nil || absolute == "" || !filepath.IsAbs(absolute) || absolute != filepath.Clean(absolute) {
+		return fmt.Errorf("%w: sandbox path must be canonical absolute", ErrUnsafePath)
+	}
+	absolute, err := safepath.CanonicalizePlatformRootAlias(filepath.Clean(absolute))
+	if err != nil {
+		return fmt.Errorf("%w: sandbox path is invalid", ErrUnsafePath)
+	}
+	if absolute == context.root || !isAncestorOrSame(context.root, absolute) {
+		return fmt.Errorf("%w: path is outside validation descendants", ErrUnsafePath)
+	}
+	relative, err := filepath.Rel(context.root, absolute)
+	if err != nil {
+		return fmt.Errorf("%w: path is outside validation descendants", ErrUnsafePath)
+	}
+	if _, err := safepath.Resolve(context.root, filepath.ToSlash(relative)); err != nil {
+		return fmt.Errorf("%w: sandbox path contains a linked component", ErrUnsafePath)
+	}
+	return nil
+}
+
+type displayRoot struct {
+	name, path string
+}
+
+func (context *Context) displayRoots() []displayRoot {
+	preferred := []string{"APPDATA", "LOCALAPPDATA", "USERPROFILE", "ProgramFiles", "ProgramFiles(x86)", "ProgramData", "PUBLIC", "SystemRoot", "TEMP"}
+	result := make([]displayRoot, 0, len(context.virtual))
+	seen := map[string]struct{}{}
+	for _, name := range preferred {
+		if path, ok := context.VirtualRoot(name); ok {
+			key := pathComparisonKey(path)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			result = append(result, displayRoot{name: name, path: path})
+		}
+	}
+	dynamic := append([]string(nil), context.descriptor.DynamicRoots...)
+	sort.Strings(dynamic)
+	for _, name := range dynamic {
+		path, _ := context.VirtualRoot(name)
+		key := pathComparisonKey(path)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, displayRoot{name: name, path: path})
+	}
+	sort.SliceStable(result, func(i, j int) bool { return len(result[i].path) > len(result[j].path) })
+	return result
+}
+
+// DisplayPath projects an absolute validation path to a non-sensitive token.
+func (context *Context) DisplayPath(absolute string) (string, error) {
+	if err := context.ValidateSandboxPath(absolute); err != nil {
+		return "", err
+	}
+	for _, root := range context.displayRoots() {
+		if !isAncestorOrSame(root.path, absolute) {
+			continue
+		}
+		relative, _ := filepath.Rel(root.path, absolute)
+		prefix := "%" + root.name + "%"
+		if relative == "." {
+			return prefix, nil
+		}
+		return prefix + `\` + strings.ReplaceAll(filepath.ToSlash(relative), "/", `\`), nil
+	}
+	relative, _ := filepath.Rel(context.root, absolute)
+	return "$ENDSTATE_ROOT/" + filepath.ToSlash(relative), nil
+}
+
+// DisplayHostPath uses explicit instance provenance when available; ordinary
+// dynamic aliases retain their authored alias identity.
+func (context *Context) DisplayHostPath(absolute string, policy HostPathPolicy) (string, error) {
+	if err := context.ValidateSandboxPath(absolute); err != nil {
+		return "", err
+	}
+	if policy.InstanceRoot != "" && policy.InstanceAlias != "" {
+		root, err := context.validateInstanceRoot(policy.InstanceRoot)
+		if err != nil {
+			return "", err
+		}
+		aliasRoot, ok := context.VirtualRoot(policy.InstanceAlias)
+		if !ok || !isAncestorOrSame(aliasRoot, root) {
+			return "", fmt.Errorf("%w: instance provenance is invalid", ErrUnsafePath)
+		}
+		if isAncestorOrSame(root, absolute) {
+			relative, err := filepath.Rel(root, absolute)
+			if err != nil {
+				return "", fmt.Errorf("%w: instance display is invalid", ErrUnsafePath)
+			}
+			if relative == "." {
+				return "${instance.root}", nil
+			}
+			return `${instance.root}\` + strings.ReplaceAll(filepath.ToSlash(relative), "/", `\`), nil
+		}
+	}
+	return context.DisplayPath(absolute)
+}
+
+// OriginalHostPath transfers a validated authored suffix to the corresponding
+// environment value captured before activation. Wildcards protect their
+// non-wildcard parent prefix. Callers must never serialize the returned path.
+func (context *Context) OriginalHostPath(authored string, policy HostPathPolicy) (string, error) {
+	authored = normalizeProductionAuthoredPath(authored)
+	if strings.HasPrefix(strings.ToLower(authored), "${instance.root}") {
+		if policy.InstanceRoot == "" || policy.InstanceAlias == "" {
+			return "", fmt.Errorf("%w: instance provenance is incomplete", ErrUnsafePath)
+		}
+		instanceRoot, err := context.validateInstanceRoot(policy.InstanceRoot)
+		if err != nil {
+			return "", err
+		}
+		virtual, ok := context.VirtualRoot(policy.InstanceAlias)
+		if !ok || !isAncestorOrSame(virtual, instanceRoot) {
+			return "", fmt.Errorf("%w: instance alias provenance does not match root", ErrUnsafePath)
+		}
+		original, set, managed := context.OriginalEnvironment(policy.InstanceAlias)
+		if !managed || !set || strings.TrimSpace(original) == "" {
+			return "", nil
+		}
+		original, err = canonicalGuardPath(filepath.Clean(original), false)
+		if err != nil {
+			return "", fmt.Errorf("%w: original instance alias is unsafe", ErrUnsafePath)
+		}
+		instanceSuffix, err := filepath.Rel(virtual, instanceRoot)
+		if err != nil || filepath.IsAbs(instanceSuffix) || strings.HasPrefix(instanceSuffix, "..") {
+			return "", fmt.Errorf("%w: instance suffix is unsafe", ErrUnsafePath)
+		}
+		base := original
+		if instanceSuffix != "." {
+			base, err = safepath.Resolve(original, filepath.ToSlash(instanceSuffix))
+			if err != nil {
+				return "", fmt.Errorf("%w: original instance root is unsafe", ErrUnsafePath)
+			}
+		}
+		return resolveOriginalSuffix(base, authored[len("${instance.root}"):])
+	}
+	if !strings.HasPrefix(authored, "%") {
+		return "", fmt.Errorf("%w: authored path has no alias", ErrUnsafePath)
+	}
+	closing := strings.Index(authored[1:], "%")
+	if closing < 0 {
+		return "", fmt.Errorf("%w: unterminated alias", ErrUnsafePath)
+	}
+	closing++
+	name := authored[1:closing]
+	if !context.declaredAlias(name) {
+		return "", fmt.Errorf("%w: unknown alias", ErrUnsafePath)
+	}
+	if _, err := context.ResolveHostPath(strings.ReplaceAll(strings.ReplaceAll(authored, "*", "x"), "?", "x"), HostPathPolicy{AllowRoot: policy.AllowRoot}); err != nil {
+		return "", err
+	}
+	original, set, managed := context.OriginalEnvironment(name)
+	if !managed || !set || strings.TrimSpace(original) == "" {
+		return "", nil
+	}
+	original, err := canonicalGuardPath(filepath.Clean(original), false)
+	if err != nil {
+		return "", fmt.Errorf("%w: original alias root is unsafe", ErrUnsafePath)
+	}
+	return resolveOriginalSuffix(original, authored[closing+1:])
+}
+
+func resolveOriginalSuffix(original, rawSuffix string) (string, error) {
+	suffix := strings.TrimLeft(rawSuffix, `\/`)
+	if wildcard := strings.IndexAny(suffix, "*?["); wildcard >= 0 {
+		prefix := suffix[:wildcard]
+		if separator := strings.LastIndexAny(prefix, `\/`); separator >= 0 {
+			prefix = prefix[:separator]
+		} else {
+			prefix = ""
+		}
+		suffix = prefix
+	}
+	if suffix == "" {
+		return original, nil
+	}
+	resolved, err := safepath.Resolve(original, filepath.ToSlash(suffix))
+	if err != nil {
+		return "", fmt.Errorf("%w: original target is linked or outside its alias root", ErrUnsafePath)
 	}
 	return resolved, nil
 }
@@ -83,7 +351,7 @@ func (context *Context) ResolveHostPath(authored string, policy HostPathPolicy) 
 func ResolvePortablePath(root, portable string) (string, error) {
 	resolved, err := safepath.Resolve(root, portable)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrUnsafePath, err)
+		return "", fmt.Errorf("%w: portable path is linked or outside its root", ErrUnsafePath)
 	}
 	return resolved, nil
 }

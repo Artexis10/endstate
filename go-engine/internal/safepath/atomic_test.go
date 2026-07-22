@@ -5,12 +5,37 @@ package safepath
 
 import (
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 )
+
+func TestHashRegularFileHandlesMaximumBudgetWithoutOverflow(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "value")
+	if err := os.WriteFile(path, []byte("value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, size, err := HashRegularFile(path, math.MaxInt64)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if size != 5 {
+		t.Fatalf("size = %d, want 5", size)
+	}
+}
+
+func TestHashRegularFileRejectsByteLimitBeforeRead(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "value")
+	if err := os.WriteFile(path, []byte("value"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := HashRegularFile(path, 4); !errors.Is(err, ErrByteLimit) {
+		t.Fatalf("HashRegularFile error = %v, want ErrByteLimit", err)
+	}
+}
 
 func TestAtomicCopyFileRejectsSourceSwappedToLinkAfterPreflight(t *testing.T) {
 	dir := t.TempDir()

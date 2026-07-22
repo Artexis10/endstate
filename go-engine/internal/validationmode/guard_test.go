@@ -5,10 +5,12 @@ package validationmode
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -128,8 +130,97 @@ func TestWriteGuardRejectsLinks(t *testing.T) {
 	if err := os.Symlink(outside, link); err == nil {
 		if _, err := NewWriteGuard(allowed, []string{protected}); !errors.Is(err, ErrUnsafeGuardPath) {
 			t.Fatalf("link error = %v, want ErrUnsafeGuardPath", err)
+		} else if strings.Contains(strings.ToLower(err.Error()), strings.ToLower(base)) || strings.Contains(strings.ToLower(err.Error()), strings.ToLower(outside)) {
+			t.Fatalf("guard error leaked absolute path: %v", err)
 		}
 	} else if runtime.GOOS != "windows" {
 		t.Fatal(err)
+	}
+}
+
+func TestWriteGuardProtectsIncrementallyAndCompactsDescendants(t *testing.T) {
+	base := t.TempDir()
+	allowed := filepath.Join(base, "allowed")
+	protected := filepath.Join(base, "protected")
+	child := filepath.Join(protected, "child")
+	if err := os.MkdirAll(allowed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := NewWriteGuard(allowed, []string{protected})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.Protect([]ProtectedPath{{Path: child, Label: "child"}, {Path: protected, Label: "host-target"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := guard.ProtectedCount(); got != 1 {
+		t.Fatalf("protected count = %d, want 1", got)
+	}
+	if err := os.WriteFile(filepath.Join(child, "changed.txt"), []byte("changed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changes, err := guard.Check()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(changes) == 0 || guard.Label(changes[0].Path) != "host-target" {
+		t.Fatalf("changes = %#v, want safe ancestor label", changes)
+	}
+}
+
+func TestWriteGuardRejectsProtectedRootBudget(t *testing.T) {
+	base := t.TempDir()
+	allowed := filepath.Join(base, "allowed")
+	if err := os.MkdirAll(allowed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := NewWriteGuard(allowed, []string{filepath.Join(base, "seed")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := make([]ProtectedPath, 0, 256)
+	for index := 0; index < 256; index++ {
+		paths = append(paths, ProtectedPath{Path: filepath.Join(base, "p", fmt.Sprintf("%03d", index)), Label: "budget"})
+	}
+	if err := guard.Protect(paths); !errors.Is(err, ErrGuardBudget) {
+		t.Fatalf("Protect error = %v, want ErrGuardBudget", err)
+	}
+}
+
+func TestWriteGuardSealRejectsLateSnapshots(t *testing.T) {
+	base := t.TempDir()
+	allowed := filepath.Join(base, "allowed")
+	if err := os.MkdirAll(allowed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := NewWriteGuard(allowed, []string{filepath.Join(base, "protected")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard.Seal()
+	if err := guard.Protect([]ProtectedPath{{Path: filepath.Join(base, "late"), Label: "late"}}); !errors.Is(err, ErrUnsafeGuardPath) {
+		t.Fatalf("late Protect error = %v, want ErrUnsafeGuardPath", err)
+	}
+}
+
+func TestWriteGuardRejectsFileByMetadataBeforeHashingPastBudget(t *testing.T) {
+	base := t.TempDir()
+	allowed := filepath.Join(base, "allowed")
+	protected := filepath.Join(base, "protected")
+	if err := os.MkdirAll(allowed, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(protected, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	large := filepath.Join(protected, "large.bin")
+	if err := os.WriteFile(large, []byte("1234"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := newWriteGuardWithLimits(allowed, []string{protected}, guardLimits{roots: 256, entries: 100000, bytes: 3}); !errors.Is(err, ErrGuardBudget) {
+		t.Fatalf("NewWriteGuard error = %v, want ErrGuardBudget", err)
 	}
 }
