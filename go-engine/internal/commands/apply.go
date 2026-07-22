@@ -307,6 +307,9 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
+	if validationErr := preflightValidationManifest(mf); validationErr != nil {
+		return nil, validationErr
+	}
 	repoRoot := resolveRepoRootFn()
 	configRuntime, configInputErr := newConfigRestoreRuntime(configRestoreBuildRequest{
 		Manifest:       mf,

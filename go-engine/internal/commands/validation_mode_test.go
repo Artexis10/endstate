@@ -155,9 +155,160 @@ func TestActivateValidationModeRejectsWrongDriverAndPreservesState(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := drv.(driver.SourceDriver).InstallSource("Notepad++.Notepad++", "winget"); !errors.Is(err, validationmode.ErrPackageIdentity) {
+		t.Fatalf("poisoned mutator error = %v, want package identity", err)
+	}
 	present, _, err := drv.(driver.SourceDriver).DetectSource("Notepad++.Notepad++", "winget")
 	if err != nil || present {
 		t.Fatalf("state changed after rejected driver: present=%v err=%v", present, err)
+	}
+}
+
+func TestValidationModeMixedManifestFailsBeforePackageMutation(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		validFirst bool
+		extra      string
+	}{
+		{name: "valid then wrong driver", validFirst: true, extra: `{"id":"foreign","displayName":"Foreign","driver":"chocolatey","refs":{"windows":"foreign-package"}}`},
+		{name: "wrong driver then valid", validFirst: false, extra: `{"id":"foreign","displayName":"Foreign","driver":"chocolatey","refs":{"windows":"foreign-package"}}`},
+		{name: "valid then wrong source", validFirst: true, extra: `{"id":"foreign","displayName":"Foreign","driver":"winget","source":"msstore","refs":{"windows":"9NFOREIGN"}}`},
+		{name: "wrong source then valid", validFirst: false, extra: `{"id":"foreign","displayName":"Foreign","driver":"winget","source":"msstore","refs":{"windows":"9NFOREIGN"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			context := validationContext(t, validationmode.Inventory{
+				AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+				DisplayName: "Notepad++", Version: "8.8.2", Source: "winget", InitialState: "absent",
+			})
+			session, err := ActivateValidationMode(context)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = session.Restore() })
+
+			valid := `{"id":"notepad-plus-plus","displayName":"Notepad++","driver":"winget","source":"winget","version":"8.8.2","refs":{"windows":"Notepad++.Notepad++"}}`
+			apps := valid + "," + tc.extra
+			if !tc.validFirst {
+				apps = tc.extra + "," + valid
+			}
+			manifestPath := filepath.Join(context.Root(), "mixed.jsonc")
+			if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"mixed","apps":[`+apps+`]}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, applyErr := RunApply(ApplyFlags{Manifest: manifestPath, NoBootstrap: true}); applyErr == nil {
+				t.Fatal("mixed validation manifest unexpectedly applied")
+			}
+			if !errors.Is(session.IsolationError(), validationmode.ErrPackageIdentity) {
+				t.Fatalf("isolation error = %v", session.IsolationError())
+			}
+			drv, err := newDriverFn()
+			if err != nil {
+				t.Fatal(err)
+			}
+			present, _, err := drv.(driver.SourceDriver).DetectSource("Notepad++.Notepad++", "winget")
+			if err != nil || present {
+				t.Fatalf("mixed manifest mutated valid inventory: present=%v err=%v", present, err)
+			}
+		})
+	}
+}
+
+func TestValidationModeManifestPreflightCoversPlanVerifyAndRebuild(t *testing.T) {
+	for _, command := range []string{"plan", "verify", "rebuild"} {
+		t.Run(command, func(t *testing.T) {
+			context := validationContext(t, validationmode.Inventory{
+				AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+				DisplayName: "Notepad++", Source: "winget", InitialState: "absent",
+			})
+			session, err := ActivateValidationMode(context)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = session.Restore() })
+			manifestPath := filepath.Join(context.Root(), command+"-mixed.jsonc")
+			manifestJSON := `{"version":1,"name":"mixed","apps":[{"id":"notepad-plus-plus","driver":"winget","source":"winget","refs":{"windows":"Notepad++.Notepad++"}},{"id":"foreign","driver":"chocolatey","refs":{"windows":"foreign"}}]}`
+			if err := os.WriteFile(manifestPath, []byte(manifestJSON), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var commandErr *envelope.Error
+			switch command {
+			case "plan":
+				_, commandErr = RunPlan(PlanFlags{Manifest: manifestPath})
+			case "verify":
+				_, commandErr = RunVerify(VerifyFlags{Manifest: manifestPath})
+			case "rebuild":
+				_, commandErr = RunRebuild(RebuildFlags{From: manifestPath, NoRestore: true, NoBootstrap: true})
+			}
+			if commandErr == nil || !errors.Is(session.IsolationError(), validationmode.ErrPackageIdentity) {
+				t.Fatalf("%s error=%v isolation=%v", command, commandErr, session.IsolationError())
+			}
+		})
+	}
+}
+
+func TestValidationModeOmittedDriverDoesNotAuthorizeNonWingetInventory(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "tool", Driver: "chocolatey", Ref: "vendor-tool",
+		DisplayName: "Tool", InitialState: "absent",
+	})
+	session, err := ActivateValidationMode(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Restore() })
+	manifestPath := filepath.Join(context.Root(), "omitted-driver.jsonc")
+	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"omitted","apps":[{"id":"tool","refs":{"windows":"vendor-tool"}}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, planErr := RunPlan(PlanFlags{Manifest: manifestPath}); planErr == nil {
+		t.Fatal("omitted driver authorized non-winget descriptor inventory")
+	}
+	if !errors.Is(session.IsolationError(), validationmode.ErrPackageIdentity) {
+		t.Fatalf("isolation error = %v", session.IsolationError())
+	}
+}
+
+func TestValidationModeStoreCaptureNeverCallsProductionNameResolver(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "store-tool", Driver: "winget", Ref: "9NSTORETOOL",
+		DisplayName: "9NSTORETOOL", Source: "msstore", InitialState: "present",
+	})
+	originalResolver := resolveStoreDisplayNamesFn
+	restored := false
+	resolveStoreDisplayNamesFn = func() map[string]string {
+		restored = true
+		panic("production Store name resolver was called")
+	}
+	t.Cleanup(func() { resolveStoreDisplayNamesFn = originalResolver })
+	session, err := ActivateValidationMode(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	raw, captureErr := RunCapture(CaptureFlags{
+		Out: filepath.Join(context.Root(), "store-capture.jsonc"), Drivers: []string{"winget"}, Sanitize: true,
+	})
+	if captureErr != nil {
+		t.Fatalf("RunCapture: %v", captureErr)
+	}
+	result := raw.(*CaptureResult)
+	if len(result.AppsIncluded) != 1 || result.AppsIncluded[0].ID != "9NSTORETOOL" {
+		t.Fatalf("captured Store apps = %+v", result.AppsIncluded)
+	}
+	if err := session.Restore(); err != nil {
+		t.Fatal(err)
+	}
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("restored production Store resolver did not run sentinel")
+			}
+		}()
+		_ = resolveStoreDisplayNamesFn()
+	}()
+	if !restored {
+		t.Fatal("production Store resolver was not restored")
 	}
 }
 

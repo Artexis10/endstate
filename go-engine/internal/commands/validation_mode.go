@@ -13,12 +13,15 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 var validationModeActivationMu sync.Mutex
 var currentValidationMode *validationmode.Context
+var currentValidationDriver *validationPackageDriver
 
 // ValidationModeSession owns the command-layer package seams for one CLI run.
 // The underlying package driver is constructed once and shared by every lane.
@@ -55,7 +58,9 @@ func ActivateValidationMode(context *validationmode.Context) (*ValidationModeSes
 	originalCapture := enumerateCapturePackagesFn
 	originalCaptureGOOS := captureGOOSFn
 	originalRollback := rollbackDriverFn
+	originalStoreDisplayNames := resolveStoreDisplayNamesFn
 	originalContext := currentValidationMode
+	originalValidationDriver := currentValidationDriver
 
 	matchDriver := func(name string) (driver.Driver, error) {
 		if !strings.EqualFold(strings.TrimSpace(name), descriptor.Inventory.Driver) {
@@ -98,9 +103,18 @@ func ActivateValidationMode(context *validationmode.Context) (*ValidationModeSes
 		}
 		return result, nil, nil
 	}
+	resolveStoreDisplayNamesFn = func() map[string]string {
+		if !strings.EqualFold(descriptor.Inventory.Source, packagesource.MSStore) {
+			return nil
+		}
+		return map[string]string{
+			wingetEvidenceKey(descriptor.Inventory.Ref): descriptor.Inventory.DisplayName,
+		}
+	}
 	captureGOOSFn = func() string { return "windows" }
 	rollbackDriverFn = matchDriver
 	currentValidationMode = context
+	currentValidationDriver = guarded
 
 	session := &ValidationModeSession{driver: guarded}
 	session.restoreFn = func() {
@@ -112,10 +126,59 @@ func ActivateValidationMode(context *validationmode.Context) (*ValidationModeSes
 		enumerateCapturePackagesFn = originalCapture
 		captureGOOSFn = originalCaptureGOOS
 		rollbackDriverFn = originalRollback
+		resolveStoreDisplayNamesFn = originalStoreDisplayNames
 		currentValidationMode = originalContext
+		currentValidationDriver = originalValidationDriver
 		validationModeActivationMu.Unlock()
 	}
 	return session, nil
+}
+
+func preflightValidationManifest(value *manifest.Manifest) *envelope.Error {
+	if currentValidationMode == nil {
+		return nil
+	}
+	descriptor := currentValidationMode.Descriptor()
+	violation := func(reason string) *envelope.Error {
+		err := fmt.Errorf("%w: manifest %s", validationmode.ErrPackageIdentity, reason)
+		if currentValidationDriver != nil {
+			currentValidationDriver.record(err)
+		}
+		return envelope.NewError(
+			envelope.ErrInternalError,
+			"Validation manifest is outside the descriptor-bound package inventory.",
+		)
+	}
+	if value == nil || len(value.Apps) != 1 {
+		return violation("must contain exactly one app")
+	}
+	app := value.Apps[0]
+	inventory := descriptor.Inventory
+	if app.ID != inventory.AppID {
+		return violation("app id does not match inventory")
+	}
+	effectiveDriver := strings.ToLower(strings.TrimSpace(app.Driver))
+	if effectiveDriver == "" {
+		effectiveDriver = "winget"
+	}
+	if !strings.EqualFold(effectiveDriver, inventory.Driver) {
+		return violation("driver does not match inventory")
+	}
+	ref := app.Refs["windows"]
+	if ref != inventory.Ref {
+		return violation("windows ref does not match inventory")
+	}
+	effectiveSource := strings.ToLower(strings.TrimSpace(app.Source))
+	if strings.EqualFold(effectiveDriver, "winget") {
+		effectiveSource = packagesource.ResolveWinget(ref, effectiveSource)
+	}
+	if effectiveSource != strings.ToLower(strings.TrimSpace(inventory.Source)) {
+		return violation("source does not match inventory")
+	}
+	if strings.TrimSpace(app.Version) != strings.TrimSpace(inventory.Version) {
+		return violation("version does not match inventory")
+	}
+	return nil
 }
 
 // Restore reinstates all command seams. It is safe to call repeatedly.
@@ -159,6 +222,13 @@ func (value *validationPackageDriver) isolationError() error {
 	return value.err
 }
 
+func (value *validationPackageDriver) mutationAllowed() error {
+	if err := value.isolationError(); err != nil {
+		return fmt.Errorf("%w: validation session is already poisoned", validationmode.ErrPackageIdentity)
+	}
+	return nil
+}
+
 func (value *validationPackageDriver) Name() string { return value.driver.Name() }
 
 func (value *validationPackageDriver) Detect(ref string) (bool, string, error) {
@@ -172,11 +242,17 @@ func (value *validationPackageDriver) DetectSource(ref, source string) (bool, st
 }
 
 func (value *validationPackageDriver) Install(ref string) (*driver.InstallResult, error) {
+	if err := value.mutationAllowed(); err != nil {
+		return nil, err
+	}
 	result, err := value.driver.Install(ref)
 	return result, value.record(err)
 }
 
 func (value *validationPackageDriver) InstallSource(ref, source string) (*driver.InstallResult, error) {
+	if err := value.mutationAllowed(); err != nil {
+		return nil, err
+	}
 	result, err := value.driver.InstallSource(ref, source)
 	return result, value.record(err)
 }
@@ -197,31 +273,49 @@ func (value *validationPackageDriver) EnumerateInstalled() ([]driver.InstalledPa
 }
 
 func (value *validationPackageDriver) Uninstall(ref string) (*driver.UninstallResult, error) {
+	if err := value.mutationAllowed(); err != nil {
+		return nil, err
+	}
 	result, err := value.driver.Uninstall(ref)
 	return result, value.record(err)
 }
 
 func (value *validationPackageDriver) UninstallSource(ref, source string) (*driver.UninstallResult, error) {
+	if err := value.mutationAllowed(); err != nil {
+		return nil, err
+	}
 	result, err := value.driver.UninstallSource(ref, source)
 	return result, value.record(err)
 }
 
 func (value *validationPackageDriver) InstallVersion(ref, version string) (*driver.InstallResult, error) {
+	if err := value.mutationAllowed(); err != nil {
+		return nil, err
+	}
 	result, err := value.driver.InstallVersion(ref, version)
 	return result, value.record(err)
 }
 
 func (value *validationPackageDriver) ReinstallVersion(ref, version string) (*driver.InstallResult, error) {
+	if err := value.mutationAllowed(); err != nil {
+		return nil, err
+	}
 	result, err := value.driver.ReinstallVersion(ref, version)
 	return result, value.record(err)
 }
 
 func (value *validationPackageDriver) InstallVersionSource(ref, version, source string) (*driver.InstallResult, error) {
+	if err := value.mutationAllowed(); err != nil {
+		return nil, err
+	}
 	result, err := value.driver.InstallVersionSource(ref, version, source)
 	return result, value.record(err)
 }
 
 func (value *validationPackageDriver) ReinstallVersionSource(ref, version, source string) (*driver.InstallResult, error) {
+	if err := value.mutationAllowed(); err != nil {
+		return nil, err
+	}
 	result, err := value.driver.ReinstallVersionSource(ref, version, source)
 	return result, value.record(err)
 }

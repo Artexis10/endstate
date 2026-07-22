@@ -47,6 +47,9 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
+	if validationErr := preflightValidationManifest(mf); validationErr != nil {
+		return nil, validationErr
+	}
 
 	// --- 2a. Realizer path (whole-set, e.g. Nix on linux/darwin) ---
 	// On Windows newRealizerFn returns ErrNoRealizer and control falls through to

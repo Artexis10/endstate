@@ -15,6 +15,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -147,6 +148,7 @@ func TestRunCLIActiveCaptureDefaultsToDescriptorDriver(t *testing.T) {
 func TestRunCLIInvalidActivationFailsBeforeDispatch(t *testing.T) {
 	t.Setenv(validationmode.TestModeEnvironment, "yes")
 	t.Setenv(validationmode.RootEnvironment, "")
+	sensitiveManifest := filepath.Join(t.TempDir(), "must-not-leak.jsonc")
 	originalDispatch := dispatchFn
 	t.Cleanup(func() { dispatchFn = originalDispatch })
 	dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
@@ -154,8 +156,13 @@ func TestRunCLIInvalidActivationFailsBeforeDispatch(t *testing.T) {
 		return nil, nil
 	}
 	var stdout, stderr bytes.Buffer
-	if code := runCLI([]string{"plan", "--json"}, &stdout, &stderr); code != 1 {
+	if code := runCLI([]string{"plan", "--manifest", sensitiveManifest, "--debug-cli", "--json"}, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit = %d stderr=%s", code, stderr.String())
+	}
+	for _, form := range []string{sensitiveManifest, strings.ReplaceAll(sensitiveManifest, `\`, `\\`), filepath.ToSlash(sensitiveManifest)} {
+		if strings.Contains(stdout.String(), form) || strings.Contains(stderr.String(), form) {
+			t.Fatalf("invalid activation leaked pre-validation debug path %q: stdout=%s stderr=%s", form, stdout.String(), stderr.String())
+		}
 	}
 	decoded := decodeCLIEnvelope(t, stdout.String())
 	if _, exists := decoded["testMode"]; exists {
@@ -164,6 +171,77 @@ func TestRunCLIInvalidActivationFailsBeforeDispatch(t *testing.T) {
 	errorObject := decoded["error"].(map[string]interface{})
 	if errorObject["code"] != string(envelope.ErrTestModeInvalid) {
 		t.Fatalf("error code = %v", errorObject["code"])
+	}
+}
+
+func TestRunCLIActiveDebugAndEventsRedactValidationAuthority(t *testing.T) {
+	root := cliValidationRoot(t)
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	loadedContext, err := validationmode.LoadFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	originalDispatch := dispatchFn
+	t.Cleanup(func() { dispatchFn = originalDispatch })
+	dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+		emitter := events.NewEmitter("redaction-run", true)
+		emitter.EmitArtifact("capture", "manifest", filepath.Join(root, "artifacts", "captured.jsonc"))
+		reason := filepath.ToSlash(filepath.Join(root, "reasons", "configured"))
+		remediation := filepath.Join(root, "remediation", "retry.txt")
+		emitter.EmitConfigMigration(events.ConfigMigrationProgress{
+			CaptureID:   "capture-settings",
+			ConfigSetID: "settings",
+			Stage:       events.ConfigMigrationStaging,
+			Status:      events.ConfigProgressFailed,
+			Reason:      &reason,
+			Message:     `failed under ` + filepath.Join(root, "staging"),
+			Remediation: &remediation,
+		})
+		backupPath := filepath.Join(root, "backups", "settings.json")
+		emitter.EmitRestoreItem(events.RestoreItemProgress{
+			ID:         "restore-settings",
+			Module:     "apps.notepad-plus-plus",
+			Restorer:   "copy",
+			Source:     filepath.Join(root, "exports", "settings.json"),
+			Target:     filepath.ToSlash(filepath.Join(root, "sandbox", "settings.json")),
+			Status:     events.RestoreItemRestored,
+			Reason:     &reason,
+			BackupPath: &backupPath,
+			Message:    `restored from ` + filepath.Join(root, "exports"),
+		})
+		return map[string]string{"artifact": filepath.Join(root, "result.json")}, nil
+	}
+
+	manifestPath := filepath.Join(root, "manifests", "active.jsonc")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"plan", "--manifest", manifestPath, "--debug-cli", "--events", "jsonl", "--json"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), `"event":"artifact"`) ||
+		!strings.Contains(stderr.String(), `"event":"config-migration"`) ||
+		!strings.Contains(stderr.String(), `"event":"restore-item"`) {
+		t.Fatalf("active default events were not routed to CLI stderr: %s", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "$ENDSTATE_ROOT") || !strings.Contains(stdout.String(), "$ENDSTATE_ROOT") {
+		t.Fatalf("active output did not use the stable root placeholder: stdout=%s stderr=%s", stdout.String(), stderr.String())
+	}
+
+	for _, output := range []string{stdout.String(), stderr.String()} {
+		for _, rootValue := range []string{root, loadedContext.Root()} {
+			forms := []string{
+				rootValue,
+				filepath.ToSlash(rootValue),
+				strings.ReplaceAll(rootValue, `/`, `\`),
+				strings.ReplaceAll(rootValue, `\`, `\\`),
+			}
+			for _, form := range forms {
+				if form != "" && strings.Contains(strings.ToLower(output), strings.ToLower(form)) {
+					t.Fatalf("active output leaked disposable root form %q: %s", form, output)
+				}
+			}
+		}
 	}
 }
 

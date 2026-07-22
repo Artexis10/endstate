@@ -135,6 +135,9 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
+	if validationErr := preflightValidationManifest(mf); validationErr != nil {
+		return nil, validationErr
+	}
 
 	// --- 1b. Synthesize manual apps from configModules (non-fatal) ---
 	repoRoot := config.ResolveRepoRoot()

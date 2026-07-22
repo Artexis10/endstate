@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -475,13 +476,6 @@ var knownCommands = map[string]struct{}{
 // makes validation-mode environment and command-seam restoration testable.
 func runCLI(args []string, stdout, stderr io.Writer) int {
 	p := parseArgs(args)
-
-	// --debug-cli: print resolved command and flags to stderr.
-	if p.debugCLI {
-		fmt.Fprintf(stderr, "[debug-cli] command=%q json=%v dryRun=%v enableRestore=%v manifest=%q events=%q\n",
-			p.command, p.jsonMode, p.dryRun, p.enableRestore, p.manifest, p.events)
-	}
-
 	validationContext, activationErr := validationmode.LoadFromEnvironment()
 	var validationSession *commands.ValidationModeSession
 	if activationErr != nil {
@@ -489,6 +483,22 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			envelope.ErrTestModeInvalid,
 			"Validation mode activation is invalid.",
 		), nil, stdout, stderr)
+	}
+
+	runStderr := stderr
+	if validationContext != nil {
+		runStderr = validationRedactingWriter{
+			target: stderr,
+			roots:  validationOutputRoots(validationContext),
+		}
+	}
+
+	// Debug output is emitted only after validation-mode activation has been
+	// parsed and, when active, through the same root-redacting boundary as
+	// command events.
+	if p.debugCLI {
+		fmt.Fprintf(runStderr, "[debug-cli] command=%q json=%v dryRun=%v enableRestore=%v manifest=%q events=%q\n",
+			p.command, p.jsonMode, p.dryRun, p.enableRestore, p.manifest, p.events)
 	}
 
 	// Handle --help / no command before doing any further work.
@@ -502,7 +512,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			return renderCLIResult(p, nil, envelope.NewError(
 				envelope.ErrTestModeCommandForbidden,
 				fmt.Sprintf("Command %q is forbidden in validation mode.", p.command),
-			), validationContext, stdout, stderr)
+			), validationContext, stdout, runStderr)
 		}
 		if p.command == "capture" && len(p.drivers) == 0 {
 			p.drivers = []string{validationContext.Descriptor().Inventory.Driver}
@@ -514,7 +524,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if _, known := knownCommands[p.command]; !known {
-		fmt.Fprintf(stderr, "Unknown command: %q\n\n", p.command)
+		fmt.Fprintf(runStderr, "Unknown command: %q\n\n", p.command)
 		fmt.Fprint(stdout, usageText)
 		return 1
 	}
@@ -532,12 +542,14 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			return renderCLIResult(p, nil, envelope.NewError(
 				envelope.ErrTestModeInvalid,
 				"Validation mode activation is invalid.",
-			), nil, stdout, stderr)
+			), nil, stdout, runStderr)
 		}
 		defer func() {
 			_ = validationSession.Restore()
 			_ = restoreEnvironment()
 		}()
+		restoreDefaultEvents := events.ActivateDefaultWriter(runStderr)
+		defer restoreDefaultEvents()
 	}
 
 	data, cmdErr := dispatchFn(p)
@@ -548,7 +560,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 			"Validation mode rejected an operation outside its disposable authority.",
 		)
 	}
-	return renderCLIResult(p, data, cmdErr, validationContext, stdout, stderr)
+	return renderCLIResult(p, data, cmdErr, validationContext, stdout, runStderr)
 }
 
 func renderCLIResult(p parsedArgs, data interface{}, cmdErr *envelope.Error, validationContext *validationmode.Context, stdout, stderr io.Writer) int {
@@ -665,12 +677,41 @@ func redactCLIString(value string, roots []string) string {
 		if strings.TrimSpace(root) == "" {
 			continue
 		}
-		forms := []string{root, strings.ReplaceAll(root, `\`, "/"), strings.ReplaceAll(root, "/", `\`)}
+		plainForms := []string{root, strings.ReplaceAll(root, `\`, "/"), strings.ReplaceAll(root, "/", `\`)}
+		forms := make([]string, 0, len(plainForms)*2)
+		for _, form := range plainForms {
+			forms = append(forms, strings.ReplaceAll(form, `\`, `\\`))
+		}
+		forms = append(forms, plainForms...)
 		for _, form := range forms {
 			value = replaceFold(value, form, "$ENDSTATE_ROOT")
 		}
 	}
 	return value
+}
+
+func validationOutputRoots(context *validationmode.Context) []string {
+	if context == nil {
+		return nil
+	}
+	return []string{context.Root(), os.Getenv(validationmode.RootEnvironment)}
+}
+
+type validationRedactingWriter struct {
+	target io.Writer
+	roots  []string
+}
+
+func (w validationRedactingWriter) Write(p []byte) (int, error) {
+	redacted := redactCLIString(string(p), w.roots)
+	written, err := io.WriteString(w.target, redacted)
+	if err != nil {
+		return 0, err
+	}
+	if written != len(redacted) {
+		return 0, io.ErrShortWrite
+	}
+	return len(p), nil
 }
 
 func replaceFold(value, old, replacement string) string {
