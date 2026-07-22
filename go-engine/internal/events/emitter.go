@@ -27,7 +27,7 @@ type Emitter struct {
 var (
 	defaultWriterSessionMu sync.Mutex
 	defaultWriterMu        sync.RWMutex
-	defaultWriter          io.Writer = os.Stderr
+	defaultWriter          io.Writer
 )
 
 // ActivateDefaultWriter routes emitters created by NewEmitter to w until the
@@ -35,9 +35,6 @@ var (
 // are unaffected. Activations are serialized so concurrent CLI sessions cannot
 // restore another session's writer.
 func ActivateDefaultWriter(w io.Writer) func() {
-	if w == nil {
-		w = os.Stderr
-	}
 	defaultWriterSessionMu.Lock()
 	defaultWriterMu.Lock()
 	previous := defaultWriter
@@ -57,8 +54,12 @@ func ActivateDefaultWriter(w io.Writer) func() {
 
 func currentDefaultWriter() io.Writer {
 	defaultWriterMu.RLock()
-	defer defaultWriterMu.RUnlock()
-	return defaultWriter
+	w := defaultWriter
+	defaultWriterMu.RUnlock()
+	if w == nil {
+		return os.Stderr
+	}
+	return w
 }
 
 // NewEmitter creates an Emitter that writes to the active default writer,

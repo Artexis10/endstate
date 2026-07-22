@@ -6,6 +6,7 @@ package events
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"os"
 	"strings"
 	"testing"
@@ -38,6 +39,32 @@ func TestActivateDefaultWriterRoutesOnlyDefaultEmittersAndRestoresIdempotently(t
 	restore()
 	if got := NewEmitter("restored-run", true).writer; got != os.Stderr {
 		t.Fatalf("restored default writer = %T, want os.Stderr", got)
+	}
+}
+
+func TestNewEmitterUsesRuntimeStderrWhenNoOverride(t *testing.T) {
+	originalStderr := os.Stderr
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		os.Stderr = originalStderr
+		_ = writer.Close()
+		_ = reader.Close()
+	})
+	os.Stderr = writer
+
+	NewEmitter("runtime-stderr", true).EmitArtifact("capture", "manifest", "runtime-path")
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	output, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(output), `"path":"runtime-path"`) {
+		t.Fatalf("runtime stderr output = %q", output)
 	}
 }
 
