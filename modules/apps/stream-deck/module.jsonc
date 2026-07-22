@@ -1,0 +1,105 @@
+{
+  // Config Module: Elgato Stream Deck
+  // Captures vendor-created profile backups, not installed plugin binaries.
+
+  "id": "apps.stream-deck",
+  "displayName": "Elgato Stream Deck",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": ["Elgato.StreamDeck"],
+    "exe": ["StreamDeck.exe"],
+    "uninstallDisplayName": ["^Elgato Stream Deck"],
+    "pathExists": [
+      "%APPDATA%\\Elgato\\StreamDeck\\ProfilesV3",
+      "%APPDATA%\\Elgato\\StreamDeck\\BackupV3",
+      // Legacy Stream Deck backup layout.
+      "%APPDATA%\\Elgato\\StreamDeck\\Backup"
+    ]
+  },
+
+  "verify": [
+    { "type": "file-exists", "path": "%APPDATA%\\Elgato\\StreamDeck" }
+  ],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/stream-deck/ProfilesV3",
+      "target": "%APPDATA%\\Elgato\\StreamDeck\\ProfilesV3",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/stream-deck/BackupV3",
+      "target": "%APPDATA%\\Elgato\\StreamDeck\\BackupV3",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Legacy Stream Deck backup layout.
+      "type": "copy",
+      "source": "./payload/apps/stream-deck/Backup",
+      "target": "%APPDATA%\\Elgato\\StreamDeck\\Backup",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      {
+        "source": "%APPDATA%\\Elgato\\StreamDeck\\ProfilesV3",
+        "dest": "apps/stream-deck/ProfilesV3",
+        "optional": true
+      },
+      {
+        "source": "%APPDATA%\\Elgato\\StreamDeck\\BackupV3",
+        "dest": "apps/stream-deck/BackupV3",
+        "optional": true
+      },
+      {
+        // Legacy Stream Deck backup layout.
+        "source": "%APPDATA%\\Elgato\\StreamDeck\\Backup",
+        "dest": "apps/stream-deck/Backup",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\Crash*\\**",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.tmp",
+      "**\\*.vscdb"
+    ]
+  },
+
+  "secrets": {
+    "files": [
+      "%APPDATA%\\Elgato\\StreamDeck\\Plugins"
+    ],
+    "warning": "Plugin data and binaries are excluded. Plugins may maintain authentication tokens or other account data and must be reinstalled separately.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures the active Stream Deck profiles from %APPDATA%\\Elgato\\StreamDeck\\ProfilesV3 plus vendor-created profile backups from the current BackupV3 layout and optional legacy Backup layout. Live profiles are included because automatic backups can lag behind current edits. Profiles can contain actions with local paths and account-linked actions, so sensitivity is medium. Installed plugins, NodeJS runtimes, logs, caches, Marketplace web state, and icon packs are deliberately excluded; plugins and icon packs must be reinstalled separately. Close Stream Deck before capture or restore so profile manifests are consistent. Direct restore replaces ProfilesV3 only after Endstate backs up its prior contents; the portable .streamDeckProfilesBackup files remain available as a fallback. These paths were confirmed against a Stream Deck installation in July 2026.",
+
+  "curation": {
+    "snapshotRoots": ["%APPDATA%\\Elgato\\StreamDeck"],
+    "excludePatterns": [
+      "**/Cache/**",
+      "**/Logs/**",
+      "**/Temp/**",
+      "**/Crash*/**",
+      "**/Plugins/**",
+      "**/*.log",
+      "**/*.lock",
+      "**/*.tmp",
+      "**/*.vscdb"
+    ]
+  }
+}

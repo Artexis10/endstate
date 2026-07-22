@@ -1,0 +1,112 @@
+{
+  // Config Module: Elgato Wave Link
+  // Captures Wave Link's roaming configuration and native backup history.
+
+  "id": "apps.wave-link",
+  "displayName": "Elgato Wave Link",
+  "sensitivity": "medium",
+
+  "matches": {
+    "winget": [],
+    "exe": ["WaveLink.exe"],
+    "uninstallDisplayName": ["^Elgato Wave Link", "^Wave Link"],
+    "pathExists": [
+      "%LOCALAPPDATA%\\Packages\\Elgato.WaveLink_g54w8ztgkx496\\LocalState\\Settings.json",
+      // Legacy Wave Link roaming configuration.
+      "%APPDATA%\\Elgato\\WaveLink"
+    ]
+  },
+
+  "verify": [],
+
+  "restore": [
+    {
+      "type": "copy",
+      "source": "./payload/apps/wave-link/WaveLink3/Settings.json",
+      "target": "%LOCALAPPDATA%\\Packages\\Elgato.WaveLink_g54w8ztgkx496\\LocalState\\Settings.json",
+      "backup": true,
+      "optional": true
+    },
+    {
+      "type": "copy",
+      "source": "./payload/apps/wave-link/WaveLink3/Backup",
+      "target": "%LOCALAPPDATA%\\Packages\\Elgato.WaveLink_g54w8ztgkx496\\LocalState\\Backup",
+      "backup": true,
+      "optional": true
+    },
+    {
+      // Legacy Wave Link roaming configuration.
+      "type": "copy",
+      "source": "./payload/apps/wave-link/WaveLink",
+      "target": "%APPDATA%\\Elgato\\WaveLink",
+      "backup": true,
+      "optional": true
+    }
+  ],
+
+  "capture": {
+    "files": [
+      {
+        "source": "%LOCALAPPDATA%\\Packages\\Elgato.WaveLink_g54w8ztgkx496\\LocalState\\Settings.json",
+        "dest": "apps/wave-link/WaveLink3/Settings.json",
+        "optional": true
+      },
+      {
+        "source": "%LOCALAPPDATA%\\Packages\\Elgato.WaveLink_g54w8ztgkx496\\LocalState\\Backup",
+        "dest": "apps/wave-link/WaveLink3/Backup",
+        "optional": true
+      },
+      {
+        // Legacy Wave Link roaming configuration.
+        "source": "%APPDATA%\\Elgato\\WaveLink",
+        "dest": "apps/wave-link/WaveLink",
+        "optional": true
+      }
+    ],
+    "excludeGlobs": [
+      "**\\Cache\\**",
+      "**\\Logs\\**",
+      "**\\Temp\\**",
+      "**\\Crash*\\**",
+      "**\\GPUCache\\**",
+      "**\\Downloads\\**",
+      "**\\Marketplace\\**",
+      "**\\*.cache",
+      "**\\*.log",
+      "**\\*.lock",
+      "**\\*.tmp",
+      "**\\*.vscdb"
+    ]
+  },
+
+  "secrets": {
+    "files": [],
+    "warning": "Wave Link backups can contain application audio-routing information and device-specific identifiers. Review a bundle before sharing it.",
+    "restorer": "warn-only"
+  },
+
+  "notes": "Captures both Wave Link 3 MSIX state and the legacy roaming layout. For Wave Link 3, only the active LocalState\\Settings.json and native LocalState\\Backup history are included; WebView data, audio-plugin caches, logs, temporary state, and package databases are excluded. The stable package-family path Elgato.WaveLink_g54w8ztgkx496 and this layout were confirmed against Wave Link 3.2.5 in July 2026. The roaming lane captures MixerConfiguration.json, AppRoutingInfo.json, and Backup/Backups where present while excluding logs and regenerable caches. Elgato documents that native backups include channel order, audio-effect assignments and settings, and Windows application audio routing. Settings contain device identifiers and routing information, so sensitivity is medium. Close Wave Link first so it writes current settings and releases its files; restore only on Windows, then use Wave Link's Backup and Restore screen if a native backup must be selected.",
+
+  "curation": {
+    "snapshotRoots": [
+      "%APPDATA%\\Elgato\\WaveLink",
+      "%LOCALAPPDATA%\\Packages\\Elgato.WaveLink_g54w8ztgkx496\\LocalState"
+    ],
+    "excludePatterns": [
+      "**/Cache/**",
+      "**/Logs/**",
+      "**/Temp/**",
+      "**/Crash*/**",
+      "**/GPUCache/**",
+      "**/EBWebView/**",
+      "**/AudioPluginCache/**",
+      "**/Downloads/**",
+      "**/Marketplace/**",
+      "**/*.cache",
+      "**/*.log",
+      "**/*.lock",
+      "**/*.tmp",
+      "**/*.vscdb"
+    ]
+  }
+}
