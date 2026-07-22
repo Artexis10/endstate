@@ -53,9 +53,12 @@ func TestCollectConfigSetPreservesNestedHierarchyAndSameBasenames(t *testing.T) 
 	if err != nil {
 		t.Fatalf("CollectConfigSet: %v", err)
 	}
-	wantRoot := "configs/" + CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)
-	if result.CaptureID != CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID) || result.PayloadRoot != wantRoot {
-		t.Fatalf("collection identity = %+v, want payload root %q", result, wantRoot)
+	// CaptureID keeps the full opaque identity; PayloadRoot points at the
+	// readable directory (sanitized module id + short hash suffix).
+	wantCaptureID := CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)
+	wantRoot := "configs/" + readableConfigDirName(plan.Module.ID, wantCaptureID)
+	if result.CaptureID != wantCaptureID || result.PayloadRoot != wantRoot {
+		t.Fatalf("collection identity = %+v, want capture id %q payload root %q", result, wantCaptureID, wantRoot)
 	}
 	wantFiles := []string{
 		"explicit/deep/settings.json",
@@ -166,7 +169,7 @@ func TestCollectConfigSetRemovesPartialPayloadOnCopyFailure(t *testing.T) {
 	if err == nil || ConfigCaptureDiagnosticCode(err) != ConfigCaptureIO {
 		t.Fatalf("copy failure = %v code=%q", err, ConfigCaptureDiagnosticCode(err))
 	}
-	payloadRoot := filepath.Join(staging, "configs", CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID))
+	payloadRoot := filepath.Join(staging, "configs", readableConfigDirName(plan.Module.ID, CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)))
 	if _, statErr := os.Lstat(payloadRoot); !os.IsNotExist(statErr) {
 		t.Fatalf("partial payload root survived collection error: %v", statErr)
 	}
@@ -313,7 +316,7 @@ func TestCollectConfigSetRejectsSourceSwappedToLinkAfterPreflight(t *testing.T) 
 	if ConfigCaptureDiagnosticCode(err) != ConfigCaptureLinkUnsupported {
 		t.Fatalf("swapped source error = %v code=%q", err, ConfigCaptureDiagnosticCode(err))
 	}
-	payloadRoot := filepath.Join(staging, "configs", CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID))
+	payloadRoot := filepath.Join(staging, "configs", readableConfigDirName(plan.Module.ID, CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)))
 	if _, statErr := os.Lstat(payloadRoot); !os.IsNotExist(statErr) {
 		t.Fatalf("swapped source published payload: %v", statErr)
 	}
@@ -351,7 +354,7 @@ func TestCollectConfigSetRejectsSourceSwappedToDifferentRegularFileAfterPrefligh
 	if ConfigCaptureDiagnosticCode(err) != ConfigCaptureUnsafePath {
 		t.Fatalf("swapped source error = %v code=%q", err, ConfigCaptureDiagnosticCode(err))
 	}
-	payloadRoot := filepath.Join(staging, "configs", CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID))
+	payloadRoot := filepath.Join(staging, "configs", readableConfigDirName(plan.Module.ID, CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)))
 	if _, statErr := os.Lstat(payloadRoot); !os.IsNotExist(statErr) {
 		t.Fatalf("swapped source published payload: %v", statErr)
 	}

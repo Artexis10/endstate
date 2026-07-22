@@ -94,6 +94,78 @@ func CaptureID(moduleID, setID, instanceID string) string {
 	return "capture-" + hex.EncodeToString(hash.Sum(nil))
 }
 
+// readableConfigDirName derives a human-readable, path-safe directory name for a
+// staged config payload. It pairs a sanitized module/app identifier with a short
+// suffix of the content-addressed capture identity, so a user can open a bundle
+// ZIP and recognise configs/powertoys-135f78ef/ instead of an opaque hash while
+// the directory stays unique. Only the on-disk/in-zip folder name and its
+// PayloadRoot pointer use this readable form; the full identity is preserved
+// verbatim in manifest fields (CaptureID / LegacyCaptureID). Every consumer
+// resolves payloads through PayloadRoot, never by parsing the folder name back
+// into an identity.
+func readableConfigDirName(identifier, captureID string) string {
+	prefix := sanitizeConfigDirSegment(identifier)
+	short := shortCaptureHashSuffix(captureID)
+	switch {
+	case prefix == "":
+		// No readable prefix survived sanitization; fall back to the opaque
+		// content-addressed identity so the directory stays unique and valid.
+		return captureID
+	case short == "":
+		return prefix
+	default:
+		return prefix + "-" + short
+	}
+}
+
+// sanitizeConfigDirSegment lowercases an identifier and reduces it to the
+// path-safe [a-z0-9.-] alphabet, collapsing every other run of characters into a
+// single dash. A leading "apps." catalog prefix is dropped for brevity
+// (apps.powertoys -> powertoys), matching the readable names plain v1 bundles
+// already use for their config folders.
+func sanitizeConfigDirSegment(identifier string) string {
+	lower := strings.ToLower(strings.TrimSpace(identifier))
+	lower = strings.TrimPrefix(lower, "apps.")
+	var builder strings.Builder
+	pendingDash := false
+	for _, r := range lower {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '-' {
+			if pendingDash && builder.Len() > 0 {
+				builder.WriteByte('-')
+			}
+			pendingDash = false
+			builder.WriteRune(r)
+			continue
+		}
+		pendingDash = true
+	}
+	return strings.Trim(builder.String(), "-.")
+}
+
+// shortCaptureHashSuffix returns the leading 8 hex characters of the content
+// hash embedded in an opaque capture identity ("capture-<64hex>" or
+// "legacy-<64hex>"). It disambiguates readable directories that share a
+// sanitized prefix (for example two config sets of the same app) without leaking
+// the full identity into the folder name.
+func shortCaptureHashSuffix(captureID string) string {
+	hexPart := captureID
+	if index := strings.LastIndexByte(hexPart, '-'); index >= 0 {
+		hexPart = hexPart[index+1:]
+	}
+	var builder strings.Builder
+	for _, r := range hexPart {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			builder.WriteRune(r)
+			if builder.Len() == 8 {
+				break
+			}
+			continue
+		}
+		break
+	}
+	return builder.String()
+}
+
 type configCopyItem struct {
 	source string
 	dest   string
@@ -127,7 +199,7 @@ func CollectConfigSet(plan ConfigSetCapturePlan, stagingRoot string) (_ *ConfigS
 	}
 
 	captureID := CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)
-	payloadRoot := path.Join("configs", captureID)
+	payloadRoot := path.Join("configs", readableConfigDirName(plan.Module.ID, captureID))
 	preflight, err := preflightConfigCopies(plan)
 	if err != nil {
 		return nil, err

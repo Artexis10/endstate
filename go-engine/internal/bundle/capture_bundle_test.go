@@ -219,16 +219,19 @@ func TestCreateCaptureBundleMixedAssociatesOnlyLegacyFlatActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	legacyID := LegacyCaptureID(legacy.ID)
+	// The lane keeps the full opaque identity, but the on-disk folder is now a
+	// human-readable name so bundles can be hand-edited.
+	readableDir := readableConfigDirName(legacy.ID, legacyID)
 	if len(result.LegacyModules) != 1 {
 		t.Fatalf("legacy module collection results = %+v", result.LegacyModules)
 	}
 	legacyResult := result.LegacyModules[0]
 	if legacyResult.ModuleID != legacy.ID || legacyResult.Status != LegacyCaptureStatusCaptured || legacyResult.FilesCaptured != 1 ||
-		len(legacyResult.Paths) != 1 || legacyResult.Paths[0] != "configs/"+legacyID+"/legacy.json" {
+		len(legacyResult.Paths) != 1 || legacyResult.Paths[0] != "configs/"+readableDir+"/legacy.json" {
 		t.Fatalf("legacy module collection result = %+v", legacyResult)
 	}
 	loaded, _ := loadCaptureBundle(t, request.OutputPath)
-	if len(loaded.LegacyConfigLanes) != 1 || loaded.LegacyConfigLanes[0].CaptureID != legacyID || loaded.LegacyConfigLanes[0].PayloadRoot != "configs/"+legacyID {
+	if len(loaded.LegacyConfigLanes) != 1 || loaded.LegacyConfigLanes[0].CaptureID != legacyID || loaded.LegacyConfigLanes[0].PayloadRoot != "configs/"+readableDir {
 		t.Fatalf("legacy lanes = %+v", loaded.LegacyConfigLanes)
 	}
 	if len(loaded.Restore) != 1 || loaded.Restore[0].LegacyCaptureID != legacyID || loaded.Restore[0].FromModule != legacy.ID {
@@ -287,6 +290,7 @@ func TestCreateCaptureBundleMixedV2StagesLegacyDirectoryRootUnderLane(t *testing
 	}
 
 	legacyID := LegacyCaptureID("apps.powertoys")
+	readableDir := readableConfigDirName("apps.powertoys", legacyID)
 	manifestPath := extractCaptureBundle(t, request.OutputPath)
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
@@ -298,12 +302,17 @@ func TestCreateCaptureBundleMixedV2StagesLegacyDirectoryRootUnderLane(t *testing
 	if err := json.Unmarshal(manifest.StripJsoncComments(data), &frozen); err != nil {
 		t.Fatal(err)
 	}
-	wantSource := "./configs/" + legacyID + "/powertoys"
+	// Restore sources point at the readable directory; identity still travels in
+	// the lane/restore LegacyCaptureID field.
+	wantSource := "./configs/" + readableDir + "/powertoys"
 	if len(frozen.Restore) != 1 || frozen.Restore[0].Source != wantSource {
 		t.Fatalf("frozen restore = %+v, want source %q", frozen.Restore, wantSource)
 	}
+	if len(frozen.Restore) != 1 || frozen.Restore[0].LegacyCaptureID != legacyID {
+		t.Fatalf("restore lost full legacy identity = %+v, want %q", frozen.Restore, legacyID)
+	}
 
-	wantPayload := "configs/" + legacyID + "/powertoys/settings/settings.json"
+	wantPayload := "configs/" + readableDir + "/powertoys/settings/settings.json"
 	if entries := zipEntryNames(t, request.OutputPath); !containsString(entries, wantPayload) {
 		t.Fatalf("zip entries %v missing legacy directory payload %q", entries, wantPayload)
 	}
