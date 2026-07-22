@@ -165,6 +165,50 @@ func TestLoadManifestV2CarriesProvenanceAndAllowsUnknownFields(t *testing.T) {
 	}
 }
 
+func TestLoadManifestV2AcceptsLegacyHashNamedPayloadRoots(t *testing.T) {
+	// Bundles written before human-readable folder names used the full opaque
+	// capture identity as the on-disk directory (configs/capture-<64hex> and
+	// configs/legacy-<64hex>). Those must keep validating so existing bundles
+	// still import and restore unchanged after the readable-name change.
+	oldCaptureID := "capture-" + strings.Repeat("a", 64)
+	oldLegacyID := "legacy-" + strings.Repeat("c", 64)
+	value := validManifestV2Value(oldCaptureID)
+	addValidLegacyLane(value, oldLegacyID, "legacy.example")
+
+	loaded, err := LoadManifest(writeManifestValue(t, value))
+	if err != nil {
+		t.Fatalf("old hash-named bundle rejected: %v", err)
+	}
+	if len(loaded.ConfigCaptures) != 1 || loaded.ConfigCaptures[0].PayloadRoot != "configs/"+oldCaptureID {
+		t.Fatalf("generation capture payload root = %+v", loaded.ConfigCaptures)
+	}
+	if len(loaded.LegacyConfigLanes) != 1 || loaded.LegacyConfigLanes[0].PayloadRoot != "configs/"+oldLegacyID {
+		t.Fatalf("legacy lane payload root = %+v", loaded.LegacyConfigLanes)
+	}
+}
+
+func TestLoadManifestV2AcceptsReadablePayloadRoots(t *testing.T) {
+	// Human-readable folder names decouple payloadRoot from the (unique) capture
+	// identity: the directory is a sanitized label plus a short hash suffix, while
+	// the full identity stays in the captureId / legacyCaptureId fields.
+	value := validManifestV2Value("capture-a")
+	firstCapture(value)["payloadRoot"] = "configs/example-0a1b2c3d"
+	addValidLegacyLane(value, "legacy-a", "legacy.example")
+	firstLegacyLane(value)["payloadRoot"] = "configs/other-9f8e7d6c"
+	firstLegacyRestore(value)["source"] = "./configs/other-9f8e7d6c/prefs.json"
+
+	loaded, err := LoadManifest(writeManifestValue(t, value))
+	if err != nil {
+		t.Fatalf("readable payload roots rejected: %v", err)
+	}
+	if loaded.ConfigCaptures[0].CaptureID != "capture-a" || loaded.ConfigCaptures[0].PayloadRoot != "configs/example-0a1b2c3d" {
+		t.Fatalf("generation capture identity/root = %+v", loaded.ConfigCaptures[0])
+	}
+	if loaded.LegacyConfigLanes[0].CaptureID != "legacy-a" || loaded.LegacyConfigLanes[0].PayloadRoot != "configs/other-9f8e7d6c" {
+		t.Fatalf("legacy lane identity/root = %+v", loaded.LegacyConfigLanes[0])
+	}
+}
+
 func TestLoadManifestV2AcceptsRawOnlyIrregularVersionEvidence(t *testing.T) {
 	for _, rawVersion := range []string{"", "release-27"} {
 		t.Run(rawVersion, func(t *testing.T) {
@@ -216,7 +260,7 @@ func TestLoadManifestV2StrictValidation(t *testing.T) {
 		{"uppercase fingerprint", "INVALID_CONFIG_CAPTURE", func(v map[string]any) { firstCapture(v)["sourceGenerationFingerprint"] = strings.Repeat("A", 64) }},
 		{"short module hash", "INVALID_CONFIG_CAPTURE", func(v map[string]any) { firstCapture(v)["captureModule"].(map[string]any)["contentHash"] = "abc" }},
 		{"wrong module schema", "INVALID_CONFIG_CAPTURE", func(v map[string]any) { firstCapture(v)["captureModule"].(map[string]any)["schemaVersion"] = 1 }},
-		{"wrong isolated payload root", "INVALID_CONFIG_CAPTURE", func(v map[string]any) { firstCapture(v)["payloadRoot"] = "configs/other" }},
+		{"nested payload root", "INVALID_CONFIG_CAPTURE", func(v map[string]any) { firstCapture(v)["payloadRoot"] = "configs/capture-a/nested" }},
 		{"traversing payload root", "INVALID_CONFIG_CAPTURE", func(v map[string]any) { firstCapture(v)["payloadRoot"] = "configs/capture-a/../other" }},
 		{"absolute snapshot path", "INVALID_CONFIG_CAPTURE", func(v map[string]any) {
 			firstCapture(v)["captureModule"].(map[string]any)["snapshotPath"] = `C:\provenance\module.json`

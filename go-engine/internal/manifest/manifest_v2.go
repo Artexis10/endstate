@@ -237,6 +237,7 @@ func validateConfigCaptures(captures []ConfigCapture, filePath string, requireAn
 		return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "manifest version 2 requires at least one configCapture")
 	}
 	seenCaptures := make(map[string]struct{}, len(captures))
+	seenRoots := make(map[string]struct{}, len(captures))
 	for index := range captures {
 		capture := &captures[index]
 		if err := validateConfigCapture(capture); err != nil {
@@ -245,7 +246,37 @@ func validateConfigCaptures(captures []ConfigCapture, filePath string, requireAn
 		if _, exists := seenCaptures[capture.CaptureID]; exists {
 			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "duplicate captureId %q", capture.CaptureID)
 		}
+		// Readable payload roots no longer mirror the (unique) captureId, so
+		// guard their uniqueness directly: two captures must never resolve to
+		// the same on-disk directory.
+		if _, exists := seenRoots[capture.PayloadRoot]; exists {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "duplicate payloadRoot %q", capture.PayloadRoot)
+		}
 		seenCaptures[capture.CaptureID] = struct{}{}
+		seenRoots[capture.PayloadRoot] = struct{}{}
+	}
+	return nil
+}
+
+// validateConfigPayloadRoot enforces that a staged config payload lives in a
+// single directory directly under configs/. The directory name is a
+// human-readable label plus a short hash suffix (or, for bundles written before
+// readable names, the full opaque capture identity) — either way its exact
+// spelling is not load-bearing, because every consumer resolves payloads through
+// this PayloadRoot pointer rather than by parsing the folder name back into an
+// identity. Keeping this permissive is what lets old hash-named bundles keep
+// validating and restoring unchanged.
+func validateConfigPayloadRoot(payloadRoot string) error {
+	if err := validatePortableManifestPath(payloadRoot); err != nil {
+		return err
+	}
+	const prefix = "configs/"
+	if !strings.HasPrefix(payloadRoot, prefix) {
+		return fmt.Errorf("must be a directory under configs/")
+	}
+	segment := payloadRoot[len(prefix):]
+	if segment == "" || strings.Contains(segment, "/") {
+		return fmt.Errorf("must be a single directory under configs/")
 	}
 	return nil
 }
@@ -304,12 +335,8 @@ func validateConfigCapture(capture *ConfigCapture) error {
 	if !strings.HasPrefix(capture.CaptureModule.SnapshotPath, "provenance/modules/") {
 		return fmt.Errorf("captureModule.snapshotPath must be contained under provenance/modules/")
 	}
-	if err := validatePortableManifestPath(capture.PayloadRoot); err != nil {
+	if err := validateConfigPayloadRoot(capture.PayloadRoot); err != nil {
 		return fmt.Errorf("payloadRoot: %w", err)
-	}
-	expectedRoot := path.Join("configs", capture.CaptureID)
-	if capture.PayloadRoot != expectedRoot {
-		return fmt.Errorf("payloadRoot must be %q", expectedRoot)
 	}
 
 	previousPath := ""
@@ -357,9 +384,8 @@ func validateLegacyConfigLanes(manifest *Manifest, filePath string) error {
 		if lane.ModuleSchemaVersion != 1 {
 			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacyConfigLanes[%d].moduleSchemaVersion must be exactly 1", index)
 		}
-		expectedRoot := path.Join("configs", lane.CaptureID)
-		if err := validatePortableManifestPath(lane.PayloadRoot); err != nil || lane.PayloadRoot != expectedRoot {
-			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacyConfigLanes[%d].payloadRoot must be %q", index, expectedRoot)
+		if err := validateConfigPayloadRoot(lane.PayloadRoot); err != nil {
+			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "legacyConfigLanes[%d].payloadRoot %q is invalid: %v", index, lane.PayloadRoot, err)
 		}
 		if _, duplicate := allCaptureIDs[lane.CaptureID]; duplicate {
 			return manifestValidationError(filePath, ManifestDiagnosticInvalidConfigCapture, "duplicate captureId %q across config captures and legacy lanes", lane.CaptureID)

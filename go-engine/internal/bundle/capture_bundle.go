@@ -466,7 +466,11 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		legacyCaptureID := ""
 		if mixedV2 {
 			legacyCaptureID = LegacyCaptureID(mod.ID)
-			layoutID = legacyCaptureID
+			// The full LegacyCaptureID stays the lane's identity; the on-disk
+			// folder gets a human-readable name so mixed-v2 bundles read like
+			// plain v1 ones (configs/powertoys-135f78ef/) instead of an opaque
+			// configs/legacy-<64hex>/.
+			layoutID = readableConfigDirName(mod.ID, legacyCaptureID)
 		}
 		sourceRoot := filepath.Join(workRoot, "configs", shortID)
 		destinationRoot, err := containedHostPath(stagingRoot, path.Join("configs", layoutID))
@@ -495,7 +499,7 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 		})
 		if mixedV2 {
 			legacy.lanes = append(legacy.lanes, manifest.LegacyConfigLane{
-				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1, PayloadRoot: path.Join("configs", legacyCaptureID),
+				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1, PayloadRoot: path.Join("configs", layoutID),
 			})
 		}
 		staged = append(staged, stagedLegacyRestores{mod: mod, layoutID: layoutID, legacyCaptureID: legacyCaptureID})
