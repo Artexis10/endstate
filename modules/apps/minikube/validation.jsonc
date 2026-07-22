@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.minikube",
+  "moduleRevision": "e4826c9e51d5acf368fbb663a2be936d0817f0fb9623b370264984c96633e45e",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures minikube's global config file (%USERPROFILE%\\.minikube\\config\\config.json) which stores driver preference, CPU/memory defaults, and addon feature flags. Cluster state, TLS certs, PKI keys, VM images, and kubeconfig entries are explicitly excluded and never captured. Confidence: high - config path and directory layout confirmed by minikube official documentation. Authored secret warning: The certs/ directory holds TLS CA and node private keys. The profiles/ and machines/ directories hold per-cluster kubeconfig entries and VM credentials. These MUST NOT be captured or auto-restored. Regenerate cluster credentials by running `minikube start` on the target machine. Authored excluded secret or machine-bound paths: %USERPROFILE%\\.minikube\\certs, %USERPROFILE%\\.minikube\\profiles, %USERPROFILE%\\.minikube\\machines"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

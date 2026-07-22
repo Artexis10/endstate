@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.moonlight",
+  "moduleRevision": "1dae5869f9c9fa49e08179b95b7606dc5424bac70664448014b75c919d7a5855",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Capture-only. Captures Moonlight streaming preferences (resolution, bitrate, codec, frame rate, host list, input settings) from HKCU\\Software\\Moonlight Game Streaming Project\\Moonlight. Paired-host certificate/key material is blocked from auto-restore as it is machine-bound. Confidence: medium — registry path confirmed via community sources; exact value layout not individually verified. Authored excluded secret or machine-bound paths: %LOCALAPPDATA%\\Moonlight Game Streaming Project\\Moonlight\\*.p12, %LOCALAPPDATA%\\Moonlight Game Streaming Project\\Moonlight\\*.pem, %LOCALAPPDATA%\\Moonlight Game Streaming Project\\Moonlight\\*.key"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

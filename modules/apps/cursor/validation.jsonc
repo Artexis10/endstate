@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.cursor",
+  "moduleRevision": "6c569dedc81246484adc4f258527fdc24295e3b17f12683d621f29fb536d31dd",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "non-restorable-inventory",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "The authored module captures the Cursor extension inventory, which has no executable extension-install restore contract and is intentionally inventory-only."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

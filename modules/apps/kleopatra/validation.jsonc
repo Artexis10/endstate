@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.kleopatra",
+  "moduleRevision": "74925ac329185c2f35e74ecdebec65d48fe091dfa4b053cf14fb8359c530612d",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "nestedSummary": 1,
+          "payload": 1,
+          "provenance": 1,
+          "rebuild": 1,
+          "revert": 1,
+          "rewrittenRestore": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual",
+    "reasonCode": "no-supported-package-reference",
+    "explanation": "No supported unattended Winget or Chocolatey package reference is declared by this module."
+  }
+}

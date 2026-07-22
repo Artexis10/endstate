@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.resilio-sync",
+  "moduleRevision": "e7427e2456b9d781a13d6ba00c3c4aa6a6cb44226daaa86cc0c27a82400a188f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "appReferences": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.brave",
+  "moduleRevision": "16ed7f35c0c22716cbd32d44b7f4fca41f5187b346faff8aab3bb1579b06e444",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "appReferences": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

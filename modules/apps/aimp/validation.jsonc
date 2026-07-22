@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.aimp",
+  "moduleRevision": "949506752db02bb7903a6e36bd93dd665c8f92ec47866f356aa67b93d46043d2",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "nestedSummary": 1,
+          "payload": 1,
+          "provenance": 1,
+          "rebuild": 1,
+          "revert": 1,
+          "rewrittenRestore": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

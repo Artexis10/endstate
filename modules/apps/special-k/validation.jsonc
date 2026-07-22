@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.special-k",
+  "moduleRevision": "fa6c62277a737a5fad95f4d026f3b4c1b6f68731dae81654e58a2fbe29d20048",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "default-v1",
+        "mode": "config-roundtrip-v1",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "nestedSummary": 1,
+          "payload": 1,
+          "provenance": 1,
+          "rebuild": 1,
+          "revert": 1,
+          "rewrittenRestore": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

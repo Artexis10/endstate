@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.meshlab",
+  "moduleRevision": "5288f70ed0e542992b3bc5f45518bdc6f8fcf7d4e415a40f0a63bd229ec7f39f",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures MeshLab preferences from HKCU\\Software\\VCG\\MeshLab (UI layout, rendering options, plugin settings). Capture-only; no payload shipped. Confidence: medium — registry path confirmed by VCG/MeshLab Qt application convention; no file-based config is known."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

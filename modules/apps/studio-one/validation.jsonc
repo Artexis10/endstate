@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.studio-one",
+  "moduleRevision": "a2dbf106d045267f7f7366b065dc4dbcb78ed52161d6d8a29f9cb0f858be0f42",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "generation-preferences-g1-61e9f6f3c254",
+        "mode": "config-generation-v2",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "generation": 1,
+          "nestedSummary": 1,
+          "payload": 1,
+          "provenance": 1,
+          "rebuild": 1,
+          "revert": 1,
+          "rewrittenRestore": 1,
+          "validation": 1
+        },
+        "expected": {
+          "identityMode": "derived-from-fixture",
+          "detectorId": "versions",
+          "configSetId": "preferences",
+          "generationId": "g1",
+          "fingerprint": "61e9f6f3c25454a210cf6ad4e5d304ab61667f82b20bf92208c0bc47cbd0c84f"
+        }
+      },
+      {
+        "id": "generation-preferences-g1-abc0141add29",
+        "mode": "config-generation-v2",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "generation": 1,
+          "nestedSummary": 1,
+          "payload": 1,
+          "provenance": 1,
+          "rebuild": 1,
+          "revert": 1,
+          "rewrittenRestore": 1,
+          "validation": 1
+        },
+        "expected": {
+          "identityMode": "derived-from-fixture",
+          "detectorId": "versions",
+          "configSetId": "preferences",
+          "generationId": "g1",
+          "fingerprint": "abc0141add2928b64ab8fd6b82319c2f57fb086c1ed4b16b776b991d22882444"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual",
+    "reasonCode": "no-supported-package-reference",
+    "explanation": "No supported unattended Winget or Chocolatey package reference is declared by this module."
+  }
+}

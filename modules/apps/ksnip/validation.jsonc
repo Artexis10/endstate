@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.ksnip",
+  "moduleRevision": "0f5ad9f2cb0655eba8fc83c4d6a942bf4883fbad5a2de75f86a230ee4e347313",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "appReferences": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

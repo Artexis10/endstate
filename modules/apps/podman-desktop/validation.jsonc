@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.podman-desktop",
+  "moduleRevision": "f9d629c17ab04794d92782d3f4c9bb193ec7c54b1c916c19d6c3e985fb1ec6ca",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Podman Desktop UI/extension settings (%APPDATA%\\Podman Desktop\\configuration) and per-user container engine config (%USERPROFILE%\\.config\\containers\\*.conf, policy.json). Registry auth (auth.json) and TLS credentials are blocked from auto-restore. Confidence: medium - directory layout confirmed from upstream source and community reports; exact configuration subdirectory depth may vary across Podman Desktop versions. Authored secret warning: auth.json contains OCI registry credentials (base64-encoded username:password tokens). Private key and certificate files MUST NOT be auto-restored. Review manually and re-authenticate with 'podman login' after provisioning. Authored excluded secret or machine-bound paths: %USERPROFILE%\\.config\\containers\\auth.json, %USERPROFILE%\\.config\\containers\\*.pem, %USERPROFILE%\\.config\\containers\\*.key, %USERPROFILE%\\.config\\containers\\*.crt"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

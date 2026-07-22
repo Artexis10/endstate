@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.nomachine",
+  "moduleRevision": "6feb428c03185899580b4c0b7e54ad4cbeee6c7d96d95868afcd91d265259517",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures NoMachine user session profiles (.nxs files) from %USERPROFILE%\\Documents\\NoMachine. Excludes logs, lock files, temp files, and session recordings. .nxs files may embed saved credentials and are flagged warn-only in secrets. Confidence: medium - Documents\\NoMachine is the documented per-user profile directory; system-wide server config lives under %PROGRAMDATA%\\NoMachine and is excluded (not portable across machines). Authored secret warning: NoMachine .nxs session files may embed saved credentials (passwords or SSH key references). Review captured files before committing to a shared store. This module captures them but they must not be automatically restored on a new machine without user review. Authored excluded secret or machine-bound paths: %USERPROFILE%\\Documents\\NoMachine\\*.nxs"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

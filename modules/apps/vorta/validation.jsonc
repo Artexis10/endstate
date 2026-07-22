@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.vorta",
+  "moduleRevision": "1dbfac09e0724165e9eebe31841ec082c2eb57c994cc1436c124acbcacb27825",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Capture-only. Vorta stores all settings in %LOCALAPPDATA%\\Vorta\\settings.db (SQLite); the file also embeds Borg repository passphrases so it is flagged warn-only under secrets. No payload is shipped. Confidence: medium — Windows data path inferred from Vorta Qt/Python conventions; verify on a live install. Authored secret warning: Vorta's settings.db stores BorgBackup repository passphrases (and SSH key references) alongside general UI preferences in a single SQLite database. It MUST NOT be auto-restored because doing so would silently transplant live credential material. Re-add repositories and enter passphrases manually after restore. Authored excluded secret or machine-bound paths: %LOCALAPPDATA%\\Vorta\\settings.db"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

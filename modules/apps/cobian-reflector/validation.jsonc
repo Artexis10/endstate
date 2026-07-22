@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.cobian-reflector",
+  "moduleRevision": "c1731768dbd3451b256994fe2b301c4f351f680585427989edb0f84bc7785702",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Cobian Reflector task definitions and preferences from %APPDATA%\\CobianSoft\\Cobian Reflector. Logs and temp files excluded. Task XML files may contain plaintext destination credentials — restorer set to warn-only. Confidence: medium — config path confirmed by community sources; no official docs available. Authored secret warning: Cobian Reflector task definition files (XML/INI) may embed destination credentials (FTP passwords, remote-path auth tokens). Review captured files before restoring on a new machine; do not auto-restore without inspection. Authored excluded secret or machine-bound paths: %APPDATA%\\CobianSoft\\Cobian Reflector\\*.xml, %APPDATA%\\CobianSoft\\Cobian Reflector\\*.ini"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual",
+    "reasonCode": "no-supported-package-reference",
+    "explanation": "No supported unattended Winget or Chocolatey package reference is declared by this module."
+  }
+}

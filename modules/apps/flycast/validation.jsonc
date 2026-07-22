@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.flycast",
+  "moduleRevision": "173e67c930c7fa7408f5ce4c6d95400a5d96ba94c9c6bef04e9fb0bea1e9ef6b",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "appReferences": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual",
+    "reasonCode": "no-supported-package-reference",
+    "explanation": "No supported unattended Winget or Chocolatey package reference is declared by this module."
+  }
+}

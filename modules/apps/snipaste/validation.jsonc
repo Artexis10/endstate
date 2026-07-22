@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.snipaste",
+  "moduleRevision": "4977001dd5b0c2c2596bcab3037a9d9a97ed39cf7d3b48c59fab3cb7e6b67f67",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Snipaste preferences (hotkeys, screenshot behavior, UI settings) from config.ini. Classic installs place config.ini beside the exe (commonly under %LOCALAPPDATA%\\Snipaste\\ or %APPDATA%\\Snipaste\\); Store edition uses LocalState. Both optional paths are captured. No credentials or sensitive data in scope. Confidence: medium - config.ini location varies by install type (portable vs installed vs Store); user may need to adjust paths for non-standard install locations. Authored secret warning: Snipaste config.ini does not store credentials or tokens; no secret paths identified. If a future version introduces license key storage in config.ini, review before restoring."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

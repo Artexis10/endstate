@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.wireguard",
+  "moduleRevision": "aafd6bfd14db91def8c3a9104931febbadd914cb6e3dbbf91115ce13c1eb5e39",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures WireGuard application config only. Tunnel configuration files (*.conf) are EXCLUDED from capture and restore because they contain private keys. Tunnel configs must be manually and securely managed. Config at %APPDATA%\\WireGuard\\. Authored secret warning: WireGuard tunnel configuration files (*.conf) contain PRIVATE KEYS. These MUST NEVER be auto-captured or auto-restored. Tunnel configs must be manually managed and securely transferred. Authored excluded secret or machine-bound paths: %APPDATA%\\WireGuard\\*.conf"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

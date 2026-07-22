@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.glasswire",
+  "moduleRevision": "b627416d0dd775ca454baedc970cd3fd494e9110811498fea3bdb04c1b074f44",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures GlassWire per-user preferences and firewall rules from %LOCALAPPDATA%\\GlassWire only. Traffic history database (glasswire.db) and %PROGRAMDATA% paths (service config, potential license data) are excluded. Confidence: medium - config file locations inferred from GlassWire's known AppData layout; actual filenames may vary by version. Authored secret warning: GlassWire stores activation / license information and the full traffic history database under %PROGRAMDATA%\\GlassWire. These are bound to the local service installation; restoring them on a different machine may corrupt license state or clone machine-specific network records. They are excluded from both capture and restore. Authored excluded secret or machine-bound paths: %PROGRAMDATA%\\GlassWire\\glasswire.conf, %PROGRAMDATA%\\GlassWire\\glasswire.db"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

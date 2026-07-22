@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.mremoteng",
+  "moduleRevision": "83c296a9946e4a5f7b82087aec590936ba80240d557cbbd994f2f7a0ec6557c2",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "appReferences": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

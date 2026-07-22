@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.treesize-free",
+  "moduleRevision": "b9a578da16af58c10c7ff3772b9ac72ac91ecf419ae59616c2b1c354e290cdee",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures UI preferences, column layout, scan options, and window state stored in HKCU\\Software\\JAM Software\\TreeSize Free. Freeware — no credentials or license data. Confidence: medium — registry path confirmed by convention; key presence depends on app having been launched at least once. Authored secret warning: TreeSize Free is freeware and stores no license keys or credentials. No values in this registry key require suppression."
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

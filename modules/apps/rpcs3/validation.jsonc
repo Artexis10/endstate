@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.rpcs3",
+  "moduleRevision": "de93e487f8080ee132b32cb027394b596bb351c4a4bdc9eb3cf614be5dd81789",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "install-v1",
+        "mode": "install-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "appReferences": 1,
+          "verify": 1
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual",
+    "reasonCode": "no-supported-package-reference",
+    "explanation": "No supported unattended Winget or Chocolatey package reference is declared by this module."
+  }
+}

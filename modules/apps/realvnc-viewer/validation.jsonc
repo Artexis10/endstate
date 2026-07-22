@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.realvnc-viewer",
+  "moduleRevision": "d8cf90ade2eb2aa1de4a6f6f15b7f0e5982f0a48c7b2e759eefd6979d69c68b3",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures RealVNC Viewer preferences from HKCU\\Software\\RealVNC\\vncviewer (connection book entries, UI/display options, protocol tweaks). Saved per-connection passwords are documented in secrets and excluded from restore. HKCU-only capture; sensitivity medium because the connection book may reference internal hostnames. Confidence: medium — registry path confirmed from public RealVNC documentation and community reports. Authored secret warning: RealVNC Viewer stores per-connection saved passwords as encrypted registry values (Password / EncryptedPassword). The encryption is machine-bound; restoring these values on a different machine renders them unusable or, in some VNC implementations, silently insecure. Do not auto-restore saved credentials — reconnect and re-save passwords after a rebuild. Authored excluded secret or machine-bound paths: HKCU\\Software\\RealVNC\\vncviewer\\*\\Password, HKCU\\Software\\RealVNC\\vncviewer\\*\\EncryptedPassword"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

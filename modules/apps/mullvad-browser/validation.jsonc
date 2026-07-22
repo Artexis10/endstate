@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.mullvad-browser",
+  "moduleRevision": "5db1125a30d3733dd1add7c8073a4142429f0d6c1212ad4aa8ced8be99b8efa9",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Capture-only. Captures prefs.js, user.js, and extension metadata from the default profile at %APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\. Cookies, logins, key databases, and SQLite state are excluded. Profile path inferred from Mullvad Browser 13.x Windows layout; confidence medium (no in-situ verification). Authored secret warning: Mullvad Browser profile contains cookies, session tokens, saved logins, and certificate stores. These MUST NOT be auto-restored. Only preference files explicitly listed in capture.files are in scope. Authored excluded secret or machine-bound paths: %APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\cookies.sqlite, %APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\logins.json, %APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\key4.db, %APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\cert9.db, %APPDATA%\\mullvad-browser\\Browser\\TorBrowser\\Data\\Browser\\profile.default\\**"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

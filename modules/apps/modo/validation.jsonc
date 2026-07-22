@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.modo",
+  "moduleRevision": "edaefd1661cf3a1f0a1e920839c79a681be75077b5fc66c5b2fd5a8a6b405c00",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Modo per-version preference files (modoNN.CFG), kit installations, and saved UI layouts from %LOCALAPPDATA%\\Luxology. No winget ID — Modo installs via the Foundry Hub or direct installer. Disk/GL caches, crash dumps, temp files, undo history, autosaves, and thumbnail caches excluded. License blobs marked warn-only in secrets. Confidence: medium — folder confirmed by community sources and Foundry documentation; exact sub-paths vary by Modo version. Authored secret warning: Modo license binding is handled by the Foundry Licensing Service (FLS), not files under %LOCALAPPDATA%\\Luxology. Any local .lic or license blob is machine-/account-specific and must NOT be auto-restored. Authored excluded secret or machine-bound paths: %LOCALAPPDATA%\\Luxology\\*.lic, %LOCALAPPDATA%\\Luxology\\license\\**, %LOCALAPPDATA%\\Luxology\\**\\*.lic"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual",
+    "reasonCode": "no-supported-package-reference",
+    "explanation": "No supported unattended Winget or Chocolatey package reference is declared by this module."
+  }
+}

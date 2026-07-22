@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.sqlitestudio",
+  "moduleRevision": "b0bcb0bc155a3f9231d11279089924d6ad30ef864bd339f9c28585da197409ed",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures SQLiteStudio settings from %USERPROFILE%\\.config\\SQLiteStudio\\. The config store is a SQLite database (SQLiteStudio.db); an optional INI companion file (SQLiteStudio.cfg) is also captured when present. No credentials are stored, but the recent-files list embeds absolute local paths making the .db non-portable — restore is warn-only. Confidence: medium (config path confirmed via SQLiteStudio documentation and community reports; exact schema may vary across the 3.x build series). Authored secret warning: SQLiteStudio.db may contain absolute paths to user database files recorded as recent items. It is machine-local and MUST NOT be auto-restored; users should re-open their databases on the new machine. Authored excluded secret or machine-bound paths: %USERPROFILE%\\.config\\SQLiteStudio\\SQLiteStudio.db"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

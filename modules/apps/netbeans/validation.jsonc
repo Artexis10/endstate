@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.netbeans",
+  "moduleRevision": "dedb01a9bffb7b3c2ac535974449da269e8ecfa1022e047a4a8039326ed6da77",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Apache NetBeans IDE user settings from %APPDATA%\\NetBeans\\\u003cversion\u003e\\config (editor options, keymaps, window layouts, code templates, formatting, themes). Version folder matched with wildcard. Caches (var/cache, index), logs, lock files, crash reports, and local history are excluded. VCS credential stores (keyring, subversion, git preference nodes) are flagged as secrets. Confidence: medium - config root path confirmed by NetBeans wiki and community sources; internal subfolder layout inferred from NetBeans Platform Filesystem API conventions. Authored secret warning: NetBeans keyring and VCS credential stores may contain passwords and access tokens. These MUST NOT be auto-restored. Authored excluded secret or machine-bound paths: %APPDATA%\\NetBeans\\*\\config\\Preferences\\org\\netbeans\\modules\\keyring, %APPDATA%\\NetBeans\\*\\config\\Preferences\\org\\netbeans\\modules\\subversion, %APPDATA%\\NetBeans\\*\\config\\Preferences\\org\\netbeans\\modules\\git"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "candidate",
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+  }
+}

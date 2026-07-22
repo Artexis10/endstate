@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "moduleId": "apps.marmoset-toolbag",
+  "moduleRevision": "bc802846bf610176d7e1a9b4567cc2c722843a9ab6b4e188491f440e3a09cd51",
+  "synthetic": {
+    "scenarios": [
+      {
+        "id": "reviewed-capture-v1",
+        "mode": "capture-contract",
+        "fixture": {
+          "type": "auto"
+        },
+        "timeoutSeconds": 120,
+        "minimumAssertions": {
+          "captured": 1,
+          "content": 1,
+          "payload": 1,
+          "provenance": 1
+        },
+        "review": {
+          "decision": "approved-one-way",
+          "reasonCode": "documented-sensitive-one-way",
+          "reviewer": "endstate-maintainers",
+          "reviewedOn": "2026-07-22",
+          "evidence": "Authored module notes: Captures Marmoset Toolbag user preferences, keybindings, and window layouts from %LOCALAPPDATA%\\Marmoset\\Toolbag. Shader and GPU caches, temp files, logs, and crash reports are excluded. License/activation files are listed in secrets and must not be auto-restored. No winget ID — vendor installer only. Confidence: medium (path inferred from vendor convention; verified against community reports). Authored excluded secret or machine-bound paths: %LOCALAPPDATA%\\Marmoset\\Toolbag\\license.dat, %LOCALAPPDATA%\\Marmoset\\Toolbag\\activation.dat, %LOCALAPPDATA%\\Marmoset\\Toolbag\\auth.json"
+        }
+      }
+    ]
+  },
+  "live": {
+    "mode": "manual",
+    "reasonCode": "no-supported-package-reference",
+    "explanation": "No supported unattended Winget or Chocolatey package reference is declared by this module."
+  }
+}
