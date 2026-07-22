@@ -46,6 +46,13 @@ func ValidateRoot(root string) error {
 	return err
 }
 
+// IsLinkOrReparse reports whether info describes a symbolic link or a
+// platform-specific reparse point. Callers that walk protected trees use this
+// instead of relying on ModeSymlink alone on Windows.
+func IsLinkOrReparse(info os.FileInfo) bool {
+	return isLinkOrReparse(info)
+}
+
 func Resolve(root, portableRelative string) (string, error) {
 	rootPath, err := validateRoot(root)
 	if err != nil {
