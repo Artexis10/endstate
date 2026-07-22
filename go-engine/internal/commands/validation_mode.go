@@ -26,7 +26,19 @@ var currentValidationDriver *validationPackageDriver
 // ValidationModeSession owns the command-layer package seams for one CLI run.
 // The underlying package driver is constructed once and shared by every lane.
 type ValidationModeSession struct {
-	driver *validationPackageDriver
+	context  *validationmode.Context
+	driver   *validationPackageDriver
+	recorder *validationIsolationRecorder
+
+	lifecycleMu          sync.Mutex
+	sealed               bool
+	filesystemGuard      validationFilesystemGuard
+	registryGuard        validationRegistryGuard
+	filesystemCoordinate map[string]string
+	registryCoordinate   map[string]string
+
+	isolationOnce sync.Once
+	isolationErr  error
 
 	restoreOnce sync.Once
 	restoreErr  error
@@ -41,14 +53,17 @@ func ActivateValidationMode(context *validationmode.Context) (*ValidationModeSes
 		return nil, errors.New("validation context is nil")
 	}
 	validationModeActivationMu.Lock()
+	descriptor := context.Descriptor()
+	recorder := newValidationIsolationRecorder(descriptor)
+	session := newValidationModeSession(context, recorder)
+	session.captureAuthorityPaths()
 
 	packageDriver, err := context.NewPackageDriver()
 	if err != nil {
 		validationModeActivationMu.Unlock()
 		return nil, err
 	}
-	guarded := &validationPackageDriver{driver: packageDriver}
-	descriptor := context.Descriptor()
+	guarded := &validationPackageDriver{driver: packageDriver, recorder: recorder}
 
 	originalDefault := newDriverFn
 	originalNamed := newNamedDriverFn
@@ -116,7 +131,7 @@ func ActivateValidationMode(context *validationmode.Context) (*ValidationModeSes
 	currentValidationMode = context
 	currentValidationDriver = guarded
 
-	session := &ValidationModeSession{driver: guarded}
+	session.driver = guarded
 	session.restoreFn = func() {
 		newDriverFn = originalDefault
 		newNamedDriverFn = originalNamed
@@ -194,36 +209,39 @@ func (session *ValidationModeSession) Restore() error {
 // the run. The CLI uses it to replace generic per-item errors with the stable
 // fail-closed validation-mode envelope code.
 func (session *ValidationModeSession) IsolationError() error {
-	if session == nil || session.driver == nil {
+	if session == nil {
 		return nil
 	}
-	return session.driver.isolationError()
+	session.isolationOnce.Do(func() {
+		session.sealIsolation()
+		session.checkIsolationGuards()
+		session.isolationErr = session.recorder.isolationError()
+	})
+	return session.isolationErr
+}
+
+func (session *ValidationModeSession) recordIsolationFinding(coordinate, target string, reason isolationReason) error {
+	if session == nil {
+		return fmt.Errorf("%w: validation session is inactive", validationmode.ErrUnsafePath)
+	}
+	return session.recorder.record(coordinate, target, reason)
 }
 
 type validationPackageDriver struct {
-	driver *validationmode.PackageDriver
-	mu     sync.Mutex
-	err    error
+	driver   *validationmode.PackageDriver
+	recorder *validationIsolationRecorder
 }
 
 func (value *validationPackageDriver) record(err error) error {
 	if err == nil {
 		return nil
 	}
-	value.mu.Lock()
-	value.err = errors.Join(value.err, err)
-	value.mu.Unlock()
+	value.recorder.recordPackageFailure()
 	return err
 }
 
-func (value *validationPackageDriver) isolationError() error {
-	value.mu.Lock()
-	defer value.mu.Unlock()
-	return value.err
-}
-
 func (value *validationPackageDriver) mutationAllowed() error {
-	if err := value.isolationError(); err != nil {
+	if value.recorder.poisoned() {
 		return fmt.Errorf("%w: validation session is already poisoned", validationmode.ErrPackageIdentity)
 	}
 	return nil

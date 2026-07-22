@@ -328,6 +328,47 @@ func TestRunCLIRestoresValidationEnvironmentAfterSuccessAndFailure(t *testing.T)
 	}
 }
 
+func TestRunCLIChecksIsolationAfterSuccessfulAndFailedDispatch(t *testing.T) {
+	for _, dispatchFails := range []bool{false, true} {
+		t.Run(map[bool]string{false: "successful dispatch", true: "failed dispatch"}[dispatchFails], func(t *testing.T) {
+			root := cliValidationRoot(t)
+			t.Setenv(validationmode.TestModeEnvironment, "1")
+			t.Setenv(validationmode.RootEnvironment, root)
+			authority := t.TempDir()
+			t.Setenv("GITHUB_WORKSPACE", authority)
+			marker := filepath.Join(authority, "guarded.txt")
+			if err := os.WriteFile(marker, []byte("before"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			originalDispatch := dispatchFn
+			t.Cleanup(func() { dispatchFn = originalDispatch })
+			dispatchFn = func(parsedArgs) (interface{}, *envelope.Error) {
+				if err := os.WriteFile(marker, []byte("after"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if dispatchFails {
+					return nil, envelope.NewError(envelope.ErrInternalError, "ordinary dispatch failure")
+				}
+				return struct{}{}, nil
+			}
+			var stdout, stderr bytes.Buffer
+			if code := runCLI([]string{"verify", "--json"}, &stdout, &stderr); code != 1 {
+				t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+			}
+			decoded := decodeCLIEnvelope(t, stdout.String())
+			errorObject := decoded["error"].(map[string]interface{})
+			if errorObject["code"] != string(envelope.ErrTestModeIsolationViolation) {
+				t.Fatalf("error code = %v envelope=%s", errorObject["code"], stdout.String())
+			}
+			for _, output := range []string{stdout.String(), stderr.String()} {
+				if strings.Contains(strings.ToLower(output), strings.ToLower(authority)) {
+					t.Fatalf("CLI output leaked authority path: %s", output)
+				}
+			}
+		})
+	}
+}
+
 func TestRunCLIMapsPackageIdentityViolationsAndDoesNotMutateState(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
@@ -461,12 +502,19 @@ func TestBuiltExecutableUsesDisposableEngineAcrossPlanApplyVerify(t *testing.T) 
 	run := func(command string) map[string]interface{} {
 		t.Helper()
 		cmd := exec.Command(binaryPath, command, "--manifest", manifestPath, "--json")
-		cmd.Dir = root
+		cmd.Dir = moduleRoot
 		cmd.Env = childEnvironment
 		var stdout, stderr bytes.Buffer
 		cmd.Stdout, cmd.Stderr = &stdout, &stderr
 		if err := cmd.Run(); err != nil {
 			t.Fatalf("%s failed: %v\nstdout=%s\nstderr=%s", command, err, stdout.String(), stderr.String())
+		}
+		for _, output := range []string{stdout.String(), stderr.String()} {
+			for _, rootForm := range []string{root, filepath.ToSlash(root), strings.ReplaceAll(root, `\`, `\\`)} {
+				if rootForm != "" && strings.Contains(strings.ToLower(output), strings.ToLower(rootForm)) {
+					t.Fatalf("%s output leaked disposable root form %q: %s", command, rootForm, output)
+				}
+			}
 		}
 		decoded := decodeCLIEnvelope(t, stdout.String())
 		if decoded["success"] != true {
