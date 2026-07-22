@@ -162,6 +162,18 @@ func TestValidationScenarioMinimaAndModuleClassification(t *testing.T) {
 	}
 }
 
+func TestScenarioIDAcceptsAnyNonBlankUniqueValue(t *testing.T) {
+	root := t.TempDir()
+	mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+	record := validV1Validation("apps.alpha", mod.Revision)
+	record.Synthetic.Scenarios[0].ID = "Default V1 / Windows"
+	writeValidation(t, root, "alpha", record)
+
+	if _, err := LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("LoadCatalog returned %v", err)
+	}
+}
+
 func TestSchemaV2RequiresEveryGenerationFingerprintAndMigration(t *testing.T) {
 	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -316,6 +328,32 @@ func TestFixtureContract(t *testing.T) {
 			}
 			if !tt.wantErr && err != nil {
 				t.Fatalf("LoadCatalog returned %v", err)
+			}
+		})
+	}
+}
+
+func TestPortableRepositoryRelativePathRejectsHostRoots(t *testing.T) {
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{path: "tests/fixtures/module.json", want: true},
+		{path: `tests\fixtures\module.json`, want: true},
+		{path: `C:\outside.json`, want: false},
+		{path: "C:/outside.json", want: false},
+		{path: `\\server\share\outside.json`, want: false},
+		{path: "//server/share/outside.json", want: false},
+		{path: `/outside.json`, want: false},
+		{path: `\outside.json`, want: false},
+		{path: "../outside.json", want: false},
+		{path: "fixtures//outside.json", want: false},
+		{path: "fixtures/./outside.json", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.path, func(t *testing.T) {
+			if got := isPortableRepositoryRelativePath(tt.path); got != tt.want {
+				t.Fatalf("isPortableRepositoryRelativePath(%q) = %t, want %t", tt.path, got, tt.want)
 			}
 		})
 	}

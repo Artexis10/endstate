@@ -1,0 +1,143 @@
+// Copyright 2026 Substrate Systems OU
+// SPDX-License-Identifier: Apache-2.0
+
+package validationmatrix
+
+import (
+	"regexp"
+	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
+)
+
+var (
+	lowerSHA256Pattern  = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	windowsDrivePattern = regexp.MustCompile(`^[A-Za-z]:`)
+)
+
+var knownAssertionNames = map[string]struct{}{
+	AssertionCaptured: {}, AssertionPayload: {}, AssertionProvenance: {},
+	AssertionRewrittenRestore: {}, AssertionContent: {}, AssertionRebuild: {},
+	AssertionVerify: {}, AssertionNestedSummary: {}, AssertionRevert: {},
+	AssertionGeneration: {}, AssertionValidation: {}, AssertionMigration: {},
+	AssertionRestored: {}, AssertionAppReferences: {},
+}
+
+func validateFixture(record *ValidationRecord, scenario *Scenario) error {
+	switch scenario.Fixture.Type {
+	case FixtureAuto:
+		if scenario.Fixture.Path != "" || scenario.Fixture.SHA256 != "" {
+			return validationError(CodeInvalidFixture, record.ModuleID, record.FilePath, "auto fixture for scenario %q forbids path and sha256", scenario.ID)
+		}
+	case FixtureDeclarative:
+		if !isPortableRepositoryRelativePath(scenario.Fixture.Path) {
+			return validationError(CodeInvalidFixture, record.ModuleID, record.FilePath, "declarative fixture for scenario %q requires a contained repository-relative path", scenario.ID)
+		}
+		if !lowerSHA256Pattern.MatchString(scenario.Fixture.SHA256) {
+			return validationError(CodeInvalidFixture, record.ModuleID, record.FilePath, "declarative fixture for scenario %q requires a lowercase SHA-256", scenario.ID)
+		}
+	default:
+		return validationError(CodeInvalidFixture, record.ModuleID, record.FilePath, "scenario %q uses unknown fixture type %q", scenario.ID, scenario.Fixture.Type)
+	}
+	return nil
+}
+
+// isPortableRepositoryRelativePath validates repository paths independently
+// of the host GOOS so Windows roots cannot be accepted on Unix, or vice versa.
+func isPortableRepositoryRelativePath(path string) bool {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" || windowsDrivePattern.MatchString(trimmed) || strings.HasPrefix(trimmed, `/`) || strings.HasPrefix(trimmed, `\`) {
+		return false
+	}
+	normalized := strings.ReplaceAll(trimmed, `\`, "/")
+	for _, part := range strings.Split(normalized, "/") {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+func validateAssertions(record *ValidationRecord, mod *modules.Module, scenario *Scenario) error {
+	for name, minimum := range scenario.MinimumAssertions {
+		if _, known := knownAssertionNames[name]; !known {
+			return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q has unknown assertion minimum %q", scenario.ID, name)
+		}
+		if minimum < 0 {
+			return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q assertion %q cannot be negative", scenario.ID, name)
+		}
+	}
+	required := requiredAssertions(scenario.Mode, len(mod.Verify) > 0)
+	for _, name := range required {
+		if scenario.MinimumAssertions[name] <= 0 {
+			return validationError(CodeMissingAssertionMinimum, record.ModuleID, record.FilePath, "scenario %q requires non-zero %s assertions", scenario.ID, name)
+		}
+	}
+	return nil
+}
+
+func requiredAssertions(kind ScenarioKind, hasProductionVerifier bool) []string {
+	roundtrip := []string{
+		AssertionCaptured, AssertionPayload, AssertionProvenance, AssertionRewrittenRestore,
+		AssertionContent, AssertionRebuild, AssertionVerify, AssertionNestedSummary, AssertionRevert,
+	}
+	switch kind {
+	case ScenarioConfigRoundtripV1:
+		return roundtrip
+	case ScenarioConfigGenerationV2:
+		return append(roundtrip, AssertionGeneration, AssertionValidation)
+	case ScenarioConfigMigrationV2:
+		return append(roundtrip, AssertionGeneration, AssertionValidation, AssertionMigration)
+	case ScenarioCaptureContract:
+		return []string{AssertionCaptured, AssertionPayload, AssertionProvenance, AssertionContent}
+	case ScenarioRestoreContract:
+		required := []string{AssertionRestored, AssertionContent, AssertionNestedSummary, AssertionRevert}
+		if hasProductionVerifier {
+			required = append(required, AssertionVerify)
+		}
+		return required
+	case ScenarioInstallContract:
+		return []string{AssertionAppReferences, AssertionVerify}
+	default:
+		return nil
+	}
+}
+
+func validateExpected(record *ValidationRecord, scenario *Scenario) error {
+	isV2 := scenario.Mode == ScenarioConfigGenerationV2 || scenario.Mode == ScenarioConfigMigrationV2
+	if !isV2 {
+		if scenario.Expected != nil {
+			return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q cannot declare schema-v2 expected fields", scenario.ID)
+		}
+		return nil
+	}
+	if scenario.Expected == nil {
+		return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q requires schema-v2 expected fields", scenario.ID)
+	}
+	expected := scenario.Expected
+	requiredFields := []struct {
+		name  string
+		value string
+	}{
+		{name: "captureId", value: expected.CaptureID},
+		{name: "configSetId", value: expected.ConfigSetID},
+		{name: "instanceId", value: expected.InstanceID},
+		{name: "generationId", value: expected.GenerationID},
+	}
+	for _, field := range requiredFields {
+		if strings.TrimSpace(field.value) == "" {
+			return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q expected.%s is required", scenario.ID, field.name)
+		}
+	}
+	if !lowerSHA256Pattern.MatchString(expected.Fingerprint) {
+		return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q expected.fingerprint must be lowercase SHA-256", scenario.ID)
+	}
+	if scenario.Mode == ScenarioConfigMigrationV2 {
+		if expected.MigrationFrom == "" || expected.MigrationTo == "" || expected.MigrationFrom == expected.MigrationTo {
+			return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q requires an exact non-self migration edge", scenario.ID)
+		}
+	} else if expected.MigrationFrom != "" || expected.MigrationTo != "" {
+		return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "generation scenario %q cannot declare a migration edge", scenario.ID)
+	}
+	return nil
+}
