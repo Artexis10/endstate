@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.27.5](https://github.com/Artexis10/endstate/compare/v2.27.4...v2.27.5) (2026-07-22)
+
+
+### Bug Fixes
+
+* **capture:** human-readable config folder names in bundles ([#188](https://github.com/Artexis10/endstate/issues/188)) ([4315829](https://github.com/Artexis10/endstate/commit/43158290553db2e7257c92cee89cbaaf8946ffbe))
+
 ## [2.27.4](https://github.com/Artexis10/endstate/compare/v2.27.3...v2.27.4) (2026-07-21)
 
 
