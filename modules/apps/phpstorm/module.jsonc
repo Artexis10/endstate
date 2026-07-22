@@ -91,10 +91,6 @@
   "notes": "Captures PhpStorm settings (options/*.xml), keymaps, live templates, code styles, and editor color schemes. Config folder is version-specific (%APPDATA%\\JetBrains\\PhpStorm<version>\\). Workspace-specific files (workspace.xml, tasks.xml), usage stats, caches, index, and logs are excluded; credential-bearing security.xml/github.xml are excluded and never auto-restored. Confidence: high - config directory layout confirmed by official JetBrains PhpStorm directories documentation and matches sibling JetBrains modules.",
 
   "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
     "snapshotRoots": [
       "%APPDATA%"
     ],

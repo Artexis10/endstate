@@ -408,6 +408,168 @@ func TestLivePolicyContract(t *testing.T) {
 	}
 }
 
+func TestOneWayScenarioReviewContract(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	validReview := func(scenario map[string]any) {
+		scenario["review"] = map[string]any{
+			"decision":   "approved-one-way",
+			"reasonCode": "vendor-format-is-export-only",
+			"reviewer":   "@module-owner",
+			"reviewedOn": "2026-07-21",
+			"evidence":   "The vendor documents export without a compatible import path.",
+		}
+	}
+	tests := []struct {
+		name     string
+		mode     ScenarioKind
+		module   string
+		mutate   func(map[string]any)
+		wantCode string
+	}{
+		{name: "valid capture review", mode: ScenarioCaptureContract, module: captureOnlyModule("apps.fixture"), mutate: validReview},
+		{name: "valid restore review", mode: ScenarioRestoreContract, module: restoreOnlyModule("apps.fixture"), mutate: validReview},
+		{name: "missing review", mode: ScenarioCaptureContract, module: captureOnlyModule("apps.fixture"), wantCode: "invalid_one_way_review"},
+		{name: "future review", mode: ScenarioCaptureContract, module: captureOnlyModule("apps.fixture"), mutate: func(scenario map[string]any) {
+			validReview(scenario)
+			scenario["review"].(map[string]any)["reviewedOn"] = "2026-07-23"
+		}, wantCode: "invalid_one_way_review"},
+		{name: "malformed review date", mode: ScenarioCaptureContract, module: captureOnlyModule("apps.fixture"), mutate: func(scenario map[string]any) {
+			validReview(scenario)
+			scenario["review"].(map[string]any)["reviewedOn"] = "2026-7-21"
+		}, wantCode: "invalid_one_way_review"},
+		{name: "blank reason", mode: ScenarioCaptureContract, module: captureOnlyModule("apps.fixture"), mutate: func(scenario map[string]any) {
+			validReview(scenario)
+			scenario["review"].(map[string]any)["reasonCode"] = " "
+		}, wantCode: "invalid_one_way_review"},
+		{name: "blank reviewer", mode: ScenarioCaptureContract, module: captureOnlyModule("apps.fixture"), mutate: func(scenario map[string]any) {
+			validReview(scenario)
+			scenario["review"].(map[string]any)["reviewer"] = " "
+		}, wantCode: "invalid_one_way_review"},
+		{name: "blank evidence", mode: ScenarioCaptureContract, module: captureOnlyModule("apps.fixture"), mutate: func(scenario map[string]any) {
+			validReview(scenario)
+			scenario["review"].(map[string]any)["evidence"] = " "
+		}, wantCode: "invalid_one_way_review"},
+		{name: "wrong decision", mode: ScenarioCaptureContract, module: captureOnlyModule("apps.fixture"), mutate: func(scenario map[string]any) {
+			validReview(scenario)
+			scenario["review"].(map[string]any)["decision"] = "pending"
+		}, wantCode: "invalid_one_way_review"},
+		{name: "review forbidden on config scenario", mode: ScenarioConfigRoundtripV1, module: schemaV1Module("apps.fixture", true), mutate: validReview, wantCode: "invalid_one_way_review"},
+		{name: "review forbidden on install scenario", mode: ScenarioInstallContract, module: installOnlyModule("apps.fixture"), mutate: validReview, wantCode: "invalid_one_way_review"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "fixture", tt.module)
+			record := validV1Validation(mod.ID, mod.Revision)
+			switch tt.mode {
+			case ScenarioCaptureContract:
+				record.Synthetic.Scenarios = []Scenario{captureScenario("one-way")}
+			case ScenarioRestoreContract:
+				record.Synthetic.Scenarios = []Scenario{restoreScenario("one-way")}
+			case ScenarioInstallContract:
+				record.Synthetic.Scenarios = []Scenario{installScenario("install")}
+			}
+			writeValidationWithMutation(t, root, "fixture", record, func(document map[string]any) {
+				delete(firstScenarioJSON(t, document), "review")
+				if tt.mutate != nil {
+					tt.mutate(firstScenarioJSON(t, document))
+				}
+			})
+			_, err := LoadCatalog(root, now)
+			if got := ErrorCode(err); got != tt.wantCode {
+				t.Fatalf("LoadCatalog error = %v (code %q), want code %q", err, got, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestSchemaV2ExpectationIdentityStrategies(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	setLiteral := func(expected map[string]any) {
+		expected["identityMode"] = "literal"
+		expected["captureId"] = "capture"
+		expected["instanceId"] = "default"
+		delete(expected, "detectorId")
+	}
+	setDerived := func(expected map[string]any) {
+		expected["identityMode"] = "derived-from-fixture"
+		expected["detectorId"] = "installed-package"
+		delete(expected, "captureId")
+		delete(expected, "instanceId")
+	}
+	tests := []struct {
+		name     string
+		mutate   func(map[string]any)
+		wantCode string
+	}{
+		{name: "literal", mutate: setLiteral},
+		{name: "derived from declared detector", mutate: setDerived},
+		{name: "missing mode", mutate: func(expected map[string]any) { delete(expected, "identityMode") }, wantCode: "invalid_schema_v2_identity"},
+		{name: "unknown mode", mutate: func(expected map[string]any) { setLiteral(expected); expected["identityMode"] = "computed" }, wantCode: "invalid_schema_v2_identity"},
+		{name: "literal missing capture id", mutate: func(expected map[string]any) { setLiteral(expected); delete(expected, "captureId") }, wantCode: "invalid_schema_v2_identity"},
+		{name: "literal blank capture id", mutate: func(expected map[string]any) { setLiteral(expected); expected["captureId"] = " " }, wantCode: "invalid_schema_v2_identity"},
+		{name: "literal missing instance id", mutate: func(expected map[string]any) { setLiteral(expected); delete(expected, "instanceId") }, wantCode: "invalid_schema_v2_identity"},
+		{name: "literal blank instance id", mutate: func(expected map[string]any) { setLiteral(expected); expected["instanceId"] = " " }, wantCode: "invalid_schema_v2_identity"},
+		{name: "literal forbids detector", mutate: func(expected map[string]any) { setLiteral(expected); expected["detectorId"] = "installed-package" }, wantCode: "invalid_schema_v2_identity"},
+		{name: "literal forbids empty detector field", mutate: func(expected map[string]any) { setLiteral(expected); expected["detectorId"] = "" }, wantCode: "invalid_schema_v2_identity"},
+		{name: "derived missing detector", mutate: func(expected map[string]any) { setDerived(expected); delete(expected, "detectorId") }, wantCode: "invalid_schema_v2_identity"},
+		{name: "derived blank detector", mutate: func(expected map[string]any) { setDerived(expected); expected["detectorId"] = " " }, wantCode: "invalid_schema_v2_identity"},
+		{name: "derived rejects unknown detector", mutate: func(expected map[string]any) { setDerived(expected); expected["detectorId"] = "missing" }, wantCode: "invalid_schema_v2_identity"},
+		{name: "derived forbids capture id", mutate: func(expected map[string]any) { setDerived(expected); expected["captureId"] = "capture" }, wantCode: "invalid_schema_v2_identity"},
+		{name: "derived forbids empty capture id field", mutate: func(expected map[string]any) { setDerived(expected); expected["captureId"] = "" }, wantCode: "invalid_schema_v2_identity"},
+		{name: "derived forbids instance id", mutate: func(expected map[string]any) { setDerived(expected); expected["instanceId"] = "default" }, wantCode: "invalid_schema_v2_identity"},
+		{name: "derived forbids empty instance id field", mutate: func(expected map[string]any) { setDerived(expected); expected["instanceId"] = "" }, wantCode: "invalid_schema_v2_identity"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "v2", schemaV2Module("apps.v2"))
+			record := validV2Validation(t, mod)
+			writeValidationWithMutation(t, root, "v2", record, func(document map[string]any) {
+				forEachExpectedJSON(t, document, setLiteral)
+				tt.mutate(firstExpectedJSON(t, document))
+			})
+			_, err := LoadCatalog(root, now)
+			if got := ErrorCode(err); got != tt.wantCode {
+				t.Fatalf("LoadCatalog error = %v (code %q), want code %q", err, got, tt.wantCode)
+			}
+		})
+	}
+}
+
+func TestInstallContractAcceptsEveryProductionAppReferenceFamily(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name     string
+		matches  string
+		wantCode string
+	}{
+		{name: "winget", matches: `"winget":["Vendor.Fixture"]`},
+		{name: "chocolatey", matches: `"chocolatey":["fixture"]`},
+		{name: "executable", matches: `"exe":["fixture.exe"]`},
+		{name: "uninstall display name", matches: `"uninstallDisplayName":["^Fixture"]`},
+		{name: "path exists", matches: `"pathExists":["%PROGRAMFILES%\\Fixture\\fixture.exe"]`},
+		{name: "empty", matches: `"winget":[],"chocolatey":[],"exe":[],"uninstallDisplayName":[],"pathExists":[]`, wantCode: CodeInvalidModuleCatalog},
+		{name: "whitespace only", matches: `"winget":[" "],"chocolatey":["\t"],"exe":[" "],"uninstallDisplayName":["\r\n"],"pathExists":[" "]`, wantCode: CodeInvalidClassification},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "install", installOnlyModuleWithMatches("apps.install", tt.matches))
+			record := validV1Validation(mod.ID, mod.Revision)
+			record.Synthetic.Scenarios = []Scenario{installScenario("install")}
+			writeValidation(t, root, "install", record)
+			_, err := LoadCatalog(root, now)
+			if got := ErrorCode(err); got != tt.wantCode {
+				t.Fatalf("LoadCatalog error = %v (code %q), want code %q", err, got, tt.wantCode)
+			}
+		})
+	}
+}
+
 func TestCanonicalOneWayScenarioClassifications(t *testing.T) {
 	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
@@ -485,7 +647,7 @@ func validV2Validation(t *testing.T, mod *modules.Module) ValidationRecord {
 		return Scenario{
 			ID: id, Mode: ScenarioConfigGenerationV2, Fixture: Fixture{Type: FixtureAuto}, TimeoutSeconds: 60,
 			MinimumAssertions: cloneAssertions(base),
-			Expected:          &SchemaV2Expectation{CaptureID: "capture", ConfigSetID: set.ID, InstanceID: "default", GenerationID: generationID, Fingerprint: fingerprint},
+			Expected:          &SchemaV2Expectation{IdentityMode: IdentityLiteral, CaptureID: "capture", ConfigSetID: set.ID, InstanceID: "default", GenerationID: generationID, Fingerprint: fingerprint},
 		}
 	}
 	migrationAssertions := cloneAssertions(base)
@@ -499,7 +661,7 @@ func validV2Validation(t *testing.T, mod *modules.Module) ValidationRecord {
 			{
 				ID: "g1-to-g2", Mode: ScenarioConfigMigrationV2, Fixture: Fixture{Type: FixtureAuto}, TimeoutSeconds: 60,
 				MinimumAssertions: migrationAssertions,
-				Expected:          &SchemaV2Expectation{CaptureID: "capture", ConfigSetID: set.ID, InstanceID: "default", GenerationID: second.ID, Fingerprint: second.Fingerprint, MigrationFrom: first.ID, MigrationTo: second.ID},
+				Expected:          &SchemaV2Expectation{IdentityMode: IdentityLiteral, CaptureID: "capture", ConfigSetID: set.ID, InstanceID: "default", GenerationID: second.ID, Fingerprint: second.Fingerprint, MigrationFrom: first.ID, MigrationTo: second.ID},
 			},
 		}},
 		Live: nonHostedLivePolicy(LiveNotApplicable),
@@ -516,6 +678,7 @@ func installScenario(id string) Scenario {
 func captureScenario(id string) Scenario {
 	return Scenario{
 		ID: id, Mode: ScenarioCaptureContract, Fixture: Fixture{Type: FixtureAuto}, TimeoutSeconds: 60,
+		Review: validOneWayReview(),
 		MinimumAssertions: map[string]int{
 			AssertionCaptured: 1, AssertionPayload: 1, AssertionProvenance: 1, AssertionContent: 1,
 		},
@@ -525,9 +688,17 @@ func captureScenario(id string) Scenario {
 func restoreScenario(id string) Scenario {
 	return Scenario{
 		ID: id, Mode: ScenarioRestoreContract, Fixture: Fixture{Type: FixtureAuto}, TimeoutSeconds: 60,
+		Review: validOneWayReview(),
 		MinimumAssertions: map[string]int{
 			AssertionRestored: 1, AssertionContent: 1, AssertionNestedSummary: 1, AssertionVerify: 1, AssertionRevert: 1,
 		},
+	}
+}
+
+func validOneWayReview() *OneWayReview {
+	return &OneWayReview{
+		Decision: "approved-one-way", ReasonCode: "vendor-contract-is-one-way", Reviewer: "@module-owner",
+		ReviewedOn: "2026-07-21", Evidence: "The fixture represents a reviewed production one-way contract.",
 	}
 }
 
@@ -575,6 +746,45 @@ func writeValidation(t *testing.T, root, directory string, record ValidationReco
 		t.Fatal(err)
 	}
 	writeRawValidation(t, root, directory, data)
+}
+
+func writeValidationWithMutation(t *testing.T, root, directory string, record ValidationRecord, mutate func(map[string]any)) {
+	t.Helper()
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	mutate(document)
+	data, err = json.MarshalIndent(document, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeRawValidation(t, root, directory, data)
+}
+
+func firstScenarioJSON(t *testing.T, document map[string]any) map[string]any {
+	t.Helper()
+	synthetic := document["synthetic"].(map[string]any)
+	scenarios := synthetic["scenarios"].([]any)
+	return scenarios[0].(map[string]any)
+}
+
+func firstExpectedJSON(t *testing.T, document map[string]any) map[string]any {
+	t.Helper()
+	return firstScenarioJSON(t, document)["expected"].(map[string]any)
+}
+
+func forEachExpectedJSON(t *testing.T, document map[string]any, mutate func(map[string]any)) {
+	t.Helper()
+	synthetic := document["synthetic"].(map[string]any)
+	for _, rawScenario := range synthetic["scenarios"].([]any) {
+		scenario := rawScenario.(map[string]any)
+		mutate(scenario["expected"].(map[string]any))
+	}
 }
 
 func writeRawValidation(t *testing.T, root, directory string, data []byte) {
@@ -630,14 +840,18 @@ func restoreOnlyModule(id string) string {
 }
 
 func installOnlyModule(id string) string {
+	return installOnlyModuleWithMatches(id, `"winget":["Vendor.Install"]`)
+}
+
+func installOnlyModuleWithMatches(id, matches string) string {
 	return fmt.Sprintf(`{
   "id": %q,
   "displayName": "Install Fixture",
   "sensitivity": "none",
-  "matches": {"winget": ["Vendor.Install"]},
+  "matches": {%s},
   "verify": [{"type": "command-exists", "command": "fixture"}],
   "restore": []
-}`, id)
+}`, id, matches)
 }
 
 func modIDFromJSON(t *testing.T, content string) string {

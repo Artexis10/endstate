@@ -103,7 +103,7 @@ func requiredAssertions(kind ScenarioKind, hasProductionVerifier bool) []string 
 	}
 }
 
-func validateExpected(record *ValidationRecord, scenario *Scenario) error {
+func validateExpected(record *ValidationRecord, mod *modules.Module, scenario *Scenario) error {
 	isV2 := scenario.Mode == ScenarioConfigGenerationV2 || scenario.Mode == ScenarioConfigMigrationV2
 	if !isV2 {
 		if scenario.Expected != nil {
@@ -119,15 +119,16 @@ func validateExpected(record *ValidationRecord, scenario *Scenario) error {
 		name  string
 		value string
 	}{
-		{name: "captureId", value: expected.CaptureID},
 		{name: "configSetId", value: expected.ConfigSetID},
-		{name: "instanceId", value: expected.InstanceID},
 		{name: "generationId", value: expected.GenerationID},
 	}
 	for _, field := range requiredFields {
 		if strings.TrimSpace(field.value) == "" {
 			return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q expected.%s is required", scenario.ID, field.name)
 		}
+	}
+	if err := validateExpectedIdentity(record, mod, scenario); err != nil {
+		return err
 	}
 	if !lowerSHA256Pattern.MatchString(expected.Fingerprint) {
 		return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q expected.fingerprint must be lowercase SHA-256", scenario.ID)
@@ -140,4 +141,42 @@ func validateExpected(record *ValidationRecord, scenario *Scenario) error {
 		return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "generation scenario %q cannot declare a migration edge", scenario.ID)
 	}
 	return nil
+}
+
+func validateExpectedIdentity(record *ValidationRecord, mod *modules.Module, scenario *Scenario) error {
+	expected := scenario.Expected
+	switch expected.IdentityMode {
+	case IdentityLiteral:
+		if strings.TrimSpace(expected.CaptureID) == "" || strings.TrimSpace(expected.InstanceID) == "" {
+			return validationError(CodeInvalidSchemaV2Identity, record.ModuleID, record.FilePath, "scenario %q literal identity requires captureId and instanceId", scenario.ID)
+		}
+		if expected.detectorIDSet {
+			return validationError(CodeInvalidSchemaV2Identity, record.ModuleID, record.FilePath, "scenario %q literal identity forbids detectorId", scenario.ID)
+		}
+	case IdentityDerivedFromFixture:
+		if strings.TrimSpace(expected.DetectorID) == "" {
+			return validationError(CodeInvalidSchemaV2Identity, record.ModuleID, record.FilePath, "scenario %q derived identity requires detectorId", scenario.ID)
+		}
+		if expected.captureIDSet || expected.instanceIDSet {
+			return validationError(CodeInvalidSchemaV2Identity, record.ModuleID, record.FilePath, "scenario %q derived identity forbids captureId and instanceId", scenario.ID)
+		}
+		if !moduleDeclaresDetector(mod, expected.DetectorID) {
+			return validationError(CodeInvalidSchemaV2Identity, record.ModuleID, record.FilePath, "scenario %q detectorId %q is not declared by the production module", scenario.ID, expected.DetectorID)
+		}
+	default:
+		return validationError(CodeInvalidSchemaV2Identity, record.ModuleID, record.FilePath, "scenario %q requires identityMode literal or derived-from-fixture", scenario.ID)
+	}
+	return nil
+}
+
+func moduleDeclaresDetector(mod *modules.Module, detectorID string) bool {
+	if mod == nil || mod.Config == nil {
+		return false
+	}
+	for _, detector := range mod.Config.InstanceDetectors {
+		if detector.ID == detectorID {
+			return true
+		}
+	}
+	return false
 }

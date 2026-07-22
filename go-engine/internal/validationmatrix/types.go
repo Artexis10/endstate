@@ -5,7 +5,14 @@
 // validation sidecars without duplicating production module interpretation.
 package validationmatrix
 
-import "github.com/Artexis10/endstate/go-engine/internal/modules"
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
+)
 
 const (
 	CodeMissingSidecar          = "missing_validation_sidecar"
@@ -23,6 +30,8 @@ const (
 	CodeInvalidQuarantine       = "invalid_quarantine"
 	CodeInvalidFixture          = "invalid_fixture"
 	CodeInvalidLivePolicy       = "invalid_live_policy"
+	CodeInvalidOneWayReview     = "invalid_one_way_review"
+	CodeInvalidSchemaV2Identity = "invalid_schema_v2_identity"
 )
 
 type ScenarioKind string
@@ -52,6 +61,13 @@ type FixtureType string
 const (
 	FixtureAuto        FixtureType = "auto"
 	FixtureDeclarative FixtureType = "declarative"
+)
+
+type IdentityMode string
+
+const (
+	IdentityLiteral            IdentityMode = "literal"
+	IdentityDerivedFromFixture IdentityMode = "derived-from-fixture"
 )
 
 type ProofLevel string
@@ -104,6 +120,15 @@ type Scenario struct {
 	TimeoutSeconds    int                  `json:"timeoutSeconds"`
 	MinimumAssertions map[string]int       `json:"minimumAssertions"`
 	Expected          *SchemaV2Expectation `json:"expected,omitempty"`
+	Review            *OneWayReview        `json:"review,omitempty"`
+}
+
+type OneWayReview struct {
+	Decision   string `json:"decision"`
+	ReasonCode string `json:"reasonCode"`
+	Reviewer   string `json:"reviewer"`
+	ReviewedOn string `json:"reviewedOn"`
+	Evidence   string `json:"evidence"`
 }
 
 type Fixture struct {
@@ -113,13 +138,45 @@ type Fixture struct {
 }
 
 type SchemaV2Expectation struct {
-	CaptureID     string `json:"captureId"`
-	ConfigSetID   string `json:"configSetId"`
-	InstanceID    string `json:"instanceId"`
-	GenerationID  string `json:"generationId"`
-	Fingerprint   string `json:"fingerprint"`
-	MigrationFrom string `json:"migrationFrom,omitempty"`
-	MigrationTo   string `json:"migrationTo,omitempty"`
+	IdentityMode  IdentityMode `json:"identityMode"`
+	DetectorID    string       `json:"detectorId,omitempty"`
+	CaptureID     string       `json:"captureId,omitempty"`
+	ConfigSetID   string       `json:"configSetId"`
+	InstanceID    string       `json:"instanceId,omitempty"`
+	GenerationID  string       `json:"generationId"`
+	Fingerprint   string       `json:"fingerprint"`
+	MigrationFrom string       `json:"migrationFrom,omitempty"`
+	MigrationTo   string       `json:"migrationTo,omitempty"`
+
+	detectorIDSet bool
+	captureIDSet  bool
+	instanceIDSet bool
+}
+
+func (expectation *SchemaV2Expectation) UnmarshalJSON(data []byte) error {
+	type wire SchemaV2Expectation
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var decoded wire
+	if err := decoder.Decode(&decoded); err != nil {
+		return err
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*expectation = SchemaV2Expectation(decoded)
+	_, expectation.detectorIDSet = fields["detectorId"]
+	_, expectation.captureIDSet = fields["captureId"]
+	_, expectation.instanceIDSet = fields["instanceId"]
+	return nil
 }
 
 type LivePolicy struct {

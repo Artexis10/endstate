@@ -47,10 +47,6 @@
   "notes": "Captures ocenaudio preferences, keyboard shortcuts, and plugin list from %APPDATA%\\ocenaudio\\. Config filenames inferred from common Qt/cross-platform audio editor conventions — verify against an installed instance. No credentials or sensitive data expected.",
 
   "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
     "snapshotRoots": [
       "%APPDATA%"
     ],

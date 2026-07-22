@@ -34,7 +34,7 @@ func validateSchemaV1Classification(record *ValidationRecord, mod *modules.Modul
 	case hasRestore:
 		want = ScenarioRestoreContract
 	default:
-		if len(mod.Matches.Winget)+len(mod.Matches.Chocolatey) == 0 || len(mod.Verify) == 0 {
+		if !hasProductionAppReference(mod) || len(mod.Verify) == 0 {
 			return validationError(CodeInvalidClassification, record.ModuleID, record.FilePath, "install-only module requires an app reference and production verifier")
 		}
 	}
@@ -43,6 +43,27 @@ func validateSchemaV1Classification(record *ValidationRecord, mod *modules.Modul
 		return validationError(CodeInvalidClassification, record.ModuleID, record.FilePath, "schema-v1 module requires exactly one %q scenario", want)
 	}
 	return nil
+}
+
+func hasProductionAppReference(mod *modules.Module) bool {
+	if mod == nil {
+		return false
+	}
+	referenceFamilies := [][]string{
+		mod.Matches.Winget,
+		mod.Matches.Chocolatey,
+		mod.Matches.Exe,
+		mod.Matches.UninstallDisplayName,
+		mod.Matches.PathExists,
+	}
+	for _, references := range referenceFamilies {
+		for _, reference := range references {
+			if strings.TrimSpace(reference) != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func moduleHasCapture(mod *modules.Module) bool {

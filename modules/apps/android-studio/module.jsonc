@@ -92,10 +92,6 @@
   "notes": "Captures Android Studio IDE settings (options/*.xml), keymaps, live templates, code styles, and color schemes. Config folder is version-specific (%APPDATA%\\Google\\AndroidStudio<version>\\); the * wildcard matches the active version. Workspace-specific files (workspace.xml, tasks.xml), usage stats, recent-projects list, caches/index, and credential stores (security.xml, github.xml) are excluded. SDK, Gradle caches, and the %LOCALAPPDATA% system/log dirs are not captured. Confidence: high - config path confirmed by official Android Studio docs and the IntelliJ Platform directories reference; subfolder layout matches the curated intellij-idea module.",
 
   "curation": {
-    "seed": {
-      "type": "script",
-      "script": "seed.ps1"
-    },
     "snapshotRoots": [
       "%APPDATA%"
     ],

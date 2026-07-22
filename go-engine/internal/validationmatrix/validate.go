@@ -40,6 +40,9 @@ func validateRecord(record *ValidationRecord, mod *modules.Module, now time.Time
 		if !knownScenarioKind(scenario.Mode) {
 			return validationError(CodeUnknownScenarioKind, record.ModuleID, record.FilePath, "scenario %q uses unknown mode %q", scenario.ID, scenario.Mode)
 		}
+		if err := validateOneWayReview(record, scenario, now); err != nil {
+			return err
+		}
 		if err := validateFixture(record, scenario); err != nil {
 			return err
 		}
@@ -49,7 +52,7 @@ func validateRecord(record *ValidationRecord, mod *modules.Module, now time.Time
 		if err := validateAssertions(record, mod, scenario); err != nil {
 			return err
 		}
-		if err := validateExpected(record, scenario); err != nil {
+		if err := validateExpected(record, mod, scenario); err != nil {
 			return err
 		}
 	}

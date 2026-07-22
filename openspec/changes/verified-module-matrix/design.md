@@ -77,11 +77,39 @@ Illustrative shape:
 }
 ```
 
+A schema-v2 scenario may use exact literal identities when the fixture owns them, or derive identities from declared fixture/detector coordinates when the canonical locator is discovered at runtime:
+
+```jsonc
+"expected": {
+  "identityMode": "derived-from-fixture", // or literal with captureId + instanceId
+  "detectorId": "versions",
+  "configSetId": "preferences",
+  "generationId": "g1",
+  "fingerprint": "<lowercase-sha256>"
+}
+```
+
+The derived form does not weaken the assertion: the harness independently computes the stable instance and capture identities from the contained fixture coordinates, then compares them with the exact IDs emitted by the engine. It never stores placeholder hashes in metadata.
+
+A reviewed one-way scenario carries its approval beside the scenario rather than relying on a comment or quarantine:
+
+```jsonc
+"review": {
+  "decision": "approved-one-way",
+  "reasonCode": "vendor-format-is-export-only",
+  "reviewer": "@module-owner",
+  "reviewedOn": "2026-07-21",
+  "evidence": "The vendor documents export without a compatible import path."
+}
+```
+
 Rules:
 
 - `synthetic.scenarios` is required and non-empty for every module. Symmetric schema-v1 modules use `config-roundtrip-v1`; schema-v2 modules declare a scenario for every selectable generation/fingerprint and every migration edge; modules intentionally containing no capture/restore entries use `install-contract`.
 - A capture-bearing module cannot earn config-roundtrip proof unless every captured target has an executable restoration contract with non-zero restore and revert assertions. The current capture-only set is blocked and explicitly repaired during rollout; it cannot be relabeled install-only, waived, or removed from the denominator to manufacture `357/357`.
-- An intentionally one-way module may receive a `capture-contract` or `restore-contract` scenario only after review. A capture contract must prove targeted production-engine capture, exact payload/provenance/content, and non-zero capture assertions. A restore contract must prove the production restore operation, exact content, nested summaries, verification where declared, immediate revert, and non-zero restore assertions. Both emit only `engine-contract`; they remain outside the config-roundtrip numerator and denominator accounting shows the exclusion.
+- An intentionally one-way module may receive a `capture-contract` or `restore-contract` scenario only with machine-checked `approved-one-way` review metadata containing a stable reason code, reviewer, strict non-future review date, and evidence. Other scenario kinds forbid that review object. A capture contract must prove targeted production-engine capture, exact payload/provenance/content, and non-zero capture assertions. A restore contract must prove the production restore operation, exact content, nested summaries, verification where declared, immediate revert, and non-zero restore assertions. Both emit only `engine-contract`; they remain outside the config-roundtrip numerator and denominator accounting shows the exclusion.
+- Schema-v2 expected identities explicitly choose `literal` or `derived-from-fixture`. Literal identity requires exact `captureId` and `instanceId` and forbids a detector. Derived identity requires a detector declared by the production module and forbids precomputed capture/instance IDs; the harness derives those IDs from the canonical contained fixture locator and still compares the exact engine output.
+- Install contracts accept any nonblank production app reference family: Winget, Chocolatey, executable, uninstall-display-name, or path-exists. They still require at least one production verifier.
 - Automatic fixtures derive deterministic, non-secret sentinel content from the production capture/restore definitions. Format-aware fixture builders cover copy, directory copy, merge-json, merge-ini, append, and registry operations.
 - A module may select a tracked custom fixture script when automatic synthesis cannot represent a dynamic path or format. Custom fixtures run only inside the same isolated roots and must declare their expected assertions.
 - `live.mode: hosted` requires an unattended package reference, a reconciled real seed where configuration is claimed, a successful baseline run, and a standard-runner timeout. Unproven installable entries start as `candidate`; known automation gaps use `blocked`. `candidate`, `blocked`, `lab`, `manual`, and `not-applicable` require a stable reason code and human-readable explanation and never count as verified.

@@ -24,7 +24,8 @@ The system SHALL maintain tracked, schema-versioned validation metadata for ever
 
 - **WHEN** a schema-v2 module declares selectable generation/fingerprint alternatives or migration edges
 - **THEN** its validation record SHALL declare a `config-generation-v2` scenario for every alternative and a `config-migration-v2` scenario for every migration edge
-- **AND** every scenario SHALL identify its expected capture ID, config-set/instance identity, generation/fingerprint, validation, and migration outcome where applicable
+- **AND** every scenario SHALL select either literal capture/instance IDs or deterministic derivation from its fixture and a detector declared by the production module
+- **AND** every executed scenario SHALL assert the exact emitted capture ID, config-set/instance identity, generation/fingerprint, validation, and migration outcome where applicable
 
 #### Scenario: Capture target lacks restoration contract
 
@@ -33,6 +34,7 @@ The system SHALL maintain tracked, schema-versioned validation metadata for ever
 - **AND** it SHALL remain visible in the config-eligible denominator pending repair or explicit approval as a weaker one-way contract
 - **AND** it SHALL NOT be relabeled install-only, quarantined out of the denominator, or counted as config verified
 - **AND** an explicitly reviewed one-way exception SHALL declare `capture-contract` with non-zero targeted capture, exact payload/provenance/content assertions and SHALL emit only `engine-contract`
+- **AND** its review metadata SHALL record the `approved-one-way` decision, a stable reason code, nonblank reviewer, non-future strict review date, and nonblank evidence
 
 #### Scenario: Restore-only contract is approved
 
@@ -40,12 +42,13 @@ The system SHALL maintain tracked, schema-versioned validation metadata for ever
 - **THEN** it SHALL declare `restore-contract` with non-zero restore/content/nested-summary/revert assertions and verification where the module declares it
 - **AND** it SHALL emit only `engine-contract`
 - **AND** it SHALL remain outside every config-roundtrip numerator while denominator accounting shows the exclusion
+- **AND** its review metadata SHALL record the `approved-one-way` decision, a stable reason code, nonblank reviewer, non-future strict review date, and nonblank evidence
 
 #### Scenario: Intentional install-only module classification
 
 - **WHEN** a module intentionally declares no capture and no restore operations
 - **THEN** it SHALL declare an `install-contract` scenario
-- **AND** it SHALL resolve at least one app reference and execute at least one production verifier
+- **AND** it SHALL resolve at least one nonblank Winget, Chocolatey, executable, uninstall-display-name, or path-exists app reference and execute at least one production verifier
 - **AND** its result SHALL NOT claim `config-roundtrip`
 
 #### Scenario: Pull request changes eligibility metadata
