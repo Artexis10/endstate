@@ -61,6 +61,20 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 	}
 	logsDir, _ = filepath.Abs(logsDir)
 	stateDir, _ = filepath.Abs(stateDir)
+	if currentValidationMode != nil {
+		targets := []validationProductionSandboxTarget{
+			validationSandboxTarget("revert.logs", logsDir), validationSandboxTarget("revert.state", stateDir),
+		}
+		if backupDir != "" {
+			targets = append(targets, validationSandboxTarget("revert.backups", backupDir))
+		}
+		if validationErr := preflightActiveValidationSandboxPaths(targets...); validationErr != nil {
+			return nil, validationErr
+		}
+		if validationErr := gateActiveValidationMutation(); validationErr != nil {
+			return nil, validationErr
+		}
+	}
 
 	registry, _ := newConfigRestorePlatformAdapters()
 	guard, beginErr := configrestore.BeginLive(context.Background(), filepath.Clean(stateDir), runID, registry)

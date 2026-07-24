@@ -50,6 +50,9 @@ type RestoreData struct {
 func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("restore")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
+	if validationErr := preflightActiveValidationSandboxPaths(validationSandboxTarget("manifest.input", flags.Manifest)); validationErr != nil {
+		return nil, validationErr
+	}
 
 	// --- 1. Load manifest ---
 	mf, envelopeErr := loadManifest(flags.Manifest)
@@ -85,10 +88,54 @@ func RunRestore(flags RestoreFlags) (interface{}, *envelope.Error) {
 
 	evidence := newStandaloneConfigRestoreEvidenceSource(mf.Apps)
 	session := newConfigRestoreExecutionSession(configRuntime, evidence)
-	if _, previewErr := session.Preview(context.Background()); previewErr != nil {
+	preview, previewErr := session.Preview(context.Background())
+	if previewErr != nil {
 		return nil, configRestoreInternalError(previewErr.Error())
 	}
 	options := restoreConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter)
+	if currentValidationMode != nil {
+		catalog := configRuntime.catalog.ModuleCatalog()
+		if len(catalog) == 0 && repoRoot != "" {
+			loaded, catalogErr := loadModuleCatalogFn(repoRoot)
+			if catalogErr != nil {
+				return nil, validationPreflightFailureEnvelope(currentValidationSession, "modules", "module-catalog")
+			}
+			catalog = loaded
+		}
+		selectedModules := validationSelectedRestoreModules(configRuntime, catalog)
+		instances, instanceErr := validationDiscoverCommandInstances(selectedModules, mf.Apps)
+		if instanceErr != nil {
+			return nil, validationPreflightFailureEnvelope(currentValidationSession, "instances", "instance-discovery")
+		}
+		targets := []validationProductionSandboxTarget{validationSandboxTarget("manifest.input", flags.Manifest)}
+		for _, target := range []struct{ coordinate, path string }{
+			{"restore.state", options.StateDir}, {"restore.backup", options.BackupDir},
+			{"restore.journal", options.JournalLogsDir}, {"restore.export", options.ExportRoot},
+		} {
+			if target.path != "" {
+				targets = append(targets, validationSandboxTarget(target.coordinate, target.path))
+			}
+		}
+		for _, source := range configRuntime.inputs.generationSources {
+			if source.selected && source.payloadRoot != "" {
+				targets = append(targets, validationSandboxTarget("restore.payload", source.payloadRoot))
+			}
+		}
+		for _, set := range preview.Sets {
+			for _, target := range set.TargetInstances {
+				if target.Root != "" {
+					targets = append(targets, validationSandboxTarget("restore.target-instance", target.Root))
+				}
+			}
+		}
+		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
+			Catalog: catalog, Modules: selectedModules, Manifest: mf,
+			PortableRoot: validationManifestPortableRoot(flags.Manifest),
+			ConfigPlans:  validationConfigPlansFromManifest(mf), Instances: instances, SandboxTargets: targets,
+		}); validationErr != nil {
+			return nil, validationErr
+		}
+	}
 	execution, executeErr := session.Execute(context.Background(), options)
 	var configFields *ConfigResultFields
 	if configRuntime.inputs.hasConfigPayloads {

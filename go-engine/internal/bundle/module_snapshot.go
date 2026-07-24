@@ -26,15 +26,12 @@ type ModuleSnapshot struct {
 // rereading Module.FilePath. Identical snapshots deduplicate; conflicts never
 // overwrite existing bytes.
 func WriteModuleSnapshot(stagingRoot string, mod *modules.Module) (ModuleSnapshot, error) {
-	if mod == nil {
-		return ModuleSnapshot{}, integrityError(IntegritySnapshotConflict, "", "module is nil")
+	snapshot, err := moduleSnapshotIdentity(mod)
+	if err != nil {
+		return ModuleSnapshot{}, err
 	}
 	canonical := mod.CanonicalSnapshot()
-	if len(canonical) == 0 || !payloadHashPattern.MatchString(mod.Revision) || hashBytes(canonical) != mod.Revision {
-		return ModuleSnapshot{}, integrityError(IntegritySnapshotConflict, mod.ID, "module has no valid pinned canonical snapshot/revision")
-	}
-	safeID := safeSnapshotID(mod.ID)
-	portablePath := path.Join("provenance", "modules", safeID+"-"+mod.Revision+".json")
+	portablePath := snapshot.Path
 	if err := ensureNoLinksInExistingPath(stagingRoot); err != nil {
 		return ModuleSnapshot{}, integrityPathError(err, stagingRoot)
 	}
@@ -66,7 +63,7 @@ func WriteModuleSnapshot(stagingRoot string, mod *modules.Module) (ModuleSnapsho
 		if string(existing) != string(canonical) || hashBytes(existing) != mod.Revision {
 			return ModuleSnapshot{}, integrityError(IntegritySnapshotConflict, portablePath, "existing snapshot bytes conflict")
 		}
-		return ModuleSnapshot{Path: portablePath, ContentHash: mod.Revision}, nil
+		return snapshot, nil
 	} else if !os.IsNotExist(err) {
 		return ModuleSnapshot{}, integrityError(IntegritySnapshotConflict, portablePath, "inspect snapshot destination: %v", err)
 	}
@@ -92,6 +89,19 @@ func WriteModuleSnapshot(stagingRoot string, mod *modules.Module) (ModuleSnapsho
 		return ModuleSnapshot{}, integrityError(IntegritySnapshotConflict, portablePath, "close snapshot: %v", err)
 	}
 	removeOnError = false
+	return snapshot, nil
+}
+
+func moduleSnapshotIdentity(mod *modules.Module) (ModuleSnapshot, error) {
+	if mod == nil {
+		return ModuleSnapshot{}, integrityError(IntegritySnapshotConflict, "", "module is nil")
+	}
+	canonical := mod.CanonicalSnapshot()
+	if len(canonical) == 0 || !payloadHashPattern.MatchString(mod.Revision) || hashBytes(canonical) != mod.Revision {
+		return ModuleSnapshot{}, integrityError(IntegritySnapshotConflict, mod.ID, "module has no valid pinned canonical snapshot/revision")
+	}
+	safeID := safeSnapshotID(mod.ID)
+	portablePath := path.Join("provenance", "modules", safeID+"-"+mod.Revision+".json")
 	return ModuleSnapshot{Path: portablePath, ContentHash: mod.Revision}, nil
 }
 

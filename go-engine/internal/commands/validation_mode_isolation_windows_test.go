@@ -32,6 +32,12 @@ func TestValidationModeSessionRegistryRegistrationClosesAtSeal(t *testing.T) {
 		t.Fatalf("register before seal: %v", err)
 	}
 	session.sealIsolation()
+	if err := session.registerOriginalRegistryProtection(
+		"capture.registryKeys[0].key", "settings-key",
+		validationmode.ProtectedRegistry{Key: originalKey, WholeKey: true},
+	); err != nil {
+		t.Fatalf("exact repeated registry registration after seal: %v", err)
+	}
 	lateKey := `HKCU\Software\EndstateValidationSessionTests\Late`
 	if err := session.registerOriginalRegistryProtection(
 		"restore[0].key", "late-key",

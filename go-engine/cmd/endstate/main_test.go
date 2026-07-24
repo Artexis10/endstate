@@ -476,11 +476,14 @@ func TestBuiltExecutableUsesDisposableEngineAcrossPlanApplyVerify(t *testing.T) 
 	if err := os.MkdirAll(moduleDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	moduleJSON := `{"id":"apps.notepad-plus-plus","displayName":"Notepad++","sensitivity":"low","matches":{"winget":["Vendor.NotepadPlusPlus"]},"verify":[],"restore":[],"capture":{"files":[],"excludeGlobs":[]}}`
+	moduleJSON := `{"id":"apps.notepad-plus-plus","displayName":"Notepad++","sensitivity":"low","matches":{"winget":["Vendor.NotepadPlusPlus"]},"verify":[],"restore":[],"capture":{"files":[{"source":"%APPDATA%\\Notepad++\\config.xml","dest":"apps/notepad-plus-plus/config.xml","optional":true}],"excludeGlobs":[]}}`
 	if err := os.WriteFile(filepath.Join(moduleDir, "module.jsonc"), []byte(moduleJSON), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	manifestPath := filepath.Join(root, "engine-flow.jsonc")
+	manifestPath := filepath.Join(root, "manifests", "engine-flow.jsonc")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	manifest := `{"version":1,"name":"engine-flow","apps":[{"id":"vendor-notepadplusplus","displayName":"Notepad++","driver":"winget","source":"winget","version":"8.8.2","refs":{"windows":"Vendor.NotepadPlusPlus"}}]}`
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
@@ -544,6 +547,43 @@ func TestBuiltExecutableUsesDisposableEngineAcrossPlanApplyVerify(t *testing.T) 
 	verifySummary := verifyData["summary"].(map[string]interface{})
 	if verifySummary["pass"] != float64(1) || verifySummary["fail"] != float64(0) {
 		t.Fatalf("verify summary = %#v", verifySummary)
+	}
+
+	packageStatePath := filepath.Join(root, ".endstate", "validation-package-state.json")
+	packageStateBefore, err := os.ReadFile(packageStatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsafeModuleJSON := `{"id":"apps.notepad-plus-plus","displayName":"Notepad++","sensitivity":"low","matches":{"winget":["Vendor.NotepadPlusPlus"]},"verify":[],"restore":[],"capture":{"files":[{"source":"C:\\host\\escape\\config.xml","dest":"apps/notepad-plus-plus/config.xml","optional":true}],"excludeGlobs":[]}}`
+	if err := os.WriteFile(filepath.Join(moduleDir, "module.jsonc"), []byte(unsafeModuleJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(binaryPath, "verify", "--manifest", manifestPath, "--json")
+	cmd.Dir = moduleRoot
+	cmd.Env = childEnvironment
+	var failureStdout, failureStderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &failureStdout, &failureStderr
+	if err := cmd.Run(); err == nil {
+		t.Fatalf("unsafe production module unexpectedly succeeded: stdout=%s stderr=%s", failureStdout.String(), failureStderr.String())
+	}
+	failureEnvelope := decodeCLIEnvelope(t, failureStdout.String())
+	errorObject, ok := failureEnvelope["error"].(map[string]interface{})
+	if !ok || errorObject["code"] != string(envelope.ErrTestModeIsolationViolation) {
+		t.Fatalf("unsafe module error = %#v envelope=%s", failureEnvelope["error"], failureStdout.String())
+	}
+	for _, output := range []string{failureStdout.String(), failureStderr.String()} {
+		for _, rootForm := range []string{root, filepath.ToSlash(root), strings.ReplaceAll(root, `\`, `\\`)} {
+			if rootForm != "" && strings.Contains(strings.ToLower(output), strings.ToLower(rootForm)) {
+				t.Fatalf("unsafe module output leaked disposable root form %q: %s", rootForm, output)
+			}
+		}
+	}
+	packageStateAfter, err := os.ReadFile(packageStatePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(packageStateAfter, packageStateBefore) {
+		t.Fatalf("unsafe production-module preflight mutated package state: before=%s after=%s", packageStateBefore, packageStateAfter)
 	}
 }
 

@@ -277,6 +277,33 @@ func TestValidationModeSessionFilesystemRegistrationClosesAtSeal(t *testing.T) {
 	}
 }
 
+func TestValidationModeSessionAllowsOnlyExactRepeatedFilesystemRegistrationAfterSeal(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", Source: "winget", InitialState: "present",
+	})
+	session, err := ActivateValidationMode(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Restore() })
+	originalTarget := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(originalTarget, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.registerOriginalFilesystemPath("capture.files[0].source", "appdata-settings", originalTarget); err != nil {
+		t.Fatal(err)
+	}
+	session.sealIsolation()
+
+	if err := session.registerOriginalFilesystemPath("capture.files[0].source", "appdata-settings", originalTarget); err != nil {
+		t.Fatalf("exact repeated registration after seal = %v", err)
+	}
+	if err := session.registerOriginalFilesystemPath("capture.files[0].source", "appdata-settings", filepath.Join(t.TempDir(), "different.json")); !errors.Is(err, validationmode.ErrUnsafePath) {
+		t.Fatalf("changed repeated registration error = %v, want unsafe path", err)
+	}
+}
+
 func TestValidationModeIsolationErrorChecksGuardsExactlyOnceAndCachesJoinedResult(t *testing.T) {
 	filesystem := &countingFilesystemIsolationGuard{
 		changes: []validationmode.Change{{Path: `C:\authority\secret.txt`, Kind: validationmode.ChangeContent}},

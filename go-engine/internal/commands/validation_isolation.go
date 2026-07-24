@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -35,6 +36,8 @@ func newValidationModeSession(context *validationmode.Context, recorder *validat
 		registryGuard:        validationmode.NewRegistryGuard(context),
 		filesystemCoordinate: make(map[string]string),
 		registryCoordinate:   make(map[string]string),
+		filesystemProtection: make(map[string]string),
+		registryProtection:   make(map[string]validationmode.ProtectedRegistry),
 	}
 }
 
@@ -67,7 +70,12 @@ func (session *ValidationModeSession) registerOriginalFilesystemPath(coordinate,
 	}
 	session.lifecycleMu.Lock()
 	if session.sealed {
+		repeatedPath, repeated := session.filesystemProtection[safeLabel]
+		repeatedCoordinate := session.filesystemCoordinate[safeLabel]
 		session.lifecycleMu.Unlock()
+		if repeated && repeatedCoordinate == coordinate && repeatedPath == filepath.Clean(path) {
+			return nil
+		}
 		return session.recordIsolationFinding(coordinate, safeLabel, isolationReasonUnsafePath)
 	}
 	var err error
@@ -83,6 +91,7 @@ func (session *ValidationModeSession) registerOriginalFilesystemPath(coordinate,
 	}
 	if err == nil {
 		session.filesystemCoordinate[safeLabel] = coordinate
+		session.filesystemProtection[safeLabel] = filepath.Clean(path)
 	}
 	session.lifecycleMu.Unlock()
 	if err != nil {
@@ -97,15 +106,21 @@ func (session *ValidationModeSession) registerOriginalRegistryProtection(coordin
 	if session == nil || session.context == nil || session.registryGuard == nil {
 		return fmt.Errorf("%w: validation registry session is inactive", validationmode.ErrUnsafeRegistry)
 	}
+	protection.Label = safeLabel
 	session.lifecycleMu.Lock()
 	if session.sealed {
+		repeatedProtection, repeated := session.registryProtection[safeLabel]
+		repeatedCoordinate := session.registryCoordinate[safeLabel]
 		session.lifecycleMu.Unlock()
+		if repeated && repeatedCoordinate == coordinate && repeatedProtection == protection {
+			return nil
+		}
 		return session.recordIsolationFinding(coordinate, safeLabel, isolationReasonUnsafeRegistry)
 	}
-	protection.Label = safeLabel
 	err := session.registryGuard.Protect([]validationmode.ProtectedRegistry{protection})
 	if err == nil {
 		session.registryCoordinate[safeLabel] = coordinate
+		session.registryProtection[safeLabel] = protection
 	}
 	session.lifecycleMu.Unlock()
 	if err != nil {
@@ -130,6 +145,17 @@ func (session *ValidationModeSession) sealIsolation() {
 		session.registryGuard.Seal()
 	}
 	session.sealed = true
+}
+
+// gateMutation closes isolation registration and refuses every later boundary
+// after any preflight or package finding. Guard comparison remains deferred to
+// IsolationError so post-dispatch host changes are still observed.
+func (session *ValidationModeSession) gateMutation() error {
+	if session == nil {
+		return nil
+	}
+	session.sealIsolation()
+	return session.recorder.isolationError()
 }
 
 func (session *ValidationModeSession) checkIsolationGuards() {

@@ -296,6 +296,9 @@ type ApplyAction struct {
 func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	runID := buildRunID("apply")
 	emitter := newApplyEmitterFn(runID, flags.Events == "jsonl")
+	if validationErr := preflightActiveValidationSandboxPaths(validationSandboxTarget("manifest.input", flags.Manifest)); validationErr != nil {
+		return nil, validationErr
+	}
 
 	// EnableRestore is handled after the install phase (before verify).
 
@@ -397,6 +400,29 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	restoreScope := scopeRestoreModules(mf, catalog, onlyModuleIDs)
 	if flags.Only != "" {
 		scopeConfigRestoreRuntimeForOnly(configRuntime, matchedModules)
+	}
+	if currentValidationMode != nil {
+		instances, instanceErr := validationDiscoverCommandInstances(matchedModules, mf.Apps)
+		if instanceErr != nil {
+			return nil, validationPreflightFailureEnvelope(currentValidationSession, "instances", "instance-discovery")
+		}
+		targets := []validationProductionSandboxTarget{validationSandboxTarget("manifest.input", flags.Manifest)}
+		options := applyConfigRestoreExecutionOptions(flags, runID, repoRoot, emitter)
+		for _, target := range []struct{ coordinate, path string }{
+			{"restore.state", options.StateDir}, {"restore.backup", options.BackupDir},
+			{"restore.journal", options.JournalLogsDir}, {"restore.export", options.ExportRoot},
+		} {
+			if target.path != "" {
+				targets = append(targets, validationSandboxTarget(target.coordinate, target.path))
+			}
+		}
+		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
+			Catalog: catalog, Modules: matchedModules, Manifest: mf,
+			PortableRoot: validationManifestPortableRoot(flags.Manifest),
+			ConfigPlans:  validationConfigPlansFromManifest(mf), Instances: instances, SandboxTargets: targets,
+		}); validationErr != nil {
+			return nil, validationErr
+		}
 	}
 
 	// Platform realizer path (whole-set, e.g. Nix on linux/darwin). When a

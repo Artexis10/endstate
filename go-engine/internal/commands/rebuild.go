@@ -106,6 +106,9 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 			WithDetail(map[string]string{"from": from}).
 			WithRemediation("URL input is not supported; download the bundle and pass a local path.")
 	}
+	if validationErr := preflightActiveValidationSandboxPaths(validationSandboxTarget("rebuild.input", from)); validationErr != nil {
+		return nil, validationErr
+	}
 	if _, statErr := os.Stat(from); errors.Is(statErr, os.ErrNotExist) {
 		return nil, envelope.NewError(
 			envelope.ErrManifestNotFound,
@@ -129,7 +132,13 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 	manifestPath := from
 	var bundleInfo *RebuildBundleInfo
 	if bundle.IsBundle(from) {
-		extractedManifest, extractErr := bundle.ExtractBundle(from)
+		if currentValidationMode != nil {
+			// Extraction is operation-specific I/O virtualization owned by B2B. Until
+			// that adapter exists, validation mode must refuse before ExtractBundle's
+			// first temporary-directory write.
+			return nil, validationPreflightFailureEnvelope(currentValidationSession, "rebuild.bundle", "extraction-adapter")
+		}
+		extractedManifest, extractErr := extractRebuildBundleFn(from)
 		if extractErr != nil {
 			// A malformed/non-bundle zip (or one without manifest.jsonc). Surface
 			// the underlying reason. ExtractBundle removes its own temp dir on
@@ -207,6 +216,8 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		ConfigResultFields: configFields,
 	}, nil
 }
+
+var extractRebuildBundleFn = bundle.ExtractBundle
 
 func rebuildApplyFlags(flags RebuildFlags, manifestPath string) ApplyFlags {
 	return ApplyFlags{

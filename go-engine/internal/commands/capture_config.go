@@ -116,6 +116,10 @@ type captureConfigFinalizeRequest struct {
 	// OnStage, when set, receives truthful bundle work boundaries (settings,
 	// packaging) so capture can translate them into schema-v1 progress events.
 	OnStage func(bundle.Stage)
+	// Prepared is populated only by active validation mode so command preflight
+	// can run before the intermediate manifest write. Ordinary capture keeps the
+	// established single finalize call and byte-identical ordering.
+	Prepared *captureConfigPreparation
 }
 
 // scopeCatalogToSelection narrows a catalog to the modules an explicit --only
@@ -218,6 +222,43 @@ type captureConfigCandidate struct {
 	Generation  *modules.GenerationDef
 	Instance    modules.ConfigInstance
 	DisplayName string
+}
+
+type captureConfigPreparation struct {
+	RepoRoot           string
+	Catalog            map[string]*modules.Module
+	Planning           captureConfigPlanning
+	OutputPath         string
+	CatalogUnavailable bool
+}
+
+func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigPreparation, error) {
+	repoRoot := resolveRepoRootFn()
+	catalog := map[string]*modules.Module{}
+	diagnostics := []modules.CatalogDiagnostic{}
+	if repoRoot != "" {
+		loaded, loadedDiagnostics, err := loadCaptureModuleCatalogFn(repoRoot)
+		if err != nil {
+			return nil, fmt.Errorf("load capture module catalog: %w", err)
+		}
+		catalog = loaded
+		diagnostics = loadedDiagnostics
+	}
+	if request.Selection.active() {
+		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		catalog = scoped
+	}
+	outputPath, err := captureBundleOutputPath(request.Flags, request.ManifestPath)
+	if err != nil {
+		return nil, err
+	}
+	return &captureConfigPreparation{
+		RepoRoot: repoRoot, Catalog: catalog, Planning: planCaptureConfig(catalog, request.Apps, diagnostics),
+		OutputPath: outputPath, CatalogUnavailable: repoRoot == "",
+	}, nil
 }
 
 // planCaptureConfig strictly partitions schema-v1 and schema-v2 behavior.
@@ -401,34 +442,20 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 	if request.Flags.Sanitize {
 		return empty, nil
 	}
-
-	repoRoot := resolveRepoRootFn()
-	catalog := map[string]*modules.Module{}
-	diagnostics := []modules.CatalogDiagnostic{}
-	if repoRoot != "" {
-		loaded, loadedDiagnostics, err := loadCaptureModuleCatalogFn(repoRoot)
+	prepared := request.Prepared
+	if prepared == nil {
+		var err error
+		prepared, err = prepareCaptureConfig(request)
 		if err != nil {
-			return nil, fmt.Errorf("load capture module catalog: %w", err)
+			return nil, err
 		}
-		catalog = loaded
-		diagnostics = loadedDiagnostics
 	}
-	if request.Selection.active() {
-		scoped, scopeErr := scopeCatalogToSelection(catalog, request.Apps, request.Selection)
-		if scopeErr != nil {
-			return nil, scopeErr
-		}
-		catalog = scoped
-	}
-	planning := planCaptureConfig(catalog, request.Apps, diagnostics)
-	outputPath, err := captureBundleOutputPath(request.Flags, request.ManifestPath)
-	if err != nil {
-		return nil, err
-	}
+	planning := prepared.Planning
+	outputPath := prepared.OutputPath
 	bundleResult, err := createCaptureBundleFn(bundle.CaptureBundleRequest{
 		ManifestPath:           request.ManifestPath,
 		OutputPath:             outputPath,
-		EndstateVersion:        config.ReadVersion(repoRoot),
+		EndstateVersion:        config.ReadVersion(prepared.RepoRoot),
 		Modules:                planning.Modules,
 		GenerationPlans:        planning.GenerationPlans,
 		PreplanningDiagnostics: planning.PreplanningDiagnostics,
@@ -461,7 +488,7 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		CaptureWarnings:      nonNilCommandStrings(bundleResult.CaptureWarnings),
 		ConfigCapture:        configSummary,
 		SensitiveExcluded:    sensitiveExcluded,
-		CatalogUnavailable:   repoRoot == "",
+		CatalogUnavailable:   prepared.CatalogUnavailable,
 	}, nil
 }
 

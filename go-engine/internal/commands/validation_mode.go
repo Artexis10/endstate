@@ -22,6 +22,7 @@ import (
 var validationModeActivationMu sync.Mutex
 var currentValidationMode *validationmode.Context
 var currentValidationDriver *validationPackageDriver
+var currentValidationSession *ValidationModeSession
 
 // ValidationModeSession owns the command-layer package seams for one CLI run.
 // The underlying package driver is constructed once and shared by every lane.
@@ -36,6 +37,8 @@ type ValidationModeSession struct {
 	registryGuard        validationRegistryGuard
 	filesystemCoordinate map[string]string
 	registryCoordinate   map[string]string
+	filesystemProtection map[string]string
+	registryProtection   map[string]validationmode.ProtectedRegistry
 
 	isolationOnce sync.Once
 	isolationErr  error
@@ -76,6 +79,7 @@ func ActivateValidationMode(context *validationmode.Context) (*ValidationModeSes
 	originalStoreDisplayNames := resolveStoreDisplayNamesFn
 	originalContext := currentValidationMode
 	originalValidationDriver := currentValidationDriver
+	originalValidationSession := currentValidationSession
 
 	matchDriver := func(name string) (driver.Driver, error) {
 		if !strings.EqualFold(strings.TrimSpace(name), descriptor.Inventory.Driver) {
@@ -130,6 +134,7 @@ func ActivateValidationMode(context *validationmode.Context) (*ValidationModeSes
 	rollbackDriverFn = matchDriver
 	currentValidationMode = context
 	currentValidationDriver = guarded
+	currentValidationSession = session
 
 	session.driver = guarded
 	session.restoreFn = func() {
@@ -144,6 +149,7 @@ func ActivateValidationMode(context *validationmode.Context) (*ValidationModeSes
 		resolveStoreDisplayNamesFn = originalStoreDisplayNames
 		currentValidationMode = originalContext
 		currentValidationDriver = originalValidationDriver
+		currentValidationSession = originalValidationSession
 		validationModeActivationMu.Unlock()
 	}
 	return session, nil

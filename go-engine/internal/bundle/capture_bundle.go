@@ -111,6 +111,91 @@ func LegacyCaptureID(moduleID string) string {
 	return "legacy-" + hex.EncodeToString(hash.Sum(nil))
 }
 
+// ProjectCapturePlanningManifest produces the declaration/provenance view used
+// to validate an already-selected capture plan before collection starts. It is
+// deliberately a planning projection, not a claim that collection succeeded;
+// the final artifact is still assembled only from collected results below.
+// Keeping this projection in bundle makes legacy rewriting and generation
+// provenance share the production source of truth.
+func ProjectCapturePlanningManifest(apps []manifest.App, legacyModules []*modules.Module, plans []ConfigSetCapturePlan) (*manifest.Manifest, error) {
+	projected := &manifest.Manifest{Version: 1, Apps: append([]manifest.App(nil), apps...)}
+	if len(plans) > 0 {
+		projected.Version = 2
+	}
+	verifiedModules := map[string]struct{}{}
+	appendVerifies := func(mod *modules.Module) {
+		if mod == nil {
+			return
+		}
+		if _, exists := verifiedModules[mod.ID]; exists {
+			return
+		}
+		verifiedModules[mod.ID] = struct{}{}
+		for _, verify := range mod.Verify {
+			projected.Verify = append(projected.Verify, manifest.VerifyEntry{
+				Type: verify.Type, Command: verify.Command, Path: verify.Path,
+				ValueName: verify.ValueName, ValueType: verify.ValueType, Data: verify.Data,
+			})
+		}
+	}
+
+	legacy := append([]*modules.Module(nil), legacyModules...)
+	sort.SliceStable(legacy, func(left, right int) bool {
+		if legacy[left] == nil {
+			return false
+		}
+		if legacy[right] == nil {
+			return true
+		}
+		return legacy[left].ID < legacy[right].ID
+	})
+	seenLegacy := map[string]struct{}{}
+	for _, mod := range legacy {
+		if mod == nil || mod.EffectiveSchemaVersion() != 1 {
+			continue
+		}
+		if _, duplicate := seenLegacy[mod.ID]; duplicate {
+			continue
+		}
+		seenLegacy[mod.ID] = struct{}{}
+		projected.ConfigModules = append(projected.ConfigModules, mod.ID)
+		layoutID := legacyModuleDirName(mod.ID)
+		legacyCaptureID := ""
+		if projected.Version == 2 {
+			legacyCaptureID = LegacyCaptureID(mod.ID)
+			layoutID = legacyCaptureID
+			projected.LegacyConfigLanes = append(projected.LegacyConfigLanes, manifest.LegacyConfigLane{
+				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1,
+				PayloadRoot: path.Join("configs", legacyCaptureID),
+			})
+		}
+		for _, restore := range mod.Restore {
+			entry := rewriteLegacyRestore(restore, layoutID)
+			entry.FromModule = mod.ID
+			entry.LegacyCaptureID = legacyCaptureID
+			projected.Restore = append(projected.Restore, entry)
+		}
+		appendVerifies(mod)
+	}
+
+	planning := append([]ConfigSetCapturePlan(nil), plans...)
+	sort.SliceStable(planning, func(left, right int) bool {
+		return capturePlanIdentity(planning[left]) < capturePlanIdentity(planning[right])
+	})
+	for _, plan := range planning {
+		snapshot, err := moduleSnapshotIdentity(plan.Module)
+		if err != nil {
+			return nil, err
+		}
+		captureID := CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)
+		projected.ConfigCaptures = append(projected.ConfigCaptures, projectConfigCapture(
+			plan, path.Join("configs", captureID), []manifest.PayloadManifestEntry{}, snapshot,
+		))
+		appendVerifies(plan.Module)
+	}
+	return projected, nil
+}
+
 // CreateCaptureBundle creates either a v1 compatibility bundle or a
 // structurally isolated v2 bundle. Only successful, nonempty generation
 // captures enable v2.
@@ -316,9 +401,14 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 		return nil, collection.SecretsExcluded, &diagnostic
 	}
 
+	capture := projectConfigCapture(plan, collection.PayloadRoot, payloadManifest, snapshot)
+	return &capture, collection.SecretsExcluded, nil
+}
+
+func projectConfigCapture(plan ConfigSetCapturePlan, payloadRoot string, payloadManifest []manifest.PayloadManifestEntry, snapshot ModuleSnapshot) manifest.ConfigCapture {
 	evidence := plan.Instance.Evidence
-	return &manifest.ConfigCapture{
-		CaptureID:   collection.CaptureID,
+	return manifest.ConfigCapture{
+		CaptureID:   CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID),
 		ModuleID:    plan.Module.ID,
 		ConfigSetID: plan.Set.ID,
 		SourceInstance: manifest.ConfigSourceInstance{
@@ -336,9 +426,9 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string) (*m
 		CaptureModule: manifest.CaptureModuleProvenance{
 			SchemaVersion: plan.Module.EffectiveSchemaVersion(), ContentHash: snapshot.ContentHash, SnapshotPath: snapshot.Path,
 		},
-		PayloadRoot:     collection.PayloadRoot,
+		PayloadRoot:     payloadRoot,
 		PayloadManifest: payloadManifest,
-	}, collection.SecretsExcluded, nil
+	}
 }
 
 // validateCapturedPayload runs the target generation's own declarative

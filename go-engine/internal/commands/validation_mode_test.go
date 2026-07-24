@@ -54,6 +54,27 @@ func validationContext(t *testing.T, inventory validationmode.Inventory) *valida
 	return context
 }
 
+func validationCommandManifestPath(t *testing.T, context *validationmode.Context, name string) string {
+	t.Helper()
+	directory := filepath.Join(context.Root(), "manifests")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(directory, name)
+}
+
+func writeValidationPackageOnlyModule(t *testing.T, context *validationmode.Context, ref string) {
+	t.Helper()
+	moduleDir := filepath.Join(context.Root(), "modules", "apps", "notepad-plus-plus")
+	if err := os.MkdirAll(moduleDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	moduleJSON := `{"id":"apps.notepad-plus-plus","displayName":"Notepad++","sensitivity":"low","matches":{"winget":["` + ref + `"]},"verify":[],"restore":[],"capture":{"files":[{"source":"%APPDATA%\\Notepad++\\config.xml","dest":"apps/notepad-plus-plus/config.xml","optional":true}],"excludeGlobs":[]}}`
+	if err := os.WriteFile(filepath.Join(moduleDir, "module.jsonc"), []byte(moduleJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestActivateValidationModeRoutesAllPackageBoundariesToOneDriver(t *testing.T) {
 	context := validationContext(t, validationmode.Inventory{
 		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
@@ -191,7 +212,7 @@ func TestValidationModeMixedManifestFailsBeforePackageMutation(t *testing.T) {
 			if !tc.validFirst {
 				apps = tc.extra + "," + valid
 			}
-			manifestPath := filepath.Join(context.Root(), "mixed.jsonc")
+			manifestPath := validationCommandManifestPath(t, context, "mixed.jsonc")
 			if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"mixed","apps":[`+apps+`]}`), 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -226,7 +247,7 @@ func TestValidationModeManifestPreflightCoversPlanVerifyAndRebuild(t *testing.T)
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = session.Restore() })
-			manifestPath := filepath.Join(context.Root(), command+"-mixed.jsonc")
+			manifestPath := validationCommandManifestPath(t, context, command+"-mixed.jsonc")
 			manifestJSON := `{"version":1,"name":"mixed","apps":[{"id":"notepad-plus-plus","driver":"winget","source":"winget","refs":{"windows":"Notepad++.Notepad++"}},{"id":"foreign","driver":"chocolatey","refs":{"windows":"foreign"}}]}`
 			if err := os.WriteFile(manifestPath, []byte(manifestJSON), 0o600); err != nil {
 				t.Fatal(err)
@@ -257,7 +278,7 @@ func TestValidationModeOmittedDriverDoesNotAuthorizeNonWingetInventory(t *testin
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = session.Restore() })
-	manifestPath := filepath.Join(context.Root(), "omitted-driver.jsonc")
+	manifestPath := validationCommandManifestPath(t, context, "omitted-driver.jsonc")
 	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"omitted","apps":[{"id":"tool","refs":{"windows":"vendor-tool"}}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +308,7 @@ func TestValidationModeStoreCaptureNeverCallsProductionNameResolver(t *testing.T
 	}
 
 	raw, captureErr := RunCapture(CaptureFlags{
-		Out: filepath.Join(context.Root(), "store-capture.jsonc"), Drivers: []string{"winget"}, Sanitize: true,
+		Out: validationCommandManifestPath(t, context, "store-capture.jsonc"), Drivers: []string{"winget"}, Sanitize: true,
 	})
 	if captureErr != nil {
 		t.Fatalf("RunCapture: %v", captureErr)
@@ -317,13 +338,19 @@ func TestValidationModePlanApplyVerifyShareDisposableState(t *testing.T) {
 		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
 		DisplayName: "Notepad++", Version: "8.8.2", Source: "winget", InitialState: "absent",
 	})
+	writeValidationPackageOnlyModule(t, context, "Notepad++.Notepad++")
+	restoreEnvironment, err := context.Activate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restoreEnvironment() })
 	session, err := ActivateValidationMode(context)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = session.Restore() })
 
-	manifestPath := filepath.Join(context.Root(), "validation-manifest.jsonc")
+	manifestPath := validationCommandManifestPath(t, context, "validation-manifest.jsonc")
 	manifestJSON := `{
   "version": 1,
   "name": "validation-engine-path",
@@ -351,7 +378,7 @@ func TestValidationModePlanApplyVerifyShareDisposableState(t *testing.T) {
 
 	rawApply, applyErr := RunApply(ApplyFlags{Manifest: manifestPath, NoBootstrap: true})
 	if applyErr != nil {
-		t.Fatalf("RunApply: %v", applyErr)
+		t.Fatalf("RunApply: %v isolation=%v", applyErr, session.IsolationError())
 	}
 	applyResult := rawApply.(*ApplyResult)
 	if applyResult.Summary.Success != 1 || len(applyResult.Actions) != 1 || applyResult.Actions[0].Status != driver.StatusInstalled {
@@ -429,7 +456,7 @@ func TestValidationModeCaptureUsesOrdinarySelectionAndModuleMatching(t *testing.
 	}
 
 	raw, captureErr := RunCapture(CaptureFlags{
-		Out:  filepath.Join(context.Root(), "capture.jsonc"),
+		Out:  validationCommandManifestPath(t, context, "capture.jsonc"),
 		Only: "vendor-notepadplusplus,apps.notepad-plus-plus",
 		Pin:  true,
 	})

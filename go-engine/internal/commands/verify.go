@@ -129,6 +129,9 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	// was passed. The emitter is a no-op when disabled, so no guard is needed.
 	runID := buildRunID("verify")
 	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
+	if validationErr := preflightActiveValidationSandboxPaths(validationSandboxTarget("manifest.input", flags.Manifest)); validationErr != nil {
+		return nil, validationErr
+	}
 
 	// --- 1. Load manifest ---
 	mf, envelopeErr := loadManifest(flags.Manifest)
@@ -141,10 +144,27 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 
 	// --- 1b. Synthesize manual apps from configModules (non-fatal) ---
 	repoRoot := config.ResolveRepoRoot()
+	var catalog map[string]*modules.Module
 	if repoRoot != "" {
-		catalog, catalogErr := loadModuleCatalogFn(repoRoot)
-		if catalogErr == nil && len(catalog) > 0 {
+		loadedCatalog, catalogErr := loadModuleCatalogFn(repoRoot)
+		if catalogErr == nil && len(loadedCatalog) > 0 {
+			catalog = loadedCatalog
 			modules.SynthesizeAppsFromModules(mf, catalog)
+		}
+	}
+	if currentValidationMode != nil {
+		matchedModules := modules.MatchModulesForApps(catalog, mf.Apps)
+		instances, instanceErr := validationDiscoverCommandInstances(matchedModules, mf.Apps)
+		if instanceErr != nil {
+			return nil, validationPreflightFailureEnvelope(currentValidationSession, "instances", "instance-discovery")
+		}
+		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
+			Catalog: catalog, Modules: matchedModules, Manifest: mf,
+			PortableRoot: validationManifestPortableRoot(flags.Manifest),
+			ConfigPlans:  validationConfigPlansFromManifest(mf), Instances: instances,
+			SandboxTargets: []validationProductionSandboxTarget{validationSandboxTarget("manifest.input", flags.Manifest)},
+		}); validationErr != nil {
+			return nil, validationErr
 		}
 	}
 
