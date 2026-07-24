@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.27.6](https://github.com/Artexis10/endstate/compare/v2.27.5...v2.27.6) (2026-07-24)
+
+
+### Bug Fixes
+
+* **capture:** drop the whole lane when a legacy module loses every restore entry ([#191](https://github.com/Artexis10/endstate/issues/191)) ([81cbd09](https://github.com/Artexis10/endstate/commit/81cbd0971ffa3217e59046d94f74b8f0a33ab057))
+
 ## [2.27.5](https://github.com/Artexis10/endstate/compare/v2.27.4...v2.27.5) (2026-07-22)
 
 
