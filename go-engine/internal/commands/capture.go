@@ -948,7 +948,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		}
 		preparationRequest := captureConfigFinalizeRequest{
 			Flags: flags, ManifestPath: absoluteManifest,
-			Apps: buildModuleMatchApps(captured), Selection: selection,
+			Apps: buildModuleMatchApps(captured), Selection: selection, ValidationContext: currentValidationMode,
 		}
 		var prepareErr error
 		preparedCapture, prepareErr = prepareCaptureConfig(preparationRequest)
@@ -973,6 +973,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		}); validationErr != nil {
 			return nil, validationErr
 		}
+		preparedCapture.ValidationPreflightComplete = true
 	}
 
 	// Ensure parent directory exists.
@@ -1017,9 +1018,10 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	// --- 10. Plan config capture and publish one canonical artifact ---
 	finalization, finalizeErr := finalizeCaptureConfig(captureConfigFinalizeRequest{
 		Flags: flags, ManifestPath: absPath,
-		Apps:      buildModuleMatchApps(captured),
-		Selection: selection,
-		Prepared:  preparedCapture,
+		Apps:              buildModuleMatchApps(captured),
+		Selection:         selection,
+		Prepared:          preparedCapture,
+		ValidationContext: currentValidationMode,
 		OnStage: func(stage bundle.Stage) {
 			emitter.EmitProgress("capture", string(stage))
 		},

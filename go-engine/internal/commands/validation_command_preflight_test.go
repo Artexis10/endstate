@@ -41,6 +41,95 @@ func TestRunCaptureValidationPreflightPrecedesIntermediateWriteAndBundleMutation
 	}
 }
 
+func TestFinalizeCaptureConfigValidationPreflightPrecedesBundleCallback(t *testing.T) {
+	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	originalCreate := createCaptureBundleFn
+	createCaptureBundleFn = func(bundle.CaptureBundleRequest) (*bundle.CaptureBundleResult, error) {
+		panic("capture bundle callback reached")
+	}
+	t.Cleanup(func() { createCaptureBundleFn = originalCreate })
+
+	_, err := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		Flags: CaptureFlags{}, ManifestPath: fixture.manifestPath,
+		Apps: []manifest.App{{ID: "notepad-plus-plus-validation", Driver: "winget", Source: "winget", Refs: map[string]string{"windows": fixture.catalog["apps.notepad-plus-plus"].Matches.Winget[0]}}},
+		Prepared: &captureConfigPreparation{
+			Catalog: fixture.catalog, Planning: captureConfigPlanning{Modules: []*modules.Module{}},
+			OutputPath: filepath.Join(fixture.context.Root(), "manifests", "capture.zip"),
+		},
+		ValidationContext: fixture.context,
+	})
+	if err == nil {
+		t.Fatal("finalizeCaptureConfig accepted invalid validation planning")
+	}
+	if isolationErr := fixture.session.IsolationError(); isolationErr == nil {
+		t.Fatal("finalizer preflight failure was not recorded")
+	}
+}
+
+func TestFinalizeCaptureConfigThreadsValidationContextToBundleRequest(t *testing.T) {
+	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	mod := fixture.catalog["apps.notepad-plus-plus"]
+	apps := []manifest.App{{
+		ID: "notepad-plus-plus-validation", Driver: "winget", Source: "winget", Installed: true,
+		Refs: map[string]string{"windows": mod.Matches.Winget[0]},
+	}}
+	prepared := &captureConfigPreparation{
+		Catalog:    fixture.catalog,
+		Planning:   captureConfigPlanning{Modules: []*modules.Module{mod}, LegacyModules: []*modules.Module{mod}},
+		OutputPath: filepath.Join(fixture.context.Root(), "manifests", "capture.zip"),
+	}
+	originalCreate := createCaptureBundleFn
+	createCaptureBundleFn = func(request bundle.CaptureBundleRequest) (*bundle.CaptureBundleResult, error) {
+		if request.ValidationContext != fixture.context {
+			t.Fatal("bundle request did not receive validation context")
+		}
+		return &bundle.CaptureBundleResult{
+			BundleSchemaVersion: "1.0", ManifestVersion: 1,
+			ConfigCaptures: []manifest.ConfigCapture{}, LegacyConfigLanes: []manifest.LegacyConfigLane{},
+			ConfigCapturesIncluded: []string{}, ConfigModulesIncluded: []string{}, ConfigModulesSkipped: []string{},
+			Diagnostics: []bundle.CaptureBundleDiagnostic{}, CaptureWarnings: []string{}, LegacyModules: []bundle.LegacyModuleCaptureResult{},
+		}, nil
+	}
+	t.Cleanup(func() { createCaptureBundleFn = originalCreate })
+
+	if _, err := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		ManifestPath: fixture.manifestPath, Apps: apps, Prepared: prepared, ValidationContext: fixture.context,
+	}); err != nil {
+		t.Fatalf("finalizeCaptureConfig: %v", err)
+	}
+}
+
+func TestFinalizeCaptureConfigRecordsBundleIsolationInSharedSession(t *testing.T) {
+	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	mod := fixture.catalog["apps.notepad-plus-plus"]
+	apps := []manifest.App{{
+		ID: "notepad-plus-plus-validation", Driver: "winget", Source: "winget", Installed: true,
+		Refs: map[string]string{"windows": mod.Matches.Winget[0]},
+	}}
+	prepared := &captureConfigPreparation{
+		Catalog:    fixture.catalog,
+		Planning:   captureConfigPlanning{Modules: []*modules.Module{mod}, LegacyModules: []*modules.Module{mod}},
+		OutputPath: filepath.Join(fixture.context.Root(), "manifests", "capture.zip"),
+	}
+	originalCreate := createCaptureBundleFn
+	createCaptureBundleFn = func(bundle.CaptureBundleRequest) (*bundle.CaptureBundleResult, error) {
+		return nil, &bundle.CaptureIsolationError{
+			ModuleID: mod.ID, Coordinate: "capture.files[0].source", TargetKind: "path",
+			Authored: mod.Capture.Files[0].Source, Cause: validationmode.ErrUnsafePath,
+		}
+	}
+	t.Cleanup(func() { createCaptureBundleFn = originalCreate })
+
+	if _, err := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		ManifestPath: fixture.manifestPath, Apps: apps, Prepared: prepared, ValidationContext: fixture.context,
+	}); err == nil {
+		t.Fatal("finalizeCaptureConfig ignored bundle isolation")
+	}
+	if isolationErr := fixture.session.IsolationError(); isolationErr == nil {
+		t.Fatal("bundle isolation was not recorded in the shared command session")
+	}
+}
+
 func TestRunCaptureValidationRejectsEscapedDurablePathsBeforeWriting(t *testing.T) {
 	for _, coordinate := range []string{"output", "update"} {
 		t.Run(coordinate, func(t *testing.T) {

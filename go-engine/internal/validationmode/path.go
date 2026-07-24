@@ -4,7 +4,9 @@
 package validationmode
 
 import (
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -401,6 +403,103 @@ func ResolvePortablePath(root, portable string) (string, error) {
 		return "", fmt.Errorf("%w: portable path is linked or outside its root", ErrUnsafePath)
 	}
 	return resolved, nil
+}
+
+// ResolveHostPattern resolves a capture-side host pattern through the same
+// alias and instance authority as ResolveHostPath while retaining wildcard
+// syntax for matching. The non-wildcard probe is resolved first, so traversal,
+// unknown aliases, hardcoded paths, and linked parents fail closed.
+func (context *Context) ResolveHostPattern(authored string, policy HostPathPolicy) (string, error) {
+	probe := authored
+	for {
+		wildcard := strings.IndexAny(probe, "*?[")
+		if wildcard < 0 {
+			break
+		}
+		end := wildcard + 1
+		if probe[wildcard] == '[' {
+			closing := strings.IndexByte(probe[wildcard+1:], ']')
+			if closing < 0 {
+				return "", fmt.Errorf("%w: glob syntax is invalid", ErrUnsafePath)
+			}
+			end = wildcard + closing + 2
+		}
+		probe = probe[:wildcard] + "x" + probe[end:]
+	}
+	if _, err := context.ResolveHostPath(probe, policy); err != nil {
+		return "", err
+	}
+	authored = normalizeProductionAuthoredPath(authored)
+	var root, suffix string
+	if strings.HasPrefix(strings.ToLower(authored), "${instance.root}") {
+		var err error
+		root, err = context.validateInstanceRoot(policy.InstanceRoot)
+		if err != nil {
+			return "", err
+		}
+		suffix = authored[len("${instance.root}"):]
+	} else {
+		closing := strings.Index(authored[1:], "%")
+		if closing < 0 {
+			return "", fmt.Errorf("%w: host pattern has no declared alias", ErrUnsafePath)
+		}
+		closing++
+		root, _ = context.VirtualRoot(authored[1:closing])
+		suffix = authored[closing+1:]
+	}
+	return filepath.Join(root, filepath.FromSlash(strings.ReplaceAll(strings.TrimLeft(suffix, `\/`), `\`, "/"))), nil
+}
+
+// GlobSandboxPattern evaluates an already-expanded detector pattern only
+// inside validation-owned virtual roots. Every returned match is canonical,
+// link-free, and revalidated for containment before it can become production
+// instance evidence.
+func (context *Context) GlobSandboxPattern(pattern string) ([]string, error) {
+	fail := func(message string) ([]string, error) {
+		return nil, fmt.Errorf("%w: %s", ErrUnsafePath, message)
+	}
+	if context == nil || pattern == "" || pattern != strings.TrimSpace(pattern) || strings.ContainsRune(pattern, '\x00') || strings.Contains(pattern, "**") {
+		return fail("glob is empty or malformed")
+	}
+	for _, component := range strings.FieldsFunc(filepath.ToSlash(pattern), func(character rune) bool { return character == '/' }) {
+		if component == ".." {
+			return fail("glob contains parent traversal")
+		}
+	}
+	absolute, err := filepath.Abs(pattern)
+	if err != nil || absolute != filepath.Clean(absolute) {
+		return fail("glob is not canonical absolute")
+	}
+	firstWildcard := strings.IndexAny(absolute, "*?[")
+	anchor := absolute
+	if firstWildcard >= 0 {
+		prefix := absolute[:firstWildcard]
+		separator := strings.LastIndexAny(prefix, `\/`)
+		if separator < 0 {
+			return fail("glob has no contained anchor")
+		}
+		anchor = strings.TrimRight(prefix[:separator], `\/`)
+	}
+	if anchor == "" || context.ValidateSandboxPath(filepath.Clean(anchor)) != nil {
+		return fail("glob anchor is outside validation roots")
+	}
+	matches, err := filepath.Glob(absolute)
+	if err != nil {
+		return fail("glob syntax is invalid")
+	}
+	result := make([]string, 0, len(matches))
+	for _, match := range matches {
+		canonical, canonicalErr := filepath.Abs(filepath.Clean(match))
+		if canonicalErr != nil || context.ValidateSandboxPath(canonical) != nil {
+			return fail("glob returned an unsafe match")
+		}
+		if _, statErr := os.Lstat(canonical); statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return fail("glob match cannot be inspected")
+		}
+		result = append(result, canonical)
+	}
+	sort.Slice(result, func(left, right int) bool { return pathComparisonKey(result[left]) < pathComparisonKey(result[right]) })
+	return result, nil
 }
 
 func canonicalAlias(name string) (string, bool) {

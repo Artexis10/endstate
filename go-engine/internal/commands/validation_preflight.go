@@ -134,10 +134,10 @@ func deriveValidationInstancePolicies(context *validationmode.Context, session *
 			return nil, validationPreflightFailure(session, coordinate+".root", "instance-provenance", isolationReasonUnsafePath)
 		}
 		alias, pattern, err := validationDetectorPattern(context, detector.Glob)
-		if err != nil || context.ValidateSandboxPath(instance.Root) != nil || !validationGlobContains(pattern, instance.Root) {
+		if err != nil || context.ValidateSandboxPath(instance.Root) != nil || !validationGlobContains(context, pattern, instance.Root) {
 			return nil, validationPreflightFailure(session, coordinate+".root", "instance-provenance", isolationReasonUnsafePath)
 		}
-		expected, err := validationDiscoveredPathInstance(mod, detector, pattern, instance.Root)
+		expected, err := validationDiscoveredPathInstance(context, mod, detector, pattern, instance.Root)
 		if err != nil || expected == nil {
 			return nil, validationPreflightFailure(session, coordinate+".id", "instance-provenance", isolationReasonUnsafePath)
 		}
@@ -193,8 +193,8 @@ func validationDetectorPattern(context *validationmode.Context, authored string)
 	return alias, filepath.Join(root, filepath.FromSlash(strings.ReplaceAll(suffix, `\`, "/"))), nil
 }
 
-func validationGlobContains(pattern, root string) bool {
-	matches, err := filepath.Glob(pattern)
+func validationGlobContains(context *validationmode.Context, pattern, root string) bool {
+	matches, err := context.GlobSandboxPattern(pattern)
 	if err != nil {
 		return false
 	}
@@ -207,8 +207,8 @@ func validationGlobContains(pattern, root string) bool {
 	return false
 }
 
-func validationDiscoveredPathInstance(mod *modules.Module, detector *modules.InstanceDetectorDef, pattern, root string) (*modules.ConfigInstance, error) {
-	matches, err := filepath.Glob(pattern)
+func validationDiscoveredPathInstance(context *validationmode.Context, mod *modules.Module, detector *modules.InstanceDetectorDef, pattern, root string) (*modules.ConfigInstance, error) {
+	matches, err := context.GlobSandboxPattern(pattern)
 	if err != nil {
 		return nil, err
 	}

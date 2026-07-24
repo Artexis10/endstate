@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 const (
@@ -120,6 +121,9 @@ type captureConfigFinalizeRequest struct {
 	// can run before the intermediate manifest write. Ordinary capture keeps the
 	// established single finalize call and byte-identical ordering.
 	Prepared *captureConfigPreparation
+	// ValidationContext virtualizes only capture-side OS I/O. Nil preserves the
+	// established production collector and bundle bytes.
+	ValidationContext *validationmode.Context
 }
 
 // scopeCatalogToSelection narrows a catalog to the modules an explicit --only
@@ -230,6 +234,12 @@ type captureConfigPreparation struct {
 	Planning           captureConfigPlanning
 	OutputPath         string
 	CatalogUnavailable bool
+	ValidationContext  *validationmode.Context
+	// ValidationPreflightComplete is set only by the command gate after it has
+	// checked this exact pinned preparation. It prevents a second declaration
+	// walk after guard registration is sealed while leaving other finalizer
+	// callers fail-closed.
+	ValidationPreflightComplete bool
 }
 
 func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigPreparation, error) {
@@ -256,8 +266,8 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 		return nil, err
 	}
 	return &captureConfigPreparation{
-		RepoRoot: repoRoot, Catalog: catalog, Planning: planCaptureConfig(catalog, request.Apps, diagnostics),
-		OutputPath: outputPath, CatalogUnavailable: repoRoot == "",
+		RepoRoot: repoRoot, Catalog: catalog, Planning: planCaptureConfigWithValidation(catalog, request.Apps, diagnostics, request.ValidationContext),
+		OutputPath: outputPath, CatalogUnavailable: repoRoot == "", ValidationContext: request.ValidationContext,
 	}, nil
 }
 
@@ -266,6 +276,10 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 // are considered by detector eligibility, even without an application match,
 // so path-only instances remain discoverable.
 func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, catalogDiagnostics []modules.CatalogDiagnostic) captureConfigPlanning {
+	return planCaptureConfigWithValidation(catalog, apps, catalogDiagnostics, nil)
+}
+
+func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []manifest.App, catalogDiagnostics []modules.CatalogDiagnostic, context *validationmode.Context) captureConfigPlanning {
 	planning := captureConfigPlanning{
 		Modules:                []*modules.Module{},
 		LegacyModules:          []*modules.Module{},
@@ -301,7 +315,11 @@ func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, 
 	for _, mod := range generationModules {
 		candidateStart := len(planning.Candidates)
 		diagnosticStart := len(planning.PreplanningDiagnostics)
-		instances, err := modules.DiscoverInstances(mod, capturePackageEvidence(mod, apps), modules.DiscoveryOptions{})
+		discovery := modules.DiscoveryOptions{}
+		if context != nil {
+			discovery.Glob = context.GlobSandboxPattern
+		}
+		instances, err := modules.DiscoverInstances(mod, capturePackageEvidence(mod, apps), discovery)
 		if err != nil {
 			planning.PreplanningDiagnostics = append(planning.PreplanningDiagnostics, bundle.CaptureBundleDiagnostic{
 				ModuleID: mod.ID,
@@ -452,6 +470,27 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 	}
 	planning := prepared.Planning
 	outputPath := prepared.OutputPath
+	validationContext := request.ValidationContext
+	if validationContext == nil {
+		validationContext = prepared.ValidationContext
+	}
+	if validationContext != nil && !prepared.ValidationPreflightComplete {
+		planningManifest, projectionErr := validationManifestFromCapturePreparation(prepared, request.Apps)
+		if projectionErr != nil {
+			return nil, validationPreflightFailure(currentValidationSession, "planning.materialized", "capture-projection", isolationReasonUnsafePath)
+		}
+		configPlans, instances := validationCapturePlanningFacts(prepared)
+		if validationErr := preflightActiveValidationCommand(validationProductionModulePreflight{
+			Catalog: prepared.Catalog, Modules: planning.Modules, Manifest: planningManifest,
+			PortableRoot: validationManifestPortableRoot(request.ManifestPath), ConfigPlans: configPlans, Instances: instances,
+			SandboxTargets: []validationProductionSandboxTarget{
+				validationSandboxTarget("capture.output", request.ManifestPath),
+				validationSandboxTarget("capture.bundle", outputPath),
+			},
+		}); validationErr != nil {
+			return nil, fmt.Errorf("validation capture preflight failed")
+		}
+	}
 	bundleResult, err := createCaptureBundleFn(bundle.CaptureBundleRequest{
 		ManifestPath:           request.ManifestPath,
 		OutputPath:             outputPath,
@@ -462,8 +501,21 @@ func finalizeCaptureConfig(request captureConfigFinalizeRequest) (*captureConfig
 		Share:                  request.Flags.Share,
 		Name:                   request.Flags.Name,
 		OnStage:                request.OnStage,
+		ValidationContext:      validationContext,
 	})
 	if err != nil {
+		if validationContext != nil {
+			var isolation *bundle.CaptureIsolationError
+			if errors.As(err, &isolation) {
+				reason := isolationReasonUnsafePath
+				if errors.Is(err, validationmode.ErrUnsafeRegistry) {
+					reason = isolationReasonUnsafeRegistry
+				}
+				coordinate := isolation.ModuleID + "." + isolation.Coordinate
+				target := tokenizedValidationTarget(isolation.TargetKind, isolation.Authored)
+				return nil, currentValidationSession.recordIsolationFinding(coordinate, target, reason)
+			}
+		}
 		return nil, err
 	}
 	if !sameHostPath(request.ManifestPath, outputPath) {
