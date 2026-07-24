@@ -502,7 +502,7 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1, PayloadRoot: path.Join("configs", layoutID),
 			})
 		}
-		staged = append(staged, stagedLegacyRestores{mod: mod, layoutID: layoutID, legacyCaptureID: legacyCaptureID})
+		staged = append(staged, stagedLegacyRestores{mod: mod, shortID: shortID, layoutID: layoutID, legacyCaptureID: legacyCaptureID})
 	}
 
 	// Capture-time target-collision guard (defense-in-depth behind the
@@ -519,6 +519,7 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 	}
 	for _, stage := range staged {
 		dropSet := dropped[stage.mod.ID]
+		entries := make([]manifest.RestoreEntry, 0, len(stage.mod.Restore))
 		for restoreIndex, restore := range stage.mod.Restore {
 			if _, drop := dropSet[restoreIndex]; drop {
 				continue
@@ -536,8 +537,19 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			if mixedV2 {
 				entry.LegacyCaptureID = stage.legacyCaptureID
 			}
-			legacy.restores = append(legacy.restores, entry)
+			entries = append(entries, entry)
 		}
+		// Every restore entry this module declared lost a target collision, so it
+		// contributes nothing to the flat restore list. Keeping its lane would
+		// leave a lane no restore entry references — which strict manifest
+		// validation rejects, failing the whole capture — over a payload the
+		// winner already restores. Drop the lane with the entries instead of
+		// shipping half a module.
+		if len(entries) == 0 && len(stage.mod.Restore) > 0 {
+			legacy.dropLegacyLane(stage, stagingRoot)
+			continue
+		}
+		legacy.restores = append(legacy.restores, entries...)
 	}
 	sort.Strings(legacy.included)
 	sort.Strings(legacy.skipped)
@@ -556,8 +568,54 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 // picked a winner for every overlapping target.
 type stagedLegacyRestores struct {
 	mod             *modules.Module
+	shortID         string
 	layoutID        string
 	legacyCaptureID string
+}
+
+// dropLegacyLane removes every trace of a staged module that lost all of its
+// restore entries to target collisions: the lane, the manifest module listing,
+// and the staged payload nothing would restore. The module is reported as
+// skipped rather than captured so the capture summary matches what the bundle
+// actually carries.
+func (legacy *legacyCaptureCollection) dropLegacyLane(stage stagedLegacyRestores, stagingRoot string) {
+	lanes := legacy.lanes[:0]
+	for _, lane := range legacy.lanes {
+		if lane.ModuleID != stage.mod.ID {
+			lanes = append(lanes, lane)
+		}
+	}
+	legacy.lanes = lanes
+
+	moduleIDs := legacy.moduleIDs[:0]
+	for _, moduleID := range legacy.moduleIDs {
+		if moduleID != stage.mod.ID {
+			moduleIDs = append(moduleIDs, moduleID)
+		}
+	}
+	legacy.moduleIDs = moduleIDs
+
+	included := legacy.included[:0]
+	for _, shortID := range legacy.included {
+		if shortID != stage.shortID {
+			included = append(included, shortID)
+		}
+	}
+	legacy.included = included
+	legacy.skipped = append(legacy.skipped, stage.shortID)
+
+	for index, module := range legacy.modules {
+		if module.ModuleID != stage.mod.ID {
+			continue
+		}
+		legacy.modules[index].Status = LegacyCaptureStatusSkipped
+		legacy.modules[index].Paths = []string{}
+		legacy.modules[index].FilesCaptured = 0
+	}
+
+	if payloadRoot, err := containedHostPath(stagingRoot, path.Join("configs", stage.layoutID)); err == nil {
+		_ = os.RemoveAll(payloadRoot)
+	}
 }
 
 // resolveLegacyTargetCollisions expands every staged module's restore targets to
