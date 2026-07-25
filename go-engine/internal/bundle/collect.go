@@ -102,7 +102,10 @@ func CollectConfigFilesWithValidation(module *modules.Module, stagingDir string,
 		}
 
 		// Check if source matches exclude globs.
-		if matchesExcludeGlobs(sourcePath, excludeGlobs) {
+		// Exclusions describe content within this declared capture entry. Never
+		// match them against unrelated absolute ancestors (for example the OS
+		// Temp directory that happens to contain a validation sandbox).
+		if matchesExcludeGlobs(filepath.Base(sourcePath), excludeGlobs) {
 			continue
 		}
 
@@ -444,7 +447,8 @@ func matchesExcludeGlobs(path string, excludeGlobs []string) bool {
 		if strings.HasSuffix(stripped, "/**") {
 			// Pattern like "**/Cache/**" — exclude if directory segment appears in path.
 			dirName := strings.TrimSuffix(stripped, "/**")
-			if strings.Contains(normalizedPath, "/"+dirName+"/") {
+			boundedPath := "/" + strings.Trim(normalizedPath, "/") + "/"
+			if strings.Contains(boundedPath, "/"+dirName+"/") {
 				return true
 			}
 		} else {
@@ -577,17 +581,18 @@ func copyDirWithValidation(src, dst string, excludeGlobs, secretsFiles, resolved
 			return nil
 		}
 
-		// Check exclude globs.
-		if matchesExcludeGlobs(path, excludeGlobs) {
+		relPath, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+
+		// Exclusions are scoped to descendants of the declared directory, not
+		// absolute host ancestors outside that capture entry.
+		if matchesExcludeGlobs(relPath, excludeGlobs) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
-		}
-
-		relPath, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
 		}
 
 		// Defense-in-depth: never bundle known bloat dirs (caches, update/installer

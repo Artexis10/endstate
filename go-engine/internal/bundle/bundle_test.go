@@ -597,6 +597,64 @@ func TestCollectConfigFiles_ExcludeGlobs(t *testing.T) {
 	}
 }
 
+func TestCollectConfigFiles_ExcludeGlobsAreRelativeToCaptureEntry(t *testing.T) {
+	t.Run("single file ignores unrelated source ancestors", func(t *testing.T) {
+		root := filepath.Join(t.TempDir(), "Temp", "Notepad++")
+		source := filepath.Join(root, "config.xml")
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(source, []byte("settings"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		staging := t.TempDir()
+		mod := &modules.Module{ID: "apps.relative-single", Capture: &modules.CaptureDef{
+			Files:        []modules.CaptureFile{{Source: source, Dest: "apps/relative-single/config.xml"}},
+			ExcludeGlobs: []string{"**/Temp/**"},
+		}}
+
+		collected, _, err := CollectConfigFiles(mod, staging)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(collected) != 1 {
+			t.Fatalf("ancestor exclusion dropped declared file: %q", collected)
+		}
+		if data, err := os.ReadFile(filepath.Join(staging, "configs", "relative-single", "config.xml")); err != nil || string(data) != "settings" {
+			t.Fatalf("captured file = %q err=%v", data, err)
+		}
+	})
+
+	t.Run("recursive capture excludes only descendants", func(t *testing.T) {
+		source := filepath.Join(t.TempDir(), "Temp", "Profiles")
+		if err := os.MkdirAll(filepath.Join(source, "Temp"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, "keep.json"), []byte("keep"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, "Temp", "drop.json"), []byte("drop"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		staging := t.TempDir()
+		mod := &modules.Module{ID: "apps.relative-tree", Capture: &modules.CaptureDef{
+			Files:        []modules.CaptureFile{{Source: source, Dest: "apps/relative-tree/Profiles"}},
+			ExcludeGlobs: []string{"**/Temp/**"},
+		}}
+
+		if _, _, err := CollectConfigFiles(mod, staging); err != nil {
+			t.Fatal(err)
+		}
+		capturedRoot := filepath.Join(staging, "configs", "relative-tree", "Profiles")
+		if data, err := os.ReadFile(filepath.Join(capturedRoot, "keep.json")); err != nil || string(data) != "keep" {
+			t.Fatalf("kept descendant = %q err=%v", data, err)
+		}
+		if _, err := os.Lstat(filepath.Join(capturedRoot, "Temp", "drop.json")); !os.IsNotExist(err) {
+			t.Fatalf("excluded descendant survived: %v", err)
+		}
+	})
+}
+
 func TestCollectConfigFiles_SingleFile(t *testing.T) {
 	dir := t.TempDir()
 	stagingDir := filepath.Join(dir, "staging")

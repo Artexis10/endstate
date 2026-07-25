@@ -177,15 +177,34 @@ func TestCreateCaptureBundlePublishesVerifyContractOnlyForCapturedModules(t *tes
 func TestCapturedModuleVerifiesIncludesSuccessfulLegacyAndGenerationLanes(t *testing.T) {
 	legacy := &modules.Module{ID: "apps.legacy", Verify: []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Legacy\settings.json`}}}
 	generation := &modules.Module{ID: "apps.generation", Verify: []modules.VerifyDef{{Type: "command-exists", Command: "generation-app"}}}
-	skipped := &modules.Module{ID: "apps.skipped", Verify: []modules.VerifyDef{{Type: "command-exists", Command: "must-not-publish"}}}
 
-	projected := capturedModuleVerifies(
-		[]*modules.Module{skipped, legacy, generation},
-		[]manifest.ConfigCapture{{ModuleID: generation.ID}},
-		[]string{legacy.ID},
-	)
+	projected, err := capturedModuleVerifies([]*modules.Module{legacy, generation})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(projected) != 2 || projected[0].Command != "generation-app" || projected[1].Path != legacy.Verify[0].Path {
 		t.Fatalf("captured lane verifies = %+v", projected)
+	}
+}
+
+func TestCreateCaptureBundleRejectsForeignDuplicateModuleIdentity(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "v2-root")
+	writeCaptureFile(t, filepath.Join(root, "prefs.json"), []byte("v2"))
+	plan := testGenerationCapturePlan(t, "apps.duplicate", "instance-a", root, false, false)
+	actual := reparseCapturePlanModuleWithVerify(t, &plan, modules.VerifyDef{
+		Type: "file-exists", Path: `%APPDATA%\Actual\settings.json`,
+	})
+	foreign := reparseModuleWithVerify(t, actual, modules.VerifyDef{
+		Type: "command-exists", Command: "foreign-must-not-publish",
+	})
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{foreign, actual}, []ConfigSetCapturePlan{plan})
+	if _, err := CreateCaptureBundle(request); err == nil || !strings.Contains(err.Error(), "ambiguous capture module identity") {
+		t.Fatalf("CreateCaptureBundle duplicate identity error = %v", err)
+	}
+	if _, err := os.Lstat(request.OutputPath); !os.IsNotExist(err) {
+		t.Fatalf("ambiguous module candidates published an artifact: %v", err)
 	}
 }
 
@@ -596,6 +615,33 @@ func testGenerationCapturePlan(t *testing.T, moduleID, instanceID, root string, 
 			Evidence: modules.InstanceEvidence{Type: "path", Path: root},
 		},
 	}
+}
+
+func reparseCapturePlanModuleWithVerify(t *testing.T, plan *ConfigSetCapturePlan, verify modules.VerifyDef) *modules.Module {
+	t.Helper()
+	mod := reparseModuleWithVerify(t, plan.Module, verify)
+	plan.Module = mod
+	plan.Set = &mod.Config.Sets[0]
+	plan.Generation = &plan.Set.Generations[0]
+	return mod
+}
+
+func reparseModuleWithVerify(t *testing.T, source *modules.Module, verify modules.VerifyDef) *modules.Module {
+	t.Helper()
+	var value map[string]any
+	if err := json.Unmarshal(source.CanonicalSnapshot(), &value); err != nil {
+		t.Fatal(err)
+	}
+	value["verify"] = []modules.VerifyDef{verify}
+	data, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modules.ParseModuleJSON(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mod
 }
 
 func loadCaptureBundle(t *testing.T, zipPath string) (*manifest.Manifest, BundleMetadata) {

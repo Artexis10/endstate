@@ -122,6 +122,23 @@ func TestLoadFromEnvironmentValidatesRootAndDescriptor(t *testing.T) {
 	}
 }
 
+func TestValidateInventoryAppIDAcceptsPackageIdentityPlusWithoutPathSyntax(t *testing.T) {
+	valid := Inventory{AppID: "notepad++-notepad++", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present"}
+	if err := validateInventory(valid); err != nil {
+		t.Fatalf("production Winget-derived app id rejected: %v", err)
+	}
+	for _, appID := range []string{`notepad/notepad`, `notepad\notepad`, "notepad\nnotepad", "+notepad", " notepad"} {
+		t.Run(appID, func(t *testing.T) {
+			invalid := valid
+			invalid.AppID = appID
+			if err := validateInventory(invalid); !errors.Is(err, ErrInvalidDescriptor) {
+				t.Fatalf("validateInventory(%q) = %v, want ErrInvalidDescriptor", appID, err)
+			}
+		})
+	}
+}
+
 func TestLoadFromEnvironmentBindsNonceToRootBasename(t *testing.T) {
 	root := makeValidationRoot(t, "root-nonce")
 	writeDescriptor(t, root, validDescriptor("descriptor-nonce"))

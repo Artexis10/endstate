@@ -21,6 +21,7 @@ const descriptorFilename = "validation-mode.json"
 
 var (
 	stableIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]*$`)
+	appIDPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]*$`)
 	kebabPattern    = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 	modulePattern   = regexp.MustCompile(`^apps\.[a-z0-9]+(?:-[a-z0-9]+)*$`)
 	tokenPattern    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+/-]*$`)
@@ -211,7 +212,7 @@ func validateInventory(inventory Inventory) error {
 	fail := func(message string) error {
 		return fmt.Errorf("%w: inventory %s", ErrInvalidDescriptor, message)
 	}
-	if !stableIDPattern.MatchString(inventory.AppID) {
+	if !appIDPattern.MatchString(inventory.AppID) {
 		return fail("appId is malformed")
 	}
 	if !kebabPattern.MatchString(inventory.Driver) {

@@ -196,12 +196,56 @@ func ProjectCapturePlanningManifest(apps []manifest.App, legacyModules []*module
 	return projected, nil
 }
 
+func validateCaptureModuleIdentities(candidates []*modules.Module, plans []ConfigSetCapturePlan) error {
+	all := append([]*modules.Module(nil), candidates...)
+	for _, plan := range plans {
+		all = append(all, plan.Module)
+	}
+	seen := make(map[string]string, len(all))
+	for _, mod := range all {
+		if mod == nil {
+			continue
+		}
+		identity, err := captureModuleObjectIdentity(mod)
+		if err != nil {
+			return fmt.Errorf("capture bundle: module identity for %s: %w", mod.ID, err)
+		}
+		if previous, exists := seen[mod.ID]; exists && previous != identity {
+			return fmt.Errorf("capture bundle: ambiguous capture module identity for %s", mod.ID)
+		}
+		seen[mod.ID] = identity
+	}
+	return nil
+}
+
+// captureModuleObjectIdentity binds decisions to the exact semantic module
+// object used by collection. Revision alone is insufficient for hand-built v1
+// modules, while ID alone lets a foreign duplicate donate verifier authority.
+func captureModuleObjectIdentity(mod *modules.Module) (string, error) {
+	if mod == nil {
+		return "", fmt.Errorf("module is nil")
+	}
+	canonical, err := json.Marshal(mod)
+	if err != nil {
+		return "", err
+	}
+	hash := sha256.New()
+	_, _ = hash.Write([]byte("endstate\x00capture-module-object\x00v1\x00"))
+	_, _ = hash.Write([]byte(mod.Revision))
+	_, _ = hash.Write([]byte{0})
+	_, _ = hash.Write(canonical)
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
 // CreateCaptureBundle creates either a v1 compatibility bundle or a
 // structurally isolated v2 bundle. Only successful, nonempty generation
 // captures enable v2.
 func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, error) {
 	if strings.TrimSpace(request.ManifestPath) == "" || strings.TrimSpace(request.OutputPath) == "" {
 		return nil, fmt.Errorf("capture bundle: manifestPath and outputPath are required")
+	}
+	if err := validateCaptureModuleIdentities(request.Modules, request.GenerationPlans); err != nil {
+		return nil, err
 	}
 	if request.ValidationContext != nil {
 		moduleID := request.ValidationContext.Descriptor().ModuleID
@@ -237,6 +281,7 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		return capturePlanIdentity(plans[left]) < capturePlanIdentity(plans[right])
 	})
 	configCaptures := make([]manifest.ConfigCapture, 0, len(plans))
+	successfulGenerationModules := make([]*modules.Module, 0, len(plans))
 	diagnostics := append([]CaptureBundleDiagnostic(nil), request.PreplanningDiagnostics...)
 	var payloadValidationWarnings []string
 	sensitiveExcluded := 0
@@ -258,6 +303,7 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 			payloadValidationWarnings = append(payloadValidationWarnings, warning)
 		}
 		configCaptures = append(configCaptures, *capture)
+		successfulGenerationModules = append(successfulGenerationModules, plan.Module)
 	}
 	sort.Slice(configCaptures, func(left, right int) bool { return configCaptures[left].CaptureID < configCaptures[right].CaptureID })
 	sortCaptureDiagnostics(diagnostics)
@@ -281,11 +327,12 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		return nil, err
 	}
 
-	verifyCandidates := append([]*modules.Module(nil), request.Modules...)
-	for _, plan := range plans {
-		verifyCandidates = append(verifyCandidates, plan.Module)
+	verifiedModules := append([]*modules.Module(nil), legacy.capturedModules...)
+	verifiedModules = append(verifiedModules, successfulGenerationModules...)
+	baseManifest.Verify, err = capturedModuleVerifies(verifiedModules)
+	if err != nil {
+		return nil, err
 	}
-	baseManifest.Verify = capturedModuleVerifies(verifyCandidates, configCaptures, legacy.moduleIDs)
 	prepareCaptureManifest(baseManifest, manifestVersion, configCaptures, legacy)
 	var redaction RedactionReport
 	if request.Share {
@@ -538,13 +585,14 @@ func capturePayloadValidationWarning(mod *modules.Module) string {
 }
 
 type legacyCaptureCollection struct {
-	lanes     []manifest.LegacyConfigLane
-	restores  []manifest.RestoreEntry
-	moduleIDs []string
-	included  []string
-	skipped   []string
-	warnings  []string
-	modules   []LegacyModuleCaptureResult
+	lanes           []manifest.LegacyConfigLane
+	restores        []manifest.RestoreEntry
+	moduleIDs       []string
+	capturedModules []*modules.Module
+	included        []string
+	skipped         []string
+	warnings        []string
+	modules         []LegacyModuleCaptureResult
 }
 
 func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string, mixedV2 bool, context *validationmode.Context) (*legacyCaptureCollection, error) {
@@ -667,6 +715,7 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 
 		legacy.included = append(legacy.included, shortID)
 		legacy.moduleIDs = append(legacy.moduleIDs, mod.ID)
+		legacy.capturedModules = append(legacy.capturedModules, mod)
 		legacy.modules = append(legacy.modules, LegacyModuleCaptureResult{
 			ModuleID:        mod.ID,
 			Paths:           rewriteLegacyCollectionPaths(collected, shortID, layoutID),
@@ -926,19 +975,11 @@ func projectModuleVerifies(mod *modules.Module) []manifest.VerifyEntry {
 	return projected
 }
 
-// capturedModuleVerifies publishes assertions only for modules whose payloads
-// actually made it into the artifact. Candidate order is deliberately ignored
-// so equivalent capture selections produce byte-stable manifests.
-func capturedModuleVerifies(candidates []*modules.Module, captures []manifest.ConfigCapture, legacyModuleIDs []string) []manifest.VerifyEntry {
-	capturedIDs := make(map[string]struct{}, len(captures)+len(legacyModuleIDs))
-	for _, capture := range captures {
-		capturedIDs[capture.ModuleID] = struct{}{}
-	}
-	for _, moduleID := range legacyModuleIDs {
-		capturedIDs[moduleID] = struct{}{}
-	}
-
-	ordered := append([]*modules.Module(nil), candidates...)
+// capturedModuleVerifies accepts only the exact module objects whose payloads
+// made it into the artifact. It never looks a successful ID back up in the
+// broader candidate set, where a foreign duplicate could donate authority.
+func capturedModuleVerifies(capturedModules []*modules.Module) ([]manifest.VerifyEntry, error) {
+	ordered := append([]*modules.Module(nil), capturedModules...)
 	sort.SliceStable(ordered, func(left, right int) bool {
 		if ordered[left] == nil {
 			return false
@@ -948,22 +989,26 @@ func capturedModuleVerifies(candidates []*modules.Module, captures []manifest.Co
 		}
 		return ordered[left].ID < ordered[right].ID
 	})
-	seen := make(map[string]struct{}, len(ordered))
+	seen := make(map[string]string, len(ordered))
 	var projected []manifest.VerifyEntry
 	for _, mod := range ordered {
 		if mod == nil {
 			continue
 		}
-		if _, captured := capturedIDs[mod.ID]; !captured {
+		identity, err := captureModuleObjectIdentity(mod)
+		if err != nil {
+			return nil, err
+		}
+		if previous, duplicate := seen[mod.ID]; duplicate {
+			if previous != identity {
+				return nil, fmt.Errorf("capture bundle: ambiguous captured module identity for %s", mod.ID)
+			}
 			continue
 		}
-		if _, duplicate := seen[mod.ID]; duplicate {
-			continue
-		}
-		seen[mod.ID] = struct{}{}
+		seen[mod.ID] = identity
 		projected = append(projected, projectModuleVerifies(mod)...)
 	}
-	return projected
+	return projected, nil
 }
 
 func prepareCaptureManifest(base *manifest.Manifest, version int, captures []manifest.ConfigCapture, legacy *legacyCaptureCollection) {
