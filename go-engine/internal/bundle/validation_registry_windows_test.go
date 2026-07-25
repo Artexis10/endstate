@@ -55,7 +55,7 @@ func TestCollectRegistryKeysWithValidationMapsExportAndPublishesSemanticDocument
 		t.Fatal(err)
 	}
 	text := decodeBundleRegistryUTF16(t, data)
-	if !strings.Contains(text, `[HKCU\Software\Vendor\Example]`) || !strings.Contains(text, `[HKCU\Software\Vendor\Example\Child]`) {
+	if !strings.Contains(text, `[HKEY_CURRENT_USER\Software\Vendor\Example]`) || !strings.Contains(text, `[HKEY_CURRENT_USER\Software\Vendor\Example\Child]`) {
 		t.Fatalf("semantic sections missing: %q", text)
 	}
 	if strings.Contains(strings.ToLower(text), strings.ToLower(context.RegistryNamespace())) {

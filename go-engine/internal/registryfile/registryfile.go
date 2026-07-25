@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode"
 	"unicode/utf16"
@@ -18,6 +19,15 @@ import (
 )
 
 const registryHeader = "Windows Registry Editor Version 5.00"
+const registryFileCurrentUserHive = "HKEY_CURRENT_USER"
+
+var (
+	registryValueLinePattern  = regexp.MustCompile(`^(?:@|"(?:[^"\\\r\n]|\\["\\])*")=(.*)$`)
+	registryStringDataPattern = regexp.MustCompile(`^"(?:[^"\\\r\n]|\\["\\])*"$`)
+	registryDwordDataPattern  = regexp.MustCompile(`(?i)^dword:[0-9a-f]{8}$`)
+	registryHexDataPattern    = regexp.MustCompile(`(?i)^hex(?:\([0-9a-f]+\))?:(.*)$`)
+	registryHexBytesPattern   = regexp.MustCompile(`(?i)^[0-9a-f]{2}(?:,[0-9a-f]{2})*$`)
+)
 
 // RewriteSubtree validates that every section in data is the expected HKCU
 // root or one of its descendants, rewrites that root to replacementRoot, and
@@ -33,6 +43,7 @@ func RewriteSubtree(data []byte, expectedRoot, replacementRoot string) ([]byte, 
 	if err != nil {
 		return nil, fmt.Errorf("registry file replacement root: %w", err)
 	}
+	replacement = registryFileCurrentUserHive + replacement[len("HKCU"):]
 	text, err := decode(data)
 	if err != nil {
 		return nil, err
@@ -41,25 +52,49 @@ func RewriteSubtree(data []byte, expectedRoot, replacementRoot string) ([]byte, 
 		return nil, err
 	}
 
-	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	normalizedText := strings.ReplaceAll(text, "\r\n", "\n")
+	if strings.ContainsRune(normalizedText, '\r') {
+		return nil, fmt.Errorf("registry file contains ambiguous carriage returns")
+	}
+	lines := strings.Split(normalizedText, "\n")
 	if len(lines) == 0 || lines[0] != registryHeader {
 		return nil, fmt.Errorf("registry file has an invalid or misplaced header")
 	}
 	sections := 0
 	expectedFold := strings.ToLower(expected)
+	sectionActive := false
+	continuationPending := false
 	for index, line := range lines {
+		if index == 0 {
+			continue
+		}
 		if index > 0 && line == registryHeader {
 			return nil, fmt.Errorf("registry file contains multiple documents")
 		}
-		trimmed := strings.TrimSpace(line)
-		if strings.HasSuffix(trimmed, "=-") && (strings.HasPrefix(trimmed, `"`) || strings.HasPrefix(trimmed, "@")) {
-			return nil, fmt.Errorf("registry file contains a deletion directive on line %d", index+1)
-		}
-		if !strings.HasPrefix(trimmed, "[") && !strings.HasSuffix(trimmed, "]") {
+		if continuationPending {
+			continued, continuationErr := validateRegistryContinuation(line)
+			if continuationErr != nil {
+				return nil, fmt.Errorf("registry file has malformed continuation on line %d", index+1)
+			}
+			continuationPending = continued
 			continue
 		}
-		if !strings.HasPrefix(trimmed, "[") || !strings.HasSuffix(trimmed, "]") ||
-			strings.Count(trimmed, "[") != 1 || strings.Count(trimmed, "]") != 1 || trimmed != line {
+		if line == "" || isRegistryComment(line) {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "[") {
+			if !sectionActive {
+				return nil, fmt.Errorf("registry file has content before the first section on line %d", index+1)
+			}
+			continued, valueErr := validateRegistryValueLine(line)
+			if valueErr != nil {
+				return nil, fmt.Errorf("registry file has unsupported value syntax on line %d", index+1)
+			}
+			continuationPending = continued
+			continue
+		}
+		if !strings.HasSuffix(trimmed, "]") || strings.Count(trimmed, "[") != 1 || strings.Count(trimmed, "]") != 1 || trimmed != line {
 			return nil, fmt.Errorf("registry file has a malformed section on line %d", index+1)
 		}
 		key := trimmed[1 : len(trimmed)-1]
@@ -78,6 +113,10 @@ func RewriteSubtree(data []byte, expectedRoot, replacementRoot string) ([]byte, 
 		suffix := normalized[len(expected):]
 		lines[index] = "[" + replacement + suffix + "]"
 		sections++
+		sectionActive = true
+	}
+	if continuationPending {
+		return nil, fmt.Errorf("registry file has an unterminated value continuation")
 	}
 	if sections == 0 {
 		return nil, fmt.Errorf("registry file contains no registry key sections")
@@ -89,6 +128,52 @@ func RewriteSubtree(data []byte, expectedRoot, replacementRoot string) ([]byte, 
 		lines = lines[:len(lines)-1]
 	}
 	return encodeUTF16LE(strings.Join(lines, "\r\n") + "\r\n"), nil
+}
+
+func isRegistryComment(line string) bool {
+	trimmed := strings.TrimLeft(line, " \t")
+	return strings.HasPrefix(trimmed, ";") || strings.HasPrefix(trimmed, "#")
+}
+
+func validateRegistryValueLine(line string) (bool, error) {
+	match := registryValueLinePattern.FindStringSubmatch(line)
+	if match == nil {
+		return false, fmt.Errorf("unsupported registry value line")
+	}
+	data := match[1]
+	if registryStringDataPattern.MatchString(data) || registryDwordDataPattern.MatchString(data) {
+		return false, nil
+	}
+	hexMatch := registryHexDataPattern.FindStringSubmatch(data)
+	if hexMatch == nil {
+		return false, fmt.Errorf("unsupported registry value data")
+	}
+	return validateRegistryHexPayload(hexMatch[1], false)
+}
+
+func validateRegistryContinuation(line string) (bool, error) {
+	if line == "" || (line[0] != ' ' && line[0] != '\t') {
+		return false, fmt.Errorf("registry continuation must be indented")
+	}
+	payload := strings.TrimLeft(line, " \t")
+	return validateRegistryHexPayload(payload, true)
+}
+
+func validateRegistryHexPayload(payload string, continuation bool) (bool, error) {
+	if payload == "" {
+		if continuation {
+			return false, fmt.Errorf("registry continuation is empty")
+		}
+		return false, nil
+	}
+	continued := strings.HasSuffix(payload, `,\`)
+	if continued {
+		payload = strings.TrimSuffix(payload, `,\`)
+	}
+	if !registryHexBytesPattern.MatchString(payload) {
+		return false, fmt.Errorf("registry hex data is malformed")
+	}
+	return continued, nil
 }
 
 func decode(data []byte) (string, error) {
