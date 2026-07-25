@@ -16,6 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 func TestRunRevertInterleavesGenerationAndLegacyMembersInReverseOrdinalOrder(t *testing.T) {
@@ -339,7 +340,7 @@ func TestRunRevertEmitsCompletedLegacyResultsBeforeFailure(t *testing.T) {
 	newRevertEmitterFn = func(runID string, jsonl bool) *events.Emitter {
 		return events.NewEmitterWithWriter(runID, jsonl, buffer)
 	}
-	runDurableLegacyRevertFn = func(*restore.Journal, string, string) ([]restore.RevertResult, error) {
+	runDurableLegacyRevertFn = func(*restore.Journal, string, string, *validationmode.Context) ([]restore.RevertResult, error) {
 		return []restore.RevertResult{{Target: "completed-target", Action: "reverted"}}, errors.New("later entry failed")
 	}
 	t.Cleanup(func() {

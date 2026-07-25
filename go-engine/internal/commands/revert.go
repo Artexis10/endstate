@@ -155,7 +155,7 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 				if readErr != nil {
 					return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to read restore journal: "+readErr.Error())
 				}
-				legacyResults, revertErr := runDurableLegacyRevertFn(journal, backupDir, workRoot)
+				legacyResults, revertErr := runDurableLegacyRevert(journal, backupDir, workRoot)
 				results = append(results, legacyResults...)
 				if revertErr != nil {
 					return nil, envelope.NewError(envelope.ErrRestoreFailed, revertErr.Error())
@@ -208,7 +208,7 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 		if readErr != nil {
 			return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to read restore journal: "+readErr.Error())
 		}
-		legacyResults, revertErr := runDurableLegacyRevertFn(latestJournal, backupDir, workRoot)
+		legacyResults, revertErr := runDurableLegacyRevert(latestJournal, backupDir, workRoot)
 		results = append(results, legacyResults...)
 		if revertErr != nil {
 			return nil, envelope.NewError(envelope.ErrRestoreFailed, revertErr.Error())
@@ -224,7 +224,11 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 }
 
 var newRevertEmitterFn = events.NewEmitter
-var runDurableLegacyRevertFn = restore.RunRevertDurable
+var runDurableLegacyRevertFn = restore.RunRevertDurableWithValidation
+
+func runDurableLegacyRevert(journal *restore.Journal, backupDir, workRoot string) ([]restore.RevertResult, error) {
+	return runDurableLegacyRevertFn(journal, backupDir, workRoot, currentValidationMode)
+}
 
 func configRestoreHistoryOrderError(err error) *envelope.Error {
 	diagnostic := "restore history could not be inspected"

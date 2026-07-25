@@ -25,6 +25,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/migration"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 type liveConfigRestoreGuard interface {
@@ -61,18 +62,19 @@ type configRestoreDetectionFailureProvider interface {
 }
 
 type configRestoreExecutionOptions struct {
-	RestoreEnabled  bool
-	DryRun          bool
-	RunID           string
-	StateDir        string
-	ManifestPath    string
-	ManifestDir     string
-	ExportRoot      string
-	BackupDir       string
-	JournalLogsDir  string
-	Emitter         *events.Emitter
-	Registry        configrestore.RegistryMutator
-	ProcessObserver configrestore.ProcessObserver
+	RestoreEnabled    bool
+	DryRun            bool
+	RunID             string
+	StateDir          string
+	ManifestPath      string
+	ManifestDir       string
+	ExportRoot        string
+	BackupDir         string
+	JournalLogsDir    string
+	Emitter           *events.Emitter
+	Registry          configrestore.RegistryMutator
+	ProcessObserver   configrestore.ProcessObserver
+	ValidationContext *validationmode.Context
 }
 
 type configRestoreExecutionResult struct {
@@ -1039,7 +1041,7 @@ func executeLegacyAndOrdinaryConfigRestores(
 func configRestoreActionOptions(options configRestoreExecutionOptions) restore.RestoreOptions {
 	return restore.RestoreOptions{
 		DryRun: options.DryRun, BackupDir: options.BackupDir, ManifestDir: options.ManifestDir,
-		ExportRoot: options.ExportRoot, RunID: options.RunID,
+		ExportRoot: options.ExportRoot, RunID: options.RunID, ValidationContext: options.ValidationContext,
 	}
 }
 
@@ -1257,7 +1259,7 @@ func writeLegacyConfigRestoreJournal(
 		}
 	}
 	journalPath, err := publishLegacyConfigRestoreJournal(
-		logsDir, options.RunID, absManifest, options.ManifestDir, options.ExportRoot, results,
+		logsDir, options.RunID, absManifest, options.ManifestDir, options.ExportRoot, results, options.ValidationContext,
 	)
 	if err != nil {
 		return "", err
@@ -1279,6 +1281,7 @@ func publishLegacyConfigRestoreJournal(
 	manifestDir string,
 	exportRoot string,
 	results []restore.RestoreResult,
+	validationContext *validationmode.Context,
 ) (string, error) {
 	if _, err := ensureDurableConfigRestoreDirectory(logsDir, 0o755); err != nil {
 		return "", err
@@ -1288,7 +1291,7 @@ func publishLegacyConfigRestoreJournal(
 		return "", err
 	}
 	defer os.RemoveAll(stagingDir)
-	if err := restore.WriteJournal(stagingDir, runID, manifestPath, manifestDir, exportRoot, results); err != nil {
+	if err := restore.WriteJournalWithValidation(stagingDir, runID, manifestPath, manifestDir, exportRoot, results, validationContext); err != nil {
 		return "", err
 	}
 	staged := filepath.Join(stagingDir, fmt.Sprintf("restore-journal-%s.json", runID))

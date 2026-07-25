@@ -539,15 +539,16 @@ func applyConfigRestoreExecutionOptions(
 		logsDir = filepath.Join(repoRoot, "logs")
 	}
 	options := configRestoreExecutionOptions{
-		RestoreEnabled: flags.EnableRestore,
-		DryRun:         flags.DryRun,
-		RunID:          runID,
-		StateDir:       stateDir,
-		ManifestPath:   flags.Manifest,
-		ManifestDir:    manifestDir,
-		ExportRoot:     exportRoot,
-		BackupDir:      filepath.Join(stateDir, "backups", runID),
-		JournalLogsDir: logsDir,
+		RestoreEnabled:    flags.EnableRestore,
+		DryRun:            flags.DryRun,
+		RunID:             runID,
+		StateDir:          stateDir,
+		ManifestPath:      flags.Manifest,
+		ManifestDir:       manifestDir,
+		ExportRoot:        exportRoot,
+		BackupDir:         filepath.Join(stateDir, "backups", runID),
+		JournalLogsDir:    logsDir,
+		ValidationContext: currentValidationMode,
 	}
 	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
 	options.Emitter = emitter

@@ -26,7 +26,43 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
+
+func TestLegacyRestoreExecutionThreadsValidationContextAndSemanticJournal(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	logsDir := filepath.Join(context.Root(), "logs")
+	manifestDir := filepath.Join(context.Root(), "manifests", "legacy")
+	if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	options := configRestoreExecutionOptions{
+		RunID: "legacy-context", JournalLogsDir: logsDir,
+		ManifestPath: filepath.Join(manifestDir, "manifest.jsonc"), ManifestDir: manifestDir,
+		ValidationContext: context,
+	}
+	restoreOptions := configRestoreActionOptions(options)
+	if restoreOptions.ValidationContext != context {
+		t.Fatal("legacy restore options dropped validation context")
+	}
+	journalPath, err := writeLegacyConfigRestoreJournal(options, []restore.RestoreResult{{
+		Source: "payload/settings.json", Target: `%APPDATA%\Vendor\settings.json`, Status: "restored", RestoreType: "copy",
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(strings.ToLower(string(data)), strings.ToLower(context.Root())) ||
+		strings.Contains(strings.ToLower(string(data)), strings.ToLower(context.Descriptor().Nonce)) {
+		t.Fatalf("validation identity leaked in journal: %s", data)
+	}
+}
 
 func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T) {
 	manifestDir := t.TempDir()

@@ -12,6 +12,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // Journal records the results of a restore run for use by the revert command.
@@ -40,6 +42,16 @@ type JournalEntry struct {
 // WriteJournal writes a restore journal to logsDir as an atomic temp+rename
 // operation. The journal filename is restore-journal-<runID>.json.
 func WriteJournal(logsDir, runID, manifestPath, manifestDir, exportRoot string, results []RestoreResult) error {
+	return WriteJournalWithValidation(logsDir, runID, manifestPath, manifestDir, exportRoot, results, nil)
+}
+
+// WriteJournalWithValidation writes the legacy journal while projecting
+// validation-owned manifest authorities to stable semantic display paths.
+func WriteJournalWithValidation(
+	logsDir, runID, manifestPath, manifestDir, exportRoot string,
+	results []RestoreResult,
+	context *validationmode.Context,
+) error {
 	if err := os.MkdirAll(logsDir, 0755); err != nil {
 		return fmt.Errorf("cannot create logs directory: %w", err)
 	}
@@ -62,6 +74,18 @@ func WriteJournal(logsDir, runID, manifestPath, manifestDir, exportRoot string, 
 		entries = append(entries, entry)
 	}
 
+	if context != nil {
+		var err error
+		if manifestPath, err = semanticJournalPath(context, manifestPath); err != nil {
+			return err
+		}
+		if manifestDir, err = semanticJournalPath(context, manifestDir); err != nil {
+			return err
+		}
+		if exportRoot, err = semanticJournalPath(context, exportRoot); err != nil {
+			return err
+		}
+	}
 	journal := Journal{
 		RunID:        runID,
 		Timestamp:    time.Now().UTC().Format(time.RFC3339),
@@ -89,6 +113,17 @@ func WriteJournal(logsDir, runID, manifestPath, manifestDir, exportRoot string, 
 	}
 
 	return nil
+}
+
+func semanticJournalPath(context *validationmode.Context, value string) (string, error) {
+	if value == "" || !filepath.IsAbs(value) {
+		return value, nil
+	}
+	semantic, err := context.DisplayPath(filepath.Clean(value))
+	if err != nil {
+		return "", fmt.Errorf("journal identity escaped validation-owned storage: %w", err)
+	}
+	return semantic, nil
 }
 
 // ReadJournal reads and parses a restore journal from the given path.

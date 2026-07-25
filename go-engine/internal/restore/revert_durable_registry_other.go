@@ -7,22 +7,22 @@ package restore
 
 import "fmt"
 
-func durableLegacyRegistryStates(JournalEntry, string) (durableLegacyRevertState, durableLegacyRevertState, error) {
+func durableLegacyRegistryStates(JournalEntry, string, legacyValidationBoundary) (durableLegacyRevertState, durableLegacyRevertState, error) {
 	return durableLegacyRevertState{}, durableLegacyRevertState{}, fmt.Errorf("durable legacy registry revert is only supported on Windows")
 }
 
-func applyDurableLegacyRegistryRevert(entry JournalEntry, _ int) error {
+func applyDurableLegacyRegistryRevert(entry JournalEntry, _ int, _ legacyValidationBoundary) error {
 	return fmt.Errorf("durable legacy %s revert is only supported on Windows", entry.RestoreType)
 }
 
-func durableLegacyRegistryScratchTargets(JournalEntry, string) (string, string, error) {
+func durableLegacyRegistryScratchTargets(JournalEntry, string, legacyValidationBoundary) (string, string, error) {
 	return "", "", nil
 }
 
-func validateDurableLegacyRegistryScratchAvailable(string, string, string) error {
+func validateDurableLegacyRegistryScratchAvailable(string, string, string, legacyValidationBoundary) error {
 	return fmt.Errorf("durable legacy registry revert is only supported on Windows")
 }
 
-func applyDurableLegacyRegistryImportSwap(JournalEntry, durableLegacyRevertPrepared, int, string) error {
+func applyDurableLegacyRegistryImportSwap(JournalEntry, durableLegacyRevertPrepared, int, string, legacyValidationBoundary) error {
 	return fmt.Errorf("durable legacy registry revert is only supported on Windows")
 }

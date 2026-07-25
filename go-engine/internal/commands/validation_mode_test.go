@@ -17,6 +17,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/events"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -61,6 +62,34 @@ func validationCommandManifestPath(t *testing.T, context *validationmode.Context
 		t.Fatal(err)
 	}
 	return filepath.Join(directory, name)
+}
+
+func TestDurableLegacyRevertDispatchUsesCurrentValidationContext(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	originalContext := currentValidationMode
+	originalRevert := runDurableLegacyRevertFn
+	currentValidationMode = context
+	called := false
+	runDurableLegacyRevertFn = func(_ *restore.Journal, _, _ string, got *validationmode.Context) ([]restore.RevertResult, error) {
+		called = true
+		if got != context {
+			t.Fatalf("validation context = %p, want %p", got, context)
+		}
+		return nil, nil
+	}
+	t.Cleanup(func() {
+		currentValidationMode = originalContext
+		runDurableLegacyRevertFn = originalRevert
+	})
+	if _, err := runDurableLegacyRevert(&restore.Journal{}, "", filepath.Join(context.Root(), "state", "revert")); err != nil {
+		t.Fatal(err)
+	}
+	if !called {
+		t.Fatal("durable legacy revert adapter was not called")
+	}
 }
 
 func writeValidationPackageOnlyModule(t *testing.T, context *validationmode.Context, ref string) {

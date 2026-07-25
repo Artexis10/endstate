@@ -176,7 +176,7 @@ func restoreConfigRestoreExecutionOptions(
 		RunID: runID, StateDir: stateDir, ManifestPath: flags.Manifest,
 		ManifestDir: manifestDir, ExportRoot: exportRoot,
 		BackupDir: filepath.Join(stateDir, "backups", runID), JournalLogsDir: logsDir,
-		Emitter: emitter,
+		Emitter: emitter, ValidationContext: currentValidationMode,
 	}
 	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
 	return options

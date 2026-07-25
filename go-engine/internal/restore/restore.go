@@ -14,6 +14,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // RestoreAction describes a single restore operation to execute.
@@ -61,11 +62,12 @@ type RestoreResult struct {
 
 // RestoreOptions holds configuration for a restore run.
 type RestoreOptions struct {
-	DryRun      bool
-	BackupDir   string
-	ManifestDir string
-	ExportRoot  string
-	RunID       string
+	DryRun            bool
+	BackupDir         string
+	ManifestDir       string
+	ExportRoot        string
+	RunID             string
+	ValidationContext *validationmode.Context
 }
 
 // ActionDescriptor resolves the stable event identity and concrete paths for
@@ -86,6 +88,23 @@ func DescribeAction(action RestoreAction, opts RestoreOptions) ActionDescriptor 
 		restoreType = "copy"
 	}
 	descriptor := ActionDescriptor{ID: generateID(action), RestoreType: restoreType}
+	if opts.ValidationContext != nil {
+		descriptor.Source = action.Source
+		if restoreType == "registry-set" {
+			descriptor.Target = registrySetTarget(action)
+		} else {
+			descriptor.Target = action.Target
+		}
+		if restoreType == "registry-set" || restoreType == "registry-import" {
+			return descriptor
+		}
+		physical, err := legacyValidationBoundary{context: opts.ValidationContext}.resolveHost(action.Target)
+		if err == nil {
+			_, statErr := os.Stat(physical)
+			descriptor.TargetExisted = statErr == nil
+		}
+		return descriptor
+	}
 	switch restoreType {
 	case "registry-set":
 		descriptor.Target = registrySetTarget(action)
@@ -227,11 +246,17 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 
 		// delete-glob: no source path, may produce multiple results.
 		if entry.Type == "delete-glob" {
-			target := resolveTarget(entry.Target)
+			target, resolveErr := legacyValidationBoundary{context: opts.ValidationContext}.resolveHost(entry.Target)
+			if resolveErr != nil {
+				r := projectValidationRestoreResult(&RestoreResult{ID: id, Target: entry.Target, Status: "failed", Error: resolveErr.Error(), RestoreType: "delete-glob"}, entry, opts)
+				emitRestoreItemEvent(emitter, entry, *r)
+				results = append(results, *r)
+				continue
+			}
 			if err := ValidateFilesystemTarget(target); err != nil {
-				r := RestoreResult{ID: id, Target: target, Status: "failed", Error: err.Error(), RestoreType: "delete-glob"}
-				emitRestoreItemEvent(emitter, entry, r)
-				results = append(results, r)
+				r := projectValidationRestoreResult(&RestoreResult{ID: id, Target: target, Status: "failed", Error: err.Error(), RestoreType: "delete-glob"}, entry, opts)
+				emitRestoreItemEvent(emitter, entry, *r)
+				results = append(results, *r)
 				continue
 			}
 
@@ -243,8 +268,9 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 						Target: target,
 						Status: "skipped_missing_source",
 					}
-					emitRestoreItemEvent(emitter, entry, r)
-					results = append(results, r)
+					projected := projectValidationRestoreResult(&r, entry, opts)
+					emitRestoreItemEvent(emitter, entry, *projected)
+					results = append(results, *projected)
 					continue
 				}
 				r := RestoreResult{
@@ -253,8 +279,9 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					Status: "failed",
 					Error:  fmt.Sprintf("target directory not found: %s", target),
 				}
-				emitRestoreItemEvent(emitter, entry, r)
-				results = append(results, r)
+				projected := projectValidationRestoreResult(&r, entry, opts)
+				emitRestoreItemEvent(emitter, entry, *projected)
+				results = append(results, *projected)
 				continue
 			}
 
@@ -266,14 +293,16 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					Status: "failed",
 					Error:  err.Error(),
 				}
-				emitRestoreItemEvent(emitter, entry, r)
-				results = append(results, r)
+				projected := projectValidationRestoreResult(&r, entry, opts)
+				emitRestoreItemEvent(emitter, entry, *projected)
+				results = append(results, *projected)
 				continue
 			}
 
 			for i := range deleteResults {
 				deleteResults[i].ID = id
 				deleteResults[i].RestoreType = "delete-glob"
+				projectValidationRestoreResult(&deleteResults[i], entry, opts)
 				emitRestoreItemEvent(emitter, entry, deleteResults[i])
 			}
 			results = append(results, deleteResults...)
@@ -283,7 +312,13 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		// registry-import: target is a registry key path, not a file path.
 		// Dispatch early to avoid the generic file-based source/target resolution.
 		if entry.Type == "registry-import" {
-			source := resolveSource(entry.Source, opts)
+			source, resolveErr := resolveRestoreSource(entry.Source, opts)
+			if resolveErr != nil {
+				r := projectValidationRestoreResult(&RestoreResult{ID: id, Source: entry.Source, Target: entry.Target, Status: "failed", Error: resolveErr.Error(), RestoreType: "registry-import"}, entry, opts)
+				emitRestoreItemEvent(emitter, entry, *r)
+				results = append(results, *r)
+				continue
+			}
 			result, err := RestoreRegistryImport(entry, source, opts)
 			if err != nil {
 				r := RestoreResult{
@@ -294,8 +329,9 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					Error:       err.Error(),
 					RestoreType: "registry-import",
 				}
-				emitRestoreItemEvent(emitter, entry, r)
-				results = append(results, r)
+				projected := projectValidationRestoreResult(&r, entry, opts)
+				emitRestoreItemEvent(emitter, entry, *projected)
+				results = append(results, *projected)
 				continue
 			}
 			result.ID = id
@@ -305,6 +341,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 			if result.Target == "" {
 				result.Target = entry.Target
 			}
+			result = projectValidationRestoreResult(result, entry, opts)
 			emitRestoreItemEvent(emitter, entry, *result)
 			results = append(results, *result)
 			continue
@@ -323,23 +360,36 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 					Error:       err.Error(),
 					RestoreType: "registry-set",
 				}
-				emitRestoreItemEvent(emitter, entry, r)
-				results = append(results, r)
+				projected := projectValidationRestoreResult(&r, entry, opts)
+				emitRestoreItemEvent(emitter, entry, *projected)
+				results = append(results, *projected)
 				continue
 			}
 			result.ID = id
+			result = projectValidationRestoreResult(result, entry, opts)
 			emitRestoreItemEvent(emitter, entry, *result)
 			results = append(results, *result)
 			continue
 		}
 
 		// Resolve source and target paths.
-		source := resolveSource(entry.Source, opts)
-		target := resolveTarget(entry.Target)
+		source, sourceErr := resolveRestoreSource(entry.Source, opts)
+		target, targetErr := legacyValidationBoundary{context: opts.ValidationContext}.resolveHost(entry.Target)
+		if sourceErr != nil || targetErr != nil {
+			cause := sourceErr
+			if cause == nil {
+				cause = targetErr
+			}
+			r := projectValidationRestoreResult(&RestoreResult{ID: id, Source: source, Target: target, Status: "failed", Error: cause.Error(), RestoreType: entry.Type}, entry, opts)
+			emitRestoreItemEvent(emitter, entry, *r)
+			results = append(results, *r)
+			continue
+		}
 		if err := ValidateFilesystemTarget(target); err != nil {
 			r := RestoreResult{ID: id, Source: source, Target: target, Status: "failed", Error: err.Error(), RestoreType: entry.Type}
-			emitRestoreItemEvent(emitter, entry, r)
-			results = append(results, r)
+			projected := projectValidationRestoreResult(&r, entry, opts)
+			emitRestoreItemEvent(emitter, entry, *projected)
+			results = append(results, *projected)
 			continue
 		}
 
@@ -357,8 +407,9 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 				Target: target,
 				Status: "skipped_missing_source",
 			}
-			emitRestoreItemEvent(emitter, entry, r)
-			results = append(results, r)
+			projected := projectValidationRestoreResult(&r, entry, opts)
+			emitRestoreItemEvent(emitter, entry, *projected)
+			results = append(results, *projected)
 			continue
 		}
 
@@ -368,8 +419,8 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		warnings = append(warnings, CheckSensitivePath(target)...)
 
 		// Track whether target existed before.
-		_, targetErr := os.Stat(target)
-		targetExisted := targetErr == nil
+		_, targetStatErr := os.Stat(target)
+		targetExisted := targetStatErr == nil
 
 		// Build per-entry options.
 		entryOpts := opts
@@ -424,6 +475,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		// Merge warnings.
 		result.Warnings = append(warnings, result.Warnings...)
 
+		result = projectValidationRestoreResult(result, entry, opts)
 		emitRestoreItemEvent(emitter, entry, *result)
 		results = append(results, *result)
 	}
