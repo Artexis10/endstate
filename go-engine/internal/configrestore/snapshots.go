@@ -11,10 +11,13 @@ import (
 	"path/filepath"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configvalidate"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
 
 type preparedInternal struct {
 	record              PreparedAction
+	ioAction            Action
+	ioMissingParents    []string
 	priorFS             filesystemState
 	priorRegistry       registrySnapshot
 	temporaryBackupPath string
@@ -29,6 +32,7 @@ func PrepareSnapshots(ctx context.Context, request SnapshotRequest) (*PreparedSe
 // Prepare snapshots and verifies every prior/desired state before publishing
 // one immutable PreparedSet. It never mutates a restore target.
 func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest) (result *PreparedSet, resultErr error) {
+	ctx = withHostBoundary(ctx, request.Boundary)
 	set, transactionRoot, err := validateSnapshotRequest(ctx, request)
 	if err != nil {
 		return nil, backupError(-1, request.TransactionRoot, err)
@@ -43,6 +47,7 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 	if len(set.Actions) == 0 {
 		return &PreparedSet{
 			actions: []PreparedAction{}, validations: append([]configvalidate.ResolvedValidation(nil), set.Validations...),
+			boundary: request.Boundary, instance: set.instance,
 		}, nil
 	}
 
@@ -81,7 +86,9 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 		if err := os.Mkdir(actionDirectory, 0o700); err != nil {
 			return nil, backupError(index, action.Target, err)
 		}
-		internal, err := prepareSnapshotAction(ctx, request.RegistryReader, action, index, actionDirectory, finalRoot)
+		internal, err := prepareSnapshotAction(
+			ctx, request.RegistryReader, request.Boundary, set.instance, action, index, actionDirectory, finalRoot,
+		)
 		if err != nil {
 			return nil, backupError(index, action.Target, err)
 		}
@@ -95,7 +102,7 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 		return nil, backupError(-1, finalRoot, err)
 	}
 	for index := range prepared {
-		if err := verifyPreparedAction(ctx, request.RegistryReader, prepared[index]); err != nil {
+		if err := verifyPreparedAction(ctx, request.RegistryReader, request.Boundary, prepared[index]); err != nil {
 			return nil, backupError(index, prepared[index].record.action.Target, err)
 		}
 	}
@@ -121,9 +128,11 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 		records[index] = clonePreparedAction(prepared[index].record)
 	}
 	return &PreparedSet{
-		snapshotRoot: finalRoot,
-		actions:      records,
-		validations:  append([]configvalidate.ResolvedValidation(nil), set.Validations...),
+		snapshotRoot:      finalRoot,
+		actions:           records,
+		validations:       append([]configvalidate.ResolvedValidation(nil), set.Validations...),
+		validationTargets: append([]string(nil), set.validationTargets...),
+		boundary:          request.Boundary, instance: set.instance,
 	}, nil
 }
 
@@ -141,13 +150,20 @@ func validateSnapshotRequest(ctx context.Context, request SnapshotRequest) (*Mat
 	if err := rejectExistingTargetLinks(root); err != nil {
 		return nil, "", err
 	}
+	if request.Boundary != nil {
+		if err := request.Boundary.ValidateFilesystemTarget(root); err != nil {
+			return nil, "", err
+		}
+	}
 	info, err := os.Lstat(root)
 	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
 		return nil, "", fmt.Errorf("transaction root must be an existing safe directory")
 	}
 	copy := &MaterializedSet{
-		Actions:     make([]Action, len(request.Set.Actions)),
-		Validations: append([]configvalidate.ResolvedValidation(nil), request.Set.Validations...),
+		Actions:           make([]Action, len(request.Set.Actions)),
+		Validations:       append([]configvalidate.ResolvedValidation(nil), request.Set.Validations...),
+		validationTargets: append([]string(nil), request.Set.validationTargets...),
+		boundary:          request.Boundary, instance: request.Set.instance,
 	}
 	for index, action := range request.Set.Actions {
 		if !action.SnapshotRequired {
@@ -155,11 +171,15 @@ func validateSnapshotRequest(ctx context.Context, request SnapshotRequest) (*Mat
 		}
 		copy.Actions[index] = cloneAction(action)
 		if action.Kind != ActionRegistrySet {
-			if err := validateSnapshotPathSeparation(root, action.Target); err != nil {
+			ioAction, err := resolveActionForHostIO(action, request.Boundary, request.Set.instance)
+			if err != nil {
+				return nil, "", fmt.Errorf("action[%d]: %w", index, err)
+			}
+			if err := validateSnapshotPathSeparation(root, ioAction.Target); err != nil {
 				return nil, "", fmt.Errorf("action[%d] target: %w", index, err)
 			}
 			if action.Kind == ActionCopy {
-				if err := validateSnapshotPathSeparation(root, action.Source); err != nil {
+				if err := validateSnapshotPathSeparation(root, ioAction.Source); err != nil {
 					return nil, "", fmt.Errorf("action[%d] source: %w", index, err)
 				}
 			}
@@ -181,6 +201,8 @@ func validateSnapshotPathSeparation(transactionRoot, path string) error {
 func prepareSnapshotAction(
 	ctx context.Context,
 	registryReader RegistryReader,
+	boundary HostBoundary,
+	instance modules.ConfigInstance,
 	action Action,
 	index int,
 	actionDirectory string,
@@ -188,15 +210,26 @@ func prepareSnapshotAction(
 ) (preparedInternal, error) {
 	finalDirectory := filepath.Join(finalRoot, formatActionIndex(index))
 	record := PreparedAction{action: cloneAction(action)}
-	result := preparedInternal{record: record}
+	ioAction, err := resolveActionForHostIO(action, boundary, instance)
+	if err != nil {
+		return preparedInternal{record: record}, err
+	}
+	result := preparedInternal{record: record, ioAction: ioAction}
 	switch action.Kind {
 	case ActionCopy, ActionWriteFile, ActionDeleteFile:
-		missingParents, err := findMissingTransactionParents(action.Target)
+		missingParents, err := findMissingTransactionParents(ctx, ioAction.Target)
 		if err != nil {
 			return result, err
 		}
-		result.record.missingParents = missingParents
-		prior, err := scanFilesystemState(ctx, action.Target)
+		result.ioMissingParents = append([]string(nil), missingParents...)
+		for _, parent := range missingParents {
+			identity, err := projectFilesystemIdentity(boundary, parent)
+			if err != nil {
+				return result, err
+			}
+			result.record.missingParents = append(result.record.missingParents, identity)
+		}
+		prior, err := scanFilesystemState(ctx, ioAction.Target)
 		if err != nil {
 			return result, err
 		}
@@ -206,7 +239,7 @@ func prepareSnapshotAction(
 		backupPath := ""
 		if prior.Kind != StateAbsent {
 			temporaryBackup := filepath.Join(actionDirectory, "prior")
-			if err := copyFilesystemSnapshot(ctx, action.Target, temporaryBackup, prior); err != nil {
+			if err := copyFilesystemSnapshot(ctx, ioAction.Target, temporaryBackup, prior); err != nil {
 				return result, err
 			}
 			backup, err := scanFilesystemState(ctx, temporaryBackup)
@@ -216,10 +249,13 @@ func prepareSnapshotAction(
 			if !statesEqual(prior, backup) {
 				return result, fmt.Errorf("filesystem backup verification mismatch")
 			}
-			backupPath = filepath.Join(finalDirectory, "prior")
+			backupPath, err = projectFilesystemIdentity(boundary, filepath.Join(finalDirectory, "prior"))
+			if err != nil {
+				return result, err
+			}
 			result.temporaryBackupPath = temporaryBackup
 		}
-		current, err := scanFilesystemState(ctx, action.Target)
+		current, err := scanFilesystemState(ctx, ioAction.Target)
 		if err != nil {
 			return result, err
 		}
@@ -230,7 +266,7 @@ func prepareSnapshotAction(
 		result.record.prior = stateRecord(prior, backupPath)
 		switch action.Kind {
 		case ActionCopy:
-			source, err := scanFilesystemState(ctx, action.Source)
+			source, err := scanFilesystemState(ctx, ioAction.Source)
 			if err != nil {
 				return result, err
 			}
@@ -257,6 +293,9 @@ func prepareSnapshotAction(
 			return result, err
 		}
 		temporaryBackup := filepath.Join(actionDirectory, "prior.registry")
+		if err := validateHostIO(ctx, temporaryBackup); err != nil {
+			return result, err
+		}
 		if err := persistRegistrySnapshot(temporaryBackup, prior); err != nil {
 			return result, err
 		}
@@ -271,7 +310,10 @@ func prepareSnapshotAction(
 		if err != nil {
 			return result, err
 		}
-		backupPath := filepath.Join(finalDirectory, "prior.registry")
+		backupPath, err := projectFilesystemIdentity(boundary, filepath.Join(finalDirectory, "prior.registry"))
+		if err != nil {
+			return result, err
+		}
 		result.priorRegistry = prior
 		result.temporaryBackupPath = temporaryBackup
 		result.record.prior = registryStateRecord(prior, backupPath)
@@ -282,11 +324,19 @@ func prepareSnapshotAction(
 	}
 }
 
-func verifyPreparedAction(ctx context.Context, registryReader RegistryReader, prepared preparedInternal) error {
+func verifyPreparedAction(ctx context.Context, registryReader RegistryReader, boundary HostBoundary, prepared preparedInternal) error {
 	action := prepared.record.action
+	ioAction := prepared.ioAction
 	switch action.Kind {
 	case ActionCopy, ActionWriteFile, ActionDeleteFile:
-		if err := verifyMissingTransactionParents(prepared.record.missingParents); err != nil {
+		for _, parent := range prepared.ioMissingParents {
+			if boundary != nil {
+				if err := boundary.ValidateFilesystemTarget(parent); err != nil {
+					return err
+				}
+			}
+		}
+		if err := verifyMissingTransactionParents(ctx, prepared.ioMissingParents); err != nil {
 			return err
 		}
 		if prepared.priorFS.Kind != StateAbsent {
@@ -298,7 +348,7 @@ func verifyPreparedAction(ctx context.Context, registryReader RegistryReader, pr
 				return fmt.Errorf("filesystem backup changed after verification")
 			}
 		}
-		current, err := scanFilesystemState(ctx, action.Target)
+		current, err := scanFilesystemState(ctx, ioAction.Target)
 		if err != nil {
 			return err
 		}
@@ -306,7 +356,7 @@ func verifyPreparedAction(ctx context.Context, registryReader RegistryReader, pr
 			return fmt.Errorf("filesystem target changed after snapshot")
 		}
 		if action.Kind == ActionCopy {
-			source, err := scanFilesystemState(ctx, action.Source)
+			source, err := scanFilesystemState(ctx, ioAction.Source)
 			if err != nil {
 				return err
 			}
@@ -316,6 +366,9 @@ func verifyPreparedAction(ctx context.Context, registryReader RegistryReader, pr
 		}
 		return nil
 	case ActionRegistrySet:
+		if err := validateHostIO(ctx, prepared.temporaryBackupPath); err != nil {
+			return err
+		}
 		backup, err := loadRegistrySnapshot(prepared.temporaryBackupPath)
 		if err != nil {
 			return fmt.Errorf("verify registry backup: %w", err)

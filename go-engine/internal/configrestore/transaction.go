@@ -18,11 +18,23 @@ func ExecuteConfigSetTransaction(ctx context.Context, request TransactionRequest
 }
 
 func (e *TransactionExecutor) Execute(ctx context.Context, request TransactionRequest) (*TransactionResult, error) {
+	ctx = withHostBoundary(ctx, request.Boundary)
 	verifiedIntent, preparedActions, err := validateTransactionInputs(ctx, request)
 	if err != nil {
 		return failedTransactionResult(ReasonCommitFailed, err, true), transactionError(ReasonCommitFailed, err, nil)
 	}
-	actions := verifiedIntent.Actions()
+	actions, err := resolveJournalActionsForHostIO(verifiedIntent.Actions(), request.Boundary)
+	if err != nil {
+		return failedTransactionResult(ReasonCommitFailed, err, true), transactionError(ReasonCommitFailed, err, nil)
+	}
+	for index := range preparedActions {
+		preparedActions[index].action, err = resolveActionForHostIO(
+			preparedActions[index].action, request.Boundary, request.Prepared.instance,
+		)
+		if err != nil {
+			return failedTransactionResult(ReasonCommitFailed, err, true), transactionError(ReasonCommitFailed, err, nil)
+		}
+	}
 	if err := verifyAllTransactionStates(ctx, actions, request.Registry, false); err != nil {
 		return e.finishFailure(
 			ctx, request, verifiedIntent, actions, make([]bool, len(actions)), false,
@@ -81,6 +93,26 @@ func (e *TransactionExecutor) Execute(ctx context.Context, request TransactionRe
 
 	validations := verifiedIntent.Validations()
 	for index, validation := range validations {
+		hostPath := validation.HostPath
+		if request.Boundary != nil {
+			if index < len(request.Prepared.validationTargets) && request.Prepared.validationTargets[index] != "" {
+				hostPath = request.Prepared.validationTargets[index]
+			} else {
+				hostPath, err = request.Boundary.ResolveFilesystemIdentity(validation.HostPath)
+				if err != nil {
+					return e.finishFailure(
+						ctx, request, verifiedIntent, actions, touched, mutationBegan,
+						ReasonTargetValidationFailed, ValidationFailed, err,
+					)
+				}
+			}
+			if err := request.Boundary.ValidateFilesystemTarget(hostPath); err != nil {
+				return e.finishFailure(
+					ctx, request, verifiedIntent, actions, touched, mutationBegan,
+					ReasonTargetValidationFailed, ValidationFailed, err,
+				)
+			}
+		}
 		e.observe(request.Observer, TransactionObservation{
 			Stage: TransactionStageValidation, Progress: TransactionProgressStarted,
 			ActionIndex: -1, ValidationIndex: index, Target: validation.HostPath,
@@ -100,7 +132,7 @@ func (e *TransactionExecutor) Execute(ctx context.Context, request TransactionRe
 				Type: validation.Type, Path: validation.Path, JSONPath: validation.JSONPath,
 				Section: validation.Section, Key: validation.Key,
 			},
-			HostPath: validation.HostPath,
+			HostPath: hostPath,
 		}
 		if err := configvalidate.ValidateResolved([]configvalidate.ResolvedValidation{resolved}); err != nil {
 			e.observeFailure(
@@ -144,6 +176,9 @@ func validateTransactionInputs(
 ) (*JournalIntent, []PreparedAction, error) {
 	if request.Prepared == nil || request.Intent == nil {
 		return nil, nil, fmt.Errorf("prepared set and verified journal intent are required")
+	}
+	if request.Prepared.boundary != nil && request.Boundary == nil {
+		return nil, nil, fmt.Errorf("prepared set requires its host boundary")
 	}
 	verified, err := verifyIntentForMarker(ctx, request.Intent)
 	if err != nil {

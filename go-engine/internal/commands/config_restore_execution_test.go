@@ -552,7 +552,7 @@ func TestConfigRestoreExecutionContinuesAfterRolledBackSet(t *testing.T) {
 	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
 	var executed []string
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -601,7 +601,7 @@ func TestConfigRestoreExecutionRecoversBeforeLiveMaterialization(t *testing.T) {
 	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
 	order := []string{}
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			order = append(order, "begin-live")
 			return guard, nil
 		},
@@ -642,7 +642,7 @@ func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEv
 	buffer := &bytes.Buffer{}
 	emitter := events.NewEmitterWithWriter("ordered-events", true, buffer)
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -1079,7 +1079,7 @@ func TestConfigRestoreExecutionReturnsStableRecoveryRequiredReason(t *testing.T)
 	runtime, final := configRestoreExecutionFixture(t, "capture-a")
 	staged := false
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return nil, fmt.Errorf("pending restore: %w", configrestore.ErrRecoveryRequired)
 		},
 		func(context.Context, migration.StageRequest) (*migration.StageResult, error) {
@@ -1104,6 +1104,66 @@ func TestConfigRestoreExecutionReturnsStableRecoveryRequiredReason(t *testing.T)
 	}
 }
 
+func TestValidationConfigRestoreExecutionThreadsHostBoundaryAcrossGenerationPipeline(t *testing.T) {
+	validation := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	restoreEnvironment, err := validation.Activate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restoreEnvironment() })
+	boundary := newConfigRestoreHostBoundary(validation)
+	runtime, final := configRestoreExecutionFixture(t, "capture-a")
+	guardRoot := filepath.Join(validation.Root(), "state", "guard")
+	if err := os.MkdirAll(guardRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	guard := &recordingLiveConfigRestoreGuard{base: guardRoot}
+	stageRoot := filepath.Join(validation.Root(), "manifests", "stage")
+	if err := os.MkdirAll(stageRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	target, err := validation.ResolveHostPath(`%APPDATA%\Vendor\settings.json`, validationmode.HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	beginSeen, materializeSeen, executeSeen := false, false, false
+	restoreExecutionSeams(t,
+		func(_ context.Context, _, _ string, _ configrestore.RegistryMutator, got configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			beginSeen = got == boundary
+			return guard, nil
+		},
+		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+			return &migration.StageResult{Root: stageRoot, TargetGeneration: request.TargetGeneration.ID}, nil
+		},
+		func(_ context.Context, request configrestore.Request) (*configrestore.MaterializedSet, error) {
+			materializeSeen = request.Boundary == boundary
+			return &configrestore.MaterializedSet{Actions: []configrestore.Action{{
+				Kind: configrestore.ActionDeleteFile, Strategy: "delete-glob", Target: target, SnapshotRequired: true,
+			}}}, nil
+		},
+		func(_ context.Context, request configRestoreLiveSetRequest) configRestoreSetOutcome {
+			executeSeen = request.Boundary == boundary
+			return configRestoreSetOutcome{Status: planner.StatusRestored, CanContinue: true}
+		},
+	)
+	session := &configRestoreExecutionSession{
+		runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final},
+	}
+	_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, RunID: "validation-run", StateDir: filepath.Join(validation.Root(), "state"),
+		HostBoundary: boundary,
+	})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	if !beginSeen || !materializeSeen || !executeSeen {
+		t.Fatalf("boundary propagation begin=%v materialize=%v execute=%v", beginSeen, materializeSeen, executeSeen)
+	}
+}
+
 func TestConfigRestoreExecutionTreatsJournalIntentFailureAsCommandFatal(t *testing.T) {
 	runtime, final := configRestoreExecutionFixture(t, "capture-a", "capture-b")
 	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
@@ -1118,7 +1178,7 @@ func TestConfigRestoreExecutionTreatsJournalIntentFailureAsCommandFatal(t *testi
 	}
 	secondMaterialized := false
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -1174,7 +1234,7 @@ func TestConfigRestoreExecutionStopsAfterRollbackFailure(t *testing.T) {
 	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
 	var executed []string
 	restoreExecutionSeams(t,
-		func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -1247,7 +1307,7 @@ func configRestoreExecutionFixture(t *testing.T, captureIDs ...string) (*configR
 
 func restoreExecutionSeams(
 	t *testing.T,
-	begin func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error),
+	begin func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error),
 	stage func(context.Context, migration.StageRequest) (*migration.StageResult, error),
 	materialize func(context.Context, configrestore.Request) (*configrestore.MaterializedSet, error),
 	execute func(context.Context, configRestoreLiveSetRequest) configRestoreSetOutcome,

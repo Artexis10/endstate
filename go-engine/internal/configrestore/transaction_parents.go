@@ -10,12 +10,18 @@ import (
 	"path/filepath"
 )
 
-func findMissingTransactionParents(target string) ([]string, error) {
+func findMissingTransactionParents(ctx context.Context, target string) ([]string, error) {
+	if err := validateHostIO(ctx, target); err != nil {
+		return nil, err
+	}
 	if err := rejectExistingTargetLinks(target); err != nil {
 		return nil, err
 	}
 	var nearestFirst []string
 	for current := filepath.Dir(target); ; current = filepath.Dir(current) {
+		if err := validateHostIO(ctx, current); err != nil {
+			return nil, err
+		}
 		info, err := os.Lstat(current)
 		if err == nil {
 			if !info.IsDir() || isLinkOrReparse(info) {
@@ -55,8 +61,11 @@ func assignMissingParentOwnership(prepared []preparedInternal) {
 	}
 }
 
-func verifyMissingTransactionParents(parents []string) error {
+func verifyMissingTransactionParents(ctx context.Context, parents []string) error {
 	for _, parent := range parents {
+		if err := validateHostIO(ctx, parent); err != nil {
+			return err
+		}
 		if err := rejectExistingTargetLinks(parent); err != nil {
 			return err
 		}
@@ -76,17 +85,23 @@ func createMissingTransactionParents(
 	touch func(),
 	afterMutation func() error,
 ) error {
-	if err := verifyMissingTransactionParents(parents); err != nil {
+	if err := verifyMissingTransactionParents(ctx, parents); err != nil {
 		return err
 	}
 	for _, parent := range parents {
 		if err := checkSnapshotContext(ctx); err != nil {
 			return err
 		}
+		if err := validateHostIO(ctx, parent); err != nil {
+			return err
+		}
 		if err := rejectExistingTargetLinks(parent); err != nil {
 			return err
 		}
 		container := filepath.Dir(parent)
+		if err := validateHostIO(ctx, container); err != nil {
+			return err
+		}
 		info, err := os.Lstat(container)
 		if err != nil || !info.IsDir() || isLinkOrReparse(info) {
 			return fmt.Errorf("recorded parent container %q is not safe", container)
@@ -117,6 +132,9 @@ func removeRecordedTransactionParents(ctx context.Context, parents []string) err
 	for index := len(parents) - 1; index >= 0; index-- {
 		parent := parents[index]
 		if err := checkSnapshotContext(ctx); err != nil {
+			return err
+		}
+		if err := validateHostIO(ctx, parent); err != nil {
 			return err
 		}
 		if err := rejectExistingTargetLinks(parent); err != nil {

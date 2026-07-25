@@ -35,15 +35,16 @@ type liveConfigRestoreGuard interface {
 	Close() error
 }
 
-type beginLiveConfigRestoreFunc func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error)
+type beginLiveConfigRestoreFunc func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error)
 
 var beginLiveConfigRestoreFn beginLiveConfigRestoreFunc = func(
 	ctx context.Context,
 	stateDir string,
 	runID string,
 	registry configrestore.RegistryMutator,
+	boundary configrestore.HostBoundary,
 ) (liveConfigRestoreGuard, error) {
-	return configrestore.BeginLive(ctx, stateDir, runID, registry)
+	return configrestore.BeginLiveWithBoundary(ctx, stateDir, runID, registry, boundary)
 }
 
 var stageConfigRestoreSetFn = func(ctx context.Context, request migration.StageRequest) (*migration.StageResult, error) {
@@ -75,6 +76,7 @@ type configRestoreExecutionOptions struct {
 	Registry          configrestore.RegistryMutator
 	ProcessObserver   configrestore.ProcessObserver
 	ValidationContext *validationmode.Context
+	HostBoundary      configrestore.HostBoundary
 }
 
 type configRestoreExecutionResult struct {
@@ -156,7 +158,7 @@ func (session *configRestoreExecutionSession) Execute(
 		dryRunOutcomes := make(map[int]configRestoreSetOutcome, len(prepared))
 		dryRunItems := make(map[int][]restore.RestoreResult, len(prepared))
 		for _, item := range prepared {
-			outcome := inspectDryRunConfigRestoreSet(ctx, item.materialized, options.Registry)
+			outcome := inspectDryRunConfigRestoreSet(ctx, item.materialized, options.Registry, options.HostBoundary, options.StateDir)
 			applyConfigRestoreSetOutcome(&result.Plan.Sets[item.setIndex], outcome)
 			items := configRestoreResultsForSet(result.Plan.Sets[item.setIndex], item.materialized, outcome)
 			dryRunOutcomes[item.setIndex] = outcome
@@ -197,7 +199,7 @@ func (session *configRestoreExecutionSession) Execute(
 		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		return result, configRestoreInternalError("live configuration restore lock/recovery coordinator is unavailable")
 	}
-	guard, err := beginLiveConfigRestoreFn(ctx, options.StateDir, options.RunID, options.Registry)
+	guard, err := beginLiveConfigRestoreFn(ctx, options.StateDir, options.RunID, options.Registry, options.HostBoundary)
 	if err != nil {
 		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		if errors.Is(err, configrestore.ErrRecoveryRequired) {
@@ -282,6 +284,7 @@ func (session *configRestoreExecutionSession) Execute(
 			Materialized: item.materialized, TransactionRoot: item.transactionRoot,
 			Lineage: configRestoreJournalLineage(options.RunID, *set), Registry: options.Registry,
 			Observer: newConfigRestoreTransactionObserver(options.Emitter, set.Source.CaptureID, set.Source.ConfigSetID),
+			Boundary: options.HostBoundary,
 			Ready: func(prepared *configrestore.PreparedSet) {
 				emitGenerationConfigResolution(options.Emitter, *set)
 				emittedResolutions[item.setIndex] = true
@@ -568,6 +571,7 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 		materialized, err := materializeConfigRestoreSetFn(ctx, configrestore.Request{
 			Stage: stage, Plan: *set,
 			ProcessPatterns: session.processPatterns(set.Source.ModuleID), ProcessObserver: options.ProcessObserver,
+			Boundary: options.HostBoundary,
 		})
 		if err != nil {
 			_ = stage.Close()
@@ -627,14 +631,35 @@ func inspectDryRunConfigRestoreSet(
 	ctx context.Context,
 	set *configrestore.MaterializedSet,
 	registry configrestore.RegistryMutator,
+	boundary configrestore.HostBoundary,
+	stateDir string,
 ) configRestoreSetOutcome {
-	root, err := os.MkdirTemp("", ".endstate-config-dry-run-")
+	parent := ""
+	if boundary != nil {
+		parent = stateDir
+		if err := boundary.ValidateFilesystemTarget(parent); err != nil {
+			return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
+		}
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
+		}
+	}
+	root, err := os.MkdirTemp(parent, ".endstate-config-dry-run-")
 	if err != nil {
 		return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
 	}
-	defer os.RemoveAll(root)
+	if boundary != nil {
+		if err := boundary.ValidateFilesystemTarget(root); err != nil {
+			return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)
+		}
+	}
+	defer func() {
+		if boundary == nil || boundary.ValidateFilesystemTarget(root) == nil {
+			_ = os.RemoveAll(root)
+		}
+	}()
 	prepared, err := prepareConfigRestoreSnapshotsFn(ctx, configrestore.SnapshotRequest{
-		Set: set, TransactionRoot: root, RegistryReader: registry,
+		Set: set, TransactionRoot: root, RegistryReader: registry, Boundary: boundary,
 	})
 	if err != nil {
 		return failedConfigRestoreSet(planner.ReasonBackupFailed, err, true, nil)

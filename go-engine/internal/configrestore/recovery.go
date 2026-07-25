@@ -46,6 +46,7 @@ type storedPendingTransaction struct {
 }
 
 func (g *Guard) recoverPending(ctx context.Context) error {
+	ctx = withHostBoundary(ctx, g.boundary)
 	pending, err := g.scanPending(ctx)
 	if err != nil {
 		return err
@@ -62,6 +63,9 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 	if err := checkSnapshotContext(ctx); err != nil {
 		return nil, err
 	}
+	if err := validateHostIO(ctx, g.transactions); err != nil {
+		return nil, err
+	}
 	entries, err := os.ReadDir(g.transactions)
 	if err != nil {
 		return nil, &RecoveryError{Err: fmt.Errorf("read transaction store: %w", err)}
@@ -73,6 +77,9 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 			return nil, err
 		}
 		root := filepath.Join(g.transactions, entry.Name())
+		if err := validateHostIO(ctx, root); err != nil {
+			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
+		}
 		if !entry.IsDir() || !isOpaqueStoreID(entry.Name()) {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: fmt.Errorf("unexpected transaction-store entry")}
 		}
@@ -80,6 +87,9 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
 		intentPath := filepath.Join(root, "journal", "intent.json")
+		if err := validateHostIO(ctx, intentPath); err != nil {
+			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
+		}
 		if _, err := os.Lstat(intentPath); os.IsNotExist(err) {
 			// No durable intent means no mutation was authorized. The root may be
 			// a normal unused preallocation or a crash residue from descriptor/
@@ -91,11 +101,11 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 		} else if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
-		descriptor, started, err := readStoredTransactionDescriptor(root)
+		descriptor, started, err := readStoredTransactionDescriptorWithBoundary(root, g.boundary)
 		if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
-		intent, err := readJournalIntentMetadataFile(ctx, root, intentPath)
+		intent, err := readJournalIntentMetadataFileWithBoundary(ctx, root, intentPath, g.boundary)
 		if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
@@ -120,7 +130,7 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 		if !os.IsNotExist(markerErr) {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: fmt.Errorf("invalid terminal record: %w", markerErr)}
 		}
-		intent, err = ReadJournalIntent(ctx, root)
+		intent, err = ReadJournalIntentWithBoundary(ctx, root, g.boundary)
 		if err != nil {
 			return nil, &RecoveryError{TransactionID: entry.Name(), Err: err}
 		}
@@ -139,7 +149,14 @@ func (g *Guard) scanPending(ctx context.Context) ([]storedPendingTransaction, er
 }
 
 func readStoredTransactionDescriptor(root string) (transactionDescriptorDisk, time.Time, error) {
+	return readStoredTransactionDescriptorWithBoundary(root, nil)
+}
+
+func readStoredTransactionDescriptorWithBoundary(root string, boundary HostBoundary) (transactionDescriptorDisk, time.Time, error) {
 	path := filepath.Join(root, "transaction.json")
+	if err := validateBoundaryHostIO(boundary, path); err != nil {
+		return transactionDescriptorDisk{}, time.Time{}, err
+	}
 	data, _, err := safepath.ReadRegularFile(path)
 	if err != nil {
 		return transactionDescriptorDisk{}, time.Time{}, err
@@ -159,7 +176,11 @@ func readStoredTransactionDescriptor(root string) (transactionDescriptorDisk, ti
 }
 
 func (g *Guard) recoverOne(ctx context.Context, transaction storedPendingTransaction) error {
-	actions := transaction.intent.Actions()
+	ctx = withHostBoundary(ctx, g.boundary)
+	actions, err := resolveJournalActionsForHostIO(transaction.intent.Actions(), g.boundary)
+	if err != nil {
+		return err
+	}
 	var rollbackErrors []error
 	for index := len(actions) - 1; index >= 0; index-- {
 		if err := rollbackTransactionAction(ctx, actions[index], g.registry); err != nil {
@@ -172,7 +193,7 @@ func (g *Guard) recoverOne(ctx context.Context, transaction storedPendingTransac
 	if err := errors.Join(rollbackErrors...); err != nil {
 		return err
 	}
-	_, err := PersistRolledBackMarker(ctx, transaction.intent, ValidationNotRun)
+	_, err = PersistRolledBackMarker(ctx, transaction.intent, ValidationNotRun)
 	if err != nil {
 		return fmt.Errorf("persist recovered terminal record: %w", err)
 	}

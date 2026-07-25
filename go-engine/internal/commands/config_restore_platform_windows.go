@@ -15,20 +15,28 @@ import (
 	"unsafe"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
 
-type windowsConfigRestoreRegistry struct{}
+type windowsConfigRestoreRegistry struct{ validation *validationmode.Context }
 type windowsConfigRestoreProcessObserver struct{}
 
 var configRestoreRegSetValueEx = windows.NewLazySystemDLL("advapi32.dll").NewProc("RegSetValueExW")
+var configRestoreRegistryReadNative = readWindowsConfigRestoreRegistryValue
+var configRestoreRegistrySetNative = setWindowsConfigRestoreRegistryValue
+var configRestoreRegistryDeleteNative = deleteWindowsConfigRestoreRegistryValue
 
-func newConfigRestorePlatformAdapters() (configrestore.RegistryMutator, configrestore.ProcessObserver) {
-	return windowsConfigRestoreRegistry{}, windowsConfigRestoreProcessObserver{}
+func newConfigRestorePlatformAdapters(contexts ...*validationmode.Context) (configrestore.RegistryMutator, configrestore.ProcessObserver) {
+	var validation *validationmode.Context
+	if len(contexts) > 0 {
+		validation = contexts[0]
+	}
+	return windowsConfigRestoreRegistry{validation: validation}, windowsConfigRestoreProcessObserver{}
 }
 
-func (windowsConfigRestoreRegistry) ReadValue(
+func (adapter windowsConfigRestoreRegistry) ReadValue(
 	ctx context.Context,
 	key string,
 	valueName string,
@@ -36,6 +44,21 @@ func (windowsConfigRestoreRegistry) ReadValue(
 	if err := ctx.Err(); err != nil {
 		return configrestore.RegistryReadResult{}, err
 	}
+	if adapter.validation != nil {
+		var err error
+		key, err = adapter.validation.MapHKCU(key)
+		if err != nil {
+			return configrestore.RegistryReadResult{}, err
+		}
+	}
+	return configRestoreRegistryReadNative(ctx, key, valueName)
+}
+
+func readWindowsConfigRestoreRegistryValue(
+	ctx context.Context,
+	key string,
+	valueName string,
+) (configrestore.RegistryReadResult, error) {
 	subkey, err := configRestoreHKCUSubkey(key)
 	if err != nil {
 		return configrestore.RegistryReadResult{}, err
@@ -66,7 +89,7 @@ func (windowsConfigRestoreRegistry) ReadValue(
 	return configrestore.RegistryReadResult{Exists: true, ValueType: valueType, Data: data}, nil
 }
 
-func (windowsConfigRestoreRegistry) SetValue(
+func (adapter windowsConfigRestoreRegistry) SetValue(
 	ctx context.Context,
 	key string,
 	valueName string,
@@ -76,6 +99,23 @@ func (windowsConfigRestoreRegistry) SetValue(
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if adapter.validation != nil {
+		var err error
+		key, err = adapter.validation.MapHKCU(key)
+		if err != nil {
+			return err
+		}
+	}
+	return configRestoreRegistrySetNative(ctx, key, valueName, valueType, data)
+}
+
+func setWindowsConfigRestoreRegistryValue(
+	ctx context.Context,
+	key string,
+	valueName string,
+	valueType uint32,
+	data []byte,
+) error {
 	subkey, err := configRestoreHKCUSubkey(key)
 	if err != nil {
 		return err
@@ -106,10 +146,21 @@ func (windowsConfigRestoreRegistry) SetValue(
 	return nil
 }
 
-func (windowsConfigRestoreRegistry) DeleteValue(ctx context.Context, key string, valueName string) error {
+func (adapter windowsConfigRestoreRegistry) DeleteValue(ctx context.Context, key string, valueName string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if adapter.validation != nil {
+		var err error
+		key, err = adapter.validation.MapHKCU(key)
+		if err != nil {
+			return err
+		}
+	}
+	return configRestoreRegistryDeleteNative(ctx, key, valueName)
+}
+
+func deleteWindowsConfigRestoreRegistryValue(ctx context.Context, key string, valueName string) error {
 	subkey, err := configRestoreHKCUSubkey(key)
 	if err != nil {
 		return err

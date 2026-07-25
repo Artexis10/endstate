@@ -14,11 +14,12 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 type linuxConfigRestoreProcessObserver struct{}
 
-func newConfigRestorePlatformAdapters() (configrestore.RegistryMutator, configrestore.ProcessObserver) {
+func newConfigRestorePlatformAdapters(_ ...*validationmode.Context) (configrestore.RegistryMutator, configrestore.ProcessObserver) {
 	return unsupportedConfigRestoreRegistry{}, linuxConfigRestoreProcessObserver{}
 }
 

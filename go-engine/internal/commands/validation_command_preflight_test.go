@@ -329,7 +329,7 @@ func TestRunRestoreValidationPreflightPrecedesExecutionAndJournalMutation(t *tes
 	fixture := commandPreflightFixture(t, "vscode")
 	originalLoad, originalBegin := loadModuleCatalogFn, beginLiveConfigRestoreFn
 	loadModuleCatalogFn = func(string) (map[string]*modules.Module, error) { return fixture.catalog, nil }
-	beginLiveConfigRestoreFn = func(context.Context, string, string, configrestore.RegistryMutator) (liveConfigRestoreGuard, error) {
+	beginLiveConfigRestoreFn = func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 		panic("restore execution reached")
 	}
 	t.Cleanup(func() { loadModuleCatalogFn, beginLiveConfigRestoreFn = originalLoad, originalBegin })

@@ -550,7 +550,8 @@ func applyConfigRestoreExecutionOptions(
 		JournalLogsDir:    logsDir,
 		ValidationContext: currentValidationMode,
 	}
-	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
+	options.HostBoundary = newConfigRestoreHostBoundary(currentValidationMode)
+	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters(currentValidationMode)
 	options.Emitter = emitter
 	return options
 }

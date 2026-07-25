@@ -45,6 +45,9 @@ func rollbackRegistryAction(ctx context.Context, action JournalAction, registry 
 	if registry == nil {
 		return fmt.Errorf("registry mutator is required")
 	}
+	if err := validateHostIO(ctx, action.Prior.BackupPath); err != nil {
+		return err
+	}
 	prior, err := loadRegistrySnapshot(action.Prior.BackupPath)
 	if err != nil {
 		return err
