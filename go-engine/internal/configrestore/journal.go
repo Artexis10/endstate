@@ -76,7 +76,7 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 		return nil, journalIntentError(intentPath, err)
 	}
 
-	temporary, err := os.CreateTemp(journalDirectory, ".intent-*.tmp")
+	temporary, err := createBoundaryTempFile(journalDirectory, ".intent-*.tmp", request.Prepared.boundary)
 	if err != nil {
 		return nil, journalIntentError(journalDirectory, err)
 	}
@@ -87,7 +87,11 @@ func (w *JournalWriter) PersistIntent(ctx context.Context, request JournalIntent
 	}
 	defer func() {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if request.Prepared.boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(context.WithoutCancel(ctx), temporaryPath)
+		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		return nil, journalIntentError(temporaryPath, err)

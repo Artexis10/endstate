@@ -178,7 +178,8 @@ func restoreConfigRestoreExecutionOptions(
 		BackupDir: filepath.Join(stateDir, "backups", runID), JournalLogsDir: logsDir,
 		Emitter: emitter, ValidationContext: currentValidationMode,
 	}
-	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters()
+	options.HostBoundary = newConfigRestoreHostBoundary(currentValidationMode)
+	options.Registry, options.ProcessObserver = newConfigRestorePlatformAdapters(currentValidationMode)
 	return options
 }
 

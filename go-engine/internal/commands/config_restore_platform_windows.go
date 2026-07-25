@@ -28,11 +28,7 @@ var configRestoreRegistryReadNative = readWindowsConfigRestoreRegistryValue
 var configRestoreRegistrySetNative = setWindowsConfigRestoreRegistryValue
 var configRestoreRegistryDeleteNative = deleteWindowsConfigRestoreRegistryValue
 
-func newConfigRestorePlatformAdapters(contexts ...*validationmode.Context) (configrestore.RegistryMutator, configrestore.ProcessObserver) {
-	var validation *validationmode.Context
-	if len(contexts) > 0 {
-		validation = contexts[0]
-	}
+func newConfigRestorePlatformAdapters(validation *validationmode.Context) (configrestore.RegistryMutator, configrestore.ProcessObserver) {
 	return windowsConfigRestoreRegistry{validation: validation}, windowsConfigRestoreProcessObserver{}
 }
 

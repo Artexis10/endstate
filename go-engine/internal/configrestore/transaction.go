@@ -177,8 +177,9 @@ func validateTransactionInputs(
 	if request.Prepared == nil || request.Intent == nil {
 		return nil, nil, fmt.Errorf("prepared set and verified journal intent are required")
 	}
-	if request.Prepared.boundary != nil && request.Boundary == nil {
-		return nil, nil, fmt.Errorf("prepared set requires its host boundary")
+	if !sameHostBoundary(request.Prepared.boundary, request.Intent.boundary) ||
+		!sameHostBoundary(request.Prepared.boundary, request.Boundary) {
+		return nil, nil, fmt.Errorf("prepared set, journal intent, and transaction require the same host boundary")
 	}
 	verified, err := verifyIntentForMarker(ctx, request.Intent)
 	if err != nil {

@@ -29,6 +29,41 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
+func TestRestoreConfigRestoreExecutionOptionsBindsActiveValidationBoundary(t *testing.T) {
+	validation := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	originalValidation := currentValidationMode
+	currentValidationMode = validation
+	t.Cleanup(func() { currentValidationMode = originalValidation })
+
+	manifestPath := filepath.Join(validation.Root(), "manifests", "restore.jsonc")
+	options := restoreConfigRestoreExecutionOptions(
+		RestoreFlags{Manifest: manifestPath}, "restore-options-validation", validation.Root(), nil,
+	)
+	if options.ValidationContext != validation || options.HostBoundary == nil {
+		t.Fatalf("restore options lost active validation authority: context=%p boundary=%#v", options.ValidationContext, options.HostBoundary)
+	}
+	appData, ok := validation.VirtualRoot("APPDATA")
+	if !ok {
+		t.Fatal("validation APPDATA root is unavailable")
+	}
+	if err := os.MkdirAll(filepath.Join(appData, "Vendor"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := options.HostBoundary.ResolveHostPath(`%APPDATA%\Vendor\settings.json`, modules.ConfigInstance{})
+	if err != nil {
+		t.Fatalf("bound restore authority could not resolve host path: %v", err)
+	}
+	if err := options.HostBoundary.ValidateFilesystemTarget(resolved); err != nil {
+		t.Fatalf("bound restore authority rejected its resolved path %q: %v", resolved, err)
+	}
+	if !strings.HasPrefix(strings.ToLower(resolved), strings.ToLower(validation.Root()+string(filepath.Separator))) {
+		t.Fatalf("restore path %q escaped validation root %q", resolved, validation.Root())
+	}
+}
+
 func TestLegacyRestoreExecutionThreadsValidationContextAndSemanticJournal(t *testing.T) {
 	context := validationContext(t, validationmode.Inventory{
 		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",

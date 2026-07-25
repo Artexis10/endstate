@@ -10,6 +10,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,6 +19,144 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
+
+func TestRunRevertUsesActiveValidationAuthorityForSemanticGenerationHistory(t *testing.T) {
+	validation, session := validationPreflightSession(t)
+	const semanticTarget = `%APPDATA%\Vendor\settings.json`
+	originalTarget, err := validation.OriginalHostPath(semanticTarget, validationmode.HostPathPolicy{})
+	if err != nil || originalTarget == "" {
+		t.Fatalf("resolve original sentinel: %q, %v", originalTarget, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(originalTarget), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(originalTarget, []byte("original-sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	originalContext := currentValidationMode
+	originalSession := currentValidationSession
+	originalRoot := resolveRepoRootFn
+	currentValidationMode = validation
+	currentValidationSession = session
+	resolveRepoRootFn = func() string { return validation.Root() }
+	t.Cleanup(func() {
+		currentValidationMode = originalContext
+		currentValidationSession = originalSession
+		resolveRepoRootFn = originalRoot
+	})
+
+	boundary := newConfigRestoreHostBoundary(validation)
+	sandboxTarget, err := boundary.ResolveFilesystemIdentity(semanticTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(sandboxTarget), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sandboxTarget, []byte("sandbox-prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stateDir := filepath.Join(validation.Root(), "state")
+	guard, err := configrestore.BeginLiveWithBoundary(context.Background(), stateDir, "validation-source-run", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transactionRoot, err := guard.CreateTransactionRoot("validation-capture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := configrestore.PrepareSnapshots(context.Background(), configrestore.SnapshotRequest{
+		Set: &configrestore.MaterializedSet{Actions: []configrestore.Action{{
+			Kind: configrestore.ActionDeleteFile, Strategy: "delete-glob", Target: semanticTarget, SnapshotRequired: true,
+		}}},
+		TransactionRoot: transactionRoot, Boundary: boundary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage := configRestoreTestLineage("validation-capture")
+	lineage.RunID = "validation-source-run"
+	intent, err := configrestore.PersistJournalIntent(context.Background(), configrestore.JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: lineage,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction, err := configrestore.ExecuteConfigSetTransaction(context.Background(), configrestore.TransactionRequest{
+		Prepared: prepared, Intent: intent, Boundary: boundary,
+	})
+	if err != nil || transaction.Status() != configrestore.TransactionRestored {
+		t.Fatalf("validation transaction = (%#v, %v)", transaction, err)
+	}
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(sandboxTarget); !os.IsNotExist(err) {
+		t.Fatalf("sandbox target was not deleted before revert: %v", err)
+	}
+
+	got, envErr := RunRevert(RevertFlags{})
+	if envErr != nil {
+		t.Fatalf("RunRevert() error = %+v", envErr)
+	}
+	result := got.(*RevertData)
+	if len(result.Results) != 1 || result.Results[0].Target != semanticTarget {
+		t.Fatalf("semantic revert result = %#v", result)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), validation.Root()) || strings.Contains(string(encoded), validation.Descriptor().Nonce) {
+		t.Fatalf("revert result leaked disposable authority: %s", encoded)
+	}
+	if data, err := os.ReadFile(sandboxTarget); err != nil || string(data) != "sandbox-prior" {
+		t.Fatalf("sandbox target after revert = %q, %v", data, err)
+	}
+	if data, err := os.ReadFile(originalTarget); err != nil || string(data) != "original-sentinel" {
+		t.Fatalf("original sentinel changed = %q, %v", data, err)
+	}
+}
+
+func TestValidationRevertMemberOrderingRecognizesProjectedLatestLegacyJournal(t *testing.T) {
+	validation := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	boundary := newConfigRestoreHostBoundary(validation)
+	stateDir := filepath.Join(validation.Root(), "state")
+	journalPath := filepath.Join(validation.Root(), "logs", "restore-journal-source.json")
+	if err := os.MkdirAll(filepath.Dir(journalPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journalPath, []byte("legacy journal\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := configrestore.BeginLiveWithBoundary(context.Background(), stateDir, "legacy-order-source", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guard.Close()
+	if _, err := guard.RegisterLegacyJournal(journalPath); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := guard.ActiveStoreRuns(context.Background())
+	if err != nil || len(runs) != 1 {
+		t.Fatalf("active runs = %#v, %v", runs, err)
+	}
+	semanticJournal, err := boundary.ProjectFilesystemIdentity(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	members := configRestoreRevertMembers(
+		runs[0], journalPath, semanticJournal, &restore.Journal{RunID: "legacy-order-source"}, false,
+	)
+	if len(members) != 1 || members[0].synthetic {
+		t.Fatalf("projected registered latest was duplicated as synthetic: %#v", members)
+	}
+}
 
 func TestRunRevertInterleavesGenerationAndLegacyMembersInReverseOrdinalOrder(t *testing.T) {
 	for _, registered := range []bool{true, false} {

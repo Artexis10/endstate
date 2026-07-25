@@ -240,19 +240,28 @@ func atomicWriteTransactionFile(
 	if err != nil || !parentInfo.IsDir() || isLinkOrReparse(parentInfo) {
 		return fmt.Errorf("transaction target parent is not a safe existing directory")
 	}
-	temporary, err := os.CreateTemp(parent, ".endstate-transaction-*")
+	boundary := hostBoundaryFromContext(ctx)
+	temporary, err := createBoundaryTempFile(parent, ".endstate-transaction-*", boundary)
 	if err != nil {
 		return err
 	}
 	temporaryPath := temporary.Name()
 	if err := validateHostIO(ctx, temporaryPath); err != nil {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(context.WithoutCancel(ctx), temporaryPath)
+		}
 		return err
 	}
 	defer func() {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(context.WithoutCancel(ctx), temporaryPath)
+		}
 	}()
 	if err := temporary.Chmod(mode.Perm()); err != nil {
 		return err

@@ -17,14 +17,16 @@ import (
 )
 
 type recordingHostBoundary struct {
-	root                string
-	resolved            map[string]string
-	resolveCalls        []string
-	resolvedInstances   []modules.ConfigInstance
-	validateCalls       []string
-	rejectPath          string
-	rejectOnce          bool
-	rejectMustBeMissing bool
+	root                 string
+	resolved             map[string]string
+	resolveCalls         []string
+	resolvedInstances    []modules.ConfigInstance
+	validateCalls        []string
+	rejectPath           string
+	rejectBasenamePrefix string
+	rejectOnce           bool
+	rejectMustBeMissing  bool
+	projectRootToken     string
 }
 
 func (boundary *recordingHostBoundary) ResolveHostPath(authored string, instance modules.ConfigInstance) (string, error) {
@@ -41,6 +43,9 @@ func (boundary *recordingHostBoundary) ResolveFilesystemIdentity(identity string
 	if strings.HasPrefix(identity, "$BOUNDARY/") {
 		return filepath.Join(boundary.root, filepath.FromSlash(strings.TrimPrefix(identity, "$BOUNDARY/"))), nil
 	}
+	if strings.HasPrefix(identity, "$ENDSTATE_ROOT/") {
+		return filepath.Join(boundary.root, filepath.FromSlash(strings.TrimPrefix(identity, "$ENDSTATE_ROOT/"))), nil
+	}
 	resolved, ok := boundary.resolved[identity]
 	if !ok {
 		return "", fmt.Errorf("unrecognized filesystem identity %q", identity)
@@ -56,14 +61,104 @@ func (boundary *recordingHostBoundary) ProjectFilesystemIdentity(absolute string
 	}
 	relative, err := filepath.Rel(boundary.root, absolute)
 	if err == nil && relative != "." && relative != ".." && !filepath.IsAbs(relative) && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return "$BOUNDARY/" + filepath.ToSlash(relative), nil
+		token := boundary.projectRootToken
+		if token == "" {
+			token = "$BOUNDARY/"
+		}
+		return token + filepath.ToSlash(relative), nil
 	}
 	return "", fmt.Errorf("unrecognized physical host path %q", absolute)
 }
 
+func TestValidationLegacyStorePersistsSemanticJournalIdentityAcrossReconstruction(t *testing.T) {
+	authorityRoot := filepath.Join(t.TempDir(), "nonce-legacy-store-8f4c2d")
+	stateDir := filepath.Join(authorityRoot, "state")
+	journalPath := filepath.Join(authorityRoot, "logs", "restore-journal-source.json")
+	if err := os.MkdirAll(filepath.Dir(journalPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journalBytes := []byte("semantic legacy journal bytes\n")
+	if err := os.WriteFile(journalPath, journalBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boundary := &recordingHostBoundary{
+		root: authorityRoot, resolved: map[string]string{}, projectRootToken: "$ENDSTATE_ROOT/",
+	}
+	guard, err := BeginLiveWithBoundary(context.Background(), stateDir, "legacy-semantic-source", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	member, err := guard.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	storePath := filepath.Join(stateDir, "config-restore", "v1", "legacy-members", member.memberID+".json")
+	storedBytes, err := os.ReadFile(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const semanticJournal = "$ENDSTATE_ROOT/logs/restore-journal-source.json"
+	if strings.Contains(string(storedBytes), authorityRoot) || strings.Contains(string(storedBytes), filepath.Base(authorityRoot)) {
+		t.Fatalf("legacy store leaked active authority: %s", storedBytes)
+	}
+	disk, _, err := decodeLegacyMember(storedBytes)
+	if err != nil {
+		t.Fatalf("decode semantic legacy member: %v", err)
+	}
+	if disk.JournalPath != semanticJournal || member.LegacyJournalPath() != semanticJournal {
+		t.Fatalf("semantic legacy identities = disk:%q member:%q", disk.JournalPath, member.LegacyJournalPath())
+	}
+	expected, _, err := newLegacyMember(
+		disk.MemberID, disk.RestoreRunID, disk.RunID, guard.runStartedAt,
+		disk.MutationOrdinal, semanticJournal, disk.JournalDigest,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disk.MemberDigest != expected.MemberDigest {
+		t.Fatalf("member digest was not computed from semantic identity: got %q want %q", disk.MemberDigest, expected.MemberDigest)
+	}
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reconstructed, err := BeginLiveWithBoundary(context.Background(), stateDir, "legacy-semantic-reconstruction", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reconstructed.Close()
+	runs, err := reconstructed.ActiveStoreRuns(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || len(runs[0].Members()) != 1 {
+		t.Fatalf("reconstructed legacy runs = %#v", runs)
+	}
+	reconstructedMember := runs[0].Members()[0]
+	if reconstructedMember.LegacyJournalPath() != semanticJournal {
+		t.Fatalf("reconstructed legacy identity = %q", reconstructedMember.LegacyJournalPath())
+	}
+	_, pinned, err := reconstructed.PrepareLegacyMemberRevert(context.Background(), reconstructedMember)
+	if err != nil || string(pinned) != string(journalBytes) {
+		t.Fatalf("reconstructed legacy read = %q, %v", pinned, err)
+	}
+}
+
+func TestJournalUnsafeTargetControlCharacterHasStableDiagnostic(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "settings.txt") + "\n"
+	err := validateJournalActions(root, []JournalAction{{Kind: ActionDeleteFile, Strategy: "delete-glob", Target: target}})
+	if err == nil || !strings.Contains(err.Error(), "target contains control characters") || strings.Contains(err.Error(), "%!w") {
+		t.Fatalf("unsafe target diagnostic = %v", err)
+	}
+}
+
 func (boundary *recordingHostBoundary) ValidateFilesystemTarget(absolute string) error {
 	boundary.validateCalls = append(boundary.validateCalls, absolute)
-	if absolute == boundary.rejectPath {
+	rejected := absolute == boundary.rejectPath ||
+		(boundary.rejectBasenamePrefix != "" && strings.HasPrefix(filepath.Base(absolute), boundary.rejectBasenamePrefix))
+	if rejected {
 		if boundary.rejectMustBeMissing {
 			if _, err := os.Lstat(absolute); err == nil || !os.IsNotExist(err) {
 				return fmt.Errorf("mutation preceded member boundary rejection")
@@ -79,6 +174,259 @@ func (boundary *recordingHostBoundary) ValidateFilesystemTarget(absolute string)
 		return fmt.Errorf("path %q escaped disposable authority", absolute)
 	}
 	return nil
+}
+
+func TestValidationScratchCreationAuthorizesUnknownLeafBeforeCreation(t *testing.T) {
+	root := t.TempDir()
+	scratch := filepath.Join(root, "scratch")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name   string
+		prefix string
+		create func(HostBoundary, string, string) (string, error)
+	}{
+		{
+			name: "file", prefix: ".intent-",
+			create: func(boundary HostBoundary, directory, pattern string) (string, error) {
+				file, err := createBoundaryTempFile(directory, pattern, boundary)
+				if file == nil {
+					return "", err
+				}
+				return file.Name(), errors.Join(err, file.Close())
+			},
+		},
+		{
+			name: "directory", prefix: ".snapshots-preparing-",
+			create: func(boundary HostBoundary, directory, pattern string) (string, error) {
+				return createBoundaryTempDirectory(directory, pattern, boundary)
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			boundary := &recordingHostBoundary{
+				root: root, resolved: map[string]string{}, rejectBasenamePrefix: test.prefix, rejectMustBeMissing: true,
+			}
+			path, err := test.create(boundary, scratch, test.prefix+"*")
+			if err == nil || path != "" || !strings.Contains(err.Error(), "deliberate member boundary rejection") {
+				t.Fatalf("scratch creation = (%q, %v), want pre-creation rejection", path, err)
+			}
+			entries, readErr := os.ReadDir(scratch)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			for _, entry := range entries {
+				if strings.HasPrefix(entry.Name(), test.prefix) {
+					t.Fatalf("rejected scratch leaf was created: %q", entry.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestValidationSnapshotPreauthorizesScratchRootBeforeCreation(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "sandbox", "settings.txt")
+	transactionRoot := filepath.Join(root, "state", "transaction")
+	for _, directory := range []string{filepath.Dir(target), transactionRoot} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTestFile(t, target, "prior")
+	const semanticTarget = `%APPDATA%\Vendor\settings.txt`
+	boundary := &recordingHostBoundary{
+		root: root, resolved: map[string]string{semanticTarget: target},
+		rejectBasenamePrefix: ".snapshots-preparing-", rejectMustBeMissing: true,
+	}
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{
+		Set: &MaterializedSet{Actions: []Action{{
+			Kind: ActionDeleteFile, Strategy: "delete-glob", Target: semanticTarget, SnapshotRequired: true,
+		}}},
+		TransactionRoot: transactionRoot, Boundary: boundary,
+	})
+	if err == nil || prepared != nil || !strings.Contains(err.Error(), "deliberate member boundary rejection") {
+		t.Fatalf("PrepareSnapshots() = (%#v, %v), want pre-creation boundary rejection", prepared, err)
+	}
+	entries, readErr := os.ReadDir(transactionRoot)
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".snapshots-preparing-") {
+			t.Fatalf("rejected snapshot scratch root exists: %q", entry.Name())
+		}
+	}
+}
+
+func TestValidationJournalPreauthorizesScratchLeafBeforeCreation(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "sandbox", "settings.txt")
+	transactionRoot := filepath.Join(root, "state", "transaction")
+	for _, directory := range []string{filepath.Dir(target), transactionRoot} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTestFile(t, target, "prior")
+	const semanticTarget = `%APPDATA%\Vendor\settings.txt`
+	boundary := &recordingHostBoundary{root: root, resolved: map[string]string{semanticTarget: target}}
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{
+		Set: &MaterializedSet{Actions: []Action{{
+			Kind: ActionDeleteFile, Strategy: "delete-glob", Target: semanticTarget, SnapshotRequired: true,
+		}}},
+		TransactionRoot: transactionRoot, Boundary: boundary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary.rejectBasenamePrefix = ".intent-"
+	boundary.rejectMustBeMissing = true
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	})
+	if err == nil || intent != nil || !strings.Contains(err.Error(), "deliberate member boundary rejection") ||
+		strings.Contains(err.Error(), "mutation preceded") {
+		t.Fatalf("PersistJournalIntent() = (%#v, %v), want pre-creation boundary rejection", intent, err)
+	}
+	entries, readErr := os.ReadDir(filepath.Join(transactionRoot, "journal"))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".intent-") {
+			t.Fatalf("rejected journal scratch leaf exists: %q", entry.Name())
+		}
+	}
+}
+
+func TestValidationSnapshotCleanupReauthorizesEveryScratchMember(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "sandbox", "settings.txt")
+	transactionRoot := filepath.Join(root, "state", "transaction")
+	for _, directory := range []string{filepath.Dir(target), transactionRoot} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTestFile(t, target, "prior")
+	const semanticTarget = `%APPDATA%\Vendor\settings.txt`
+	boundary := &recordingHostBoundary{root: root, resolved: map[string]string{semanticTarget: target}}
+	preparer := NewSnapshotPreparer()
+	preparer.checkpoint = func(_ context.Context, phase snapshotPhase, _ int) error {
+		if phase != phaseAfterAction {
+			return nil
+		}
+		entries, err := os.ReadDir(transactionRoot)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if strings.HasPrefix(entry.Name(), ".snapshots-preparing-") {
+				boundary.rejectPath = filepath.Join(transactionRoot, entry.Name(), formatActionIndex(0))
+				return errors.New("force guarded snapshot cleanup")
+			}
+		}
+		return errors.New("snapshot scratch root was not created")
+	}
+	prepared, err := preparer.Prepare(context.Background(), SnapshotRequest{
+		Set: &MaterializedSet{Actions: []Action{{
+			Kind: ActionDeleteFile, Strategy: "delete-glob", Target: semanticTarget, SnapshotRequired: true,
+		}}},
+		TransactionRoot: transactionRoot, Boundary: boundary,
+	})
+	if err == nil || prepared != nil || !strings.Contains(err.Error(), "deliberate member boundary rejection") {
+		t.Fatalf("guarded cleanup = (%#v, %v), want member rejection", prepared, err)
+	}
+	if _, statErr := os.Stat(filepath.Dir(boundary.rejectPath)); statErr != nil {
+		t.Fatalf("cleanup bypassed rejected member and removed scratch tree: %v", statErr)
+	}
+}
+
+func TestValidationLiveStorePreauthorizesDescriptorScratchLeaf(t *testing.T) {
+	root := t.TempDir()
+	boundary := &recordingHostBoundary{root: root, resolved: map[string]string{}}
+	guard, err := BeginLiveWithBoundary(context.Background(), filepath.Join(root, "state"), "scratch-live", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guard.Close()
+	boundary.rejectBasenamePrefix = ".store-record-"
+	boundary.rejectMustBeMissing = true
+	transactionRoot, err := guard.CreateTransactionRoot("scratch-capture")
+	if err == nil || transactionRoot != "" || !strings.Contains(err.Error(), "deliberate member boundary rejection") ||
+		strings.Contains(err.Error(), "mutation preceded") {
+		t.Fatalf("CreateTransactionRoot() = (%q, %v), want pre-creation scratch rejection", transactionRoot, err)
+	}
+	if walkErr := filepath.Walk(filepath.Join(root, "state"), func(path string, _ os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if strings.HasPrefix(filepath.Base(path), ".store-record-") {
+			t.Fatalf("rejected store scratch leaf exists: %q", path)
+		}
+		return nil
+	}); walkErr != nil {
+		t.Fatal(walkErr)
+	}
+}
+
+func TestValidationTransactionPreauthorizesAtomicScratchLeafBeforeMutation(t *testing.T) {
+	root := t.TempDir()
+	stageRoot := filepath.Join(root, "stage")
+	target := filepath.Join(root, "sandbox", "settings.txt")
+	transactionRoot := filepath.Join(root, "state", "transaction")
+	for _, directory := range []string{stageRoot, filepath.Dir(target), transactionRoot} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTestFile(t, filepath.Join(stageRoot, "settings.txt"), "desired")
+	writeTestFile(t, target, "prior")
+	const semanticTarget = `%APPDATA%\Vendor\settings.txt`
+	boundary := &recordingHostBoundary{root: root, resolved: map[string]string{semanticTarget: target}}
+	generation := modules.GenerationDef{ID: "g2", Restore: []modules.RestoreDef{{
+		Type: "copy", Source: "settings.txt", Target: semanticTarget,
+	}}}
+	set, err := Materialize(context.Background(), Request{
+		Stage: &migration.StageResult{Root: stageRoot, TargetGeneration: "g2"},
+		Plan:  testPlan(filepath.Join(root, "instance"), generation), Boundary: boundary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{
+		Set: set, TransactionRoot: transactionRoot, Boundary: boundary,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary.rejectBasenamePrefix = ".endstate-transaction-"
+	boundary.rejectMustBeMissing = true
+	result, err := ExecuteConfigSetTransaction(context.Background(), TransactionRequest{
+		Prepared: prepared, Intent: intent, Boundary: boundary,
+	})
+	if err == nil || result.MutationBegan() || !strings.Contains(err.Error(), "deliberate member boundary rejection") ||
+		strings.Contains(err.Error(), "mutation preceded") {
+		t.Fatalf("atomic transaction scratch = (%#v, %v), want pre-mutation rejection", result, err)
+	}
+	assertTestFile(t, target, "prior")
+	entries, readErr := os.ReadDir(filepath.Dir(target))
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".endstate-transaction-") {
+			t.Fatalf("rejected transaction scratch leaf exists: %q", entry.Name())
+		}
+	}
 }
 
 func TestValidationSnapshotRevalidatesEveryDirectoryMember(t *testing.T) {
@@ -176,6 +524,64 @@ func TestValidationTransactionRevalidatesDirectoryMembersBeforeMutation(t *testi
 	if _, statErr := os.Stat(target); !os.IsNotExist(statErr) {
 		t.Fatalf("rolled-back target still exists: %v", statErr)
 	}
+}
+
+func TestValidationTransactionRejectsDifferentRetainedAuthorityBeforeCallbacksOrMutation(t *testing.T) {
+	root := t.TempDir()
+	stageRoot := filepath.Join(root, "stage")
+	targetA := filepath.Join(root, "sandbox-a", "settings.txt")
+	targetB := filepath.Join(root, "sandbox-b", "settings.txt")
+	transactionRoot := filepath.Join(root, "state", "transaction")
+	for _, directory := range []string{stageRoot, filepath.Dir(targetA), filepath.Dir(targetB), transactionRoot} {
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeTestFile(t, filepath.Join(stageRoot, "settings.txt"), "desired")
+	writeTestFile(t, targetA, "prior-a")
+	writeTestFile(t, targetB, "prior-b")
+	const semanticTarget = `%APPDATA%\Vendor\settings.txt`
+	boundaryA := &recordingHostBoundary{root: root, resolved: map[string]string{semanticTarget: targetA}}
+	boundaryB := &recordingHostBoundary{root: root, resolved: map[string]string{semanticTarget: targetB}}
+	generation := modules.GenerationDef{ID: "g2", Restore: []modules.RestoreDef{{
+		Type: "copy", Source: "settings.txt", Target: semanticTarget,
+	}}}
+	set, err := Materialize(context.Background(), Request{
+		Stage: &migration.StageResult{Root: stageRoot, TargetGeneration: "g2"},
+		Plan:  testPlan(filepath.Join(root, "instance"), generation), Boundary: boundaryA,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{
+		Set: set, TransactionRoot: transactionRoot, Boundary: boundaryA,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{
+		Prepared: prepared, TransactionRoot: transactionRoot, Lineage: testJournalLineage(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	callbackCalled := false
+	executor := NewTransactionExecutor()
+	executor.checkpoint = func(context.Context, transactionPhase, int, string) error {
+		callbackCalled = true
+		return nil
+	}
+	result, err := executor.Execute(context.Background(), TransactionRequest{
+		Prepared: prepared, Intent: intent, Boundary: boundaryB,
+	})
+	if err == nil || result.MutationBegan() {
+		t.Fatalf("mismatched authority transaction = (%#v, %v), want pre-mutation rejection", result, err)
+	}
+	if callbackCalled {
+		t.Fatal("mismatched authority reached transaction callback")
+	}
+	assertTestFile(t, targetA, "prior-a")
+	assertTestFile(t, targetB, "prior-b")
 }
 
 func TestValidationCrashRecoveryRebuildsSemanticJournalAuthority(t *testing.T) {

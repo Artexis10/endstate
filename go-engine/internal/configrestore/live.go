@@ -306,7 +306,7 @@ func publishStoreRecordWithBoundary(directory, name string, data []byte, boundar
 	if err := rejectExistingTargetLinks(directory); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(directory, ".store-record-*.tmp")
+	temporary, err := createBoundaryTempFile(directory, ".store-record-*.tmp", boundary)
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,11 @@ func publishStoreRecordWithBoundary(directory, name string, data []byte, boundar
 	}
 	defer func() {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(withHostBoundary(context.Background(), boundary), temporaryPath)
+		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		return err

@@ -38,6 +38,9 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 		return nil, backupError(-1, request.TransactionRoot, err)
 	}
 	finalRoot := filepath.Join(transactionRoot, "snapshots")
+	if err := validateHostIO(ctx, finalRoot); err != nil {
+		return nil, backupError(-1, finalRoot, err)
+	}
 	if _, err := os.Lstat(finalRoot); !os.IsNotExist(err) {
 		if err == nil {
 			err = fmt.Errorf("snapshot publication path already exists")
@@ -51,7 +54,7 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 		}, nil
 	}
 
-	temporaryRoot, err := os.MkdirTemp(transactionRoot, ".snapshots-preparing-")
+	temporaryRoot, err := createBoundaryTempDirectory(transactionRoot, ".snapshots-preparing-*", request.Boundary)
 	if err != nil {
 		return nil, backupError(-1, transactionRoot, err)
 	}
@@ -60,7 +63,13 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 		if published {
 			return
 		}
-		if cleanupErr := os.RemoveAll(temporaryRoot); cleanupErr != nil {
+		var cleanupErr error
+		if request.Boundary == nil {
+			cleanupErr = os.RemoveAll(temporaryRoot)
+		} else {
+			cleanupErr = removeSafeTransactionPath(context.WithoutCancel(ctx), temporaryRoot)
+		}
+		if cleanupErr != nil {
 			if resultErr == nil {
 				resultErr = backupError(-1, temporaryRoot, cleanupErr)
 			} else {
@@ -69,6 +78,9 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 			result = nil
 		}
 	}()
+	if err := validateHostIO(ctx, temporaryRoot); err != nil {
+		return nil, backupError(-1, temporaryRoot, err)
+	}
 	if err := os.Chmod(temporaryRoot, 0o700); err != nil {
 		return nil, backupError(-1, temporaryRoot, err)
 	}
@@ -83,6 +95,9 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 			return nil, backupError(index, action.Target, err)
 		}
 		actionDirectory := filepath.Join(temporaryRoot, formatActionIndex(index))
+		if err := validateHostIO(ctx, actionDirectory); err != nil {
+			return nil, backupError(index, action.Target, err)
+		}
 		if err := os.Mkdir(actionDirectory, 0o700); err != nil {
 			return nil, backupError(index, action.Target, err)
 		}
@@ -116,6 +131,12 @@ func (p *SnapshotPreparer) Prepare(ctx context.Context, request SnapshotRequest)
 		if err == nil {
 			err = fmt.Errorf("snapshot publication path appeared during preparation")
 		}
+		return nil, backupError(-1, finalRoot, err)
+	}
+	if err := validateHostIO(ctx, temporaryRoot); err != nil {
+		return nil, backupError(-1, temporaryRoot, err)
+	}
+	if err := validateHostIO(ctx, finalRoot); err != nil {
 		return nil, backupError(-1, finalRoot, err)
 	}
 	if err := os.Rename(temporaryRoot, finalRoot); err != nil {

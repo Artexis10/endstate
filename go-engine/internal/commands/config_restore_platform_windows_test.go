@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -68,6 +69,25 @@ func TestValidationConfigRestoreRegistryMapsHKCUOnlyAtNativeCall(t *testing.T) {
 	}
 	if len(called) != 3 {
 		t.Fatalf("unsafe hive reached native callbacks: %#v", called)
+	}
+}
+
+func TestRestoreConfigRestoreExecutionOptionsBindsWindowsPlatformAdapter(t *testing.T) {
+	validation := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+		DisplayName: "Notepad++", InitialState: "present",
+	})
+	originalValidation := currentValidationMode
+	currentValidationMode = validation
+	t.Cleanup(func() { currentValidationMode = originalValidation })
+
+	options := restoreConfigRestoreExecutionOptions(
+		RestoreFlags{Manifest: filepath.Join(validation.Root(), "manifest.jsonc")},
+		"restore-platform-validation", validation.Root(), nil,
+	)
+	adapter, ok := options.Registry.(windowsConfigRestoreRegistry)
+	if !ok || adapter.validation != validation {
+		t.Fatalf("restore registry adapter = %#v, want validation context %p", options.Registry, validation)
 	}
 }
 

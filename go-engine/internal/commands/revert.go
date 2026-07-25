@@ -76,8 +76,12 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 		}
 	}
 
-	registry, _ := newConfigRestorePlatformAdapters()
-	guard, beginErr := configrestore.BeginLive(context.Background(), filepath.Clean(stateDir), runID, registry)
+	boundary := newConfigRestoreHostBoundary(currentValidationMode)
+	registry, _ := newConfigRestorePlatformAdapters(currentValidationMode)
+	guard, beginErr := configrestore.BeginLiveWithBoundary(
+		context.Background(), filepath.Clean(stateDir), runID, registry,
+		boundary,
+	)
 	if beginErr != nil {
 		detail := map[string]string{"reason": "recovery_failed", "diagnostic": beginErr.Error()}
 		if errors.Is(beginErr, configrestore.ErrRecoveryRequired) {
@@ -134,7 +138,14 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 	}
 	useStoreRun := len(runs) > 0 && !newerStandalone
 	if useStoreRun {
-		members := configRestoreRevertMembers(runs[0], latestPath, latestJournal, latestConsumed)
+		latestIdentity := latestPath
+		if boundary != nil && latestPath != "" {
+			latestIdentity, activeErr = boundary.ProjectFilesystemIdentity(latestPath)
+			if activeErr != nil {
+				return nil, configRestoreHistoryOrderError(activeErr)
+			}
+		}
+		members := configRestoreRevertMembers(runs[0], latestPath, latestIdentity, latestJournal, latestConsumed)
 		for index := len(members) - 1; index >= 0; index-- {
 			member := members[index]
 			if member.legacyPath != "" {
@@ -144,6 +155,7 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 						return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to register legacy restore journal: "+registerErr.Error())
 					}
 					member.member = registered
+					member.legacyPath = registered.LegacyJournalPath()
 					member.synthetic = false
 				}
 				workRoot, journalData, workErr := guard.PrepareLegacyMemberRevert(context.Background(), member.member)
@@ -217,7 +229,7 @@ func RunRevert(flags RevertFlags) (data interface{}, envErr *envelope.Error) {
 			return nil, envelope.NewError(envelope.ErrRestoreFailed, "Failed to record legacy configuration revert.").
 				WithDetail(map[string]string{"reason": markErr.Error()})
 		}
-		journalUsed = latestPath
+		journalUsed = member.LegacyJournalPath()
 	}
 
 	return &RevertData{Results: results, JournalUsed: journalUsed}, nil
@@ -260,6 +272,7 @@ func configRestoreJournalAbsenceProven(logsDir string) (bool, error) {
 func configRestoreRevertMembers(
 	run *configrestore.StoreRun,
 	latestPath string,
+	latestIdentity string,
 	latestJournal *restore.Journal,
 	latestConsumed bool,
 ) []configRestoreRevertMember {
@@ -275,7 +288,7 @@ func configRestoreRevertMembers(
 		if member.Kind() == configrestore.StoreMemberLegacy {
 			entry.legacyPath = member.LegacyJournalPath()
 			registeredLatest = registeredLatest ||
-				(latestPath != "" && filepath.Clean(entry.legacyPath) == filepath.Clean(latestPath))
+				(latestIdentity != "" && filepath.Clean(entry.legacyPath) == filepath.Clean(latestIdentity))
 		}
 		if entry.ordinal >= lastOrdinal {
 			lastOrdinal = entry.ordinal

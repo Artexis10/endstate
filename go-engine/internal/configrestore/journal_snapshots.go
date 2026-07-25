@@ -96,7 +96,10 @@ func validateJournalActions(transactionRoot string, actions []JournalAction) err
 				}
 				missingParentOwners[canonical] = index
 			}
-			if err := validateConcreteHostPath(action.Target); err != nil || containsControl(action.Target) {
+			if containsControl(action.Target) {
+				return fmt.Errorf("journal filesystem action[%d] has unsafe target %q: target contains control characters", index, action.Target)
+			}
+			if err := validateConcreteHostPath(action.Target); err != nil {
 				return fmt.Errorf("journal filesystem action[%d] has unsafe target %q: %w", index, action.Target, err)
 			}
 			if err := validateSnapshotPathSeparation(transactionRoot, action.Target); err != nil {

@@ -96,7 +96,7 @@ func (w *JournalWriter) persistMarker(
 		return nil, journalCompletionError(path, err)
 	}
 
-	temporary, err := os.CreateTemp(journalDirectory, ".marker-*.tmp")
+	temporary, err := createBoundaryTempFile(journalDirectory, ".marker-*.tmp", verifiedIntent.boundary)
 	if err != nil {
 		return nil, journalCompletionError(journalDirectory, err)
 	}
@@ -107,7 +107,11 @@ func (w *JournalWriter) persistMarker(
 	}
 	defer func() {
 		_ = temporary.Close()
-		_ = os.Remove(temporaryPath)
+		if verifiedIntent.boundary == nil {
+			_ = os.Remove(temporaryPath)
+		} else {
+			_ = removeSafeTransactionPath(withHostBoundary(context.Background(), verifiedIntent.boundary), temporaryPath)
+		}
 	}()
 	if err := temporary.Chmod(0o600); err != nil {
 		return nil, journalCompletionError(temporaryPath, err)
