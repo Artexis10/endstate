@@ -372,7 +372,11 @@ func loadManifest(path string) (*manifest.Manifest, *envelope.Error) {
 			WithRemediation("Check the file path and ensure the manifest exists.")
 	}
 
-	mf, err := manifest.LoadManifest(path)
+	// Accepts a capture bundle as well as a manifest file: verify only reads the
+	// manifest, and a bundle carries one at its archive root. This is what lets a
+	// saved bundle be a schedule baseline directly, instead of the GUI
+	// side-writing a `<bundle>.zip.manifest.jsonc` beside it for the scheduler.
+	mf, err := manifest.LoadManifestOrBundle(path)
 	if err != nil {
 		if errors.Is(err, manifest.ErrValidation) {
 			return nil, envelope.NewError(
