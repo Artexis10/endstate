@@ -18,6 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/state"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // stringPtr returns a pointer to s.
@@ -37,6 +38,24 @@ func checkVerifyPath(verifyPath string) (expanded string, exists bool) {
 	expanded = expandVerifyPath(verifyPath)
 	_, err := os.Stat(expanded)
 	return expanded, err == nil
+}
+
+var manualVerifyStatNative = os.Stat
+
+func checkVerifyPathWithValidation(verifyPath string, context *validationmode.Context) (display string, exists bool, err error) {
+	if context == nil {
+		display, exists = checkVerifyPath(verifyPath)
+		return display, exists, nil
+	}
+	resolved, err := context.ResolveHostPath(verifyPath, validationmode.HostPathPolicy{})
+	if err != nil {
+		return verifyPath, false, err
+	}
+	if err := context.ValidateSandboxPath(resolved); err != nil {
+		return verifyPath, false, err
+	}
+	_, statErr := manualVerifyStatNative(resolved)
+	return verifyPath, statErr == nil, nil
 }
 
 // resolveModuleDisplayName returns a human-readable display name for a module.

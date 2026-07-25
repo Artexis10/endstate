@@ -1347,7 +1347,7 @@ func publishLegacyConfigRestoreJournal(
 				return "", err
 			}
 			name = fmt.Sprintf(
-				"restore-journal-%s~%020d-%s.json",
+				"restore-journal-%s_collision_%020d-%s.json",
 				runID, sequence+int64(attempt-1), hex.EncodeToString(suffix[:]),
 			)
 		}
@@ -1436,17 +1436,29 @@ func ensureDurableConfigRestoreDirectory(path string, permissions os.FileMode) (
 
 func nextLegacyConfigRestoreJournalSequence(logsDir, runID string) (int64, error) {
 	sequence := time.Now().UTC().UnixNano()
-	prefix := fmt.Sprintf("restore-journal-%s~", runID)
+	prefixes := []string{
+		fmt.Sprintf("restore-journal-%s_collision_", runID),
+		fmt.Sprintf("restore-journal-%s~", runID),
+	}
 	entries, err := os.ReadDir(logsDir)
 	if err != nil {
 		return 0, err
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, prefix) {
+		if entry.IsDir() {
 			continue
 		}
-		tail := strings.TrimPrefix(name, prefix)
+		tail := ""
+		for _, prefix := range prefixes {
+			if strings.HasPrefix(name, prefix) {
+				tail = strings.TrimPrefix(name, prefix)
+				break
+			}
+		}
+		if tail == "" {
+			continue
+		}
 		separator := strings.IndexByte(tail, '-')
 		if separator <= 0 {
 			continue

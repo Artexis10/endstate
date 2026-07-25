@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -224,18 +226,64 @@ func TestRunRebuildValidationRejectsEscapedInputBeforeOpening(t *testing.T) {
 	assertValidationCommandPreflightFailure(t, fixture, commandErr)
 }
 
-func TestRunRebuildValidationRejectsBundleBeforeExtractionMutation(t *testing.T) {
+func TestRunRebuildValidationUsesOwnedBundleExtractionAdapter(t *testing.T) {
 	fixture := commandPreflightFixture(t, "notepad-plus-plus")
 	originalExtract := extractRebuildBundleFn
+	originalValidationExtract := extractRebuildBundleWithValidationFn
+	originalRemove := removeRebuildBundleWithValidationFn
+	originalLoad := loadModuleCatalogFn
 	extractRebuildBundleFn = func(string) (string, error) { panic("bundle extraction reached") }
-	t.Cleanup(func() { extractRebuildBundleFn = originalExtract })
+	called, removed := false, false
+	extractRebuildBundleWithValidationFn = func(path string, context *validationmode.Context) (string, error) {
+		called = true
+		if context != fixture.context || path == "" {
+			t.Fatalf("validation extraction = (%q, %p)", path, context)
+		}
+		return fixture.manifestPath, nil
+	}
+	removeRebuildBundleWithValidationFn = func(string, *validationmode.Context) error {
+		removed = true
+		return nil
+	}
+	loadModuleCatalogFn = func(string) (map[string]*modules.Module, error) { return fixture.catalog, nil }
+	t.Cleanup(func() {
+		extractRebuildBundleFn = originalExtract
+		extractRebuildBundleWithValidationFn = originalValidationExtract
+		removeRebuildBundleWithValidationFn = originalRemove
+		loadModuleCatalogFn = originalLoad
+	})
 	bundlePath := filepath.Join(fixture.context.Root(), "manifests", "capture.zip")
 	if err := os.WriteFile(bundlePath, []byte("not opened"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
+	if _, commandErr := RunRebuild(RebuildFlags{From: bundlePath, NoRestore: true}); commandErr != nil {
+		t.Fatalf("RunRebuild() error = %+v", commandErr)
+	}
+	if !called || !removed {
+		t.Fatalf("validation extraction lifecycle called=%v removed=%v", called, removed)
+	}
+}
+
+func TestRunRebuildValidationMapsExtractionBudgetToIsolation(t *testing.T) {
+	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	originalValidationExtract := extractRebuildBundleWithValidationFn
+	extractRebuildBundleWithValidationFn = func(string, *validationmode.Context) (string, error) {
+		return "", fmt.Errorf("%w: expanded bundle limit", validationmode.ErrGuardBudget)
+	}
+	t.Cleanup(func() { extractRebuildBundleWithValidationFn = originalValidationExtract })
+	bundlePath := filepath.Join(fixture.context.Root(), "manifests", "oversized.zip")
+	if err := os.WriteFile(bundlePath, []byte("not opened"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
 	_, commandErr := RunRebuild(RebuildFlags{From: bundlePath, NoRestore: true})
-	assertValidationCommandPreflightFailure(t, fixture, commandErr)
+	if commandErr == nil || commandErr.Code != envelope.ErrInternalError {
+		t.Fatalf("RunRebuild error = %v, want %s", commandErr, envelope.ErrInternalError)
+	}
+	if isolationErr := fixture.session.IsolationError(); !errors.Is(isolationErr, validationmode.ErrGuardBudget) {
+		t.Fatalf("isolation = %v, want ErrGuardBudget", isolationErr)
+	}
 }
 
 func TestRunRebuildValidationKeepsMissingBundleAsOrdinaryNotFound(t *testing.T) {
@@ -254,8 +302,13 @@ func TestRunRebuildValidationKeepsMissingBundleAsOrdinaryNotFound(t *testing.T) 
 func TestRunRebuildValidationKeepsLiveBundleConfirmationGateBeforeRefusal(t *testing.T) {
 	fixture := commandPreflightFixture(t, "notepad-plus-plus")
 	originalExtract := extractRebuildBundleFn
+	originalValidationExtract := extractRebuildBundleWithValidationFn
 	extractRebuildBundleFn = func(string) (string, error) { panic("bundle extraction reached") }
-	t.Cleanup(func() { extractRebuildBundleFn = originalExtract })
+	extractRebuildBundleWithValidationFn = func(string, *validationmode.Context) (string, error) { panic("validation bundle extraction reached") }
+	t.Cleanup(func() {
+		extractRebuildBundleFn = originalExtract
+		extractRebuildBundleWithValidationFn = originalValidationExtract
+	})
 	bundlePath := filepath.Join(fixture.context.Root(), "manifests", "capture.zip")
 	if err := os.WriteFile(bundlePath, []byte("not opened"), 0o600); err != nil {
 		t.Fatal(err)

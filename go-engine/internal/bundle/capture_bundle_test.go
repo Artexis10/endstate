@@ -138,6 +138,57 @@ func TestCreateCaptureBundleZeroFilePlanIsTypedSkipAndCannotEnableV2(t *testing.
 	}
 }
 
+func TestCreateCaptureBundlePublishesVerifyContractOnlyForCapturedModules(t *testing.T) {
+	dir := t.TempDir()
+	captured := testLegacyCaptureModule(t, dir, "apps.captured", "captured")
+	captured.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Captured\settings.json`}}
+
+	skipped := testLegacyCaptureModule(t, dir, "apps.skipped", "skipped")
+	skipped.Capture.Files[0].Source = filepath.Join(dir, "missing.json")
+	skipped.Verify = []modules.VerifyDef{{Type: "command-exists", Command: "must-not-be-published"}}
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{skipped, captured}, nil)
+	if _, err := CreateCaptureBundle(request); err != nil {
+		t.Fatal(err)
+	}
+	loaded, _ := loadCaptureBundle(t, request.OutputPath)
+	if len(loaded.Verify) != 1 || loaded.Verify[0].Type != "file-exists" || loaded.Verify[0].Path != captured.Verify[0].Path {
+		t.Fatalf("artifact verify contract = %+v, want only successfully captured module", loaded.Verify)
+	}
+	firstManifest, err := json.Marshal(loaded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Modules = []*modules.Module{captured, skipped}
+	request.OutputPath = filepath.Join(dir, "capture-reordered.zip")
+	if _, err := CreateCaptureBundle(request); err != nil {
+		t.Fatal(err)
+	}
+	reordered, _ := loadCaptureBundle(t, request.OutputPath)
+	secondManifest, err := json.Marshal(reordered)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(firstManifest, secondManifest) {
+		t.Fatalf("candidate order changed final manifest:\nfirst=%s\nsecond=%s", firstManifest, secondManifest)
+	}
+}
+
+func TestCapturedModuleVerifiesIncludesSuccessfulLegacyAndGenerationLanes(t *testing.T) {
+	legacy := &modules.Module{ID: "apps.legacy", Verify: []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Legacy\settings.json`}}}
+	generation := &modules.Module{ID: "apps.generation", Verify: []modules.VerifyDef{{Type: "command-exists", Command: "generation-app"}}}
+	skipped := &modules.Module{ID: "apps.skipped", Verify: []modules.VerifyDef{{Type: "command-exists", Command: "must-not-publish"}}}
+
+	projected := capturedModuleVerifies(
+		[]*modules.Module{skipped, legacy, generation},
+		[]manifest.ConfigCapture{{ModuleID: generation.ID}},
+		[]string{legacy.ID},
+	)
+	if len(projected) != 2 || projected[0].Command != "generation-app" || projected[1].Path != legacy.Verify[0].Path {
+		t.Fatalf("captured lane verifies = %+v", projected)
+	}
+}
+
 func TestCreateCaptureBundleIncludesPreplanningDiagnosticInResultAndMetadata(t *testing.T) {
 	dir := t.TempDir()
 	diagnostic := CaptureBundleDiagnostic{

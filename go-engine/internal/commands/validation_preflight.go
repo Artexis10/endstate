@@ -773,7 +773,8 @@ func preflightRegistry(context *validationmode.Context, session *ValidationModeS
 		return validationPreflightFailure(session, coordinate, tokenizedValidationTarget("registry", key), isolationReasonUnsafeRegistry)
 	}
 	protection := validationmode.ProtectedRegistry{Key: semantic, ValueName: valueName, WholeKey: valueName == ""}
-	return session.registerOriginalRegistryProtection(coordinate, tokenizedValidationTarget("registry", key), protection)
+	identity := semantic + "\x00" + valueName
+	return session.registerOriginalRegistryProtection(coordinate, tokenizedValidationTarget("registry", identity), protection)
 }
 
 func validationPreflightFailure(session *ValidationModeSession, coordinate, target string, reason isolationReason) error {

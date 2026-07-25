@@ -15,6 +15,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
@@ -424,6 +425,41 @@ func TestValidationModePlanApplyVerifyShareDisposableState(t *testing.T) {
 	}
 	if session.IsolationError() != nil {
 		t.Fatalf("unexpected isolation error: %v", session.IsolationError())
+	}
+}
+
+func TestValidationManifestAcceptsProductionUnpinnedCaptureButRejectsWrongPin(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		version string
+		wantErr bool
+	}{
+		{name: "unpinned capture", version: ""},
+		{name: "matching pin", version: "8.8.2"},
+		{name: "wrong pin", version: "8.7.0", wantErr: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			context := validationContext(t, validationmode.Inventory{
+				AppID: "notepad-plus-plus", Driver: "winget", Ref: "Notepad++.Notepad++",
+				DisplayName: "Notepad++", Version: "8.8.2", Source: "winget", InitialState: "present",
+			})
+			session, err := ActivateValidationMode(context)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = session.Restore() })
+
+			commandErr := preflightValidationManifest(&manifest.Manifest{Version: 1, Apps: []manifest.App{{
+				ID: "notepad-plus-plus", Driver: "winget", Source: "winget", Version: test.version,
+				Refs: map[string]string{"windows": "Notepad++.Notepad++"},
+			}}})
+			if (commandErr != nil) != test.wantErr {
+				t.Fatalf("preflight error = %v, wantErr=%v", commandErr, test.wantErr)
+			}
+			if test.wantErr != (session.IsolationError() != nil) {
+				t.Fatalf("isolation = %v, wantErr=%v", session.IsolationError(), test.wantErr)
+			}
+		})
 	}
 }
 

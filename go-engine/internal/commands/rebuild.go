@@ -14,6 +14,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 // RebuildFlags holds the parsed CLI flags for the rebuild command.
@@ -132,14 +133,17 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 	manifestPath := from
 	var bundleInfo *RebuildBundleInfo
 	if bundle.IsBundle(from) {
+		var extractedManifest string
+		var extractErr error
 		if currentValidationMode != nil {
-			// Extraction is operation-specific I/O virtualization owned by B2B. Until
-			// that adapter exists, validation mode must refuse before ExtractBundle's
-			// first temporary-directory write.
-			return nil, validationPreflightFailureEnvelope(currentValidationSession, "rebuild.bundle", "extraction-adapter")
+			extractedManifest, extractErr = extractRebuildBundleWithValidationFn(from, currentValidationMode)
+		} else {
+			extractedManifest, extractErr = extractRebuildBundleFn(from)
 		}
-		extractedManifest, extractErr := extractRebuildBundleFn(from)
 		if extractErr != nil {
+			if currentValidationMode != nil && (errors.Is(extractErr, validationmode.ErrUnsafePath) || errors.Is(extractErr, validationmode.ErrGuardBudget)) {
+				return nil, validationRuntimeIsolationFailure("rebuild.bundle.extraction", "bundle-extraction", extractErr)
+			}
 			// A malformed/non-bundle zip (or one without manifest.jsonc). Surface
 			// the underlying reason. ExtractBundle removes its own temp dir on
 			// failure, so there is nothing to clean up here.
@@ -153,7 +157,11 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		// The extraction directory must outlive install + restore + verify; the
 		// deferred cleanup runs when RunRebuild returns, on both the success and
 		// the mid-pipeline error paths.
-		defer os.RemoveAll(filepath.Dir(manifestPath))
+		if currentValidationMode != nil {
+			defer removeRebuildBundleWithValidationFn(filepath.Dir(manifestPath), currentValidationMode)
+		} else {
+			defer os.RemoveAll(filepath.Dir(manifestPath))
+		}
 
 		bundleInfo = &RebuildBundleInfo{Extracted: true}
 		if md, ok := readBundleMetadata(filepath.Dir(manifestPath)); ok {
@@ -218,6 +226,8 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 }
 
 var extractRebuildBundleFn = bundle.ExtractBundle
+var extractRebuildBundleWithValidationFn = bundle.ExtractBundleWithValidation
+var removeRebuildBundleWithValidationFn = bundle.RemoveExtractedBundleWithValidation
 
 func rebuildApplyFlags(flags RebuildFlags, manifestPath string) ApplyFlags {
 	return ApplyFlags{

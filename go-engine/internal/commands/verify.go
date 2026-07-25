@@ -107,6 +107,8 @@ type VerifyItem struct {
 	Expected string `json:"expected,omitempty"`
 }
 
+var runVerifierFn = verifier.RunVerifyWithValidation
+
 // RunVerify executes the verify command with the provided flags.
 //
 // Algorithm (three steps matching engine/verify.ps1 and Invoke-VerifyCore in
@@ -208,7 +210,10 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		}
 
 		if route.isManual {
-			expanded, exists := checkVerifyPath(app.Manual.VerifyPath)
+			expanded, exists, verifyPathErr := checkVerifyPathWithValidation(app.Manual.VerifyPath, currentValidationMode)
+			if verifyPathErr != nil {
+				return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+			}
 			item := VerifyItem{
 				Type:   "app",
 				ID:     app.ID,
@@ -311,7 +316,10 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 
 	// --- 4. Run manifest verify entries through verifier dispatcher ---
 	if len(mf.Verify) > 0 {
-		verifyResults := verifier.RunVerify(mf.Verify)
+		verifyResults, verifyErr := runVerifierFn(mf.Verify, currentValidationMode)
+		if verifyErr != nil {
+			return nil, validationRuntimeIsolationFailure("verify.execution", "verifier", verifyErr)
+		}
 		for _, vr := range verifyResults {
 			item := VerifyItem{
 				Type:    vr.Type,

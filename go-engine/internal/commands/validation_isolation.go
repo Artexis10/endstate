@@ -31,13 +31,15 @@ type validationRegistryGuard interface {
 
 func newValidationModeSession(context *validationmode.Context, recorder *validationIsolationRecorder) *ValidationModeSession {
 	return &ValidationModeSession{
-		context:              context,
-		recorder:             recorder,
-		registryGuard:        validationmode.NewRegistryGuard(context),
-		filesystemCoordinate: make(map[string]string),
-		registryCoordinate:   make(map[string]string),
-		filesystemProtection: make(map[string]string),
-		registryProtection:   make(map[string]validationmode.ProtectedRegistry),
+		context:                 context,
+		recorder:                recorder,
+		registryGuard:           validationmode.NewRegistryGuard(context),
+		filesystemCoordinate:    make(map[string]string),
+		registryCoordinate:      make(map[string]string),
+		filesystemProtection:    make(map[string]string),
+		registryProtection:      make(map[string]validationmode.ProtectedRegistry),
+		filesystemRegistrations: make(map[string]string),
+		registryRegistrations:   make(map[string]validationmode.ProtectedRegistry),
 	}
 }
 
@@ -69,14 +71,26 @@ func (session *ValidationModeSession) registerOriginalFilesystemPath(coordinate,
 		return fmt.Errorf("%w: validation session is inactive", validationmode.ErrUnsafePath)
 	}
 	session.lifecycleMu.Lock()
+	registration := safeLabel + "\x00" + coordinate
+	if session.filesystemRegistrations == nil {
+		session.filesystemRegistrations = make(map[string]string)
+	}
 	if session.sealed {
-		repeatedPath, repeated := session.filesystemProtection[safeLabel]
-		repeatedCoordinate := session.filesystemCoordinate[safeLabel]
+		repeatedPath, repeated := session.filesystemRegistrations[registration]
 		session.lifecycleMu.Unlock()
-		if repeated && repeatedCoordinate == coordinate && repeatedPath == filepath.Clean(path) {
+		if repeated && repeatedPath == filepath.Clean(path) {
 			return nil
 		}
 		return session.recordIsolationFinding(coordinate, safeLabel, isolationReasonUnsafePath)
+	}
+	if protectedPath, protected := session.filesystemProtection[safeLabel]; protected {
+		if protectedPath != filepath.Clean(path) {
+			session.lifecycleMu.Unlock()
+			return session.recordIsolationFinding(coordinate, safeLabel, isolationReasonUnsafePath)
+		}
+		session.filesystemRegistrations[registration] = filepath.Clean(path)
+		session.lifecycleMu.Unlock()
+		return nil
 	}
 	var err error
 	if session.filesystemGuard == nil {
@@ -90,8 +104,11 @@ func (session *ValidationModeSession) registerOriginalFilesystemPath(coordinate,
 		err = session.filesystemGuard.Protect([]validationmode.ProtectedPath{{Path: path, Label: safeLabel}})
 	}
 	if err == nil {
-		session.filesystemCoordinate[safeLabel] = coordinate
+		if _, exists := session.filesystemCoordinate[safeLabel]; !exists {
+			session.filesystemCoordinate[safeLabel] = coordinate
+		}
 		session.filesystemProtection[safeLabel] = filepath.Clean(path)
+		session.filesystemRegistrations[registration] = filepath.Clean(path)
 	}
 	session.lifecycleMu.Unlock()
 	if err != nil {
@@ -108,19 +125,34 @@ func (session *ValidationModeSession) registerOriginalRegistryProtection(coordin
 	}
 	protection.Label = safeLabel
 	session.lifecycleMu.Lock()
+	registration := safeLabel + "\x00" + coordinate
+	if session.registryRegistrations == nil {
+		session.registryRegistrations = make(map[string]validationmode.ProtectedRegistry)
+	}
 	if session.sealed {
-		repeatedProtection, repeated := session.registryProtection[safeLabel]
-		repeatedCoordinate := session.registryCoordinate[safeLabel]
+		repeatedProtection, repeated := session.registryRegistrations[registration]
 		session.lifecycleMu.Unlock()
-		if repeated && repeatedCoordinate == coordinate && repeatedProtection == protection {
+		if repeated && repeatedProtection == protection {
 			return nil
 		}
 		return session.recordIsolationFinding(coordinate, safeLabel, isolationReasonUnsafeRegistry)
 	}
+	if protectedRegistry, protected := session.registryProtection[safeLabel]; protected {
+		if protectedRegistry != protection {
+			session.lifecycleMu.Unlock()
+			return session.recordIsolationFinding(coordinate, safeLabel, isolationReasonUnsafeRegistry)
+		}
+		session.registryRegistrations[registration] = protection
+		session.lifecycleMu.Unlock()
+		return nil
+	}
 	err := session.registryGuard.Protect([]validationmode.ProtectedRegistry{protection})
 	if err == nil {
-		session.registryCoordinate[safeLabel] = coordinate
+		if _, exists := session.registryCoordinate[safeLabel]; !exists {
+			session.registryCoordinate[safeLabel] = coordinate
+		}
 		session.registryProtection[safeLabel] = protection
+		session.registryRegistrations[registration] = protection
 	}
 	session.lifecycleMu.Unlock()
 	if err != nil {

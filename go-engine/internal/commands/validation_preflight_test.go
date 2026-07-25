@@ -1015,5 +1015,10 @@ func validationPreflightSessionFor(t *testing.T, shortID string) (*validationmod
 	}
 	t.Cleanup(func() { _ = restore() })
 	recorder := newValidationIsolationRecorder(context.Descriptor())
-	return context, newValidationModeSession(context, recorder)
+	session := newValidationModeSession(context, recorder)
+	// These tests prove declaration routing and provenance, not native HKCU
+	// availability. Keep them deterministic on restricted Windows sandboxes;
+	// RegistryGuard itself has dedicated native-boundary coverage.
+	session.registryGuard = &countingRegistryIsolationGuard{}
+	return context, session
 }

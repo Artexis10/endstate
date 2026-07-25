@@ -108,7 +108,10 @@ func runApplyDriverLanes(
 		}
 		entry := packageAppPlan{route: route}
 		if route.isManual {
-			expanded, exists := checkVerifyPath(app.Manual.VerifyPath)
+			expanded, exists, verifyPathErr := checkVerifyPathWithValidation(app.Manual.VerifyPath, currentValidationMode)
+			if verifyPathErr != nil {
+				return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+			}
 			entry.action = ApplyAction{ID: app.ID, Driver: "manual", Name: app.DisplayName}
 			if exists {
 				entry.action.Status = driver.StatusPresent
@@ -373,7 +376,10 @@ func runApplyDriverLanes(
 		for i, entry := range planEntries {
 			route := entry.route
 			if route.isManual {
-				expanded, exists := checkVerifyPath(route.app.Manual.VerifyPath)
+				expanded, exists, verifyPathErr := checkVerifyPathWithValidation(route.app.Manual.VerifyPath, currentValidationMode)
+				if verifyPathErr != nil {
+					return nil, validationRuntimeIsolationFailure("apps.manual.verifyPath", "manual-verify", verifyPathErr)
+				}
 				if exists {
 					emitter.EmitItem(route.app.ID, "manual", driver.StatusPresent, "", fmt.Sprintf("Verified at %s", expanded), route.app.DisplayName)
 					verifyPass++

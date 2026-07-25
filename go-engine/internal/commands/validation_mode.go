@@ -31,14 +31,16 @@ type ValidationModeSession struct {
 	driver   *validationPackageDriver
 	recorder *validationIsolationRecorder
 
-	lifecycleMu          sync.Mutex
-	sealed               bool
-	filesystemGuard      validationFilesystemGuard
-	registryGuard        validationRegistryGuard
-	filesystemCoordinate map[string]string
-	registryCoordinate   map[string]string
-	filesystemProtection map[string]string
-	registryProtection   map[string]validationmode.ProtectedRegistry
+	lifecycleMu             sync.Mutex
+	sealed                  bool
+	filesystemGuard         validationFilesystemGuard
+	registryGuard           validationRegistryGuard
+	filesystemCoordinate    map[string]string
+	registryCoordinate      map[string]string
+	filesystemProtection    map[string]string
+	registryProtection      map[string]validationmode.ProtectedRegistry
+	filesystemRegistrations map[string]string
+	registryRegistrations   map[string]validationmode.ProtectedRegistry
 
 	isolationOnce sync.Once
 	isolationErr  error
@@ -196,7 +198,7 @@ func preflightValidationManifest(value *manifest.Manifest) *envelope.Error {
 	if effectiveSource != strings.ToLower(strings.TrimSpace(inventory.Source)) {
 		return violation("source does not match inventory")
 	}
-	if strings.TrimSpace(app.Version) != strings.TrimSpace(inventory.Version) {
+	if version := strings.TrimSpace(app.Version); version != "" && version != strings.TrimSpace(inventory.Version) {
 		return violation("version does not match inventory")
 	}
 	return nil

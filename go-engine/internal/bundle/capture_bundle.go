@@ -136,12 +136,7 @@ func ProjectCapturePlanningManifest(apps []manifest.App, legacyModules []*module
 			return
 		}
 		verifiedModules[mod.ID] = struct{}{}
-		for _, verify := range mod.Verify {
-			projected.Verify = append(projected.Verify, manifest.VerifyEntry{
-				Type: verify.Type, Command: verify.Command, Path: verify.Path,
-				ValueName: verify.ValueName, ValueType: verify.ValueType, Data: verify.Data,
-			})
-		}
+		projected.Verify = append(projected.Verify, projectModuleVerifies(mod)...)
 	}
 
 	legacy := append([]*modules.Module(nil), legacyModules...)
@@ -286,6 +281,11 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		return nil, err
 	}
 
+	verifyCandidates := append([]*modules.Module(nil), request.Modules...)
+	for _, plan := range plans {
+		verifyCandidates = append(verifyCandidates, plan.Module)
+	}
+	baseManifest.Verify = capturedModuleVerifies(verifyCandidates, configCaptures, legacy.moduleIDs)
 	prepareCaptureManifest(baseManifest, manifestVersion, configCaptures, legacy)
 	var redaction RedactionReport
 	if request.Share {
@@ -910,6 +910,60 @@ func rewriteLegacyRestore(restore modules.RestoreDef, layoutID string) manifest.
 		Exclude: append([]string(nil), restore.Exclude...), Key: restore.Key, ValueName: restore.ValueName,
 		ValueType: restore.ValueType, Data: restore.Data,
 	}
+}
+
+func projectModuleVerifies(mod *modules.Module) []manifest.VerifyEntry {
+	if mod == nil || len(mod.Verify) == 0 {
+		return nil
+	}
+	projected := make([]manifest.VerifyEntry, 0, len(mod.Verify))
+	for _, verify := range mod.Verify {
+		projected = append(projected, manifest.VerifyEntry{
+			Type: verify.Type, Command: verify.Command, Path: verify.Path,
+			ValueName: verify.ValueName, ValueType: verify.ValueType, Data: verify.Data,
+		})
+	}
+	return projected
+}
+
+// capturedModuleVerifies publishes assertions only for modules whose payloads
+// actually made it into the artifact. Candidate order is deliberately ignored
+// so equivalent capture selections produce byte-stable manifests.
+func capturedModuleVerifies(candidates []*modules.Module, captures []manifest.ConfigCapture, legacyModuleIDs []string) []manifest.VerifyEntry {
+	capturedIDs := make(map[string]struct{}, len(captures)+len(legacyModuleIDs))
+	for _, capture := range captures {
+		capturedIDs[capture.ModuleID] = struct{}{}
+	}
+	for _, moduleID := range legacyModuleIDs {
+		capturedIDs[moduleID] = struct{}{}
+	}
+
+	ordered := append([]*modules.Module(nil), candidates...)
+	sort.SliceStable(ordered, func(left, right int) bool {
+		if ordered[left] == nil {
+			return false
+		}
+		if ordered[right] == nil {
+			return true
+		}
+		return ordered[left].ID < ordered[right].ID
+	})
+	seen := make(map[string]struct{}, len(ordered))
+	var projected []manifest.VerifyEntry
+	for _, mod := range ordered {
+		if mod == nil {
+			continue
+		}
+		if _, captured := capturedIDs[mod.ID]; !captured {
+			continue
+		}
+		if _, duplicate := seen[mod.ID]; duplicate {
+			continue
+		}
+		seen[mod.ID] = struct{}{}
+		projected = append(projected, projectModuleVerifies(mod)...)
+	}
+	return projected
 }
 
 func prepareCaptureManifest(base *manifest.Manifest, version int, captures []manifest.ConfigCapture, legacy *legacyCaptureCollection) {

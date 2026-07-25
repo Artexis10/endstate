@@ -4,12 +4,14 @@
 package commands
 
 import (
+	"errors"
 	"path/filepath"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 func validationManifestFromCapturePreparation(prepared *captureConfigPreparation, apps []manifest.App) (*manifest.Manifest, error) {
@@ -17,6 +19,19 @@ func validationManifestFromCapturePreparation(prepared *captureConfigPreparation
 		return &manifest.Manifest{Version: 1, Apps: append([]manifest.App(nil), apps...)}, nil
 	}
 	return bundle.ProjectCapturePlanningManifest(apps, prepared.Planning.LegacyModules, prepared.Planning.GenerationPlans)
+}
+
+func validationRuntimeIsolationFailure(coordinate, target string, err error) *envelope.Error {
+	if currentValidationSession != nil {
+		reason := isolationReasonUnsafePath
+		if errors.Is(err, validationmode.ErrGuardBudget) {
+			reason = isolationReasonGuardBudget
+		} else if errors.Is(err, validationmode.ErrUnsafeRegistry) {
+			reason = isolationReasonUnsafeRegistry
+		}
+		_ = currentValidationSession.recordIsolationFinding(coordinate, target, reason)
+	}
+	return validationCommandIsolationError()
 }
 
 func validationCapturePlanningFacts(prepared *captureConfigPreparation) ([]validationProductionConfigPlan, []modules.ConfigInstance) {
