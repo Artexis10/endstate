@@ -100,7 +100,7 @@ func DescribeAction(action RestoreAction, opts RestoreOptions) ActionDescriptor 
 		}
 		physical, err := legacyValidationBoundary{context: opts.ValidationContext}.resolveHost(action.Target)
 		if err == nil {
-			_, statErr := os.Stat(physical)
+			_, statErr := (legacyValidationBoundary{context: opts.ValidationContext}).stat("describe-target-stat", physical)
 			descriptor.TargetExisted = statErr == nil
 		}
 		return descriptor
@@ -243,6 +243,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 
 	for _, entry := range entries {
 		id := generateID(entry)
+		boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
 
 		// delete-glob: no source path, may produce multiple results.
 		if entry.Type == "delete-glob" {
@@ -253,7 +254,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 				results = append(results, *r)
 				continue
 			}
-			if err := ValidateFilesystemTarget(target); err != nil {
+			if err := boundary.validateConcrete(target); err != nil {
 				r := projectValidationRestoreResult(&RestoreResult{ID: id, Target: target, Status: "failed", Error: err.Error(), RestoreType: "delete-glob"}, entry, opts)
 				emitRestoreItemEvent(emitter, entry, *r)
 				results = append(results, *r)
@@ -261,7 +262,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 			}
 
 			// Check if target directory exists.
-			if _, err := os.Stat(target); os.IsNotExist(err) {
+			if _, err := boundary.stat("delete-glob-target-stat", target); os.IsNotExist(err) {
 				if entry.Optional {
 					r := RestoreResult{
 						ID:     id,
@@ -385,7 +386,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 			results = append(results, *r)
 			continue
 		}
-		if err := ValidateFilesystemTarget(target); err != nil {
+		if err := boundary.validateConcrete(target); err != nil {
 			r := RestoreResult{ID: id, Source: source, Target: target, Status: "failed", Error: err.Error(), RestoreType: entry.Type}
 			projected := projectValidationRestoreResult(&r, entry, opts)
 			emitRestoreItemEvent(emitter, entry, *projected)
@@ -395,7 +396,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 
 		// Check if source exists.
 		sourceExists := true
-		if _, err := os.Stat(source); os.IsNotExist(err) {
+		if _, err := boundary.stat("source-dispatch-stat", source); os.IsNotExist(err) {
 			sourceExists = false
 		}
 
@@ -419,7 +420,7 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 		warnings = append(warnings, CheckSensitivePath(target)...)
 
 		// Track whether target existed before.
-		_, targetStatErr := os.Stat(target)
+		_, targetStatErr := boundary.stat("target-dispatch-stat", target)
 		targetExisted := targetStatErr == nil
 
 		// Build per-entry options.

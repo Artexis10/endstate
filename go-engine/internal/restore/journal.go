@@ -51,8 +51,22 @@ func WriteJournalWithValidation(
 	logsDir, runID, manifestPath, manifestDir, exportRoot string,
 	results []RestoreResult,
 	context *validationmode.Context,
-) error {
-	if err := os.MkdirAll(logsDir, 0755); err != nil {
+) (returnErr error) {
+	if context != nil {
+		defer func() {
+			if returnErr != nil {
+				returnErr = fmt.Errorf("%s", replaceFoldMany(returnErr.Error(), [][2]string{
+					{context.Root(), "$ENDSTATE_ROOT"},
+					{context.Descriptor().Nonce, "validation"},
+				}))
+			}
+		}()
+	}
+	boundary := legacyValidationBoundary{context: context}
+	if err := boundary.authorizeIO("journal-logs-directory", logsDir); err != nil {
+		return err
+	}
+	if err := boundary.mkdirAll("journal-logs-mkdir", logsDir, 0755); err != nil {
 		return fmt.Errorf("cannot create logs directory: %w", err)
 	}
 
@@ -103,12 +117,12 @@ func WriteJournalWithValidation(
 	journalFile := filepath.Join(logsDir, fmt.Sprintf("restore-journal-%s.json", runID))
 	tmpFile := journalFile + ".tmp"
 
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	if err := boundary.writeFile("journal-temp-write", tmpFile, data, 0644); err != nil {
 		return fmt.Errorf("cannot write journal temp file: %w", err)
 	}
 
-	if err := os.Rename(tmpFile, journalFile); err != nil {
-		os.Remove(tmpFile)
+	if err := boundary.rename("journal-publish", tmpFile, journalFile); err != nil {
+		_ = boundary.remove("journal-temp-cleanup", tmpFile)
 		return fmt.Errorf("cannot rename journal file: %w", err)
 	}
 

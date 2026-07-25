@@ -189,6 +189,52 @@ func TestValidationRegistryRejectsUnsafeIdentityBeforeNativeCallbacks(t *testing
 	assertNoLegacyValidationIdentity(t, context, setResults[0].Error, importResults[0].Error)
 }
 
+func TestValidationRegistrySetRejectsOutsideBackupBeforeNativeCallbacks(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regset-outside-backup")
+	originalRead, originalWrite := registrySetReadNative, registrySetWriteNative
+	readCalled := false
+	registrySetReadNative = func(string, string) (bool, string, string, bool) {
+		readCalled = true
+		return false, "", "", false
+	}
+	registrySetWriteNative = func(string, string, string, string) error {
+		panic("registry write callback reached")
+	}
+	t.Cleanup(func() { registrySetReadNative, registrySetWriteNative = originalRead, originalWrite })
+	outsideBackup := filepath.Join(t.TempDir(), "outside-backups")
+	result, err := RestoreRegistrySet(RestoreAction{
+		Type: "registry-set", Key: `HKCU\Software\Vendor\Example`, ValueName: "Setting", ValueType: "REG_SZ", Data: "desired",
+	}, RestoreOptions{BackupDir: outsideBackup, ValidationContext: context})
+	if err != nil || result.Status != "failed" {
+		t.Fatalf("outside registry backup result = %+v, %v", result, err)
+	}
+	if !readCalled {
+		t.Fatal("registry-set did not classify whether a backup was needed")
+	}
+	if _, err := os.Stat(outsideBackup); !os.IsNotExist(err) {
+		t.Fatalf("outside registry backup directory was mutated: %v", err)
+	}
+	assertNoLegacyValidationIdentity(t, context, result.Error)
+}
+
+func TestValidationRegistrySetDryRunDoesNotAuthorizeUnusedDefaultBackup(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regset-dry-run")
+	originalRead, originalWrite := registrySetReadNative, registrySetWriteNative
+	registrySetReadNative = func(string, string) (bool, string, string, bool) {
+		return false, "", "", false
+	}
+	registrySetWriteNative = func(string, string, string, string) error {
+		panic("registry write callback reached")
+	}
+	t.Cleanup(func() { registrySetReadNative, registrySetWriteNative = originalRead, originalWrite })
+	result, err := RestoreRegistrySet(RestoreAction{
+		Type: "registry-set", Key: `HKCU\Software\Vendor\Example`, ValueName: "Setting", ValueType: "REG_SZ", Data: "desired",
+	}, RestoreOptions{DryRun: true, BackupDir: filepath.Join(t.TempDir(), "unused-outside-backup"), ValidationContext: context})
+	if err != nil || result.Status != "restored" || result.BackupCreated {
+		t.Fatalf("registry-set dry-run result = %+v, %v", result, err)
+	}
+}
+
 func TestValidationDurableRegistrySetRevertMapsOnlyAtNativeBoundary(t *testing.T) {
 	context, _ := activeLegacyRestoreValidationContext(t, "legacy-durable-regset")
 	semanticKey := `HKCU\Software\Vendor\DurableSet`

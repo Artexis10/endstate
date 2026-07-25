@@ -265,6 +265,174 @@ func TestValidationLegacyOptionalMissingSourceStaysSemantic(t *testing.T) {
 	assertNoLegacyValidationIdentity(t, context, results[0].Source, results[0].Target, results[0].Error)
 }
 
+func TestValidationLegacyRejectsOutsideBackupBeforeFilesystemMutation(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-outside-backup")
+	manifestRoot := filepath.Join(context.Root(), "manifests", "legacy-outside-backup")
+	source := filepath.Join(manifestRoot, "payload", "settings.txt")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, []byte("desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target, err := context.ResolveHostPath(`%APPDATA%\Vendor\settings.txt`, validationmode.HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsideBackup := filepath.Join(t.TempDir(), "outside-backups")
+	originalCopy := legacyRestoreAtomicCopyNative
+	legacyRestoreAtomicCopyNative = func(string, string, os.FileMode) error {
+		panic("filesystem mutation callback reached")
+	}
+	t.Cleanup(func() { legacyRestoreAtomicCopyNative = originalCopy })
+
+	result, err := RestoreCopy(RestoreAction{Type: "copy", Backup: true}, source, target, RestoreOptions{
+		BackupDir: outsideBackup, ValidationContext: context,
+	})
+	if err != nil || result.Status != "failed" {
+		t.Fatalf("outside backup result = %+v, %v", result, err)
+	}
+	assertFileBytes(t, target, []byte("prior"))
+	if _, err := os.Stat(outsideBackup); !os.IsNotExist(err) {
+		t.Fatalf("outside backup directory was mutated: %v", err)
+	}
+	assertNoLegacyValidationIdentity(t, context, result.Error)
+}
+
+func TestValidationLegacyRechecksSourceAndTargetImmediatelyBeforeNativeIO(t *testing.T) {
+	t.Run("source stat", func(t *testing.T) {
+		context, _ := activeLegacyRestoreValidationContext(t, "legacy-source-recheck")
+		sourceParent := filepath.Join(context.Root(), "manifests", "legacy-source-recheck", "payload")
+		source := filepath.Join(sourceParent, "settings.txt")
+		if err := os.MkdirAll(sourceParent, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(source, []byte("desired"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		target, err := context.ResolveHostPath(`%APPDATA%\Vendor\settings.txt`, validationmode.HostPathPolicy{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		originalCheckpoint, originalStat := legacyRestoreIOCheckpoint, legacyRestoreStatNative
+		fired := false
+		legacyRestoreIOCheckpoint = func(operation, path string) {
+			if operation == "source-stat" && !fired {
+				fired = true
+				replaceValidationDirectoryWithFile(t, sourceParent)
+			}
+		}
+		legacyRestoreStatNative = func(string) (os.FileInfo, error) {
+			panic("source stat callback reached")
+		}
+		t.Cleanup(func() {
+			legacyRestoreIOCheckpoint, legacyRestoreStatNative = originalCheckpoint, originalStat
+		})
+		result, err := RestoreCopy(RestoreAction{Type: "copy"}, source, target, RestoreOptions{ValidationContext: context})
+		if err == nil || result != nil || !fired {
+			t.Fatalf("source tamper result = %+v fired=%v err=%v", result, fired, err)
+		}
+		assertNoLegacyValidationIdentity(t, context, err.Error())
+	})
+
+	t.Run("target copy", func(t *testing.T) {
+		context, _ := activeLegacyRestoreValidationContext(t, "legacy-target-recheck")
+		source := filepath.Join(context.Root(), "manifests", "legacy-target-recheck", "payload", "settings.txt")
+		if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(source, []byte("desired"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		target, err := context.ResolveHostPath(`%APPDATA%\Vendor\settings.txt`, validationmode.HostPathPolicy{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		targetParent := filepath.Dir(target)
+		if err := os.MkdirAll(targetParent, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		originalCheckpoint, originalCopy := legacyRestoreIOCheckpoint, legacyRestoreAtomicCopyNative
+		fired := false
+		legacyRestoreIOCheckpoint = func(operation, path string) {
+			if operation == "target-atomic-copy" && !fired {
+				fired = true
+				replaceValidationDirectoryWithFile(t, targetParent)
+			}
+		}
+		legacyRestoreAtomicCopyNative = func(string, string, os.FileMode) error {
+			panic("target copy callback reached")
+		}
+		t.Cleanup(func() {
+			legacyRestoreIOCheckpoint, legacyRestoreAtomicCopyNative = originalCheckpoint, originalCopy
+		})
+		result, err := RestoreCopy(RestoreAction{Type: "copy"}, source, target, RestoreOptions{ValidationContext: context})
+		if err != nil || result.Status != "failed" || !fired {
+			t.Fatalf("target tamper result = %+v fired=%v err=%v", result, fired, err)
+		}
+	})
+}
+
+func TestValidationJournalAuthorizesAndRechecksPublicationPaths(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-journal-boundary")
+	originalMkdir, originalWrite := legacyRestoreMkdirAllNative, legacyRestoreWriteFileNative
+	legacyRestoreMkdirAllNative = func(string, os.FileMode) error { panic("journal mkdir callback reached") }
+	outside := filepath.Join(t.TempDir(), "outside-logs")
+	if err := WriteJournalWithValidation(outside, "outside", "manifest.jsonc", "", "", nil, context); err == nil {
+		t.Fatal("outside journal directory was accepted")
+	}
+	if _, err := os.Stat(outside); !os.IsNotExist(err) {
+		t.Fatalf("outside journal directory was mutated: %v", err)
+	}
+	legacyRestoreMkdirAllNative = originalMkdir
+
+	logsDir := filepath.Join(context.Root(), "logs", "journal-boundary")
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	originalCheckpoint := legacyRestoreIOCheckpoint
+	fired := false
+	legacyRestoreIOCheckpoint = func(operation, path string) {
+		if operation == "journal-temp-write" && !fired {
+			fired = true
+			replaceValidationDirectoryWithFile(t, logsDir)
+		}
+	}
+	legacyRestoreWriteFileNative = func(string, []byte, os.FileMode) error {
+		panic("journal write callback reached")
+	}
+	t.Cleanup(func() {
+		legacyRestoreIOCheckpoint = originalCheckpoint
+		legacyRestoreMkdirAllNative, legacyRestoreWriteFileNative = originalMkdir, originalWrite
+	})
+	if err := WriteJournalWithValidation(logsDir, "tampered", "manifest.jsonc", "", "", nil, context); err == nil || !fired {
+		t.Fatalf("tampered journal publication error = %v fired=%v", err, fired)
+	} else {
+		assertNoLegacyValidationIdentity(t, context, err.Error())
+	}
+}
+
+func replaceValidationDirectoryWithFile(t *testing.T, directory string) {
+	t.Helper()
+	held := directory + ".held"
+	if err := os.Rename(directory, held); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(directory, []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Remove(directory)
+		_ = os.Rename(held, directory)
+	})
+}
+
 func activeLegacyRestoreValidationContext(t *testing.T, scenario string) (*validationmode.Context, string) {
 	t.Helper()
 	nonce := "nonce-" + scenario

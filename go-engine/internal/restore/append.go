@@ -18,16 +18,17 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 		Source: source,
 		Target: target,
 	}
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
 
 	// Check source exists.
-	if _, err := os.Stat(source); os.IsNotExist(err) {
+	if _, err := boundary.stat("source-stat", source); os.IsNotExist(err) {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("source not found: %s", source)
 		return result, nil
 	}
 
 	// Read source content.
-	sourceData, err := os.ReadFile(source)
+	sourceData, err := boundary.readFile("source-read", source)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("cannot read source: %v", err)
@@ -38,15 +39,19 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 	// Read target content if exists.
 	var targetContent string
 	targetExists := false
-	if _, statErr := os.Stat(target); statErr == nil {
+	if _, statErr := boundary.stat("target-snapshot-stat", target); statErr == nil {
 		targetExists = true
-		targetData, readErr := os.ReadFile(target)
+		targetData, readErr := boundary.readFile("target-snapshot-read", target)
 		if readErr != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("cannot read target: %v", readErr)
 			return result, nil
 		}
 		targetContent = string(targetData)
+	} else if opts.ValidationContext != nil && !os.IsNotExist(statErr) {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("cannot inspect target: %v", statErr)
+		return result, nil
 	}
 
 	// Compute the appended content using line-level deduplication.
@@ -96,14 +101,18 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 		result.Status = "restored"
 		return result, nil
 	}
+	if entry.Backup {
+		if err := boundary.authorizeBackupDir(restoreBackupDirectory(opts)); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("backup failed: %v", err)
+			return result, nil
+		}
+	}
 
 	// Backup target if exists and backup requested.
 	if entry.Backup && targetExists {
-		backupDir := opts.BackupDir
-		if backupDir == "" {
-			backupDir = defaultBackupDir(opts.RunID)
-		}
-		backupPath, backupErr := CreateBackup(target, backupDir)
+		backupDir := restoreBackupDirectory(opts)
+		backupPath, backupErr := CreateBackupWithValidation(target, backupDir, opts.ValidationContext)
 		if backupErr != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("backup failed: %v", backupErr)
@@ -113,7 +122,7 @@ func RestoreAppend(entry RestoreAction, source, target string, opts RestoreOptio
 		result.BackupCreated = true
 	}
 
-	if err := atomicRestoreWrite(target, []byte(mergedContent), 0o644); err != nil {
+	if err := boundary.atomicWrite("target-atomic-write", target, []byte(mergedContent), 0o644); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("write failed: %v", err)
 		return result, nil

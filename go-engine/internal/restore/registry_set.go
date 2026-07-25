@@ -73,7 +73,11 @@ func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (stri
 	if backupDir == "" {
 		backupDir = defaultBackupDir(opts.RunID)
 	}
-	if err := os.MkdirAll(backupDir, 0755); err != nil {
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: backupDir}
+	if err := boundary.authorizeBackupDir(backupDir); err != nil {
+		return "", err
+	}
+	if err := boundary.mkdirAll("registry-set-backup-directory-mkdir", backupDir, 0755); err != nil {
 		return "", fmt.Errorf("cannot create backup directory: %w", err)
 	}
 	safe := strings.NewReplacer(`\`, "_", ` `, "_", "/", "_", ":", "_").Replace(
@@ -84,7 +88,7 @@ func writeRegistrySetBackup(backup registrySetBackup, opts RestoreOptions) (stri
 	if err != nil {
 		return "", fmt.Errorf("cannot marshal registry-set backup: %w", err)
 	}
-	if err := os.WriteFile(backupPath, data, 0644); err != nil {
+	if err := boundary.writeFile("registry-set-backup-write", backupPath, data, 0644); err != nil {
 		return "", fmt.Errorf("cannot write registry-set backup: %w", err)
 	}
 	return backupPath, nil

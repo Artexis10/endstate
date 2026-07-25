@@ -9,12 +9,197 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
+)
+
+var (
+	legacyRestoreIOCheckpoint      = func(string, string) {}
+	legacyRestoreStatNative        = os.Stat
+	legacyRestoreLstatNative       = os.Lstat
+	legacyRestoreReadFileNative    = os.ReadFile
+	legacyRestoreReadDirNative     = os.ReadDir
+	legacyRestoreMkdirAllNative    = os.MkdirAll
+	legacyRestoreMkdirNative       = os.Mkdir
+	legacyRestoreRemoveNative      = os.Remove
+	legacyRestoreWriteFileNative   = os.WriteFile
+	legacyRestoreRenameNative      = os.Rename
+	legacyRestoreCreateTempNative  = os.CreateTemp
+	legacyRestoreAtomicWriteNative = safepath.AtomicWriteFile
+	legacyRestoreAtomicCopyNative  = safepath.AtomicCopyFile
 )
 
 type legacyValidationBoundary struct {
 	context   *validationmode.Context
 	backupDir string
+}
+
+func (boundary legacyValidationBoundary) authorizeIO(operation, path string) error {
+	if boundary.context == nil {
+		return nil
+	}
+	legacyRestoreIOCheckpoint(operation, path)
+	clean := filepath.Clean(path)
+	if err := boundary.context.ValidateSandboxPath(clean); err != nil {
+		return fmt.Errorf("validation restore %s is outside disposable storage: %w", operation, validationmode.ErrUnsafePath)
+	}
+	if err := ValidateFilesystemTarget(clean); err != nil {
+		return fmt.Errorf("validation restore %s is unsafe: %w", operation, validationmode.ErrUnsafePath)
+	}
+	return nil
+}
+
+func (boundary legacyValidationBoundary) authorizeBackupDir(path string) error {
+	return boundary.authorizeIO("backup-directory", path)
+}
+
+func restoreBackupDirectory(opts RestoreOptions) string {
+	if opts.BackupDir != "" {
+		return opts.BackupDir
+	}
+	return defaultBackupDir(opts.RunID)
+}
+
+func (boundary legacyValidationBoundary) stat(operation, path string) (os.FileInfo, error) {
+	if boundary.context == nil {
+		return os.Stat(path)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return nil, err
+	}
+	return legacyRestoreStatNative(path)
+}
+
+func (boundary legacyValidationBoundary) lstat(operation, path string) (os.FileInfo, error) {
+	if boundary.context == nil {
+		return os.Lstat(path)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return nil, err
+	}
+	return legacyRestoreLstatNative(path)
+}
+
+func (boundary legacyValidationBoundary) readFile(operation, path string) ([]byte, error) {
+	if boundary.context == nil {
+		return os.ReadFile(path)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return nil, err
+	}
+	return legacyRestoreReadFileNative(path)
+}
+
+func (boundary legacyValidationBoundary) readDir(operation, path string) ([]os.DirEntry, error) {
+	if boundary.context == nil {
+		return os.ReadDir(path)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return nil, err
+	}
+	return legacyRestoreReadDirNative(path)
+}
+
+func (boundary legacyValidationBoundary) mkdirAll(operation, path string, mode os.FileMode) error {
+	if boundary.context == nil {
+		return os.MkdirAll(path, mode)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return err
+	}
+	return legacyRestoreMkdirAllNative(path, mode)
+}
+
+func (boundary legacyValidationBoundary) mkdir(operation, path string, mode os.FileMode) error {
+	if boundary.context == nil {
+		return os.Mkdir(path, mode)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return err
+	}
+	return legacyRestoreMkdirNative(path, mode)
+}
+
+func (boundary legacyValidationBoundary) remove(operation, path string) error {
+	if boundary.context == nil {
+		return os.Remove(path)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return err
+	}
+	return legacyRestoreRemoveNative(path)
+}
+
+func (boundary legacyValidationBoundary) writeFile(operation, path string, data []byte, mode os.FileMode) error {
+	if boundary.context == nil {
+		return os.WriteFile(path, data, mode)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return err
+	}
+	return legacyRestoreWriteFileNative(path, data, mode)
+}
+
+func (boundary legacyValidationBoundary) rename(operation, source, destination string) error {
+	if boundary.context == nil {
+		return os.Rename(source, destination)
+	}
+	if err := boundary.authorizeIO(operation+"-source", source); err != nil {
+		return err
+	}
+	if err := boundary.authorizeIO(operation+"-destination", destination); err != nil {
+		return err
+	}
+	return legacyRestoreRenameNative(source, destination)
+}
+
+func (boundary legacyValidationBoundary) createTemp(operation, directory, pattern string) (*os.File, error) {
+	if boundary.context == nil {
+		return os.CreateTemp(directory, pattern)
+	}
+	if err := boundary.authorizeIO(operation+"-directory", directory); err != nil {
+		return nil, err
+	}
+	return legacyRestoreCreateTempNative(directory, pattern)
+}
+
+func (boundary legacyValidationBoundary) atomicWrite(operation, target string, data []byte, mode os.FileMode) error {
+	if boundary.context == nil {
+		return atomicRestoreWrite(target, data, mode)
+	}
+	if err := boundary.mkdirAll(operation+"-parent-mkdir", filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if err := boundary.authorizeIO(operation, target); err != nil {
+		return err
+	}
+	if err := legacyRestoreAtomicWriteNative(target, data, mode); err != nil {
+		return err
+	}
+	return boundary.authorizeIO(operation+"-result", target)
+}
+
+func (boundary legacyValidationBoundary) atomicCopy(operation, source, target string) error {
+	if boundary.context == nil {
+		return atomicRestoreCopy(source, target)
+	}
+	if err := boundary.mkdirAll(operation+"-parent-mkdir", filepath.Dir(target), 0o755); err != nil {
+		return err
+	}
+	if err := boundary.authorizeIO(operation, target); err != nil {
+		return err
+	}
+	info, err := boundary.lstat("source-atomic-copy", source)
+	if err != nil {
+		return err
+	}
+	if isLinkOrReparse(info) || !info.Mode().IsRegular() {
+		return fmt.Errorf("validation restore source is not a safe regular file")
+	}
+	if err := legacyRestoreAtomicCopyNative(source, target, info.Mode()); err != nil {
+		return err
+	}
+	return boundary.authorizeIO(operation+"-result", target)
 }
 
 func (boundary legacyValidationBoundary) resolveHost(authored string) (string, error) {
@@ -81,7 +266,8 @@ func resolveRestoreSource(source string, opts RestoreOptions) (string, error) {
 			return "", fmt.Errorf("validate restore source %q: %w", source, err)
 		}
 		if index == 0 && opts.ExportRoot != "" {
-			if _, err := os.Stat(resolved); err == nil {
+			boundary := legacyValidationBoundary{context: opts.ValidationContext}
+			if _, err := boundary.stat("source-authority-stat", resolved); err == nil {
 				return resolved, nil
 			} else if !os.IsNotExist(err) {
 				return "", fmt.Errorf("inspect restore source %q: %w", source, err)

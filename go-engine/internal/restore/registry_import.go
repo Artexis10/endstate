@@ -145,6 +145,9 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 		result.Error = err.Error()
 		return result, nil
 	}
+	if opts.ValidationContext != nil {
+		return restoreRegistryImportValidation(result, entry, source, opts)
+	}
 
 	// Check whether the source .reg file exists.
 	if _, err := os.Stat(source); os.IsNotExist(err) {
@@ -160,9 +163,6 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 		result.Status = "failed"
 		result.Error = err.Error()
 		return result, nil
-	}
-	if opts.ValidationContext != nil {
-		return restoreRegistryImportValidation(result, entry, source, opts)
 	}
 
 	// Registry operations are Windows-only.
@@ -220,6 +220,14 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 
 func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction, source string, opts RestoreOptions) (*RestoreResult, error) {
 	context := opts.ValidationContext
+	boundary := legacyValidationBoundary{context: context, backupDir: restoreBackupDirectory(opts)}
+	if entry.Backup {
+		if err := boundary.authorizeBackupDir(restoreBackupDirectory(opts)); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("backup: %v", err)
+			return result, nil
+		}
+	}
 	semanticKey, err := validationmode.NormalizeHKCU(entry.Target)
 	if err != nil {
 		result.Status = "failed"
@@ -232,12 +240,20 @@ func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction,
 		result.Error = err.Error()
 		return result, nil
 	}
-	if err := context.ValidateSandboxPath(filepath.Clean(source)); err != nil {
+	if _, err := boundary.stat("registry-import-source-stat", source); os.IsNotExist(err) {
+		if entry.Optional {
+			result.Status = "skipped_missing_source"
+			return result, nil
+		}
+		result.Status = "failed"
+		result.Error = "source not found"
+		return result, nil
+	} else if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("validate registry import source: %v", err)
 		return result, nil
 	}
-	sourceData, _, err := safepath.ReadRegularFile(source)
+	sourceData, err := boundary.readFile("registry-import-source-read", source)
 	if err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("read registry import safely: %v", err)
@@ -269,13 +285,12 @@ func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction,
 		if backupDir == "" {
 			backupDir = defaultBackupDir(opts.RunID)
 		}
-		boundary := legacyValidationBoundary{context: context, backupDir: backupDir}
 		if err := boundary.validateConcrete(backupDir); err != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("backup: invalid backup directory: %v", err)
 			return result, nil
 		}
-		if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		if err := boundary.mkdirAll("registry-import-backup-directory-mkdir", backupDir, 0o755); err != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("backup: cannot create backup directory: %v", err)
 			return result, nil
@@ -292,12 +307,17 @@ func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction,
 			result.Error = fmt.Sprintf("backup: validate disposable export: %v", err)
 			return result, nil
 		}
+		if err := boundary.authorizeIO("registry-import-native-export", exportPath); err != nil {
+			result.Status = "failed"
+			result.Error = fmt.Sprintf("backup: validate disposable export: %v", err)
+			return result, nil
+		}
 		if err := registryImportExportNative(mappedKey, exportPath); err != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("backup: reg export failed: %v", err)
 			return result, nil
 		}
-		exported, _, err := safepath.ReadRegularFile(exportPath)
+		exported, err := boundary.readFile("registry-import-export-read", exportPath)
 		if err != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("backup: read disposable export: %v", err)
@@ -316,7 +336,7 @@ func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction,
 			result.Error = fmt.Sprintf("backup: validate destination: %v", err)
 			return result, nil
 		}
-		if err := safepath.AtomicWriteFile(backupPath, semanticBackup, 0o600); err != nil {
+		if err := boundary.atomicWrite("registry-import-backup-write", backupPath, semanticBackup, 0o600); err != nil {
 			result.Status = "failed"
 			result.Error = fmt.Sprintf("backup: write semantic export: %v", err)
 			return result, nil
@@ -342,12 +362,17 @@ func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction,
 		result.Error = fmt.Sprintf("validate disposable registry import: %v", err)
 		return result, nil
 	}
-	if err := safepath.AtomicWriteFile(importPath, mappedImport, 0o600); err != nil {
+	if err := boundary.atomicWrite("registry-import-temporary-write", importPath, mappedImport, 0o600); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("write disposable registry import: %v", err)
 		return result, nil
 	}
 	if err := context.ValidateSandboxPath(importPath); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("revalidate disposable registry import: %v", err)
+		return result, nil
+	}
+	if err := boundary.authorizeIO("registry-import-native-input", importPath); err != nil {
 		result.Status = "failed"
 		result.Error = fmt.Sprintf("revalidate disposable registry import: %v", err)
 		return result, nil
@@ -367,24 +392,25 @@ func validationRegistryTemp(context *validationmode.Context, pattern string) (st
 	if !ok {
 		return "", func() {}, fmt.Errorf("validation TEMP root is unavailable")
 	}
-	if err := os.MkdirAll(tempRoot, 0o755); err != nil {
+	boundary := legacyValidationBoundary{context: context}
+	if err := boundary.mkdirAll("registry-temporary-directory-mkdir", tempRoot, 0o755); err != nil {
 		return "", func() {}, err
 	}
 	if err := context.ValidateSandboxPath(tempRoot); err != nil {
 		return "", func() {}, err
 	}
-	file, err := os.CreateTemp(tempRoot, pattern)
+	file, err := boundary.createTemp("registry-temporary-create", tempRoot, pattern)
 	if err != nil {
 		return "", func() {}, err
 	}
 	path := file.Name()
 	if err := file.Close(); err != nil {
-		_ = os.Remove(path)
+		_ = boundary.remove("registry-temporary-cleanup", path)
 		return "", func() {}, err
 	}
 	if err := context.ValidateSandboxPath(path); err != nil {
-		_ = os.Remove(path)
+		_ = boundary.remove("registry-temporary-cleanup", path)
 		return "", func() {}, err
 	}
-	return path, func() { _ = os.Remove(path) }, nil
+	return path, func() { _ = boundary.remove("registry-temporary-remove", path) }, nil
 }

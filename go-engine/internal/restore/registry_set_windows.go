@@ -64,7 +64,6 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 		result.Error = err.Error()
 		return result, nil
 	}
-
 	nativeKey := entry.Key
 	if opts.ValidationContext != nil {
 		semanticKey, err := validationmode.NormalizeHKCU(entry.Key)
@@ -108,6 +107,13 @@ func RestoreRegistrySet(entry RestoreAction, opts RestoreOptions) (*RestoreResul
 	// Dry-run: report the intended write; touch neither the registry nor disk.
 	if opts.DryRun {
 		result.Status = "restored"
+		return result, nil
+	}
+	backupDir := restoreBackupDirectory(opts)
+	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: backupDir}
+	if err := boundary.authorizeBackupDir(backupDir); err != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("backup: %v", err)
 		return result, nil
 	}
 
