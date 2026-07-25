@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.28.0](https://github.com/Artexis10/endstate/compare/v2.27.6...v2.28.0) (2026-07-25)
+
+
+### Features
+
+* **verify:** accept a capture bundle as a manifest source ([#194](https://github.com/Artexis10/endstate/issues/194)) ([eed7d6d](https://github.com/Artexis10/endstate/commit/eed7d6d264c55b724c279d82ca4f4eda1ac9d82b))
+
 ## [2.27.6](https://github.com/Artexis10/endstate/compare/v2.27.5...v2.27.6) (2026-07-24)
 
 
