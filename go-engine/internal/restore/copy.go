@@ -62,14 +62,6 @@ func restoreCopyFile(entry RestoreAction, source, target string, opts RestoreOpt
 		result.Status = "restored"
 		return result, nil
 	}
-	if entry.Backup {
-		if err := boundary.authorizeBackupDir(restoreBackupDirectory(opts)); err != nil {
-			result.Status = "failed"
-			result.Error = fmt.Sprintf("backup failed: %v", err)
-			return result, nil
-		}
-	}
-
 	// Backup target if it exists and backup is requested.
 	if entry.Backup {
 		if _, statErr := boundary.stat("target-backup-stat", target); statErr == nil {
@@ -133,14 +125,6 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		result.Status = "restored"
 		return result, nil
 	}
-	if entry.Backup {
-		if err := boundary.authorizeBackupDir(restoreBackupDirectory(opts)); err != nil {
-			result.Status = "failed"
-			result.Error = fmt.Sprintf("backup failed: %v", err)
-			return result, nil
-		}
-	}
-
 	// Backup target if it exists and backup is requested.
 	if entry.Backup {
 		if _, statErr := boundary.stat("target-backup-stat", target); statErr == nil {
@@ -165,7 +149,7 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 
 	// Walk source and copy.
 	var warnings []string
-	err := filepath.Walk(source, func(path string, info os.FileInfo, walkErr error) error {
+	err := walkTreeWithBoundary(source, boundary, "copy", func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -264,7 +248,7 @@ func validateRestoreCopyTreeWithBoundary(source, target string, exclude func(str
 	if err := boundary.authorizeIO("copy-tree-source-root", source); err != nil {
 		return err
 	}
-	return filepath.Walk(source, func(sourcePath string, info os.FileInfo, walkErr error) error {
+	return walkTreeWithBoundary(source, boundary, "copy-preflight", func(sourcePath string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

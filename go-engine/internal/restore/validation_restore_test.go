@@ -305,6 +305,107 @@ func TestValidationLegacyRejectsOutsideBackupBeforeFilesystemMutation(t *testing
 	assertNoLegacyValidationIdentity(t, context, result.Error)
 }
 
+func TestValidationLegacyAllowsOutsideBackupWhenNoBackupIsUsed(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-unused-backup")
+	manifestRoot := filepath.Join(context.Root(), "manifests", "legacy-unused-backup")
+	if err := os.MkdirAll(filepath.Join(manifestRoot, "payload"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write := func(name, content string) string {
+		t.Helper()
+		path := filepath.Join(manifestRoot, "payload", name)
+		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	outsideBackup := filepath.Join(t.TempDir(), "unused-outside-backups")
+	tests := []struct {
+		name   string
+		typeID string
+		source string
+		body   string
+	}{
+		{name: "copy", typeID: "copy", source: write("copy.txt", "copy")},
+		{name: "append", typeID: "append", source: write("append.txt", "append\n")},
+		{name: "merge json", typeID: "merge-json", source: write("settings.json", `{"value":1}`)},
+		{name: "merge ini", typeID: "merge-ini", source: write("settings.ini", "[section]\nvalue=1\n")},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			target, err := context.ResolveHostPath(`%APPDATA%\Vendor\`+strings.ReplaceAll(test.name, " ", "-")+`.txt`, validationmode.HostPathPolicy{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			result, err := RunRestore([]RestoreAction{{
+				Type: test.typeID, Source: "payload/" + filepath.Base(test.source), Target: `%APPDATA%\Vendor\` + strings.ReplaceAll(test.name, " ", "-") + `.txt`, Backup: true,
+			}}, RestoreOptions{ManifestDir: manifestRoot, BackupDir: outsideBackup, ValidationContext: context}, nil)
+			if err != nil || len(result) != 1 || result[0].Status != "restored" {
+				t.Fatalf("unused backup result = %+v, %v", result, err)
+			}
+			if _, err := os.Stat(target); err != nil {
+				t.Fatalf("target was not restored: %v", err)
+			}
+		})
+	}
+	deleteTarget, err := context.ResolveHostPath(`%APPDATA%\Vendor\cache`, validationmode.HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(deleteTarget, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	deleteResults, err := RestoreDeleteGlob(RestoreAction{Type: "delete-glob", Pattern: "*.tmp"}, deleteTarget, RestoreOptions{
+		BackupDir: outsideBackup, ValidationContext: context,
+	})
+	if err != nil || len(deleteResults) != 1 || deleteResults[0].Status != "skipped_up_to_date" {
+		t.Fatalf("unused delete-glob backup = %+v, %v", deleteResults, err)
+	}
+	if _, err := os.Stat(outsideBackup); !os.IsNotExist(err) {
+		t.Fatalf("unused outside backup directory was mutated: %v", err)
+	}
+}
+
+func TestValidationDirectoryCopyGuardsNestedMemberBeforeNativeLstat(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-nested-member")
+	source := filepath.Join(context.Root(), "manifests", "legacy-nested-member", "payload", "directory")
+	nestedParent := filepath.Join(source, "nested")
+	nested := filepath.Join(nestedParent, "settings.txt")
+	if err := os.MkdirAll(nestedParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nested, []byte("desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target, err := context.ResolveHostPath(`%APPDATA%\Vendor\directory`, validationmode.HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalCheckpoint, originalLstat := legacyRestoreIOCheckpoint, legacyRestoreLstatNative
+	fired, nativeReached := false, false
+	legacyRestoreIOCheckpoint = func(operation, path string) {
+		if operation == "copy-preflight-member-lstat" && filepath.Clean(path) == filepath.Clean(nested) && !fired {
+			fired = true
+			replaceValidationDirectoryWithFile(t, nestedParent)
+		}
+	}
+	legacyRestoreLstatNative = func(path string) (os.FileInfo, error) {
+		if filepath.Clean(path) == filepath.Clean(nested) {
+			nativeReached = true
+			panic("nested lstat callback reached")
+		}
+		return os.Lstat(path)
+	}
+	t.Cleanup(func() {
+		legacyRestoreIOCheckpoint, legacyRestoreLstatNative = originalCheckpoint, originalLstat
+	})
+	result, err := RestoreCopy(RestoreAction{Type: "copy"}, source, target, RestoreOptions{ValidationContext: context})
+	if err != nil || result.Status != "failed" || !fired || nativeReached {
+		t.Fatalf("nested member result = %+v fired=%v native=%v err=%v", result, fired, nativeReached, err)
+	}
+	assertNoLegacyValidationIdentity(t, context, result.Error)
+}
+
 func TestValidationLegacyRechecksSourceAndTargetImmediatelyBeforeNativeIO(t *testing.T) {
 	t.Run("source stat", func(t *testing.T) {
 		context, _ := activeLegacyRestoreValidationContext(t, "legacy-source-recheck")

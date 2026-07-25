@@ -23,11 +23,6 @@ func RestoreDeleteGlob(entry RestoreAction, target string, opts RestoreOptions) 
 		return nil, err
 	}
 	boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
-	if opts.BackupDir != "" && !opts.DryRun {
-		if err := boundary.authorizeBackupDir(opts.BackupDir); err != nil {
-			return nil, err
-		}
-	}
 	pattern := strings.ReplaceAll(entry.Pattern, `\`, "/")
 	matches, err := expandSafeDeleteGlobWithBoundary(target, strings.Split(pattern, "/"), boundary)
 	if err != nil {

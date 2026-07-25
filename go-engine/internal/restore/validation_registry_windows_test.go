@@ -235,6 +235,39 @@ func TestValidationRegistrySetDryRunDoesNotAuthorizeUnusedDefaultBackup(t *testi
 	}
 }
 
+func TestValidationRegistryImportAllowsOutsideBackupWhenUnused(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regimport-unused-backup")
+	outsideBackup := filepath.Join(t.TempDir(), "unused-outside-backups")
+	manifestRoot := filepath.Join(context.Root(), "manifests", "legacy-regimport-unused-backup")
+	if err := os.MkdirAll(filepath.Join(manifestRoot, "payload"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	originalQuery, originalImport := registryImportQueryNative, registryImportApplyNative
+	registryImportQueryNative = func(string) (bool, error) { return false, nil }
+	registryImportApplyNative = func(string) error { panic("dry-run import callback reached") }
+	t.Cleanup(func() { registryImportQueryNative, registryImportApplyNative = originalQuery, originalImport })
+
+	optional, err := RunRestore([]RestoreAction{{
+		Type: "registry-import", Source: "payload/missing.reg", Target: `HKCU\Software\Vendor\Optional`, Backup: true, Optional: true,
+	}}, RestoreOptions{ManifestDir: manifestRoot, BackupDir: outsideBackup, ValidationContext: context}, nil)
+	if err != nil || len(optional) != 1 || optional[0].Status != "skipped_missing_source" {
+		t.Fatalf("optional registry import = %+v, %v", optional, err)
+	}
+	source := filepath.Join(manifestRoot, "payload", "settings.reg")
+	if err := os.WriteFile(source, validationRegistryDocument(`HKCU\Software\Vendor\Absent`, "desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	absent, err := RunRestore([]RestoreAction{{
+		Type: "registry-import", Source: "payload/settings.reg", Target: `HKCU\Software\Vendor\Absent`, Backup: true,
+	}}, RestoreOptions{ManifestDir: manifestRoot, BackupDir: outsideBackup, DryRun: true, ValidationContext: context}, nil)
+	if err != nil || len(absent) != 1 || absent[0].Status != "restored" || absent[0].BackupCreated {
+		t.Fatalf("absent registry import = %+v, %v", absent, err)
+	}
+	if _, err := os.Stat(outsideBackup); !os.IsNotExist(err) {
+		t.Fatalf("unused outside registry backup was mutated: %v", err)
+	}
+}
+
 func TestValidationDurableRegistrySetRevertMapsOnlyAtNativeBoundary(t *testing.T) {
 	context, _ := activeLegacyRestoreValidationContext(t, "legacy-durable-regset")
 	semanticKey := `HKCU\Software\Vendor\DurableSet`

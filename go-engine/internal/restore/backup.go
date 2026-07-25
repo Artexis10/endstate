@@ -222,7 +222,7 @@ func copyDirRecursiveWithBoundary(
 	if err := boundary.authorizeIO(operation+"-walk-root", src); err != nil {
 		return err
 	}
-	return filepath.Walk(src, func(path string, info os.FileInfo, walkErr error) error {
+	return walkTreeWithBoundary(src, boundary, operation, func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}

@@ -19,6 +19,7 @@ var (
 	legacyRestoreLstatNative       = os.Lstat
 	legacyRestoreReadFileNative    = os.ReadFile
 	legacyRestoreReadDirNative     = os.ReadDir
+	legacyRestoreReadRegularNative = safepath.ReadRegularFile
 	legacyRestoreMkdirAllNative    = os.MkdirAll
 	legacyRestoreMkdirNative       = os.Mkdir
 	legacyRestoreRemoveNative      = os.Remove
@@ -98,6 +99,16 @@ func (boundary legacyValidationBoundary) readDir(operation, path string) ([]os.D
 		return nil, err
 	}
 	return legacyRestoreReadDirNative(path)
+}
+
+func (boundary legacyValidationBoundary) readRegularFile(operation, path string) ([]byte, os.FileMode, error) {
+	if boundary.context == nil {
+		return safepath.ReadRegularFile(path)
+	}
+	if err := boundary.authorizeIO(operation, path); err != nil {
+		return nil, 0, err
+	}
+	return legacyRestoreReadRegularNative(path)
 }
 
 func (boundary legacyValidationBoundary) mkdirAll(operation, path string, mode os.FileMode) error {
@@ -200,6 +211,46 @@ func (boundary legacyValidationBoundary) atomicCopy(operation, source, target st
 		return err
 	}
 	return boundary.authorizeIO(operation+"-result", target)
+}
+
+func walkTreeWithBoundary(
+	root string,
+	boundary legacyValidationBoundary,
+	operation string,
+	walkFn filepath.WalkFunc,
+) error {
+	if boundary.context == nil {
+		return filepath.Walk(root, walkFn)
+	}
+	var visit func(string) (bool, error)
+	visit = func(path string) (bool, error) {
+		info, err := boundary.lstat(operation+"-member-lstat", path)
+		if err != nil {
+			return false, walkFn(path, nil, err)
+		}
+		if err := walkFn(path, info, nil); err != nil {
+			if err == filepath.SkipDir && info.IsDir() {
+				return true, nil
+			}
+			return false, err
+		}
+		if !info.IsDir() {
+			return false, nil
+		}
+		entries, err := boundary.readDir(operation+"-directory-read", path)
+		if err != nil {
+			return false, walkFn(path, info, err)
+		}
+		for _, entry := range entries {
+			_, err := visit(filepath.Join(path, entry.Name()))
+			if err != nil {
+				return false, err
+			}
+		}
+		return false, nil
+	}
+	_, err := visit(filepath.Clean(root))
+	return err
 }
 
 func (boundary legacyValidationBoundary) resolveHost(authored string) (string, error) {

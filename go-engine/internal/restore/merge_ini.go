@@ -93,14 +93,6 @@ func RestoreMergeIni(entry RestoreAction, source, target string, opts RestoreOpt
 		result.Status = "restored"
 		return result, nil
 	}
-	if entry.Backup {
-		if err := boundary.authorizeBackupDir(restoreBackupDirectory(opts)); err != nil {
-			result.Status = "failed"
-			result.Error = fmt.Sprintf("backup failed: %v", err)
-			return result, nil
-		}
-	}
-
 	// Backup target if exists and backup requested.
 	if entry.Backup {
 		if _, statErr := boundary.stat("target-backup-stat", target); statErr == nil {

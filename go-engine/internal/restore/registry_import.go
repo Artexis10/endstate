@@ -221,13 +221,6 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 func restoreRegistryImportValidation(result *RestoreResult, entry RestoreAction, source string, opts RestoreOptions) (*RestoreResult, error) {
 	context := opts.ValidationContext
 	boundary := legacyValidationBoundary{context: context, backupDir: restoreBackupDirectory(opts)}
-	if entry.Backup {
-		if err := boundary.authorizeBackupDir(restoreBackupDirectory(opts)); err != nil {
-			result.Status = "failed"
-			result.Error = fmt.Sprintf("backup: %v", err)
-			return result, nil
-		}
-	}
 	semanticKey, err := validationmode.NormalizeHKCU(entry.Target)
 	if err != nil {
 		result.Status = "failed"

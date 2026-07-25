@@ -677,7 +677,7 @@ func scanDurableLegacyFilesystemStatePath(target string, boundary legacyValidati
 	if err := boundary.validateConcrete(target); err != nil {
 		return durableLegacyRevertState{}, err
 	}
-	info, err := os.Lstat(target)
+	info, err := boundary.lstat("durable-scan-root-lstat", target)
 	if os.IsNotExist(err) {
 		return absentDurableLegacyState(), nil
 	}
@@ -692,7 +692,7 @@ func scanDurableLegacyFilesystemStatePath(target string, boundary legacyValidati
 		mode               os.FileMode
 	}
 	entries := []entry{}
-	err = filepath.Walk(target, func(path string, info os.FileInfo, walkErr error) error {
+	err = walkTreeWithBoundary(target, boundary, "durable-scan", func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -713,7 +713,7 @@ func scanDurableLegacyFilesystemStatePath(target string, boundary legacyValidati
 			item.kind = "directory"
 		case info.Mode().IsRegular():
 			item.kind = "file"
-			data, mode, err := safepath.ReadRegularFile(path)
+			data, mode, err := boundary.readRegularFile("durable-scan-member-read", path)
 			if err != nil {
 				return err
 			}
