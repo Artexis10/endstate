@@ -4,6 +4,8 @@
 package restore
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -119,6 +121,16 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 		result.Error = fmt.Sprintf("unsafe directory copy: %v", err)
 		return result, nil
 	}
+	upToDate, err := isCopyDirectoryUpToDate(source, target, excludeFunc, boundary)
+	if err == nil && upToDate {
+		result.Status = "skipped_up_to_date"
+		return result, nil
+	}
+	if err != nil && opts.ValidationContext != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("target snapshot failed: %v", err)
+		return result, nil
+	}
 
 	// Dry-run: report what would happen.
 	if opts.DryRun {
@@ -149,7 +161,7 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 
 	// Walk source and copy.
 	var warnings []string
-	err := walkTreeWithBoundary(source, boundary, "copy", func(path string, info os.FileInfo, walkErr error) error {
+	err = walkTreeWithBoundary(source, boundary, "copy", func(path string, info os.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -208,6 +220,83 @@ func restoreCopyDir(entry RestoreAction, source, target string, opts RestoreOpti
 	result.Status = "restored"
 	result.Warnings = warnings
 	return result, nil
+}
+
+var errCopyDirectoryNotUpToDate = errors.New("copy directory is not up to date")
+
+// isCopyDirectoryUpToDate compares the source projection copied by
+// restoreCopyDir with the target. Copy is an overlay operation, so target-only
+// members do not make the directory stale.
+func isCopyDirectoryUpToDate(source, target string, exclude func(string) bool, boundary legacyValidationBoundary) (bool, error) {
+	targetInfo, err := boundary.lstat("copy-up-to-date-target-root-lstat", target)
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if !targetInfo.IsDir() || isLinkOrReparse(targetInfo) {
+		return false, nil
+	}
+
+	err = walkTreeWithBoundary(source, boundary, "copy-up-to-date", func(sourcePath string, sourceInfo os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if isLinkOrReparse(sourceInfo) {
+			return fmt.Errorf("source path member is a link or reparse point")
+		}
+		relative, err := filepath.Rel(source, sourcePath)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		if exclude != nil && exclude(relative) {
+			if sourceInfo.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
+		targetPath := filepath.Join(target, relative)
+		targetInfo, err := boundary.lstat("copy-up-to-date-target-member-lstat", targetPath)
+		if os.IsNotExist(err) {
+			return errCopyDirectoryNotUpToDate
+		}
+		if err != nil {
+			return err
+		}
+		if isLinkOrReparse(targetInfo) || sourceInfo.IsDir() != targetInfo.IsDir() {
+			return errCopyDirectoryNotUpToDate
+		}
+		if sourceInfo.IsDir() {
+			return nil
+		}
+		if !sourceInfo.Mode().IsRegular() || !targetInfo.Mode().IsRegular() {
+			return errCopyDirectoryNotUpToDate
+		}
+		sourceData, _, err := boundary.readRegularFile("copy-up-to-date-source-member-read", sourcePath)
+		if err != nil {
+			return err
+		}
+		targetData, _, err := boundary.readRegularFile("copy-up-to-date-target-member-read", targetPath)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(sourceData, targetData) {
+			return errCopyDirectoryNotUpToDate
+		}
+		return nil
+	})
+	if errors.Is(err, errCopyDirectoryNotUpToDate) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func validateRestoreCopyTree(source, target string, exclude func(string) bool) error {

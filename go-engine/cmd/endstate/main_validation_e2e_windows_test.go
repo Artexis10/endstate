@@ -41,67 +41,9 @@ func TestBuiltExecutableValidationTrackedModuleLifecycles(t *testing.T) {
 		t.Fatalf("fresh Windows build failed: %v\n%s", err, output)
 	}
 
-	t.Run("file lifecycle - tracked Notepad++", func(t *testing.T) {
-		runTrackedNotepadLifecycle(t, moduleRoot, buildRoot, binaryPath)
-	})
 	t.Run("registry lifecycle - tracked 7-Zip", func(t *testing.T) {
 		runTracked7ZipRegistryLifecycle(t, moduleRoot, buildRoot, binaryPath)
 	})
-}
-
-func runTrackedNotepadLifecycle(t *testing.T, moduleRoot, buildRoot, binaryPath string) {
-	root := lifecycleValidationRoot(t, "apps.notepad-plus-plus", validationmode.Inventory{
-		AppID: "notepad++-notepad++", Driver: "winget", Ref: "Notepad++.Notepad++",
-		DisplayName: "Notepad++", Version: "8.8.2", Source: "winget", InitialState: "present",
-	})
-	mod := installTrackedLifecycleModule(t, moduleRoot, root, "notepad-plus-plus", "apps.notepad-plus-plus", "Notepad++.Notepad++")
-
-	originalAppData := t.TempDir()
-	originalFile := filepath.Join(originalAppData, "Notepad++", "config.xml")
-	writeLifecycleFile(t, originalFile, "original-host-sentinel")
-	appData := filepath.Join(root, "sandbox", "appdata", "Notepad++")
-	fixtures := map[string][2]string{
-		filepath.Join(appData, "config.xml"):                 {"captured-config-sentinel", "mutated-config-sentinel"},
-		filepath.Join(appData, "shortcuts.xml"):              {"captured-shortcuts-sentinel", "mutated-shortcuts-sentinel"},
-		filepath.Join(appData, "langs.xml"):                  {"captured-langs-sentinel", "mutated-langs-sentinel"},
-		filepath.Join(appData, "stylers.xml"):                {"captured-stylers-sentinel", "mutated-stylers-sentinel"},
-		filepath.Join(appData, "contextMenu.xml"):            {"captured-context-menu-sentinel", "mutated-context-menu-sentinel"},
-		filepath.Join(appData, "userDefineLangs", "e2e.xml"): {"captured-user-language-sentinel", "mutated-user-language-sentinel"},
-	}
-	for path, values := range fixtures {
-		writeLifecycleFile(t, path, values[0])
-	}
-	assertTrackedCaptureSourcesPresent(t, root, mod)
-
-	toolRoot := filepath.Join(root, "state", "e2e-tools")
-	commandPath := filepath.Join(toolRoot, "notepad++.exe")
-	writeLifecycleFile(t, commandPath, "validation command sentinel")
-	harness := newLifecycleHarness(t, moduleRoot, buildRoot, binaryPath, root, originalAppData, toolRoot)
-	zipPath, verifyManifest := harness.capture("notepad++-notepad++,apps.notepad-plus-plus", mod)
-	_, entries := inspectLifecycleBundle(t, zipPath)
-	for _, values := range fixtures {
-		if !bundleContainsValue(entries, values[0]) {
-			t.Fatalf("captured bundle lacks exact tracked-module file sentinel %q", values[0])
-		}
-	}
-
-	for path, values := range fixtures {
-		writeLifecycleFile(t, path, values[1])
-	}
-	assertLifecycleNestedSuccess(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
-	assertLifecycleFiles(t, fixtures, 0)
-	harness.run("revert", "--json")
-	assertLifecycleFiles(t, fixtures, 1)
-	assertLifecycleNestedSuccess(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
-	assertLifecycleFiles(t, fixtures, 0)
-	assertLifecycleNestedSuccess(t, harness.run("rebuild", "--from", zipPath, "--confirm", "--json"))
-	assertLifecycleFiles(t, fixtures, 0)
-
-	if err := os.Remove(commandPath); err != nil {
-		t.Fatal(err)
-	}
-	assertLifecycleVerifyFails(t, harness.run("verify", "--manifest", verifyManifest, "--json"))
-	assertLifecycleFile(t, originalFile, "original-host-sentinel")
 }
 
 func runTracked7ZipRegistryLifecycle(t *testing.T, moduleRoot, buildRoot, binaryPath string) {
@@ -435,21 +377,6 @@ func writeLifecycleFile(t *testing.T, path, value string) {
 	}
 	if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func assertLifecycleFile(t *testing.T, path, want string) {
-	t.Helper()
-	data, err := os.ReadFile(path)
-	if err != nil || string(data) != want {
-		t.Fatalf("file %s = %q err=%v, want %q", filepath.Base(path), data, err, want)
-	}
-}
-
-func assertLifecycleFiles(t *testing.T, fixtures map[string][2]string, index int) {
-	t.Helper()
-	for path, values := range fixtures {
-		assertLifecycleFile(t, path, values[index])
 	}
 }
 

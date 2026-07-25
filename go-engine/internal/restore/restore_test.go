@@ -139,6 +139,45 @@ func TestRestoreCopy_DirectoryCopy(t *testing.T) {
 	}
 }
 
+func TestRestoreCopy_DirectoryUpToDateSkipsBackupAndHonorsOverlayExcludes(t *testing.T) {
+	tmp := t.TempDir()
+	source := filepath.Join(tmp, "source")
+	target := filepath.Join(tmp, "target")
+	for _, directory := range []string{filepath.Join(source, "Logs"), filepath.Join(target, "Logs")} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(source, "settings.json"), []byte("same"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "settings.json"), []byte("same"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "Logs", "ignored.log"), []byte("source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "Logs", "ignored.log"), []byte("target"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "extra.txt"), []byte("overlay stays"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backupDir := filepath.Join(tmp, "backups")
+	result, err := RestoreCopy(RestoreAction{
+		Type: "copy", Source: source, Target: target, Backup: true, Exclude: []string{"**/Logs/**"},
+	}, source, target, RestoreOptions{BackupDir: backupDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "skipped_up_to_date" || result.BackupCreated || result.BackupPath != "" {
+		t.Fatalf("result = %+v", result)
+	}
+	if _, err := os.Lstat(backupDir); !os.IsNotExist(err) {
+		t.Fatalf("up-to-date directory created backup state: %v", err)
+	}
+}
+
 func TestRestoreCopy_ExcludeGlobs(t *testing.T) {
 	tmp := t.TempDir()
 

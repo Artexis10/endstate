@@ -1,0 +1,380 @@
+// Copyright 2026 Substrate Systems OU
+// SPDX-License-Identifier: Apache-2.0
+
+package validationharness
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
+)
+
+func TestFixturePlanDeterministicFilesDirectoriesOptionalAndExclusion(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	firstContext := fixtureValidationContext(t, mod.ID, scenario.ID)
+	first, failure := compileFixturePlan(firstContext, mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	secondContext := fixtureValidationContext(t, mod.ID, scenario.ID)
+	second, failure := compileFixturePlan(secondContext, mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(first.Targets) != 2 || len(second.Targets) != 2 {
+		t.Fatalf("targets = %d/%d, want 2", len(first.Targets), len(second.Targets))
+	}
+	for index := range first.Targets {
+		if first.Targets[index].Captured != second.Targets[index].Captured || first.Targets[index].Mutated != second.Targets[index].Mutated {
+			t.Fatalf("target %d sentinel is not deterministic", index)
+		}
+	}
+	if first.Targets[0].Directory || !first.Targets[1].Directory || !first.Targets[0].Optional || len(first.Targets[1].OverlappingExcluded) == 0 {
+		t.Fatalf("compiled fixture shape = %+v", first.Targets)
+	}
+
+	if failure := first.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := first.CompareCaptureSeed(); failure != nil {
+		t.Fatal(failure)
+	}
+	for _, excluded := range first.Targets[1].OverlappingExcluded {
+		if _, err := os.Stat(excluded.Path); err != nil {
+			t.Fatalf("excluded fixture was not materialized: %v", err)
+		}
+	}
+	if failure := first.Mutate(); failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := first.CompareMutated(); failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := first.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := first.CompareCaptureSeed(); failure != nil {
+		t.Fatalf("repeat materialization did not converge: %v", failure)
+	}
+	directory := first.Targets[1].Resolved
+	if _, err := os.Stat(filepath.Join(directory, filepath.Base(directory))); !os.IsNotExist(err) {
+		t.Fatalf("directory copy nested itself at %s", directory)
+	}
+}
+
+func TestFixtureComparisonDetectsContentMismatch(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := plan.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	if err := os.WriteFile(plan.Targets[0].PayloadPath, []byte("wrong"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if failure := plan.CompareCaptured(); failure == nil || failure.Code != CodeContentMismatch {
+		t.Fatalf("failure = %+v", failure)
+	}
+}
+
+func TestFixtureComparisonRejectsExtraDirectoryDescendant(t *testing.T) {
+	plan := fixtureScenarioRuntime(t).Plan
+	if failure := plan.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := plan.Mutate(); failure != nil {
+		t.Fatal(failure)
+	}
+	for _, target := range plan.Targets {
+		if err := os.WriteFile(target.PayloadPath, []byte(target.Captured), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	extra := filepath.Join(plan.Targets[1].Resolved, "unexpected.txt")
+	if err := os.WriteFile(extra, []byte("unexpected"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if failure := plan.CompareCaptured(); failure == nil || failure.Code != CodeContentMismatch {
+		t.Fatalf("extra descendant failure = %+v", failure)
+	}
+}
+
+func TestFixturePlanRejectsUnwitnessableExcludeGlob(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	definitions.Entries[1].TargetExclude = []string{"**/profile-??.tmp"}
+	if _, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); failure == nil || failure.Code != CodeUnsupportedFixture {
+		t.Fatalf("unwitnessable exclude failure = %+v", failure)
+	}
+}
+
+func TestFixturePlanSeparatesCaptureAndRestoreExcludeWitnesses(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(splitExcludeFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	target := &plan.Targets[1]
+	if len(target.CaptureExcluded) != 1 || len(target.RestoreExcluded) != 1 || len(target.OverlappingExcluded) != 0 {
+		t.Fatalf("exclusion roles = capture:%+v restore:%+v overlap:%+v", target.CaptureExcluded, target.RestoreExcluded, target.OverlappingExcluded)
+	}
+	if failure := plan.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	assertFixtureWitnessContent(t, target.CaptureExcluded[0].Path, target.CaptureExcluded[0].Captured)
+	assertFixtureWitnessContent(t, target.RestoreExcluded[0].Path, target.RestoreExcluded[0].Captured)
+	if failure := plan.Mutate(); failure != nil {
+		t.Fatal(failure)
+	}
+	if _, err := os.Lstat(target.CaptureExcluded[0].Path); !os.IsNotExist(err) {
+		t.Fatalf("capture-only witness survived target mutation: %v", err)
+	}
+	assertFixtureWitnessContent(t, target.RestoreExcluded[0].Path, target.RestoreExcluded[0].Mutated)
+	if failure := plan.MaterializeRestored(); failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := plan.CompareCaptured(); failure != nil {
+		t.Fatalf("restore-only witness was not preserved through restore: %+v", failure)
+	}
+}
+
+func TestFixturePlanModelsCaptureRestoreExcludeOverlapWithoutRestoreClaim(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	target := plan.Targets[1]
+	if len(target.CaptureExcluded) != 0 || len(target.RestoreExcluded) != 0 || len(target.OverlappingExcluded) != 1 {
+		t.Fatalf("overlapping exclusion was overclaimed: capture:%+v restore:%+v overlap:%+v", target.CaptureExcluded, target.RestoreExcluded, target.OverlappingExcluded)
+	}
+}
+
+func assertFixtureWitnessContent(t *testing.T, path, want string) {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != want {
+		t.Fatalf("fixture witness %s = %q, %v; want %q", filepath.Base(path), data, err, want)
+	}
+}
+
+func TestFixturePlanRejectsExcludeContractWithoutDirectoryWitnessTarget(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(fixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod.Capture.ExcludeGlobs = []string{"**/*.log"}
+	scenario := fixtureScenario()
+	definitions, failure := compileFixtureDefinitions(mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if _, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); failure == nil || failure.Code != CodeUnsupportedFixture {
+		t.Fatalf("missing directory witness failure = %+v", failure)
+	}
+}
+
+func TestRoundtripFixtureRejectsRestoreWithoutBackupEvidence(t *testing.T) {
+	raw := strings.Replace(directoryFixtureModuleJSON, `"backup":true`, `"backup":false`, 1)
+	mod, err := modules.ParseModuleJSON([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := compileFixtureDefinitions(mod, fixtureScenario()); failure == nil || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "restore[0]" {
+		t.Fatalf("failure = %+v", failure)
+	}
+}
+
+func directoryFixtureDefinitions(t *testing.T, mod *modules.Module) (validationmatrix.Scenario, fixtureDefinitions) {
+	t.Helper()
+	scenario := fixtureScenario()
+	scenario.Fixture = validationmatrix.Fixture{Type: validationmatrix.FixtureDeclarative}
+	definitions, failure := compileFixtureDefinitions(mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	definitions.Entries[0].Kind = fixtureKindFile
+	definitions.Entries[1].Kind = fixtureKindDirectory
+	return scenario, definitions
+}
+
+func TestFixtureMutationRefusesLinkedMember(t *testing.T) {
+	plan := fixtureScenarioRuntime(t).Plan
+	if failure := plan.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	external := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(external, []byte("outside-sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(plan.Targets[1].Resolved, "linked.txt")
+	if err := os.Symlink(external, link); err != nil {
+		t.Skipf("host cannot create a test link: %v", err)
+	}
+	if failure := plan.Mutate(); failure == nil || failure.Code != CodeIsolationFailure {
+		t.Fatalf("failure = %+v", failure)
+	}
+	data, err := os.ReadFile(external)
+	if err != nil || string(data) != "outside-sentinel" {
+		t.Fatalf("external link target changed: %q err=%v", data, err)
+	}
+}
+
+func TestFixtureComparisonRejectsPayloadLinkSwap(t *testing.T) {
+	plan := fixtureScenarioRuntime(t).Plan
+	if failure := plan.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	target := plan.Targets[0]
+	external := filepath.Join(t.TempDir(), "outside.txt")
+	if err := os.WriteFile(external, []byte(target.Captured), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(target.PayloadPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, target.PayloadPath); err != nil {
+		t.Skipf("host cannot create a test link: %v", err)
+	}
+	if failure := plan.CompareCaptured(); failure == nil || failure.Code != CodeIsolationFailure {
+		t.Fatalf("failure = %+v", failure)
+	}
+}
+
+func TestFixtureCleanupDoesNotUseRecursiveRemoveAll(t *testing.T) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate fixture test")
+	}
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(file), "fixture.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "os.RemoveAll(") {
+		t.Fatal("fixture cleanup must use guarded postorder non-recursive removal")
+	}
+}
+
+func TestFixtureCleanupRejectsFileToDirectorySwapBeforeRemoval(t *testing.T) {
+	plan := fixtureScenarioRuntime(t).Plan
+	if failure := plan.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	target := &plan.Targets[0]
+	entries, err := fixtureTreePostorder(target.Resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sibling := filepath.Join(filepath.Dir(target.Resolved), "later-sibling.txt")
+	if err := os.WriteFile(sibling, []byte("preserve-me"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(target.Resolved); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(target.Resolved, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if failure := plan.removeFixtureEntries(target, entries); failure == nil || failure.Code != CodeIsolationFailure {
+		t.Fatalf("failure = %+v", failure)
+	}
+	if info, err := os.Stat(target.Resolved); err != nil || !info.IsDir() {
+		t.Fatalf("swapped target was removed: info=%v err=%v", info, err)
+	}
+	data, err := os.ReadFile(sibling)
+	if err != nil || string(data) != "preserve-me" {
+		t.Fatalf("later sibling changed: %q err=%v", data, err)
+	}
+}
+
+func fixtureValidationContext(t *testing.T, moduleID, scenarioID string) *validationmode.Context {
+	t.Helper()
+	root, err := os.MkdirTemp(os.TempDir(), "endstate-validation-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	nonce := strings.TrimPrefix(filepath.Base(root), "endstate-validation-")
+	descriptor := validationmode.Descriptor{
+		SchemaVersion: 1, ScenarioID: scenarioID, Nonce: nonce, ModuleID: moduleID,
+		Inventory: validationmode.Inventory{AppID: "vendor-fixture", Driver: "winget", Ref: "Vendor.Fixture", DisplayName: "Fixture", InitialState: "present"},
+	}
+	data, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".endstate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".endstate", "validation-mode.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	context, err := validationmode.LoadFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore, err := context.Activate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restore() })
+	return context
+}
+
+const directoryFixtureModuleJSON = `{
+  "id":"apps.fixture","displayName":"Fixture","sensitivity":"none",
+  "matches":{"winget":["Vendor.Fixture"]},
+  "verify":[{"type":"file-exists","path":"%APPDATA%\\Fixture\\settings.json"}],
+  "restore":[
+    {"type":"copy","source":"./payload/apps/fixture/settings.json","target":"%APPDATA%\\Fixture\\settings.json","backup":true,"optional":true},
+    {"type":"copy","source":"./payload/apps/fixture/profiles","target":"%APPDATA%\\Fixture\\profiles","backup":true,"exclude":["**\\Cache\\**"]}
+  ],
+  "capture":{"files":[
+    {"source":"%APPDATA%\\Fixture\\settings.json","dest":"apps/fixture/settings.json","optional":true},
+    {"source":"%APPDATA%\\Fixture\\profiles","dest":"apps/fixture/profiles"}
+  ],"excludeGlobs":["**\\Cache\\**"]}
+}`
+
+const splitExcludeFixtureModuleJSON = `{
+  "id":"apps.fixture","displayName":"Fixture","sensitivity":"none",
+  "matches":{"winget":["Vendor.Fixture"]},
+  "verify":[{"type":"file-exists","path":"%APPDATA%\\Fixture\\settings.json"}],
+  "restore":[
+    {"type":"copy","source":"./payload/apps/fixture/settings.json","target":"%APPDATA%\\Fixture\\settings.json","backup":true,"optional":true},
+    {"type":"copy","source":"./payload/apps/fixture/profiles","target":"%APPDATA%\\Fixture\\profiles","backup":true,"exclude":["**\\RestoreOnly\\**"]}
+  ],
+  "capture":{"files":[
+    {"source":"%APPDATA%\\Fixture\\settings.json","dest":"apps/fixture/settings.json","optional":true},
+    {"source":"%APPDATA%\\Fixture\\profiles","dest":"apps/fixture/profiles"}
+  ],"excludeGlobs":["**\\CaptureOnly\\**"]}
+}`
