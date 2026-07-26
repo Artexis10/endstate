@@ -171,15 +171,17 @@ func validateRebuildStorageEvidence(
 		return rebuildEvidenceBinding{}, after, fail(CodeIsolationFailure, "rebuild", "journal", "journal identity escaped validation storage")
 	}
 	binding.Journal = journalSemantic
-	if failure := validateLegacyStoreBinding(before, after, binding); failure != nil {
+	memberID, failure := validateLegacyStoreBinding(before, after, binding)
+	if failure != nil {
 		return rebuildEvidenceBinding{}, after, failure
 	}
+	binding.StoreMemberID = memberID
 	return binding, after, nil
 }
 
-func validateLegacyStoreBinding(before, after rebuildStorageSnapshot, binding rebuildEvidenceBinding) *Failure {
+func validateLegacyStoreBinding(before, after rebuildStorageSnapshot, binding rebuildEvidenceBinding) (string, *Failure) {
 	if !after.storeExisted {
-		return fail(CodeEnvelopeContract, "rebuild", "storage", "restoring rebuild emitted no config-restore store")
+		return "", fail(CodeEnvelopeContract, "rebuild", "storage", "restoring rebuild emitted no config-restore store")
 	}
 	var added configrestore.StoreMemberInspection
 	addedCount := 0
@@ -190,7 +192,7 @@ func validateLegacyStoreBinding(before, after rebuildStorageSnapshot, binding re
 		added, addedCount = member, addedCount+1
 	}
 	if addedCount != 1 || added.Kind != configrestore.StoreMemberLegacy || added.Reverted || added.LegacyJournalIdentity != binding.Journal || added.LegacyJournalDigest == "" {
-		return fail(CodeEnvelopeContract, "rebuild", "storage", "restoring rebuild lacks one bound legacy journal store member")
+		return "", fail(CodeEnvelopeContract, "rebuild", "storage", "restoring rebuild lacks one bound legacy journal store member")
 	}
 	allowed := map[string]struct{}{
 		".": {}, "v1/legacy-members/" + added.ID + ".json": {},
@@ -203,21 +205,49 @@ func validateLegacyStoreBinding(before, after rebuildStorageSnapshot, binding re
 		}
 	}
 	if difference := boundaryAdditionsDifference(before.store, before.storeExisted, after.store, after.storeExisted, allowed); difference != "" {
-		return fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore store delta differs from one bound legacy member: "+difference)
+		return "", fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore store delta differs from one bound legacy member: "+difference)
 	}
 	memberPath := "v1/legacy-members/" + added.ID + ".json"
 	if entry, exists := after.store[memberPath]; !exists || entry.Kind != "file" || entry.Size == 0 {
-		return fail(CodeEnvelopeContract, "rebuild", "storage", "bound legacy store member record is malformed")
+		return "", fail(CodeEnvelopeContract, "rebuild", "storage", "bound legacy store member record is malformed")
 	}
 	if !before.storeExisted {
 		for _, path := range []string{".", "v1", "v1/transactions", "v1/legacy-members", "v1/legacy-reverts", "v1/legacy-revert-work"} {
 			if entry, exists := after.store[path]; !exists || entry.Kind != "directory" {
-				return fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore store scaffolding is malformed")
+				return "", fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore store scaffolding is malformed")
 			}
 		}
 		if entry, exists := after.store["mutation.lock"]; !exists || entry.Kind != "file" || entry.Size != 0 {
-			return fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore mutation lock differs")
+			return "", fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore mutation lock differs")
 		}
+	}
+	return added.ID, nil
+}
+
+func validateLegacyRevertStorage(runtime *scenarioRuntime, before rebuildStorageSnapshot, binding rebuildEvidenceBinding) *Failure {
+	after, failure := snapshotRebuildStorage(runtime)
+	if failure != nil {
+		return failure
+	}
+	if binding.StoreMemberID == "" || !before.storeExisted || !after.storeExisted {
+		return fail(CodeEnvelopeContract, "revert", "storage", "revert lacks a bound legacy store member")
+	}
+	beforeMember, exists := before.storeMembers[binding.StoreMemberID]
+	if !exists || beforeMember.Kind != configrestore.StoreMemberLegacy || beforeMember.Reverted || beforeMember.LegacyJournalIdentity != binding.Journal || beforeMember.LegacyJournalDigest == "" {
+		return fail(CodeEnvelopeContract, "revert", "storage", "bound legacy store member was not active before revert")
+	}
+	afterMember, exists := after.storeMembers[binding.StoreMemberID]
+	if !exists || afterMember.Kind != configrestore.StoreMemberLegacy || !afterMember.Reverted || afterMember.RevertDigest == "" ||
+		afterMember.MemberDigest != beforeMember.MemberDigest || afterMember.LegacyJournalIdentity != beforeMember.LegacyJournalIdentity || afterMember.LegacyJournalDigest != beforeMember.LegacyJournalDigest ||
+		len(before.storeMembers) != len(after.storeMembers) {
+		return fail(CodeEnvelopeContract, "revert", "storage", "bound legacy store member did not transition to a valid reverted state")
+	}
+	markerPath := "v1/legacy-reverts/" + binding.StoreMemberID + ".json"
+	if difference := boundaryAdditionsDifference(before.store, before.storeExisted, after.store, after.storeExisted, map[string]struct{}{markerPath: {}}); difference != "" {
+		return fail(CodeEnvelopeContract, "revert", "storage", "config-restore revert delta differs from one bound marker: "+difference)
+	}
+	if entry, exists := after.store[markerPath]; !exists || entry.Kind != "file" || entry.Size == 0 {
+		return fail(CodeEnvelopeContract, "revert", "storage", "bound legacy revert marker is malformed")
 	}
 	return nil
 }

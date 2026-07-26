@@ -130,6 +130,7 @@ type rebuildEvidence struct {
 
 type rebuildEvidenceBinding struct {
 	Journal         string
+	StoreMemberID   string
 	BackupsByTarget map[string]string
 	SourcesByTarget map[string]string
 }
@@ -173,11 +174,8 @@ func validateRebuildEvidence(raw []byte, runtime *scenarioRuntime, iteration int
 	}
 	repeat := iteration == 2
 	if repeat {
-		skipped := data.ConfigResolutionSummary.Selected == 0 && data.ConfigResolutionSummary.Skipped == 1 &&
-			data.ConfigResolutions[0].Status == "skipped" && exactOptionalString(data.ConfigResolutions[0].Reason, "already_up_to_date")
-		selected := data.ConfigResolutionSummary.Selected == 1 && data.ConfigResolutionSummary.Skipped == 0 &&
-			data.ConfigResolutions[0].Status == "restored" && data.ConfigResolutions[0].Reason == nil
-		if !skipped && !selected {
+		if data.ConfigResolutionSummary.Selected != 0 || data.ConfigResolutionSummary.Skipped != 1 ||
+			data.ConfigResolutions[0].Status != "skipped" || !exactOptionalString(data.ConfigResolutions[0].Reason, "already_up_to_date") {
 			return fail(CodeEnvelopeContract, "rebuild", "configResolutions", "repeat rebuild did not report exact convergence")
 		}
 	} else if data.ConfigResolutionSummary.Selected != 1 || data.ConfigResolutionSummary.Skipped != 0 ||

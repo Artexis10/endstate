@@ -589,19 +589,33 @@ func (executor *cliJourneyExecutor) RebuildRestoreContract(ctx context.Context, 
 }
 
 func (executor *cliJourneyExecutor) RevertRestoreContract(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	storageBefore, failure := snapshotRebuildStorage(runtime)
+	if failure != nil {
+		return failure
+	}
 	output, failure := executor.run(ctx, "revert")
 	if failure != nil {
 		return failure
 	}
-	return validateRestoreContractRevertEvidence(output.Envelope.Data, output.Events, runtime, executor.firstRebuild)
+	if failure := validateRestoreContractRevertEvidence(output.Envelope.Data, output.Events, runtime, executor.firstRebuild); failure != nil {
+		return failure
+	}
+	return validateLegacyRevertStorage(runtime, storageBefore, executor.firstRebuild)
 }
 
 func (executor *cliJourneyExecutor) Revert(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	storageBefore, failure := snapshotRebuildStorage(runtime)
+	if failure != nil {
+		return failure
+	}
 	output, failure := executor.run(ctx, "revert")
 	if failure != nil {
 		return failure
 	}
-	return validateRevertEvidence(output.Envelope.Data, runtime, executor.firstRebuild)
+	if failure := validateRevertEvidence(output.Envelope.Data, runtime, executor.firstRebuild); failure != nil {
+		return failure
+	}
+	return validateLegacyRevertStorage(runtime, storageBefore, executor.firstRebuild)
 }
 
 func (executor *cliJourneyExecutor) Verify(ctx context.Context, runtime *scenarioRuntime, evidence captureEvidence) (int, *Failure) {

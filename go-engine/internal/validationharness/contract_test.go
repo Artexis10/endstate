@@ -788,6 +788,14 @@ func TestRebuildEvidenceRequiresExactIterationOutcomes(t *testing.T) {
 		if failure := validateRebuildEvidence(raw, runtime, iteration); failure != nil {
 			t.Fatalf("iteration %d valid evidence rejected: %+v", iteration, failure)
 		}
+		if iteration == 2 {
+			payload["configResolutionSummary"] = map[string]any{"total": 1, "selected": 1, "skipped": 0, "failed": 0}
+			payload["configResolutions"] = []any{map[string]any{"status": "restored", "resolution": "legacy_unverified", "reason": nil}}
+			invalid, _ := json.Marshal(payload)
+			if failure := validateRebuildEvidence(invalid, runtime, iteration); failure == nil {
+				t.Fatal("selected convergence resolution was accepted for skipped restore items")
+			}
+		}
 		if iteration == 0 {
 			payload["apply"].(map[string]any)["actions"].([]any)[0].(map[string]any)["reason"] = "future"
 			invalid, _ := json.Marshal(payload)
@@ -881,7 +889,8 @@ func TestRebuildStorageEvidenceBindsContainedBackupsAndJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := guard.RegisterLegacyJournal(journalPath); err != nil {
+	registered, err := guard.RegisterLegacyJournal(journalPath)
+	if err != nil {
 		_ = guard.Close()
 		t.Fatal(err)
 	}
@@ -937,12 +946,67 @@ func TestRebuildStorageEvidenceBindsContainedBackupsAndJournal(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(runtime.Root, "state", "config-restore"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(runtime.Root, "state", "config-restore", "hidden-delta"), []byte("unexpected"), 0o600); err != nil {
+	hiddenDelta := filepath.Join(runtime.Root, "state", "config-restore", "hidden-delta")
+	if err := os.WriteFile(hiddenDelta, []byte("unexpected"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, failure := validateRebuildStorageEvidence(runtime, repeatRaw, 2, after); failure == nil || failure.Coordinate != "storage" {
 		t.Fatalf("repeat convergence accepted hidden persistent delta: %+v", failure)
 	}
+	if err := os.Remove(hiddenDelta); err != nil {
+		t.Fatal(err)
+	}
+	beforeRevert, failure := snapshotRebuildStorage(runtime)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if failure := validateLegacyRevertStorage(runtime, beforeRevert, binding); failure == nil {
+		t.Fatal("revert storage accepted an omitted legacy member marker")
+	}
+	guard, err = configrestore.BeginLiveWithBoundary(
+		context.Background(), filepath.Join(runtime.Root, "state"), "revert-test", nil,
+		v2HostBoundary{runtime.validationContext()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.MarkLegacyMemberReverted(context.Background(), registered); err != nil {
+		_ = guard.Close()
+		t.Fatal(err)
+	}
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateLegacyRevertStorage(runtime, beforeRevert, binding); failure != nil {
+		t.Fatalf("exact legacy member revert marker rejected: %+v", failure)
+	}
+	markerPath := filepath.Join(runtime.Root, "state", "config-restore", "v1", "legacy-reverts", onlyStoreMemberID(t, beforeRevert)+".json")
+	if err := os.WriteFile(filepath.Join(runtime.Root, "state", "config-restore", "v1", "legacy-reverts", "unrelated.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateLegacyRevertStorage(runtime, beforeRevert, binding); failure == nil {
+		t.Fatal("revert storage accepted an uncited persistent delta")
+	}
+	if err := os.Remove(filepath.Join(runtime.Root, "state", "config-restore", "v1", "legacy-reverts", "unrelated.json")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(markerPath, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateLegacyRevertStorage(runtime, beforeRevert, binding); failure == nil {
+		t.Fatal("revert storage accepted a malformed legacy member marker")
+	}
+}
+
+func onlyStoreMemberID(t *testing.T, snapshot rebuildStorageSnapshot) string {
+	t.Helper()
+	if len(snapshot.storeMembers) != 1 {
+		t.Fatalf("store members = %d, want 1", len(snapshot.storeMembers))
+	}
+	for id := range snapshot.storeMembers {
+		return id
+	}
+	return ""
 }
 
 func copyFixtureTreeForTest(t *testing.T, source, target string) {
