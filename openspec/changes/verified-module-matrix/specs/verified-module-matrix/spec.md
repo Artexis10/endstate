@@ -66,9 +66,61 @@ The system SHALL maintain tracked, schema-versioned validation metadata for ever
 - **WHEN** a candidate declares a proposed live configuration baseline
 - **THEN** its policy SHALL use a production Winget install reference, a safe module-relative SHA-256-bound seed, the closed built-in `exact-bytes` comparator enum, live configuration proof mode, bounded timeouts, and no comparator artifact hash
 - **AND** normal pull-request, scheduled, dispatch, hosted-denominator, and verified-count planning SHALL exclude the candidate
+- **AND** candidate and local runs SHALL remain non-mutating, non-proof, and public-ineligible
 - **AND** Task 9 candidate metadata alone SHALL NOT authorize execution, mutation, or proof minting
-- **AND** Task 11 SHALL introduce any candidate selector or authority only from an exact trusted checkout or artifact reference, rather than caller-supplied in-process catalog state
+- **AND** only a later external trusted exact-ref hosted authority, rather than caller-supplied in-process catalog state, MAY mint mutation eligibility
 - **AND** only a successful fresh trusted GitHub-hosted baseline MAY support a later trusted metadata change from `candidate` to `hosted`
+
+### Requirement: Causal Task 9 Evidence Boundary
+
+The system SHALL require a fail-closed causal evidence boundary before any future trusted hosted authority can treat a live run as eligible for proof.
+
+#### Scenario: Process receipt is consumed
+
+- **WHEN** the live runner invokes an engine operation
+- **THEN** the immediate unexported receipt SHALL bind its typed operation, canonical executable file identity and hash, argv/environment/current-directory digests, process identity/timing/exit result, bounded stdout/stderr bytes and digests, and phase nonce/sequence
+- **AND** the evidence decoder SHALL consume that receipt rather than caller-supplied or substitutable raw process bytes
+
+#### Scenario: Raw proof framing is decoded
+
+- **WHEN** an envelope or event record is decoded for proof
+- **THEN** its stable audited raw-key inventory, bounded framing, duplicate-key rejection, and EOF/trailing-byte checks SHALL be enforced as proof schema
+- **AND** local wire structs MAY use `RawMessage` before decoding official value structs
+- **AND** official value structs SHALL NOT silently authorize additive fields
+- **AND** the production `RebuildResult` source type SHALL NOT be changed solely to support proof decoding
+
+#### Scenario: Exact nested topology is observed
+
+- **WHEN** an initial apply or rebuild result is evaluated
+- **THEN** initial apply SHALL contain plan, apply, and verify beneath its `apply-*` run
+- **AND** rebuild SHALL contain plan, apply, restore, and verify beneath its `apply-*` run followed by a distinct `verify-*` segment
+- **AND** the outer rebuild envelope run ID SHALL be distinct from both nested runs
+- **AND** process success, an outer success envelope, or a merely similar event stream SHALL NOT satisfy the topology
+
+#### Scenario: Config-restore state is inspected
+
+- **WHEN** evidence inspects config-restore state
+- **THEN** the inspector SHALL operate only on an existing root, return immutable records, require no concurrent writer or an exclusive lease, and double-scan/fail on change
+- **AND** it SHALL perform no mkdir, lock, recovery, temporary cleanup, or other write
+- **AND** it SHALL reject pending, temporary, link, and unknown state
+
+#### Scenario: Pre- and post-state are cross-bound
+
+- **WHEN** a live configuration roundtrip is evaluated
+- **THEN** evidence SHALL bind the pinned ZIP identity/digests, mapping targets, config-restore state, backups, generations, relevant logs/journals, and artifact/output roots
+- **AND** exactly one transaction SHALL trace to the nested apply run, capture, and config set
+- **AND** every output SHALL correspond one-to-one with its event, journal entry, and physical backup
+- **AND** revert SHALL bind its exact marker, digest, and bytes
+- **AND** convergence SHALL require zero validation-owned persistent or target-state delta rather than whole-host immutability
+
+#### Scenario: Disposable lifecycle is observed
+
+- **WHEN** a later trusted hosted authority runs a live candidate
+- **THEN** it SHALL observe clean absence immediately before the install receipt and presence immediately after it
+- **AND** it SHALL seed only staged hash-bound bytes on a disposable least-privilege trusted runner, use unique attempt roots and link-safe exact-leaf wipe, and bound cleanup
+- **AND** it SHALL retry only after clean absence is re-proven
+- **AND** UI, elevation, reboot, and lock requirements SHALL be unsupported and non-retryable
+- **AND** neither candidate/local success nor cleanup success SHALL become hosted/public proof without a real fresh trusted hosted success
 
 ### Requirement: Catalog-Wide Production-Engine Scenarios
 
