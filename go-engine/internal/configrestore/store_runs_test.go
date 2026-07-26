@@ -587,7 +587,7 @@ func TestBeginLiveRejectsLegacyPreparedStateKindForFilesystemEntry(t *testing.T)
 	}
 }
 
-func TestBeginLivePreservesBoundRegistryImportStage(t *testing.T) {
+func TestBeginLiveBindsRegistryImportStageAndState(t *testing.T) {
 	ctx := context.Background()
 	stateDir := t.TempDir()
 	first, err := BeginLive(ctx, stateDir, "legacy-registry-stage-source", nil)
@@ -636,6 +636,32 @@ func TestBeginLivePreservesBoundRegistryImportStage(t *testing.T) {
 	t.Cleanup(func() { _ = second.Close() })
 	if _, err := os.Lstat(stageFile); err != nil {
 		t.Fatalf("bound registry-import stage was removed: %v", err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	preparedPath := filepath.Join(workRoot, "entry-000000.json")
+	data, err = os.ReadFile(preparedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Before.Kind = "file"
+	data, err = json.Marshal(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(preparedPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	third, err := BeginLive(ctx, stateDir, "legacy-registry-state-recovery", nil)
+	if third != nil {
+		_ = third.Close()
+	}
+	if !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("BeginLive() with forged registry state error = %v, want ErrRecoveryRequired", err)
 	}
 }
 
