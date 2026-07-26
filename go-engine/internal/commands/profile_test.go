@@ -422,8 +422,27 @@ func TestProfilePath_FoundLooseFolder(t *testing.T) {
 	}
 }
 
+func TestProfilePath_FoundEndstateBundle(t *testing.T) {
+	dir := t.TempDir()
+	bundlePath := filepath.Join(dir, "test.endstate")
+	if err := os.WriteFile(bundlePath, []byte("PK"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, _ := runProfilePathFromDir(dir, "test")
+	pr := result.(*ProfilePathResult)
+
+	if !pr.Exists {
+		t.Error("expected exists=true for .endstate")
+	}
+	if pr.Path != bundlePath {
+		t.Errorf("expected path=%q, got %q", bundlePath, pr.Path)
+	}
+}
+
 func TestProfilePath_ResolutionOrder(t *testing.T) {
-	// When multiple formats exist, .zip should win (first in order)
+	// When multiple formats exist, .zip should still win over every manifest
+	// format — legacy bundles stay resolvable forever.
 	dir := t.TempDir()
 
 	zipPath := filepath.Join(dir, "test.zip")
@@ -439,6 +458,27 @@ func TestProfilePath_ResolutionOrder(t *testing.T) {
 
 	if pr.Path != zipPath {
 		t.Errorf("expected .zip to win resolution order, got %q", pr.Path)
+	}
+}
+
+func TestProfilePath_EndstateWinsOverLegacyZip(t *testing.T) {
+	// .endstate is the current bundle name; a legacy .zip beside it stays
+	// resolvable but no longer wins.
+	dir := t.TempDir()
+
+	bundlePath := filepath.Join(dir, "test.endstate")
+	if err := os.WriteFile(bundlePath, []byte("PK"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "test.zip"), []byte("PK"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	result, _ := runProfilePathFromDir(dir, "test")
+	pr := result.(*ProfilePathResult)
+
+	if pr.Path != bundlePath {
+		t.Errorf("expected .endstate to win resolution order, got %q", pr.Path)
 	}
 }
 

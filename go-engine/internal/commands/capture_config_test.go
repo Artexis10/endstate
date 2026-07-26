@@ -20,6 +20,57 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
 
+// Capture writes .endstate by default, but an explicit --out that already names
+// a bundle is honoured exactly — a caller asking for .zip keeps getting .zip,
+// permanently.
+func TestCaptureBundleOutputPathDefaultsToEndstateAndHonoursExplicitBundleExtensions(t *testing.T) {
+	dir := t.TempDir()
+	manifestPath := filepath.Join(dir, "capture.jsonc")
+
+	tests := []struct {
+		name string
+		out  string
+		want string
+	}{
+		{"default from manifest path", "", filepath.Join(dir, "capture"+manifest.BundleExt)},
+		{"explicit .endstate is kept", filepath.Join(dir, "mine.endstate"), filepath.Join(dir, "mine.endstate")},
+		{"explicit legacy .zip is kept", filepath.Join(dir, "mine.zip"), filepath.Join(dir, "mine.zip")},
+		{"explicit .ZIP keeps the caller's casing", filepath.Join(dir, "mine.ZIP"), filepath.Join(dir, "mine.ZIP")},
+		{"extensionless --out gets the default", filepath.Join(dir, "mine"), filepath.Join(dir, "mine"+manifest.BundleExt)},
+		{"non-bundle extension is normalized", filepath.Join(dir, "mine.jsonc"), filepath.Join(dir, "mine"+manifest.BundleExt)},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := captureBundleOutputPath(CaptureFlags{Out: tc.out}, manifestPath)
+			if err != nil {
+				t.Fatalf("captureBundleOutputPath: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("captureBundleOutputPath(out=%q) = %q, want %q", tc.out, got, tc.want)
+			}
+		})
+	}
+}
+
+// --profile names the bundle inside the profiles directory; that default moves
+// to .endstate with everything else.
+func TestCaptureBundleOutputPathUsesEndstateForNamedProfiles(t *testing.T) {
+	profilesDir := t.TempDir()
+	original := resolveProfileDirFn
+	resolveProfileDirFn = func() string { return profilesDir }
+	t.Cleanup(func() { resolveProfileDirFn = original })
+
+	got, err := captureBundleOutputPath(CaptureFlags{Profile: "My-Desktop"}, filepath.Join(profilesDir, "ignored.jsonc"))
+	if err != nil {
+		t.Fatalf("captureBundleOutputPath: %v", err)
+	}
+	want := filepath.Join(profilesDir, "My-Desktop"+manifest.BundleExt)
+	if got != want {
+		t.Fatalf("captureBundleOutputPath(profile) = %q, want %q", got, want)
+	}
+}
+
 func TestPlanCaptureConfigStrictlyPartitionsLegacyAndPlansPackageAndPathInstances(t *testing.T) {
 	dir := t.TempDir()
 	pathRoot := filepath.Join(dir, "profiles")
@@ -517,7 +568,7 @@ func TestFinalizeCaptureConfigBuildsSideBySideV2SummaryFromWrittenPayloadsWithou
 	if createCalls != 1 || got.OutputFormat != "zip" || got.BundleSchemaVersion != "2.0" || got.ManifestVersion != 2 {
 		t.Fatalf("v2 finalization = calls %d result %+v", createCalls, got)
 	}
-	if got.OutputPath != strings.TrimSuffix(manifestPath, ".jsonc")+".zip" {
+	if got.OutputPath != strings.TrimSuffix(manifestPath, ".jsonc")+manifest.BundleExt {
 		t.Fatalf("output path = %q", got.OutputPath)
 	}
 	if _, statErr := os.Stat(manifestPath); !os.IsNotExist(statErr) {
@@ -597,7 +648,7 @@ func TestFinalizeCaptureConfigDefaultsInstallOnlyToV1Zip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.OutputFormat != "zip" || got.BundleSchemaVersion != "1.0" || got.ManifestVersion != 1 || got.OutputPath != strings.TrimSuffix(manifestPath, ".jsonc")+".zip" {
+	if got.OutputFormat != "zip" || got.BundleSchemaVersion != "1.0" || got.ManifestVersion != 1 || got.OutputPath != strings.TrimSuffix(manifestPath, ".jsonc")+manifest.BundleExt {
 		t.Fatalf("install-only finalization = %+v", got)
 	}
 	if got.ConfigCapture.ConfigSets == nil || got.ConfigCapture.Modules == nil || got.ConfigCapture.Diagnostics == nil || got.CaptureWarnings == nil {
@@ -701,7 +752,7 @@ func TestRunCaptureWingetReportsGenerationBundleFromActualArtifact(t *testing.T)
 		t.Fatalf("RunCapture: %+v", captureErr)
 	}
 	result := raw.(*CaptureResult)
-	if result.OutputFormat != "zip" || result.BundleSchemaVersion != "2.0" || result.ManifestVersion != 2 || result.OutputPath != strings.TrimSuffix(out, ".jsonc")+".zip" {
+	if result.OutputFormat != "zip" || result.BundleSchemaVersion != "2.0" || result.ManifestVersion != 2 || result.OutputPath != strings.TrimSuffix(out, ".jsonc")+manifest.BundleExt {
 		t.Fatalf("Winget generation result = %+v", result)
 	}
 	if len(result.ConfigCapture.ConfigSets) != 1 || result.ConfigCapture.ConfigSets[0].SourceInstance.Evidence.Backend != "winget" ||

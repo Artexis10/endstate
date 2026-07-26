@@ -224,18 +224,22 @@ func runProfilePath(name string) (interface{}, *envelope.Error) {
 // resolution order defined in profile-contract.md.
 func runProfilePathFromDir(dir, name string) (interface{}, *envelope.Error) {
 	// Profile path resolution order per profile-contract.md:
-	// 1. <dir>/<name>.zip
-	// 2. <dir>/<name>/manifest.jsonc (loose folder)
-	// 3. <dir>/<name>.jsonc
-	// 4. <dir>/<name>.json
-	// 5. <dir>/<name>.json5
-	candidates := []string{
-		filepath.Join(dir, name+".zip"),
+	// 1. <dir>/<name>.endstate  (bundle, current)
+	// 2. <dir>/<name>.zip       (bundle, legacy — still resolved forever)
+	// 3. <dir>/<name>/manifest.jsonc (loose folder)
+	// 4. <dir>/<name>.jsonc
+	// 5. <dir>/<name>.json
+	// 6. <dir>/<name>.json5
+	candidates := make([]string, 0, len(manifest.BundleExtensions)+4)
+	for _, ext := range manifest.BundleExtensions {
+		candidates = append(candidates, filepath.Join(dir, name+ext))
+	}
+	candidates = append(candidates,
 		filepath.Join(dir, name, "manifest.jsonc"),
 		filepath.Join(dir, name+".jsonc"),
 		filepath.Join(dir, name+".json"),
 		filepath.Join(dir, name+".json5"),
-	}
+	)
 
 	for _, candidate := range candidates {
 		if _, err := os.Stat(candidate); err == nil {

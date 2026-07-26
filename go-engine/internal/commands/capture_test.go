@@ -16,6 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
@@ -199,15 +200,15 @@ func readManifestApps(t *testing.T, path string) []map[string]interface{} {
 }
 
 // readCaptureManifestBytes transparently reads sanitized JSONC output or the
-// embedded manifest from the canonical ZIP produced by every other capture.
+// embedded manifest from the canonical bundle produced by every other capture.
 func readCaptureManifestBytes(t *testing.T, requestedPath string) []byte {
 	t.Helper()
 	zipPath := requestedPath
-	if !strings.EqualFold(filepath.Ext(requestedPath), ".zip") {
+	if !manifest.IsBundlePath(requestedPath) {
 		if data, err := os.ReadFile(requestedPath); err == nil {
 			return data
 		}
-		zipPath = strings.TrimSuffix(zipPath, filepath.Ext(zipPath)) + ".zip"
+		zipPath = strings.TrimSuffix(zipPath, filepath.Ext(zipPath)) + manifest.BundleExt
 	}
 	extractedManifest, err := bundle.ExtractBundle(zipPath)
 	if err != nil {
@@ -225,10 +226,10 @@ func captureOutputPathForTest(requestedPath string) string {
 	if _, err := os.Stat(requestedPath); err == nil {
 		return requestedPath
 	}
-	if strings.EqualFold(filepath.Ext(requestedPath), ".zip") {
+	if manifest.IsBundlePath(requestedPath) {
 		return requestedPath
 	}
-	return strings.TrimSuffix(requestedPath, filepath.Ext(requestedPath)) + ".zip"
+	return strings.TrimSuffix(requestedPath, filepath.Ext(requestedPath)) + manifest.BundleExt
 }
 
 // manifestAppVersion returns the version field for the app whose refs.windows

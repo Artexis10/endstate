@@ -23,15 +23,39 @@ const BundleManifestEntry = "manifest.jsonc"
 // memory without bound (a zip entry can claim any uncompressed size).
 const maxBundleManifestBytes = 64 << 20 // 64 MiB
 
+// BundleExt is the first-class extension for Endstate capture bundles and the
+// one capture writes by default. The file is still an ordinary zip container —
+// renaming it to .zip and opening it in any archiver is a supported, deliberate
+// property, not an accident.
+const BundleExt = ".endstate"
+
+// LegacyBundleExt is the extension capture wrote before .endstate existed.
+// Every bundle ever written with it must keep loading, permanently: this is a
+// naming change, not a format change.
+const LegacyBundleExt = ".zip"
+
+// BundleExtensions lists every extension that names a capture bundle, most
+// preferred first. This is the single source of truth for "what does a bundle
+// look like from the outside" — extend this rather than adding another
+// comparison somewhere else.
+var BundleExtensions = []string{BundleExt, LegacyBundleExt}
+
 // IsBundlePath reports whether path names a capture bundle rather than a
 // manifest file. Extension-based on purpose: the caller is choosing how to read
-// a path the user supplied, before anything has been opened.
+// a path the user supplied, before anything has been opened. Matching is
+// case-insensitive.
 func IsBundlePath(path string) bool {
-	return strings.EqualFold(filepath.Ext(path), ".zip")
+	ext := filepath.Ext(path)
+	for _, candidate := range BundleExtensions {
+		if strings.EqualFold(ext, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 // LoadManifestOrBundle loads a manifest from either a manifest file or a
-// capture bundle (.zip).
+// capture bundle (.endstate, or the legacy .zip).
 //
 // A bundle carries manifest.jsonc at its archive root, which makes it a
 // complete source for anything that only reads the manifest — verify, and the
