@@ -16,6 +16,7 @@ import (
 const (
 	maxLiveObserverOutputBytes = 16 * 1024
 	maxLiveObserverCandidates  = 4096
+	maxLiveObserverRecords     = 512
 )
 
 type LiveProcessClassification string

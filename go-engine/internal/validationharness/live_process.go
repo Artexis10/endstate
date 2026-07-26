@@ -74,9 +74,9 @@ func liveExecutionError(code LiveExecutionFailureCode, cause error) *LiveExecuti
 // mutation permit.
 type trustedLiveMutationPermit struct{ capability *liveMutationCapability }
 
-type liveMutationCapability struct{}
+type liveMutationCapability struct{ serial uint64 }
 
-var trustedLiveMutationCapability = &liveMutationCapability{}
+var trustedLiveMutationCapability = &liveMutationCapability{serial: 1}
 
 func newTrustedLiveMutationPermit() trustedLiveMutationPermit {
 	return trustedLiveMutationPermit{capability: trustedLiveMutationCapability}

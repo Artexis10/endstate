@@ -8,7 +8,6 @@ package validationharness
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -23,9 +22,11 @@ const liveWindowsJobDrainTimeout = 30 * time.Second
 const liveWindowsReaderDrainTimeout = 2 * time.Second
 
 func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (liveProcessOutput, error) {
-	if err := validateLiveWindowsExecutable(request.executable); err != nil {
+	binding, err := bindLiveWindowsExecutable(request.executable)
+	if err != nil {
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionInvalidRequest, err)
 	}
+	defer binding.Close()
 	environment, err := liveProcessEnvironment(request.environment)
 	if err != nil {
 		return liveProcessOutput{}, err
@@ -64,7 +65,7 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionStartFailed, err)
 	}
 
-	process, err := startLiveWindowsProcess(request, environment, stdinRead, stdoutWrite, stderrWrite)
+	process, err := startLiveWindowsProcess(binding.path, request, environment, stdinRead, stdoutWrite, stderrWrite)
 	windows.CloseHandle(stdinRead)
 	windows.CloseHandle(stdoutWrite)
 	windows.CloseHandle(stderrWrite)
@@ -83,7 +84,7 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 	stdinWriteOpen = false
 	defer windows.CloseHandle(process.Thread)
 	defer windows.CloseHandle(process.Process)
-	if err := verifyLiveWindowsProcessImage(process.Process, request.executable); err != nil {
+	if err := verifyLiveWindowsProcessImage(process.Process, binding); err != nil {
 		_ = windows.TerminateProcess(process.Process, 1)
 		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
 		windows.CloseHandle(stdoutRead)
@@ -163,13 +164,18 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 }
 
 var liveWindowsProcessImagePath = queryLiveWindowsProcessImagePath
+var liveWindowsProcessImageIdentity = liveWindowsPathIdentity
 
-func verifyLiveWindowsProcessImage(process windows.Handle, expected string) error {
+func verifyLiveWindowsProcessImage(process windows.Handle, expected *liveWindowsExecutableBinding) error {
 	actual, err := liveWindowsProcessImagePath(process)
-	if err != nil || !strings.EqualFold(filepath.Clean(actual), expected) {
+	if err != nil || !strings.EqualFold(filepath.Clean(actual), expected.path) {
 		return errors.New("created process image does not match trusted executable")
 	}
-	return validateLiveWindowsExecutable(actual)
+	identity, err := liveWindowsProcessImageIdentity(actual)
+	if err != nil || identity != expected.identity {
+		return errors.New("created process image identity does not match trusted executable")
+	}
+	return nil
 }
 
 func queryLiveWindowsProcessImagePath(process windows.Handle) (string, error) {
@@ -181,26 +187,105 @@ func queryLiveWindowsProcessImagePath(process windows.Handle) (string, error) {
 	return windows.UTF16ToString(buffer[:size]), nil
 }
 
-func validateLiveWindowsExecutable(path string) error {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("executable is not a regular file")
+type liveWindowsFileIdentity struct {
+	volume, indexHigh, indexLow uint32
+}
+
+type liveWindowsExecutableBinding struct {
+	path     string
+	identity liveWindowsFileIdentity
+	handles  []windows.Handle
+}
+
+func (binding *liveWindowsExecutableBinding) Close() {
+	if binding == nil {
+		return
 	}
-	for current := path; ; {
-		wide, err := windows.UTF16PtrFromString(current)
+	for index := len(binding.handles) - 1; index >= 0; index-- {
+		_ = windows.CloseHandle(binding.handles[index])
+	}
+	binding.handles = nil
+}
+
+func bindLiveWindowsExecutable(path string) (*liveWindowsExecutableBinding, error) {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return nil, errors.New("executable path is not canonical")
+	}
+	binding := &liveWindowsExecutableBinding{path: path}
+	fail := func(err error) (*liveWindowsExecutableBinding, error) { binding.Close(); return nil, err }
+	volume := filepath.VolumeName(path)
+	root := volume + `\`
+	relative := strings.TrimPrefix(path, root)
+	parts := strings.Split(relative, `\`)
+	if len(parts) < 2 {
+		return fail(errors.New("executable path lacks a parent directory"))
+	}
+	current := root
+	rootHandle, _, err := openLiveWindowsPath(current, true, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE)
+	if err != nil {
+		return fail(err)
+	}
+	binding.handles = append(binding.handles, rootHandle)
+	for _, component := range parts[:len(parts)-1] {
+		current = filepath.Join(current, component)
+		handle, _, err := openLiveWindowsPath(current, true, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE)
 		if err != nil {
-			return err
+			return fail(err)
 		}
-		attributes, err := windows.GetFileAttributes(wide)
-		if err != nil || attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 {
-			return errors.New("executable path contains a reparse point")
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return nil
-		}
-		current = parent
+		binding.handles = append(binding.handles, handle)
 	}
+	handle, identity, err := openLiveWindowsPath(path, false, windows.FILE_SHARE_READ)
+	if err != nil {
+		return fail(err)
+	}
+	binding.handles = append(binding.handles, handle)
+	binding.identity = identity
+	canonical, err := liveWindowsFinalPath(handle)
+	if err != nil || !strings.EqualFold(canonical, path) {
+		return fail(errors.New("executable path changed during binding"))
+	}
+	return binding, nil
+}
+
+func liveWindowsPathIdentity(path string) (liveWindowsFileIdentity, error) {
+	binding, err := bindLiveWindowsExecutable(path)
+	if err != nil {
+		return liveWindowsFileIdentity{}, err
+	}
+	defer binding.Close()
+	return binding.identity, nil
+}
+
+func openLiveWindowsPath(path string, directory bool, share uint32) (windows.Handle, liveWindowsFileIdentity, error) {
+	wide, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, liveWindowsFileIdentity{}, err
+	}
+	flags := uint32(windows.FILE_FLAG_OPEN_REPARSE_POINT)
+	if directory {
+		flags |= windows.FILE_FLAG_BACKUP_SEMANTICS
+	}
+	handle, err := windows.CreateFile(wide, windows.FILE_READ_ATTRIBUTES, share, nil, windows.OPEN_EXISTING, flags, 0)
+	if err != nil {
+		return 0, liveWindowsFileIdentity{}, err
+	}
+	var info windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &info); err != nil || info.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || directory && info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 || !directory && info.FileAttributes&windows.FILE_ATTRIBUTE_DIRECTORY != 0 {
+		windows.CloseHandle(handle)
+		return 0, liveWindowsFileIdentity{}, errors.New("executable path component is unsafe")
+	}
+	return handle, liveWindowsFileIdentity{volume: info.VolumeSerialNumber, indexHigh: info.FileIndexHigh, indexLow: info.FileIndexLow}, nil
+}
+
+func liveWindowsFinalPath(handle windows.Handle) (string, error) {
+	buffer := make([]uint16, 32768)
+	count, err := windows.GetFinalPathNameByHandle(handle, &buffer[0], uint32(len(buffer)), 0)
+	if err != nil || count == 0 || count >= uint32(len(buffer)) {
+		return "", errors.New("final path is unavailable")
+	}
+	value := windows.UTF16ToString(buffer[:count])
+	value = strings.TrimPrefix(value, `\\?\`)
+	return filepath.Clean(value), nil
 }
 
 func newLiveWindowsJob() (windows.Handle, error) {
@@ -235,12 +320,12 @@ func newLiveWindowsPipe(childReads bool) (windows.Handle, windows.Handle, error)
 	return read, write, nil
 }
 
-func startLiveWindowsProcess(request LiveProcessRequest, environment []string, stdin, stdout, stderr windows.Handle) (windows.ProcessInformation, error) {
-	application, err := windows.UTF16PtrFromString(request.executable)
+func startLiveWindowsProcess(executable string, request LiveProcessRequest, environment []string, stdin, stdout, stderr windows.Handle) (windows.ProcessInformation, error) {
+	application, err := windows.UTF16PtrFromString(executable)
 	if err != nil {
 		return windows.ProcessInformation{}, err
 	}
-	commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{request.executable}, request.args...)))
+	commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{executable}, request.args...)))
 	if err != nil {
 		return windows.ProcessInformation{}, err
 	}

@@ -22,7 +22,6 @@ const (
 	liveUninstallKey       = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
 	liveMachineEnvironment = `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`
 	liveUserEnvironment    = `Environment`
-	maxLiveObserverRecords = 512
 
 	// WinGet's reviewed no-package HRESULT, returned as signed process status.
 	// This numeric contract is the only non-zero result that proves absence.
