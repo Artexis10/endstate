@@ -157,6 +157,47 @@ func TestLiveTrustedAppXBindingDesktopAppInstallerWhenAvailable(t *testing.T) {
 	bound.Close()
 }
 
+func TestLiveTrustedAppXBindingVerifiesImageWithoutGenericTraversal(t *testing.T) {
+	output, err := exec.Command("powershell", "-NoProfile", "-Command", "$p=Get-AppxPackage -Name Microsoft.DesktopAppInstaller | Select-Object -First 1; if ($p) { $p | Select-Object PackageFamilyName,PackageFullName,InstallLocation | ConvertTo-Json -Compress }").Output()
+	if err != nil {
+		t.Skipf("Desktop App Installer metadata is unavailable: %v", err)
+	}
+	if len(output) == 0 {
+		t.Skip("Desktop App Installer is not installed")
+	}
+	var metadata struct {
+		FamilyName  string `json:"PackageFamilyName"`
+		FullName    string `json:"PackageFullName"`
+		PackageRoot string `json:"InstallLocation"`
+	}
+	if err := json.Unmarshal(output, &metadata); err != nil {
+		t.Fatalf("decode Desktop App Installer metadata: %v", err)
+	}
+	trusted, err := newLiveTrustedAppXBinding(liveAppXPackageMetadata{familyName: metadata.FamilyName, fullName: metadata.FullName, packageRoot: metadata.PackageRoot, executableName: "winget.exe"})
+	if err != nil {
+		t.Fatalf("newLiveTrustedAppXBinding() error = %v", err)
+	}
+	binding, err := bindLiveTrustedAppXExecutable(trusted)
+	if err != nil {
+		t.Fatalf("bindLiveTrustedAppXExecutable() error = %v", err)
+	}
+	defer binding.Close()
+	originalPath, originalIdentity := liveWindowsProcessImagePath, liveWindowsProcessImageIdentity
+	liveWindowsProcessImagePath = func(windows.Handle) (string, error) { return binding.path, nil }
+	calledGenericIdentity := false
+	liveWindowsProcessImageIdentity = func(string) (liveWindowsFileIdentity, error) {
+		calledGenericIdentity = true
+		return liveWindowsFileIdentity{}, errors.New("generic binding must not traverse WindowsApps")
+	}
+	defer func() { liveWindowsProcessImagePath, liveWindowsProcessImageIdentity = originalPath, originalIdentity }()
+	if err := verifyLiveWindowsProcessImage(0, binding); err != nil {
+		t.Fatalf("verifyLiveWindowsProcessImage() error = %v", err)
+	}
+	if calledGenericIdentity {
+		t.Fatal("verifyLiveWindowsProcessImage() re-entered the generic executable binder")
+	}
+}
+
 func TestLiveProcessBoundsOutputWhileReading(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

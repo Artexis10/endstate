@@ -179,11 +179,27 @@ func verifyLiveWindowsProcessImage(process windows.Handle, expected *liveWindows
 	if err != nil || !strings.EqualFold(filepath.Clean(actual), expected.path) {
 		return errors.New("created process image does not match trusted executable")
 	}
-	identity, err := liveWindowsProcessImageIdentity(actual)
+	identity, err := liveWindowsVerifiedProcessImageIdentity(actual, expected)
 	if err != nil || identity != expected.identity {
 		return errors.New("created process image identity does not match trusted executable")
 	}
 	return nil
+}
+
+func liveWindowsVerifiedProcessImageIdentity(path string, expected *liveWindowsExecutableBinding) (liveWindowsFileIdentity, error) {
+	if !expected.trustedAppX {
+		return liveWindowsProcessImageIdentity(path)
+	}
+	handle, identity, err := openLiveWindowsPath(path, false, windows.FILE_SHARE_READ)
+	if err != nil {
+		return liveWindowsFileIdentity{}, err
+	}
+	defer windows.CloseHandle(handle)
+	canonical, err := liveWindowsFinalPath(handle)
+	if err != nil || !strings.EqualFold(canonical, expected.path) {
+		return liveWindowsFileIdentity{}, errors.New("AppX process image path changed during verification")
+	}
+	return identity, nil
 }
 
 func queryLiveWindowsProcessImagePath(process windows.Handle) (string, error) {
@@ -200,9 +216,10 @@ type liveWindowsFileIdentity struct {
 }
 
 type liveWindowsExecutableBinding struct {
-	path     string
-	identity liveWindowsFileIdentity
-	handles  []windows.Handle
+	path        string
+	identity    liveWindowsFileIdentity
+	handles     []windows.Handle
+	trustedAppX bool
 }
 
 func (binding *liveWindowsExecutableBinding) Close() {
@@ -270,7 +287,7 @@ func bindLiveTrustedAppXExecutable(trusted liveTrustedAppXBinding) (*liveWindows
 		return nil, err
 	}
 	appsRoot, _ := liveWindowsAppsRoot()
-	binding := &liveWindowsExecutableBinding{path: filepath.Join(validated.metadata.packageRoot, validated.metadata.executableName)}
+	binding := &liveWindowsExecutableBinding{path: filepath.Join(validated.metadata.packageRoot, validated.metadata.executableName), trustedAppX: true}
 	fail := func(err error) (*liveWindowsExecutableBinding, error) { binding.Close(); return nil, err }
 	volume := filepath.VolumeName(appsRoot)
 	root := volume + `\`
