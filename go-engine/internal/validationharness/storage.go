@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
@@ -17,6 +18,9 @@ import (
 type rebuildStorageSnapshot struct {
 	backups        boundaryTree
 	backupsExisted bool
+	store          boundaryTree
+	storeExisted   bool
+	storeMembers   map[string]configrestore.StoreMemberInspection
 	logs           boundaryTree
 	logsExisted    bool
 }
@@ -29,11 +33,49 @@ func snapshotRebuildStorage(runtime *scenarioRuntime) (rebuildStorageSnapshot, *
 	if err != nil {
 		return rebuildStorageSnapshot{}, fail(CodeIsolationFailure, "rebuild", "backups", "snapshot rebuild backup storage")
 	}
+	store, storeExisted, err := runtime.snapshotOwnedTree(filepath.Join(runtime.Root, "state", "config-restore"))
+	if err != nil {
+		return rebuildStorageSnapshot{}, fail(CodeIsolationFailure, "rebuild", "storage", "snapshot config-restore storage")
+	}
+	storeMembers, err := snapshotLegacyStoreMembers(runtime, storeExisted)
+	if err != nil {
+		return rebuildStorageSnapshot{}, fail(CodeIsolationFailure, "rebuild", "storage", "inspect config-restore store: "+err.Error())
+	}
 	logs, logsExisted, err := runtime.snapshotOwnedTree(filepath.Join(runtime.Root, "logs"))
 	if err != nil {
 		return rebuildStorageSnapshot{}, fail(CodeIsolationFailure, "rebuild", "journal", "snapshot rebuild journal storage")
 	}
-	return rebuildStorageSnapshot{backups: backups, backupsExisted: backupsExisted, logs: logs, logsExisted: logsExisted}, nil
+	return rebuildStorageSnapshot{
+		backups: backups, backupsExisted: backupsExisted,
+		store: store, storeExisted: storeExisted, storeMembers: storeMembers,
+		logs: logs, logsExisted: logsExisted,
+	}, nil
+}
+
+func snapshotLegacyStoreMembers(runtime *scenarioRuntime, exists bool) (map[string]configrestore.StoreMemberInspection, error) {
+	members := map[string]configrestore.StoreMemberInspection{}
+	if !exists {
+		return members, nil
+	}
+	inspection, err := configrestore.InspectStoreWithBoundary(
+		filepath.Join(runtime.Root, "state", "config-restore", "v1"), true,
+		v2HostBoundary{runtime.validationContext()},
+	)
+	if err != nil {
+		return nil, err
+	}
+	for _, run := range inspection.Runs() {
+		for _, member := range run.Members() {
+			if member.ID == "" {
+				return nil, fmt.Errorf("store member identity is empty")
+			}
+			if _, duplicate := members[member.ID]; duplicate {
+				return nil, fmt.Errorf("store member identity is duplicated")
+			}
+			members[member.ID] = member
+		}
+	}
+	return members, nil
 }
 
 func validateRebuildStorageEvidence(
@@ -63,9 +105,16 @@ func validateRebuildStorageEvidence(
 	seenBackups := make(map[string]struct{}, len(runtime.Plan.Targets))
 	allowedBackupAdditions := map[string]struct{}{".": {}}
 	if repeat {
+		if before.storeExisted != after.storeExisted || !equalBoundaryTrees(before.store, after.store) {
+			return rebuildEvidenceBinding{}, after, fail(CodeEnvelopeContract, "rebuild", "storage", "repeat rebuild changed config-restore storage")
+		}
 		if before.backupsExisted != after.backupsExisted || !equalBoundaryTrees(before.backups, after.backups) {
 			return rebuildEvidenceBinding{}, after, fail(CodeEnvelopeContract, "rebuild", "backups", "repeat rebuild created or changed backup evidence")
 		}
+		if before.logsExisted != after.logsExisted || !equalBoundaryTrees(before.logs, after.logs) {
+			return rebuildEvidenceBinding{}, after, fail(CodeEnvelopeContract, "rebuild", "journal", "repeat rebuild created or changed journal evidence")
+		}
+		return binding, after, nil
 	} else {
 		for _, target := range runtime.Plan.Targets {
 			key := strings.ToLower(target.Authored)
@@ -114,7 +163,7 @@ func validateRebuildStorageEvidence(
 	if _, err := time.Parse(time.RFC3339, journal.Timestamp); err != nil {
 		return rebuildEvidenceBinding{}, after, fail(CodeEnvelopeContract, "rebuild", "journal.timestamp", "rebuild journal timestamp is not RFC3339")
 	}
-	if failure := validateJournalEntries(runtime, journal, binding, repeat); failure != nil {
+	if failure := validateJournalEntries(runtime, journal, binding, false); failure != nil {
 		return rebuildEvidenceBinding{}, after, failure
 	}
 	journalSemantic, err := runtime.Plan.context.DisplayPath(journalPath)
@@ -122,7 +171,55 @@ func validateRebuildStorageEvidence(
 		return rebuildEvidenceBinding{}, after, fail(CodeIsolationFailure, "rebuild", "journal", "journal identity escaped validation storage")
 	}
 	binding.Journal = journalSemantic
+	if failure := validateLegacyStoreBinding(before, after, binding); failure != nil {
+		return rebuildEvidenceBinding{}, after, failure
+	}
 	return binding, after, nil
+}
+
+func validateLegacyStoreBinding(before, after rebuildStorageSnapshot, binding rebuildEvidenceBinding) *Failure {
+	if !after.storeExisted {
+		return fail(CodeEnvelopeContract, "rebuild", "storage", "restoring rebuild emitted no config-restore store")
+	}
+	var added configrestore.StoreMemberInspection
+	addedCount := 0
+	for id, member := range after.storeMembers {
+		if _, existed := before.storeMembers[id]; existed {
+			continue
+		}
+		added, addedCount = member, addedCount+1
+	}
+	if addedCount != 1 || added.Kind != configrestore.StoreMemberLegacy || added.Reverted || added.LegacyJournalIdentity != binding.Journal || added.LegacyJournalDigest == "" {
+		return fail(CodeEnvelopeContract, "rebuild", "storage", "restoring rebuild lacks one bound legacy journal store member")
+	}
+	allowed := map[string]struct{}{
+		".": {}, "v1/legacy-members/" + added.ID + ".json": {},
+	}
+	if !before.storeExisted {
+		for _, path := range []string{
+			"mutation.lock", "v1", "v1/transactions", "v1/legacy-members", "v1/legacy-reverts", "v1/legacy-revert-work",
+		} {
+			allowed[path] = struct{}{}
+		}
+	}
+	if difference := boundaryAdditionsDifference(before.store, before.storeExisted, after.store, after.storeExisted, allowed); difference != "" {
+		return fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore store delta differs from one bound legacy member: "+difference)
+	}
+	memberPath := "v1/legacy-members/" + added.ID + ".json"
+	if entry, exists := after.store[memberPath]; !exists || entry.Kind != "file" || entry.Size == 0 {
+		return fail(CodeEnvelopeContract, "rebuild", "storage", "bound legacy store member record is malformed")
+	}
+	if !before.storeExisted {
+		for _, path := range []string{".", "v1", "v1/transactions", "v1/legacy-members", "v1/legacy-reverts", "v1/legacy-revert-work"} {
+			if entry, exists := after.store[path]; !exists || entry.Kind != "directory" {
+				return fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore store scaffolding is malformed")
+			}
+		}
+		if entry, exists := after.store["mutation.lock"]; !exists || entry.Kind != "file" || entry.Size != 0 {
+			return fail(CodeEnvelopeContract, "rebuild", "storage", "config-restore mutation lock differs")
+		}
+	}
+	return nil
 }
 
 func resolveEndstateStoragePath(runtime *scenarioRuntime, semantic, scope string) (string, error) {

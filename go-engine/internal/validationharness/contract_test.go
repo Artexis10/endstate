@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
@@ -843,7 +844,6 @@ func TestRebuildStorageEvidenceBindsContainedBackupsAndJournal(t *testing.T) {
 	restoreItems := []any{}
 	journalEntries := []any{}
 	repeatRestoreItems := []any{}
-	repeatJournalEntries := []any{}
 	for index, target := range runtime.Plan.Targets {
 		semantic := fmt.Sprintf("$ENDSTATE_ROOT/state/backups/apply-test/item-%d", index)
 		physical := filepath.Join(runtime.Root, "state", "backups", "apply-test", fmt.Sprintf("item-%d", index))
@@ -862,10 +862,6 @@ func TestRebuildStorageEvidenceBindsContainedBackupsAndJournal(t *testing.T) {
 			"target": target.Authored, "source": source, "restoreType": "", "targetExistedBefore": true,
 			"status": "skipped_up_to_date", "backupCreated": false, "backupPath": "",
 		})
-		repeatJournalEntries = append(repeatJournalEntries, map[string]any{
-			"resolvedSourcePath": source, "targetPath": target.Authored, "targetExistedBefore": true,
-			"backupRequested": false, "backupCreated": false, "backupPath": "", "action": "skipped_up_to_date", "restoreType": "copy",
-		})
 	}
 	journalPath := filepath.Join(runtime.Root, "logs", "restore-journal-apply-test.json")
 	if err := os.MkdirAll(filepath.Dir(journalPath), 0o700); err != nil {
@@ -876,6 +872,20 @@ func TestRebuildStorageEvidenceBindsContainedBackupsAndJournal(t *testing.T) {
 		"manifestDir": "$ENDSTATE_ROOT/manifests", "entries": journalEntries,
 	})
 	if err := os.WriteFile(journalPath, journalData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard, err := configrestore.BeginLiveWithBoundary(
+		context.Background(), filepath.Join(runtime.Root, "state"), "apply-test", nil,
+		v2HostBoundary{runtime.validationContext()},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := guard.RegisterLegacyJournal(journalPath); err != nil {
+		_ = guard.Close()
+		t.Fatal(err)
+	}
+	if err := guard.Close(); err != nil {
 		t.Fatal(err)
 	}
 	payload := map[string]any{
@@ -915,22 +925,23 @@ func TestRebuildStorageEvidenceBindsContainedBackupsAndJournal(t *testing.T) {
 	if err := os.WriteFile(firstBackup, []byte(runtime.Plan.Targets[0].Mutated), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	repeatJournalPath := filepath.Join(runtime.Root, "logs", "restore-journal-repeat-test.json")
-	repeatJournalData, _ := json.Marshal(map[string]any{
-		"runId": "repeat-test", "timestamp": "2026-07-25T12:01:00Z", "manifestPath": "$ENDSTATE_ROOT/manifests/captured.jsonc",
-		"manifestDir": "$ENDSTATE_ROOT/manifests", "entries": repeatJournalEntries,
-	})
-	if err := os.WriteFile(repeatJournalPath, repeatJournalData, 0o600); err != nil {
-		t.Fatal(err)
-	}
 	payload["configResolutionSummary"] = map[string]any{"total": 1, "selected": 0, "skipped": 1, "failed": 0}
 	payload["configResolutions"] = []any{map[string]any{"status": "skipped", "resolution": "legacy_unverified", "reason": "already_up_to_date"}}
 	payload["restoreItems"] = repeatRestoreItems
 	repeatRaw, _ := json.Marshal(payload)
 	if repeatBinding, _, failure := validateRebuildStorageEvidence(runtime, repeatRaw, 2, after); failure != nil {
-		t.Fatalf("exact repeat journal evidence rejected: %+v", failure)
-	} else if repeatBinding.Journal != "$ENDSTATE_ROOT/logs/restore-journal-repeat-test.json" || len(repeatBinding.BackupsByTarget) != 0 {
+		t.Fatalf("exact repeat no-op evidence rejected: %+v", failure)
+	} else if repeatBinding.Journal != "" || len(repeatBinding.BackupsByTarget) != 0 {
 		t.Fatalf("repeat binding = %+v", repeatBinding)
+	}
+	if err := os.MkdirAll(filepath.Join(runtime.Root, "state", "config-restore"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(runtime.Root, "state", "config-restore", "hidden-delta"), []byte("unexpected"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, failure := validateRebuildStorageEvidence(runtime, repeatRaw, 2, after); failure == nil || failure.Coordinate != "storage" {
+		t.Fatalf("repeat convergence accepted hidden persistent delta: %+v", failure)
 	}
 }
 

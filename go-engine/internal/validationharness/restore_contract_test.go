@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
@@ -488,6 +489,22 @@ func TestRestoreContractStorageRequiresPhysicalBackupAndValidJournal(t *testing.
 				}
 				if err := os.WriteFile(journalPath, journalData, 0o600); err != nil {
 					t.Fatal(err)
+				}
+				if mode == "valid" {
+					guard, err := configrestore.BeginLiveWithBoundary(
+						context.Background(), filepath.Join(runtime.Root, "state"), "rebuild", nil,
+						v2HostBoundary{runtime.validationContext()},
+					)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if _, err := guard.RegisterLegacyJournal(journalPath); err != nil {
+						_ = guard.Close()
+						t.Fatal(err)
+					}
+					if err := guard.Close(); err != nil {
+						t.Fatal(err)
+					}
 				}
 			}
 			raw, _ := json.Marshal(map[string]any{"restoreItems": []any{map[string]any{
