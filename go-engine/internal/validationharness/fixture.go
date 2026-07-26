@@ -134,7 +134,78 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 	if len(plan.Targets) == 0 {
 		return nil, fail(CodeUnsupportedFixture, "fixture", "operations", "fixture plan is empty")
 	}
+	if failure := plan.bindNestedFileVerifierPayloads(mod, definitions); failure != nil {
+		return nil, failure
+	}
 	return plan, nil
+}
+
+func (plan *FixturePlan) bindNestedFileVerifierPayloads(mod *modules.Module, definitions fixtureDefinitions) *Failure {
+	if plan == nil || plan.context == nil || mod == nil || len(plan.Targets) != len(definitions.Entries) {
+		return fail(CodeUnsupportedFixture, "fixture", "verify", "nested verifier payload authority is absent")
+	}
+	for targetIndex := range plan.Targets {
+		target, definition := &plan.Targets[targetIndex], definitions.Entries[targetIndex]
+		if !target.Directory {
+			continue
+		}
+		candidates := map[string]string{}
+		for verifierIndex, verifier := range mod.Verify {
+			if verifier.Type != "file-exists" {
+				continue
+			}
+			path, err := plan.context.ResolveHostPath(verifier.Path, validationmode.HostPathPolicy{})
+			if err != nil {
+				return fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("verify[%d]", verifierIndex), "file verifier cannot be resolved through validation mode")
+			}
+			if !pathIsEqualOrAncestor(target.Resolved, path) || strings.EqualFold(filepath.Clean(target.Resolved), filepath.Clean(path)) {
+				continue
+			}
+			relative, ok := targetPayloadRelativeForPath(*target, path)
+			if !ok {
+				return fail(CodeUnsupportedFixture, "fixture", target.Coordinate, "nested file verifier left the directory fixture")
+			}
+			if fixtureRelativeMatchesPatterns(relative, append(append([]string(nil), definition.GlobalExclude...), definition.TargetExclude...)) {
+				return fail(CodeUnsupportedFixture, "fixture", target.Coordinate, "nested file verifier is excluded from capture or restore")
+			}
+			candidates[strings.ToLower(filepath.Clean(path))] = path
+		}
+		switch len(candidates) {
+		case 0:
+		case 1:
+			for _, path := range candidates {
+				target.PayloadPath = path
+			}
+		default:
+			return fail(CodeUnsupportedFixture, "fixture", target.Coordinate, "directory capture has ambiguous nested file verifiers")
+		}
+	}
+	return nil
+}
+
+func fixtureRelativeMatchesPatterns(relative string, patterns []string) bool {
+	for _, pattern := range patterns {
+		matched, err := bundle.ConfigPathMatchesExcludeGlob(relative, pattern)
+		if err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+func targetPayloadRelative(target FixtureTarget) (string, bool) {
+	return targetPayloadRelativeForPath(target, target.PayloadPath)
+}
+
+func targetPayloadRelativeForPath(target FixtureTarget, path string) (string, bool) {
+	if !target.Directory {
+		return ".", strings.EqualFold(filepath.Clean(path), filepath.Clean(target.Resolved))
+	}
+	relative, err := filepath.Rel(target.Resolved, path)
+	if err != nil || relative == "." || filepath.IsAbs(relative) || !fixtureContained(target.Resolved, path) {
+		return "", false
+	}
+	return filepath.ToSlash(relative), true
 }
 
 func witnessPatterns(relatives, patterns []string) map[string][]string {
@@ -323,7 +394,14 @@ func (plan *FixturePlan) compare(captured, includeExcluded bool) *Failure {
 		}
 		expected := map[string]expectedFixtureEntry{".": {Directory: target.Directory}}
 		if target.Directory {
-			expected[fixturePayloadName] = expectedFixtureEntry{Content: want}
+			relative, ok := targetPayloadRelative(target)
+			if !ok {
+				return fail(CodeIsolationFailure, "fixture", target.Coordinate, "directory payload left fixture authority")
+			}
+			expected[filepath.FromSlash(relative)] = expectedFixtureEntry{Content: want}
+			for parent := filepath.Dir(filepath.FromSlash(relative)); parent != "."; parent = filepath.Dir(parent) {
+				expected[parent] = expectedFixtureEntry{Directory: true}
+			}
 		} else {
 			expected["."] = expectedFixtureEntry{Content: want}
 		}

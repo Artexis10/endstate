@@ -47,9 +47,10 @@ func inspectCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEv
 
 	counts := map[string]int{validationmatrix.AssertionProvenance: 1}
 	for _, target := range runtime.Plan.Targets {
-		expected := "configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
-		if target.Directory {
-			expected += "/" + fixturePayloadName
+		root := targetArtifactRoot(target)
+		expected, ok := targetArtifactPayloadName(target)
+		if !ok {
+			return captureEvidence{}, fail(CodeIsolationFailure, "capture", target.Coordinate, "directory payload left fixture authority")
 		}
 		payload, exists := entries[strings.ToLower(expected)]
 		if !exists || string(payload) != target.Captured {
@@ -58,7 +59,7 @@ func inspectCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEv
 		counts[validationmatrix.AssertionCaptured]++
 		counts[validationmatrix.AssertionPayload]++
 		if target.Directory {
-			nested := strings.ToLower(strings.TrimSuffix(expected, "/"+fixturePayloadName) + "/" + filepath.Base(target.Resolved) + "/")
+			nested := strings.ToLower(root + "/" + filepath.Base(target.Resolved) + "/")
 			for name := range entries {
 				if strings.HasPrefix(name, nested) {
 					return captureEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "directory payload nested itself")
@@ -66,7 +67,7 @@ func inspectCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEv
 			}
 		}
 		for _, excluded := range append(append([]FixtureExcluded(nil), target.CaptureExcluded...), target.OverlappingExcluded...) {
-			excludedName := strings.ToLower(strings.TrimSuffix(expected, "/"+fixturePayloadName) + "/" + filepath.ToSlash(excluded.Relative))
+			excludedName := strings.ToLower(root + "/" + filepath.ToSlash(excluded.Relative))
 			if _, exists := entries[excludedName]; exists {
 				return captureEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "capture-excluded fixture descendant entered the artifact")
 			}
@@ -77,7 +78,7 @@ func inspectCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEv
 			}
 		}
 		for _, excluded := range target.RestoreExcluded {
-			restoreName := strings.ToLower(strings.TrimSuffix(expected, "/"+fixturePayloadName) + "/" + filepath.ToSlash(excluded.Relative))
+			restoreName := strings.ToLower(root + "/" + filepath.ToSlash(excluded.Relative))
 			payload, exists := entries[restoreName]
 			if !exists || string(payload) != excluded.Captured {
 				return captureEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "restore-excluded witness was not captured exactly")
@@ -183,10 +184,12 @@ func validateArtifactConfigPayloadSet(runtime *scenarioRuntime, entries map[stri
 	}
 	expected := make(map[string]struct{}, len(runtime.Plan.Targets))
 	for _, target := range runtime.Plan.Targets {
-		name := "configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
+		root := targetArtifactRoot(target)
+		name, ok := targetArtifactPayloadName(target)
+		if !ok {
+			return fail(CodeIsolationFailure, "capture", target.Coordinate, "directory payload left fixture authority")
+		}
 		if target.Directory {
-			root := name
-			name = root + "/" + fixturePayloadName
 			for _, excluded := range target.RestoreExcluded {
 				expected[strings.ToLower(root+"/"+filepath.ToSlash(excluded.Relative))] = struct{}{}
 			}
@@ -218,10 +221,12 @@ func validateOptionalAbsentArtifactEntries(runtime *scenarioRuntime, entries map
 		if target.Optional {
 			continue
 		}
-		root := "configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
-		name := root
+		root := targetArtifactRoot(target)
+		name, ok := targetArtifactPayloadName(target)
+		if !ok {
+			return fail(CodeIsolationFailure, "capture", target.Coordinate, "directory payload left fixture authority")
+		}
 		if target.Directory {
-			name += "/" + fixturePayloadName
 			for _, excluded := range target.RestoreExcluded {
 				expected[strings.ToLower(root+"/"+filepath.ToSlash(excluded.Relative))] = excluded.Captured
 			}
@@ -260,6 +265,22 @@ func validateOptionalAbsentArtifactEntries(runtime *scenarioRuntime, entries map
 		return failure
 	}
 	return validateCapturedProjection(runtime, &captured)
+}
+
+func targetArtifactRoot(target FixtureTarget) string {
+	return "configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
+}
+
+func targetArtifactPayloadName(target FixtureTarget) (string, bool) {
+	root := targetArtifactRoot(target)
+	if !target.Directory {
+		return root, true
+	}
+	relative, ok := targetPayloadRelative(target)
+	if !ok {
+		return "", false
+	}
+	return root + "/" + relative, true
 }
 
 func capturedAppSourceMatches(app manifest.App, inventory validationmode.Inventory) bool {

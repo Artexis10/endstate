@@ -374,7 +374,14 @@ func validateMutatedBackup(runtime *scenarioRuntime, target FixtureTarget, backu
 	}
 	expected := map[string]expectedFixtureEntry{".": {Directory: target.Directory}}
 	if target.Directory {
-		expected[fixturePayloadName] = expectedFixtureEntry{Content: target.Mutated}
+		relative, ok := targetPayloadRelative(target)
+		if !ok {
+			return fail(CodeIsolationFailure, "rebuild", target.Coordinate, "directory payload left fixture authority")
+		}
+		expected[filepath.FromSlash(relative)] = expectedFixtureEntry{Content: target.Mutated}
+		for parent := filepath.Dir(filepath.FromSlash(relative)); parent != "."; parent = filepath.Dir(parent) {
+			expected[parent] = expectedFixtureEntry{Directory: true}
+		}
 		for _, excluded := range target.RestoreExcluded {
 			relative, err := filepath.Rel(target.Resolved, excluded.Path)
 			if err != nil || relative == "." || !fixtureContained(target.Resolved, excluded.Path) {
