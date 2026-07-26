@@ -13,6 +13,7 @@ import (
 var prepareConfigRestoreSnapshotsFn = configrestore.PrepareSnapshots
 var persistConfigRestoreJournalIntentFn = configrestore.PersistJournalIntent
 var executeConfigRestoreTransactionFn = configrestore.ExecuteConfigSetTransaction
+var inspectLiveConfigRestoreSetFn = inspectDryRunConfigRestoreSet
 
 type configRestoreLiveSetRequest struct {
 	Materialized    *configrestore.MaterializedSet

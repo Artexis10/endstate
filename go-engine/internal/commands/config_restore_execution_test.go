@@ -670,6 +670,44 @@ func TestConfigRestoreExecutionRecoversBeforeLiveMaterialization(t *testing.T) {
 	}
 }
 
+func TestConfigRestoreExecutionSkipsCurrentSetBeforeTransactionAllocation(t *testing.T) {
+	runtime, final := configRestoreExecutionFixture(t, "capture-current")
+	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+	executed := false
+	restoreExecutionSeams(t,
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			return guard, nil
+		},
+		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+			return &migration.StageResult{Root: t.TempDir(), TargetGeneration: request.TargetGeneration.ID}, nil
+		},
+		func(_ context.Context, request configrestore.Request) (*configrestore.MaterializedSet, error) {
+			return &configrestore.MaterializedSet{Actions: []configrestore.Action{{Kind: configrestore.ActionCopy, Strategy: "copy", Source: filepath.Join(t.TempDir(), "source"), Target: filepath.Join(t.TempDir(), "target"), SnapshotRequired: true}}}, nil
+		},
+		func(context.Context, configRestoreLiveSetRequest) configRestoreSetOutcome {
+			executed = true
+			return configRestoreSetOutcome{Status: planner.StatusRestored, CanContinue: true}
+		},
+	)
+	originalInspect := inspectLiveConfigRestoreSetFn
+	inspectLiveConfigRestoreSetFn = func(context.Context, *configrestore.MaterializedSet, configrestore.RegistryMutator, configrestore.HostBoundary, string) configRestoreSetOutcome {
+		reason := planner.ReasonAlreadyUpToDate
+		return configRestoreSetOutcome{Status: planner.StatusSkipped, Reason: &reason, CanContinue: true}
+	}
+	t.Cleanup(func() { inspectLiveConfigRestoreSetFn = originalInspect })
+	session := &configRestoreExecutionSession{runtime: runtime, coordinator: &staticConfigRestoreCoordinator{preview: final, final: final}}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{RestoreEnabled: true, RunID: "apply-current", StateDir: t.TempDir()})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	if executed || len(guard.created) != 0 {
+		t.Fatalf("current set executed=%t transactions=%v", executed, guard.created)
+	}
+	if len(result.RestoreItems) != 1 || result.RestoreItems[0].Status != "skipped_up_to_date" || result.RestoreItems[0].BackupCreated || result.RestoreItems[0].BackupPath != "" || result.Plan.Sets[0].Resolution.Status != planner.StatusSkipped {
+		t.Fatalf("current result = %+v plan=%+v", result.RestoreItems, result.Plan.Sets[0].Resolution)
+	}
+}
+
 func TestConfigRestoreExecutionOrdersResolutionMigrationRollbackAndRestoreItemEvents(t *testing.T) {
 	runtime, final := configRestoreExecutionFixture(t, "capture-a")
 	hostRoot := final.Sets[0].TargetInstances[0].Root
@@ -1164,13 +1202,16 @@ func TestValidationConfigRestoreExecutionThreadsHostBoundaryAcrossGenerationPipe
 	if err != nil {
 		t.Fatal(err)
 	}
-	beginSeen, materializeSeen, executeSeen := false, false, false
+	beginSeen, stageParentSeen, materializeSeen, executeSeen := false, false, false, false
 	restoreExecutionSeams(t,
 		func(_ context.Context, _, _ string, _ configrestore.RegistryMutator, got configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
 			beginSeen = got == boundary
 			return guard, nil
 		},
 		func(_ context.Context, request migration.StageRequest) (*migration.StageResult, error) {
+			wantParent := filepath.Join(validation.Root(), "state", "config-staging")
+			info, statErr := os.Stat(request.TempParent)
+			stageParentSeen = request.TempParent == wantParent && statErr == nil && info.IsDir()
 			return &migration.StageResult{Root: stageRoot, TargetGeneration: request.TargetGeneration.ID}, nil
 		},
 		func(_ context.Context, request configrestore.Request) (*configrestore.MaterializedSet, error) {
@@ -1189,13 +1230,13 @@ func TestValidationConfigRestoreExecutionThreadsHostBoundaryAcrossGenerationPipe
 	}
 	_, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
 		RestoreEnabled: true, RunID: "validation-run", StateDir: filepath.Join(validation.Root(), "state"),
-		HostBoundary: boundary,
+		HostBoundary: boundary, ValidationContext: validation,
 	})
 	if envErr != nil {
 		t.Fatalf("Execute() error = %+v", envErr)
 	}
-	if !beginSeen || !materializeSeen || !executeSeen {
-		t.Fatalf("boundary propagation begin=%v materialize=%v execute=%v", beginSeen, materializeSeen, executeSeen)
+	if !beginSeen || !stageParentSeen || !materializeSeen || !executeSeen {
+		t.Fatalf("boundary propagation begin=%v stageParent=%v materialize=%v execute=%v", beginSeen, stageParentSeen, materializeSeen, executeSeen)
 	}
 }
 
@@ -1352,14 +1393,19 @@ func restoreExecutionSeams(
 	originalStage := stageConfigRestoreSetFn
 	originalMaterialize := materializeConfigRestoreSetFn
 	originalExecute := executeLiveConfigRestoreSetFn
+	originalInspect := inspectLiveConfigRestoreSetFn
 	beginLiveConfigRestoreFn = begin
 	stageConfigRestoreSetFn = stage
 	materializeConfigRestoreSetFn = materialize
 	executeLiveConfigRestoreSetFn = execute
+	inspectLiveConfigRestoreSetFn = func(context.Context, *configrestore.MaterializedSet, configrestore.RegistryMutator, configrestore.HostBoundary, string) configRestoreSetOutcome {
+		return configRestoreSetOutcome{Status: planner.StatusPlanned, CanContinue: true}
+	}
 	t.Cleanup(func() {
 		beginLiveConfigRestoreFn = originalBegin
 		stageConfigRestoreSetFn = originalStage
 		materializeConfigRestoreSetFn = originalMaterialize
 		executeLiveConfigRestoreSetFn = originalExecute
+		inspectLiveConfigRestoreSetFn = originalInspect
 	})
 }

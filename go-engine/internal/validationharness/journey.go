@@ -18,6 +18,7 @@ type scenarioRuntime struct {
 	Module              *modules.Module
 	Scenario            validationmatrix.Scenario
 	Plan                *FixturePlan
+	V2Plan              *V2FixturePlan
 	AuthorityRoot       string
 	Root                string
 	GuardRoot           string
@@ -85,13 +86,42 @@ func (runtime *scenarioRuntime) forbiddenOutputValues() []string {
 			}
 		}
 	}
+	if runtime.V2Plan != nil {
+		for _, target := range runtime.V2Plan.Targets {
+			add(target.Resolved)
+			for _, member := range target.Members {
+				add(member.Path)
+				add(string(member.Captured))
+				add(string(member.Mutated))
+			}
+			for _, excluded := range target.Excluded {
+				add(excluded.Path)
+				add(string(excluded.Captured))
+				add(string(excluded.Mutated))
+			}
+		}
+	}
 	return result
+}
+
+func (runtime *scenarioRuntime) validationContext() *validationmode.Context {
+	if runtime == nil {
+		return nil
+	}
+	if runtime.Plan != nil {
+		return runtime.Plan.context
+	}
+	if runtime.V2Plan != nil {
+		return runtime.V2Plan.context
+	}
+	return nil
 }
 
 type captureEvidence struct {
 	ArtifactPath    string
 	VerifyManifest  string
 	AssertionCounts map[string]int
+	V2              *v2CaptureEvidence
 }
 
 type journeyExecutor interface {

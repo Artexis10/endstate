@@ -23,7 +23,9 @@ func newConfigRestoreHostBoundary(context *validationmode.Context) configrestore
 }
 
 func (boundary configRestoreHostBoundary) ResolveHostPath(authored string, instance modules.ConfigInstance) (string, error) {
-	return boundary.context.ResolveHostPath(authored, validationmode.HostPathPolicy{InstanceRoot: instance.Root})
+	return boundary.context.ResolveHostPath(authored, validationmode.HostPathPolicy{
+		InstanceRoot: instance.Root, AllowRoot: strings.EqualFold(authored, "${instance.root}"),
+	})
 }
 
 func (boundary configRestoreHostBoundary) ResolveFilesystemIdentity(identity string) (string, error) {

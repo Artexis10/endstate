@@ -51,14 +51,18 @@ func decodeEnvelope(stdout []byte, command, moduleID, scenarioID string, forbidd
 	}
 	if !envelope.Success {
 		var engineError struct {
-			Code    string `json:"code"`
-			Message string `json:"message"`
+			Code    string          `json:"code"`
+			Message string          `json:"message"`
+			Detail  json.RawMessage `json:"detail"`
 		}
 		detail := "engine envelope reported failure"
 		if err := json.Unmarshal(envelope.Error, &engineError); err == nil && engineError.Code != "" {
 			detail = engineError.Code
 			if engineError.Message != "" {
 				detail += ": " + engineError.Message
+			}
+			if len(engineError.Detail) > 0 && string(engineError.Detail) != "null" {
+				detail += " detail=" + string(engineError.Detail)
 			}
 		}
 		return decodedEnvelope{}, fail(CodeExecutionFailure, command, "success", detail)
@@ -572,11 +576,74 @@ func knownEventType(value string) bool {
 }
 
 func leaked(value []byte, forbidden ...string) bool {
-	text := strings.ToLower(string(value))
+	text := canonicalLeakText(string(value))
+	normalized := make([]string, 0, len(forbidden))
 	for _, item := range forbidden {
-		if item != "" && strings.Contains(text, strings.ToLower(item)) {
+		if item == "" {
+			continue
+		}
+		lower := canonicalLeakText(item)
+		normalized = append(normalized, lower)
+		if strings.Contains(text, lower) {
+			return true
+		}
+		quoted, err := json.Marshal(item)
+		if err == nil && len(quoted) >= 2 && strings.Contains(text, canonicalLeakText(string(quoted[1:len(quoted)-1]))) {
+			return true
+		}
+	}
+	decoder := json.NewDecoder(bytes.NewReader(value))
+	decoder.UseNumber()
+	for {
+		var decoded any
+		if err := decoder.Decode(&decoded); err != nil {
+			break
+		}
+		if decodedValueLeaks(decoded, normalized, 0) {
 			return true
 		}
 	}
 	return false
+}
+
+func decodedValueLeaks(value any, forbidden []string, depth int) bool {
+	if depth > 8 {
+		return true
+	}
+	switch typed := value.(type) {
+	case string:
+		lower := canonicalLeakText(typed)
+		for _, item := range forbidden {
+			if strings.Contains(lower, item) {
+				return true
+			}
+		}
+		decoder := json.NewDecoder(strings.NewReader(typed))
+		decoder.UseNumber()
+		var nested any
+		if err := decoder.Decode(&nested); err == nil && decodedValueLeaks(nested, forbidden, depth+1) {
+			return true
+		}
+	case []any:
+		for _, item := range typed {
+			if decodedValueLeaks(item, forbidden, depth+1) {
+				return true
+			}
+		}
+	case map[string]any:
+		for key, item := range typed {
+			if decodedValueLeaks(key, forbidden, depth+1) || decodedValueLeaks(item, forbidden, depth+1) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func canonicalLeakText(value string) string {
+	value = strings.ReplaceAll(strings.ToLower(value), `\`, "/")
+	for strings.Contains(value, "//") {
+		value = strings.ReplaceAll(value, "//", "/")
+	}
+	return value
 }

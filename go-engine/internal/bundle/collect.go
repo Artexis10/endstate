@@ -439,31 +439,41 @@ func matchesExcludeGlobs(path string, excludeGlobs []string) bool {
 	normalizedPath := filepath.ToSlash(path)
 
 	for _, glob := range excludeGlobs {
-		pattern := filepath.ToSlash(glob)
-
-		// Strip leading **/ — means "anywhere in tree".
-		stripped := strings.TrimPrefix(pattern, "**/")
-
-		if strings.HasSuffix(stripped, "/**") {
-			// Pattern like "**/Cache/**" — exclude if directory segment appears in path.
-			dirName := strings.TrimSuffix(stripped, "/**")
-			boundedPath := "/" + strings.Trim(normalizedPath, "/") + "/"
-			if strings.Contains(boundedPath, "/"+dirName+"/") {
-				return true
-			}
-		} else {
-			// Pattern like "*.log" or "state.vscdb*" — match against any path segment.
-			segments := strings.Split(normalizedPath, "/")
-			for _, seg := range segments {
-				matched, _ := filepath.Match(stripped, seg)
-				if matched {
-					return true
-				}
-			}
+		matched, err := ConfigPathMatchesExcludeGlob(normalizedPath, glob)
+		if err == nil && matched {
+			return true
 		}
 	}
 
 	return false
+}
+
+// ConfigPathMatchesExcludeGlob exposes the exact production capture matcher
+// with strict malformed-pattern reporting for validation fixture proof. The
+// collector preserves authored compatibility by treating malformed patterns
+// as non-matches through matchesExcludeGlobs.
+func ConfigPathMatchesExcludeGlob(value, glob string) (bool, error) {
+	normalizedPath := filepath.ToSlash(value)
+	pattern := filepath.ToSlash(glob)
+	stripped := strings.TrimPrefix(pattern, "**/")
+	if strings.HasSuffix(stripped, "/**") {
+		dirName := strings.TrimSuffix(stripped, "/**")
+		if dirName == "" {
+			return false, fmt.Errorf("exclude glob %q has no directory segment", glob)
+		}
+		boundedPath := "/" + strings.Trim(normalizedPath, "/") + "/"
+		return strings.Contains(boundedPath, "/"+dirName+"/"), nil
+	}
+	for _, segment := range strings.Split(normalizedPath, "/") {
+		matched, err := filepath.Match(stripped, segment)
+		if err != nil {
+			return false, err
+		}
+		if matched {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // captureBloatDirs are directory names (matched case-insensitively, any depth)

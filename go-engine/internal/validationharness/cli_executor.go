@@ -27,8 +27,60 @@ type guardTarget struct {
 func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 	runtime.OriginalEnvironment = map[string]string{}
 	seenGuards := map[string]struct{}{}
-	for _, target := range runtime.Plan.Targets {
-		alias, suffix, ok := authoredAliasSuffix(target.Authored)
+	type guardFixtureTarget struct {
+		authored, coordinate string
+		directory            bool
+	}
+	var guardTargets []guardFixtureTarget
+	if runtime.Plan != nil {
+		for _, target := range runtime.Plan.Targets {
+			guardTargets = append(guardTargets, guardFixtureTarget{target.Authored, target.Coordinate, target.Directory})
+		}
+	}
+	if runtime.V2Plan != nil {
+		for _, target := range runtime.V2Plan.Targets {
+			guardTargets = append(guardTargets, guardFixtureTarget{target.Authored, target.Coordinate, target.Directory})
+		}
+	}
+	for _, target := range guardTargets {
+		if strings.HasPrefix(strings.ToLower(target.authored), "${instance.root}") {
+			if runtime.V2Plan == nil || !strings.EqualFold(target.authored, "${instance.root}") {
+				return fmt.Errorf("instance-root guard lacks exact detector authority")
+			}
+			alias, detectorSuffix, ok := authoredAliasSuffix(runtime.V2Plan.Compiled.Detector.Glob)
+			if !ok {
+				return fmt.Errorf("instance-root detector has no declared alias")
+			}
+			wildcard := strings.IndexAny(detectorSuffix, "*?[")
+			if wildcard < 0 {
+				return fmt.Errorf("instance-root detector is not a production glob")
+			}
+			prefix := strings.TrimRight(detectorSuffix[:wildcard], `\/`)
+			parent := filepath.Dir(filepath.FromSlash(strings.ReplaceAll(prefix, `\`, "/")))
+			if parent == "." || strings.ContainsAny(parent, "*?[") {
+				return fmt.Errorf("instance-root detector anchor is ambiguous")
+			}
+			aliasRoot := filepath.Join(runtime.GuardRoot, strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(alias, "(", "-"), ")", "")))
+			runtime.OriginalEnvironment[alias] = aliasRoot
+			guardPath := filepath.Join(aliasRoot, parent, filepath.Base(runtime.V2Plan.Instance.Root))
+			if target.directory {
+				guardPath = filepath.Join(guardPath, fixturePayloadName)
+			}
+			if _, exists := seenGuards[strings.ToLower(guardPath)]; exists {
+				continue
+			}
+			seenGuards[strings.ToLower(guardPath)] = struct{}{}
+			content := fixtureSentinel(runtime.Module.ID, runtime.Scenario.ID, target.coordinate, "original")
+			if err := os.MkdirAll(filepath.Dir(guardPath), 0o700); err != nil {
+				return err
+			}
+			if err := os.WriteFile(guardPath, []byte(content), 0o600); err != nil {
+				return err
+			}
+			runtime.Guards = append(runtime.Guards, guardTarget{Path: guardPath, Content: content})
+			continue
+		}
+		alias, suffix, ok := authoredAliasSuffix(target.authored)
 		if !ok {
 			return fmt.Errorf("fixture target has no declared alias")
 		}
@@ -39,14 +91,14 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			return err
 		}
 		guardPath := filepath.Join(aliasRoot, filepath.FromSlash(strings.ReplaceAll(suffix, `\`, "/")))
-		if target.Directory {
+		if target.directory {
 			guardPath = filepath.Join(guardPath, fixturePayloadName)
 		}
 		if _, exists := seenGuards[strings.ToLower(guardPath)]; exists {
 			continue
 		}
 		seenGuards[strings.ToLower(guardPath)] = struct{}{}
-		content := fixtureSentinel(runtime.Module.ID, runtime.Scenario.ID, target.Coordinate, "original")
+		content := fixtureSentinel(runtime.Module.ID, runtime.Scenario.ID, target.coordinate, "original")
 		if err := os.MkdirAll(filepath.Dir(guardPath), 0o700); err != nil {
 			return err
 		}
@@ -63,7 +115,7 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 	if runtime.ChildWorkingDir == "" || filepath.Dir(runtime.ChildWorkingDir) != runtime.AuthorityRoot || !fixtureContained(runtime.AuthorityRoot, runtime.ChildWorkingDir) {
 		return fmt.Errorf("validation child working directory is outside task authority")
 	}
-	if runtime.Plan.context.ValidateSandboxPath(runtime.ChildWorkingDir) == nil {
+	if runtime.validationContext().ValidateSandboxPath(runtime.ChildWorkingDir) == nil {
 		return fmt.Errorf("validation child working directory overlaps engine mutation authority")
 	}
 	if err := safepath.ValidateRoot(runtime.ChildWorkingDir); err != nil {
@@ -86,7 +138,7 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 				return err
 			}
 		case "file-exists":
-			path, err := runtime.Plan.context.ResolveHostPath(verifier.Path, validationmode.HostPathPolicy{})
+			path, err := runtime.validationContext().ResolveHostPath(verifier.Path, validationmode.HostPathPolicy{})
 			if err != nil {
 				return fmt.Errorf("verify[%d] path: %w", index, err)
 			}
@@ -151,6 +203,7 @@ type cliJourneyExecutor struct {
 	workingDir       string
 	rebuildIteration int
 	firstRebuild     rebuildEvidenceBinding
+	v2FirstRebuild   v2TransactionBinding
 }
 
 func newCLIJourneyExecutor(selected *selection, runtime *scenarioRuntime) *cliJourneyExecutor {
@@ -250,6 +303,69 @@ func (executor *cliJourneyExecutor) Capture(ctx context.Context, runtime *scenar
 	}
 	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
 	return inspectCaptureArtifact(runtime, zipPath)
+}
+
+func (executor *cliJourneyExecutor) CaptureV2(ctx context.Context, runtime *scenarioRuntime) (captureEvidence, *Failure) {
+	manifestPath := filepath.Join(runtime.Root, "manifests", "captured.jsonc")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		return captureEvidence{}, fail(CodeIsolationFailure, "capture", "manifest", "create schema-v2 capture output parent")
+	}
+	output, failure := executor.run(ctx, "capture", "--out", manifestPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
+	if failure != nil {
+		return captureEvidence{}, failure
+	}
+	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
+	return inspectV2CaptureArtifact(runtime, zipPath, output.Envelope.Data)
+}
+
+func (executor *cliJourneyExecutor) RebuildV2(ctx context.Context, runtime *scenarioRuntime, evidence captureEvidence) *Failure {
+	storageBefore, failure := snapshotV2Storage(runtime)
+	if failure != nil {
+		return failure
+	}
+	output, failure := executor.run(ctx, "rebuild", "--from", evidence.ArtifactPath, "--only", runtime.Inventory.AppID, "--confirm")
+	if failure != nil {
+		return failure
+	}
+	validated, failure := validateV2DirectRebuildEvidence(output.Envelope.Data, output.Events, runtime, executor.rebuildIteration)
+	if failure != nil {
+		return failure
+	}
+	binding, failure := validateV2RebuildStorage(ctx, runtime, executor.rebuildIteration, storageBefore, validated)
+	if failure != nil {
+		return failure
+	}
+	if executor.rebuildIteration == 0 {
+		executor.v2FirstRebuild = binding
+	}
+	executor.rebuildIteration++
+	return nil
+}
+
+func (executor *cliJourneyExecutor) RevertV2(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	storageBefore, failure := snapshotV2Storage(runtime)
+	if failure != nil {
+		return failure
+	}
+	output, failure := executor.run(ctx, "revert")
+	if failure != nil {
+		return failure
+	}
+	if failure := validateV2RevertEvidence(output.Envelope.Data, output.Events, runtime); failure != nil {
+		return failure
+	}
+	return validateV2RevertStorage(runtime, storageBefore, executor.v2FirstRebuild)
+}
+
+func (executor *cliJourneyExecutor) VerifyV2(ctx context.Context, runtime *scenarioRuntime, evidence captureEvidence) *Failure {
+	output, failure := executor.run(ctx, "verify", "--manifest", evidence.VerifyManifest)
+	if failure != nil {
+		return failure
+	}
+	if failure := validateVerifyEvidence(output.Envelope.Data, runtime, "verify"); failure != nil {
+		return failure
+	}
+	return validateV2VerifyEventSegments(output.Events, runtime, false)
 }
 
 func (executor *cliJourneyExecutor) CaptureOptionalAbsent(ctx context.Context, runtime *scenarioRuntime) *Failure {

@@ -318,7 +318,7 @@ func preflightConfigCopies(plan ConfigSetCapturePlan, context *validationmode.Co
 			preflight.secretsExcluded++
 			continue
 		}
-		if matchesExcludeGlobs(source, excludeGlobs) {
+		if matchesExcludeGlobs(filepath.Base(source), excludeGlobs) {
 			continue
 		}
 		if err := ensureNoLinksInExistingPath(source); err != nil {
@@ -407,6 +407,13 @@ func preflightConfigDirectory(preflight *configCopyPreflight, sourceRoot, destin
 			}
 			return captureError(ConfigCaptureLinkUnsupported, "source %q is a link or reparse point", source)
 		}
+		relative, err := filepath.Rel(sourceRoot, source)
+		if err != nil {
+			if context != nil {
+				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
+			}
+			return captureError(ConfigCaptureUnsafePath, "relative source path for %q: %v", source, err)
+		}
 		if captureMatchesSecrets(source, secretFiles, resolvedSecrets, context != nil) {
 			preflight.secretsExcluded++
 			if entry.IsDir() {
@@ -414,18 +421,11 @@ func preflightConfigDirectory(preflight *configCopyPreflight, sourceRoot, destin
 			}
 			return nil
 		}
-		if matchesExcludeGlobs(source, excludeGlobs) {
+		if matchesExcludeGlobs(relative, excludeGlobs) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
-		}
-		relative, err := filepath.Rel(sourceRoot, source)
-		if err != nil {
-			if context != nil {
-				return captureIsolation(moduleID, coordinate, "path", authored, validationmode.ErrUnsafePath)
-			}
-			return captureError(ConfigCaptureUnsafePath, "relative source path for %q: %v", source, err)
 		}
 		if isBloatDirSegment(relative) {
 			if entry.IsDir() {

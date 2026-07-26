@@ -51,6 +51,22 @@ func TestCollectConfigFilesWithValidationReadsSandboxAndNotOriginalHost(t *testi
 	}
 }
 
+func TestResolveCaptureHostAllowsExactDetectorResolvedInstanceRoot(t *testing.T) {
+	context := activeBundleValidationContext(t, "apps.studio-one")
+	appdata, ok := context.VirtualRoot("APPDATA")
+	if !ok {
+		t.Fatal("APPDATA virtual root absent")
+	}
+	instanceRoot := filepath.Join(appdata, "PreSonus", "Studio One 7")
+	if err := os.MkdirAll(instanceRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveCaptureHost(context, "apps.studio-one", "capture.files[0].source", "${instance.root}", validationmode.HostPathPolicy{InstanceRoot: instanceRoot})
+	if err != nil || got != instanceRoot {
+		t.Fatalf("resolve exact instance root = %q, %v", got, err)
+	}
+}
+
 func TestCollectConfigSetWithValidationPreservesProductionInstanceAndFingerprint(t *testing.T) {
 	context := activeBundleValidationContext(t, "apps.example")
 	virtualAppData, _ := context.VirtualRoot("APPDATA")
@@ -330,6 +346,32 @@ func TestCreateCaptureBundleWithValidationPreservesGenerationProvenance(t *testi
 	}
 }
 
+func TestCreateCaptureBundleWithValidationLoadsPrivateDriverIntermediateWithoutPublishedDisplayName(t *testing.T) {
+	context := activeBundleValidationContextWithInventory(t, "apps.studio-one", validationmode.Inventory{
+		AppID: "studio-one", Driver: "validation", Ref: "studio-one", DisplayName: "PreSonus Studio One",
+		Version: "7", InitialState: "present",
+	})
+	manifestPath := filepath.Join(context.Root(), "manifests", "validation-driver-input.jsonc")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Capture uses _name as private display metadata. The authored app declaration
+	// deliberately has no displayName field.
+	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"capture","apps":[{"id":"studio-one","refs":{"windows":"studio-one"},"driver":"validation","_name":"PreSonus Studio One"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outputPath := filepath.Join(context.Root(), "manifests", "validation-driver.zip")
+	result, err := CreateCaptureBundle(CaptureBundleRequest{
+		ManifestPath: manifestPath, OutputPath: outputPath, EndstateVersion: "test", ValidationContext: context,
+	})
+	if err != nil {
+		t.Fatalf("CreateCaptureBundle: %v", err)
+	}
+	if result == nil {
+		t.Fatal("CreateCaptureBundle returned nil result")
+	}
+}
+
 func TestCreateCaptureBundleWithValidationFailsClosedOnCollectorIsolation(t *testing.T) {
 	context := activeBundleValidationContext(t, "apps.example")
 	manifestPath := filepath.Join(context.Root(), "manifests", "unsafe-input.jsonc")
@@ -398,6 +440,12 @@ func readValidationZip(t *testing.T, path string) map[string][]byte {
 }
 
 func activeBundleValidationContext(t *testing.T, moduleID string) *validationmode.Context {
+	return activeBundleValidationContextWithInventory(t, moduleID, validationmode.Inventory{
+		AppID: "example", Driver: "winget", Ref: "Vendor.Example", DisplayName: "Example", Version: "1.0", Source: "winget", InitialState: "absent",
+	})
+}
+
+func activeBundleValidationContextWithInventory(t *testing.T, moduleID string, inventory validationmode.Inventory) *validationmode.Context {
 	t.Helper()
 	nonce := fmt.Sprintf("bundle-capture-%d", time.Now().UnixNano())
 	root := filepath.Join(canonicalBundleTempDir(t), "endstate-validation-"+nonce)
@@ -406,7 +454,7 @@ func activeBundleValidationContext(t *testing.T, moduleID string) *validationmod
 	}
 	descriptor := validationmode.Descriptor{
 		SchemaVersion: 1, ScenarioID: "bundle-capture", Nonce: nonce, ModuleID: moduleID,
-		Inventory: validationmode.Inventory{AppID: "example", Driver: "winget", Ref: "Vendor.Example", DisplayName: "Example", Version: "1.0", Source: "winget", InitialState: "absent"},
+		Inventory: inventory,
 	}
 	data, err := json.Marshal(descriptor)
 	if err != nil {

@@ -8,7 +8,9 @@
         "id": "generation-preferences-g1-1c4479cb88b9",
         "mode": "config-generation-v2",
         "fixture": {
-          "type": "auto"
+          "type": "declarative",
+          "path": "modules/apps/owncloud/validation-fixtures/generation-preferences-g1.jsonc",
+          "sha256": "2b374eb1f654341e8e1e1de8f6dcf1a99f49c9a3606fb8f2cbb59dfa3fb54d3d"
         },
         "timeoutSeconds": 120,
         "minimumAssertions": {
@@ -35,7 +37,9 @@
         "id": "generation-preferences-g2-899536c068d4",
         "mode": "config-generation-v2",
         "fixture": {
-          "type": "auto"
+          "type": "declarative",
+          "path": "modules/apps/owncloud/validation-fixtures/generation-preferences-g2.jsonc",
+          "sha256": "29cbcdd0bacc73ee76f00682ac2295355dee310ad53e3ffc281e753d8b0e8438"
         },
         "timeoutSeconds": 120,
         "minimumAssertions": {

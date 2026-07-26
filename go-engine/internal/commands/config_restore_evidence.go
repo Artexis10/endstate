@@ -64,8 +64,13 @@ type configRestoreEvidenceLane struct {
 func newDriverConfigRestoreEvidenceSource(
 	backend driver.Driver,
 	manifestApps []manifest.App,
+	packageSource ...string,
 ) configRestoreEvidenceSource {
 	apps := cloneConfigRestoreEvidenceApps(manifestApps)
+	sourceIdentity := ""
+	if len(packageSource) > 0 {
+		sourceIdentity = packageSource[0]
+	}
 	return configRestoreEvidenceSourceFunc(func(
 		ctx context.Context,
 		request configRestoreDetectionRequest,
@@ -84,7 +89,7 @@ func newDriverConfigRestoreEvidenceSource(
 		for _, moduleID := range moduleIDs {
 			module := request.Modules[moduleID]
 			selectedApps := configRestoreEvidenceAppsForModule(module, apps)
-			current, err := detectDriverConfigRestoreApps(backend, selectedApps)
+			current, err := detectDriverConfigRestoreApps(backend, selectedApps, sourceIdentity)
 			if err != nil {
 				packagesByModule[moduleID] = []modules.PackageEvidence{}
 				failedModules[moduleID] = struct{}{}
@@ -124,7 +129,7 @@ func newDriverLaneConfigRestoreEvidenceSource(
 		}
 		entry := configRestoreEvidenceLane{name: lane.name, apps: cloneConfigRestoreEvidenceApps(laneApps), err: lane.err}
 		if lane.drv != nil && lane.err == nil {
-			entry.source = newDriverConfigRestoreEvidenceSource(lane.drv, laneApps)
+			entry.source = newDriverConfigRestoreEvidenceSource(lane.drv, laneApps, lane.source)
 		} else if entry.err == nil {
 			entry.err = errors.New("package driver is unavailable")
 		}
@@ -443,7 +448,7 @@ func (detectionErr *configRestoreDriverDetectionError) Unwrap() error {
 	return detectionErr.Err
 }
 
-func detectDriverConfigRestoreApps(backend driver.Driver, apps []manifest.App) ([]manifest.App, error) {
+func detectDriverConfigRestoreApps(backend driver.Driver, apps []manifest.App, source string) ([]manifest.App, error) {
 	current := cloneConfigRestoreEvidenceApps(apps)
 	refs := make([]string, 0, len(current))
 	seen := make(map[string]struct{}, len(current))
@@ -460,7 +465,13 @@ func detectDriverConfigRestoreApps(backend driver.Driver, apps []manifest.App) (
 	}
 	sort.Strings(refs)
 	batch := map[string]driver.DetectResult{}
-	if detector, ok := backend.(driver.BatchDetector); ok && len(refs) > 0 {
+	if detector, ok := backend.(driver.SourceBatchDetector); ok && source != "" && len(refs) > 0 {
+		var err error
+		batch, err = detector.DetectBatchSource(refs, source)
+		if err != nil {
+			batch = map[string]driver.DetectResult{}
+		}
+	} else if detector, ok := backend.(driver.BatchDetector); ok && len(refs) > 0 {
 		var err error
 		batch, err = detector.DetectBatch(refs)
 		if err != nil {
@@ -477,6 +488,12 @@ func detectDriverConfigRestoreApps(backend driver.Driver, apps []manifest.App) (
 		if detected, exists := batch[ref]; exists {
 			current[index].Installed = detected.Installed
 			current[index].InstalledVersion = detected.Version
+		} else if detector, ok := backend.(driver.SourceDriver); ok && source != "" {
+			installed, _, err := detector.DetectSource(ref, source)
+			if err != nil {
+				return nil, &configRestoreDriverDetectionError{Ref: ref, Err: err}
+			}
+			current[index].Installed = installed
 		} else {
 			installed, _, err := backend.Detect(ref)
 			if err != nil {

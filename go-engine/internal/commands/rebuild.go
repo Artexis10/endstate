@@ -240,6 +240,7 @@ func rebuildApplyFlags(flags RebuildFlags, manifestPath string) ApplyFlags {
 		BootstrapBackends: flags.BootstrapBackends,
 		NoBootstrap:       flags.NoBootstrap,
 		Only:              flags.Only,
+		validationRebuild: true,
 	}
 }
 

@@ -24,6 +24,7 @@ const (
 	CodeContentMismatch    = "content_mismatch"
 	CodeRevertFailure      = "revert_failure"
 	CodeIsolationFailure   = "isolation_failure"
+	CodeGenerationContract = "generation_contract"
 	ResultSchemaVersion    = 1
 	ResultStatusPassed     = "passed"
 	ResultStatusFailed     = "failed"

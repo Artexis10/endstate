@@ -8,7 +8,9 @@
         "id": "generation-preferences-g1-97631ba2d2e5",
         "mode": "config-generation-v2",
         "fixture": {
-          "type": "auto"
+          "type": "declarative",
+          "path": "modules/apps/windows-terminal/validation-fixtures/generation-preferences-g1.jsonc",
+          "sha256": "e2dc58ece044edd9518c8e02d777ad68495cd309b154cdaca47e6d5ba4b6e678"
         },
         "timeoutSeconds": 120,
         "minimumAssertions": {

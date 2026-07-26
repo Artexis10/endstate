@@ -284,10 +284,10 @@ func boundaryEntryDifference(expected, actual boundaryEntry) string {
 }
 
 func (runtime *scenarioRuntime) snapshotOwnedTree(path string) (boundaryTree, bool, error) {
-	if runtime == nil || runtime.Plan == nil || runtime.Plan.context == nil {
+	if runtime == nil || runtime.validationContext() == nil {
 		return nil, false, fmt.Errorf("validation context is absent")
 	}
-	if err := runtime.Plan.context.ValidateSandboxPath(path); err != nil {
+	if err := runtime.validationContext().ValidateSandboxPath(path); err != nil {
 		return nil, false, err
 	}
 	info, err := os.Lstat(path)

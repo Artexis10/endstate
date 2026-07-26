@@ -54,6 +54,54 @@ func TestRunFreshBuiltEngineTrackedNotepadDefaultV1(t *testing.T) {
 	}
 }
 
+func TestRunFreshBuiltEngineTrackedSchemaV2(t *testing.T) {
+	engineRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := filepath.Dir(engineRoot)
+	buildRoot := t.TempDir()
+	engine := filepath.Join(buildRoot, "endstate.exe")
+	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
+	build.Dir = engineRoot
+	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
+		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build engine: %v\n%s", err, output)
+	}
+
+	tests := []struct{ module, scenario string }{
+		{"apps.windows-terminal", "generation-preferences-g1-97631ba2d2e5"},
+		{"apps.owncloud", "generation-preferences-g1-1c4479cb88b9"},
+		{"apps.owncloud", "generation-preferences-g2-899536c068d4"},
+		{"apps.studio-one", "generation-preferences-g1-61e9f6f3c254"},
+	}
+	for _, test := range tests {
+		t.Run(test.module+"/"+test.scenario, func(t *testing.T) {
+			resultPath := filepath.Join(t.TempDir(), "result.json")
+			result, err := Run(context.Background(), Request{
+				EnginePath: engine, RepoRoot: repoRoot, ModuleID: test.module,
+				ScenarioID: test.scenario, ResultPath: resultPath,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Status != ResultStatusPassed || result.Failure != nil {
+				t.Fatalf("failure = %+v; counts=%v timings=%v", result.Failure, result.AssertionCounts, result.PhaseTimings)
+			}
+			want := []string{"catalog", "engine-contract", "config-roundtrip-v2"}
+			if len(result.ProofLevels) != len(want) {
+				t.Fatalf("proof levels = %v", result.ProofLevels)
+			}
+			for index, proof := range result.ProofLevels {
+				if string(proof) != want[index] {
+					t.Fatalf("proof levels = %v", result.ProofLevels)
+				}
+			}
+		})
+	}
+}
+
 func withoutTestEnvironment(values []string, names ...string) []string {
 	blocked := map[string]struct{}{}
 	for _, name := range names {

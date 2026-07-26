@@ -136,7 +136,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	}
 
 	// --- 1. Load manifest ---
-	mf, envelopeErr := loadManifest(flags.Manifest)
+	mf, envelopeErr := loadValidationCommandManifest(flags.Manifest)
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}
@@ -404,6 +404,35 @@ func loadManifest(path string) (*manifest.Manifest, *envelope.Error) {
 	}
 
 	mf, err := manifest.LoadManifest(path)
+	return finishManifestLoad(path, mf, err)
+}
+
+// loadValidationCommandManifest is reserved for the rebuild/verify validation
+// entrypoints. Shared commands such as export-config must always retain normal
+// authored-manifest validation, even while validation mode is active.
+func loadValidationCommandManifest(path string) (*manifest.Manifest, *envelope.Error) {
+	if _, statErr := os.Stat(path); errors.Is(statErr, os.ErrNotExist) {
+		return nil, envelope.NewError(
+			envelope.ErrManifestNotFound,
+			"The specified manifest file does not exist.",
+		).WithDetail(map[string]string{"path": path}).
+			WithRemediation("Check the file path and ensure the manifest exists.")
+	}
+	var mf *manifest.Manifest
+	var err error
+	if currentValidationMode != nil && strings.EqualFold(currentValidationMode.Descriptor().Inventory.Driver, "validation") {
+		inventory := currentValidationMode.Descriptor().Inventory
+		mf, err = manifest.LoadManifestForValidationCapture(path, manifest.App{
+			ID: inventory.AppID, Refs: map[string]string{"windows": inventory.Ref},
+			Driver: inventory.Driver, Source: inventory.Source,
+		})
+	} else {
+		mf, err = manifest.LoadManifest(path)
+	}
+	return finishManifestLoad(path, mf, err)
+}
+
+func finishManifestLoad(path string, mf *manifest.Manifest, err error) (*manifest.Manifest, *envelope.Error) {
 	if err != nil {
 		if errors.Is(err, manifest.ErrValidation) {
 			return nil, envelope.NewError(

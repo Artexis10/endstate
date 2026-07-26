@@ -19,6 +19,34 @@ func capturable(id string, m MatchCriteria) *Module {
 	}
 }
 
+func TestMatchModulesForAppsIncludesSchemaV2GenerationCapture(t *testing.T) {
+	mod := &Module{
+		ModuleSchemaVersion: 2,
+		ID:                  "apps.terminal",
+		Matches:             MatchCriteria{Winget: []string{"Vendor.Terminal"}},
+		Config: &ConfigDef{Sets: []ConfigSetDef{{
+			ID: "preferences",
+			Generations: []GenerationDef{{
+				ID:      "g1",
+				Capture: &CaptureDef{Files: []CaptureFile{{Source: "settings.json", Dest: "settings.json"}}},
+			}},
+		}}},
+	}
+	apps := []manifest.App{{ID: "vendor-terminal", Refs: map[string]string{"windows": "Vendor.Terminal"}}}
+
+	for name, match := range map[string]func(map[string]*Module, []manifest.App) []*Module{
+		"ordinary":  MatchModulesForApps,
+		"selective": MatchModulesForAppsSelective,
+	} {
+		t.Run(name, func(t *testing.T) {
+			matched := match(map[string]*Module{mod.ID: mod}, apps)
+			if len(matched) != 1 || matched[0] != mod {
+				t.Fatalf("matched = %v, want the exact schema-v2 module", moduleIDs(matched))
+			}
+		})
+	}
+}
+
 // TestMatchModulesForAppsSelective_IgnoresPathExists is the Discovery-B guard.
 //
 // 141 of 357 catalog modules declare pathExists, and the shared matcher checks

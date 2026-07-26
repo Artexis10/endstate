@@ -15,12 +15,13 @@ import (
 )
 
 type selection struct {
-	request  Request
-	catalog  *validationmatrix.Catalog
-	module   *modules.Module
-	record   validationmatrix.ValidationRecord
-	scenario validationmatrix.Scenario
-	fixture  fixtureDefinitions
+	request   Request
+	catalog   *validationmatrix.Catalog
+	module    *modules.Module
+	record    validationmatrix.ValidationRecord
+	scenario  validationmatrix.Scenario
+	fixture   fixtureDefinitions
+	v2Fixture v2CompiledFixture
 }
 
 func compileSelection(request Request, now time.Time) (*selection, *Failure) {
@@ -53,11 +54,21 @@ func compileSelection(request Request, now time.Time) (*selection, *Failure) {
 	if failure != nil {
 		return nil, failure
 	}
-	fixture, failure := compileFixtureDefinitionsAt(request.RepoRoot, mod, scenario)
-	if failure != nil {
-		return nil, failure
+	selected := &selection{request: request, catalog: catalog, module: mod, record: record, scenario: scenario}
+	if scenario.Mode == validationmatrix.ScenarioConfigRoundtripV1 {
+		fixture, failure := compileFixtureDefinitionsAt(request.RepoRoot, mod, scenario)
+		if failure != nil {
+			return nil, failure
+		}
+		selected.fixture = fixture
+	} else {
+		fixture, failure := compileV2FixtureAt(request.RepoRoot, mod, scenario)
+		if failure != nil {
+			return nil, failure
+		}
+		selected.v2Fixture = fixture
 	}
-	return &selection{request: request, catalog: catalog, module: mod, record: record, scenario: scenario, fixture: fixture}, nil
+	return selected, nil
 }
 
 func selectDeclaredScenario(catalog *validationmatrix.Catalog, mod *modules.Module, record validationmatrix.ValidationRecord, scenarioID string) (validationmatrix.Scenario, *Failure) {
@@ -73,8 +84,8 @@ func selectDeclaredScenario(catalog *validationmatrix.Catalog, mod *modules.Modu
 	if len(matches) != 1 {
 		return validationmatrix.Scenario{}, fail(CodeScenarioSelection, "selection", "scenario", "scenario selection must resolve exactly one declaration")
 	}
-	if matches[0].Mode != validationmatrix.ScenarioConfigRoundtripV1 {
-		return validationmatrix.Scenario{}, fail(CodeUnsupportedFixture, "selection", "scenario.mode", "Task 7A supports config-roundtrip-v1 only")
+	if matches[0].Mode != validationmatrix.ScenarioConfigRoundtripV1 && matches[0].Mode != validationmatrix.ScenarioConfigGenerationV2 {
+		return validationmatrix.Scenario{}, fail(CodeUnsupportedFixture, "selection", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
 	return matches[0], nil
 }

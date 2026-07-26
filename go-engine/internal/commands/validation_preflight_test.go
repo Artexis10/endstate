@@ -217,6 +217,87 @@ func TestPreflightValidationProductionModuleValidatesV2CaptureProvenance(t *test
 	}
 }
 
+func TestPreflightValidationProductionModuleAcceptsExactPackageDetectorInstance(t *testing.T) {
+	mod := loadValidationProductionModule(t, "owncloud")
+	inventory := validationmode.Inventory{AppID: "owncloud", Driver: "winget", Ref: "ownCloud.ownCloudDesktop", DisplayName: "ownCloud", Version: "2.4", InitialState: "present"}
+	context, session := validationPreflightSessionWithInventory(t, "owncloud", inventory)
+	evidence := modules.PackageEvidence{AppID: inventory.AppID, Backend: inventory.Driver, Platform: "windows", Ref: inventory.Ref, Driver: inventory.Driver, RawVersion: inventory.Version}
+	instances, err := modules.DiscoverInstances(mod, []modules.PackageEvidence{evidence}, modules.DiscoveryOptions{})
+	if err != nil || len(instances) != 1 {
+		t.Fatalf("discover package fixture = %+v, %v", instances, err)
+	}
+	policies, err := deriveValidationInstancePolicies(context, session, mod, instances)
+	if err != nil || len(policies) != 1 || policies[instances[0].ID] != (validationmode.HostPathPolicy{}) {
+		t.Fatalf("exact package detector instance rejected: policies=%+v err=%v", policies, err)
+	}
+}
+
+func TestPreflightValidationProductionModuleRejectsPackageInstanceOutsideDescriptorInventory(t *testing.T) {
+	mod := loadValidationProductionModule(t, "owncloud")
+	validInventory := validationmode.Inventory{AppID: "owncloud", Driver: "winget", Ref: "ownCloud.ownCloudDesktop", DisplayName: "ownCloud", Version: "2.4", InitialState: "present"}
+	validEvidence := modules.PackageEvidence{AppID: validInventory.AppID, Backend: validInventory.Driver, Platform: "windows", Ref: validInventory.Ref, Driver: validInventory.Driver, RawVersion: validInventory.Version}
+	valid, err := modules.DiscoverInstances(mod, []modules.PackageEvidence{validEvidence}, modules.DiscoveryOptions{})
+	if err != nil || len(valid) != 1 {
+		t.Fatalf("discover exact package instance = %+v, %v", valid, err)
+	}
+	tests := []struct {
+		name            string
+		mutateInventory func(*validationmode.Inventory)
+		mutateInstances func([]modules.ConfigInstance) []modules.ConfigInstance
+	}{
+		{name: "wrong app", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance {
+			values[0].Evidence.AppID = "foreign"
+			return values
+		}},
+		{name: "wrong backend", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance {
+			values[0].Evidence.Backend = "chocolatey"
+			return values
+		}},
+		{name: "wrong platform", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance {
+			values[0].Evidence.Platform = "linux"
+			return values
+		}},
+		{name: "wrong ref", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance {
+			values[0].Evidence.Ref = "Foreign.App"
+			return values
+		}},
+		{name: "wrong driver", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance {
+			values[0].Evidence.Driver = "chocolatey"
+			return values
+		}},
+		{name: "wrong version", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance {
+			values[0].Version = modules.NewVersionEvidence("2.5")
+			return values
+		}},
+		{name: "absent descriptor", mutateInventory: func(value *validationmode.Inventory) { value.InitialState = "absent" }},
+		{name: "path evidence", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance {
+			values[0].Evidence.Path = `C:\\foreign`
+			return values
+		}},
+		{name: "nonempty root", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance {
+			values[0].Root = `C:\\foreign`
+			return values
+		}},
+		{name: "duplicate id", mutateInstances: func(values []modules.ConfigInstance) []modules.ConfigInstance { return append(values, values[0]) }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			inventory := validInventory
+			if test.mutateInventory != nil {
+				test.mutateInventory(&inventory)
+			}
+			instances := append([]modules.ConfigInstance(nil), valid...)
+			if test.mutateInstances != nil {
+				instances = test.mutateInstances(instances)
+			}
+			context, session := validationPreflightSessionWithInventory(t, "owncloud", inventory)
+			if _, err := deriveValidationInstancePolicies(context, session, mod, instances); !errors.Is(err, validationmode.ErrUnsafePath) {
+				t.Fatalf("descriptor mismatch error = %v, want unsafe path", err)
+			}
+		})
+	}
+}
+
 func TestPreflightValidationProductionModuleRejectsUnsafePathAndRegistryDialectsDeterministically(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -980,6 +1061,10 @@ func validationPreflightSession(t *testing.T) (*validationmode.Context, *Validat
 }
 
 func validationPreflightSessionFor(t *testing.T, shortID string) (*validationmode.Context, *ValidationModeSession) {
+	return validationPreflightSessionWithInventory(t, shortID, validationmode.Inventory{AppID: shortID, Driver: "winget", Ref: "Synthetic.Ref", DisplayName: shortID, InitialState: "absent"})
+}
+
+func validationPreflightSessionWithInventory(t *testing.T, shortID string, inventory validationmode.Inventory) (*validationmode.Context, *ValidationModeSession) {
 	t.Helper()
 	originalAppData := t.TempDir()
 	t.Setenv("APPDATA", originalAppData)
@@ -991,7 +1076,7 @@ func validationPreflightSessionFor(t *testing.T, shortID string) (*validationmod
 	descriptor := validationmode.Descriptor{
 		SchemaVersion: 1, ScenarioID: "commands-validation",
 		Nonce: strings.TrimPrefix(filepath.Base(root), "endstate-validation-"), ModuleID: "apps." + shortID,
-		Inventory: validationmode.Inventory{AppID: shortID, Driver: "winget", Ref: "Synthetic.Ref", DisplayName: shortID, InitialState: "absent"},
+		Inventory: inventory,
 	}
 	data, err := json.Marshal(descriptor)
 	if err != nil {

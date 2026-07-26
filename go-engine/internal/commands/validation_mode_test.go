@@ -6,6 +6,7 @@ package commands
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,6 +64,56 @@ func validationCommandManifestPath(t *testing.T, context *validationmode.Context
 		t.Fatal(err)
 	}
 	return filepath.Join(directory, name)
+}
+
+func TestSharedManifestLoaderRejectsPrivateValidationDriverEvenWhenValidationModeIsActive(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "studio-one", Driver: "validation", Ref: "studio-one", DisplayName: "PreSonus Studio One",
+		Version: "7", InitialState: "present",
+	})
+	path := validationCommandManifestPath(t, context, "private-validation.jsonc")
+	if err := os.WriteFile(path, []byte(`{"version":1,"apps":[{"id":"studio-one","refs":{"windows":"studio-one"},"driver":"validation"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manifest.LoadManifest(path); err == nil {
+		t.Fatal("ordinary manifest loader accepted private validation driver")
+	}
+	original := currentValidationMode
+	currentValidationMode = context
+	t.Cleanup(func() { currentValidationMode = original })
+	if _, envelopeErr := loadManifest(path); envelopeErr == nil {
+		t.Fatal("shared command loader admitted the private validation driver")
+	}
+}
+
+func TestRunExportCannotUseValidationModeToReadPrivateManifestTargets(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "studio-one", Driver: "validation", Ref: "studio-one", DisplayName: "PreSonus Studio One",
+		Version: "7", InitialState: "present",
+	})
+	external := t.TempDir()
+	secret := filepath.Join(external, "foreign-settings.txt")
+	if err := os.WriteFile(secret, []byte("must-not-export"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	path := validationCommandManifestPath(t, context, "private-export.jsonc")
+	raw := fmt.Sprintf(`{"version":1,"apps":[{"id":"studio-one","refs":{"windows":"studio-one"},"driver":"validation"}],"restore":[{"type":"copy","source":"stolen.txt","target":%q}]}`, secret)
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := currentValidationMode
+	currentValidationMode = context
+	t.Cleanup(func() { currentValidationMode = original })
+	exportRoot := filepath.Join(context.Root(), "export")
+	if _, envelopeErr := RunExport(ExportFlags{Manifest: path, Export: exportRoot}); envelopeErr == nil {
+		t.Fatal("export-config admitted a private validation manifest")
+	}
+	if _, err := os.Stat(filepath.Join(exportRoot, "stolen.txt")); !os.IsNotExist(err) {
+		t.Fatalf("export-config wrote through private-manifest seam: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(exportRoot, "manifest.snapshot.jsonc")); !os.IsNotExist(err) {
+		t.Fatalf("export-config wrote a manifest snapshot before refusal: %v", err)
+	}
 }
 
 func TestDurableLegacyRevertDispatchUsesCurrentValidationContext(t *testing.T) {

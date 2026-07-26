@@ -127,7 +127,30 @@ func deriveValidationInstancePolicies(context *validationmode.Context, session *
 	for index, instance := range instances {
 		coordinate := fmt.Sprintf("instances[%d]", index)
 		detector := validationInstanceDetector(mod, instance.DetectorID)
-		if instance.ModuleID != mod.ID || detector == nil || detector.Type != "path" || instance.Evidence.Type != "path" {
+		if instance.ModuleID != mod.ID || detector == nil || detector.Type != instance.Evidence.Type {
+			return nil, validationPreflightFailure(session, coordinate+".detectorId", "instance-provenance", isolationReasonUnsafePath)
+		}
+		if detector.Type == "package" {
+			inventory := context.Descriptor().Inventory
+			if inventory.InitialState != "present" || instance.Root != "" || instance.Evidence.Path != "" || instance.ID == "" {
+				return nil, validationPreflightFailure(session, coordinate+".root", "instance-provenance", isolationReasonUnsafePath)
+			}
+			probe := *mod
+			probe.Config = &modules.ConfigDef{InstanceDetectors: []modules.InstanceDetectorDef{*detector}}
+			expected, discoverErr := modules.DiscoverInstances(&probe, []modules.PackageEvidence{{
+				AppID: inventory.AppID, Backend: inventory.Driver, Platform: "windows",
+				Ref: inventory.Ref, Driver: inventory.Driver, RawVersion: inventory.Version,
+			}}, modules.DiscoveryOptions{})
+			if discoverErr != nil || len(expected) != 1 || expected[0] != instance {
+				return nil, validationPreflightFailure(session, coordinate+".id", "instance-provenance", isolationReasonUnsafePath)
+			}
+			if _, duplicate := policies[instance.ID]; duplicate {
+				return nil, validationPreflightFailure(session, coordinate+".id", "instance-provenance", isolationReasonUnsafePath)
+			}
+			policies[instance.ID] = validationmode.HostPathPolicy{}
+			continue
+		}
+		if detector.Type != "path" || instance.Evidence.Type != "path" {
 			return nil, validationPreflightFailure(session, coordinate+".detectorId", "instance-provenance", isolationReasonUnsafePath)
 		}
 		if instance.Root == "" || instance.Root != instance.Evidence.Path || instance.ID == "" {

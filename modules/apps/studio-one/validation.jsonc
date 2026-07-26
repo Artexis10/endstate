@@ -8,7 +8,9 @@
         "id": "generation-preferences-g1-61e9f6f3c254",
         "mode": "config-generation-v2",
         "fixture": {
-          "type": "auto"
+          "type": "declarative",
+          "path": "modules/apps/studio-one/validation-fixtures/generation-preferences-g1.jsonc",
+          "sha256": "eea636e49683d933567a62f5da9df6434cbad76684222ba1263c608bf958ddb6"
         },
         "timeoutSeconds": 120,
         "minimumAssertions": {

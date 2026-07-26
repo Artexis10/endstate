@@ -313,6 +313,74 @@ func TestRuntimeForbiddenOutputValuesCoverAuthoritiesArtifactsAndFixtureSentinel
 	}
 }
 
+func TestLeakDetectionRejectsJSONEscapedNestedStrings(t *testing.T) {
+	forbidden := `C:\Users\validation\AppData\Roaming\Endstate`
+	tests := []struct {
+		name string
+		wire any
+	}{
+		{name: "message", wire: map[string]any{"message": forbidden}},
+		{name: "nested debug", wire: map[string]any{"message": map[string]any{"debug": forbidden}}},
+		{name: "nested path array", wire: map[string]any{"debug": []any{map[string]any{"path": forbidden}}}},
+		{name: "encoded nested json", wire: map[string]any{"message": mustContractJSON(t, map[string]any{"path": forbidden})}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			raw, err := json.Marshal(test.wire)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !leaked(raw, forbidden) {
+				t.Fatalf("escaped nested forbidden value was not detected: %s", raw)
+			}
+		})
+	}
+}
+
+func TestLeakDetectionNormalizesWindowsSlashDirection(t *testing.T) {
+	forbidden := `C:\Users\validation\AppData\Roaming\Endstate`
+	if !leaked([]byte(`{"path":"C:/Users/validation/AppData/Roaming/Endstate/config.json"}`), forbidden) {
+		t.Fatal("forward-slash rendering of a forbidden Windows path was accepted")
+	}
+}
+
+func TestLeakDetectionFailsClosedBeyondRecursiveDecodeLimit(t *testing.T) {
+	encode := func(value string, depth int) []byte {
+		var nested any = value
+		for range depth {
+			raw, err := json.Marshal(map[string]any{"message": nested})
+			if err != nil {
+				t.Fatal(err)
+			}
+			nested = string(raw)
+		}
+		raw, err := json.Marshal(map[string]any{"message": nested})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return raw
+	}
+	forbidden := `C:\Users\validation\AppData\Roaming\Endstate`
+	if !leaked(encode(forbidden, 12), forbidden) {
+		t.Fatal("forbidden path nested beyond recursive decode limit was accepted")
+	}
+	if !leaked(encode("public-safe-value", 12), forbidden) {
+		t.Fatal("excessive recursive encoding did not fail closed")
+	}
+	if leaked(encode("public-safe-value", 3), forbidden) {
+		t.Fatal("safe bounded recursive encoding was rejected")
+	}
+}
+
+func mustContractJSON(t *testing.T, value any) string {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(raw)
+}
+
 func eventSegment(runID string, phases []string) string {
 	var result strings.Builder
 	for index, phase := range phases {

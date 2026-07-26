@@ -227,6 +227,20 @@ func (session *configRestoreExecutionSession) Execute(
 	defer closePreparedConfigRestoreExecutions(prepared)
 	collisions := applyUnifiedConcreteConfigRestoreCollisions(&result.Plan, prepared, session.runtime.inputs, options)
 	applyLegacyConcreteConfigRestoreCollisions(&legacyPreview, collisions)
+	earlyItems := make(map[int][]restore.RestoreResult, len(prepared))
+	for index := range prepared {
+		item := &prepared[index]
+		set := &result.Plan.Sets[item.setIndex]
+		if !selectedConfigRestorePlanSet(*set) {
+			continue
+		}
+		outcome := inspectLiveConfigRestoreSetFn(ctx, item.materialized, options.Registry, options.HostBoundary, options.StateDir)
+		if outcome.Status == planner.StatusPlanned {
+			continue
+		}
+		applyConfigRestoreSetOutcome(set, outcome)
+		earlyItems[item.setIndex] = configRestoreResultsForSet(*set, item.materialized, outcome)
+	}
 	for index := range prepared {
 		item := &prepared[index]
 		set := &result.Plan.Sets[item.setIndex]
@@ -263,6 +277,15 @@ func (session *configRestoreExecutionSession) Execute(
 			emitGenerationConfigResolution(options.Emitter, set)
 			emittedResolutions[index] = true
 		}
+	}
+	for index := range result.Plan.Sets {
+		items, ok := earlyItems[index]
+		if !ok {
+			continue
+		}
+		result.RestoreItems = append(result.RestoreItems, items...)
+		result.EventResults = append(result.EventResults, items...)
+		emitConfigRestoreItems(options.Emitter, items, result.Plan.Sets[index].Source.ModuleID)
 	}
 	for _, set := range legacyPreview.Sets {
 		if set.Resolution.Status != planner.StatusPlanned {
@@ -544,9 +567,22 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 	options configRestoreExecutionOptions,
 ) []preparedConfigRestoreExecution {
 	prepared := make([]preparedConfigRestoreExecution, 0, len(plan.Sets))
+	stageParent := ""
+	stageParentReady := true
+	if options.ValidationContext != nil {
+		stageParent = filepath.Join(options.StateDir, "config-staging")
+		if options.ValidationContext.ValidateSandboxPath(stageParent) != nil || os.MkdirAll(stageParent, 0o700) != nil ||
+			options.ValidationContext.ValidateSandboxPath(stageParent) != nil {
+			stageParentReady = false
+		}
+	}
 	for index := range plan.Sets {
 		set := &plan.Sets[index]
 		if !selectedConfigRestorePlanSet(*set) {
+			continue
+		}
+		if !stageParentReady {
+			markConfigRestoreFailure(set, planner.ReasonStagingValidationFailed, planner.StatusFailed)
 			continue
 		}
 		source, ok := session.sourceForCapture(set.Source.CaptureID)
@@ -558,7 +594,8 @@ func (session *configRestoreExecutionSession) stageAndMaterialize(
 			CaptureID: set.Source.CaptureID, PayloadRoot: source.payloadRoot,
 			PayloadManifest: source.payloadManifest, SourceGeneration: set.Source.Generation,
 			TargetGeneration: set.TargetGenerationDef, MigrationEdges: set.MigrationEdges,
-			Observer: events.NewMigrationStageObserver(options.Emitter, set.Source.ConfigSetID),
+			TempParent: stageParent,
+			Observer:   events.NewMigrationStageObserver(options.Emitter, set.Source.ConfigSetID),
 		})
 		if err != nil {
 			reason := planner.ReasonStagingValidationFailed
@@ -733,8 +770,10 @@ func configRestoreResultsForSet(
 		if index < len(prepared) {
 			prior := prepared[index].Prior()
 			item.TargetExistedBefore = prior.Kind != configrestore.StateAbsent
-			item.BackupPath = prior.BackupPath
-			item.BackupCreated = prior.BackupPath != ""
+			if outcome.Status != planner.StatusSkipped {
+				item.BackupPath = prior.BackupPath
+				item.BackupCreated = prior.BackupPath != ""
+			}
 		}
 		results = append(results, item)
 	}

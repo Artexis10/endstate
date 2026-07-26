@@ -32,7 +32,7 @@ var (
 )
 
 // Run validates one exact production module/scenario pair and executes its
-// schema-v1 roundtrip through the caller-built engine. Operational failures
+// declared config roundtrip through the caller-built engine. Operational failures
 // are returned in Result; errors are reserved for harness-owned I/O failures.
 func Run(ctx context.Context, request Request) (Result, error) {
 	selected, failure := compileSelection(request, time.Now().UTC())
@@ -64,7 +64,12 @@ func Run(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return failedSelectionResult(selected, fail(CodeIsolationFailure, "setup", "runtime", "prepare disposable runtime")), err
 	}
-	result := executeJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
+	var result Result
+	if selected.scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 {
+		result = executeV2Journey(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
+	} else {
+		result = executeJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
+	}
 	result = applyCleanupFailure(result, cleanup())
 	if err := persistResult(request.ResultPath, result); err != nil {
 		return result, err
@@ -124,6 +129,9 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	}
 
 	inventory := validationInventory(selected.module)
+	if selected.scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 {
+		inventory.Version = selected.v2Fixture.Definition.SourceVersion
+	}
 	descriptor := validationmode.Descriptor{
 		SchemaVersion: 1, ScenarioID: selected.scenario.ID, Nonce: nonce,
 		ModuleID: selected.module.ID, Inventory: inventory,
@@ -150,13 +158,20 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		_ = cleanup()
 		return nil, func() error { return nil }, nil, err
 	}
-	plan, fixtureFailure := compileFixturePlan(validationContext, selected.module, selected.scenario, selected.fixture)
+	var plan *FixturePlan
+	var v2Plan *V2FixturePlan
+	var fixtureFailure *Failure
+	if selected.scenario.Mode == validationmatrix.ScenarioConfigRoundtripV1 {
+		plan, fixtureFailure = compileFixturePlan(validationContext, selected.module, selected.scenario, selected.fixture)
+	} else {
+		v2Plan, fixtureFailure = compileV2FixturePlan(validationContext, selected.module, selected.scenario, selected.v2Fixture, inventory)
+	}
 	if fixtureFailure != nil {
 		_ = cleanup()
 		return nil, func() error { return nil }, fixtureFailure, nil
 	}
 	runtime := &scenarioRuntime{
-		Module: selected.module, Scenario: selected.scenario, Plan: plan,
+		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan,
 		AuthorityRoot: authorityRoot, Root: root, GuardRoot: guardRoot, ChildWorkingDir: childWorkingDir,
 		Nonce: nonce, Inventory: inventory,
 	}

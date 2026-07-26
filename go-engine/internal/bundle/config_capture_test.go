@@ -75,6 +75,41 @@ func TestCollectConfigSetPreservesNestedHierarchyAndSameBasenames(t *testing.T) 
 	}
 }
 
+func TestCollectConfigSetScopesFileExcludesToTheDeclaredSource(t *testing.T) {
+	instanceRoot := filepath.Join(t.TempDir(), "Temp", "instance")
+	writeCaptureFile(t, filepath.Join(instanceRoot, "settings.json"), []byte("settings"))
+	plan := testConfigSetCapturePlan(instanceRoot, &modules.CaptureDef{
+		Files:        []modules.CaptureFile{{Source: `${instance.root}/settings.json`, Dest: "settings.json"}},
+		ExcludeGlobs: []string{`**\Temp\**`},
+	})
+
+	result, err := CollectConfigSet(plan, t.TempDir())
+	if err != nil {
+		t.Fatalf("CollectConfigSet: %v", err)
+	}
+	if result.FilesCollected != 1 || len(result.Files) != 1 || result.Files[0] != "settings.json" {
+		t.Fatalf("collection = %+v, want the declared file despite an excluded-name host ancestor", result)
+	}
+}
+
+func TestCollectConfigSetScopesDirectoryExcludesBelowTheDeclaredRoot(t *testing.T) {
+	instanceRoot := filepath.Join(t.TempDir(), "Temp", "instance")
+	writeCaptureFile(t, filepath.Join(instanceRoot, "source", "keep.json"), []byte("keep"))
+	writeCaptureFile(t, filepath.Join(instanceRoot, "source", "Temp", "drop.json"), []byte("drop"))
+	plan := testConfigSetCapturePlan(instanceRoot, &modules.CaptureDef{
+		Files:        []modules.CaptureFile{{Source: `${instance.root}/source`, Dest: "source"}},
+		ExcludeGlobs: []string{`**\Temp\**`},
+	})
+
+	result, err := CollectConfigSet(plan, t.TempDir())
+	if err != nil {
+		t.Fatalf("CollectConfigSet: %v", err)
+	}
+	if result.FilesCollected != 1 || len(result.Files) != 1 || result.Files[0] != "source/keep.json" {
+		t.Fatalf("collection = %+v, want only the non-excluded source-relative member", result)
+	}
+}
+
 func TestCollectConfigSetOptionalAndRequiredMissing(t *testing.T) {
 	root := t.TempDir()
 	optional := testConfigSetCapturePlan(root, &modules.CaptureDef{Files: []modules.CaptureFile{{

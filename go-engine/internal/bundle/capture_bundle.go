@@ -258,7 +258,20 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 			}
 		}
 	}
-	baseManifest, err := manifest.LoadManifest(request.ManifestPath)
+	var baseManifest *manifest.Manifest
+	var err error
+	var validationCaptureApp *manifest.App
+	if request.ValidationContext != nil && strings.EqualFold(request.ValidationContext.Descriptor().Inventory.Driver, "validation") {
+		inventory := request.ValidationContext.Descriptor().Inventory
+		// The intermediate capture manifest publishes only declaration fields.
+		// Display text is carried privately as _name and therefore is not part of
+		// the descriptor-bound App shape admitted by the narrow loader.
+		expected := manifest.App{ID: inventory.AppID, Refs: map[string]string{"windows": inventory.Ref}, Driver: inventory.Driver, Source: inventory.Source}
+		validationCaptureApp = &expected
+		baseManifest, err = manifest.LoadManifestForValidationCapture(request.ManifestPath, expected)
+	} else {
+		baseManifest, err = manifest.LoadManifest(request.ManifestPath)
+	}
 	if err != nil {
 		if request.ValidationContext != nil {
 			return nil, captureIsolation(captureRequestModuleID(request), "manifestPath", "path", "manifestPath", validationmode.ErrUnsafePath)
@@ -367,11 +380,17 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 		}
 		return nil, fmt.Errorf("capture bundle: write manifest: %w", err)
 	}
-	if _, err := manifest.LoadManifest(stagedManifest); err != nil {
+	var strictErr error
+	if validationCaptureApp != nil {
+		_, strictErr = manifest.LoadManifestForValidationCapture(stagedManifest, *validationCaptureApp)
+	} else {
+		_, strictErr = manifest.LoadManifest(stagedManifest)
+	}
+	if strictErr != nil {
 		if request.ValidationContext != nil {
 			return nil, captureIsolation(captureRequestModuleID(request), "manifest.publish", "portable", "manifest.jsonc", validationmode.ErrUnsafePath)
 		}
-		return nil, fmt.Errorf("capture bundle: strict final manifest validation: %w", err)
+		return nil, fmt.Errorf("capture bundle: strict final manifest validation: %w", strictErr)
 	}
 
 	captureIDs := make([]string, 0, len(configCaptures))

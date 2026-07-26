@@ -109,6 +109,10 @@ type ApplyFlags struct {
 	// (plan, drivers, config-module expansion, restore scoping, verify, events,
 	// summary counts) sees only the selected apps. Incompatible with --prune.
 	Only string
+	// validationRebuild is set only by RunRebuild. It admits the private,
+	// descriptor-bound validation manifest without widening ordinary apply or
+	// any other shared manifest consumer.
+	validationRebuild bool
 
 	// Prepared command-scoped restore facts are carried into alternate backend
 	// paths without reloading or renormalizing the manifest/catalog.
@@ -325,7 +329,13 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	// Phase 1: Plan
 	// ----------------------------------------------------------------
 
-	mf, envelopeErr := loadManifest(flags.Manifest)
+	var mf *manifest.Manifest
+	var envelopeErr *envelope.Error
+	if flags.validationRebuild {
+		mf, envelopeErr = loadValidationCommandManifest(flags.Manifest)
+	} else {
+		mf, envelopeErr = loadManifest(flags.Manifest)
+	}
 	if envelopeErr != nil {
 		return nil, envelopeErr
 	}

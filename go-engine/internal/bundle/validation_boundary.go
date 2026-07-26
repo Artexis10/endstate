@@ -6,6 +6,7 @@ package bundle
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
@@ -56,6 +57,9 @@ func resolveCapturePortable(context *validationmode.Context, moduleID, coordinat
 func resolveCaptureHost(context *validationmode.Context, moduleID, coordinate, authored string, policy validationmode.HostPathPolicy) (string, error) {
 	if context == nil {
 		return "", nil
+	}
+	if strings.EqualFold(authored, "${instance.root}") && policy.InstanceRoot != "" {
+		policy.AllowRoot = true
 	}
 	resolved, err := context.ResolveHostPath(authored, policy)
 	if err != nil {

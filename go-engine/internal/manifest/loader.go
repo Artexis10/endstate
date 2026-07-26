@@ -31,13 +31,27 @@ func LoadManifest(path string) (*Manifest, error) {
 	}
 
 	visited := make(map[string]bool)
-	return loadManifestInternal(absPath, visited, 0, true)
+	return loadManifestInternal(absPath, visited, 0, true, nil)
+}
+
+// LoadManifestForValidationCapture admits the private validation driver only
+// for one exact descriptor-bound intermediate capture manifest. Authored
+// manifests continue to use LoadManifest and reject that synthetic driver.
+func LoadManifestForValidationCapture(path string, expected App) (*Manifest, error) {
+	if !strings.EqualFold(strings.TrimSpace(expected.Driver), "validation") || expected.ID == "" || expected.Refs["windows"] == "" {
+		return nil, fmt.Errorf("manifest: validation capture identity is invalid")
+	}
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("manifest: cannot resolve path %q: %w", path, err)
+	}
+	return loadManifestInternal(absPath, make(map[string]bool), 0, true, &expected)
 }
 
 // loadManifestInternal is the recursive implementation used by LoadManifest
 // and resolveIncludes. visited tracks absolute paths to detect cycles. Includes
 // inherit their parent's version when they omit an explicit version.
-func loadManifestInternal(absPath string, visited map[string]bool, inheritedVersion int, root bool) (*Manifest, error) {
+func loadManifestInternal(absPath string, visited map[string]bool, inheritedVersion int, root bool, validationCapture *App) (*Manifest, error) {
 	// Circular include detection
 	if visited[absPath] {
 		return nil, fmt.Errorf("manifest: circular include detected at %q", absPath)
@@ -75,6 +89,9 @@ func loadManifestInternal(absPath string, visited map[string]bool, inheritedVers
 		return nil, fmt.Errorf("manifest: JSON parse error in %q: %w", absPath, err)
 	}
 	m.Version = version
+	if root && validationCapture != nil && len(m.Includes) > 0 {
+		return nil, fmt.Errorf("manifest: validation error in %q: %w: private validation capture manifests must not declare includes", absPath, ErrValidation)
+	}
 	if version == 2 {
 		if err := validateConfigCaptures(m.ConfigCaptures, absPath, false); err != nil {
 			return nil, err
@@ -85,7 +102,11 @@ func loadManifestInternal(absPath string, visited map[string]bool, inheritedVers
 	}
 
 	// Validate app-level constraints (e.g. manual.verifyPath required).
-	if errs := ValidateManifestApps(&m); len(errs) > 0 {
+	validationTarget := validationCapture
+	if !root {
+		validationTarget = nil
+	}
+	if errs := validateLoadedManifestApps(&m, validationTarget); len(errs) > 0 {
 		return nil, fmt.Errorf("manifest: validation error in %q: %w: %s", absPath, ErrValidation, errs[0].Message)
 	}
 
@@ -104,8 +125,33 @@ func loadManifestInternal(absPath string, visited map[string]bool, inheritedVers
 			return nil, err
 		}
 	}
+	if root && validationCapture != nil {
+		if errs := validateLoadedManifestApps(&m, validationCapture); len(errs) > 0 {
+			return nil, fmt.Errorf("manifest: validation error in %q: %w: %s", absPath, ErrValidation, errs[0].Message)
+		}
+	}
 
 	return &m, nil
+}
+
+func validateLoadedManifestApps(value *Manifest, validationCapture *App) []ValidationError {
+	if validationCapture == nil {
+		return ValidateManifestApps(value)
+	}
+	if value == nil || len(value.Apps) != 1 || !exactValidationCaptureApp(value.Apps[0], *validationCapture) ||
+		len(value.Includes) != 0 || len(value.Restore) != 0 || len(value.ConfigModules) != 0 || len(value.LegacyConfigLanes) != 0 {
+		return []ValidationError{{Code: "VALIDATION_CAPTURE_IDENTITY_MISMATCH", Message: "validation capture app differs from descriptor identity"}}
+	}
+	clone := *value
+	clone.Apps = append([]App(nil), value.Apps...)
+	clone.Apps[0].Driver = ""
+	return ValidateManifestApps(&clone)
+}
+
+func exactValidationCaptureApp(actual, expected App) bool {
+	return actual.ID == expected.ID && strings.EqualFold(actual.Driver, "validation") && strings.EqualFold(expected.Driver, "validation") &&
+		actual.Refs["windows"] == expected.Refs["windows"] && actual.Source == expected.Source && actual.Version == expected.Version &&
+		actual.DisplayName == expected.DisplayName && actual.Manual == nil && len(actual.Refs) == 1
 }
 
 // resolveIncludes iterates over manifest.Includes, loads each included file
@@ -124,7 +170,7 @@ func resolveIncludes(m *Manifest, basePath string, visited map[string]bool, pare
 
 		inclPath = filepath.Clean(inclPath)
 
-		included, err := loadManifestInternal(inclPath, visited, parentVersion, false)
+		included, err := loadManifestInternal(inclPath, visited, parentVersion, false, nil)
 		if err != nil {
 			return fmt.Errorf("manifest: failed to load include %q: %w", inc, err)
 		}

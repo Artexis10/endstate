@@ -61,8 +61,9 @@ func matchModulesForApps(catalog map[string]*Module, apps []manifest.App, includ
 	var matched []*Module
 
 	for _, mod := range catalog {
-		// Only consider modules with capture sections.
-		if mod.Capture == nil || (len(mod.Capture.Files) == 0 && len(mod.Capture.RegistryKeys) == 0) {
+		// Only consider modules with a legacy capture lane or at least one
+		// schema-v2 generation capture lane.
+		if !moduleHasCaptureDeclarations(mod) {
 			continue
 		}
 
@@ -109,4 +110,25 @@ func matchModulesForApps(catalog map[string]*Module, apps []manifest.App, includ
 	})
 
 	return matched
+}
+
+func moduleHasCaptureDeclarations(mod *Module) bool {
+	if mod == nil {
+		return false
+	}
+	if mod.Capture != nil && (len(mod.Capture.Files) > 0 || len(mod.Capture.RegistryKeys) > 0) {
+		return true
+	}
+	if mod.Config == nil {
+		return false
+	}
+	for _, set := range mod.Config.Sets {
+		for _, generation := range set.Generations {
+			capture := generation.Capture
+			if capture != nil && (len(capture.Files) > 0 || len(capture.RegistryKeys) > 0 || len(capture.RegistryValues) > 0) {
+				return true
+			}
+		}
+	}
+	return false
 }
