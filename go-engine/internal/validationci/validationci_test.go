@@ -89,6 +89,128 @@ func TestRunCanaryUsesPrivateSystemTempScratch(t *testing.T) {
 	}
 }
 
+func TestRunSyntheticShardPersistsPartialFailedResultAndContinues(t *testing.T) {
+	runnerTemp := filepath.Join(t.TempDir(), "runner-temp")
+	resultRoot := filepath.Join(runnerTemp, "endstate-validation-results")
+	if err := os.MkdirAll(resultRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("RUNNER_TEMP", runnerTemp)
+	repo := testTwoRowRepo(t)
+	engine := filepath.Join(t.TempDir(), "endstate.exe")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := validationmatrix.PlanSynthetic(catalog, validationmatrix.SyntheticPlanOptions{ShardCount: 1})
+	if err != nil || len(plan.Rows) != 2 {
+		t.Fatalf("plan rows = %d, err = %v", len(plan.Rows), err)
+	}
+	detail := strings.Repeat("x", 700)
+	called := 0
+	request := ShardRequest{EnginePath: engine, RepoRoot: repo, Commit: strings.Repeat("a", 40), ShardCount: 1, Shard: 0, ResultPath: filepath.Join(resultRoot, "shard-0.json")}
+	request.Run = func(_ context.Context, got validationharness.Request) (validationharness.Result, error) {
+		row := plan.Rows[called]
+		called++
+		if called == 1 {
+			return validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision, ScenarioID: row.ScenarioID, Kind: row.ScenarioKind, Status: validationharness.ResultStatusFailed, ProofLevels: []validationmatrix.ProofLevel{}, AssertionCounts: map[string]int{validationmatrix.AssertionCaptured: 1}, Failure: &validationharness.Failure{Code: validationharness.CodeArtifactContract, Phase: "capture", Coordinate: "payload", Detail: detail}, PhaseTimings: map[string]time.Duration{"capture": time.Second}}, nil
+		}
+		return passedResult(row), nil
+	}
+	result, err := RunSyntheticShard(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if called != 2 || result.Status != validationharness.ResultStatusFailed || len(result.Rows) != 2 || result.Rows[1].Result.Status != validationharness.ResultStatusPassed {
+		t.Fatalf("result = %+v, called = %d", result, called)
+	}
+	var persisted ShardResult
+	readJSON(t, request.ResultPath, &persisted)
+	failed := persisted.Rows[0].Result
+	if persisted.Status != validationharness.ResultStatusFailed || len(persisted.Rows) != 2 || failed.Failure == nil || failed.Failure.Code != validationharness.CodeArtifactContract || failed.Failure.Phase != "capture" || failed.Failure.Coordinate != "payload" || failed.AssertionCounts[validationmatrix.AssertionCaptured] != 1 || failed.PhaseTimings["capture"] != time.Second || len(failed.ProofLevels) != 0 || len(failed.Failure.Detail) > maxFailureDetailSize {
+		t.Fatalf("persisted failed row = %+v", failed)
+	}
+	if len(detail) != 700 {
+		t.Fatal("compact record mutated the runner-owned failure detail")
+	}
+	input := filepath.Join(runnerTemp, "validation-input")
+	if err := os.Mkdir(input, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	persisted.ShardCount = ShardCount
+	writeJSON(t, filepath.Join(input, "shard-0.json"), persisted)
+	for shard := 1; shard < ShardCount; shard++ {
+		if err := os.WriteFile(filepath.Join(input, "shard-"+string(rune('0'+shard))+".json"), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, name := range []string{"catalog.json", "canary.json"} {
+		if err := os.WriteFile(filepath.Join(input, name), []byte("{}"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Aggregate(AggregateRequest{EnginePath: engine, RepoRoot: repo, Commit: request.Commit, InputDir: input, ResultPath: filepath.Join(resultRoot, "aggregate.json")}); err == nil {
+		t.Fatal("Aggregate accepted persisted failed shard evidence")
+	}
+}
+
+func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
+	repo := sourceRepoRoot(t)
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := validationmatrix.PlanSynthetic(catalog, validationmatrix.SyntheticPlanOptions{ShardCount: ShardCount})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shards := make([][]ShardRow, ShardCount)
+	for _, row := range plan.Rows {
+		identity, err := rowIdentity(row)
+		if err != nil {
+			t.Fatal(err)
+		}
+		shards[row.Shard] = append(shards[row.Shard], ShardRow{Identity: identity, Result: compactHarnessResult(validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision, ScenarioID: row.ScenarioID, Kind: row.ScenarioKind, Status: validationharness.ResultStatusFailed, ProofLevels: []validationmatrix.ProofLevel{}, AssertionCounts: map[string]int{validationmatrix.AssertionCaptured: 1}, Failure: &validationharness.Failure{Code: validationharness.CodeArtifactContract, Phase: "capture", Coordinate: "payload", Detail: strings.Repeat("x", 4096)}, PhaseTimings: map[string]time.Duration{"capture": time.Second, "rebuild": time.Second, "verify": time.Second}})})
+	}
+	maximum := 0
+	for shard, rows := range shards {
+		if len(rows) != 45 {
+			t.Fatalf("shard %d rows = %d, want 45", shard, len(rows))
+		}
+		data, err := json.Marshal(ShardResult{SchemaVersion: SchemaVersion, Commit: strings.Repeat("a", 40), EngineSHA256: strings.Repeat("b", 64), RepositoryHash: strings.Repeat("c", 64), ShardCount: ShardCount, Shard: shard, Status: validationharness.ResultStatusFailed, Rows: rows, Failure: "scenario failed"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(data) > maximum {
+			maximum = len(data)
+		}
+		if len(data) > maxResultSize {
+			t.Fatalf("shard %d serialized to %d bytes, exceeds %d", shard, len(data), maxResultSize)
+		}
+	}
+	t.Logf("maximum production-scale compact shard size: %d bytes", maximum)
+}
+
+func TestReadBoundedRejectsRecursiveDuplicateJSONKeys(t *testing.T) {
+	for _, raw := range []string{
+		`{"status":"passed","status":"failed"}`,
+		`{"identity":{"status":"passed","status":"failed"}}`,
+		`{"identity":{"minimumAssertions":{"captured":1,"captured":2}}}`,
+	} {
+		path := filepath.Join(t.TempDir(), "evidence.json")
+		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var target map[string]any
+		if err := readBounded(path, &target); err == nil {
+			t.Fatalf("readBounded accepted duplicate keys: %s", raw)
+		}
+	}
+}
+
 func TestAggregateRejectsInvalidEvidence(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -169,8 +291,8 @@ func TestAggregateRejectsInvalidEvidence(t *testing.T) {
 			t.Helper()
 			var shard ShardResult
 			readJSON(t, filepath.Join(input, "shard-0.json"), &shard)
-			for name, minimum := range shard.Rows[0].Identity.Scenario.MinimumAssertions {
-				shard.Rows[0].Result.AssertionCounts[name] = minimum - 1
+			for name, count := range shard.Rows[0].Result.AssertionCounts {
+				shard.Rows[0].Result.AssertionCounts[name] = count - 1
 				break
 			}
 			writeJSON(t, filepath.Join(input, "shard-0.json"), shard)
@@ -270,9 +392,13 @@ func newAggregateFixture(t *testing.T) aggregateFixture {
 	var canary CanaryResult
 	for _, row := range plan.Rows {
 		result := passedResult(row)
-		rows[row.Shard] = append(rows[row.Shard], ShardRow{Identity: row, Result: result})
+		identity, identityErr := rowIdentity(row)
+		if identityErr != nil {
+			t.Fatal(identityErr)
+		}
+		rows[row.Shard] = append(rows[row.Shard], ShardRow{Identity: identity, Result: result})
 		if row.ModuleID == "apps.notepad-plus-plus" && row.ScenarioID == "default-v1" {
-			canary = CanaryResult{SchemaVersion: SchemaVersion, Commit: commit, EngineSHA256: engineHash, RepositoryHash: repoHash, Identity: row, Result: result, Status: validationharness.ResultStatusPassed}
+			canary = CanaryResult{SchemaVersion: SchemaVersion, Commit: commit, EngineSHA256: engineHash, RepositoryHash: repoHash, Identity: identity, Result: result, Status: validationharness.ResultStatusPassed}
 		}
 	}
 	if canary.Identity.ModuleID == "" {
@@ -301,11 +427,7 @@ func testShardRequest(t *testing.T, resultPath string) ShardRequest {
 
 func testRepoRoot(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller")
-	}
-	source := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	source := sourceRepoRoot(t)
 	repo := filepath.Join(t.TempDir(), "repo")
 	for _, relative := range []string{
 		"modules/apps/notepad-plus-plus/module.jsonc",
@@ -333,6 +455,37 @@ func testRepoRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return repo
+}
+
+func testTwoRowRepo(t *testing.T) string {
+	t.Helper()
+	repo := testRepoRoot(t)
+	for _, relative := range []string{
+		"modules/apps/wiztree/module.jsonc",
+		"modules/apps/wiztree/validation.jsonc",
+	} {
+		data, err := os.ReadFile(filepath.Join(sourceRepoRoot(t), filepath.FromSlash(relative)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		destination := filepath.Join(repo, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(destination, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return repo
+}
+
+func sourceRepoRoot(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
 func passedResultForRequest(t *testing.T, repo string, request validationharness.Request) validationharness.Result {

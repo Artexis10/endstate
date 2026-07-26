@@ -6,6 +6,7 @@
 package validationci
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -28,9 +29,10 @@ import (
 )
 
 const (
-	SchemaVersion = 1
-	ShardCount    = 8
-	maxResultSize = 64 * 1024
+	SchemaVersion        = 1
+	ShardCount           = 8
+	maxResultSize        = 64 * 1024
+	maxFailureDetailSize = 512
 )
 
 var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
@@ -60,8 +62,20 @@ type ShardResult struct {
 }
 
 type ShardRow struct {
-	Identity validationmatrix.SyntheticRow `json:"identity"`
-	Result   validationharness.Result      `json:"result"`
+	Identity RowIdentity              `json:"identity"`
+	Result   validationharness.Result `json:"result"`
+}
+
+// RowIdentity is the compact, exact binding for a planned synthetic row.
+// RowSHA256 covers the canonical JSON form of the complete SyntheticRow.
+type RowIdentity struct {
+	ModuleID       string                        `json:"moduleId"`
+	ModuleRevision string                        `json:"moduleRevision"`
+	ScenarioID     string                        `json:"scenarioId"`
+	ScenarioKind   validationmatrix.ScenarioKind `json:"scenarioKind"`
+	ScenarioDigest string                        `json:"scenarioDigest"`
+	Shard          int                           `json:"shard"`
+	RowSHA256      string                        `json:"rowSha256"`
 }
 
 type CanaryRequest struct {
@@ -75,14 +89,14 @@ type CanaryRequest struct {
 // CanaryResult is the compact, commit-bound wrapper for the fixed synthetic
 // Notepad++ scenario. It deliberately retains the planned row identity.
 type CanaryResult struct {
-	SchemaVersion  int                           `json:"schemaVersion"`
-	Commit         string                        `json:"commit"`
-	EngineSHA256   string                        `json:"engineSha256"`
-	RepositoryHash string                        `json:"repositoryHash"`
-	Identity       validationmatrix.SyntheticRow `json:"identity"`
-	Result         validationharness.Result      `json:"result"`
-	Status         string                        `json:"status"`
-	Failure        string                        `json:"failure,omitempty"`
+	SchemaVersion  int                      `json:"schemaVersion"`
+	Commit         string                   `json:"commit"`
+	EngineSHA256   string                   `json:"engineSha256"`
+	RepositoryHash string                   `json:"repositoryHash"`
+	Identity       RowIdentity              `json:"identity"`
+	Result         validationharness.Result `json:"result"`
+	Status         string                   `json:"status"`
+	Failure        string                   `json:"failure,omitempty"`
 }
 
 type CatalogRequest struct {
@@ -184,7 +198,11 @@ func RunSyntheticShard(request ShardRequest) (ShardResult, error) {
 		if !validRowResult(row, harnessResult) {
 			return ShardResult{}, errors.New("impossible proof or status combination")
 		}
-		result.Rows = append(result.Rows, ShardRow{Identity: row, Result: harnessResult})
+		identity, identityErr := rowIdentity(row)
+		if identityErr != nil {
+			return ShardResult{}, identityErr
+		}
+		result.Rows = append(result.Rows, ShardRow{Identity: identity, Result: compactHarnessResult(harnessResult)})
 		if harnessResult.Status != validationharness.ResultStatusPassed {
 			result.Status = validationharness.ResultStatusFailed
 			result.Failure = "scenario failed"
@@ -245,7 +263,11 @@ func RunCanary(request CanaryRequest) (CanaryResult, error) {
 	if !matchesRow(row, harnessResult) || !validRowResult(row, harnessResult) {
 		return CanaryResult{}, errors.New("impossible canary proof or status combination")
 	}
-	result := CanaryResult{SchemaVersion: SchemaVersion, Commit: request.Commit, EngineSHA256: engineHash, RepositoryHash: repositoryHash, Identity: row, Result: harnessResult, Status: harnessResult.Status}
+	identity, err := rowIdentity(row)
+	if err != nil {
+		return CanaryResult{}, err
+	}
+	result := CanaryResult{SchemaVersion: SchemaVersion, Commit: request.Commit, EngineSHA256: engineHash, RepositoryHash: repositoryHash, Identity: identity, Result: compactHarnessResult(harnessResult), Status: harnessResult.Status}
 	if result.Status != validationharness.ResultStatusPassed {
 		result.Failure = "scenario failed"
 	}
@@ -334,15 +356,15 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 			return aggregateFailure(request, result, "foreign shard evidence")
 		}
 		for _, row := range evidence.Rows {
-			key := rowKey(row.Identity)
+			key := rowIdentityKey(row.Identity)
 			expectedRow, ok := expected[key]
-			if row.Identity.Shard != shard || !ok || !reflect.DeepEqual(expectedRow, row.Identity) {
+			if row.Identity.Shard != shard || !ok || !matchesRowIdentity(expectedRow, row.Identity) {
 				return aggregateFailure(request, result, "row proof identity drift")
 			}
 			if _, duplicate := seen[key]; duplicate {
 				return aggregateFailure(request, result, "duplicate row evidence")
 			}
-			if !matchesRow(row.Identity, row.Result) || !validPassedRow(row.Identity, row.Result) {
+			if !matchesRow(expectedRow, row.Result) || !validPassedRow(expectedRow, row.Result) {
 				return aggregateFailure(request, result, "failed row evidence")
 			}
 			seen[key] = struct{}{}
@@ -397,7 +419,16 @@ func validRowResult(row validationmatrix.SyntheticRow, result validationharness.
 	if result.Status == validationharness.ResultStatusPassed {
 		return validPassedRow(row, result)
 	}
-	return result.Status == validationharness.ResultStatusFailed && result.Failure != nil && len(result.ProofLevels) == 0 && len(result.AssertionCounts) == 0
+	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || len(result.ProofLevels) != 0 {
+		return false
+	}
+	allowed := allowedAssertions(row.ScenarioKind)
+	for name, count := range result.AssertionCounts {
+		if _, ok := allowed[name]; !ok || count <= 0 {
+			return false
+		}
+	}
+	return true
 }
 
 func validPassedRow(row validationmatrix.SyntheticRow, result validationharness.Result) bool {
@@ -462,11 +493,29 @@ func validCanary(canary CanaryResult, commit, engineHash, repositoryHash string,
 	if canary.SchemaVersion != SchemaVersion || canary.Commit != commit || canary.EngineSHA256 != engineHash || canary.RepositoryHash != repositoryHash || canary.Status != validationharness.ResultStatusPassed || canary.Failure != "" || canary.Identity.ModuleID != "apps.notepad-plus-plus" || canary.Identity.ScenarioID != "default-v1" {
 		return false
 	}
-	row, ok := expected[rowKey(canary.Identity)]
-	return ok && reflect.DeepEqual(row, canary.Identity) && matchesRow(row, canary.Result) && validPassedRow(row, canary.Result)
+	row, ok := expected[rowIdentityKey(canary.Identity)]
+	return ok && matchesRowIdentity(row, canary.Identity) && matchesRow(row, canary.Result) && validPassedRow(row, canary.Result)
 }
 func rowKey(row validationmatrix.SyntheticRow) string {
 	return strings.Join([]string{row.ModuleID, row.ModuleRevision, row.ScenarioID, string(row.ScenarioKind), row.ScenarioDigest}, "\x00")
+}
+
+func rowIdentityKey(identity RowIdentity) string {
+	return strings.Join([]string{identity.ModuleID, identity.ModuleRevision, identity.ScenarioID, string(identity.ScenarioKind), identity.ScenarioDigest}, "\x00")
+}
+
+func rowIdentity(row validationmatrix.SyntheticRow) (RowIdentity, error) {
+	data, err := json.Marshal(row)
+	if err != nil {
+		return RowIdentity{}, err
+	}
+	digest := sha256.Sum256(data)
+	return RowIdentity{ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision, ScenarioID: row.ScenarioID, ScenarioKind: row.ScenarioKind, ScenarioDigest: row.ScenarioDigest, Shard: row.Shard, RowSHA256: hex.EncodeToString(digest[:])}, nil
+}
+
+func matchesRowIdentity(row validationmatrix.SyntheticRow, identity RowIdentity) bool {
+	expected, err := rowIdentity(row)
+	return err == nil && expected == identity
 }
 
 func validateAuthority(engine, repo, commit, resultPath, leaf string) error {
@@ -571,6 +620,9 @@ func readBounded(path string, target any) error {
 	if err != nil {
 		return err
 	}
+	if err := rejectDuplicateJSONKeys(data); err != nil {
+		return err
+	}
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {
@@ -584,6 +636,64 @@ func readBounded(path string, target any) error {
 		return err
 	}
 	return nil
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := walkJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return errors.New("evidence contains multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func walkJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, objectOrArray := token.(json.Delim)
+	if !objectOrArray {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := map[string]struct{}{}
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return errors.New("evidence object key is not a string")
+			}
+			if _, duplicate := seen[name]; duplicate {
+				return fmt.Errorf("duplicate evidence object key %q", name)
+			}
+			seen[name] = struct{}{}
+			if err := walkJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	case '[':
+		for decoder.More() {
+			if err := walkJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	default:
+		return errors.New("unexpected JSON delimiter")
+	}
 }
 
 func runHarnessScenario(run ScenarioRunner, engine, repo, moduleID, scenarioID, leaf string) (result validationharness.Result, err error) {
@@ -623,6 +733,28 @@ func cleanupHarnessScratch(root, resultPath string) error {
 func strictTempDescendant(path string) bool {
 	relative, err := filepath.Rel(filepath.Clean(os.TempDir()), filepath.Clean(path))
 	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
+
+func compactHarnessResult(result validationharness.Result) validationharness.Result {
+	compact := result
+	compact.ProofLevels = append([]validationmatrix.ProofLevel(nil), result.ProofLevels...)
+	compact.AssertionCounts = make(map[string]int, len(result.AssertionCounts))
+	for name, count := range result.AssertionCounts {
+		compact.AssertionCounts[name] = count
+	}
+	compact.PhaseTimings = make(map[string]time.Duration, len(result.PhaseTimings))
+	for phase, duration := range result.PhaseTimings {
+		compact.PhaseTimings[phase] = duration
+	}
+	if result.Failure != nil {
+		failure := *result.Failure
+		failure.ProofLevels = append([]validationmatrix.ProofLevel(nil), result.Failure.ProofLevels...)
+		if len(failure.Detail) > maxFailureDetailSize {
+			failure.Detail = failure.Detail[:maxFailureDetailSize]
+		}
+		compact.Failure = &failure
+	}
+	return compact
 }
 func fileSHA256(path string) (string, error) {
 	data, err := os.ReadFile(path)
