@@ -73,6 +73,40 @@ func TestLoadManifestForValidationCaptureRejectsForeignAppAndRestoreShapes(t *te
 	}
 }
 
+func TestLoadProjectedManifestForValidationCaptureAdmitsStrictFinalProjection(t *testing.T) {
+	expected := App{
+		ID: "wave-link", Refs: map[string]string{"windows": "wave-link"},
+		Driver: "validation", DisplayName: "Elgato Wave Link",
+	}
+	path := filepath.Join(t.TempDir(), "captured.jsonc")
+	raw := []byte(`{
+  "version": 1,
+  "apps": [{"id":"wave-link","refs":{"windows":"wave-link"},"driver":"validation","displayName":"Elgato Wave Link"}],
+  "configModules": ["apps.wave-link"],
+  "restore": [{"type":"copy","source":"./configs/apps.wave-link/settings.json","target":"%APPDATA%\\Elgato\\WaveLink\\settings.json","backup":true,"fromModule":"apps.wave-link"}],
+  "verify": [{"type":"file-exists","path":"%APPDATA%\\Elgato\\WaveLink\\settings.json"}]
+}`)
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadManifestForValidationCapture(path, expected); err == nil {
+		t.Fatal("intermediate validation capture loader accepted a final config projection")
+	}
+	loaded, err := LoadProjectedManifestForValidationCapture(path, expected)
+	if err != nil {
+		t.Fatalf("projected validation capture load: %v", err)
+	}
+	if len(loaded.Apps) != 1 || len(loaded.ConfigModules) != 1 || len(loaded.Restore) != 1 || len(loaded.Verify) != 1 {
+		t.Fatalf("projected validation capture = %+v", loaded)
+	}
+
+	wrong := expected
+	wrong.DisplayName = "Foreign"
+	if _, err := LoadProjectedManifestForValidationCapture(path, wrong); err == nil {
+		t.Fatal("projected validation capture loader accepted mismatched descriptor identity")
+	}
+}
+
 func mustValidationJSONString(t *testing.T, value string) string {
 	t.Helper()
 	quoted, err := json.Marshal(value)

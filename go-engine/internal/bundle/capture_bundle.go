@@ -381,7 +381,7 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	}
 	var strictErr error
 	if validationCaptureApp != nil {
-		_, strictErr = manifest.LoadManifestForValidationCapture(stagedManifest, *validationCaptureApp)
+		_, strictErr = manifest.LoadProjectedManifestForValidationCapture(stagedManifest, *validationCaptureApp)
 	} else {
 		_, strictErr = manifest.LoadManifest(stagedManifest)
 	}

@@ -401,15 +401,39 @@ func TestCreateCaptureBundleWithValidationLoadsPrivateDriverIntermediateWithPubl
 	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"capture","apps":[{"id":"studio-one","refs":{"windows":"studio-one"},"driver":"validation","displayName":"PreSonus Studio One"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	virtualAppData, _ := context.VirtualRoot("APPDATA")
+	writeCaptureFile(t, filepath.Join(virtualAppData, "PreSonus", "settings.json"), []byte("validation-driver-settings"))
+	mod := &modules.Module{
+		ID: "apps.studio-one", DisplayName: "PreSonus Studio One",
+		Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{
+			Source: `%APPDATA%\PreSonus\settings.json`, Dest: "apps/studio-one/settings.json",
+		}}},
+		Restore: []modules.RestoreDef{{
+			Type: "copy", Source: "./payload/apps/studio-one/settings.json",
+			Target: `%APPDATA%\PreSonus\settings.json`, Backup: true,
+		}},
+	}
 	outputPath := filepath.Join(context.Root(), "manifests", "validation-driver.zip")
 	result, err := CreateCaptureBundle(CaptureBundleRequest{
-		ManifestPath: manifestPath, OutputPath: outputPath, EndstateVersion: "test", ValidationContext: context,
+		ManifestPath: manifestPath, OutputPath: outputPath, EndstateVersion: "test",
+		Modules: []*modules.Module{mod}, ValidationContext: context,
 	})
 	if err != nil {
 		t.Fatalf("CreateCaptureBundle: %v", err)
 	}
-	if result == nil {
-		t.Fatal("CreateCaptureBundle returned nil result")
+	if result == nil || !reflect.DeepEqual(result.ConfigModulesIncluded, []string{"studio-one"}) {
+		t.Fatalf("CreateCaptureBundle result = %+v", result)
+	}
+	entries := readValidationZip(t, outputPath)
+	if string(entries["configs/studio-one/settings.json"]) != "validation-driver-settings" {
+		t.Fatalf("validation driver payload = %q", entries["configs/studio-one/settings.json"])
+	}
+	var published manifest.Manifest
+	if err := json.Unmarshal(entries["manifest.jsonc"], &published); err != nil {
+		t.Fatal(err)
+	}
+	if len(published.Restore) != 1 || published.Restore[0].FromModule != mod.ID {
+		t.Fatalf("validation driver projection = %+v", published)
 	}
 }
 

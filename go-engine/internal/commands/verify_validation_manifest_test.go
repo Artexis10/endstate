@@ -36,4 +36,18 @@ func TestLoadValidationCommandManifestBindsValidationDriverDisplayName(t *testin
 	if _, envelopeErr := loadValidationCommandManifest(writeManifest(t, "Different Studio One")); envelopeErr == nil {
 		t.Fatal("wrong displayName accepted")
 	}
+
+	projected := filepath.Join(t.TempDir(), "captured-projected.jsonc")
+	projectedData := []byte(`{
+  "version":1,
+  "apps":[{"id":"studio-one","refs":{"windows":"studio-one"},"driver":"validation","displayName":"PreSonus Studio One"}],
+  "configModules":["apps.studio-one"],
+  "restore":[{"type":"copy","source":"./configs/apps.studio-one/settings.json","target":"%APPDATA%\\PreSonus\\settings.json","backup":true,"fromModule":"apps.studio-one"}]
+}`)
+	if err := os.WriteFile(projected, projectedData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, envelopeErr := loadValidationCommandManifest(projected); envelopeErr != nil {
+		t.Fatalf("strict projected validation manifest rejected: %+v", envelopeErr)
+	}
 }

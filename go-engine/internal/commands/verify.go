@@ -426,7 +426,7 @@ func loadValidationCommandManifest(path string) (*manifest.Manifest, *envelope.E
 	var err error
 	if currentValidationMode != nil && strings.EqualFold(currentValidationMode.Descriptor().Inventory.Driver, "validation") {
 		inventory := currentValidationMode.Descriptor().Inventory
-		mf, err = manifest.LoadManifestForValidationCapture(path, manifest.App{
+		mf, err = manifest.LoadProjectedManifestForValidationCapture(path, manifest.App{
 			ID: inventory.AppID, Refs: map[string]string{"windows": inventory.Ref},
 			Driver: inventory.Driver, Source: inventory.Source, DisplayName: inventory.DisplayName,
 		})
