@@ -65,8 +65,8 @@
 
 ## 6. Verification
 
-- [ ] 6.1 `go test ./...` green.
-- [ ] 6.2 Against the real reproduction on the affected machine: capture, confirm Chrome and
+- [x] 6.1 `go test ./...` green.
+- [x] 6.2 Against the real reproduction on the affected machine: capture, confirm Chrome and
       Brave now appear with fingerprints, then apply and confirm both report `present`, zero
       installs planned, no failure row.
 - [x] 6.3 Confirm no event-contract change: statuses and phases unchanged, only which status
@@ -74,10 +74,10 @@
 
 ## 6a. Authoritative binding correction
 
-- [ ] 6a.1 Verify on a WinGet 1.29 host that export plus details expose local ARP bindings,
+- [x] 6a.1 Verify on a WinGet 1.29 host that export plus details expose local ARP bindings,
       including details blocks without an ARP identifier.
 - [ ] 6a.2 Verify the real Chrome/Brave reproduction and the exact-name Everything collision.
-- [ ] 6a.3 Run the full Go suite outside the restricted sandbox; the local sandbox blocks
+- [x] 6a.3 Run the full Go suite outside the restricted sandbox; the local sandbox blocks
       the profile write and HKCU registry round-trip tests.
 
 ## 7. Out of scope, stated explicitly

@@ -243,19 +243,21 @@ func WingetDetailsSource(source string) (map[string]SnapshotApp, error) {
 }
 
 var arpLocalIdentifier = regexp.MustCompile(`ARP\\(?:Machine|User)\\(?:X64|X86|ARM64)\\[^\r\n]+`)
+var wingetDetailsOrdinal = regexp.MustCompile(`^\(\d+/\d+\)\s+`)
 
 func parseWingetDetails(output []byte) map[string]SnapshotApp {
 	result := map[string]SnapshotApp{}
 	currentID := ""
-	for _, raw := range strings.Split(string(output), "\n") {
-		line := cleanCR(raw)
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		line := cleanCR(scanner.Text())
 		if len(line) > 0 && line[0] != ' ' && line[0] != '\t' {
 			if start := strings.LastIndex(line, " ["); start > 0 && strings.HasSuffix(strings.TrimSpace(line), "]") {
 				id := strings.TrimSuffix(strings.TrimSpace(line[start+2:]), "]")
 				currentID = strings.TrimSpace(id)
 				key := strings.ToLower(currentID)
 				evidence := result[key]
-				evidence.Name = strings.TrimSpace(line[:start])
+				evidence.Name = wingetDetailsOrdinal.ReplaceAllString(strings.TrimSpace(line[:start]), "")
 				evidence.ID = currentID
 				evidence.InventoryRelationshipKnown = true
 				result[key] = evidence

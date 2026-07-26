@@ -83,6 +83,20 @@ func TestWingetDetailsSourceParsesARPWithoutTreatingIndentedUpgradeAsHeading(t *
 	}
 }
 
+func TestParseWingetDetailsParsesRealWindowsCRLFBlocks(t *testing.T) {
+	details := parseWingetDetails([]byte("(1/130) Google Chrome [Google.Chrome]\r\nVersion: 150.0\r\nLocal Identifier: ARP\\Machine\\X64\\Google Chrome\r\n"))
+	app, ok := details["google.chrome"]
+	if !ok {
+		t.Fatalf("details = %#v, want Google.Chrome from CRLF output", details)
+	}
+	if app.Name != "Google Chrome" {
+		t.Fatalf("name = %q, want ordinal-free display name", app.Name)
+	}
+	if !app.InventoryRelationshipKnown || len(app.InventoryLocalIdentifiers) != 1 || app.InventoryLocalIdentifiers[0] != `ARP\Machine\X64\Google Chrome` {
+		t.Fatalf("details app = %#v, want authoritative Chrome ARP binding", app)
+	}
+}
+
 func TestParseWingetDetailsRetainsBindingsFromRepeatedPackageBlocks(t *testing.T) {
 	details := parseWingetDetails([]byte("VC++ Redist [Microsoft.VCRedist.2015+.x64]\n  ARP\\Machine\\X64\\VC Redist\nVC++ Redist [Microsoft.VCRedist.2015+.x64]\n  ARP\\Machine\\X86\\VC Redist\n"))
 	app := details["microsoft.vcredist.2015+.x64"]
