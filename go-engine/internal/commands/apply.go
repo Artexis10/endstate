@@ -393,22 +393,7 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	var packageModuleMap map[string][]string
 	var matchedModules []*modules.Module
 	if catalog != nil {
-		matchedModules = modules.MatchModulesForApps(catalog, mf.Apps)
-		if len(matchedModules) > 0 {
-			packageModuleMap = buildPackageModuleMap(matchedModules)
-			configModuleMap = make(map[string]string, len(matchedModules))
-			for _, mod := range matchedModules {
-				if len(mod.Matches.Winget) > 0 {
-					for _, wingetRef := range mod.Matches.Winget {
-						configModuleMap[wingetRef] = mod.ID
-					}
-				} else if len(mod.Matches.Chocolatey) == 0 {
-					// pathExists-only modules: key by short app ID so the GUI can match.
-					shortID := strings.TrimPrefix(mod.ID, "apps.")
-					configModuleMap[shortID] = mod.ID
-				}
-			}
-		}
+		matchedModules, configModuleMap, packageModuleMap = matchApplyModuleOwnership(catalog, mf.Apps)
 	}
 	// restoreModulesAvailable answers "which settings does this profile carry",
 	// not "which catalog modules match these apps" — the two diverge sharply
@@ -520,6 +505,28 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	}
 
 	return runApplyDriverLanes(flags, mf, emitter, runID, configModuleMap, packageModuleMap, restoreScope)
+}
+
+func matchApplyModuleOwnership(catalog map[string]*modules.Module, apps []manifest.App) ([]*modules.Module, map[string]string, map[string][]string) {
+	matched := modules.MatchModulesForAppsIncludingInstall(catalog, apps)
+	if len(matched) == 0 {
+		return nil, nil, nil
+	}
+	packageMap := buildPackageModuleMap(matched)
+	configMatched := modules.MatchModulesForApps(catalog, apps)
+	configMap := make(map[string]string, len(configMatched))
+	for _, mod := range configMatched {
+		if len(mod.Matches.Winget) > 0 {
+			for _, wingetRef := range mod.Matches.Winget {
+				configMap[wingetRef] = mod.ID
+			}
+		} else if len(mod.Matches.Chocolatey) == 0 {
+			// pathExists-only modules: key by short app ID so the GUI can match.
+			shortID := strings.TrimPrefix(mod.ID, "apps.")
+			configMap[shortID] = mod.ID
+		}
+	}
+	return matched, configMap, packageMap
 }
 
 func scopeConfigRestoreRuntimeForOnly(runtime *configRestoreRuntime, matched []*modules.Module) {

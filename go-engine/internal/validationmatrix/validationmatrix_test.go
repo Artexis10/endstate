@@ -4,6 +4,7 @@
 package validationmatrix
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -88,6 +89,32 @@ func TestLoadCatalogRejectsMissingDuplicateStaleAndInvalidSidecars(t *testing.T)
 				t.Fatalf("LoadCatalog error = %v (code %q), want code %q", err, got, tt.code)
 			}
 		})
+	}
+}
+
+func TestLoadedValidationRecordPinsImmutableSourceSnapshot(t *testing.T) {
+	root := t.TempDir()
+	mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+	writeValidation(t, root, "alpha", validV1Validation("apps.alpha", mod.Revision))
+
+	catalog, err := LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := catalog.Records["apps.alpha"]
+	before := record.SourceSnapshot()
+	if len(before) == 0 {
+		t.Fatal("validation source snapshot is empty")
+	}
+	if err := os.WriteFile(record.FilePath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := record.SourceSnapshot(); !bytes.Equal(got, before) {
+		t.Fatal("validation source snapshot changed after source edit")
+	}
+	before[0] ^= 0xff
+	if got := record.SourceSnapshot(); bytes.Equal(got, before) {
+		t.Fatal("SourceSnapshot returned mutable backing storage")
 	}
 }
 

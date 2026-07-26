@@ -15,13 +15,14 @@ import (
 )
 
 type selection struct {
-	request   Request
-	catalog   *validationmatrix.Catalog
-	module    *modules.Module
-	record    validationmatrix.ValidationRecord
-	scenario  validationmatrix.Scenario
-	fixture   fixtureDefinitions
-	v2Fixture v2CompiledFixture
+	request     Request
+	catalog     *validationmatrix.Catalog
+	module      *modules.Module
+	record      validationmatrix.ValidationRecord
+	scenario    validationmatrix.Scenario
+	fixture     fixtureDefinitions
+	v2Fixture   v2CompiledFixture
+	installPlan *InstallContractPlan
 }
 
 func compileSelection(request Request, now time.Time) (*selection, *Failure) {
@@ -55,18 +56,27 @@ func compileSelection(request Request, now time.Time) (*selection, *Failure) {
 		return nil, failure
 	}
 	selected := &selection{request: request, catalog: catalog, module: mod, record: record, scenario: scenario}
-	if scenario.Mode == validationmatrix.ScenarioConfigRoundtripV1 {
+	switch scenario.Mode {
+	case validationmatrix.ScenarioConfigRoundtripV1:
 		fixture, failure := compileFixtureDefinitionsAt(request.RepoRoot, mod, scenario)
 		if failure != nil {
 			return nil, failure
 		}
 		selected.fixture = fixture
-	} else {
+	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
 		fixture, failure := compileV2FixtureAt(request.RepoRoot, mod, scenario)
 		if failure != nil {
 			return nil, failure
 		}
 		selected.v2Fixture = fixture
+	case validationmatrix.ScenarioInstallContract:
+		plan, failure := compileInstallContract(mod, scenario)
+		if failure != nil {
+			return nil, failure
+		}
+		selected.installPlan = plan
+	default:
+		return nil, fail(CodeUnsupportedFixture, "selection", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
 	return selected, nil
 }
@@ -84,7 +94,7 @@ func selectDeclaredScenario(catalog *validationmatrix.Catalog, mod *modules.Modu
 	if len(matches) != 1 {
 		return validationmatrix.Scenario{}, fail(CodeScenarioSelection, "selection", "scenario", "scenario selection must resolve exactly one declaration")
 	}
-	if matches[0].Mode != validationmatrix.ScenarioConfigRoundtripV1 && matches[0].Mode != validationmatrix.ScenarioConfigGenerationV2 && matches[0].Mode != validationmatrix.ScenarioConfigMigrationV2 {
+	if matches[0].Mode != validationmatrix.ScenarioConfigRoundtripV1 && matches[0].Mode != validationmatrix.ScenarioConfigGenerationV2 && matches[0].Mode != validationmatrix.ScenarioConfigMigrationV2 && matches[0].Mode != validationmatrix.ScenarioInstallContract {
 		return validationmatrix.Scenario{}, fail(CodeUnsupportedFixture, "selection", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
 	return matches[0], nil

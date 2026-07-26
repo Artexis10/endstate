@@ -19,6 +19,7 @@ type scenarioRuntime struct {
 	Scenario            validationmatrix.Scenario
 	Plan                *FixturePlan
 	V2Plan              *V2FixturePlan
+	InstallPlan         *InstallContractPlan
 	V2Transition        *v2VersionTransition
 	AuthorityRoot       string
 	Root                string
@@ -114,6 +115,9 @@ func (runtime *scenarioRuntime) validationContext() *validationmode.Context {
 	}
 	if runtime.V2Plan != nil {
 		return runtime.V2Plan.context
+	}
+	if runtime.InstallPlan != nil {
+		return runtime.InstallPlan.context
 	}
 	return nil
 }

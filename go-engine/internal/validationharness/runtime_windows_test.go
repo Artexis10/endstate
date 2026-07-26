@@ -54,6 +54,47 @@ func TestRunFreshBuiltEngineTrackedNotepadDefaultV1(t *testing.T) {
 	}
 }
 
+func TestRunFreshBuiltEngineTrackedKubectlInstallV1(t *testing.T) {
+	engineRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := filepath.Dir(engineRoot)
+	buildRoot := t.TempDir()
+	engine := filepath.Join(buildRoot, "endstate.exe")
+	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
+	build.Dir = engineRoot
+	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
+		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build engine: %v\n%s", err, output)
+	}
+
+	resultPath := filepath.Join(t.TempDir(), "kubectl-install-v1.json")
+	result, err := Run(context.Background(), Request{
+		EnginePath: engine, RepoRoot: repoRoot, ModuleID: "apps.kubectl",
+		ScenarioID: "install-v1", ResultPath: resultPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ResultStatusPassed || result.Failure != nil {
+		t.Fatalf("failure = %+v; counts=%v timings=%v", result.Failure, result.AssertionCounts, result.PhaseTimings)
+	}
+	if result.AssertionCounts["appReferences"] != 1 || result.AssertionCounts["verify"] != 1 {
+		t.Fatalf("assertion counts = %v", result.AssertionCounts)
+	}
+	want := []string{"catalog", "engine-contract"}
+	if len(result.ProofLevels) != len(want) {
+		t.Fatalf("proof levels = %v", result.ProofLevels)
+	}
+	for index, proof := range result.ProofLevels {
+		if string(proof) != want[index] {
+			t.Fatalf("proof levels = %v", result.ProofLevels)
+		}
+	}
+}
+
 func TestRunFreshBuiltEngineTrackedSchemaV2(t *testing.T) {
 	engineRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {

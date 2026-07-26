@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	goruntime "runtime"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
@@ -52,6 +53,26 @@ func (runtime *scenarioRuntime) captureIndependentBoundaries(repositoryRoot, eng
 	runtime.guardBoundary = guard
 	runtime.workingBoundary = working
 	runtime.engineBoundary = engine
+	return nil
+}
+
+func validateSelectedSidecarBoundary(repositoryRoot, sidecarPath string, sourceSnapshot []byte, repository boundaryTree) error {
+	if len(sourceSnapshot) == 0 {
+		return fmt.Errorf("selected validation sidecar snapshot is empty")
+	}
+	root := filepath.Clean(repositoryRoot)
+	if root == "" || !filepath.IsAbs(root) || filepath.Clean(sidecarPath) != sidecarPath || !filepath.IsAbs(sidecarPath) {
+		return fmt.Errorf("selected validation sidecar path is not canonical")
+	}
+	relative, err := filepath.Rel(root, sidecarPath)
+	if err != nil || relative == "." || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("selected validation sidecar escaped repository root")
+	}
+	entry, ok := repository[filepath.ToSlash(relative)]
+	expected := sha256.Sum256(sourceSnapshot)
+	if !ok || entry.Kind != "file" || entry.Size != int64(len(sourceSnapshot)) || entry.Digest != expected {
+		return fmt.Errorf("selected validation sidecar differs from captured repository boundary")
+	}
 	return nil
 }
 

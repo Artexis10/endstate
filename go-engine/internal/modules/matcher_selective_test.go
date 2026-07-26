@@ -4,6 +4,8 @@
 package modules
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -115,6 +117,45 @@ func TestMatchModulesForAppsSelective_NoRefMatchYieldsNothing(t *testing.T) {
 
 	if matched := MatchModulesForAppsSelective(catalog, apps); len(matched) != 0 {
 		t.Fatalf("expected no matches, got %v", moduleIDs(matched))
+	}
+}
+
+func TestMatchModulesForAppsIncludingInstallKeepsInstallOnlyPackageAuthority(t *testing.T) {
+	installOnly := &Module{
+		ID: "apps.kubectl", Matches: MatchCriteria{Winget: []string{"Kubernetes.kubectl"}},
+		Verify: []VerifyDef{{Type: "command-exists", Command: "kubectl"}},
+	}
+	catalog := map[string]*Module{installOnly.ID: installOnly}
+	apps := []manifest.App{{ID: "kubernetes-kubectl", Driver: "winget", Refs: map[string]string{"windows": "Kubernetes.kubectl"}}}
+	if matched := MatchModulesForApps(catalog, apps); len(matched) != 0 {
+		t.Fatalf("capture matcher admitted install-only module: %+v", matched)
+	}
+	matched := MatchModulesForAppsIncludingInstall(catalog, apps)
+	if len(matched) != 1 || matched[0] != installOnly {
+		t.Fatalf("install-aware matcher = %+v", matched)
+	}
+}
+
+func TestMatchModulesForAppsIncludingInstallRejectsReferenceOnlyInstallShapes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "installed.exe")
+	if err := os.WriteFile(path, []byte("sentinel"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name    string
+		matches MatchCriteria
+	}{
+		{"path", MatchCriteria{PathExists: []string{path}}},
+		{"exe", MatchCriteria{Exe: []string{"fixture.exe"}}},
+		{"uninstall", MatchCriteria{UninstallDisplayName: []string{"^Fixture"}}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			mod := &Module{ID: "apps.fixture", Matches: test.matches, Verify: []VerifyDef{{Type: "command-exists", Command: "fixture"}}}
+			apps := []manifest.App{{ID: "fixture", Driver: "winget", Refs: map[string]string{"windows": "Vendor.Fixture"}}}
+			if matched := MatchModulesForAppsIncludingInstall(map[string]*Module{mod.ID: mod}, apps); len(matched) != 0 {
+				t.Fatalf("reference-only install shape matched: %+v", matched)
+			}
+		})
 	}
 }
 

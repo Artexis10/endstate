@@ -134,8 +134,12 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			if filepath.Ext(name) == "" {
 				name += ".exe"
 			}
-			if err := os.WriteFile(filepath.Join(runtime.ToolRoot, name), []byte("endstate validation command sentinel"), 0o700); err != nil {
-				return err
+			if runtime.InstallPlan == nil {
+				if err := os.WriteFile(filepath.Join(runtime.ToolRoot, name), []byte("endstate validation command sentinel"), 0o700); err != nil {
+					return err
+				}
+			} else if name != runtime.InstallPlan.CommandExecutable {
+				return fmt.Errorf("verify[%d] command differs from compiled install authority", index)
 			}
 		case "file-exists":
 			path, err := runtime.validationContext().ResolveHostPath(verifier.Path, validationmode.HostPathPolicy{})
@@ -227,11 +231,7 @@ func childEnvironment(runtime *scenarioRuntime) []string {
 	for name, value := range runtime.OriginalEnvironment {
 		values[name] = value
 	}
-	pathParts := []string{runtime.ToolRoot}
-	if systemRoot := os.Getenv("SystemRoot"); systemRoot != "" {
-		pathParts = append(pathParts, filepath.Join(systemRoot, "System32"), systemRoot)
-	}
-	values["PATH"] = strings.Join(pathParts, string(os.PathListSeparator))
+	values["PATH"] = strings.Join(installPATHParts(runtime), string(os.PathListSeparator))
 	names := make([]string, 0, len(values))
 	for name := range values {
 		names = append(names, name)
@@ -242,6 +242,14 @@ func childEnvironment(runtime *scenarioRuntime) []string {
 		result = append(result, name+"="+values[name])
 	}
 	return result
+}
+
+func installPATHParts(runtime *scenarioRuntime) []string {
+	pathParts := []string{runtime.ToolRoot}
+	if systemRoot := os.Getenv("SystemRoot"); systemRoot != "" {
+		pathParts = append(pathParts, filepath.Join(systemRoot, "System32"), systemRoot)
+	}
+	return pathParts
 }
 
 func sortStringsFold(values []string) {
@@ -258,6 +266,14 @@ type commandOutput struct {
 }
 
 func (executor *cliJourneyExecutor) run(ctx context.Context, command string, args ...string) (commandOutput, *Failure) {
+	return executor.runWithEventPolicy(ctx, false, command, args...)
+}
+
+func (executor *cliJourneyExecutor) runExpectingVerifyFailure(ctx context.Context, args ...string) (commandOutput, *Failure) {
+	return executor.runWithEventPolicy(ctx, true, "verify", args...)
+}
+
+func (executor *cliJourneyExecutor) runWithEventPolicy(ctx context.Context, allowVerifyFailure bool, command string, args ...string) (commandOutput, *Failure) {
 	bounded, cancel := context.WithTimeout(ctx, time.Duration(executor.runtime.Scenario.TimeoutSeconds)*time.Second)
 	defer cancel()
 	allArgs := append([]string{command}, args...)
@@ -279,7 +295,12 @@ func (executor *cliJourneyExecutor) run(ctx context.Context, command string, arg
 	if failure != nil {
 		return commandOutput{}, failure
 	}
-	events, failure := decodeEvents(stderr.Bytes(), command, envelopeValue.RunID, forbidden...)
+	var events []map[string]any
+	if allowVerifyFailure {
+		events, failure = decodeExpectedVerifyFailureEvents(stderr.Bytes(), command, envelopeValue.RunID, forbidden...)
+	} else {
+		events, failure = decodeEvents(stderr.Bytes(), command, envelopeValue.RunID, forbidden...)
+	}
 	if failure != nil {
 		return commandOutput{}, failure
 	}
@@ -290,6 +311,59 @@ func (executor *cliJourneyExecutor) run(ctx context.Context, command string, arg
 		return commandOutput{}, fail(CodeExecutionFailure, command, "exit", "engine process exited unsuccessfully despite its envelope")
 	}
 	return commandOutput{Envelope: envelopeValue, Events: events}, nil
+}
+
+func (executor *cliJourneyExecutor) ApplyDryRun(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	if failure := executor.assertInstallPATH(); failure != nil {
+		return failure
+	}
+	output, failure := executor.run(ctx, "apply", "--manifest", runtime.InstallPlan.ManifestPath, "--dry-run", "--only", runtime.Inventory.AppID)
+	if failure != nil {
+		return failure
+	}
+	return validateInstallApplyEvidence(output.Envelope.Data, output.Events, runtime)
+}
+
+func (executor *cliJourneyExecutor) VerifyAbsent(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	if failure := executor.assertInstallPATH(); failure != nil {
+		return failure
+	}
+	output, failure := executor.runExpectingVerifyFailure(ctx, "--manifest", runtime.InstallPlan.ManifestPath)
+	if failure != nil {
+		return failure
+	}
+	return validateInstallVerifyEvidence(output.Envelope.Data, output.Events, runtime, false)
+}
+
+func (executor *cliJourneyExecutor) VerifyPresent(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	if failure := executor.assertInstallPATH(); failure != nil {
+		return failure
+	}
+	output, failure := executor.run(ctx, "verify", "--manifest", runtime.InstallPlan.ManifestPath)
+	if failure != nil {
+		return failure
+	}
+	return validateInstallVerifyEvidence(output.Envelope.Data, output.Events, runtime, true)
+}
+
+func (executor *cliJourneyExecutor) assertInstallPATH() *Failure {
+	if executor == nil || executor.runtime == nil || executor.runtime.InstallPlan == nil {
+		return fail(CodeIsolationFailure, "install", "PATH", "install executor authority is absent")
+	}
+	want := "PATH=" + strings.Join(installPATHParts(executor.runtime), string(os.PathListSeparator))
+	count := 0
+	for _, value := range executor.environment {
+		if strings.HasPrefix(strings.ToUpper(value), "PATH=") {
+			count++
+			if value != want {
+				return fail(CodeIsolationFailure, "install", "PATH", "install child PATH contains authority outside ToolRoot and system roots")
+			}
+		}
+	}
+	if count != 1 {
+		return fail(CodeIsolationFailure, "install", "PATH", "install child PATH is absent or duplicated")
+	}
+	return nil
 }
 
 func (executor *cliJourneyExecutor) Capture(ctx context.Context, runtime *scenarioRuntime) (captureEvidence, *Failure) {
@@ -500,3 +574,4 @@ func (buffer *boundedBuffer) Write(data []byte) (int, error) {
 func (buffer *boundedBuffer) Bytes() []byte { return buffer.buffer.Bytes() }
 
 var _ journeyExecutor = (*cliJourneyExecutor)(nil)
+var _ installJourneyExecutor = (*cliJourneyExecutor)(nil)

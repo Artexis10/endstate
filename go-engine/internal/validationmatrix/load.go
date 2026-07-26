@@ -102,6 +102,7 @@ func LoadCatalog(repoRoot string, now time.Time) (*Catalog, error) {
 			return nil, validationErrorWithCause(CodeInvalidSidecar, moduleID, sidecarPath, "parse validation sidecar", parseErr)
 		}
 		record.FilePath = sidecarPath
+		record.sourceSnapshot = append([]byte(nil), data...)
 		if previousPath, exists := seenIdentities[record.ModuleID]; exists {
 			return nil, validationError(CodeDuplicateSidecar, record.ModuleID, sidecarPath, "validation identity is already declared by %s", previousPath)
 		}

@@ -65,10 +65,15 @@ func Run(ctx context.Context, request Request) (Result, error) {
 		return failedSelectionResult(selected, fail(CodeIsolationFailure, "setup", "runtime", "prepare disposable runtime")), err
 	}
 	var result Result
-	if selected.scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 || selected.scenario.Mode == validationmatrix.ScenarioConfigMigrationV2 {
+	switch selected.scenario.Mode {
+	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
 		result = executeV2Journey(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
-	} else {
+	case validationmatrix.ScenarioInstallContract:
+		result = executeInstallJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
+	case validationmatrix.ScenarioConfigRoundtripV1:
 		result = executeJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
+	default:
+		result = failedSelectionResult(selected, fail(CodeUnsupportedFixture, "execution", "scenario.mode", "scenario mode is not implemented by this validation runtime"))
 	}
 	result = applyCleanupFailure(result, cleanup())
 	if err := persistResult(request.ResultPath, result); err != nil {
@@ -160,11 +165,25 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	}
 	var plan *FixturePlan
 	var v2Plan *V2FixturePlan
+	var installPlan *InstallContractPlan
 	var fixtureFailure *Failure
-	if selected.scenario.Mode == validationmatrix.ScenarioConfigRoundtripV1 {
+	switch selected.scenario.Mode {
+	case validationmatrix.ScenarioConfigRoundtripV1:
 		plan, fixtureFailure = compileFixturePlan(validationContext, selected.module, selected.scenario, selected.fixture)
-	} else {
+	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
 		v2Plan, fixtureFailure = compileV2FixturePlan(validationContext, selected.module, selected.scenario, selected.v2Fixture, inventory)
+	case validationmatrix.ScenarioInstallContract:
+		if selected.installPlan == nil || selected.installPlan.Inventory != inventory {
+			fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "inventory", "install plan inventory differs from runtime authority")
+			break
+		}
+		compiled := *selected.installPlan
+		compiled.Verifiers = append([]modules.VerifyDef(nil), selected.installPlan.Verifiers...)
+		compiled.context = validationContext
+		installPlan = &compiled
+		fixtureFailure = installPlan.materializeManifest(root)
+	default:
+		fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
 	if fixtureFailure != nil {
 		_ = cleanup()
@@ -179,7 +198,7 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		}
 	}
 	runtime := &scenarioRuntime{
-		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan,
+		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan, InstallPlan: installPlan,
 		V2Transition:  transition,
 		AuthorityRoot: authorityRoot, Root: root, GuardRoot: guardRoot, ChildWorkingDir: childWorkingDir,
 		Nonce: nonce, Inventory: inventory,
@@ -189,6 +208,10 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		return nil, func() error { return nil }, nil, err
 	}
 	if err := runtime.captureIndependentBoundaries(selected.request.RepoRoot, selected.request.EnginePath); err != nil {
+		_ = cleanup()
+		return nil, func() error { return nil }, nil, err
+	}
+	if err := validateSelectedSidecarBoundary(selected.request.RepoRoot, selected.record.FilePath, selected.record.SourceSnapshot(), runtime.repositoryBoundary); err != nil {
 		_ = cleanup()
 		return nil, func() error { return nil }, nil, err
 	}

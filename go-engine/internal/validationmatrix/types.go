@@ -109,6 +109,14 @@ type ValidationRecord struct {
 	Quarantines    []Quarantine    `json:"quarantines,omitempty"`
 
 	FilePath string `json:"-"`
+
+	sourceSnapshot []byte
+}
+
+// SourceSnapshot returns the exact validation.jsonc bytes loaded for this
+// record. Callers receive a copy so selection authority cannot be mutated.
+func (record ValidationRecord) SourceSnapshot() []byte {
+	return append([]byte(nil), record.sourceSnapshot...)
 }
 
 type SyntheticPolicy struct {

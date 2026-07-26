@@ -44,6 +44,29 @@ func TestCompileSelectionRejectsInvalidAuthorityBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestSelectedValidationSidecarMustMatchCapturedRepositoryBoundary(t *testing.T) {
+	repository := t.TempDir()
+	relative := filepath.FromSlash("modules/apps/kubectl/validation.jsonc")
+	path := filepath.Join(repository, relative)
+	snapshot := []byte("selected validation authority")
+	digest := sha256.Sum256(snapshot)
+	boundary := boundaryTree{filepath.ToSlash(relative): {
+		Kind: "file", Digest: digest, Size: int64(len(snapshot)),
+	}}
+
+	if err := validateSelectedSidecarBoundary(repository, path, snapshot, boundary); err != nil {
+		t.Fatalf("valid sidecar boundary: %v", err)
+	}
+	changed := append([]byte(nil), snapshot...)
+	changed[0] ^= 0xff
+	if err := validateSelectedSidecarBoundary(repository, path, changed, boundary); err == nil {
+		t.Fatal("changed selected sidecar snapshot passed repository boundary")
+	}
+	if err := validateSelectedSidecarBoundary(repository, filepath.Join(repository, "..", "validation.jsonc"), snapshot, boundary); err == nil {
+		t.Fatal("sidecar path outside repository passed boundary")
+	}
+}
+
 func TestSelectDeclaredScenarioRejectsDuplicateAndForeignCatalogObjects(t *testing.T) {
 	repo, _, _ := writeSelectionRepository(t)
 	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())

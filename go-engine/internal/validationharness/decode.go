@@ -129,6 +129,17 @@ func decodeEnvelope(stdout []byte, command, moduleID, scenarioID string, forbidd
 }
 
 func decodeEvents(stderr []byte, command, envelopeRunID string, forbidden ...string) ([]map[string]any, *Failure) {
+	return decodeEventsWithPolicy(stderr, command, envelopeRunID, false, forbidden...)
+}
+
+func decodeExpectedVerifyFailureEvents(stderr []byte, command, envelopeRunID string, forbidden ...string) ([]map[string]any, *Failure) {
+	if command != "verify" {
+		return nil, fail(CodeEventContract, "events", "command", "expected-failure event policy is verify-only")
+	}
+	return decodeEventsWithPolicy(stderr, command, envelopeRunID, true, forbidden...)
+}
+
+func decodeEventsWithPolicy(stderr []byte, command, envelopeRunID string, allowVerifyFailure bool, forbidden ...string) ([]map[string]any, *Failure) {
 	if leaked(stderr, forbidden...) {
 		return nil, fail(CodeIsolationFailure, "events", "stderr", "event output leaked validation authority")
 	}
@@ -162,7 +173,7 @@ func decodeEvents(stderr []byte, command, envelopeRunID string, forbidden ...str
 		if !versionOK || version.String() != "1" || !runOK || eventRunID == "" || !timeOK || !typeOK || !knownEventType(eventType) {
 			return nil, fail(CodeEventContract, "events", "base", "event base fields are absent, mismatched, or unknown")
 		}
-		if failure := validateEventShape(eventType, event); failure != nil {
+		if failure := validateEventShape(eventType, event, allowVerifyFailure); failure != nil {
 			return nil, failure
 		}
 		if !exactEventFields(eventType, event) {
@@ -231,6 +242,8 @@ func validateCommandEventStream(command string, events []map[string]any) *Failur
 	}
 	var contracts []segmentContract
 	switch command {
+	case "apply":
+		contracts = []segmentContract{{prefix: "apply-", phases: []string{"plan"}}}
 	case "capture":
 		contracts = []segmentContract{{prefix: "capture-", phases: []string{"capture"}}}
 	case "rebuild":
@@ -334,7 +347,7 @@ func eventTypeAllowed(command, phase, eventType string) bool {
 	switch command + "/" + phase {
 	case "capture/capture":
 		return oneOf(eventType, "progress", "item", "artifact")
-	case "rebuild/plan", "rebuild/apply", "rebuild/verify", "verify/verify", "revert/restore":
+	case "apply/plan", "rebuild/plan", "rebuild/apply", "rebuild/verify", "verify/verify", "revert/restore":
 		return eventType == "item"
 	case "rebuild/restore":
 		return oneOf(eventType, "config-resolution", "config-migration", "restore-item")
@@ -350,7 +363,7 @@ func validateItemEventVocabulary(command, phase string, event map[string]any) *F
 	switch command + "/" + phase {
 	case "capture/capture":
 		valid = status == "present" && reason == "detected"
-	case "rebuild/plan":
+	case "apply/plan", "rebuild/plan":
 		valid = status == "present" && reason == "already_installed"
 	case "rebuild/apply":
 		valid = (status == "present" || status == "installed" || status == "skipped") && oneOf(reason, "", "already_installed", "filtered")
@@ -435,7 +448,7 @@ func exactEventFields(eventType string, event map[string]any) bool {
 	return true
 }
 
-func validateEventShape(eventType string, event map[string]any) *Failure {
+func validateEventShape(eventType string, event map[string]any, allowVerifyFailure bool) *Failure {
 	bad := func(coordinate, detail string) *Failure { return fail(CodeEventContract, "events", coordinate, detail) }
 	switch eventType {
 	case "phase":
@@ -461,7 +474,7 @@ func validateEventShape(eventType string, event map[string]any) *Failure {
 		success, successOK := eventNonnegativeInt(event, "success")
 		skipped, skippedOK := eventNonnegativeInt(event, "skipped")
 		failed, failedOK := eventNonnegativeInt(event, "failed")
-		if !totalOK || !successOK || !skippedOK || !failedOK || total != success+skipped+failed || failed != 0 {
+		if !totalOK || !successOK || !skippedOK || !failedOK || total != success+skipped+failed || failed != 0 && !allowVerifyFailure {
 			return bad("summary", "summary counts are negative, inconsistent, or failed")
 		}
 	case "error":

@@ -155,7 +155,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 		}
 	}
 	if currentValidationMode != nil {
-		matchedModules := modules.MatchModulesForApps(catalog, mf.Apps)
+		matchedModules := modules.MatchModulesForAppsIncludingInstall(catalog, mf.Apps)
 		instances, instanceErr := validationDiscoverCommandInstances(matchedModules, mf.Apps)
 		if instanceErr != nil {
 			return nil, validationPreflightFailureEnvelope(currentValidationSession, "instances", "instance-discovery")
