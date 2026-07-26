@@ -407,13 +407,15 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 		expectedItem, found := inventory[source]
 		_, active := expected[expectedItem.identity]
 		wantStatus := "skipped_missing_source"
+		wantExisted := false
 		if active {
 			wantStatus = "restored"
 			if converged {
 				wantStatus = "skipped_up_to_date"
+				wantExisted = true
 			}
 		}
-		if !found || target != expectedItem.target || itemStatus != wantStatus || backup || existed {
+		if !found || target != expectedItem.target || itemStatus != wantStatus || backup || existed != wantExisted {
 			return false
 		}
 		if rawType, ok := item["restoreType"]; ok && (liveString(rawType, &restoreType) != nil || restoreType != "copy") {

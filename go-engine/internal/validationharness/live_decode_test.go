@@ -183,6 +183,54 @@ func TestLiveDecoderAcceptsProductionRebuildEncoder(t *testing.T) {
 	}
 }
 
+func TestLiveDecoderAcceptsProductionConvergedRebuildEncoder(t *testing.T) {
+	definition := LiveDefinition{ModuleID: "apps.notepad-plus-plus", WingetRef: "Notepad++.Notepad++", Comparator: ExactBytesComparator{Mappings: []ComparatorMapping{{Identity: "apps/notepad-plus-plus/config.xml", RestoreTemplate: `%APPDATA%\Notepad++\config.xml`}}}}
+	reason := planner.ReasonAlreadyUpToDate
+	resolution := planner.ConfigResolution{
+		CaptureID:        "legacy:apps.notepad-plus-plus",
+		ModuleID:         definition.ModuleID,
+		ConfigSetID:      "legacy",
+		TargetCandidates: []planner.TargetInstance{},
+		Resolution:       planner.ResolutionLegacyUnverified,
+		Reason:           &reason,
+		MigrationPath:    []string{},
+		ResolvedTargets:  []string{},
+		Status:           planner.StatusSkipped,
+	}
+	item := restore.RestoreResult{ID: "restore-config", Source: "configs/notepad-plus-plus/config.xml", Target: definition.Comparator.Mappings[0].RestoreTemplate, Status: "skipped_up_to_date", BackupCreated: false, TargetExistedBefore: true, RestoreType: "copy"}
+	fields := &commands.ConfigResultFields{
+		ConfigResolutions:       []planner.ConfigResolution{resolution},
+		ConfigResolutionSummary: planner.ConfigResolutionSummary{Total: 1, LegacyUnverified: 1, Skipped: 1},
+		RestoreItems:            []restore.RestoreResult{item},
+	}
+	ref := definition.WingetRef
+	apply := &commands.ApplyResult{
+		Manifest:           commands.ApplyManifestRef{Path: "$ENDSTATE_ROOT/manifests/captured.jsonc", Name: "captured", Hash: "sha256:fixture"},
+		Summary:            commands.ApplySummary{Total: 1, Skipped: 1},
+		Actions:            []commands.ApplyAction{{ID: "notepad++-notepad++", Ref: &ref, Driver: "winget", Status: "present", Reason: "already_installed"}},
+		ConfigResultFields: fields,
+	}
+	verify := &commands.VerifyResult{
+		Manifest: commands.VerifyManifestRef{Path: "$ENDSTATE_ROOT/manifests/captured.jsonc", Name: "captured"},
+		Summary:  commands.VerifySummary{Total: 1, Pass: 1},
+		Results:  []commands.VerifyItem{{Type: "command-exists", Status: "pass"}},
+	}
+	encoded, err := envelope.Marshal(envelope.NewSuccess("rebuild", "rebuild-production-converged", "1.0", "0.1.0", &commands.RebuildResult{
+		From:               "$ENDSTATE_ROOT/manifests/captured.zip",
+		DryRun:             false,
+		Restore:            "enabled",
+		Apply:              apply,
+		Verify:             verify,
+		ConfigResultFields: fields,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateLiveRebuild(liveCommandOutput{Stdout: encoded, Stderr: liveEvents("rebuild", "rebuild-production-converged")}, definition, map[string]struct{}{definition.Comparator.Mappings[0].Identity: {}}, false, true); failure != nil {
+		t.Fatalf("production converged rebuild rejected: %+v", failure)
+	}
+}
+
 func TestDecodeLiveJourneyProjectsStrictHostedNotepadJourney(t *testing.T) {
 	definition := productionLiveDecoderDefinition(t)
 	inputs := liveJourneyOutputs{
@@ -337,11 +385,11 @@ func liveRebuildData(packageStatus, restoreStatus string) string {
 	if packageStatus == "installed" {
 		success, skipped, reason = 1, 0, ""
 	}
-	selected, configSkipped, resolution, resolutionReason := 1, 0, "restored", "null"
+	selected, configSkipped, resolution, resolutionReason, activeTargetExisted := 1, 0, "restored", "null", "false"
 	if restoreStatus == "skipped_up_to_date" {
-		selected, configSkipped, resolution, resolutionReason = 0, 1, "skipped", `"already_up_to_date"`
+		selected, configSkipped, resolution, resolutionReason, activeTargetExisted = 0, 1, "skipped", `"already_up_to_date"`, "true"
 	}
-	config := fmt.Sprintf(`"configResolutionSummary":{"total":1,"direct":0,"migrate":0,"incompatible":0,"unknown":0,"legacyUnverified":1,"selected":%d,"skipped":%d,"failed":0},"configResolutions":[{"captureId":"legacy:apps.notepad-plus-plus","moduleId":"apps.notepad-plus-plus","configSetId":"legacy","targetCandidates":[],"resolution":"legacy_unverified","reason":%s,"migrationPath":[],"resolvedTargets":[],"status":%q,"label":"","message":"","remediation":null}],"restoreItems":[{"id":"restore-config","source":"configs/notepad-plus-plus/config.xml","target":"%%APPDATA%%\\Notepad++\\config.xml","status":%q,"backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"},{"id":"restore-shortcuts","source":"configs/notepad-plus-plus/shortcuts.xml","target":"%%APPDATA%%\\Notepad++\\shortcuts.xml","status":%q,"backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"},{"id":"restore-langs","source":"configs/notepad-plus-plus/langs.xml","target":"%%APPDATA%%\\Notepad++\\langs.xml","status":"skipped_missing_source","backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"},{"id":"restore-stylers","source":"configs/notepad-plus-plus/stylers.xml","target":"%%APPDATA%%\\Notepad++\\stylers.xml","status":"skipped_missing_source","backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"},{"id":"restore-user-defined-langs","source":"configs/notepad-plus-plus/userDefineLangs","target":"%%APPDATA%%\\Notepad++\\userDefineLangs","status":"skipped_missing_source","backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"},{"id":"restore-context-menu","source":"configs/notepad-plus-plus/contextMenu.xml","target":"%%APPDATA%%\\Notepad++\\contextMenu.xml","status":"skipped_missing_source","backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"}]`, selected, configSkipped, resolutionReason, resolution, restoreStatus, restoreStatus)
+	config := fmt.Sprintf(`"configResolutionSummary":{"total":1,"direct":0,"migrate":0,"incompatible":0,"unknown":0,"legacyUnverified":1,"selected":%d,"skipped":%d,"failed":0},"configResolutions":[{"captureId":"legacy:apps.notepad-plus-plus","moduleId":"apps.notepad-plus-plus","configSetId":"legacy","targetCandidates":[],"resolution":"legacy_unverified","reason":%s,"migrationPath":[],"resolvedTargets":[],"status":%q,"label":"","message":"","remediation":null}],"restoreItems":[{"id":"restore-config","source":"configs/notepad-plus-plus/config.xml","target":"%%APPDATA%%\\Notepad++\\config.xml","status":%q,"backupCreated":false,"targetExistedBefore":%s,"restoreType":"copy"},{"id":"restore-shortcuts","source":"configs/notepad-plus-plus/shortcuts.xml","target":"%%APPDATA%%\\Notepad++\\shortcuts.xml","status":%q,"backupCreated":false,"targetExistedBefore":%s,"restoreType":"copy"},{"id":"restore-langs","source":"configs/notepad-plus-plus/langs.xml","target":"%%APPDATA%%\\Notepad++\\langs.xml","status":"skipped_missing_source","backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"},{"id":"restore-stylers","source":"configs/notepad-plus-plus/stylers.xml","target":"%%APPDATA%%\\Notepad++\\stylers.xml","status":"skipped_missing_source","backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"},{"id":"restore-user-defined-langs","source":"configs/notepad-plus-plus/userDefineLangs","target":"%%APPDATA%%\\Notepad++\\userDefineLangs","status":"skipped_missing_source","backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"},{"id":"restore-context-menu","source":"configs/notepad-plus-plus/contextMenu.xml","target":"%%APPDATA%%\\Notepad++\\contextMenu.xml","status":"skipped_missing_source","backupCreated":false,"targetExistedBefore":false,"restoreType":"copy"}]`, selected, configSkipped, resolutionReason, resolution, restoreStatus, activeTargetExisted, restoreStatus, activeTargetExisted)
 	return fmt.Sprintf(`{"from":"$ENDSTATE_ROOT/manifests/captured.zip","dryRun":false,"restore":"enabled","apply":{"dryRun":false,"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured","hash":"sha256:fixture"},"summary":{"total":1,"success":%d,"skipped":%d,"failed":0},"actions":[{"id":"notepad++-notepad++","ref":"Notepad++.Notepad++","driver":"winget","status":%q,"reason":%q,"manual":null}],%s},%s,"verify":%s}`, success, skipped, packageStatus, reason, config, config, liveVerifyData())
 }
 
