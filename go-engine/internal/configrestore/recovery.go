@@ -171,6 +171,7 @@ func validateLegacyRevertWorkTree(ctx context.Context, root string, journal *res
 	if err != nil {
 		return err
 	}
+	removedRegistryScratch := false
 	for _, entry := range entries {
 		path := filepath.Join(root, entry.Name())
 		if err := validateHostIO(ctx, path); err != nil {
@@ -186,11 +187,52 @@ func validateLegacyRevertWorkTree(ctx context.Context, root string, journal *res
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("legacy revert work entry %q has unsupported special type", path)
 		}
+		if isLegacyRevertRecordTemp(entry.Name()) {
+			// RunRevertDurable owns reconciliation of its no-replace publication
+			// residue before it writes the next durable record.
+			continue
+		}
+		if isLegacyRegistryStateTemp(entry.Name()) {
+			if err := os.Remove(path); err != nil {
+				return err
+			}
+			removedRegistryScratch = true
+			continue
+		}
+		if isLegacyRegistryImportStageName(entry.Name()) {
+			if err := validateLegacyRegistryImportStage(path, entry.Name(), journal); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := validateLegacyRevertWorkRecord(path, entry.Name(), journal); err != nil {
 			return err
 		}
 	}
+	if removedRegistryScratch {
+		return syncDurableDirectory(root)
+	}
 	return nil
+}
+
+func isLegacyRevertRecordTemp(name string) bool {
+	return isLegacyRevertWorkScratch(name, ".legacy-revert-record-", ".tmp")
+}
+
+func isLegacyRegistryStateTemp(name string) bool {
+	return isLegacyRevertWorkScratch(name, ".registry-state-", ".reg")
+}
+
+func isLegacyRevertWorkScratch(name, prefix, suffix string) bool {
+	if len(name) <= len(prefix)+len(suffix) || !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+		return false
+	}
+	for _, character := range name[len(prefix) : len(name)-len(suffix)] {
+		if character < '0' || character > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 type legacyRevertWorkState struct {
@@ -243,22 +285,43 @@ func validateLegacyRevertWorkRecord(path, name string, journal *restore.Journal)
 			(record.Action != "reverted" && record.Action != "deleted") {
 			return fmt.Errorf("legacy revert completion record %q differs from its journal entry", path)
 		}
+		prepared, err := readLegacyRevertWorkPrepared(filepath.Join(filepath.Dir(path), fmt.Sprintf("entry-%06d.json", index)), index, entry, digest)
+		if err != nil {
+			return fmt.Errorf("legacy revert completion record %q has no matching prepared state: %w", path, err)
+		}
+		if (record.Action == "deleted") != (prepared.Desired.Kind == "absent") {
+			return fmt.Errorf("legacy revert completion record %q action differs from its prepared desired state", path)
+		}
 		return nil
 	}
+	_, err = readLegacyRevertWorkPrepared(path, index, entry, digest)
+	return err
+}
+
+func readLegacyRevertWorkPrepared(path string, index int, entry restore.JournalEntry, digest string) (legacyRevertWorkPrepared, error) {
 	var record legacyRevertWorkPrepared
+	data, _, err := safepath.ReadRegularFile(path)
+	if err != nil {
+		return record, err
+	}
 	if err := decodeCanonicalLegacyRevertWorkRecord(data, &record); err != nil {
-		return err
+		return record, err
 	}
 	if record.Version != 1 || record.EntryIndex != index || record.EntryDigest != digest ||
 		!validLegacyRevertWorkState(record.Before) || !validLegacyRevertWorkState(record.Desired) {
-		return fmt.Errorf("legacy revert prepared record %q is invalid", path)
+		return record, fmt.Errorf("legacy revert prepared record %q is invalid", path)
+	}
+	if !validLegacyRevertWorkStateForJournalEntry(record.Before, entry) ||
+		!validLegacyRevertWorkStateForJournalEntry(record.Desired, entry) ||
+		!validLegacyRevertWorkDesiredState(record.Desired, entry) {
+		return record, fmt.Errorf("legacy revert prepared record %q state kinds differ from its journal entry", path)
 	}
 	expectedTarget := entry.TargetPath
 	if entry.RestoreType != "registry-import" && entry.RestoreType != "registry-set" {
 		expectedTarget = filepath.Clean(expectedTarget)
 	}
 	if record.Target != expectedTarget {
-		return fmt.Errorf("legacy revert prepared record %q target differs from its journal entry", path)
+		return record, fmt.Errorf("legacy revert prepared record %q target differs from its journal entry", path)
 	}
 	expectedSource := entry.BackupPath
 	if entry.RestoreType != "registry-import" && entry.RestoreType != "registry-set" {
@@ -269,16 +332,144 @@ func validateLegacyRevertWorkRecord(path, name string, journal *restore.Journal)
 		}
 	}
 	if record.DesiredSource != expectedSource {
-		return fmt.Errorf("legacy revert prepared record %q desired source differs from its journal entry", path)
+		return record, fmt.Errorf("legacy revert prepared record %q desired source differs from its journal entry", path)
 	}
-	if entry.RestoreType != "registry-import" && entry.RestoreType != "registry-set" {
+	if entry.RestoreType == "registry-import" {
+		stage, held, err := legacyRevertRegistryImportScratch(entry.TargetPath, digest)
+		if err != nil {
+			return record, err
+		}
+		if entry.BackupCreated && entry.BackupPath != "" {
+			if record.StagePath != stage || record.HeldPath != held {
+				return record, fmt.Errorf("legacy revert prepared record %q scratch paths differ from its journal entry", path)
+			}
+		} else if record.StagePath != "" || record.HeldPath != "" {
+			return record, fmt.Errorf("legacy revert prepared record %q has unexpected registry scratch paths", path)
+		}
+	} else if entry.RestoreType == "registry-set" {
+		if record.StagePath != "" || record.HeldPath != "" {
+			return record, fmt.Errorf("legacy revert prepared record %q has unexpected registry scratch paths", path)
+		}
+	} else {
 		suffix := digest[:16]
 		if record.StagePath != legacyRevertFilesystemScratch(entry.TargetPath, suffix, "stage") ||
 			record.HeldPath != legacyRevertFilesystemScratch(entry.TargetPath, suffix, "held") {
-			return fmt.Errorf("legacy revert prepared record %q scratch paths differ from its journal entry", path)
+			return record, fmt.Errorf("legacy revert prepared record %q scratch paths differ from its journal entry", path)
 		}
 	}
+	return record, nil
+}
+
+func validLegacyRevertWorkStateForJournalEntry(state legacyRevertWorkState, entry restore.JournalEntry) bool {
+	switch entry.RestoreType {
+	case "registry-import":
+		return state.Kind == "registry-key" || state.Kind == "absent"
+	case "registry-set":
+		return state.Kind == "registry-value" || state.Kind == "absent"
+	default:
+		return state.Kind == "file" || state.Kind == "directory" || state.Kind == "absent"
+	}
+}
+
+func validLegacyRevertWorkDesiredState(state legacyRevertWorkState, entry restore.JournalEntry) bool {
+	switch entry.RestoreType {
+	case "registry-import":
+		if entry.TargetExistedBefore {
+			return entry.BackupCreated && entry.BackupPath != "" && state.Kind == "registry-key"
+		}
+		return !entry.BackupCreated && entry.BackupPath == "" && state.Kind == "absent"
+	case "registry-set":
+		if !entry.BackupCreated || entry.BackupPath == "" {
+			return false
+		}
+		if entry.TargetExistedBefore {
+			return state.Kind == "registry-value"
+		}
+		return state.Kind == "absent"
+	default:
+		if entry.TargetExistedBefore {
+			return entry.BackupCreated && entry.BackupPath != "" &&
+				(state.Kind == "file" || state.Kind == "directory")
+		}
+		return !entry.BackupCreated && entry.BackupPath == "" && state.Kind == "absent"
+	}
+}
+
+func validateLegacyRegistryImportStage(path, name string, journal *restore.Journal) error {
+	index, ok := parseLegacyRegistryImportStageName(name)
+	if !ok {
+		return fmt.Errorf("not a registry-import stage")
+	}
+	if index < 0 || index >= len(journal.Entries) {
+		return fmt.Errorf("legacy registry-import stage %q has an invalid journal entry", path)
+	}
+	entry := journal.Entries[index]
+	if entry.Action != "restored" || entry.RestoreType != "registry-import" || !entry.BackupCreated || entry.BackupPath == "" {
+		return fmt.Errorf("legacy registry-import stage %q differs from its journal entry", path)
+	}
+	digest, err := legacyRevertJournalEntryDigest(entry)
+	if err != nil {
+		return err
+	}
+	prepared, err := readLegacyRevertWorkPrepared(filepath.Join(filepath.Dir(path), fmt.Sprintf("entry-%06d.json", index)), index, entry, digest)
+	if err != nil {
+		return fmt.Errorf("legacy registry-import stage %q has no matching prepared state: %w", path, err)
+	}
+	if prepared.StagePath == "" || prepared.HeldPath == "" {
+		return fmt.Errorf("legacy registry-import stage %q has no bound scratch identities", path)
+	}
 	return nil
+}
+
+func isLegacyRegistryImportStageName(name string) bool {
+	_, ok := parseLegacyRegistryImportStageName(name)
+	return ok
+}
+
+func parseLegacyRegistryImportStageName(name string) (int, bool) {
+	const prefix = "entry-"
+	const suffix = "-registry-stage.reg"
+	if !strings.HasPrefix(name, prefix) || !strings.HasSuffix(name, suffix) {
+		return 0, false
+	}
+	digits := strings.TrimSuffix(strings.TrimPrefix(name, prefix), suffix)
+	if len(digits) != 6 {
+		return 0, false
+	}
+	for _, character := range digits {
+		if character < '0' || character > '9' {
+			return 0, false
+		}
+	}
+	index, err := strconv.Atoi(digits)
+	return index, err == nil
+}
+
+func legacyRevertRegistryImportScratch(target, digest string) (string, string, error) {
+	if len(digest) < 16 {
+		return "", "", fmt.Errorf("legacy registry-import entry digest is invalid")
+	}
+	normalized := strings.ReplaceAll(target, "/", "\\")
+	firstSeparator := strings.Index(normalized, "\\")
+	if firstSeparator < 0 {
+		return "", "", fmt.Errorf("legacy registry-import target has no subkey")
+	}
+	subkey := normalized[firstSeparator+1:]
+	separator := strings.LastIndex(subkey, "\\")
+	parent, name := "", subkey
+	if separator >= 0 {
+		parent, name = subkey[:separator], subkey[separator+1:]
+	}
+	if name == "" {
+		return "", "", fmt.Errorf("legacy registry-import target must name a subkey")
+	}
+	prefix := `HKCU\`
+	if parent != "" {
+		prefix += parent + `\`
+	}
+	suffix := digest[:16]
+	return prefix + "." + name + ".endstate-revert-" + suffix + "-stage",
+		prefix + "." + name + ".endstate-revert-" + suffix + "-held", nil
 }
 
 func legacyRevertFilesystemScratch(target, suffix, kind string) string {

@@ -250,6 +250,33 @@ func TestBeginLiveRejectsForeignMarkerBackedLegacyRevertWork(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "unbound registry-import stage",
+			forge: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "entry-000000-registry-stage.reg"), []byte("foreign stage"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "near-miss record publication scratch",
+			forge: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, ".legacy-revert-record-12x.tmp"), []byte("foreign scratch"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "near-miss registry export scratch",
+			forge: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, ".registry-state-65x.reg"), []byte("foreign scratch"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			stateDir := t.TempDir()
@@ -357,6 +384,258 @@ func TestBeginLivePreservesUnmarkedRegisteredLegacyRevertWork(t *testing.T) {
 	t.Cleanup(func() { _ = second.Close() })
 	if got := readLegacyRevertWorkFiles(t, workRoot); !equalLegacyRevertWorkFiles(got, workFiles) {
 		t.Fatalf("resumable legacy work changed = %#v, want %#v", got, workFiles)
+	}
+}
+
+func TestBeginLiveReconcilesLegitimateLegacyRevertCrashScratch(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	first, err := BeginLive(ctx, stateDir, "legacy-scratch-source", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := writeLegacyRevertTestJournal(t)
+	member, err := first.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	populateLegacyRevertWork(t, journalPath, workRoot)
+	recordTemp := filepath.Join(workRoot, ".legacy-revert-record-123456.tmp")
+	registryTemp := filepath.Join(workRoot, ".registry-state-654321.reg")
+	if err := os.WriteFile(recordTemp, []byte("torn record publication"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(registryTemp, []byte("registry export scratch"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := BeginLive(ctx, stateDir, "legacy-scratch-recovery", nil)
+	if err != nil {
+		t.Fatalf("BeginLive() recovery error = %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	if _, err := os.Lstat(recordTemp); err != nil {
+		t.Fatalf("durable-record publication residue was removed: %v", err)
+	}
+	if _, err := os.Lstat(registryTemp); !os.IsNotExist(err) {
+		t.Fatalf("registry export scratch remains after recovery: %v", err)
+	}
+}
+
+func TestBeginLiveRejectsLegacyCompletionWithImpossibleDeletedAction(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	first, err := BeginLive(ctx, stateDir, "legacy-completion-source", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := writeLegacyRevertTestJournal(t)
+	member, err := first.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	populateLegacyRevertWork(t, journalPath, workRoot)
+	completedPath := filepath.Join(workRoot, "entry-000000-completed.json")
+	data, err := os.ReadFile(completedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var completed legacyRevertWorkCompleted
+	if err := json.Unmarshal(data, &completed); err != nil {
+		t.Fatal(err)
+	}
+	completed.Action = "deleted"
+	data, err = json.Marshal(completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(completedPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := BeginLive(ctx, stateDir, "legacy-completion-recovery", nil)
+	if second != nil {
+		_ = second.Close()
+	}
+	if !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("BeginLive() error = %v, want ErrRecoveryRequired", err)
+	}
+}
+
+func TestBeginLiveRejectsDeletedCompletionWhenJournalRequiresPriorState(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	first, err := BeginLive(ctx, stateDir, "legacy-deleted-state-source", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := writeLegacyRevertTestJournal(t)
+	member, err := first.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	populateLegacyRevertWork(t, journalPath, workRoot)
+	preparedPath := filepath.Join(workRoot, "entry-000000.json")
+	data, err := os.ReadFile(preparedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prepared legacyRevertWorkPrepared
+	if err := json.Unmarshal(data, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Desired = legacyRevertWorkState{Kind: "absent", Digest: strings.Repeat("0", 64)}
+	data, err = json.Marshal(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(preparedPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	completedPath := filepath.Join(workRoot, "entry-000000-completed.json")
+	data, err = os.ReadFile(completedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var completed legacyRevertWorkCompleted
+	if err := json.Unmarshal(data, &completed); err != nil {
+		t.Fatal(err)
+	}
+	completed.Action = "deleted"
+	data, err = json.Marshal(completed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(completedPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := BeginLive(ctx, stateDir, "legacy-deleted-state-recovery", nil)
+	if second != nil {
+		_ = second.Close()
+	}
+	if !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("BeginLive() error = %v, want ErrRecoveryRequired", err)
+	}
+}
+
+func TestBeginLiveRejectsLegacyPreparedStateKindForFilesystemEntry(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	first, err := BeginLive(ctx, stateDir, "legacy-state-kind-source", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := writeLegacyRevertTestJournal(t)
+	member, err := first.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	populateLegacyRevertWork(t, journalPath, workRoot)
+	preparedPath := filepath.Join(workRoot, "entry-000000.json")
+	data, err := os.ReadFile(preparedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var prepared legacyRevertWorkPrepared
+	if err := json.Unmarshal(data, &prepared); err != nil {
+		t.Fatal(err)
+	}
+	prepared.Before.Kind = "registry-key"
+	data, err = json.Marshal(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(preparedPath, append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := BeginLive(ctx, stateDir, "legacy-state-kind-recovery", nil)
+	if second != nil {
+		_ = second.Close()
+	}
+	if !errors.Is(err, ErrRecoveryRequired) {
+		t.Fatalf("BeginLive() error = %v, want ErrRecoveryRequired", err)
+	}
+}
+
+func TestBeginLivePreservesBoundRegistryImportStage(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	first, err := BeginLive(ctx, stateDir, "legacy-registry-stage-source", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath, entry := writeLegacyRegistryImportTestJournal(t)
+	member, err := first.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := legacyRevertJournalEntryDigest(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stage, held := testLegacyRegistryImportScratch(entry.TargetPath, digest)
+	prepared := legacyRevertWorkPrepared{
+		Version: 1, EntryIndex: 0, EntryDigest: digest, Target: entry.TargetPath,
+		Before:        legacyRevertWorkState{Kind: "registry-key", Digest: strings.Repeat("a", 64)},
+		Desired:       legacyRevertWorkState{Kind: "registry-key", Digest: strings.Repeat("b", 64)},
+		DesiredSource: entry.BackupPath, StagePath: stage, HeldPath: held,
+	}
+	data, err := json.Marshal(prepared)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workRoot, "entry-000000.json"), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stageFile := filepath.Join(workRoot, "entry-000000-registry-stage.reg")
+	if err := os.WriteFile(stageFile, []byte("Windows Registry Editor Version 5.00\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := BeginLive(ctx, stateDir, "legacy-registry-stage-recovery", nil)
+	if err != nil {
+		t.Fatalf("BeginLive() recovery error = %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	if _, err := os.Lstat(stageFile); err != nil {
+		t.Fatalf("bound registry-import stage was removed: %v", err)
 	}
 }
 
@@ -784,4 +1063,36 @@ func equalLegacyRevertWorkFiles(left, right map[string][]byte) bool {
 		}
 	}
 	return true
+}
+
+func writeLegacyRegistryImportTestJournal(t *testing.T) (string, restore.JournalEntry) {
+	t.Helper()
+	directory := t.TempDir()
+	backup := filepath.Join(directory, "prior.reg")
+	if err := os.WriteFile(backup, []byte("Windows Registry Editor Version 5.00\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entry := restore.JournalEntry{
+		TargetPath: `HKCU\Software\Endstate\Target`, TargetExistedBefore: true,
+		BackupCreated: true, BackupPath: backup, Action: "restored", RestoreType: "registry-import",
+	}
+	data, err := json.Marshal(restore.Journal{RunID: "legacy-registry", Entries: []restore.JournalEntry{entry}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "restore-registry.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path, entry
+}
+
+func testLegacyRegistryImportScratch(target, digest string) (string, string) {
+	parts := strings.Split(target, `\`)
+	parent := strings.Join(parts[1:len(parts)-1], `\`)
+	name := parts[len(parts)-1]
+	prefix := `HKCU\` + parent + `\`
+	suffix := digest[:16]
+	return prefix + "." + name + ".endstate-revert-" + suffix + "-stage",
+		prefix + "." + name + ".endstate-revert-" + suffix + "-held"
 }
