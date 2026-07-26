@@ -149,7 +149,14 @@ func verifyHashBoundSeedFile(record ValidationRecord, seed, expectedDigest strin
 	if !isPortableRepositoryRelativePath(seed) {
 		return fmt.Errorf("seed must be a safe repository-relative path")
 	}
-	path, err := safepath.Resolve(filepath.Dir(record.FilePath), seed)
+	if record.FilePath == "" {
+		return fmt.Errorf("seed has no module directory")
+	}
+	moduleDirectory, err := filepath.Abs(filepath.Dir(record.FilePath))
+	if err != nil {
+		return fmt.Errorf("resolve seed module directory: %w", err)
+	}
+	path, err := safepath.Resolve(moduleDirectory, seed)
 	if err != nil {
 		return fmt.Errorf("seed must be a contained regular file: %w", err)
 	}

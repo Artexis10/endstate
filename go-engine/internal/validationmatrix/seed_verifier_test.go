@@ -31,3 +31,24 @@ func TestVerifyHashBoundSeedRechecksCurrentBytes(t *testing.T) {
 		t.Fatal("verification accepted swapped seed")
 	}
 }
+
+func TestVerifyHashBoundSeedAcceptsRelativeModuleDirectory(t *testing.T) {
+	directory, err := os.MkdirTemp(".", ".relative-seed-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(directory)
+
+	seedPath := filepath.Join(directory, "seed.ps1")
+	if err := os.WriteFile(seedPath, []byte("relative"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte("relative"))
+	record := ValidationRecord{FilePath: filepath.Join(directory, "validation.jsonc"), Live: LivePolicy{Seed: "seed.ps1", Trust: &TrustHashes{SeedSHA256: hex.EncodeToString(digest[:])}}}
+	if filepath.IsAbs(record.FilePath) {
+		t.Fatal("test record path must stay relative")
+	}
+	if err := VerifyHashBoundSeed(record); err != nil {
+		t.Fatalf("relative module directory verification: %v", err)
+	}
+}
