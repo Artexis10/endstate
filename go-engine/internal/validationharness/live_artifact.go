@@ -357,7 +357,7 @@ func validateLiveArtifactManifest(raw []byte, definition LiveDefinition, claims 
 		return fail(CodeArtifactContract, "capture", "manifest.apps", "capture manifest app references differ from production")
 	}
 	app := captured.Apps[0]
-	if app.ID != liveManifestAppID(definition.WingetRef) || app.Refs["windows"] != definition.WingetRef || !strings.EqualFold(app.Driver, "winget") || !strings.EqualFold(app.Source, "winget") {
+	if app.ID != liveArtifactManifestAppID(definition.WingetRef) || app.Refs["windows"] != definition.WingetRef || !strings.EqualFold(app.Driver, "winget") || !strings.EqualFold(app.Source, "winget") {
 		return fail(CodeArtifactContract, "capture", "manifest.apps", "capture manifest app identity differs from the live definition")
 	}
 	if !liveStringEquals(appFields["id"], app.ID) || !liveStringEquals(appFields["driver"], "winget") || !liveStringEquals(appFields["source"], "winget") || !liveStringEquals(refs["windows"], definition.WingetRef) {
@@ -433,4 +433,8 @@ func validateLiveArtifactMetadata(raw []byte, definition LiveDefinition, claims 
 func liveSHA256(data []byte) string {
 	digest := sha256.Sum256(data)
 	return hex.EncodeToString(digest[:])
+}
+
+func liveArtifactManifestAppID(wingetRef string) string {
+	return strings.ToLower(strings.ReplaceAll(wingetRef, ".", "-"))
 }

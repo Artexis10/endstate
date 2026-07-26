@@ -304,7 +304,7 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 		snapshots = append(snapshots, liveTargetSnapshot{Identity: mapping.Identity, Mode: 0o600, Size: int64(len(payload)), SHA256: liveSHA256(payload), Bytes: payload})
 	}
 	manifestPath := filepath.Join(t.TempDir(), "captured.jsonc")
-	input := manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: liveManifestAppID(definition.WingetRef), Refs: map[string]string{"windows": definition.WingetRef}, Driver: "winget", Source: "winget"}}}
+	input := manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: liveArtifactManifestAppID(definition.WingetRef), Refs: map[string]string{"windows": definition.WingetRef}, Driver: "winget", Source: "winget"}}}
 	if err := os.WriteFile(manifestPath, mustJSON(t, input), 0o600); err != nil {
 		t.Fatal(err)
 	}
