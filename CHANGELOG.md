@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [2.29.0](https://github.com/Artexis10/endstate/compare/v2.28.0...v2.29.0) (2026-07-26)
+
+
+### Features
+
+* **capture:** give capture bundles a first-class .endstate extension ([#200](https://github.com/Artexis10/endstate/issues/200)) ([c15e762](https://github.com/Artexis10/endstate/commit/c15e762fa9ffc625160cd81820651893116dd43d))
+* **modules:** add Elgato Stream Deck and Wave Link ([99b2a05](https://github.com/Artexis10/endstate/commit/99b2a056bd5539b430ec44e30188b0f6448b6310))
+
+
+### Bug Fixes
+
+* **capture:** match installed apps by durable ARP identity ([#202](https://github.com/Artexis10/endstate/issues/202)) ([bae7ade](https://github.com/Artexis10/endstate/commit/bae7ade33a739fca056c912963797cdb5693266b))
+* **capture:** stabilize winget identity enumeration ([#203](https://github.com/Artexis10/endstate/issues/203)) ([d9adf93](https://github.com/Artexis10/endstate/commit/d9adf936fc33393957b913f441f03460aa8601f9))
+* **capture:** write the app display name under the key readers actually bind ([#198](https://github.com/Artexis10/endstate/issues/198)) ([f1e3660](https://github.com/Artexis10/endstate/commit/f1e36606658f11e070c128ac3e65fb30edf92947))
+* **openspec:** repair the two changes failing validation on main ([#197](https://github.com/Artexis10/endstate/issues/197)) ([2be32b3](https://github.com/Artexis10/endstate/commit/2be32b35f899904599825077e88a26a6fa06d9b3))
+
 ## [2.28.0](https://github.com/Artexis10/endstate/compare/v2.27.6...v2.28.0) (2026-07-25)
 
 
