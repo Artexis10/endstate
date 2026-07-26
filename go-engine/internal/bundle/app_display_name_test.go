@@ -12,14 +12,8 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
-// An app's display name is the only identity it keeps once its package id stops
-// resolving — a browser that self-updates out of winget's tracking still has a
-// name in ARP. The bundle writer round-trips the source manifest through
-// manifest.App, so a name the writer does not bind is silently dropped here and
-// every bundle ships apps with no display name at all. That is exactly what
-// happened while capture serialized the field as "_name": written by capture,
-// lost on re-serialization, invisible until a profile was applied months later
-// and reported installed software as missing.
+// Display names are human labels, not installation identity. The bundle writer
+// still must preserve them when it round-trips through manifest.App.
 func TestCaptureBundlePreservesAppDisplayNames(t *testing.T) {
 	dir := t.TempDir()
 	manifestPath := filepath.Join(dir, "input.jsonc")
@@ -27,7 +21,7 @@ func TestCaptureBundlePreservesAppDisplayNames(t *testing.T) {
       "version": 1,
       "name": "capture",
       "apps": [
-        { "id": "7zip-7zip", "refs": { "windows": "7zip.7zip" }, "displayName": "7-Zip 25.01 (x64)" },
+        { "id": "7zip-7zip", "refs": { "windows": "7zip.7zip" }, "displayName": "7-Zip 25.01 (x64)", "fingerprint": { "key": "7-Zip", "publisher": "Igor Pavlov", "version": "25.01" } },
         { "id": "no-name", "refs": { "windows": "Some.Package" } }
       ]
     }`
@@ -53,6 +47,9 @@ func TestCaptureBundlePreservesAppDisplayNames(t *testing.T) {
 	if got := byID["7zip-7zip"].DisplayName; got != "7-Zip 25.01 (x64)" {
 		t.Fatalf("display name did not survive the bundle round-trip: got %q", got)
 	}
+	if got := byID["7zip-7zip"].Fingerprint; got == nil || got.Key != "7-Zip" || got.Publisher != "Igor Pavlov" || got.Version != "25.01" {
+		t.Fatalf("fingerprint did not survive the bundle round-trip: %#v", got)
+	}
 	// An app whose enumeration supplied no name stays nameless rather than
 	// gaining an empty key.
 	if got := byID["no-name"].DisplayName; got != "" {
@@ -72,10 +69,13 @@ func TestCaptureBundlePreservesAppDisplayNames(t *testing.T) {
 	if err := json.Unmarshal(manifest.StripJsoncComments(raw), &written); err != nil {
 		t.Fatal(err)
 	}
-	found := false
+	found, fingerprintFound := false, false
 	for _, app := range written.Apps {
 		if _, has := app["displayName"]; has {
 			found = true
+		}
+		if _, has := app["fingerprint"]; has {
+			fingerprintFound = true
 		}
 		if _, has := app["_name"]; has {
 			t.Fatalf("bundle manifest still carries the legacy _name key: %v", app)
@@ -83,5 +83,8 @@ func TestCaptureBundlePreservesAppDisplayNames(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("no app in the written bundle manifest carries displayName")
+	}
+	if !fingerprintFound {
+		t.Fatal("no app in the written bundle manifest carries fingerprint")
 	}
 }

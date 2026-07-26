@@ -37,6 +37,20 @@ vendor `.exe`/MSI alike — registers under the Uninstall hives:
 - MSIX/Store apps. They live in the AppX catalogue, not ARP.
 - Reinstall-on-drift. An app present under a different identity plans `none`.
 
+## Implementation amendment: observation and refresh
+
+The shared observation result carries both presence and a best-effort version.
+Manager-ledger evidence wins; ARP supplies the version only for a fingerprint
+fallback. If multiple exact ARP entries disagree, presence remains true but the
+version is unknown unless one entry equals the manifest's desired version. Apply
+refreshes ARP before post-apply verification only after an install or repin was
+actually attempted. Capture update joins both the manager ref and fingerprint,
+preserving an existing install ref when a current inventory-only row has none.
+WinGet details can expose multiple local identifiers for one package ID (such as
+parallel X86 and X64 registrations), so capture retains every binding and consumes
+all of them before filtering. The legacy zero-export guard stays intact: a non-empty
+ARP inventory is not proof that an empty WinGet export was authoritative.
+
 ## Decisions
 
 ### Decision: the ARP key is the identity; the display name is not

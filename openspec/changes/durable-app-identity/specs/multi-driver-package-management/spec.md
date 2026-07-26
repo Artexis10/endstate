@@ -94,9 +94,15 @@ SHALL NOT attempt to install software identified only by an uninstall key.
 
 ### Requirement: Capture records app identity
 
-Capture SHALL record, for every app it includes, the package-manager reference it was
+Capture SHALL record, for every ledger app it includes, the package-manager reference it was
 discovered under. Capture SHALL additionally record an install fingerprint — uninstall key,
-publisher, and version — when the host inventory supplies one for that app.
+publisher, and version — when the package backend supplies an authoritative local inventory
+identifier that resolves to exactly one host-inventory entry with a non-empty uninstall key
+and publisher.
+
+Capture SHALL NOT infer a ledger-to-inventory relationship from display names. A backend
+details record that authoritatively reports no local inventory identifier is a known,
+non-correlatable relationship rather than evidence that the relationship lookup failed.
 
 Absence of a fingerprint SHALL NOT be an error: an app the inventory does not describe is
 recorded with its package reference alone, exactly as before.
@@ -117,11 +123,35 @@ recorded with its package reference alone, exactly as before.
 - **THEN** the manifest entry records the package reference and no fingerprint
 - **AND** the capture succeeds
 
+#### Scenario: Equal display names do not correlate identities
+
+- **GIVEN** a ledger app and an inventory entry have the same display name
+- **AND** the backend binds the ledger app to a different local inventory identifier
+- **WHEN** a capture is taken
+- **THEN** the ledger app records only the fingerprint from that exact local identifier
+- **AND** display-name equality does not influence the match
+
 ### Requirement: Capture enumerates software outside the driver ledger
 
 Capture SHALL enumerate the union of the driver ledger and the host installed-software
-inventory. Software present on the machine but absent from every ledger SHALL NOT be omitted
-from a capture.
+inventory only when every enumerated ledger row has a known inventory relationship. Software
+present on the machine but absent from every ledger SHALL NOT be omitted when this safety
+condition is satisfied.
+
+If any ledger row has an unknown inventory relationship, capture SHALL retain the ledger
+rows, SHALL enrich rows whose exact local identifiers are known, SHALL skip the global
+inventory union, and SHALL emit an `inventory_union_skipped` warning. This prevents an
+uncorrelated ledger app from being duplicated as inventory-only software.
+
+When WinGet is selected and its export returns zero rows, capture SHALL preserve the
+existing empty-ledger safety failure even when ARP is non-empty. ARP cannot distinguish a
+machine with no WinGet packages from a transiently locked or incomplete export; publishing
+an ARP-only profile in that state would silently discard every installable reference.
+
+A package identifier MAY have more than one authoritative local inventory identifier (for
+example parallel X86 and X64 registrations). Capture SHALL retain and consume every exact
+binding before filtering. It SHALL record one fingerprint only when the bound inventory
+rows collapse to a single normalized uninstall-key and publisher identity.
 
 An inventory entry that resolves to no package reference SHALL be recorded as detected but
 not installable; the engine SHALL NOT invent an installable reference for it.
@@ -140,3 +170,28 @@ not installable; the engine SHALL NOT invent an installable reference for it.
 - **WHEN** a capture is taken
 - **THEN** the entry is recorded as detected but not installable
 - **AND** applying the resulting profile attempts no install for it
+
+#### Scenario: Unknown backend relationship disables the inventory union
+
+- **GIVEN** at least one ledger row whose backend cannot establish whether it maps to an
+  inventory entry
+- **WHEN** a capture is taken
+- **THEN** capture retains the ledger row
+- **AND** skips adding unmatched inventory entries
+- **AND** emits an `inventory_union_skipped` warning
+
+#### Scenario: Empty WinGet export does not become an ARP-only profile
+
+- **GIVEN** WinGet is selected and its export returns zero package rows
+- **AND** the host inventory contains ordinary ARP entries
+- **WHEN** a capture is taken
+- **THEN** capture fails with the existing empty-ledger safety error
+- **AND** does not publish an inventory-only profile
+
+#### Scenario: Parallel architecture bindings are all consumed
+
+- **GIVEN** one WinGet package identifier has distinct X86 and X64 local ARP identifiers
+- **AND** both identifiers resolve to inventory rows
+- **WHEN** the package is filtered from capture
+- **THEN** both inventory rows are treated as bound
+- **AND** neither row is reintroduced as inventory-only software

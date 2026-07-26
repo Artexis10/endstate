@@ -167,6 +167,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 	}
 	warnings := possibleDuplicatePackageWarnings(routed)
 	detections := detectPackageDriverLanes(lanes)
+	inventory := readARPInventoryFn()
 	routedByIndex := make(map[int]*routedDriverApp, len(routed))
 	for _, route := range routed {
 		routedByIndex[route.index] = route
@@ -251,6 +252,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Name = displayName
 		}
 
+		presence := observeAppPresence(installed, installedVersion, app, inventory)
 		if detectErr != nil {
 			// Infrastructure error (e.g. package-manager database unavailable).
 			// It is not evidence that the package itself is missing.
@@ -259,7 +261,7 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Message = detectErr.Error()
 			emitter.EmitItem(ref, route.driverName, "failed", driver.ReasonInstallFailed, item.Message, itemName)
 			failCount++
-		} else if got, want := strings.TrimSpace(installedVersion), strings.TrimSpace(app.Version); installed && want != "" && got != "" && got != want {
+		} else if got, want := presence.Version, strings.TrimSpace(app.Version); presence.Present && want != "" && got != "" && got != want {
 			// Installed, but at a version different from the one the manifest
 			// declares: version drift (a failure distinct from "missing"). Only
 			// evaluated when a version is declared and the backend exposed one.
@@ -270,9 +272,9 @@ func RunVerify(flags VerifyFlags) (interface{}, *envelope.Error) {
 			item.Message = fmt.Sprintf("installed %s, want %s", got, want)
 			emitter.EmitItem(ref, route.driverName, "failed", driver.ReasonVersionDrift, item.Message, itemName)
 			failCount++
-		} else if installed {
+		} else if presence.Present {
 			item.Status = "pass"
-			item.Version = strings.TrimSpace(installedVersion)
+			item.Version = presence.Version
 			emitter.EmitItem(ref, route.driverName, "present", "", "Verified installed", itemName)
 			passCount++
 		} else {
