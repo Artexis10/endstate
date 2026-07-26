@@ -7,10 +7,11 @@ package validationharness
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -22,6 +23,10 @@ const (
 	liveMachineEnvironment = `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`
 	liveUserEnvironment    = `Environment`
 	maxLiveObserverRecords = 512
+
+	// WinGet's reviewed no-package HRESULT, returned as signed process status.
+	// This numeric contract is the only non-zero result that proves absence.
+	liveWingetNoInstalledExitCode = -1978335212 // 0x8A150014
 )
 
 // LiveVersionSource isolates native file-version extraction. Callers may use a
@@ -38,28 +43,72 @@ func NewWindowsLiveObserver(versions LiveVersionSource) (LiveObserver, error) {
 		return LiveObserver{}, fmt.Errorf("live observer requires a file version source")
 	}
 	return LiveObserver{
-		Process:  windowsLiveProcess{},
+		Process:  windowsLiveProcess{resolver: unavailableLiveWingetResolver{}},
 		Registry: windowsLiveRegistry{},
 		Path:     windowsLivePath{},
 		Files:    windowsLiveFiles{versions: versions},
 	}, nil
 }
 
-type windowsLiveProcess struct{}
+// liveTrustedWingetResolver must resolve the genuine App Installer executable
+// from reviewed package metadata. It must never return an app-execution alias,
+// PATH result, or reparse point. This slice has no such resolver yet, so the
+// production adapter uses the fail-closed implementation below.
+type liveTrustedWingetResolver interface {
+	ResolveLiveWinget(context.Context) (string, map[string]string, error)
+}
 
-func (windowsLiveProcess) Run(ctx context.Context, name string, args ...string) (LiveProcessResult, error) {
-	command := exec.CommandContext(ctx, name, args...)
-	output, err := command.Output()
-	result := LiveProcessResult{ExitCode: 0, Stdout: output, Classification: LiveProcessCompleted}
-	if err == nil {
-		return result, nil
+type unavailableLiveWingetResolver struct{}
+
+func (unavailableLiveWingetResolver) ResolveLiveWinget(context.Context) (string, map[string]string, error) {
+	return "", nil, fmt.Errorf("trusted App Installer metadata resolver is unavailable")
+}
+
+type windowsLiveProcess struct{ resolver liveTrustedWingetResolver }
+
+func (process windowsLiveProcess) Run(ctx context.Context, name string, args ...string) (LiveProcessResult, error) {
+	if name != "winget" || process.resolver == nil {
+		return LiveProcessResult{}, fmt.Errorf("live process rejects untrusted executable selection")
 	}
-	if exitError, ok := err.(*exec.ExitError); ok {
-		result.ExitCode = exitError.ExitCode()
-		result.Classification = ""
+	executable, environment, err := process.resolver.ResolveLiveWinget(ctx)
+	if err != nil {
+		return LiveProcessResult{}, err
+	}
+	if err := validateTrustedLiveWingetExecutable(executable); err != nil {
+		return LiveProcessResult{}, err
+	}
+	output, err := runLiveProcess(ctx, LiveProcessRequest{Name: executable, Args: args, Environment: environment, OutputLimit: maxLiveObserverOutputBytes})
+	if err == nil {
+		return LiveProcessResult{ExitCode: output.ExitCode, Stdout: output.Stdout, Classification: LiveProcessCompleted}, nil
+	}
+	var execution *LiveExecutionError
+	if errors.As(err, &execution) && execution.Code == LiveExecutionProcessExit {
+		result := LiveProcessResult{ExitCode: output.ExitCode, Classification: classifyLiveWingetExitCode(output.ExitCode)}
 		return result, nil
 	}
 	return LiveProcessResult{}, err
+}
+
+func classifyLiveWingetExitCode(exitCode int) LiveProcessClassification {
+	switch exitCode {
+	case 0:
+		return LiveProcessCompleted
+	case liveWingetNoInstalledExitCode:
+		return LiveProcessNoInstalled
+	default:
+		return ""
+	}
+}
+
+func validateTrustedLiveWingetExecutable(executable string) error {
+	if !filepath.IsAbs(executable) || filepath.Clean(executable) != executable || !strings.EqualFold(filepath.Base(executable), "winget.exe") {
+		return fmt.Errorf("trusted App Installer executable is invalid")
+	}
+	info, err := (windowsLiveFiles{}).Stat(executable)
+	if err != nil || !info.Regular || info.ReparsePoint {
+		return fmt.Errorf("trusted App Installer executable is unsafe")
+	}
+	return nil
 }
 
 type windowsLiveRegistry struct{}
@@ -117,7 +166,7 @@ func readWindowsLiveUninstallView(hive registry.Key, access uint32, view LiveReg
 		if openErr != nil {
 			return nil, openErr
 		}
-		record, readErr := readWindowsLiveUninstallRecord(key, view)
+		record, readErr := readWindowsLiveUninstallRecord(key, view, name)
 		key.Close()
 		if readErr != nil {
 			return nil, readErr
@@ -127,7 +176,7 @@ func readWindowsLiveUninstallView(hive registry.Key, access uint32, view LiveReg
 	return records, nil
 }
 
-func readWindowsLiveUninstallRecord(key registry.Key, view LiveRegistryView) (LiveUninstallRecord, error) {
+func readWindowsLiveUninstallRecord(key registry.Key, view LiveRegistryView, keyIdentity string) (LiveUninstallRecord, error) {
 	read := func(name string) (string, error) {
 		value, _, err := key.GetStringValue(name)
 		if err == registry.ErrNotExist {
@@ -157,7 +206,15 @@ func readWindowsLiveUninstallRecord(key registry.Key, view LiveRegistryView) (Li
 	if err != nil {
 		return LiveUninstallRecord{}, err
 	}
-	return LiveUninstallRecord{View: view, DisplayName: name, DisplayVersion: version, InstallLocation: location, DisplayIcon: icon}, nil
+	publisher, err := read("Publisher")
+	if err != nil {
+		return LiveUninstallRecord{}, err
+	}
+	uninstall, err := read("UninstallString")
+	if err != nil {
+		return LiveUninstallRecord{}, err
+	}
+	return LiveUninstallRecord{View: view, KeyIdentity: keyIdentity, DisplayName: name, DisplayVersion: version, InstallLocation: location, DisplayIcon: icon, Publisher: publisher, UninstallString: uninstall}, nil
 }
 
 type windowsLivePath struct{}

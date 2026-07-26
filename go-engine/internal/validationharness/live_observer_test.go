@@ -36,9 +36,15 @@ func (f fakeLiveRegistry) UninstallRecords(context.Context) ([]LiveUninstallReco
 type fakeLivePath struct {
 	entries []string
 	err     error
+	calls   *int
 }
 
-func (f fakeLivePath) MachineAndUserPath(context.Context) ([]string, error) { return f.entries, f.err }
+func (f fakeLivePath) MachineAndUserPath(context.Context) ([]string, error) {
+	if f.calls != nil {
+		*f.calls++
+	}
+	return f.entries, f.err
+}
 
 type fakeLiveFiles struct {
 	files    map[string]LiveFileInfo
@@ -99,6 +105,8 @@ func TestParseLiveWingetTableRejectsAmbiguousSimilarAndDrift(t *testing.T) {
 		{"localized headers", "Nombre                          Identificador                     Versión        Origen\n" + wingetTable[strings.Index(wingetTable, "-"):]},
 		{"truncated", wingetTable + "Fixture                         Vendor.Fixture\n"},
 		{"control", wingetTable + wingetRow("Vendor.Fixture", "1.2\x01", "winget")},
+		{"id shifted from second column", wingetTable + fmt.Sprintf("%-32s %-31s %-14s %s\n", "Fixture", "not-the-id", "Vendor.Fixture", "winget")},
+		{"source not final column", wingetTable + fmt.Sprintf("%-32s %-31s %-14s %s\n", "winget", "Vendor.Fixture", "1.2", "not-source")},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -150,6 +158,21 @@ func TestObserveLiveFailsClosedForAmbiguityStalePathAndUnsafeExecutable(t *testi
 	}
 }
 
+func TestObserveLiveRejectsMatchingRecordsWithDistinctRegistryIdentity(t *testing.T) {
+	observer := LiveObserver{
+		Process: &fakeLiveProcess{result: LiveProcessResult{ExitCode: 0, Stdout: []byte(wingetTable + wingetRow("Vendor.Fixture", "1.2", "winget"))}},
+		Registry: fakeLiveRegistry{records: []LiveUninstallRecord{
+			{View: LiveRegistryHKLM64, KeyIdentity: `{fixture-64}`, DisplayName: "Fixture", DisplayVersion: "1.2", InstallLocation: `C:\Fixture`},
+			{View: LiveRegistryHKLM32, KeyIdentity: `{fixture-32}`, DisplayName: "Fixture", DisplayVersion: "1.2", InstallLocation: `C:\Fixture`},
+		}},
+		Path:  fakeLivePath{},
+		Files: fakeLiveFiles{},
+	}
+	if result := observer.Observe(context.Background(), observerDefinition()); result.Status != LiveObservationAmbiguous {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
 func TestObserveLiveAbsentMixedAndVersionMismatch(t *testing.T) {
 	definition := observerDefinition()
 	allAbsent := LiveObserver{Process: &fakeLiveProcess{result: LiveProcessResult{ExitCode: 2, Classification: LiveProcessNoInstalled}}, Registry: fakeLiveRegistry{}, Path: fakeLivePath{}, Files: fakeLiveFiles{}}
@@ -165,6 +188,35 @@ func TestObserveLiveAbsentMixedAndVersionMismatch(t *testing.T) {
 	}
 	if result := mismatch.Observe(context.Background(), definition); result.Status != LiveObservationVersionMismatch {
 		t.Fatalf("mismatch result = %+v", result)
+	}
+}
+
+func TestObserveLiveFailsClosedWhenAbsentRegistryStillHasPathError(t *testing.T) {
+	pathCalls := 0
+	observer := LiveObserver{
+		Process:  &fakeLiveProcess{result: LiveProcessResult{ExitCode: 2, Classification: LiveProcessNoInstalled}},
+		Registry: fakeLiveRegistry{},
+		Path:     fakeLivePath{err: errors.New("fresh path unavailable"), calls: &pathCalls},
+		Files:    fakeLiveFiles{},
+	}
+	if result := observer.Observe(context.Background(), observerDefinition()); result.Status != LiveObservationFailed {
+		t.Fatalf("result = %+v", result)
+	}
+	if pathCalls != 1 {
+		t.Fatalf("PATH calls = %d, want 1", pathCalls)
+	}
+}
+
+func TestObserveLiveRejectsExecutableOutsideTrustedUninstallRoots(t *testing.T) {
+	outside := `C:\Elsewhere\fixture.exe`
+	observer := LiveObserver{
+		Process:  &fakeLiveProcess{result: LiveProcessResult{ExitCode: 0, Stdout: []byte(wingetTable + wingetRow("Vendor.Fixture", "1.2", "winget"))}},
+		Registry: fakeLiveRegistry{records: []LiveUninstallRecord{{DisplayName: "Fixture", DisplayVersion: "1.2", InstallLocation: `C:\Fixture`}}},
+		Path:     fakeLivePath{entries: []string{`C:\Elsewhere`}},
+		Files:    fakeLiveFiles{files: map[string]LiveFileInfo{outside: {Regular: true}}, versions: map[string]string{outside: "1.2"}},
+	}
+	if result := observer.Observe(context.Background(), observerDefinition()); result.Status != LiveObservationMixed || result.ExecutablePresent {
+		t.Fatalf("result = %+v", result)
 	}
 }
 

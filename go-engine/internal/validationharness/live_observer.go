@@ -42,6 +42,7 @@ const (
 
 type LiveUninstallRecord struct {
 	View            LiveRegistryView
+	KeyIdentity     string
 	DisplayName     string
 	DisplayVersion  string
 	InstallLocation string
@@ -118,38 +119,29 @@ func (observer LiveObserver) Observe(ctx context.Context, definition LiveObserve
 	}
 
 	wingetPresent, wingetVersion, wingetErr := observer.observeWinget(ctx, definition.WingetRef)
-	if wingetErr != nil {
-		return result
-	}
 	result.WingetPresent, result.WingetVersion = wingetPresent, wingetVersion
 
-	records, err := observer.Registry.UninstallRecords(ctx)
-	if err != nil {
+	records, registryErr := observer.Registry.UninstallRecords(ctx)
+	record, registryPresent, registryAmbiguous, matchErr := matchingLiveUninstallRecord(records, definition.UninstallDisplayName)
+	result.RegistryPresent = registryPresent
+	var registryVersionErr error
+	if registryPresent {
+		result.RegistryVersion, registryVersionErr = NormalizeLiveVersion(record.DisplayVersion)
+	}
+
+	var trustedRecord *LiveUninstallRecord
+	if registryPresent && !registryAmbiguous && registryErr == nil && matchErr == nil {
+		trustedRecord = &record
+	}
+	executablePresent, executableVersion, executableAmbiguous, executableErr := observer.observeExecutable(ctx, trustedRecord, definition.ExecutableNames)
+	result.ExecutablePresent, result.ExecutableVersion = executablePresent, executableVersion
+
+	if wingetErr != nil || registryErr != nil || matchErr != nil || registryVersionErr != nil || executableErr != nil {
 		return result
 	}
-	record, registryPresent, registryAmbiguous, err := matchingLiveUninstallRecord(records, definition.UninstallDisplayName)
-	if err != nil {
-		return result
-	}
-	if registryAmbiguous {
+	if registryAmbiguous || executableAmbiguous {
 		result.Status = LiveObservationAmbiguous
 		return result
-	}
-	result.RegistryPresent = registryPresent
-	if registryPresent {
-		result.RegistryVersion, err = NormalizeLiveVersion(record.DisplayVersion)
-		if err != nil {
-			return result
-		}
-		executablePresent, executableVersion, executableAmbiguous, executableErr := observer.observeExecutable(ctx, record, definition.ExecutableNames)
-		if executableErr != nil {
-			return result
-		}
-		if executableAmbiguous {
-			result.Status = LiveObservationAmbiguous
-			return result
-		}
-		result.ExecutablePresent, result.ExecutableVersion = executablePresent, executableVersion
 	}
 
 	if !result.WingetPresent && !result.RegistryPresent && !result.ExecutablePresent {
@@ -220,25 +212,13 @@ func ParseLiveWingetTable(output []byte, ref string) (string, error) {
 	if len(rows) != 1 {
 		return "", fmt.Errorf("winget output must contain exactly one data row")
 	}
-	var idIndex, sourceIndex = -1, -1
-	for index, cell := range rows[0] {
-		if cell == ref {
-			if idIndex >= 0 {
-				return "", fmt.Errorf("winget row has ambiguous reference")
-			}
-			idIndex = index
-		}
-		if cell == "winget" {
-			if sourceIndex >= 0 {
-				return "", fmt.Errorf("winget row has ambiguous source")
-			}
-			sourceIndex = index
-		}
-	}
-	if idIndex < 1 || sourceIndex < 0 || idIndex+1 >= len(rows[0]) || sourceIndex <= idIndex+1 {
+	// The list command's fixed shape is Name, Id, Version, optional columns,
+	// Source. Header words localize, but these semantic positions do not.
+	cells := rows[0]
+	if len(cells) < 4 || cells[1] != ref || cells[len(cells)-1] != "winget" {
 		return "", fmt.Errorf("winget row does not prove exact id and source")
 	}
-	return NormalizeLiveVersion(rows[0][idIndex+1])
+	return NormalizeLiveVersion(cells[2])
 }
 
 func liveWingetSeparator(line string) ([]int, []int, bool) {
@@ -318,7 +298,7 @@ func matchingLiveUninstallRecord(records []LiveUninstallRecord, patterns []strin
 }
 
 func sameLiveUninstallRecord(left, right LiveUninstallRecord) bool {
-	return sameLiveRecordValue(left.DisplayName, right.DisplayName) && sameLiveRecordValue(left.DisplayVersion, right.DisplayVersion) &&
+	return left.View == right.View && sameLiveRecordValue(left.KeyIdentity, right.KeyIdentity) && sameLiveRecordValue(left.DisplayName, right.DisplayName) && sameLiveRecordValue(left.DisplayVersion, right.DisplayVersion) &&
 		sameLiveRecordValue(left.InstallLocation, right.InstallLocation) && sameLiveRecordValue(left.DisplayIcon, right.DisplayIcon) &&
 		sameLiveRecordValue(left.Publisher, right.Publisher) && sameLiveRecordValue(left.UninstallString, right.UninstallString)
 }
@@ -327,12 +307,15 @@ func sameLiveRecordValue(left, right string) bool {
 	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
 }
 
-func (observer LiveObserver) observeExecutable(ctx context.Context, record LiveUninstallRecord, names []string) (bool, string, bool, error) {
+func (observer LiveObserver) observeExecutable(ctx context.Context, record *LiveUninstallRecord, names []string) (bool, string, bool, error) {
 	paths, err := observer.Path.MachineAndUserPath(ctx)
 	if err != nil {
 		return false, "", false, err
 	}
-	candidates := liveExecutableCandidates(record, names, paths)
+	if record == nil {
+		return false, "", false, nil
+	}
+	candidates := liveExecutableCandidates(*record, names, paths)
 	var found []string
 	for _, candidate := range candidates {
 		info, statErr := observer.Files.Stat(candidate)
@@ -386,8 +369,9 @@ func liveExecutableCandidates(record LiveUninstallRecord, names, paths []string)
 			add(icon, &candidates)
 		}
 	}
+	trustedRoots := liveTrustedExecutableRoots(record)
 	for _, entry := range paths {
-		if root, ok := cleanLiveWindowsDirectory(entry); ok {
+		if root, ok := cleanLiveWindowsDirectory(entry); ok && livePathWithinTrustedRoot(root, trustedRoots) {
 			for _, name := range allowed {
 				add(root+`\`+name, &candidates)
 			}
@@ -397,6 +381,32 @@ func liveExecutableCandidates(record LiveUninstallRecord, names, paths []string)
 		return strings.ToLower(candidates[left]) < strings.ToLower(candidates[right])
 	})
 	return candidates
+}
+
+func liveTrustedExecutableRoots(record LiveUninstallRecord) []string {
+	var roots []string
+	if root, ok := cleanLiveWindowsDirectory(record.InstallLocation); ok {
+		roots = append(roots, root)
+	}
+	if icon, ok := parseLiveDisplayIcon(record.DisplayIcon); ok {
+		if index := strings.LastIndex(icon, `\`); index > 2 {
+			if root, ok := cleanLiveWindowsDirectory(icon[:index]); ok {
+				roots = append(roots, root)
+			}
+		}
+	}
+	return roots
+}
+
+func livePathWithinTrustedRoot(path string, roots []string) bool {
+	path = strings.TrimRight(strings.ToLower(path), `\`)
+	for _, root := range roots {
+		root = strings.TrimRight(strings.ToLower(root), `\`)
+		if path == root || strings.HasPrefix(path, root+`\`) {
+			return true
+		}
+	}
+	return false
 }
 
 func parseLiveDisplayIcon(value string) (string, bool) {

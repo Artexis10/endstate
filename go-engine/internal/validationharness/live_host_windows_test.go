@@ -1,0 +1,37 @@
+// Copyright 2026 Substrate Systems OU
+// SPDX-License-Identifier: Apache-2.0
+
+//go:build windows
+
+package validationharness
+
+import (
+	"context"
+	"testing"
+)
+
+func TestClassifyLiveWingetExitCodeAcceptsOnlyReviewedNoPackageResult(t *testing.T) {
+	tests := []struct {
+		exit int
+		want LiveProcessClassification
+	}{
+		{0, LiveProcessCompleted},
+		{liveWingetNoInstalledExitCode, LiveProcessNoInstalled},
+		{1, ""},
+		{-1, ""},
+	}
+	for _, test := range tests {
+		if got := classifyLiveWingetExitCode(test.exit); got != test.want {
+			t.Fatalf("classifyLiveWingetExitCode(%d) = %q, want %q", test.exit, got, test.want)
+		}
+	}
+}
+
+func TestWindowsLiveProcessRejectsBareOrUntrustedWingetResolution(t *testing.T) {
+	if _, err := (windowsLiveProcess{}).Run(context.Background(), "winget", "list"); err == nil {
+		t.Fatal("windowsLiveProcess accepted unresolved bare winget")
+	}
+	if _, err := (windowsLiveProcess{}).Run(context.Background(), `C:\shadow\winget.exe`, "list"); err == nil {
+		t.Fatal("windowsLiveProcess accepted a caller-provided executable path")
+	}
+}
