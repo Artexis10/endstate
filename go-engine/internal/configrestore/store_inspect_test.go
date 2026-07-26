@@ -344,6 +344,11 @@ func TestInspectStoreVerifiesAbsoluteAndProjectedLegacyJournalBytes(t *testing.T
 				if _, err := InspectStore(root, true); err == nil {
 					t.Fatal("unresolved projected journal was accepted")
 				}
+			} else if _, err := InspectStore(root, true); err == nil {
+				t.Fatal("absolute legacy journal was accepted without an authorized boundary")
+			}
+			if !test.projected {
+				boundary = &recordingHostBoundary{root: authority, resolved: map[string]string{}}
 			}
 			inspection, err := InspectStoreWithBoundary(root, true, boundary)
 			after := snapshotInspectionTree(t, root)
@@ -368,6 +373,95 @@ func TestInspectStoreVerifiesAbsoluteAndProjectedLegacyJournalBytes(t *testing.T
 				t.Fatal("tampered registered journal was accepted")
 			}
 		})
+	}
+}
+
+func TestInspectStoreRetainsLegacyJournalActions(t *testing.T) {
+	authority := t.TempDir()
+	stateDir := filepath.Join(authority, "state")
+	journal := filepath.Join(authority, "logs", "restore-journal.json")
+	if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journalBytes := []byte(`{"runId":"apply-legacy-actions","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[{"resolvedSourcePath":"source-one","targetPath":"target-one","backupRequested":true,"backupCreated":true,"backupPath":"backup-one","action":"restored"},{"resolvedSourcePath":"source-two","targetPath":"target-two","action":"skipped"}]}`)
+	if err := os.WriteFile(journal, journalBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boundary := &recordingHostBoundary{root: authority, resolved: map[string]string{}, projectRootToken: "$ENDSTATE_ROOT/"}
+	guard, err := BeginLiveWithBoundary(context.Background(), stateDir, "apply-legacy-actions", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	if _, err := guard.RegisterLegacyJournal(journal); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := InspectStoreWithBoundary(filepath.Join(stateDir, "config-restore", "v1"), true, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := inspection.Runs()[0].Members()[0].Actions()
+	if len(actions) != 2 || actions[0].Index != 0 || actions[1].Index != 1 || actions[0].TargetIdentity == "" || actions[0].SourceIdentity == "" || actions[0].TargetIdentity == actions[1].TargetIdentity {
+		t.Fatalf("legacy actions = %#v", actions)
+	}
+}
+
+func TestInspectStoreRejectsForeignAbsoluteLegacyJournalBeforeRead(t *testing.T) {
+	authority := t.TempDir()
+	foreign := filepath.Join(t.TempDir(), "restore-journal.json")
+	journalBytes := []byte(`{"runId":"apply-foreign","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[{"resolvedSourcePath":"source","targetPath":"target","action":"restored"}]}`)
+	if err := os.WriteFile(foreign, journalBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boundary := &recordingHostBoundary{root: authority, resolved: map[string]string{}}
+	guard, err := BeginLiveWithBoundary(context.Background(), filepath.Join(authority, "state"), "apply-foreign", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	read, err := readInspectionBoundedFile(storeInspectionFilesystem, foreign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	memberID, err := newOpaqueStoreID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, record, err := newLegacyMember(memberID, guard.restoreRunID, guard.runID, guard.runStartedAt, 0, foreign, read.digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(guard.legacyMembers, memberID+".json"), record, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectStoreWithBoundary(guard.storeRoot, true, boundary); err == nil {
+		t.Fatal("foreign absolute legacy journal was accepted")
+	}
+	validated := false
+	for _, path := range boundary.validateCalls {
+		if path == foreign {
+			validated = true
+			break
+		}
+	}
+	if !validated {
+		t.Fatal("foreign legacy journal was read before the boundary validated it")
+	}
+}
+
+func TestInspectStoreRejectsLinkedAncestorBeforeEmptyStoreSuccess(t *testing.T) {
+	stateDir := t.TempDir()
+	guard, err := BeginLive(context.Background(), stateDir, "apply-ancestor", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	link := filepath.Join(t.TempDir(), "linked-state")
+	if err := os.Symlink(stateDir, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := InspectStore(filepath.Join(link, "config-restore", "v1"), true); err == nil {
+		t.Fatal("linked store ancestor was accepted")
 	}
 }
 
@@ -419,6 +513,103 @@ func TestInspectStoreReturnsOneToOneActionAndBackupRecords(t *testing.T) {
 	}
 	if _, err := InspectStore(storeRoot, true); err == nil {
 		t.Fatal("missing physical backup was accepted")
+	}
+}
+
+func TestInspectStoreVerifiesBoundedDirectoryBackup(t *testing.T) {
+	stateDir := t.TempDir()
+	guard, err := BeginLive(context.Background(), stateDir, "apply-directory", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	transaction, err := guard.CreateTransactionRoot("capture-directory")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(t.TempDir(), "prefs")
+	if err := os.MkdirAll(filepath.Join(target, "nested"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(target, "nested", "settings.json"), []byte("before"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(t.TempDir(), "source")
+	if err := os.MkdirAll(source, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "settings.json"), []byte("desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{Set: &MaterializedSet{Actions: []Action{{Kind: ActionCopy, Strategy: "copy", Source: source, Target: target, SourceMode: sourceInfo.Mode(), SourceIsDirectory: true, SnapshotRequired: true}}}, TransactionRoot: transaction})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage := testJournalLineage()
+	lineage.RunID, lineage.CaptureID = "apply-directory", "capture-directory"
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{Prepared: prepared, TransactionRoot: transaction, Lineage: lineage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExecuteConfigSetTransaction(context.Background(), TransactionRequest{Prepared: prepared, Intent: intent}); err != nil {
+		t.Fatal(err)
+	}
+	storeRoot := filepath.Join(stateDir, "config-restore", "v1")
+	inspection, err := InspectStore(storeRoot, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backup := inspection.Runs()[0].Members()[0].Actions()[0].Backup
+	if !backup.Exists || backup.Kind != StateDirectory || backup.Digest == "" {
+		t.Fatalf("directory backup = %#v", backup)
+	}
+	backupRoot := filepath.Join(transaction, "snapshots", "000000", "prior")
+	if err := os.WriteFile(filepath.Join(backupRoot, "extra"), []byte("tampered"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectStore(storeRoot, true); err == nil {
+		t.Fatal("extra directory backup file was accepted")
+	}
+	if err := os.Remove(filepath.Join(backupRoot, "extra")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(backupRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(backupRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() == 0o755 {
+		if _, err := InspectStore(storeRoot, true); err == nil {
+			t.Fatal("directory backup mode change was accepted")
+		}
+	}
+	if err := os.Chmod(backupRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(backupRoot, "linked")
+	if err := os.Symlink(filepath.Join(backupRoot, "nested", "settings.json"), link); err == nil {
+		if _, err := InspectStore(storeRoot, true); err == nil {
+			t.Fatal("linked directory backup child was accepted")
+		}
+		if err := os.Remove(link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deep := backupRoot
+	for range maxStoreInspectionDepth + 1 {
+		deep = filepath.Join(deep, "deep")
+		if err := os.Mkdir(deep, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := InspectStore(storeRoot, true); err == nil {
+		t.Fatal("too-deep directory backup was accepted")
 	}
 }
 
