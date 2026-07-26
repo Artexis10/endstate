@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -116,7 +117,7 @@ func TestRunSyntheticShardPersistsPartialFailedResultAndContinues(t *testing.T) 
 		row := plan.Rows[called]
 		called++
 		if called == 1 {
-			return validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision, ScenarioID: row.ScenarioID, Kind: row.ScenarioKind, Status: validationharness.ResultStatusFailed, ProofLevels: []validationmatrix.ProofLevel{}, AssertionCounts: map[string]int{validationmatrix.AssertionCaptured: 1}, Failure: &validationharness.Failure{Code: validationharness.CodeArtifactContract, Phase: "capture", Coordinate: "payload", Detail: detail}, PhaseTimings: map[string]time.Duration{"capture": time.Second}}, nil
+			return validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision, ScenarioID: row.ScenarioID, Kind: row.ScenarioKind, Status: validationharness.ResultStatusFailed, ProofLevels: []validationmatrix.ProofLevel{}, AssertionCounts: map[string]int{validationmatrix.AssertionCaptured: 1}, Failure: &validationharness.Failure{Code: validationharness.CodeArtifactContract, Phase: "capture", Coordinate: "payload", Detail: detail}, PhaseTimings: map[string]time.Duration{"capture": time.Second, "unbounded": time.Duration(1<<63 - 1)}}, nil
 		}
 		return passedResult(row), nil
 	}
@@ -135,6 +136,9 @@ func TestRunSyntheticShardPersistsPartialFailedResultAndContinues(t *testing.T) 
 	}
 	if len(detail) != 700 {
 		t.Fatal("compact record mutated the runner-owned failure detail")
+	}
+	if _, found := failed.PhaseTimings["unbounded"]; found {
+		t.Fatal("compact evidence retained an unrecognized timing key")
 	}
 	input := filepath.Join(runnerTemp, "validation-input")
 	if err := os.Mkdir(input, 0o700); err != nil {
@@ -158,6 +162,15 @@ func TestRunSyntheticShardPersistsPartialFailedResultAndContinues(t *testing.T) 
 }
 
 func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
+	for _, kind := range []validationmatrix.ScenarioKind{
+		validationmatrix.ScenarioConfigRoundtripV1, validationmatrix.ScenarioConfigGenerationV2,
+		validationmatrix.ScenarioConfigMigrationV2, validationmatrix.ScenarioCaptureContract,
+		validationmatrix.ScenarioInstallContract, validationmatrix.ScenarioRestoreContract,
+	} {
+		if !reflect.DeepEqual(maximumCausalPhases(kind), causalPhaseNames(kind)) {
+			t.Fatalf("causal phase model drift for %q: test=%v production=%v", kind, maximumCausalPhases(kind), causalPhaseNames(kind))
+		}
+	}
 	repo := sourceRepoRoot(t)
 	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
 	if err != nil {
@@ -173,7 +186,7 @@ func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		shards[row.Shard] = append(shards[row.Shard], ShardRow{Identity: identity, Result: compactHarnessResult(validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision, ScenarioID: row.ScenarioID, Kind: row.ScenarioKind, Status: validationharness.ResultStatusFailed, ProofLevels: []validationmatrix.ProofLevel{}, AssertionCounts: map[string]int{validationmatrix.AssertionCaptured: 1}, Failure: &validationharness.Failure{Code: validationharness.CodeArtifactContract, Phase: "capture", Coordinate: "payload", Detail: strings.Repeat("x", 4096)}, PhaseTimings: map[string]time.Duration{"capture": time.Second, "rebuild": time.Second, "verify": time.Second}})})
+		shards[row.Shard] = append(shards[row.Shard], ShardRow{Identity: identity, Result: compactHarnessResult(maximumLegitimateFailedResult(row))})
 	}
 	maximum := 0
 	for shard, rows := range shards {
@@ -191,7 +204,48 @@ func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
 			t.Fatalf("shard %d serialized to %d bytes, exceeds %d", shard, len(data), maxResultSize)
 		}
 	}
-	t.Logf("maximum production-scale compact shard size: %d bytes", maximum)
+	headroom := maxResultSize - maximum
+	if headroom < 4*1024 {
+		t.Fatalf("production-scale shard leaves only %d bytes of headroom", headroom)
+	}
+	t.Logf("maximum production-scale compact shard size: %d bytes; headroom: %d bytes", maximum, headroom)
+}
+
+func maximumLegitimateFailedResult(row validationmatrix.SyntheticRow) validationharness.Result {
+	assertions := make(map[string]int, len(allowedAssertions(row.ScenarioKind)))
+	for name := range allowedAssertions(row.ScenarioKind) {
+		assertions[name] = 1
+	}
+	timings := make(map[string]time.Duration, len(maximumCausalPhases(row.ScenarioKind)))
+	for _, phase := range maximumCausalPhases(row.ScenarioKind) {
+		timings[phase] = time.Duration(1<<63 - 1)
+	}
+	return validationharness.Result{
+		SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: row.ModuleID, ModuleRevision: row.ModuleRevision,
+		ScenarioID: row.ScenarioID, Kind: row.ScenarioKind, Status: validationharness.ResultStatusFailed,
+		ProofLevels: []validationmatrix.ProofLevel{}, AssertionCounts: assertions,
+		Failure:      &validationharness.Failure{Code: validationharness.CodeUnsupportedFixture, Phase: "optional-capture", Coordinate: "configSets.settings.generations.current.capture[0]", Detail: strings.Repeat("x", 4096)},
+		PhaseTimings: timings,
+	}
+}
+
+func maximumCausalPhases(kind validationmatrix.ScenarioKind) []string {
+	switch kind {
+	case validationmatrix.ScenarioConfigRoundtripV1:
+		return []string{"fixture", "capture", "optional-capture", "mutation", "rebuild", "revert", "recovery-rebuild", "repeat-rebuild", "verify"}
+	case validationmatrix.ScenarioConfigGenerationV2:
+		return []string{"fixture", "capture", "mutation", "rebuild", "revert", "recovery-rebuild", "repeat-rebuild", "verify"}
+	case validationmatrix.ScenarioConfigMigrationV2:
+		return []string{"fixture", "capture", "transition", "mutation", "rebuild", "revert", "recovery-rebuild", "repeat-rebuild", "verify"}
+	case validationmatrix.ScenarioCaptureContract:
+		return []string{"fixture", "capture", "optional-capture"}
+	case validationmatrix.ScenarioInstallContract:
+		return []string{"apply-dry-run", "verify-absent", "verify-present"}
+	case validationmatrix.ScenarioRestoreContract:
+		return []string{"fixture", "rebuild", "revert"}
+	default:
+		return nil
+	}
 }
 
 func TestReadBoundedRejectsRecursiveDuplicateJSONKeys(t *testing.T) {

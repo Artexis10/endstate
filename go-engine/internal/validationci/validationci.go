@@ -32,7 +32,7 @@ const (
 	SchemaVersion        = 1
 	ShardCount           = 8
 	maxResultSize        = 64 * 1024
-	maxFailureDetailSize = 512
+	maxFailureDetailSize = 192
 )
 
 var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
@@ -742,19 +742,45 @@ func compactHarnessResult(result validationharness.Result) validationharness.Res
 	for name, count := range result.AssertionCounts {
 		compact.AssertionCounts[name] = count
 	}
-	compact.PhaseTimings = make(map[string]time.Duration, len(result.PhaseTimings))
-	for phase, duration := range result.PhaseTimings {
-		compact.PhaseTimings[phase] = duration
+	compact.PhaseTimings = make(map[string]time.Duration, len(causalPhaseNames(result.Kind)))
+	for _, phase := range causalPhaseNames(result.Kind) {
+		if duration, ok := result.PhaseTimings[phase]; ok {
+			compact.PhaseTimings[phase] = duration
+		}
 	}
 	if result.Failure != nil {
 		failure := *result.Failure
 		failure.ProofLevels = append([]validationmatrix.ProofLevel(nil), result.Failure.ProofLevels...)
-		if len(failure.Detail) > maxFailureDetailSize {
-			failure.Detail = failure.Detail[:maxFailureDetailSize]
-		}
+		failure.Detail = compactFailureText(failure.Detail, maxFailureDetailSize)
 		compact.Failure = &failure
 	}
 	return compact
+}
+
+func compactFailureText(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	return value[:limit]
+}
+
+func causalPhaseNames(kind validationmatrix.ScenarioKind) []string {
+	switch kind {
+	case validationmatrix.ScenarioConfigRoundtripV1:
+		return []string{"fixture", "capture", "optional-capture", "mutation", "rebuild", "revert", "recovery-rebuild", "repeat-rebuild", "verify"}
+	case validationmatrix.ScenarioConfigGenerationV2:
+		return []string{"fixture", "capture", "mutation", "rebuild", "revert", "recovery-rebuild", "repeat-rebuild", "verify"}
+	case validationmatrix.ScenarioConfigMigrationV2:
+		return []string{"fixture", "capture", "transition", "mutation", "rebuild", "revert", "recovery-rebuild", "repeat-rebuild", "verify"}
+	case validationmatrix.ScenarioCaptureContract:
+		return []string{"fixture", "capture", "optional-capture"}
+	case validationmatrix.ScenarioInstallContract:
+		return []string{"apply-dry-run", "verify-absent", "verify-present"}
+	case validationmatrix.ScenarioRestoreContract:
+		return []string{"fixture", "rebuild", "revert"}
+	default:
+		return nil
+	}
 }
 func fileSHA256(path string) (string, error) {
 	data, err := os.ReadFile(path)
