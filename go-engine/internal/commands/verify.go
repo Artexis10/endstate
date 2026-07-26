@@ -428,7 +428,7 @@ func loadValidationCommandManifest(path string) (*manifest.Manifest, *envelope.E
 		inventory := currentValidationMode.Descriptor().Inventory
 		mf, err = manifest.LoadManifestForValidationCapture(path, manifest.App{
 			ID: inventory.AppID, Refs: map[string]string{"windows": inventory.Ref},
-			Driver: inventory.Driver, Source: inventory.Source,
+			Driver: inventory.Driver, Source: inventory.Source, DisplayName: inventory.DisplayName,
 		})
 	} else {
 		mf, err = manifest.LoadManifestOrBundle(path)
