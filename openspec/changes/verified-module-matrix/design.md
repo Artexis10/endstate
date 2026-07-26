@@ -25,7 +25,7 @@ Neither kind may be presented as the other.
 
 **Non-Goals:**
 
-- Claiming that all 357 applications can be installed unattended on GitHub-hosted runners.
+- Claiming that all catalog applications can be installed unattended on GitHub-hosted runners.
 - Using live applications where deterministic fixtures provide stronger regression isolation.
 - Replacing unit tests, local Sandbox discovery, manual release testing, or GUI-repository end-to-end tests.
 - Giving untrusted fork pull requests access to secrets or self-hosted machines.
@@ -45,7 +45,7 @@ Each module has separate proof dimensions. A single `PASS` boolean is insufficie
 | `live-config-roundtrip` | Real install plus seeded production-module capture/restore/verify/revert succeeds | GUI orchestration or account/license/hardware flows |
 | `lab` / `manual` | A documented external procedure is required | Automated CI coverage |
 
-Public summaries report these dimensions independently. For example, `357/357 modules have current engine scenarios` and `N/M hosted-live modules passed` are valid only when the scenario denominator includes every required schema-v2 alternative/migration and asymmetric modules remain explicitly blocked. `357 apps work` is not a valid claim.
+Public summaries report these dimensions independently. For example, `all catalog modules have current engine scenarios` and `N/M hosted-live modules passed` are valid only when the scenario denominator includes every required schema-v2 alternative/migration and asymmetric modules remain explicitly blocked. `all catalog apps work` is not a valid claim.
 
 ## Validation Metadata
 
@@ -113,7 +113,7 @@ A reviewed one-way scenario carries its approval beside the scenario rather than
 Rules:
 
 - `synthetic.scenarios` is required and non-empty for every module. Symmetric schema-v1 modules use `config-roundtrip-v1`; schema-v2 modules declare a scenario for every selectable generation/fingerprint and every migration edge, always backed by non-empty target-generation validation and by edge validation for migrations. A schema-v2 scenario requires a top-level app-verifier assertion only when `Module.Verify` is non-empty. Modules intentionally containing no capture/restore entries use `install-contract`.
-- A capture-bearing module cannot earn config-roundtrip proof unless every captured target has an executable restoration contract with non-zero restore and revert assertions. The current capture-only set is blocked and explicitly repaired during rollout; it cannot be relabeled install-only, waived, or removed from the denominator to manufacture `357/357`.
+- A capture-bearing module cannot earn config-roundtrip proof unless every captured target has an executable restoration contract with non-zero restore and revert assertions. The current capture-only set is blocked and explicitly repaired during rollout; it cannot be relabeled install-only, waived, or removed from the denominator to manufacture a full-catalog result.
 - An intentionally one-way module may receive a `capture-contract` or `restore-contract` scenario only with machine-checked `approved-one-way` review metadata containing a stable reason code, reviewer, strict non-future review date, and evidence. Other scenario kinds forbid that review object. A capture contract must prove targeted production-engine capture, exact payload/provenance/content, and non-zero capture assertions. A restore contract must prove the production restore operation, exact content, nested summaries, verification where declared, immediate revert, and non-zero restore assertions. Both emit only `engine-contract`; they remain outside the config-roundtrip numerator and denominator accounting shows the exclusion.
 - Schema-v2 expected identities explicitly choose `literal` or `derived-from-fixture`. Literal identity requires exact `captureId` and `instanceId` and forbids a detector. Derived identity requires a detector declared by the production module and forbids precomputed capture/instance IDs; the harness derives those IDs from the canonical contained fixture locator and still compares the exact engine output.
 - Install contracts accept any nonblank production app reference family: Winget, Chocolatey, executable, uninstall-display-name, or path-exists. They still require at least one production verifier.

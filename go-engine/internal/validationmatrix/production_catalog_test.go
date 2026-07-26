@@ -21,11 +21,11 @@ func TestProductionCatalogValidationMetadataIsComplete(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := len(catalog.Modules); got != 357 {
-		t.Fatalf("production module count = %d, want 357", got)
+	if got := len(catalog.Modules); got != 359 {
+		t.Fatalf("production module count = %d, want 359", got)
 	}
-	if got := len(catalog.Records); got != 357 {
-		t.Fatalf("validation record count = %d, want 357", got)
+	if got := len(catalog.Records); got != 359 {
+		t.Fatalf("validation record count = %d, want 359", got)
 	}
 
 	wantOneWay := prefixedModuleIDs(strings.Fields(`
@@ -89,11 +89,11 @@ func TestProductionCatalogValidationMetadataIsComplete(t *testing.T) {
 		}
 	}
 
-	if totalScenarios != 360 {
-		t.Errorf("synthetic scenario count = %d, want 360", totalScenarios)
+	if totalScenarios != 362 {
+		t.Errorf("synthetic scenario count = %d, want 362", totalScenarios)
 	}
 	wantScenarioKinds := map[ScenarioKind]int{
-		ScenarioConfigRoundtripV1:  274,
+		ScenarioConfigRoundtripV1:  276,
 		ScenarioCaptureContract:    50,
 		ScenarioInstallContract:    30,
 		ScenarioConfigGenerationV2: 5,
@@ -106,8 +106,8 @@ func TestProductionCatalogValidationMetadataIsComplete(t *testing.T) {
 		}
 	}
 	wantLiveModes := map[LiveMode]int{
-		LiveCandidate:     309,
-		LiveManual:        48,
+		LiveCandidate:     310,
+		LiveManual:        49,
 		LiveHosted:        0,
 		LiveBlocked:       0,
 		LiveLab:           0,
