@@ -145,6 +145,15 @@ func inspectLiveCaptureArtifact(definition LiveDefinition, snapshots []liveTarge
 			return liveArtifactEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture ZIP contains an unsupported directory member")
 		}
 	}
+	expectedDirectories := map[string]string{"configs": "configs", "configs/notepad-plus-plus": "configs/notepad-plus-plus"}
+	if len(entries.directories) != len(expectedDirectories) {
+		return liveArtifactEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture ZIP lacks the exact production directory members")
+	}
+	for key, expectedName := range expectedDirectories {
+		if _, ok := entries.directories[key]; !ok || entries.names[key] != expectedName {
+			return liveArtifactEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture ZIP directory members differ from production")
+		}
+	}
 	return liveArtifactEvidence{SHA256: hex.EncodeToString(digest[:]), Size: int64(len(data)), Mode: mode}, nil
 }
 
@@ -268,7 +277,10 @@ func readLiveArtifactEntries(data []byte) (liveArtifactEntries, *Failure) {
 		if strings.Contains(name, `\`) {
 			return liveArtifactEntries{}, fail(CodeArtifactContract, "capture", "artifact", "capture ZIP member uses a noncanonical separator")
 		}
-		directory := strings.HasSuffix(name, "/") || file.FileInfo().IsDir()
+		directory := strings.HasSuffix(name, "/")
+		if file.FileInfo().IsDir() != directory {
+			return liveArtifactEntries{}, fail(CodeArtifactContract, "capture", "artifact", "capture ZIP directory member has a noncanonical name")
+		}
 		portableName := strings.TrimSuffix(name, "/")
 		if len(portableName) == 0 || len(portableName) > maxLiveArtifactNameBytes || !safeArtifactName(portableName) || len(strings.Split(portableName, "/")) > maxLiveArtifactNameDepth || liveUnsafeZipMode(file.Mode(), directory) || (file.Method != zip.Store && file.Method != zip.Deflate) {
 			return liveArtifactEntries{}, fail(CodeArtifactContract, "capture", "artifact", "capture ZIP contains an unsafe member")
@@ -289,7 +301,7 @@ func readLiveArtifactEntries(data []byte) (liveArtifactEntries, *Failure) {
 			return liveArtifactEntries{}, fail(CodeArtifactContract, "capture", "artifact", "capture ZIP contains duplicate or case-alias members")
 		}
 		if directory {
-			if file.UncompressedSize64 != 0 {
+			if file.UncompressedSize64 != 0 || file.Mode().Perm() != 0o666 {
 				return liveArtifactEntries{}, fail(CodeArtifactContract, "capture", "artifact", "capture ZIP directory member contains data")
 			}
 			entries.directories[key] = struct{}{}
@@ -345,7 +357,7 @@ func validateLiveArtifactManifest(raw []byte, definition LiveDefinition, claims 
 		return fail(CodeArtifactContract, "capture", "manifest.apps", "capture manifest app references differ from production")
 	}
 	app := captured.Apps[0]
-	if app.ID != liveAppID(definition.ModuleID) || app.Refs["windows"] != definition.WingetRef || !strings.EqualFold(app.Driver, "winget") || !strings.EqualFold(app.Source, "winget") {
+	if app.ID != liveManifestAppID(definition.WingetRef) || app.Refs["windows"] != definition.WingetRef || !strings.EqualFold(app.Driver, "winget") || !strings.EqualFold(app.Source, "winget") {
 		return fail(CodeArtifactContract, "capture", "manifest.apps", "capture manifest app identity differs from the live definition")
 	}
 	if !liveStringEquals(appFields["id"], app.ID) || !liveStringEquals(appFields["driver"], "winget") || !liveStringEquals(appFields["source"], "winget") || !liveStringEquals(refs["windows"], definition.WingetRef) {
@@ -412,7 +424,7 @@ func validateLiveArtifactMetadata(raw []byte, definition LiveDefinition, claims 
 		return fail(CodeArtifactContract, "capture", "metadata", "capture metadata has a non-production schema-v1 shape")
 	}
 	var metadata bundle.BundleMetadata
-	if json.Unmarshal(raw, &metadata) != nil || metadata.SchemaVersion != "1.0" || metadata.CapturedAt != claims.CapturedAt || metadata.MachineName != claims.MachineName || metadata.EndstateVersion != claims.EndstateVersion || metadata.OS != claims.OS || metadata.Share || metadata.Name != "" || metadata.Redaction != nil || metadata.ManifestVersion != 0 || len(metadata.ConfigCapturesIncluded) != 0 || !exactStrings(metadata.ConfigModulesIncluded, []string{strings.TrimPrefix(definition.ModuleID, "apps.")}) || len(metadata.ConfigModulesSkipped) != 0 || len(metadata.CaptureWarnings) != 0 {
+	if liveNull(fields["configModulesSkipped"]) || liveNull(fields["captureWarnings"]) || json.Unmarshal(raw, &metadata) != nil || metadata.SchemaVersion != "1.0" || metadata.CapturedAt != claims.CapturedAt || metadata.MachineName != claims.MachineName || metadata.EndstateVersion != claims.EndstateVersion || metadata.OS != claims.OS || metadata.Share || metadata.Name != "" || metadata.Redaction != nil || metadata.ManifestVersion != 0 || len(metadata.ConfigCapturesIncluded) != 0 || !exactStrings(metadata.ConfigModulesIncluded, []string{strings.TrimPrefix(definition.ModuleID, "apps.")}) || len(metadata.ConfigModulesSkipped) != 0 || len(metadata.CaptureWarnings) != 0 {
 		return fail(CodeArtifactContract, "capture", "metadata", "capture metadata differs from the schema-v1 capture claims")
 	}
 	return nil

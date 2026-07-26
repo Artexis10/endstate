@@ -50,6 +50,12 @@ func TestInspectLiveCaptureArtifactRejectsHostileSchemaV1Bundles(t *testing.T) {
 			value["version"] = 2
 			entries["manifest.jsonc"] = mustJSON(t, value)
 		}},
+		{"module slug app ID", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["manifest.jsonc"], &value)
+			value["apps"].([]any)[0].(map[string]any)["id"] = "notepad-plus-plus"
+			entries["manifest.jsonc"] = mustJSON(t, value)
+		}},
 		{"wrong module", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
 			var value map[string]any
 			mustJSONUnmarshal(t, entries["manifest.jsonc"], &value)
@@ -143,6 +149,18 @@ func TestInspectLiveCaptureArtifactRejectsHostileSchemaV1Bundles(t *testing.T) {
 			value["manifestVersion"] = 2
 			entries["metadata.json"] = mustJSON(t, value)
 		}},
+		{"metadata skipped null", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["metadata.json"], &value)
+			value["configModulesSkipped"] = nil
+			entries["metadata.json"] = mustJSON(t, value)
+		}},
+		{"metadata warnings null", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["metadata.json"], &value)
+			value["captureWarnings"] = nil
+			entries["metadata.json"] = mustJSON(t, value)
+		}},
 		{"unrelated payload", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
 			entries["configs/notepad-plus-plus/foreign.xml"] = []byte("foreign")
 		}},
@@ -185,6 +203,26 @@ func TestInspectLiveCaptureArtifactRejectsUnsafeZipAndPathClaims(t *testing.T) {
 			candidate[`configs\notepad-plus-plus\config.xml`] = candidate["configs/notepad-plus-plus/config.xml"]
 			delete(candidate, "configs/notepad-plus-plus/config.xml")
 			writeLiveArtifactZip(t, filepath.Dir(path), filepath.Base(path), candidate, nil)
+		}, nil},
+		{"directory mode", func(path string) {
+			writeLiveArtifactZip(t, filepath.Dir(path), filepath.Base(path), entries, func(writer *zip.Writer) {
+				for _, header := range []*zip.FileHeader{{Name: "configs/"}, {Name: "configs/notepad-plus-plus/"}} {
+					header.SetMode(os.ModeDir | 0o700)
+					if _, err := writer.CreateHeader(header); err != nil {
+						t.Fatal(err)
+					}
+				}
+			})
+		}, nil},
+		{"directory without trailing slash", func(path string) {
+			writeLiveArtifactZip(t, filepath.Dir(path), filepath.Base(path), entries, func(writer *zip.Writer) {
+				for _, header := range []*zip.FileHeader{{Name: "configs"}, {Name: "configs/notepad-plus-plus"}} {
+					header.SetMode(os.ModeDir | 0o755)
+					if _, err := writer.CreateHeader(header); err != nil {
+						t.Fatal(err)
+					}
+				}
+			})
 		}, nil},
 		{"directory", func(path string) {
 			writeLiveArtifactZip(t, filepath.Dir(path), filepath.Base(path), entries, func(writer *zip.Writer) { _, _ = writer.Create("foreign/") })
@@ -229,6 +267,17 @@ func TestInspectLiveCaptureArtifactRejectsUnsafeZipAndPathClaims(t *testing.T) {
 	}
 }
 
+func TestInspectLiveCaptureArtifactRequiresProductionDirectoryMembers(t *testing.T) {
+	definition, path, snapshots, claims := productionLiveArtifactFixture(t)
+	entries := readLiveArtifactEntriesForTest(t, path)
+	repacked := writeLiveArtifactZip(t, filepath.Dir(path), "repacked.zip", entries, nil)
+	copy := *claims
+	copy.OutputPath, copy.EventPath, copy.Receipt.Path = repacked, repacked, repacked
+	if _, failure := inspectLiveCaptureArtifact(definition, snapshots, copy, repacked); failure == nil {
+		t.Fatal("repacked artifact without production directory members was accepted")
+	}
+}
+
 func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []liveTargetSnapshot, *liveCaptureArtifactClaims) {
 	t.Helper()
 	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
@@ -255,7 +304,7 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 		snapshots = append(snapshots, liveTargetSnapshot{Identity: mapping.Identity, Mode: 0o600, Size: int64(len(payload)), SHA256: liveSHA256(payload), Bytes: payload})
 	}
 	manifestPath := filepath.Join(t.TempDir(), "captured.jsonc")
-	input := manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: "notepad-plus-plus", Refs: map[string]string{"windows": definition.WingetRef}, Driver: "winget", Source: "winget"}}}
+	input := manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: liveManifestAppID(definition.WingetRef), Refs: map[string]string{"windows": definition.WingetRef}, Driver: "winget", Source: "winget"}}}
 	if err := os.WriteFile(manifestPath, mustJSON(t, input), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -283,6 +332,9 @@ func readLiveArtifactEntriesForTest(t *testing.T, path string) map[string][]byte
 	defer reader.Close()
 	values := map[string][]byte{}
 	for _, file := range reader.File {
+		if strings.HasSuffix(file.Name, "/") {
+			continue
+		}
 		stream, err := file.Open()
 		if err != nil {
 			t.Fatal(err)
