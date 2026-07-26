@@ -131,3 +131,46 @@ and aggregate proof retention after an authority failure.
 - `go vet ./...` and `go test -run '^$' ./...` from `go-engine`: PASS.
 - `npm run openspec:validate`: PASS, 91 passed / 0 failed.
 - `git diff --check`: PASS.
+
+## Final process and persistence follow-up
+
+### Commits
+
+- `86681a0` `test(validation): cover catalog process limits`
+- `fe79241` `fix(validation): recheck catalog authority after persistence`
+- `00b8724` `test(validation): cover catalog authority boundaries`
+
+### RED → GREEN evidence
+
+- Process exit: the first helper setup was intentionally rejected at the
+  envelope-action boundary and was discarded; once it emitted a fully valid
+  success envelope and matching JSONL segment, the existing process guard
+  returned `execution_failure/catalog-plan/exit` and no decoded result. This
+  confirms that a valid protocol response cannot survive a nonzero child exit;
+  no production change was required because that behavior already existed.
+- Post-persistence authority: `TestRunCatalogMatrixStripsPersistedProofAfterRepositoryMutation`
+  drives one valid synthetic row through real `RunCatalogMatrix` control flow.
+  Its hook reads the initially creditable persisted result, mutates a copied
+  pinned module byte, then proves the returned aggregate, returned row, and
+  atomically rewritten persisted result all have empty proof. Removing the
+  final recheck makes this regression fail by leaving that observed passed file
+  creditable.
+- Result-path overlap: repository and engine cases now use existing regular
+  directories named `endstate-validation-results` inside the valid temp-owned
+  boundary and assert the stable `invalid_result_path` `repository` and
+  `engine` coordinates.
+
+### Final verification
+
+- Focused process/persistence/aggregate catalog suite: PASS in 25.506s.
+- Fresh-built 12-bundle acceptance: PASS in 29.969s (12/12 rows, 315
+  memberships, 313 unique modules, and the two expected reuse entries).
+- Full `go test ./internal/validationharness -count=1`: PASS in 141.251s.
+- `go vet ./...`: PASS.
+- `go test -run '^$' ./...`: PASS.
+- `npm run openspec:validate`: PASS, 91 passed / 0 failed.
+- `git diff --check`: rerun after this report update before the report commit.
+
+The Go tool still emits the pre-existing inaccessible telemetry upload-token
+warning even with `GOTELEMETRY=off`; every verification command above exited
+successfully.
