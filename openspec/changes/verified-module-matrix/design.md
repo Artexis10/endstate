@@ -146,14 +146,21 @@ A scenario cannot pass vacuously. Schema-v1 roundtrips must meet their declared 
 
 ## Bundle Validation
 
-Every tracked bundle is resolved with the same built engine on every pull request. The gate asserts that:
+Every tracked bundle is resolved by the same built engine on every pull request through a dedicated read-only command:
 
-- every referenced module exists and has validation metadata;
-- resolution is deterministic and contains no unintended duplicates;
-- the engine can produce a dry-run plan for the bundle; and
-- bundle coverage is included in the aggregate evidence.
+```text
+endstate catalog-plan --bundle <tracked-bundle-path> --json --events jsonl
+```
 
-This is a production-engine bundle contract check, not a real installation of the entire bundle.
+The command is a catalog module-resolution plan, not an application installation plan. The built binary parses the bundle, resolves its ordered module memberships against the strict production module and validation-sidecar catalog, and emits one non-skipped action per membership. The harness only invokes the command and validates/aggregates its output; it must not expand bundle membership itself. Ordinary `plan` success, an empty action list, or a harness-produced module list is not bundle proof.
+
+Bundle inputs are fail-closed. A bundle must be a regular immediate child of `<root>/bundles`, must not escape through traversal, links, or reparse points, and must use the exact bundle schema with no unknown or duplicate fields or trailing object. Its file stem and declared ID must agree. Memberships are bare canonical module slugs that resolve to `apps.<slug>`. Duplicate canonical membership within one bundle fails; intentional reuse of a module across different bundles is allowed and reported by the aggregate.
+
+Resolution requires the canonical module and its matching validation sidecar. Each emitted action binds the bundle identity and hash to the canonical module ID, module revision/schema version, validation hash, and validation scenario count. Action order matches declaration order, the action count exactly equals the membership count, and skipped or unresolved memberships fail. Repeating the command with the same separately built binary and inputs must produce an identical stable projection.
+
+The engine does not synthesize application declarations from module matchers, choose among multiple package references, or treat an executable-only module as installable. Package and verifier policy remain the authority of the later synthetic and live scenarios. Bundle rows therefore earn only `catalog` proof. They do not earn `engine-contract`, config-roundtrip, live-install, GUI, workflow, or public-proof status, and general bundle composition inside ordinary user manifests is outside this change.
+
+The pull-request matrix runs every tracked bundle twice and the aggregate requires the complete expected bundle set, total membership count, unique-module count, and explicit cross-bundle reuse report. Missing, duplicate, stale, partially resolved, wrong-revision, or schema-incompatible rows fail aggregation.
 
 ## Live Hosted-Runner Harness
 

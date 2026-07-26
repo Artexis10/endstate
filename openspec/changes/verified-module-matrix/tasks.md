@@ -23,9 +23,9 @@
 
 ## 3. Bundle Contract Matrix
 
-- [ ] 3.1 Enumerate every tracked bundle and resolve it with the workflow-built engine.
-- [ ] 3.2 Assert all referenced modules/sidecars exist, resolution is deterministic, unintended duplicates are rejected, and a dry-run plan succeeds.
-- [ ] 3.3 Include bundle counts and failures in the aggregate proof result.
+- [ ] 3.1 Add `endstate catalog-plan --bundle <tracked-bundle-path> --json --events jsonl`, a read-only built-engine command that strictly parses one canonical tracked bundle and emits one ordered, revision-bound module-resolution action per membership without synthesizing application/package intent.
+- [ ] 3.2 Run every tracked bundle twice with the separately workflow-built engine; reject non-canonical paths/schema, empty or partial/zero-action resolution, missing or stale modules/sidecars, within-bundle canonical duplicates, skips, unstable output, and wrong revision/hash while allowing and reporting cross-bundle reuse.
+- [ ] 3.3 Include the complete expected bundle set, total membership count, unique-module count, cross-bundle reuse, row identities, and failures in aggregate `catalog` proof; reject missing, duplicate, partial, wrong-commit/hash, and schema-incompatible rows.
 
 ## 4. Live Installed-Application Harness
 

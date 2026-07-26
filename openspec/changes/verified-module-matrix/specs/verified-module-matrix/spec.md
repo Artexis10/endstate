@@ -148,16 +148,52 @@ The system SHALL run every production module and every required schema-v2 altern
 
 ### Requirement: Production-Engine Bundle Validation
 
-The system SHALL resolve every tracked bundle with the workflow-built engine on every pull request.
+The system SHALL resolve every tracked bundle with the workflow-built engine on every pull request through `endstate catalog-plan --bundle <tracked-bundle-path> --json --events jsonl`.
 
 #### Scenario: Bundle contract passes
 
 - **WHEN** a tracked bundle is evaluated
-- **THEN** every referenced module and validation record SHALL exist
-- **AND** resolution SHALL be deterministic
-- **AND** unintended duplicate module membership SHALL fail
-- **AND** the engine SHALL produce a successful dry-run plan
-- **AND** the bundle SHALL appear in aggregate evidence
+- **THEN** the built engine SHALL strictly parse the bundle and resolve every ordered membership to its canonical `apps.<slug>` module and matching validation sidecar
+- **AND** it SHALL emit exactly one non-skipped action per declared membership in declaration order
+- **AND** each action SHALL bind the bundle identity/hash, canonical module ID, module revision/schema version, validation hash, and validation scenario count
+- **AND** the action count SHALL exactly equal the declared membership count
+- **AND** a second invocation with the same separately built binary and inputs SHALL have an identical stable projection
+- **AND** the row SHALL earn only `catalog` proof and SHALL appear in aggregate evidence
+
+#### Scenario: Vacuous plan is attempted
+
+- **WHEN** an ordinary manifest plan ignores bundle membership, the engine emits zero actions for a non-empty bundle, or the harness expands membership instead of the engine
+- **THEN** the bundle contract SHALL fail
+- **AND** process success or a success envelope SHALL NOT count as bundle proof
+
+#### Scenario: Bundle input is not canonical
+
+- **WHEN** a bundle is not a regular immediate child of `<root>/bundles`, escapes through traversal, a link, or a reparse point, has an ID that differs from its filename stem, contains unknown or duplicate fields or a trailing object, or names a non-canonical module reference
+- **THEN** the engine SHALL reject it before resolution
+
+#### Scenario: Bundle membership is invalid
+
+- **WHEN** a bundle is empty, repeats a canonical module within the bundle, references a missing module or validation sidecar, or produces an unresolved, skipped, stale, wrong-revision, or schema-incompatible action
+- **THEN** the bundle contract SHALL fail
+- **AND** the failing membership SHALL remain visible in command output and evidence
+
+#### Scenario: A module appears in different bundles
+
+- **WHEN** the same canonical module intentionally belongs to more than one tracked bundle
+- **THEN** each bundle SHALL retain its membership
+- **AND** the aggregate SHALL report the cross-bundle reuse without treating it as a within-bundle duplicate
+
+#### Scenario: Module has ambiguous or non-package references
+
+- **WHEN** a resolved module has multiple package references or only executable/path matching metadata
+- **THEN** the catalog plan SHALL preserve the module as a module-resolution action
+- **AND** SHALL NOT choose a package reference, synthesize an app declaration, or claim installation/verifier proof
+
+#### Scenario: Bundle aggregate is incomplete
+
+- **WHEN** bundle evidence is aggregated
+- **THEN** the aggregate SHALL require the complete expected bundle set, total membership count, unique-module count, and cross-bundle reuse report
+- **AND** missing, duplicate, partially resolved, wrong-commit, wrong-hash, or incompatible bundle rows SHALL fail aggregation
 
 ### Requirement: Live Installed-Application Evidence
 
