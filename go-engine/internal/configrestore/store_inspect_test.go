@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
 
 func TestInspectStoreReturnsClosedImmutableGenerationRecord(t *testing.T) {
@@ -484,6 +486,106 @@ func TestInspectStoreRejectsInvalidLegacyActionEvidence(t *testing.T) {
 			}
 			if _, err := InspectStoreWithBoundary(guard.storeRoot, true, boundary); err == nil {
 				t.Fatal("invalid legacy action evidence was accepted")
+			}
+		})
+	}
+}
+
+func TestInspectStoreRejectsDuplicateLegacyBackupMembership(t *testing.T) {
+	authority := t.TempDir()
+	stateDir := filepath.Join(authority, "state")
+	backup := filepath.Join(authority, "state", "backups", "apply-legacy-duplicate", "backup")
+	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journal := filepath.Join(authority, "logs", "restore-journal.json")
+	if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	entry := `{"resolvedSourcePath":"source","targetPath":"target","backupRequested":true,"backupCreated":true,"backupPath":"$ENDSTATE_ROOT/state/backups/apply-legacy-duplicate/backup","action":"restored"}`
+	journalBytes := []byte(`{"runId":"apply-legacy-duplicate","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[` + entry + `,` + entry + `]}`)
+	if err := os.WriteFile(journal, journalBytes, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boundary := &recordingHostBoundary{root: authority, resolved: map[string]string{}, projectRootToken: "$ENDSTATE_ROOT/"}
+	guard, err := BeginLiveWithBoundary(context.Background(), stateDir, "apply-legacy-duplicate", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	if _, err := guard.RegisterLegacyJournal(journal); err != nil {
+		t.Fatal(err)
+	}
+	spy := &auditingInspectionFS{storeInspectionFS: osStoreInspectionFS{}}
+	storeInspectionFilesystem = spy
+	t.Cleanup(func() { storeInspectionFilesystem = osStoreInspectionFS{} })
+	if _, err := InspectStoreWithBoundary(guard.storeRoot, true, boundary); err == nil {
+		t.Fatal("duplicate legacy backup membership was accepted")
+	}
+	backupOpens := 0
+	for _, path := range spy.opened {
+		if path == backup {
+			backupOpens++
+		}
+	}
+	if backupOpens != 1 {
+		t.Fatalf("duplicate legacy backup opens = %d, want 1", backupOpens)
+	}
+}
+
+func TestInspectionLegacyBackupTraversalUsesAggregateBudget(t *testing.T) {
+	authority := t.TempDir()
+	boundary := &recordingHostBoundary{root: authority, resolved: map[string]string{}, projectRootToken: "$ENDSTATE_ROOT/"}
+	journal := &restore.Journal{}
+	for index := 0; index < 1366; index++ {
+		backup := filepath.Join(authority, "state", "backups", "apply-legacy-budget", fmt.Sprintf("backup-%04d", index))
+		if err := os.MkdirAll(backup, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range []string{"one", "two"} {
+			if err := os.WriteFile(filepath.Join(backup, name), []byte("prior"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		journal.Entries = append(journal.Entries, restore.JournalEntry{
+			ResolvedSourcePath: "source", TargetPath: fmt.Sprintf("target-%04d", index), BackupRequested: true, BackupCreated: true,
+			BackupPath: "$ENDSTATE_ROOT/state/backups/apply-legacy-budget/" + fmt.Sprintf("backup-%04d", index), Action: "restored",
+		})
+	}
+	if _, err := inspectionLegacyJournalActions(storeInspectionFilesystem, journal, boundary, newLegacyBackupInspection()); err == nil {
+		t.Fatal("aggregate legacy backup traversal budget was accepted")
+	}
+}
+
+func TestInspectionLegacyBackupTraversalRejectsReadAndByteBudgets(t *testing.T) {
+	authority := t.TempDir()
+	backup := filepath.Join(authority, "state", "backups", "apply-legacy-read", "backup")
+	if err := os.MkdirAll(backup, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"one", "two"} {
+		if err := os.WriteFile(filepath.Join(backup, name), []byte("prior"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	journal := &restore.Journal{Entries: []restore.JournalEntry{{
+		ResolvedSourcePath: "source", TargetPath: "target", BackupRequested: true, BackupCreated: true,
+		BackupPath: "$ENDSTATE_ROOT/state/backups/apply-legacy-read/backup", Action: "restored",
+	}}}
+	boundary := &recordingHostBoundary{root: authority, resolved: map[string]string{}, projectRootToken: "$ENDSTATE_ROOT/"}
+	for _, test := range []struct {
+		name   string
+		budget *legacyBackupInspection
+	}{
+		{name: "reads", budget: &legacyBackupInspection{reads: maxStoreInspectionEntries - 1, evidence: make(map[string]StoreBackupInspection)}},
+		{name: "bytes", budget: &legacyBackupInspection{bytes: maxStoreInspectionBytes - 1, evidence: make(map[string]StoreBackupInspection)}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if _, err := inspectionLegacyJournalActions(storeInspectionFilesystem, journal, boundary, test.budget); err == nil {
+				t.Fatalf("aggregate legacy backup %s budget was accepted", test.name)
 			}
 		})
 	}
