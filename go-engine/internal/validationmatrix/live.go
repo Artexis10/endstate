@@ -136,6 +136,12 @@ func validateSeedFile(record *ValidationRecord, live LivePolicy) error {
 	return verifyHashBoundSeedFile(*record, live.Seed, trustSeedHash(live.Trust))
 }
 
+// VerifyHashBoundSeed rechecks the current seed containment and exact bytes.
+// Callers use it immediately before execution; it never executes the seed.
+func VerifyHashBoundSeed(record ValidationRecord) error {
+	return verifyHashBoundSeedFile(record, record.Live.Seed, trustSeedHash(record.Live.Trust))
+}
+
 // verifyHashBoundSeedFile validates a seed inside its module directory before
 // hashing its exact bytes. Runtime execution can reuse this helper for a later
 // pre-execution rehash without changing the containment contract.
