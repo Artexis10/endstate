@@ -118,20 +118,21 @@ Run 'endstate <command> --help' for command-specific help.
 // parsedArgs holds the result of parsing os.Args.
 type parsedArgs struct {
 	command       string
+	envelopeRunID string
 	jsonMode      bool
 	debugCLI      bool
 	helpRequested bool
 	events        string // "jsonl" or ""
 
 	// Per-command flags
-	manifest       string
-	bundle         string
+	manifest           string
+	bundle             string
 	bundleMissingValue bool
-	dryRun         bool
-	enableRestore  bool
-	export         string   // --export <path>
-	restoreFilter  string   // --restore-filter <expr>
-	restoreTargets []string // repeatable --restore-target <captureId>=<targetInstanceId>
+	dryRun             bool
+	enableRestore      bool
+	export             string   // --export <path>
+	restoreFilter      string   // --restore-filter <expr>
+	restoreTargets     []string // repeatable --restore-target <captureId>=<targetInstanceId>
 
 	// Rebuild flags
 	from      string // rebuild --from <bundle.zip|manifest.jsonc>; import --from <source>
@@ -482,7 +483,7 @@ var knownCommands = map[string]struct{}{
 	"capabilities": {}, "apply": {}, "rebuild": {}, "import": {}, "verify": {},
 	"capture": {}, "plan": {}, "report": {}, "generations": {}, "rollback": {},
 	"catalog-plan": {},
-	"doctor": {}, "profile": {}, "restore": {}, "revert": {}, "export-config": {},
+	"doctor":       {}, "profile": {}, "restore": {}, "revert": {}, "export-config": {},
 	"validate-export": {}, "bootstrap": {}, "backup": {}, "account": {}, "schedule": {},
 }
 
@@ -566,6 +567,7 @@ func runCLI(args []string, stdout, stderr io.Writer) int {
 		defer restoreDefaultEvents()
 	}
 
+	p.envelopeRunID = envelope.BuildRunID(p.command, time.Now().UTC())
 	data, cmdErr := dispatchFn(p)
 	if validationSession != nil && validationSession.IsolationError() != nil {
 		data = nil
@@ -593,7 +595,10 @@ func renderCLIResult(p parsedArgs, data interface{}, cmdErr *envelope.Error, val
 	cliVersion := config.ReadVersion(repoRoot)
 
 	now := time.Now().UTC()
-	runID := envelope.BuildRunID(p.command, now)
+	runID := p.envelopeRunID
+	if runID == "" {
+		runID = envelope.BuildRunID(p.command, now)
+	}
 
 	if p.jsonMode {
 		var env *envelope.Envelope
@@ -858,6 +863,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 		return commands.RunCatalogPlan(commands.CatalogPlanFlags{
 			Bundle: p.bundle,
 			Events: p.events,
+			RunID:  p.envelopeRunID,
 		})
 
 	case "report":

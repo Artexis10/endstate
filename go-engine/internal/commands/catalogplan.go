@@ -16,6 +16,7 @@ import (
 type CatalogPlanFlags struct {
 	Bundle string
 	Events string
+	RunID  string
 }
 
 // CatalogPlanResult is the stable catalog-only resolution result.
@@ -35,7 +36,11 @@ func RunCatalogPlan(flags CatalogPlanFlags) (interface{}, *envelope.Error) {
 		return result, envelope.NewError(envelope.ErrCatalogPlanInvalid, "Catalog bundle cannot be resolved.").WithDetail(detail)
 	}
 
-	emitter := events.NewEmitter(buildRunID("catalog-plan"), flags.Events == "jsonl")
+	runID := flags.RunID
+	if runID == "" {
+		runID = buildRunID("catalog-plan")
+	}
+	emitter := events.NewEmitter(runID, flags.Events == "jsonl")
 	emitter.EmitPhase("plan")
 	for _, action := range result.Actions {
 		emitter.EmitItem(action.ModuleID, "catalog", "present", "detected", "catalog module resolved", "")
