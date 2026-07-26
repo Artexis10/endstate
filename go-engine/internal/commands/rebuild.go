@@ -19,7 +19,7 @@ import (
 
 // RebuildFlags holds the parsed CLI flags for the rebuild command.
 type RebuildFlags struct {
-	// From is the required input: a local .zip capture bundle or a .jsonc
+	// From is the required input: a local .endstate (or legacy .zip) capture bundle or a .jsonc
 	// manifest path. URL input is rejected in v0.
 	From string
 	// DryRun previews the plan without installing, restoring, or verifying.
@@ -53,7 +53,7 @@ type RebuildFlags struct {
 // are populated from the bundle's metadata.json when present and readable, and
 // omitted otherwise.
 type RebuildBundleInfo struct {
-	// Extracted is true when the input was a .zip that was extracted to a temp
+	// Extracted is true when the input was a bundle that was extracted to a temp
 	// directory for the duration of the pipeline.
 	Extracted bool `json:"extracted"`
 	// SchemaVersion is the bundle metadata schema version (best-effort).
@@ -98,7 +98,7 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 		return nil, envelope.NewError(
 			envelope.ErrManifestValidationError,
 			"--from is required").
-			WithRemediation("Provide a local .zip bundle or .jsonc manifest path, e.g. --from MyProfile.zip.")
+			WithRemediation("Provide a local .endstate bundle (or the legacy .zip) or a .jsonc manifest path, e.g. --from MyProfile.endstate.")
 	}
 	if strings.Contains(from, "://") {
 		return nil, envelope.NewError(
@@ -151,7 +151,7 @@ func RunRebuild(flags RebuildFlags) (interface{}, *envelope.Error) {
 				envelope.ErrManifestParseError,
 				extractErr.Error()).
 				WithDetail(map[string]string{"path": from}).
-				WithRemediation("Ensure the file is a valid Endstate capture bundle (.zip containing manifest.jsonc).")
+				WithRemediation("Ensure the file is a valid Endstate capture bundle (a zip container with manifest.jsonc at its root).")
 		}
 		manifestPath = extractedManifest
 		// The extraction directory must outlive install + restore + verify; the

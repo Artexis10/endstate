@@ -11,7 +11,7 @@ Capture produces a single portable zip artifact containing the app manifest, con
 - `endstate capture --profile "Name"` produces `Documents\Endstate\Profiles\Name.zip`
 - Zip contains `manifest.jsonc`, `metadata.json`, and optional configuration payloads
 - A legacy/schema-v1-only capture may use `configs/<module-id>/<files>` with flat restore entries
-- A capture containing any schema-v2 config set uses `configs/<captureId>/<complete-relative-hierarchy>`, metadata schema `2.0`, manifest version `2`, and `configCaptures[]`
+- A capture containing any schema-v2 config set uses `configs/<readable-dir>/<complete-relative-hierarchy>` — where `<readable-dir>` is a human-readable, path-safe label (sanitized module identifier plus a short hash suffix) recorded verbatim in `payloadRoot`, while the full `captureId` identity is retained as a manifest field — metadata schema `2.0`, manifest version `2`, and `configCaptures[]`
 - Config bundling is automatic — no flag needed
 - If no config modules match, zip contains manifest + metadata only (install-only profile)
 
@@ -76,7 +76,7 @@ A v2 config capture exists only in `configCaptures[]` and has no flat restore en
 The bundle owns immutable source instance/version evidence, source generation/fingerprint, capture-time module revision, and payload bytes. The current trusted catalog pinned by the restoring engine owns target discovery, target generations, and migration edges. A revision difference alone is not incompatibility and never rewrites source facts.
 
 ### INV-BUNDLE-8: Payload hierarchy and integrity are complete
-Each v2 payload lives under `configs/<captureId>/`, preserves every relative parent directory, rejects duplicate destinations, and records relative path, byte size, and SHA-256 for every entry. Integrity is verified before planning can lead to mutation.
+Each v2 payload lives under a `configs/<readable-dir>/` directory named by a human-readable, path-safe label plus a short hash suffix and recorded verbatim in `payloadRoot` (the full `captureId` remains the manifest identity). The payload preserves every relative parent directory, rejects duplicate destinations, and records relative path, byte size, and SHA-256 for every entry. Consumers resolve payloads through `payloadRoot`, never by parsing the directory name; integrity is verified before planning can lead to mutation.
 
 ### INV-BUNDLE-9: Source snapshots are inspectable, not executable
 Canonical capture-time module snapshots live under `provenance/modules/` and are verified against their recorded content hashes. Restore never executes them or uses them as target/migration authority.
@@ -140,7 +140,7 @@ The embedded manifest version `2` (not `metadata.json`) owns the compatibility-r
         "contentHash": "<sha256>",
         "snapshotPath": "provenance/modules/apps.example.json"
       },
-      "payloadRoot": "configs/<stable-capture-id>",
+      "payloadRoot": "configs/<readable-dir>",
       "payloadManifest": [
         { "relativePath": "settings/preferences.json", "size": 123, "sha256": "<sha256>" }
       ]

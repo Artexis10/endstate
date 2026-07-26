@@ -141,9 +141,10 @@ func TestLoadManifestV2RejectsInvalidLegacyLaneMatrix(t *testing.T) {
 		{"unstable module id", func(value map[string]any) { firstLegacyLane(value)["moduleId"] = "Legacy Example" }},
 		{"wrong module schema", func(value map[string]any) { firstLegacyLane(value)["moduleSchemaVersion"] = 2 }},
 		{"root outside configs", func(value map[string]any) { firstLegacyLane(value)["payloadRoot"] = "payload/legacy-a" }},
-		{"root does not match lane id", func(value map[string]any) {
-			firstLegacyLane(value)["payloadRoot"] = "configs/legacy-other"
-			firstLegacyRestore(value)["source"] = "./configs/legacy-other/prefs.json"
+		{"root is bare configs directory", func(value map[string]any) {
+			// Readable folder names decouple payloadRoot from the lane id, but a
+			// payload must still live in a single directory *under* configs/.
+			firstLegacyLane(value)["payloadRoot"] = "configs/"
 		}},
 		{"duplicate lane id", func(value map[string]any) {
 			value["legacyConfigLanes"] = append(value["legacyConfigLanes"].([]any), map[string]any{

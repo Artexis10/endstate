@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
@@ -60,27 +59,40 @@ type captureEnumeratorWithWarnings interface {
 }
 
 var enumerateWingetSourceFn = enumerateWingetSource
+var wingetDetailsSourceFn = snapshot.WingetDetailsSource
+var takeSnapshotSourceFn = snapshot.TakeSnapshotSource
 
 func enumerateWingetSource(source string, structuredEvents bool) ([]driver.InstalledPackage, error) {
-	type snapshotResult struct {
-		apps []snapshot.SnapshotApp
-		err  error
+	exported, err := snapshot.WingetExportSource(source)
+	if err != nil {
+		return nil, err
 	}
-	exportCh, listCh := make(chan snapshotResult, 1), make(chan snapshotResult, 1)
-	go func() { apps, err := snapshot.WingetExportSource(source); exportCh <- snapshotResult{apps, err} }()
-	go func() { apps, err := snapshot.TakeSnapshotSource(source); listCh <- snapshotResult{apps, err} }()
-	exported, listed := <-exportCh, <-listCh
-	if exported.err != nil {
-		return nil, exported.err
+	details, err := wingetDetailsSourceFn(source)
+	if err != nil {
+		return nil, err
 	}
-	evidence := make(map[string]snapshot.SnapshotApp, len(listed.apps))
-	if listed.err == nil {
-		for _, app := range listed.apps {
-			evidence[strings.ToLower(app.ID)] = app
+	needFallback := details == nil
+	if !needFallback {
+		for _, app := range exported {
+			if strings.TrimSpace(app.ID) != "" {
+				if _, ok := details[strings.ToLower(app.ID)]; !ok {
+					needFallback = true
+					break
+				}
+			}
 		}
 	}
-	packages := make([]driver.InstalledPackage, 0, len(exported.apps))
-	for _, app := range exported.apps {
+	evidence := map[string]snapshot.SnapshotApp{}
+	if needFallback {
+		listed, err := takeSnapshotSourceFn(source)
+		if err == nil {
+			for _, app := range listed {
+				evidence[strings.ToLower(app.ID)] = app
+			}
+		}
+	}
+	packages := make([]driver.InstalledPackage, 0, len(exported))
+	for _, app := range exported {
 		if strings.TrimSpace(app.ID) == "" {
 			continue
 		}
@@ -92,7 +104,14 @@ func enumerateWingetSource(source string, structuredEvents bool) ([]driver.Insta
 		if version == "" {
 			version = app.Version
 		}
-		packages = append(packages, driver.InstalledPackage{Ref: app.ID, DisplayName: name, Version: version, Source: source})
+		detail, known := details[strings.ToLower(app.ID)]
+		if details == nil {
+			known = false
+		}
+		if detail.Name != "" {
+			name = detail.Name
+		}
+		packages = append(packages, driver.InstalledPackage{Ref: app.ID, DisplayName: name, Version: version, Source: source, InventoryLocalIdentifiers: detail.InventoryLocalIdentifiers, InventoryRelationshipKnown: known})
 	}
 	return packages, nil
 }
@@ -107,36 +126,19 @@ func (e sourceWingetCaptureEnumerator) EnumerateInstalledWithWarnings() ([]drive
 	if !e.excludeStore {
 		sources = append(sources, packagesource.MSStore)
 	}
-	type result struct {
-		source   string
-		packages []driver.InstalledPackage
-		err      error
-	}
 	run := func() ([]driver.InstalledPackage, map[string]error) {
-		results := make(chan result, len(sources))
-		var wg sync.WaitGroup
-		for _, source := range sources {
-			source := source
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				packages, err := enumerateWingetSourceWithRetry(source, e.structuredEvents)
-				results <- result{source, packages, err}
-			}()
-		}
-		wg.Wait()
-		close(results)
 		var packages []driver.InstalledPackage
 		failures := map[string]error{}
-		for result := range results {
-			if result.err != nil {
-				failures[result.source] = result.err
+		for _, source := range sources {
+			sourcePackages, err := enumerateWingetSourceWithRetry(source, e.structuredEvents)
+			if err != nil {
+				failures[source] = err
 				continue
 			}
-			for i := range result.packages {
-				result.packages[i].Source = packagesource.ResolveWinget(result.packages[i].Ref, result.source)
+			for i := range sourcePackages {
+				sourcePackages[i].Source = packagesource.ResolveWinget(sourcePackages[i].Ref, source)
 			}
-			packages = append(packages, result.packages...)
+			packages = append(packages, sourcePackages...)
 		}
 		return packages, failures
 	}

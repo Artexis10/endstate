@@ -334,7 +334,7 @@ WinGet capture enumerates the built-in `winget` and `msstore` sources concurrent
   "timestampUtc": "2026-02-16T20:00:00Z",
   "success": true,
   "data": {
-    "outputPath": "C:\\Users\\user\\Documents\\Endstate\\Profiles\\My-Desktop.zip",
+    "outputPath": "C:\\Users\\user\\Documents\\Endstate\\Profiles\\My-Desktop.endstate",
     "outputFormat": "zip",
     "bundleSchemaVersion": "2.0",
     "manifestVersion": 2,
@@ -877,10 +877,12 @@ When the manifest uses `homeManager.settings`, the engine compiles the declarati
 
 ## Command: `rebuild`
 
-Rebuilds a machine from a capture bundle (`.zip`) or a bare manifest (`.jsonc`) in one command: it (optionally) extracts the bundle, installs the declared apps, restores configuration, then verifies the result. Restore is ON by default. Local file input only — URL input is rejected.
+Rebuilds a machine from a capture bundle (`.endstate`, or the legacy `.zip`) or a bare manifest (`.jsonc`) in one command: it (optionally) extracts the bundle, installs the declared apps, restores configuration, then verifies the result. Restore is ON by default. Local file input only — URL input is rejected.
 
 ```powershell
-endstate rebuild --from ./MyProfile.zip --dry-run --json
+endstate rebuild --from ./MyProfile.endstate --dry-run --json
+endstate rebuild --from ./MyProfile.endstate --confirm --json
+# The legacy .zip extension is still accepted, permanently:
 endstate rebuild --from ./MyProfile.zip --confirm --json
 endstate rebuild --from ./machine.jsonc --no-restore --json
 ```
@@ -889,7 +891,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 
 | Flag | Behavior |
 |------|----------|
-| `--from <path>` | Required. A local `.zip` capture bundle or a `.jsonc` manifest. A value containing a URL scheme (`://`) is rejected with `NOT_SUPPORTED`; a missing path returns `MANIFEST_NOT_FOUND`; an empty value returns `MANIFEST_VALIDATION_ERROR`; a `.zip` without `manifest.jsonc` returns `MANIFEST_PARSE_ERROR`. |
+| `--from <path>` | Required. A local capture bundle (`.endstate`, or the legacy `.zip`; matched case-insensitively) or a `.jsonc` manifest. A value containing a URL scheme (`://`) is rejected with `NOT_SUPPORTED`; a missing path returns `MANIFEST_NOT_FOUND`; an empty value returns `MANIFEST_VALIDATION_ERROR`; a bundle without `manifest.jsonc` returns `MANIFEST_PARSE_ERROR`. |
 | `--confirm` | Required for a live run (restore on, not `--dry-run`). Without it a live rebuild refuses with `CONFIRMATION_REQUIRED` **before any mutation** (before extraction, planning, install, or restore). |
 | `--dry-run` | Preview only: previews the plan without installing, restoring, or verifying. Needs no `--confirm`. The result carries no `verify` data. |
 | `--no-restore` | Install and verify without restoring configuration. Non-destructive, so it needs no `--confirm`. The result reports `restore: "disabled"`. |
@@ -908,7 +910,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
   "timestampUtc": "2024-12-20T14:30:52Z",
   "success": true,
   "data": {
-    "from": "C:\\Users\\me\\MyProfile.zip",
+    "from": "C:\\Users\\me\\MyProfile.endstate",
     "bundle": {
       "extracted": true,
       "schemaVersion": "1.0",
@@ -926,7 +928,7 @@ endstate rebuild --from ./machine.jsonc --no-restore --json
 }
 ```
 
-- `bundle` is present only for a `.zip` input (with `extracted: true`); it is omitted for a bare-manifest rebuild. The metadata fields under `bundle` are best-effort (read from the bundle's `metadata.json`) and omitted when unavailable.
+- `bundle` is present only for a bundle input (with `extracted: true`); it is omitted for a bare-manifest rebuild. The metadata fields under `bundle` are best-effort (read from the bundle's `metadata.json`) and omitted when unavailable.
 - For bundle input containing config payloads, `configResolutions[]`, `configResolutionSummary`, and `restoreItems[]` at the top level of rebuild `data` are canonical. The nested `apply` result may mirror them. Config-free input omits all three fields; payload-bearing input keeps the arrays present as `[]` when empty.
 - `apply` carries the underlying `apply` command result; `verify` carries the underlying `verify` command result and is omitted on `--dry-run`.
 - `restore` reflects the configured posture (`"enabled"` unless `--no-restore`), not whether restore executed — a `--dry-run` reports `"enabled"` while executing nothing.

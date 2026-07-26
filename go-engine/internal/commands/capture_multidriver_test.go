@@ -56,7 +56,7 @@ func withCaptureEnumerators(
 
 func TestRunCapture_MultipleWindowsDriversKeepBothAndWarnOnDuplicateName(t *testing.T) {
 	withCaptureEnumerators(t, map[string]fakeInstalledEnumerator{
-		"winget": {packages: []driver.InstalledPackage{{Ref: "Git.Git", DisplayName: "Git", Version: "2.45"}}},
+		"winget": {packages: []driver.InstalledPackage{{Ref: "Git.Git", DisplayName: "Git", Version: "2.45", InventoryRelationshipKnown: true}}},
 		"chocolatey": {packages: []driver.InstalledPackage{
 			{Ref: "git", DisplayName: "Git", Version: "2.45.1"},
 			{Ref: "ripgrep", DisplayName: "ripgrep", Version: "14.1"},
@@ -73,11 +73,11 @@ func TestRunCapture_MultipleWindowsDriversKeepBothAndWarnOnDuplicateName(t *test
 		if len(result.AppsIncluded) != 3 {
 			t.Fatalf("appsIncluded = %d, want 3", len(result.AppsIncluded))
 		}
-		if len(result.Warnings) != 1 || result.Warnings[0].Code != "possible_duplicate" {
-			t.Fatalf("warnings = %+v, want one possible_duplicate", result.Warnings)
+		if len(result.Warnings) != 2 || result.Warnings[0].Code != "inventory_union_skipped" || result.Warnings[1].Code != "possible_duplicate" {
+			t.Fatalf("warnings = %+v, want inventory_union_skipped then possible_duplicate", result.Warnings)
 		}
-		if result.Warnings[0].Driver != "chocolatey" || result.Warnings[0].Ref != "git" {
-			t.Fatalf("duplicate warning provenance = %+v", result.Warnings[0])
+		if result.Warnings[1].Driver != "chocolatey" || result.Warnings[1].Ref != "git" {
+			t.Fatalf("duplicate warning provenance = %+v", result.Warnings[1])
 		}
 	})
 
@@ -115,7 +115,7 @@ func TestRunCapture_MultipleWindowsDriversKeepBothAndWarnOnDuplicateName(t *test
 
 func TestRunCapture_ImplicitUnavailableChocolateyIsWarning(t *testing.T) {
 	withCaptureEnumerators(t,
-		map[string]fakeInstalledEnumerator{"winget": {packages: []driver.InstalledPackage{{Ref: "Git.Git", DisplayName: "Git"}}}},
+		map[string]fakeInstalledEnumerator{"winget": {packages: []driver.InstalledPackage{{Ref: "Git.Git", DisplayName: "Git", InventoryRelationshipKnown: true}}}},
 		map[string]error{"chocolatey": errors.New("choco missing")},
 	)
 

@@ -11,11 +11,105 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
+	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
+
+func TestEnumerateWingetSourceSerializesExportBeforeDetails(t *testing.T) {
+	origExec, origDetails, origFallback := snapshot.ExecCommandWithFile, wingetDetailsSourceFn, takeSnapshotSourceFn
+	t.Cleanup(func() {
+		snapshot.ExecCommandWithFile = origExec
+		wingetDetailsSourceFn = origDetails
+		takeSnapshotSourceFn = origFallback
+	})
+
+	exportStarted := make(chan struct{})
+	detailsAttempted := make(chan struct{})
+	var exporting atomic.Bool
+	snapshot.ExecCommandWithFile = func(outFile string, _ string, _ ...string) error {
+		exporting.Store(true)
+		close(exportStarted)
+		select {
+		case <-detailsAttempted:
+		case <-time.After(50 * time.Millisecond):
+		}
+		err := os.WriteFile(outFile, []byte(`{"Sources":[{"SourceDetails":{"Name":"winget"},"Packages":[{"PackageIdentifier":"Vendor.App","Version":"1.0"}]}]}`), 0o600)
+		exporting.Store(false)
+		return err
+	}
+	wingetDetailsSourceFn = func(string) (map[string]snapshot.SnapshotApp, error) {
+		<-exportStarted
+		close(detailsAttempted)
+		if exporting.Load() {
+			return nil, errors.New("details overlapped export")
+		}
+		return map[string]snapshot.SnapshotApp{
+			"vendor.app": {
+				Name:                       "Vendor App",
+				InventoryLocalIdentifiers:  []string{`ARP\Machine\X64\Vendor App`},
+				InventoryRelationshipKnown: true,
+			},
+		}, nil
+	}
+	takeSnapshotSourceFn = func(string) ([]snapshot.SnapshotApp, error) { return nil, nil }
+
+	packages, err := enumerateWingetSource("winget", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packages) != 1 || !packages[0].InventoryRelationshipKnown || len(packages[0].InventoryLocalIdentifiers) != 1 {
+		t.Fatalf("packages = %+v, want authoritative details after export completes", packages)
+	}
+}
+
+func TestEnumerateWingetSourcePropagatesDetailsFailure(t *testing.T) {
+	origExec, origDetails := snapshot.ExecCommandWithFile, wingetDetailsSourceFn
+	t.Cleanup(func() {
+		snapshot.ExecCommandWithFile = origExec
+		wingetDetailsSourceFn = origDetails
+	})
+	snapshot.ExecCommandWithFile = func(outFile string, _ string, _ ...string) error {
+		return os.WriteFile(outFile, []byte(`{"Sources":[{"SourceDetails":{"Name":"winget"},"Packages":[{"PackageIdentifier":"Vendor.App","Version":"1.0"}]}]}`), 0o600)
+	}
+	wingetDetailsSourceFn = func(string) (map[string]snapshot.SnapshotApp, error) {
+		return nil, errors.New("details unavailable")
+	}
+
+	if _, err := enumerateWingetSource("winget", false); err == nil || !strings.Contains(err.Error(), "details unavailable") {
+		t.Fatalf("err = %v, want details failure propagated for retry", err)
+	}
+}
+
+func TestSourceWingetCaptureSerializesSelectedSources(t *testing.T) {
+	orig := enumerateWingetSourceFn
+	t.Cleanup(func() { enumerateWingetSourceFn = orig })
+	var active atomic.Int32
+	var overlapped atomic.Bool
+	enumerateWingetSourceFn = func(source string, _ bool) ([]driver.InstalledPackage, error) {
+		if active.Add(1) > 1 {
+			overlapped.Store(true)
+		}
+		time.Sleep(20 * time.Millisecond)
+		active.Add(-1)
+		return []driver.InstalledPackage{{Ref: source + ".App", Source: source}}, nil
+	}
+
+	packages, _, err := (sourceWingetCaptureEnumerator{}).EnumerateInstalledWithWarnings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overlapped.Load() {
+		t.Fatal("selected winget sources were enumerated concurrently")
+	}
+	if len(packages) != 2 {
+		t.Fatalf("packages = %+v, want both serialized sources", packages)
+	}
+}
 
 func TestSourceWingetCapture_DefaultDualSourceAndPartialWarning(t *testing.T) {
 	orig, origDelay := enumerateWingetSourceFn, snapshotRetryDelay
@@ -350,8 +444,8 @@ func TestRunCapture_PreservesStoreSourceAndOmitsStorePin(t *testing.T) {
 	captureGOOSFn = func() string { return "windows" }
 	resolveCaptureEnumeratorFn = func(name string, structured bool) (driver.InstalledEnumerator, error) {
 		return sourceCaptureFixture{packages: []driver.InstalledPackage{
-			{Ref: "Vendor.App", DisplayName: "Community", Version: "1.2.3", Source: "winget"},
-			{Ref: "9NBLGGH4NNS1", DisplayName: "Store App", Version: "9.9.9", Source: "msstore"},
+			{Ref: "Vendor.App", DisplayName: "Community", Version: "1.2.3", Source: "winget", InventoryRelationshipKnown: true},
+			{Ref: "9NBLGGH4NNS1", DisplayName: "Store App", Version: "9.9.9", Source: "msstore", InventoryRelationshipKnown: true},
 		}}, nil
 	}
 	out := filepath.Join(t.TempDir(), "capture.jsonc")

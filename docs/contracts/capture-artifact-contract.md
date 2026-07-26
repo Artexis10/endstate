@@ -84,11 +84,13 @@ $env:ENDSTATE_PROVISIONING_CLI = "C:\nonexistent\cli.ps1"
 # (Requires mocking Invoke-ProvisioningCli to not create file)
 ```
 
-### INV-CAPTURE-5: Zip Bundle Output
+### INV-CAPTURE-5: Bundle Output
 
-**Capture produces a zip bundle as the default output format.**
+**Capture produces a zip-container bundle as the default output format, named `.endstate`.**
 
-- Output path: `Documents\Endstate\Profiles\<ProfileName>.zip`
+- Output path: `Documents\Endstate\Profiles\<ProfileName>.endstate`
+- `.endstate` is the same zip container under a first-class extension — renaming it to `.zip` and opening it in any archiver is supported and deliberate. The legacy `.zip` extension is accepted as input forever.
+- An explicit `--out` that already names a bundle (`.endstate` or `.zip`, case-insensitive) is honoured exactly as given
 - Zip contains at minimum: `manifest.jsonc` + `metadata.json`
 - Config payloads are automatically bundled when config modules match captured apps
 - Sensitive files (listed in `module.secrets.files`) are NEVER included in the zip

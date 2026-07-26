@@ -27,9 +27,13 @@ func TestIsBundle(t *testing.T) {
 		{"profile.zip", true},
 		{"PROFILE.ZIP", true},
 		{"profile.Zip", true},
+		{"profile.endstate", true},
+		{"PROFILE.ENDSTATE", true},
+		{"profile.EndState", true},
 		{"profile.jsonc", false},
 		{"profile", false},
 		{"path/to/bundle.zip", true},
+		{"path/to/bundle.endstate", true},
 		{"path/to/manifest.jsonc", false},
 		{"", false},
 	}
@@ -1396,6 +1400,44 @@ func TestExtractBundle_ConfigFileContentPreserved(t *testing.T) {
 	configsDir := filepath.Join(extractedDir, "configs")
 	if _, err := os.Stat(configsDir); err != nil {
 		t.Error("extracted bundle should have configs/ directory")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ExtractBundle: .endstate is the same container as .zip
+// ---------------------------------------------------------------------------
+
+// .endstate is a rename, not a new format: the bundle writer and the extractor
+// must round-trip it exactly as they do a .zip.
+func TestExtractBundle_EndstateExtensionRoundTrips(t *testing.T) {
+	for _, ext := range []string{".endstate", ".zip"} {
+		dir := t.TempDir()
+		manifestPath := filepath.Join(dir, "manifest.jsonc")
+		if err := os.WriteFile(manifestPath, []byte(`{"version": 1, "name": "ext-test", "apps": []}`), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		outputPath := filepath.Join(dir, "output"+ext)
+		if err := CreateBundle(manifestPath, nil, outputPath, "1.0.0"); err != nil {
+			t.Fatalf("CreateBundle(%s) failed: %v", ext, err)
+		}
+		if !IsBundle(outputPath) {
+			t.Fatalf("IsBundle(%q) = false, want true", outputPath)
+		}
+
+		extractedManifestPath, err := ExtractBundle(outputPath)
+		if err != nil {
+			t.Fatalf("ExtractBundle(%s) failed: %v", ext, err)
+		}
+		defer os.RemoveAll(filepath.Dir(extractedManifestPath))
+
+		data, err := os.ReadFile(extractedManifestPath)
+		if err != nil {
+			t.Fatalf("read extracted manifest (%s): %v", ext, err)
+		}
+		if !strings.Contains(string(data), `"ext-test"`) {
+			t.Fatalf("extracted manifest (%s) = %q", ext, string(data))
+		}
 	}
 }
 

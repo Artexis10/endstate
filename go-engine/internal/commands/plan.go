@@ -65,7 +65,7 @@ func RunPlan(flags PlanFlags) (interface{}, *envelope.Error) {
 	// --- 2. Resolve authoritative per-package driver lanes and compute plan ---
 	emitter.EmitPhase("plan")
 
-	p, warnings, planErr := computeDriverLanePlanWithOverrides(mf, packageDriverReadOnlyOverrides(mf, emitter))
+	p, warnings, planErr := computeDriverLanePlanWithInventory(mf, packageDriverReadOnlyOverrides(mf, emitter), readARPInventoryFn())
 	if planErr != nil {
 		return nil, envelope.NewError(envelope.ErrInternalError, planErr.Error())
 	}

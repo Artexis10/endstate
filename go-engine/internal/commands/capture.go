@@ -287,15 +287,24 @@ var matchModulesForAppsFn = modules.MatchModulesForApps
 // capturedApp is an internal representation of a captured application entry
 // before it is written to the output manifest.
 type capturedApp struct {
-	ID               string            `json:"id"`
-	Refs             map[string]string `json:"refs"`
-	Driver           string            `json:"driver,omitempty"`
-	Version          string            `json:"version,omitempty"`
-	Name             string            `json:"_name,omitempty"`
-	Installed        bool              `json:"-"`
-	InstalledVersion string            `json:"-"`
-	Backend          string            `json:"-"`
-	Source           string            `json:"source,omitempty"`
+	ID      string            `json:"id"`
+	Refs    map[string]string `json:"refs"`
+	Driver  string            `json:"driver,omitempty"`
+	Version string            `json:"version,omitempty"`
+	// Serialized as displayName, matching manifest.App.DisplayName. Under the
+	// old "_name" key this value was written by capture and then silently lost:
+	// the bundle writer round-trips the manifest through manifest.App, which
+	// binds displayName, so an unrecognised "_name" was dropped on
+	// re-serialization and every bundle shipped apps carrying no display name.
+	//
+	// The name is presentation-only. Durable presence uses the ARP fingerprint
+	// below when the package-manager reference stops resolving.
+	Name             string                       `json:"displayName,omitempty"`
+	Installed        bool                         `json:"-"`
+	InstalledVersion string                       `json:"-"`
+	Backend          string                       `json:"-"`
+	Source           string                       `json:"source,omitempty"`
+	Fingerprint      *manifest.InstallFingerprint `json:"fingerprint,omitempty"`
 }
 
 type enumeratedCapturePackage struct {
@@ -536,6 +545,13 @@ func captureIdentity(driverName, ref string, source ...string) string {
 	return driverName + "\x00" + resolvedSource + "\x00" + ref
 }
 
+func captureFingerprintIdentity(fingerprint *manifest.InstallFingerprint) string {
+	if fingerprint == nil || strings.TrimSpace(fingerprint.Key) == "" || strings.TrimSpace(fingerprint.Publisher) == "" {
+		return ""
+	}
+	return "arp:" + strings.ToLower(strings.TrimSpace(fingerprint.Key)) + "|" + strings.ToLower(strings.TrimSpace(fingerprint.Publisher))
+}
+
 func deterministicCaptureID(base, driverName string, used map[string]bool) string {
 	if used == nil {
 		used = make(map[string]bool)
@@ -618,11 +634,12 @@ func captureHasAnyVersion(apps []capturedApp) bool {
 
 // cleanApp is the sanitized version of capturedApp without underscore-prefixed fields.
 type cleanApp struct {
-	ID      string            `json:"id"`
-	Refs    map[string]string `json:"refs"`
-	Driver  string            `json:"driver,omitempty"`
-	Source  string            `json:"source,omitempty"`
-	Version string            `json:"version,omitempty"`
+	ID          string                       `json:"id"`
+	Refs        map[string]string            `json:"refs"`
+	Driver      string                       `json:"driver,omitempty"`
+	Source      string                       `json:"source,omitempty"`
+	Version     string                       `json:"version,omitempty"`
+	Fingerprint *manifest.InstallFingerprint `json:"fingerprint,omitempty"`
 }
 
 // captureManifestOutput is the manifest structure written to disk.
@@ -704,6 +721,7 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 	if enumErr != nil {
 		return nil, enumErr
 	}
+	inventory := readARPInventoryFn()
 	totalFound := len(enumerated)
 
 	// Preserve Winget's empty-ledger guard. Other explicitly selected drivers
@@ -717,11 +735,22 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 
 	// --- 3. Convert and filter package records ---
 	var captured []capturedApp
+	matchedInventory := make(map[int]bool)
+	allRelationshipsKnown := true
 	filteredRuntimes := 0
 	filteredStore := 0
 	skipped := 0
 	for _, item := range enumerated {
 		pkg := item.Package
+		fingerprint := captureFingerprintMatch(pkg.InventoryLocalIdentifiers, inventory)
+		if !pkg.InventoryRelationshipKnown {
+			allRelationshipsKnown = false
+		}
+		if pkg.InventoryRelationshipKnown {
+			for _, inventoryIndex := range captureInventoryMatches(pkg.InventoryLocalIdentifiers, inventory) {
+				matchedInventory[inventoryIndex] = true
+			}
+		}
 		// Filter runtime packages unless --include-runtimes.
 		if item.Driver == "winget" && !flags.IncludeRuntimes && snapshot.IsRuntimePackage(pkg.Ref) {
 			filteredRuntimes++
@@ -748,6 +777,9 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			InstalledVersion: pkg.Version,
 			Backend:          item.Driver,
 		}
+		if fingerprint != nil {
+			app.Fingerprint = fingerprint
+		}
 		if item.Driver == "winget" && packageSource == packagesource.MSStore {
 			app.Driver = "winget"
 			app.Source = packagesource.MSStore
@@ -760,6 +792,27 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		}
 		captured = append(captured, app)
 	}
+	if allRelationshipsKnown {
+		for inventoryIndex, entry := range inventory {
+			if matchedInventory[inventoryIndex] || strings.TrimSpace(entry.Key) == "" || strings.TrimSpace(entry.Publisher) == "" {
+				continue
+			}
+			captured = append(captured, capturedApp{
+				ID:   wingetIDToManifestID(entry.Key),
+				Refs: map[string]string{},
+				Name: entry.DisplayName,
+				Fingerprint: &manifest.InstallFingerprint{
+					Key:       entry.Key,
+					Publisher: entry.Publisher,
+					Version:   entry.DisplayVersion,
+				},
+				Installed: true,
+			})
+		}
+	} else {
+		warnings = append(warnings, CommandWarning{Code: "inventory_union_skipped", Message: "Installed-software inventory union skipped because a package-manager row lacks an authoritative ARP binding."})
+	}
+	totalFound = len(captured) + skipped
 	assignDeterministicCaptureIDs(captured, nil)
 
 	// Best-effort recovery of Microsoft Store display names before anything
@@ -819,18 +872,29 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			return nil, loadErr
 		}
 
-		// Identity is the selected driver plus manager-specific ref. An omitted
-		// app.driver is the legacy Winget default.
+		// A current app can join an existing declaration by its package-manager
+		// ref or its durable ARP fingerprint. The latter keeps app identity stable
+		// if the manager ref changes or disappears from a later capture.
 		existingRefs := make(map[string]bool)
+		existingFingerprintCounts := make(map[string]int)
 		for _, app := range existingMf.Apps {
 			if ref, ok := app.Refs["windows"]; ok {
 				existingRefs[captureIdentity(app.Driver, ref, app.Source)] = true
 			}
+			if identity := captureFingerprintIdentity(app.Fingerprint); identity != "" {
+				existingRefs[identity] = true
+				existingFingerprintCounts[identity]++
+			}
 		}
 		currentlyDetected := make(map[string]capturedApp, len(captured))
+		capturedFingerprintCounts := make(map[string]int)
 		for _, app := range captured {
 			if ref := app.Refs["windows"]; ref != "" {
 				currentlyDetected[captureIdentity(app.Driver, ref, app.Source)] = app
+			}
+			if identity := captureFingerprintIdentity(app.Fingerprint); identity != "" {
+				currentlyDetected[identity] = app
+				capturedFingerprintCounts[identity]++
 			}
 		}
 
@@ -840,11 +904,12 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		var merged []capturedApp
 		for _, app := range existingMf.Apps {
 			ca := capturedApp{
-				ID:      app.ID,
-				Refs:    app.Refs,
-				Driver:  app.Driver,
-				Source:  app.Source,
-				Version: app.Version,
+				ID:          app.ID,
+				Refs:        app.Refs,
+				Driver:      app.Driver,
+				Source:      app.Source,
+				Version:     app.Version,
+				Fingerprint: app.Fingerprint,
 			}
 			if flags.Pin && effectiveCapturedSource(ca) == packagesource.MSStore {
 				ca.Version = ""
@@ -852,12 +917,28 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			// Desired-only entries remain serialized but carry no installed
 			// evidence. A current export match supplies runtime evidence and,
 			// under --pin, may refresh the declared pin without blanking it.
-			if detected, ok := currentlyDetected[captureIdentity(app.Driver, app.Refs["windows"], app.Source)]; ok {
+			detected, matchedByRef := currentlyDetected[captureIdentity(app.Driver, app.Refs["windows"], app.Source)]
+			ok := matchedByRef
+			if !matchedByRef {
+				fingerprintIdentity := captureFingerprintIdentity(app.Fingerprint)
+				if existingFingerprintCounts[fingerprintIdentity] == 1 && capturedFingerprintCounts[fingerprintIdentity] == 1 {
+					detected, ok = currentlyDetected[fingerprintIdentity]
+				}
+			}
+			if ok {
+				if !matchedByRef && detected.Refs["windows"] != "" {
+					ca.Refs = detected.Refs
+					ca.Driver = detected.Driver
+					ca.Source = detected.Source
+				}
 				ca.Name = detected.Name
 				ca.Installed = detected.Installed
 				ca.InstalledVersion = detected.InstalledVersion
 				ca.Backend = detected.Backend
 				ca.Source = detected.Source
+				if detected.Fingerprint != nil {
+					ca.Fingerprint = detected.Fingerprint
+				}
 				if flags.Pin && effectiveCapturedSource(ca) != packagesource.MSStore && detected.InstalledVersion != "" {
 					ca.Version = detected.InstalledVersion
 				}
@@ -871,8 +952,9 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 			usedIDs[strings.ToLower(strings.TrimSpace(app.ID))] = true
 		}
 		for _, app := range captured {
-			identity := captureIdentity(app.Driver, app.Refs["windows"], app.Source)
-			if !existingRefs[identity] {
+			refIdentity := captureIdentity(app.Driver, app.Refs["windows"], app.Source)
+			fingerprintIdentity := captureFingerprintIdentity(app.Fingerprint)
+			if !existingRefs[refIdentity] && (fingerprintIdentity == "" || !existingRefs[fingerprintIdentity]) {
 				app.ID = deterministicCaptureID(app.ID, effectiveCaptureDriver(app.Driver), usedIDs)
 				merged = append(merged, app)
 			}
@@ -889,11 +971,12 @@ func RunCapture(flags CaptureFlags) (interface{}, *envelope.Error) {
 		sorted := make([]cleanApp, len(captured))
 		for i, app := range captured {
 			sorted[i] = cleanApp{
-				ID:      app.ID,
-				Refs:    app.Refs,
-				Driver:  app.Driver,
-				Source:  app.Source,
-				Version: app.Version,
+				ID:          app.ID,
+				Refs:        app.Refs,
+				Driver:      app.Driver,
+				Source:      app.Source,
+				Version:     app.Version,
+				Fingerprint: app.Fingerprint,
 			}
 		}
 		sort.Slice(sorted, func(i, j int) bool {
@@ -1132,6 +1215,7 @@ func buildModuleMatchApps(apps []capturedApp) []manifest.App {
 			InstalledVersion: installedVersion,
 			Backend:          app.Backend,
 			DisplayName:      app.Name,
+			Fingerprint:      app.Fingerprint,
 		})
 	}
 	return result

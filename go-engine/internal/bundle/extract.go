@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
@@ -380,10 +381,11 @@ func planValidationExtractionRemoval(root string, context *validationmode.Contex
 	return paths, nil
 }
 
-// IsBundle checks if the given path has a .zip extension, indicating it is a
-// bundle file.
+// IsBundle checks whether the given path names a capture bundle (.endstate, or
+// the legacy .zip). Delegates to manifest.IsBundlePath so the engine has
+// exactly one definition of the bundle extension set.
 func IsBundle(path string) bool {
-	return strings.EqualFold(filepath.Ext(path), ".zip")
+	return manifest.IsBundlePath(path)
 }
 
 // extractZipToDir extracts all entries from a zip file into destDir.

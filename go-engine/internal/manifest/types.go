@@ -373,19 +373,28 @@ type YaziSettings struct {
 // App represents a single application entry in the manifest. The Refs map
 // holds platform-specific package identifiers (e.g. "windows": "Vendor.App").
 type App struct {
-	ID          string            `json:"id"`
-	Refs        map[string]string `json:"refs"`
-	Driver      string            `json:"driver,omitempty"`
-	Source      string            `json:"source,omitempty"`
-	Version     string            `json:"version,omitempty"`
-	Manual      *ManualApp        `json:"manual,omitempty"`
-	DisplayName string            `json:"displayName,omitempty"`
+	ID          string              `json:"id"`
+	Refs        map[string]string   `json:"refs"`
+	Driver      string              `json:"driver,omitempty"`
+	Source      string              `json:"source,omitempty"`
+	Version     string              `json:"version,omitempty"`
+	Manual      *ManualApp          `json:"manual,omitempty"`
+	DisplayName string              `json:"displayName,omitempty"`
+	Fingerprint *InstallFingerprint `json:"fingerprint,omitempty"`
 
 	// Installed, InstalledVersion, and Backend are runtime detection evidence.
 	// They must never turn an unpinned manifest into a pinned declaration.
 	Installed        bool   `json:"-"`
 	InstalledVersion string `json:"-"`
 	Backend          string `json:"-"`
+}
+
+// InstallFingerprint is the stable Windows ARP identity observed at capture
+// time. Version is recorded for drift reporting but is not an identity field.
+type InstallFingerprint struct {
+	Key       string `json:"key"`
+	Publisher string `json:"publisher"`
+	Version   string `json:"version,omitempty"`
 }
 
 // ManualApp describes an app that cannot be installed automatically but can be

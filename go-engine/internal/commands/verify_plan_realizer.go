@@ -271,6 +271,20 @@ func runPlanRealizer(flags PlanFlags, mf *manifest.Manifest, r realizer.Realizer
 		}
 		return nil, envelope.NewError(envelope.ErrInternalError, "Failed to plan the package set.")
 	}
+	inventory := readARPInventoryFn()
+	appByID := make(map[string]manifest.App, len(mf.Apps))
+	for _, app := range mf.Apps {
+		appByID[app.ID] = app
+	}
+	var toAdd []realizer.Installable
+	for _, ins := range diff.ToAdd {
+		if appPresent(false, appByID[ins.ID], inventory) {
+			diff.Present = append(diff.Present, ins)
+			continue
+		}
+		toAdd = append(toAdd, ins)
+	}
+	diff.ToAdd = toAdd
 
 	var actions []planner.PlanAction
 	toInstall, present := 0, 0

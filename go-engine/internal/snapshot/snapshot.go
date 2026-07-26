@@ -21,10 +21,12 @@ import (
 
 // SnapshotApp represents one installed application from winget list.
 type SnapshotApp struct {
-	Name    string
-	ID      string
-	Version string
-	Source  string
+	Name                       string
+	ID                         string
+	Version                    string
+	Source                     string
+	InventoryLocalIdentifiers  []string
+	InventoryRelationshipKnown bool
 }
 
 // ExecCommand is injectable for tests. Default runs actual command.
@@ -155,6 +157,7 @@ type wingetExportSourceDetails struct {
 
 type wingetExportPackage struct {
 	PackageIdentifier string `json:"PackageIdentifier"`
+	Version           string `json:"Version"`
 }
 
 // ExecCommandWithFile is injectable for tests that need to intercept the
@@ -202,6 +205,7 @@ func WingetExportSource(source string) ([]SnapshotApp, error) {
 		"--source", source,
 		"--accept-source-agreements",
 		"--disable-interactivity",
+		"--include-versions",
 		"-o", tmpFile)
 	if err != nil {
 		var execErr *exec.Error
@@ -226,6 +230,63 @@ func WingetExportSource(source string) ([]SnapshotApp, error) {
 	return parseWingetExport(data)
 }
 
+// WingetDetailsSource reads WinGet 1.29's per-package details blocks. The
+// field labels are localized, so only the stable "Display Name [Package.ID]"
+// heading and the ARP identifier value itself are parsed.
+func WingetDetailsSource(source string) (map[string]SnapshotApp, error) {
+	source = strings.ToLower(strings.TrimSpace(source))
+	out, err := ExecCommand("winget", "list", "--details", "--source", source, "--accept-source-agreements", "--disable-interactivity")
+	if err != nil {
+		return nil, err
+	}
+	return parseWingetDetails(out), nil
+}
+
+var arpLocalIdentifier = regexp.MustCompile(`ARP\\(?:Machine|User)\\(?:X64|X86|ARM64)\\[^\r\n]+`)
+var wingetDetailsOrdinal = regexp.MustCompile(`^\(\d+/\d+\)\s+`)
+
+func parseWingetDetails(output []byte) map[string]SnapshotApp {
+	result := map[string]SnapshotApp{}
+	currentID := ""
+	scanner := bufio.NewScanner(bytes.NewReader(output))
+	for scanner.Scan() {
+		line := cleanCR(scanner.Text())
+		if len(line) > 0 && line[0] != ' ' && line[0] != '\t' {
+			if start := strings.LastIndex(line, " ["); start > 0 && strings.HasSuffix(strings.TrimSpace(line), "]") {
+				id := strings.TrimSuffix(strings.TrimSpace(line[start+2:]), "]")
+				currentID = strings.TrimSpace(id)
+				key := strings.ToLower(currentID)
+				evidence := result[key]
+				evidence.Name = wingetDetailsOrdinal.ReplaceAllString(strings.TrimSpace(line[:start]), "")
+				evidence.ID = currentID
+				evidence.InventoryRelationshipKnown = true
+				result[key] = evidence
+				continue
+			}
+		}
+		if currentID == "" {
+			continue
+		}
+		if local := arpLocalIdentifier.FindString(line); local != "" {
+			evidence := result[strings.ToLower(currentID)]
+			if !containsLocalIdentifier(evidence.InventoryLocalIdentifiers, local) {
+				evidence.InventoryLocalIdentifiers = append(evidence.InventoryLocalIdentifiers, local)
+			}
+			result[strings.ToLower(currentID)] = evidence
+		}
+	}
+	return result
+}
+
+func containsLocalIdentifier(identifiers []string, local string) bool {
+	for _, identifier := range identifiers {
+		if strings.EqualFold(strings.TrimSpace(identifier), strings.TrimSpace(local)) {
+			return true
+		}
+	}
+	return false
+}
+
 // parseWingetExport parses the JSON produced by `winget export` and returns
 // one SnapshotApp per package entry.  Source is set from SourceDetails.Name.
 func parseWingetExport(data []byte) ([]SnapshotApp, error) {
@@ -247,8 +308,9 @@ func parseWingetExport(data []byte) ([]SnapshotApp, error) {
 				continue
 			}
 			apps = append(apps, SnapshotApp{
-				ID:     id,
-				Source: sourceName,
+				ID:      id,
+				Source:  sourceName,
+				Version: strings.TrimSpace(pkg.Version),
 			})
 		}
 	}

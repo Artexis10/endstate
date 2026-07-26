@@ -5,6 +5,7 @@ package bundle
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -137,5 +138,67 @@ func TestCaptureNoCollisionLeavesOutputUntouched(t *testing.T) {
 	}
 	if containsString(result.CaptureWarnings, captureTargetCollisionWarning) {
 		t.Fatalf("collision warning fired without a collision: %q", result.CaptureWarnings)
+	}
+}
+
+// TestCaptureCollisionTotalLoserDropsItsWholeLane covers the field failure a
+// stale duplicate module caused: in a mixed-v2 bundle every legacy module gets
+// a lane, so a module whose only restore entry lost a collision kept a lane no
+// restore entry referenced. Strict final manifest validation rejects exactly
+// that, which failed the whole capture instead of the one redundant module. The
+// loser must lose its lane, its configModules listing and its payload with the
+// entry — the winner's bundle is otherwise unchanged.
+func TestCaptureCollisionTotalLoserDropsItsWholeLane(t *testing.T) {
+	dir := t.TempDir()
+	generationRoot := filepath.Join(dir, "v2-root")
+	writeCaptureFile(t, filepath.Join(generationRoot, "prefs.json"), []byte("v2"))
+	plan := testGenerationCapturePlan(t, "apps.v2", "instance-a", generationRoot, false, false)
+
+	target := `%USERPROFILE%\.wslconfig`
+	winner := testCollisionModule(t, dir, "apps.wsl", "wsl", target, modules.MatchCriteria{Winget: []string{"Canonical.WSL"}})
+	loser := testCollisionModule(t, dir, "apps.wsl-config", "wslconfig", target, modules.MatchCriteria{PathExists: []string{target}})
+
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{plan.Module, loser, winner}, []ConfigSetCapturePlan{plan})
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
+		t.Fatalf("CreateCaptureBundle: %v", err)
+	}
+	if result.ManifestVersion != 2 {
+		t.Fatalf("manifest version = %d, want a mixed-v2 bundle (lanes only exist there)", result.ManifestVersion)
+	}
+
+	loaded, _ := loadCaptureBundle(t, request.OutputPath)
+	for _, lane := range loaded.LegacyConfigLanes {
+		if lane.ModuleID == loser.ID {
+			t.Fatalf("loser %q kept an orphaned lane %+v", loser.ID, lane)
+		}
+	}
+	if containsString(loaded.ConfigModules, loser.ID) {
+		t.Fatalf("configModules %v still lists the dropped loser %q", loaded.ConfigModules, loser.ID)
+	}
+
+	claimants := restoresForTarget(loadedRestoreRows(t, request.OutputPath), target)
+	if len(claimants) != 1 || claimants[0].FromModule != winner.ID {
+		t.Fatalf("target %q claimants = %+v, want one entry from %q", target, claimants, winner.ID)
+	}
+	winnerLanes := 0
+	for _, lane := range loaded.LegacyConfigLanes {
+		if lane.ModuleID == winner.ID {
+			winnerLanes++
+		}
+	}
+	if winnerLanes != 1 {
+		t.Fatalf("winner %q has %d lanes, want exactly 1: %+v", winner.ID, winnerLanes, loaded.LegacyConfigLanes)
+	}
+
+	// The dropped module's payload must not ship: nothing would ever restore it.
+	loserPayload := "configs/" + readableConfigDirName(loser.ID, LegacyCaptureID(loser.ID))
+	for _, entry := range zipEntryNames(t, request.OutputPath) {
+		if strings.HasPrefix(entry, loserPayload+"/") {
+			t.Fatalf("dropped loser payload still in bundle: %q", entry)
+		}
+	}
+	if !containsString(result.CaptureWarnings, captureTargetCollisionWarning) {
+		t.Fatalf("capture warnings %q missing collision warning", result.CaptureWarnings)
 	}
 }

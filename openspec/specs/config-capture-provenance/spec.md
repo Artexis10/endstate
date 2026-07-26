@@ -33,7 +33,7 @@ Each generation-aware captured config set SHALL have one `configCaptures[]` reco
 - **AND** neither record is labeled as the preferred or latest instance
 
 ### Requirement: Payload Hierarchy and Integrity Are Preserved
-The bundle SHALL store each config set under `configs/<captureId>/`, preserve the complete relative path hierarchy, reject duplicate destinations, and record each payload entry's relative path, byte size, and SHA-256 hash. Restore SHALL verify this manifest before compatibility planning that can lead to mutation.
+The bundle SHALL store each config set under a `configs/<readable-dir>/` directory whose name is a human-readable, path-safe label (the sanitized module identifier plus a short suffix of the capture identity) recorded verbatim in `payloadRoot`, while the full `captureId` is preserved as the manifest identity. It SHALL preserve the complete relative path hierarchy, reject duplicate destinations, and record each payload entry's relative path, byte size, and SHA-256 hash. Restore SHALL resolve payloads through `payloadRoot` (never by parsing the directory name) and verify this manifest before compatibility planning that can lead to mutation.
 
 #### Scenario: Nested paths do not collapse
 - **WHEN** two captured files share a basename but have different relative parent directories

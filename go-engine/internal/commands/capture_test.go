@@ -16,6 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
@@ -199,15 +200,15 @@ func readManifestApps(t *testing.T, path string) []map[string]interface{} {
 }
 
 // readCaptureManifestBytes transparently reads sanitized JSONC output or the
-// embedded manifest from the canonical ZIP produced by every other capture.
+// embedded manifest from the canonical bundle produced by every other capture.
 func readCaptureManifestBytes(t *testing.T, requestedPath string) []byte {
 	t.Helper()
 	zipPath := requestedPath
-	if !strings.EqualFold(filepath.Ext(requestedPath), ".zip") {
+	if !manifest.IsBundlePath(requestedPath) {
 		if data, err := os.ReadFile(requestedPath); err == nil {
 			return data
 		}
-		zipPath = strings.TrimSuffix(zipPath, filepath.Ext(zipPath)) + ".zip"
+		zipPath = strings.TrimSuffix(zipPath, filepath.Ext(zipPath)) + manifest.BundleExt
 	}
 	extractedManifest, err := bundle.ExtractBundle(zipPath)
 	if err != nil {
@@ -225,10 +226,10 @@ func captureOutputPathForTest(requestedPath string) string {
 	if _, err := os.Stat(requestedPath); err == nil {
 		return requestedPath
 	}
-	if strings.EqualFold(filepath.Ext(requestedPath), ".zip") {
+	if manifest.IsBundlePath(requestedPath) {
 		return requestedPath
 	}
-	return strings.TrimSuffix(requestedPath, filepath.Ext(requestedPath)) + ".zip"
+	return strings.TrimSuffix(requestedPath, filepath.Ext(requestedPath)) + manifest.BundleExt
 }
 
 // manifestAppVersion returns the version field for the app whose refs.windows
@@ -544,8 +545,8 @@ func TestRunCapture_Sanitize_StripsMeta_SortsByID(t *testing.T) {
 
 	// Verify _name is not present in sanitized output.
 	for _, app := range apps {
-		if _, has := app["_name"]; has {
-			t.Errorf("sanitized app should not have _name field: %v", app)
+		if _, has := app["displayName"]; has {
+			t.Errorf("sanitized app should not have displayName field: %v", app)
 		}
 	}
 
@@ -927,6 +928,53 @@ func TestRunCapture_ProfileName_UsedAsManifestName(t *testing.T) {
 
 	if result.Manifest.Name != "work-laptop" {
 		t.Errorf("expected manifest name=%q from profile, got %q", "work-laptop", result.Manifest.Name)
+	}
+}
+
+// TestRunCapture_WritesDisplayNameUnderTheKeyReadersBind pins the serialized key
+// for an app's display name.
+//
+// The name was written under "_name", which no reader binds. The bundle writer
+// round-trips the manifest through manifest.App — which binds "displayName" —
+// so the value was dropped on re-serialization and every bundle shipped apps
+// carrying no name at all. Nothing surfaced the loss until a profile was applied
+// months later and reported still-installed software as missing: the display
+// name is an app's only identity once its package id stops resolving.
+func TestRunCapture_WritesDisplayNameUnderTheKeyReadersBind(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "display-name.jsonc")
+
+	displayNames := map[string]string{
+		"Microsoft.VisualStudioCode": "Visual Studio Code",
+		"Git.Git":                    "Git",
+		"Google.Chrome":              "Google Chrome",
+	}
+
+	withMockSnapshot(sampleApps(), nil, func() {
+		withMockDisplayNames(displayNames, nil, func() {
+			emptyCatalog(func() {
+				if _, err := RunCapture(CaptureFlags{Out: outPath}); err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+			})
+		})
+	})
+
+	apps := readManifestApps(t, outPath)
+	if len(apps) == 0 {
+		t.Fatal("capture wrote no apps")
+	}
+	named := 0
+	for _, app := range apps {
+		if _, has := app["_name"]; has {
+			t.Errorf("app still serializes the unbindable _name key: %v", app)
+		}
+		if name, _ := app["displayName"].(string); name != "" {
+			named++
+		}
+	}
+	if named != len(apps) {
+		t.Fatalf("only %d of %d apps carry displayName; the enumeration supplied a name for each", named, len(apps))
 	}
 }
 
@@ -2025,8 +2073,8 @@ func TestRunCapture_PinSanitize_KeepsVersions(t *testing.T) {
 	}
 	prevID := ""
 	for i, app := range apps {
-		if _, has := app["_name"]; has {
-			t.Errorf("sanitized app should not have _name field: %v", app)
+		if _, has := app["displayName"]; has {
+			t.Errorf("sanitized app should not have displayName field: %v", app)
 		}
 		if v, _ := app["version"].(string); v == "" {
 			t.Errorf("expected version present under --pin --sanitize for %v", app["id"])
