@@ -309,18 +309,20 @@ func liveReceiptMAC(key []byte, receipt *liveExecutionReceipt) [32]byte {
 	return tag
 }
 
-// liveReceiptDecoderHandoff is retained only for package-internal transitional
-// decoders; it authenticates and consumes the receipt before copying output.
-func liveReceiptDecoderHandoff(receipt *liveExecutionReceipt, operation liveOperation, sequence uint64, nonce [32]byte) ([]byte, []byte, error) {
-	if receipt == nil {
-		return nil, nil, errors.New("live receipt handoff rejected")
+func classifyWingetListReceipt(receipt *liveExecutionReceipt, ref string, sequence uint64, nonce [32]byte) (LiveProcessResult, error) {
+	if receipt == nil || !validLiveObserverValue(ref) {
+		return LiveProcessResult{}, errors.New("live receipt handoff rejected")
 	}
 	value, ok := liveReceiptIssuers.Load(receipt.issuerID)
 	issuer, ok := value.(*liveReceiptIssuer)
-	if !ok || !issuer.consumeFn(receipt, operation, sequence, nonce) {
-		return nil, nil, errors.New("live receipt handoff rejected")
+	if !ok || !issuer.consumeFn(receipt, liveOperationWingetExactList, sequence, nonce) {
+		return LiveProcessResult{}, errors.New("live receipt handoff rejected")
 	}
-	return append([]byte(nil), receipt.stdout...), append([]byte(nil), receipt.stderr...), nil
+	version, err := ParseLiveWingetTable(receipt.stdout, ref)
+	if err != nil {
+		return LiveProcessResult{}, errors.New("live receipt output rejected")
+	}
+	return LiveProcessResult{ExitCode: receipt.exitCode, Version: version, Classification: LiveProcessCompleted}, nil
 }
 
 func cloneLiveEnvironment(environment map[string]string) map[string]string {

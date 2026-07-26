@@ -31,6 +31,7 @@ const (
 type LiveProcessResult struct {
 	ExitCode       int
 	Stdout         []byte
+	Version        string
 	Classification LiveProcessClassification
 }
 
@@ -181,9 +182,13 @@ func (observer LiveObserver) observeWinget(ctx context.Context, ref string) (boo
 	if process.Classification != "" && process.Classification != LiveProcessCompleted || process.ExitCode != 0 {
 		return false, "", fmt.Errorf("winget result is not a reviewed completed observation")
 	}
-	version, err := ParseLiveWingetTable(process.Stdout, ref)
-	if err != nil {
-		return false, "", err
+	version := process.Version
+	if version == "" {
+		var err error
+		version, err = ParseLiveWingetTable(process.Stdout, ref)
+		if err != nil {
+			return false, "", err
+		}
 	}
 	return true, version, nil
 }

@@ -35,12 +35,12 @@ func TestLiveProcessRejectsMutationWithoutTrustedPermit(t *testing.T) {
 	}
 }
 
-func TestLiveProcessRejectsSeparatelyConstructedMutationCapability(t *testing.T) {
+func TestLiveProcessRejectsMutationWithoutProofIdentity(t *testing.T) {
 	request := newLiveTypedMutation(liveTestAdmission(t, liveOperationWingetExactInstall), trustedLiveMutationPermit{capability: &liveMutationCapability{}}, liveOperationWingetExactInstall, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, "", nil, liveReceiptExpectedIdentity{}, 0)
 	err := validateLiveProcessRequest(request)
 	var executionErr *LiveExecutionError
-	if !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionMutationDenied {
-		t.Fatalf("validateLiveProcessRequest() error = %T %v, want mutation denial", err, err)
+	if !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionInvalidRequest {
+		t.Fatalf("validateLiveProcessRequest() error = %T %v, want invalid request", err, err)
 	}
 }
 

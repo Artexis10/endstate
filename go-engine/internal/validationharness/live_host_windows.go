@@ -93,11 +93,11 @@ func (process windowsLiveProcess) Run(ctx context.Context, name string, args ...
 	}
 	receipt, err := runLiveProcess(ctx, newLiveTrustedAppXWingetListProbe(admission, target.binding, ref, target.environment, maxLiveObserverOutputBytes))
 	if err == nil {
-		stdout, _, handoffErr := liveReceiptDecoderHandoff(receipt, liveOperationWingetExactList, 1, nonce)
+		result, handoffErr := classifyWingetListReceipt(receipt, ref, 1, nonce)
 		if handoffErr != nil {
 			return LiveProcessResult{}, fmt.Errorf("live process receipt handoff rejected")
 		}
-		return LiveProcessResult{ExitCode: receipt.exitCode, Stdout: stdout, Classification: LiveProcessCompleted}, nil
+		return result, nil
 	}
 	var execution *LiveExecutionError
 	if errors.As(err, &execution) && execution.Code == LiveExecutionProcessExit {

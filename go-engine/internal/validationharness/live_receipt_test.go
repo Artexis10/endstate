@@ -5,9 +5,24 @@ package validationharness
 
 import (
 	"crypto/sha256"
+	"errors"
 	"testing"
 	"time"
 )
+
+// Test-only raw handoff exercises receipt integrity; production decoders expose
+// only fixed typed projections.
+func liveReceiptDecoderHandoff(receipt *liveExecutionReceipt, operation liveOperation, sequence uint64, nonce [32]byte) ([]byte, []byte, error) {
+	if receipt == nil {
+		return nil, nil, errors.New("live receipt handoff rejected")
+	}
+	value, ok := liveReceiptIssuers.Load(receipt.issuerID)
+	issuer, ok := value.(*liveReceiptIssuer)
+	if !ok || !issuer.consumeFn(receipt, operation, sequence, nonce) {
+		return nil, nil, errors.New("live receipt handoff rejected")
+	}
+	return append([]byte(nil), receipt.stdout...), append([]byte(nil), receipt.stderr...), nil
+}
 
 func TestLiveReceiptIssuerRejectsZeroReplayAndOutOfOrderAdmissions(t *testing.T) {
 	issuer := newLiveReceiptIssuer()
