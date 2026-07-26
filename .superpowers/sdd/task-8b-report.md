@@ -84,6 +84,13 @@ the public command satisfy the required identity boundary.
 - `npm run openspec:validate`: PASS, 91 passed / 0 failed.
 - `git diff --check`: PASS.
 
+## Persistence follow-up
+
+After atomic result persistence, the matrix now revalidates the result path and
+resnapshots both repository and engine boundaries before returning success. A
+post-persistence reparse/path swap or authority mutation strips all aggregate
+and row proof, then atomically rewrites the persisted result as failed.
+
 ## Concerns
 
 Go emits the pre-existing inaccessible telemetry upload-token warning despite

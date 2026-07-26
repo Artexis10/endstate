@@ -26,6 +26,8 @@ import (
 
 const catalogMatrixSchemaVersion = 1
 
+var catalogAfterPersistHook func()
+
 // CatalogMatrixRequest identifies one built engine and one immutable repository
 // authority. The matrix deliberately only consumes the public catalog-plan CLI.
 type CatalogMatrixRequest struct {
@@ -154,7 +156,23 @@ func RunCatalogMatrix(ctx context.Context, request CatalogMatrixRequest) (Catalo
 		stripCatalogProof(&result, result.Failure)
 	}
 	result.PhaseTimings["total"] = time.Since(started)
-	return persistCatalogMatrixResult(request.ResultPath, result)
+	persisted, err := persistCatalogMatrixResult(request.ResultPath, result)
+	if err != nil || request.ResultPath == "" {
+		return persisted, err
+	}
+	if catalogAfterPersistHook != nil {
+		catalogAfterPersistHook()
+	}
+	if after, snapshotErr := snapshotBoundaryTree(repo); snapshotErr != nil || firstBoundaryDifference(repoBoundary, after) != "" {
+		stripCatalogProof(&persisted, fail(CodeIsolationFailure, "guard", "repository", "repository changed after catalog result persistence"))
+	} else if after, snapshotErr := snapshotBoundaryFile(engine); snapshotErr != nil || boundaryEntryDifference(engineBoundary, after) != "" {
+		stripCatalogProof(&persisted, fail(CodeIsolationFailure, "guard", "engine", "engine executable changed after catalog result persistence"))
+	} else if failure := validateCatalogResultPath(request.ResultPath, repo, engine); failure != nil {
+		stripCatalogProof(&persisted, failure)
+	} else {
+		return persisted, nil
+	}
+	return persistCatalogMatrixResult(request.ResultPath, persisted)
 }
 
 func validateCatalogMatrixRequest(request CatalogMatrixRequest) (string, string, *Failure) {
