@@ -119,6 +119,13 @@ func readableConfigDirName(identifier, captureID string) string {
 	}
 }
 
+// ConfigPayloadRoot returns the canonical portable payload root for a captured
+// config set. CaptureID remains the opaque provenance identity; this root is
+// the readable directory used by collection and every manifest projection.
+func ConfigPayloadRoot(moduleID, captureID string) string {
+	return path.Join("configs", readableConfigDirName(moduleID, captureID))
+}
+
 // sanitizeConfigDirSegment lowercases an identifier and reduces it to the
 // path-safe [a-z0-9.-] alphabet, collapsing every other run of characters into a
 // single dash. A leading "apps." catalog prefix is dropped for brevity
@@ -207,7 +214,7 @@ func CollectConfigSetWithValidation(plan ConfigSetCapturePlan, stagingRoot strin
 	}
 
 	captureID := CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)
-	payloadRoot := path.Join("configs", readableConfigDirName(plan.Module.ID, captureID))
+	payloadRoot := ConfigPayloadRoot(plan.Module.ID, captureID)
 	preflight, err := preflightConfigCopies(plan, context)
 	if err != nil {
 		return nil, err

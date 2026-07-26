@@ -71,7 +71,7 @@ func inspectV2CaptureArtifact(runtime *scenarioRuntime, zipPath string, captureE
 		capture.SourceInstance.RawVersion != instance.Version.Raw || capture.SourceInstance.NormalizedVersion != instance.Version.Normalized ||
 		capture.SourceGeneration != plan.Compiled.Generation.ID || capture.SourceGenerationFingerprint != plan.Compiled.Generation.Fingerprint ||
 		capture.CaptureModule.SchemaVersion != 2 || capture.CaptureModule.ContentHash != runtime.Module.Revision ||
-		capture.PayloadRoot != "configs/"+plan.CaptureID {
+		capture.PayloadRoot != bundle.ConfigPayloadRoot(runtime.Module.ID, plan.CaptureID) {
 		return captureEvidence{}, fail(CodeArtifactContract, "capture", "configCaptures[0]", "config capture identity or immutable generation provenance differs")
 	}
 	if !exactV2SourceEvidence(capture.SourceInstance.Evidence, instance) {

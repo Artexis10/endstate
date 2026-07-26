@@ -261,7 +261,7 @@ func validateValidationManifestContracts(session *ValidationModeSession, mod *mo
 		}
 		seenModule = true
 	}
-	legacyLayout, err := validateValidationLegacyLanes(session, mod, mf)
+	legacyLayout, legacyCaptureID, err := validateValidationLegacyLanes(session, mod, mf)
 	if err != nil {
 		return err
 	}
@@ -276,11 +276,11 @@ func validateValidationManifestContracts(session *ValidationModeSession, mod *mo
 			return validationPreflightFailure(session, fmt.Sprintf("restore[%d].fromModule", index), "module-provenance", isolationReasonUnsafePath)
 		}
 	}
-	expectedRestores := projectModuleRestores(mod, "", false)
+	expectedRestores := projectModuleRestores(mod, "", "")
 	if legacyLayout != "" {
-		expectedRestores = projectModuleRestores(mod, legacyLayout, true)
+		expectedRestores = projectModuleRestores(mod, legacyLayout, legacyCaptureID)
 	} else if seenModule {
-		projected := projectModuleRestores(mod, validationModuleLayoutID(mod.ID), false)
+		projected := projectModuleRestores(mod, validationModuleLayoutID(mod.ID), "")
 		if firstUnexpectedMultisetCoordinate(projected, manifestRestoreKeys(mf.Restore), "restore") == "" {
 			expectedRestores = projected
 		}
@@ -303,16 +303,12 @@ func validationModuleDeclaresCaptureOnlyProvenance(mod *modules.Module) bool {
 	return len(mod.Capture.Files)+len(mod.Capture.RegistryKeys)+len(mod.Capture.RegistryValues) > 0
 }
 
-func projectModuleRestores(mod *modules.Module, layoutID string, mixedV2 bool) []string {
+func projectModuleRestores(mod *modules.Module, layoutID, legacyCaptureID string) []string {
 	result := make([]string, 0, len(mod.Restore))
 	for _, value := range mod.Restore {
 		source := value.Source
-		legacyCaptureID := ""
 		if layoutID != "" {
 			source = projectValidationLegacySource(source, layoutID)
-			if mixedV2 {
-				legacyCaptureID = layoutID
-			}
 		}
 		result = append(result, semanticKey(manifest.RestoreEntry{
 			Type: value.Type, Source: source, Target: value.Target,
@@ -325,17 +321,17 @@ func projectModuleRestores(mod *modules.Module, layoutID string, mixedV2 bool) [
 	return result
 }
 
-func validateValidationLegacyLanes(session *ValidationModeSession, mod *modules.Module, mf *manifest.Manifest) (string, error) {
+func validateValidationLegacyLanes(session *ValidationModeSession, mod *modules.Module, mf *manifest.Manifest) (string, string, error) {
 	if len(mf.LegacyConfigLanes) == 0 {
 		for _, restore := range mf.Restore {
 			if restore.LegacyCaptureID != "" {
-				return "", validationPreflightFailure(session, "legacyConfigLanes", "module-provenance", isolationReasonUnsafePath)
+				return "", "", validationPreflightFailure(session, "legacyConfigLanes", "module-provenance", isolationReasonUnsafePath)
 			}
 		}
-		return "", nil
+		return "", "", nil
 	}
 	if len(mf.LegacyConfigLanes) != 1 {
-		return "", validationPreflightFailure(session, "legacyConfigLanes[1]", "module-provenance", isolationReasonUnsafePath)
+		return "", "", validationPreflightFailure(session, "legacyConfigLanes[1]", "module-provenance", isolationReasonUnsafePath)
 	}
 	lane := mf.LegacyConfigLanes[0]
 	expectedID := bundle.LegacyCaptureID(mod.ID)
@@ -346,14 +342,14 @@ func validateValidationLegacyLanes(session *ValidationModeSession, mod *modules.
 		{lane.ModuleID == mod.ID, "legacyConfigLanes[0].moduleId"},
 		{mod.EffectiveSchemaVersion() == 1 && lane.ModuleSchemaVersion == 1, "legacyConfigLanes[0].moduleSchemaVersion"},
 		{lane.CaptureID == expectedID, "legacyConfigLanes[0].captureId"},
-		{lane.PayloadRoot == path.Join("configs", expectedID), "legacyConfigLanes[0].payloadRoot"},
+		{lane.PayloadRoot == bundle.ConfigPayloadRoot(mod.ID, expectedID) || lane.PayloadRoot == path.Join("configs", expectedID), "legacyConfigLanes[0].payloadRoot"},
 	}
 	for _, check := range checks {
 		if !check.ok {
-			return "", validationPreflightFailure(session, check.coordinate, "module-provenance", isolationReasonUnsafePath)
+			return "", "", validationPreflightFailure(session, check.coordinate, "module-provenance", isolationReasonUnsafePath)
 		}
 	}
-	return expectedID, nil
+	return strings.TrimPrefix(lane.PayloadRoot, "configs/"), expectedID, nil
 }
 
 var validationSHA256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -428,7 +424,7 @@ func validateValidationConfigCaptures(session *ValidationModeSession, mod *modul
 		if capture.CaptureModule.SnapshotPath != validationSnapshotPath(mod) {
 			return validationPreflightFailure(session, prefix+".captureModule.snapshotPath", "module-provenance", isolationReasonUnsafePath)
 		}
-		if capture.PayloadRoot != path.Join("configs", expectedID) {
+		if capture.PayloadRoot != bundle.ConfigPayloadRoot(mod.ID, expectedID) {
 			return validationPreflightFailure(session, prefix+".payloadRoot", "module-provenance", isolationReasonUnsafePath)
 		}
 		previousPath := ""

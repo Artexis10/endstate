@@ -109,7 +109,7 @@ func v2ArtifactFixture(t *testing.T) (*scenarioRuntime, manifest.Manifest, map[s
 		},
 		SourceGeneration: runtime.V2Plan.Compiled.Generation.ID, SourceGenerationFingerprint: runtime.V2Plan.Compiled.Generation.Fingerprint,
 		CaptureModule:   manifest.CaptureModuleProvenance{SchemaVersion: 2, ContentHash: mod.Revision, SnapshotPath: snapshotPath},
-		PayloadRoot:     "configs/" + runtime.V2Plan.CaptureID,
+		PayloadRoot:     bundle.ConfigPayloadRoot(mod.ID, runtime.V2Plan.CaptureID),
 		PayloadManifest: []manifest.PayloadManifestEntry{{RelativePath: "settings.ini", Size: int64(len(capturedBytes)), SHA256: hex.EncodeToString(digest[:])}},
 	}
 	captured := manifest.Manifest{

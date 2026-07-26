@@ -29,6 +29,31 @@ func TestLegacyCaptureIDIsStableDomainSeparatedAndPortable(t *testing.T) {
 	}
 }
 
+func TestProjectCapturePlanningManifestUsesCollectionPayloadRoots(t *testing.T) {
+	dir := t.TempDir()
+	legacy := testLegacyCaptureModule(t, dir, "apps.legacy", "legacy")
+	plan := testGenerationCapturePlan(t, "apps.v2", "instance-a", filepath.Join(dir, "v2"), false, false)
+
+	projected, err := ProjectCapturePlanningManifest(nil, []*modules.Module{legacy}, []ConfigSetCapturePlan{plan})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyID := LegacyCaptureID(legacy.ID)
+	if len(projected.LegacyConfigLanes) != 1 || projected.LegacyConfigLanes[0].PayloadRoot != ConfigPayloadRoot(legacy.ID, legacyID) {
+		t.Fatalf("legacy projection = %+v", projected.LegacyConfigLanes)
+	}
+	if len(projected.ConfigCaptures) != 1 {
+		t.Fatalf("generation projection = %+v", projected.ConfigCaptures)
+	}
+	wantGenerationRoot := ConfigPayloadRoot(plan.Module.ID, CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID))
+	if projected.ConfigCaptures[0].PayloadRoot != wantGenerationRoot {
+		t.Fatalf("generation payload root = %q, want %q", projected.ConfigCaptures[0].PayloadRoot, wantGenerationRoot)
+	}
+	if got := strings.ReplaceAll(projected.Restore[0].Source, `\`, "/"); !strings.HasPrefix(got, "./"+ConfigPayloadRoot(legacy.ID, legacyID)+"/") {
+		t.Fatalf("legacy restore source = %q", got)
+	}
+}
+
 func TestCreateCaptureBundleVersionMatrix(t *testing.T) {
 	tests := []struct {
 		name        string

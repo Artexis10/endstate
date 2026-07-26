@@ -7,8 +7,10 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
@@ -37,6 +39,17 @@ func TestBrokenExecutorClassificationsNeverCarryPassingProof(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestForbiddenOutputValuesIncludeCanonicalCaptureArtifact(t *testing.T) {
+	runtime := fixtureScenarioRuntime(t)
+	want := filepath.Join(runtime.Root, "manifests", "captured"+manifest.BundleExt)
+	for _, value := range runtime.forbiddenOutputValues() {
+		if strings.EqualFold(value, want) {
+			return
+		}
+	}
+	t.Fatalf("forbidden output values omit %q", want)
 }
 
 func TestSuccessfulDeterministicExecutorMeetsExactV1Ledger(t *testing.T) {

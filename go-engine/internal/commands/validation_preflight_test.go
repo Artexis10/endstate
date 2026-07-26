@@ -81,22 +81,35 @@ func TestPreflightValidationProductionModuleRequiresCatalogAuthority(t *testing.
 
 func TestPreflightValidationProductionModuleAcceptsEstablishedCaptureProjection(t *testing.T) {
 	mod := loadValidationProductionModule(t, "notepad-plus-plus")
-	for _, mixedV2 := range []bool{false, true} {
-		t.Run(map[bool]string{false: "v1", true: "mixed-v2"}[mixedV2], func(t *testing.T) {
+	for _, test := range []struct {
+		name         string
+		mixedV2      bool
+		legacyOpaque bool
+	}{
+		{name: "v1"},
+		{name: "mixed-v2 readable root", mixedV2: true},
+		{name: "mixed-v2 legacy opaque root", mixedV2: true, legacyOpaque: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			mf := manifestForValidationModule(mod)
 			layoutID := "notepad-plus-plus"
-			if mixedV2 {
+			if test.mixedV2 {
 				mf.Version = 2
-				layoutID = bundle.LegacyCaptureID(mod.ID)
+				captureID := bundle.LegacyCaptureID(mod.ID)
+				payloadRoot := bundle.ConfigPayloadRoot(mod.ID, captureID)
+				if test.legacyOpaque {
+					payloadRoot = path.Join("configs", captureID)
+				}
 				mf.LegacyConfigLanes = []manifest.LegacyConfigLane{{
-					CaptureID: layoutID, ModuleID: mod.ID, ModuleSchemaVersion: 1,
-					PayloadRoot: path.Join("configs", layoutID),
+					CaptureID: captureID, ModuleID: mod.ID, ModuleSchemaVersion: 1,
+					PayloadRoot: payloadRoot,
 				}}
+				layoutID = strings.TrimPrefix(payloadRoot, "configs/")
 			}
 			for index := range mf.Restore {
 				mf.Restore[index].Source = projectedLegacySource(mf.Restore[index].Source, layoutID)
-				if mixedV2 {
-					mf.Restore[index].LegacyCaptureID = layoutID
+				if test.mixedV2 {
+					mf.Restore[index].LegacyCaptureID = bundle.LegacyCaptureID(mod.ID)
 				}
 			}
 			context, session := validationPreflightSessionFor(t, "notepad-plus-plus")
@@ -240,7 +253,7 @@ func TestPreflightValidationProductionModuleValidatesV2CaptureProvenance(t *test
 			extra := mf.ConfigCaptures[0]
 			extra.SourceInstance.ID = "instance-extra"
 			extra.CaptureID = bundle.CaptureID(extra.ModuleID, extra.ConfigSetID, extra.SourceInstance.ID)
-			extra.PayloadRoot = path.Join("configs", extra.CaptureID)
+			extra.PayloadRoot = bundle.ConfigPayloadRoot(extra.ModuleID, extra.CaptureID)
 			mf.ConfigCaptures = append(mf.ConfigCaptures, extra)
 		}},
 	}
@@ -1047,7 +1060,7 @@ func validationConfigCaptureManifest(mod *modules.Module) *manifest.Manifest {
 			SchemaVersion: 2, ContentHash: mod.Revision,
 			SnapshotPath: path.Join("provenance", "modules", mod.ID+"-"+mod.Revision+".json"),
 		},
-		PayloadRoot:     path.Join("configs", captureID),
+		PayloadRoot:     bundle.ConfigPayloadRoot(mod.ID, captureID),
 		PayloadManifest: []manifest.PayloadManifestEntry{{RelativePath: "owncloud.cfg", Size: 1, SHA256: strings.Repeat("a", 64)}},
 	}}}
 }
@@ -1055,11 +1068,13 @@ func validationConfigCaptureManifest(mod *modules.Module) *manifest.Manifest {
 func validationMixedLegacyManifest(mod *modules.Module) *manifest.Manifest {
 	mf := manifestForValidationModule(mod)
 	mf.Version = 2
-	layoutID := bundle.LegacyCaptureID(mod.ID)
-	mf.LegacyConfigLanes = []manifest.LegacyConfigLane{{CaptureID: layoutID, ModuleID: mod.ID, ModuleSchemaVersion: 1, PayloadRoot: path.Join("configs", layoutID)}}
+	captureID := bundle.LegacyCaptureID(mod.ID)
+	layoutID := bundle.ConfigPayloadRoot(mod.ID, captureID)
+	mf.LegacyConfigLanes = []manifest.LegacyConfigLane{{CaptureID: captureID, ModuleID: mod.ID, ModuleSchemaVersion: 1, PayloadRoot: layoutID}}
+	layoutID = strings.TrimPrefix(layoutID, "configs/")
 	for index := range mf.Restore {
 		mf.Restore[index].Source = projectedLegacySource(mf.Restore[index].Source, layoutID)
-		mf.Restore[index].LegacyCaptureID = layoutID
+		mf.Restore[index].LegacyCaptureID = captureID
 	}
 	return mf
 }

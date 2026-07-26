@@ -38,6 +38,14 @@ func TestCaptureIDIsStableScopedOpaqueAndPortable(t *testing.T) {
 	}
 }
 
+func TestConfigPayloadRootUsesReadableDirectoryWithoutChangingCaptureIdentity(t *testing.T) {
+	captureID := CaptureID("apps.Power Toys", "preferences", "instance-a")
+	want := "configs/power-toys-" + shortCaptureHashSuffix(captureID)
+	if got := ConfigPayloadRoot("apps.Power Toys", captureID); got != want {
+		t.Fatalf("ConfigPayloadRoot() = %q, want %q", got, want)
+	}
+}
+
 func TestCollectConfigSetPreservesNestedHierarchyAndSameBasenames(t *testing.T) {
 	instanceRoot := t.TempDir()
 	writeCaptureFile(t, filepath.Join(instanceRoot, "source", "one", "settings.json"), []byte("one\r\n"))

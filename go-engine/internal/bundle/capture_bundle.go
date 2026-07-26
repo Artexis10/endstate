@@ -161,12 +161,14 @@ func ProjectCapturePlanningManifest(apps []manifest.App, legacyModules []*module
 		projected.ConfigModules = append(projected.ConfigModules, mod.ID)
 		layoutID := legacyModuleDirName(mod.ID)
 		legacyCaptureID := ""
+		payloadRoot := ""
 		if projected.Version == 2 {
 			legacyCaptureID = LegacyCaptureID(mod.ID)
-			layoutID = legacyCaptureID
+			payloadRoot = ConfigPayloadRoot(mod.ID, legacyCaptureID)
+			layoutID = strings.TrimPrefix(payloadRoot, "configs/")
 			projected.LegacyConfigLanes = append(projected.LegacyConfigLanes, manifest.LegacyConfigLane{
 				CaptureID: legacyCaptureID, ModuleID: mod.ID, ModuleSchemaVersion: 1,
-				PayloadRoot: path.Join("configs", legacyCaptureID),
+				PayloadRoot: payloadRoot,
 			})
 		}
 		for _, restore := range mod.Restore {
@@ -189,7 +191,7 @@ func ProjectCapturePlanningManifest(apps []manifest.App, legacyModules []*module
 		}
 		captureID := CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID)
 		projected.ConfigCaptures = append(projected.ConfigCaptures, projectConfigCapture(
-			plan, path.Join("configs", captureID), []manifest.PayloadManifestEntry{}, snapshot,
+			plan, ConfigPayloadRoot(plan.Module.ID, captureID), []manifest.PayloadManifestEntry{}, snapshot,
 		))
 		appendVerifies(plan.Module)
 	}
@@ -705,7 +707,7 @@ func collectLegacyCaptureLanes(candidates []*modules.Module, stagingRoot string,
 			// folder gets a human-readable name so mixed-v2 bundles read like
 			// plain v1 ones (configs/powertoys-135f78ef/) instead of an opaque
 			// configs/legacy-<64hex>/.
-			layoutID = readableConfigDirName(mod.ID, legacyCaptureID)
+			layoutID = strings.TrimPrefix(ConfigPayloadRoot(mod.ID, legacyCaptureID), "configs/")
 		}
 		sourceRoot := filepath.Join(workRoot, "configs", shortID)
 		if context != nil {

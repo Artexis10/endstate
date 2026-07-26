@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
@@ -372,55 +373,55 @@ func (executor *cliJourneyExecutor) assertInstallPATH() *Failure {
 }
 
 func (executor *cliJourneyExecutor) Capture(ctx context.Context, runtime *scenarioRuntime) (captureEvidence, *Failure) {
-	manifestPath := filepath.Join(runtime.Root, "manifests", "captured.jsonc")
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+	artifactPath := captureArtifactPath(runtime.Root, "captured")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o700); err != nil {
 		return captureEvidence{}, fail(CodeIsolationFailure, "capture", "manifest", "create capture output parent")
 	}
-	_, failure := executor.run(ctx, "capture", "--out", manifestPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
+	_, failure := executor.run(ctx, "capture", "--out", artifactPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
 	if failure != nil {
 		return captureEvidence{}, failure
 	}
-	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
-	return inspectCaptureArtifact(runtime, zipPath)
+	return inspectCaptureArtifact(runtime, artifactPath)
 }
 
 func (executor *cliJourneyExecutor) CaptureContract(ctx context.Context, runtime *scenarioRuntime) (captureContractEvidence, *Failure) {
-	manifestPath := filepath.Join(runtime.Root, "manifests", "captured.jsonc")
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+	artifactPath := captureArtifactPath(runtime.Root, "captured")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o700); err != nil {
 		return captureContractEvidence{}, fail(CodeIsolationFailure, "capture", "manifest", "create capture contract output parent")
 	}
-	output, failure := executor.run(ctx, "capture", "--out", manifestPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
+	output, failure := executor.run(ctx, "capture", "--out", artifactPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
 	if failure != nil {
 		return captureContractEvidence{}, failure
 	}
-	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
-	if failure := validateCaptureContractCommandEvidence(output.Envelope.Data, output.Events, runtime, filepath.Base(zipPath)); failure != nil {
+	if failure := validateCaptureContractCommandEvidence(output.Envelope.Data, output.Events, runtime, filepath.Base(artifactPath)); failure != nil {
 		return captureContractEvidence{}, failure
 	}
-	return inspectCaptureContractArtifact(runtime, zipPath)
+	return inspectCaptureContractArtifact(runtime, artifactPath)
 }
 
 func (executor *cliJourneyExecutor) CaptureContractOptionalAbsent(ctx context.Context, runtime *scenarioRuntime) *Failure {
-	manifestPath := filepath.Join(runtime.Root, "manifests", "optional-absent.jsonc")
-	output, failure := executor.run(ctx, "capture", "--out", manifestPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
+	artifactPath := captureArtifactPath(runtime.Root, "optional-absent")
+	output, failure := executor.run(ctx, "capture", "--out", artifactPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
 	if failure != nil {
 		return failure
 	}
-	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
-	return validateCaptureContractOptionalAbsentOutcome(output.Envelope.Data, output.Events, runtime, zipPath)
+	return validateCaptureContractOptionalAbsentOutcome(output.Envelope.Data, output.Events, runtime, artifactPath)
 }
 
 func (executor *cliJourneyExecutor) CaptureV2(ctx context.Context, runtime *scenarioRuntime) (captureEvidence, *Failure) {
-	manifestPath := filepath.Join(runtime.Root, "manifests", "captured.jsonc")
-	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+	artifactPath := captureArtifactPath(runtime.Root, "captured")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o700); err != nil {
 		return captureEvidence{}, fail(CodeIsolationFailure, "capture", "manifest", "create schema-v2 capture output parent")
 	}
-	output, failure := executor.run(ctx, "capture", "--out", manifestPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
+	output, failure := executor.run(ctx, "capture", "--out", artifactPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
 	if failure != nil {
 		return captureEvidence{}, failure
 	}
-	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
-	return inspectV2CaptureArtifact(runtime, zipPath, output.Envelope.Data)
+	return inspectV2CaptureArtifact(runtime, artifactPath, output.Envelope.Data)
+}
+
+func captureArtifactPath(root, name string) string {
+	return filepath.Join(root, "manifests", name+manifest.BundleExt)
 }
 
 func (executor *cliJourneyExecutor) TransitionV2(_ context.Context, runtime *scenarioRuntime, evidence captureEvidence) *Failure {

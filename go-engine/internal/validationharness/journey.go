@@ -66,7 +66,7 @@ func (runtime *scenarioRuntime) forbiddenOutputValues() []string {
 	for _, value := range []string{
 		runtime.AuthorityRoot, runtime.Root, runtime.GuardRoot, runtime.ChildWorkingDir, runtime.ToolRoot,
 		runtime.repositoryRoot, runtime.enginePath, runtime.Nonce,
-		filepath.Join(runtime.Root, "manifests", "captured.jsonc"), filepath.Join(runtime.Root, "manifests", "captured.zip"),
+		filepath.Join(runtime.Root, "manifests", "captured.jsonc"), captureArtifactPath(runtime.Root, "captured"), filepath.Join(runtime.Root, "manifests", "captured.zip"),
 		filepath.Join(runtime.Root, "manifests", "captured-verify.jsonc"), filepath.Join(runtime.Root, "manifests", "optional-absent.jsonc"),
 		filepath.Join(runtime.Root, "manifests", "optional-absent.zip"), filepath.Join(runtime.Root, "state", "backups"),
 		filepath.Join(runtime.Root, "state", "config-restore"), filepath.Join(runtime.Root, "logs"),
