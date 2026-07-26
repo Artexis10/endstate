@@ -17,8 +17,9 @@ const (
 	MaxSyntheticShardCount     = 16
 	MaxPullRequestLiveRows     = 3
 
-	CodeInvalidShardCount  = "invalid_synthetic_shard_count"
-	CodeInvalidPlanCatalog = "invalid_validation_plan_catalog"
+	CodeInvalidShardCount        = "invalid_synthetic_shard_count"
+	CodeInvalidPlanCatalog       = "invalid_validation_plan_catalog"
+	CodeInvalidCandidateBaseline = "invalid_candidate_baseline"
 )
 
 type PolicySource string
@@ -40,12 +41,13 @@ const (
 type PlanReason string
 
 const (
-	ReasonMergeBaseHosted       PlanReason = "merge-base-hosted"
-	ReasonHeadLiveDowngrade     PlanReason = "head-live-downgrade"
-	ReasonHeadOnlyHosted        PlanReason = "head-only-hosted"
-	ReasonHeadPolicyChanged     PlanReason = "head-live-policy-changed"
-	ReasonHeadQuarantineIgnored PlanReason = "head-quarantine-non-relaxing"
-	ReasonPRLiveOverflow        PlanReason = "pr-live-cap-overflow"
+	ReasonMergeBaseHosted          PlanReason = "merge-base-hosted"
+	ReasonHeadLiveDowngrade        PlanReason = "head-live-downgrade"
+	ReasonHeadOnlyHosted           PlanReason = "head-only-hosted"
+	ReasonHeadPolicyChanged        PlanReason = "head-live-policy-changed"
+	ReasonHeadQuarantineIgnored    PlanReason = "head-quarantine-non-relaxing"
+	ReasonPRLiveOverflow           PlanReason = "pr-live-cap-overflow"
+	ReasonTrustedCandidateBaseline PlanReason = "trusted-candidate-baseline"
 )
 
 type SyntheticPlanOptions struct {
@@ -92,6 +94,47 @@ type LiveRow struct {
 	PolicySource     PolicySource `json:"policySource"`
 	Policy           LivePolicy   `json:"policy"`
 	Quarantines      []Quarantine `json:"quarantines,omitempty"`
+}
+
+// CandidateBaselineSelection intentionally requires separate trusted policy
+// and identity rows so callers cannot execute an untrusted head policy under
+// a trusted identity.
+type CandidateBaselineSelection struct {
+	TrustedPolicy   LiveRow
+	TrustedIdentity LiveRow
+}
+
+// SelectCandidateBaseline is the only candidate execution selection path. It
+// accepts only matching rows from trusted main or a trusted merge base; normal
+// PR and hosted planning continue to exclude candidates.
+func SelectCandidateBaseline(selection CandidateBaselineSelection) (LiveRow, error) {
+	policy := selection.TrustedPolicy
+	identity := selection.TrustedIdentity
+	if !trustedCandidateSource(policy.PolicySource) || !trustedCandidateSource(identity.PolicySource) {
+		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, policy.ModuleID, "", "candidate baseline requires trusted-main or merge-base policy and identity rows")
+	}
+	if policy.Policy.Mode != LiveCandidate || !hasExecutionPolicy(policy.Policy) {
+		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, policy.ModuleID, "", "candidate baseline requires a proposed candidate execution policy")
+	}
+	if !equalLiveRowIdentity(policy, identity) {
+		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, policy.ModuleID, "", "candidate baseline policy and identity rows must match exactly")
+	}
+	if policy.ModuleID == "" || !lowerSHA256Pattern.MatchString(policy.ModuleRevision) || !lowerSHA256Pattern.MatchString(policy.ValidationDigest) {
+		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, policy.ModuleID, "", "candidate baseline row identity is incomplete")
+	}
+	return LiveRow{
+		ModuleID: policy.ModuleID, ModuleRevision: policy.ModuleRevision, ValidationDigest: policy.ValidationDigest,
+		Status: PlanStatusRequired, Reason: ReasonTrustedCandidateBaseline, PolicySource: policy.PolicySource,
+		Policy: cloneLivePolicy(policy.Policy), Quarantines: canonicalQuarantines(policy.Quarantines),
+	}, nil
+}
+
+func trustedCandidateSource(source PolicySource) bool {
+	return source == PolicySourceTrustedMain || source == PolicySourceMergeBase
+}
+
+func equalLiveRowIdentity(left, right LiveRow) bool {
+	return left.ModuleID == right.ModuleID && left.ModuleRevision == right.ModuleRevision && left.ValidationDigest == right.ValidationDigest
 }
 
 func PlanSynthetic(catalog *Catalog, options SyntheticPlanOptions) (SyntheticPlan, error) {

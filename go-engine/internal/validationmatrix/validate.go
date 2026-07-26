@@ -60,7 +60,7 @@ func validateRecord(record *ValidationRecord, mod *modules.Module, now time.Time
 	if err := validateClassification(record, mod); err != nil {
 		return err
 	}
-	if err := validateLivePolicy(record); err != nil {
+	if err := validateLivePolicy(record, mod); err != nil {
 		return err
 	}
 	for index := range record.Quarantines {

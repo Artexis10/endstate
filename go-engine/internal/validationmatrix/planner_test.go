@@ -241,6 +241,46 @@ func TestPlanPullRequestDefersUntrustedHostedPolicies(t *testing.T) {
 	})
 }
 
+func TestSelectCandidateBaselineRequiresTrustedMatchingRows(t *testing.T) {
+	policy := candidateBaselinePolicy(strings.Repeat("a", 64))
+	trusted := plannerLiveRecord("apps.fixture", policy)
+	trusted.ModuleRevision = strings.Repeat("2", 64)
+	row, err := liveRow(trusted, PlanStatusCandidate, ReasonTrustedCandidateBaseline, PolicySourceTrustedMain)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	selected, err := SelectCandidateBaseline(CandidateBaselineSelection{TrustedPolicy: row, TrustedIdentity: row})
+	if err != nil {
+		t.Fatalf("SelectCandidateBaseline returned %v", err)
+	}
+	if selected.Status != PlanStatusRequired || selected.Reason != ReasonTrustedCandidateBaseline || selected.PolicySource != PolicySourceTrustedMain {
+		t.Fatalf("selected baseline = %#v", selected)
+	}
+	if !reflect.DeepEqual(selected.Policy, policy) {
+		t.Fatalf("selected policy = %#v, want %#v", selected.Policy, policy)
+	}
+
+	for _, tt := range []struct {
+		name   string
+		mutate func(*CandidateBaselineSelection)
+	}{
+		{"head policy is untrusted", func(selection *CandidateBaselineSelection) { selection.TrustedPolicy.PolicySource = PolicySourceHead }},
+		{"head identity is untrusted", func(selection *CandidateBaselineSelection) { selection.TrustedIdentity.PolicySource = PolicySourceHead }},
+		{"identity drift is rejected", func(selection *CandidateBaselineSelection) {
+			selection.TrustedIdentity.ValidationDigest = strings.Repeat("f", 64)
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			selection := CandidateBaselineSelection{TrustedPolicy: row, TrustedIdentity: row}
+			tt.mutate(&selection)
+			if _, err := SelectCandidateBaseline(selection); ErrorCode(err) != CodeInvalidCandidateBaseline {
+				t.Fatalf("SelectCandidateBaseline error = %v (code %q), want %q", err, ErrorCode(err), CodeInvalidCandidateBaseline)
+			}
+		})
+	}
+}
+
 func TestPlanPullRequestHeadQuarantineCannotRelaxBasePolicy(t *testing.T) {
 	policy := plannerHostedInstallPolicy("Vendor.Base")
 	baseRecord := plannerLiveRecord("apps.fixture", policy)
@@ -382,8 +422,8 @@ func plannerHostedConfigPolicy(ref string) LivePolicy {
 	policy := plannerHostedInstallPolicy(ref)
 	policy.ProofMode = ProofLiveConfigRoundtrip
 	policy.Seed = "seed.ps1"
-	policy.Comparator = "exact-json"
-	policy.Trust = &TrustHashes{SeedSHA256: strings.Repeat("a", 64), ComparatorSHA256: strings.Repeat("b", 64)}
+	policy.Comparator = ComparatorExactBytes
+	policy.Trust = &TrustHashes{SeedSHA256: strings.Repeat("a", 64)}
 	return policy
 }
 

@@ -394,6 +394,7 @@ func TestLivePolicyContract(t *testing.T) {
 		wantErr bool
 	}{
 		{"candidate", nonHostedLivePolicy(LiveCandidate), false},
+		{"candidate proposed baseline", candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b"), false},
 		{"blocked", nonHostedLivePolicy(LiveBlocked), false},
 		{"lab", nonHostedLivePolicy(LiveLab), false},
 		{"manual", nonHostedLivePolicy(LiveManual), false},
@@ -401,6 +402,27 @@ func TestLivePolicyContract(t *testing.T) {
 		{"unknown mode", LivePolicy{Mode: LiveMode("future")}, true},
 		{"invalid reason code", LivePolicy{Mode: LiveBlocked, ReasonCode: "UPSTREAM_FLAKE", Explanation: "blocked"}, true},
 		{"non-hosted execution policy", LivePolicy{Mode: LiveCandidate, ReasonCode: "candidate", Explanation: "candidate", Driver: "winget"}, true},
+		{"candidate baseline requires exact winget reference", func() LivePolicy {
+			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+			p.Ref = "Vendor.Other"
+			return p
+		}(), true},
+		{"candidate baseline requires safe seeded file", func() LivePolicy {
+			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+			p.Seed = "../seed.ps1"
+			return p
+		}(), true},
+		{"candidate baseline requires matching seed hash", candidateBaselinePolicy(strings.Repeat("b", 64)), true},
+		{"candidate baseline rejects external comparator", func() LivePolicy {
+			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+			p.Comparator = "exact-json"
+			return p
+		}(), true},
+		{"candidate baseline does not accept comparator artifact hash", func() LivePolicy {
+			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+			p.Trust.ComparatorSHA256 = strings.Repeat("b", 64)
+			return p
+		}(), true},
 		{"hosted live install", hostedInstallPolicy(), false},
 		{"hosted missing reference", func() LivePolicy { p := hostedInstallPolicy(); p.Ref = ""; return p }(), true},
 		{"hosted named seed without trust hash", func() LivePolicy { p := hostedInstallPolicy(); p.Seed = "seed.ps1"; return p }(), true},
@@ -417,6 +439,9 @@ func TestLivePolicyContract(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
 			mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+			if err := os.WriteFile(filepath.Join(root, "modules", "apps", "alpha", "seed.ps1"), []byte("seed"), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			record := validV1Validation("apps.alpha", mod.Revision)
 			record.Live = tt.live
 			writeValidation(t, root, "alpha", record)
@@ -432,6 +457,15 @@ func TestLivePolicyContract(t *testing.T) {
 				t.Fatalf("LoadCatalog returned %v", err)
 			}
 		})
+	}
+}
+
+func candidateBaselinePolicy(seedSHA256 string) LivePolicy {
+	return LivePolicy{
+		Mode: LiveCandidate, ReasonCode: "unproven-hosted-baseline", Explanation: "awaiting a trusted hosted baseline",
+		Driver: "winget", Ref: "Vendor.Fixture", Seed: "seed.ps1", Comparator: ComparatorExactBytes,
+		ProofMode: ProofLiveConfigRoundtrip, PRTimeoutMinutes: 20, ScheduledTimeoutMinutes: 30,
+		RunnerLabel: "windows-latest", Trust: &TrustHashes{SeedSHA256: seedSHA256},
 	}
 }
 
@@ -833,8 +867,8 @@ func hostedConfigPolicy() LivePolicy {
 	policy := hostedInstallPolicy()
 	policy.ProofMode = ProofLiveConfigRoundtrip
 	policy.Seed = "seed.ps1"
-	policy.Comparator = "exact-json"
-	policy.Trust = &TrustHashes{SeedSHA256: strings.Repeat("a", 64), ComparatorSHA256: strings.Repeat("b", 64)}
+	policy.Comparator = ComparatorExactBytes
+	policy.Trust = &TrustHashes{SeedSHA256: "19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b"}
 	return policy
 }
 

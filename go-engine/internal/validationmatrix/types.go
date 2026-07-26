@@ -83,6 +83,10 @@ const (
 	ProofLiveConfigRoundtrip ProofLevel = "live-config-roundtrip"
 )
 
+type BuiltInComparator string
+
+const ComparatorExactBytes BuiltInComparator = "exact-bytes"
+
 const (
 	AssertionCaptured         = "captured"
 	AssertionPayload          = "payload"
@@ -190,18 +194,18 @@ func (expectation *SchemaV2Expectation) UnmarshalJSON(data []byte) error {
 }
 
 type LivePolicy struct {
-	Mode                    LiveMode     `json:"mode"`
-	Driver                  string       `json:"driver,omitempty"`
-	Ref                     string       `json:"ref,omitempty"`
-	Seed                    string       `json:"seed,omitempty"`
-	Comparator              string       `json:"comparator,omitempty"`
-	ProofMode               ProofLevel   `json:"proofMode,omitempty"`
-	PRTimeoutMinutes        int          `json:"prTimeoutMinutes,omitempty"`
-	ScheduledTimeoutMinutes int          `json:"scheduledTimeoutMinutes,omitempty"`
-	RunnerLabel             string       `json:"runnerLabel,omitempty"`
-	Trust                   *TrustHashes `json:"trust,omitempty"`
-	ReasonCode              string       `json:"reasonCode,omitempty"`
-	Explanation             string       `json:"explanation,omitempty"`
+	Mode                    LiveMode          `json:"mode"`
+	Driver                  string            `json:"driver,omitempty"`
+	Ref                     string            `json:"ref,omitempty"`
+	Seed                    string            `json:"seed,omitempty"`
+	Comparator              BuiltInComparator `json:"comparator,omitempty"`
+	ProofMode               ProofLevel        `json:"proofMode,omitempty"`
+	PRTimeoutMinutes        int               `json:"prTimeoutMinutes,omitempty"`
+	ScheduledTimeoutMinutes int               `json:"scheduledTimeoutMinutes,omitempty"`
+	RunnerLabel             string            `json:"runnerLabel,omitempty"`
+	Trust                   *TrustHashes      `json:"trust,omitempty"`
+	ReasonCode              string            `json:"reasonCode,omitempty"`
+	Explanation             string            `json:"explanation,omitempty"`
 }
 
 type TrustHashes struct {

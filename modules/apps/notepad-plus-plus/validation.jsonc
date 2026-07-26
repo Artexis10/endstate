@@ -30,6 +30,17 @@
   "live": {
     "mode": "candidate",
     "reasonCode": "unproven-hosted-baseline",
-    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module.",
+    "driver": "winget",
+    "ref": "Notepad++.Notepad++",
+    "seed": "seed.ps1",
+    "comparator": "exact-bytes",
+    "proofMode": "live-config-roundtrip",
+    "prTimeoutMinutes": 25,
+    "scheduledTimeoutMinutes": 45,
+    "runnerLabel": "windows-latest",
+    "trust": {
+      "seedSha256": "ad9b225cbfaecd3a691b199716a0c3dd65b38861c302d729b2de2048dab699e8"
+    }
   }
 }
