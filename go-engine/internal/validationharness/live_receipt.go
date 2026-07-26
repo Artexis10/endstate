@@ -345,9 +345,6 @@ func (receipt *liveExecutionReceipt) validate() error {
 	return nil
 }
 
-// liveReceiptDecoderHandoff is the only output handoff permitted to package
-// internal evidence decoders. It validates the sealed causal receipt before
-// returning defensive output copies; failures are diagnostic only.
 func liveReceiptMAC(key []byte, receipt *liveExecutionReceipt) [32]byte {
 	mac := hmac.New(sha256.New, key)
 	var header bytes.Buffer
