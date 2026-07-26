@@ -152,6 +152,20 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			if err != nil {
 				return fmt.Errorf("verify[%d] path: %w", index, err)
 			}
+			directory, err := runtime.fileVerifierRequiresDirectory(path)
+			if err != nil {
+				return fmt.Errorf("verify[%d] path: %w", index, err)
+			}
+			if directory {
+				if err := os.MkdirAll(path, 0o700); err != nil {
+					return err
+				}
+				info, err := os.Stat(path)
+				if err != nil || !info.IsDir() {
+					return fmt.Errorf("verify[%d] path must remain a directory", index)
+				}
+				continue
+			}
 			if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 				return err
 			}
@@ -167,6 +181,33 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 		}
 	}
 	return nil
+}
+
+func (runtime *scenarioRuntime) fileVerifierRequiresDirectory(path string) (bool, error) {
+	if runtime == nil || runtime.Plan == nil {
+		return false, nil
+	}
+	fileDescendant := false
+	for _, target := range runtime.Plan.Targets {
+		if target.Resolved == "" || !pathIsEqualOrAncestor(path, target.Resolved) {
+			continue
+		}
+		if target.Directory {
+			return true, nil
+		}
+		if !strings.EqualFold(filepath.Clean(path), filepath.Clean(target.Resolved)) {
+			fileDescendant = true
+		}
+	}
+	if fileDescendant {
+		return false, fmt.Errorf("file verifier is an ancestor of a file fixture target")
+	}
+	return false, nil
+}
+
+func pathIsEqualOrAncestor(path, target string) bool {
+	relative, err := filepath.Rel(path, target)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func authoredAliasSuffix(authored string) (string, string, bool) {
