@@ -195,6 +195,20 @@ func (session *configRestoreExecutionSession) Execute(
 		recomputeConfigPlanSummary(&result.Plan)
 		return result, nil
 	}
+	if !needsGeneration && len(session.runtime.inputs.ordinaryRestores) == 0 {
+		if legacy, eventResults, noOp, preflightErr := preflightLegacyConfigRestoreNoop(session.runtime.inputs, options); preflightErr != nil {
+			return result, preflightErr
+		} else if noOp {
+			emitPlannedLegacyConfigResolutions(options.Emitter, legacyPreview)
+			emitPreflightLegacyConfigRestoreNoopEvents(options.Emitter, session.runtime.inputs, options, eventResults)
+			result.Plan = mergeConfigRestorePlans(result.Plan, legacy.Plan)
+			result.RestoreItems = append(result.RestoreItems, legacy.RestoreItems...)
+			result.EventResults = append(result.EventResults, eventResults...)
+			result.Results = append(result.Results, result.RestoreItems...)
+			recomputeConfigPlanSummary(&result.Plan)
+			return result, nil
+		}
+	}
 	if beginLiveConfigRestoreFn == nil {
 		emitGenerationConfigResolutions(options.Emitter, result.Plan)
 		return result, configRestoreInternalError("live configuration restore lock/recovery coordinator is unavailable")
@@ -1100,6 +1114,90 @@ func executeLegacyAndOrdinaryConfigRestores(
 		}
 	}
 	return legacy, ordinary, eventResults, nil
+}
+
+// preflightLegacyConfigRestoreNoop resolves every selected legacy action
+// without mutating targets. Only an all-up-to-date result may bypass the live
+// transaction guard; any action that could mutate falls through to the durable
+// live path, where it is rechecked immediately before mutation.
+func preflightLegacyConfigRestoreNoop(
+	inputs configRestoreInputs,
+	options configRestoreExecutionOptions,
+) (configRestoreLegacyProjection, []restore.RestoreResult, bool, *envelope.Error) {
+	collisionPlan := emptyConfigRestorePlan()
+	collisions := applyUnifiedConcreteConfigRestoreCollisions(&collisionPlan, nil, inputs, options)
+	if len(collisions.legacyCaptures) != 0 {
+		return configRestoreLegacyProjection{}, nil, false, nil
+	}
+	preflightOptions := configRestoreActionOptions(options)
+	preflightOptions.DryRun = true
+	execution := configRestoreLegacyExecution{
+		ResultsByCaptureID: make(map[string][]restore.RestoreResult),
+		BlockedReasons:     make(map[string]planner.ResolutionReason),
+	}
+	eventResults := []restore.RestoreResult{}
+	allCurrent := true
+	for _, lane := range inputs.legacyLanes {
+		if !lane.selected {
+			continue
+		}
+		if len(lane.restoreEntries) == 0 {
+			allCurrent = false
+			continue
+		}
+		results := []restore.RestoreResult{}
+		for _, action := range convertToActions(lane.restoreEntries, "") {
+			result, err := restore.RunRestore([]restore.RestoreAction{action}, preflightOptions, nil)
+			if err != nil {
+				return configRestoreLegacyProjection{}, nil, false, envelope.NewError(envelope.ErrRestoreFailed, err.Error())
+			}
+			if len(result) == 0 {
+				allCurrent = false
+			}
+			for _, item := range result {
+				if item.Status != "skipped_up_to_date" {
+					allCurrent = false
+				}
+			}
+			linked := linkLegacyRestoreItems(lane, result)
+			results = append(results, linked...)
+			descriptor := restore.DescribeAction(action, configRestoreActionOptions(options))
+			eventResults = append(eventResults, configRestoreEventResultForAction(descriptor, linked))
+		}
+		execution.ResultsByCaptureID[lane.captureID] = results
+	}
+	if !allCurrent {
+		return configRestoreLegacyProjection{}, nil, false, nil
+	}
+	legacy, err := projectLegacyConfigRestores(inputs, true, execution)
+	if err != nil {
+		return configRestoreLegacyProjection{}, nil, false, configRestoreInternalError(err.Error())
+	}
+	return legacy, eventResults, true, nil
+}
+
+func emitPreflightLegacyConfigRestoreNoopEvents(
+	emitter *events.Emitter,
+	inputs configRestoreInputs,
+	options configRestoreExecutionOptions,
+	eventResults []restore.RestoreResult,
+) {
+	index := 0
+	for _, lane := range inputs.legacyLanes {
+		if !lane.selected {
+			continue
+		}
+		lineage := configRestoreEventLineage{
+			ModuleID: lane.moduleID, CaptureID: lane.captureID, ConfigSetID: lane.configSetID,
+		}
+		for _, action := range convertToActions(lane.restoreEntries, "") {
+			emitRestoreActionStarts(emitter, []restore.RestoreAction{action}, configRestoreActionOptions(options), lineage)
+			if index < len(eventResults) {
+				emitConfigRestoreItems(emitter, []restore.RestoreResult{eventResults[index]}, lane.moduleID)
+			}
+			index++
+		}
+	}
 }
 
 func configRestoreActionOptions(options configRestoreExecutionOptions) restore.RestoreOptions {
