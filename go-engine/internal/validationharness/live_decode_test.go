@@ -4,13 +4,39 @@
 package validationharness
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
 )
+
+func TestDecodeLiveEventsAcceptsProductionEmitterTopology(t *testing.T) {
+	var stream bytes.Buffer
+	apply := events.NewEmitterWithWriter("apply-rebuild", true, &stream)
+	apply.EmitPhase("plan")
+	apply.EmitItem("notepad-plus-plus", "winget", "to_install", "", "", "")
+	apply.EmitSummary("plan", 1, 0, 0, 1)
+	apply.EmitPhase("apply")
+	apply.EmitItem("notepad-plus-plus", "winget", "installed", "", "", "")
+	apply.EmitSummary("apply", 1, 1, 0, 0)
+	apply.EmitPhase("restore")
+	apply.EmitSummary("restore", 0, 0, 0, 0)
+	apply.EmitPhase("verify")
+	apply.EmitItem("notepad-plus-plus", "winget", "present", "", "", "")
+	apply.EmitSummary("verify", 1, 1, 0, 0)
+	verify := events.NewEmitterWithWriter("verify-rebuild", true, &stream)
+	verify.EmitPhase("verify")
+	verify.EmitItem("notepad-plus-plus", "winget", "present", "", "", "")
+	verify.EmitSummary("verify", 1, 1, 0, 0)
+
+	if failure := decodeLiveEvents(stream.Bytes(), "rebuild", "rebuild-envelope"); failure != nil {
+		t.Fatalf("decodeLiveEvents() rejected production topology: %+v", failure)
+	}
+}
 
 func TestLiveDecoderAcceptsProductionCommandEncoders(t *testing.T) {
 	ref := "Notepad++.Notepad++"
@@ -79,7 +105,7 @@ func TestDecodeLiveJourneyProjectsStrictHostedNotepadJourney(t *testing.T) {
 	if failure != nil {
 		t.Fatalf("decodeLiveJourney() failure = %+v", failure)
 	}
-	if projection.ModuleID != definition.ModuleID || projection.Ref != definition.WingetRef || projection.CapturedMappings != 2 || projection.RestoredMappings != 2 || !projection.PackagePresentAfterRevert || !projection.ConvergedWithoutMutation {
+	if projection.ModuleID != definition.ModuleID || projection.Ref != definition.WingetRef || projection.CapturedMappings != 2 || projection.RestoredMappings != 2 || !projection.PackagePresentAfterRevert || !projection.ConvergenceEnvelopeObserved {
 		t.Fatalf("projection = %+v", projection)
 	}
 	encoded := fmt.Sprintf("%+v", projection)
@@ -131,7 +157,9 @@ func TestDecodeLiveJourneyFailsClosedOnForgedOrIncompleteLiveProof(t *testing.T)
 		{"missing terminal event", func(value *liveJourneyOutputs) {
 			value.Capture.Stderr = []byte(`{"version":1,"runId":"capture-initial","timestamp":"2026-07-26T12:00:00Z","event":"phase","phase":"capture"}`)
 		}},
-		{"mismatched run id", func(value *liveJourneyOutputs) { value.RestoreRebuild.Stderr = liveEvents("rebuild", "foreign-run") }},
+		{"outer rebuild run id reused by nested stream", func(value *liveJourneyOutputs) {
+			value.RestoreRebuild.Stderr = []byte(strings.Replace(string(value.RestoreRebuild.Stderr), `"runId":"apply-rebuild-restore"`, `"runId":"rebuild-restore"`, 1))
+		}},
 		{"duplicate JSON key", func(value *liveJourneyOutputs) {
 			value.Verify.Stdout = []byte(strings.Replace(string(value.Verify.Stdout), `"runId":"verify-initial"`, `"runId":"verify-initial","runId":"forged"`, 1))
 		}},
@@ -162,16 +190,26 @@ func liveTestEnvelope(command, runID, data string) []byte {
 }
 
 func liveEvents(command, runID string) []byte {
-	phases := map[string][]string{"apply": {"plan", "apply"}, "verify": {"verify"}, "capture": {"capture"}, "rebuild": {"plan", "apply", "restore", "verify"}, "revert": {"restore"}}[command]
-	lines := make([]string, 0, len(phases)*2)
-	for index, phase := range phases {
-		lines = append(lines, fmt.Sprintf(`{"version":1,"runId":%q,"timestamp":"2026-07-26T12:00:%02dZ","event":"phase","phase":%q}`, runID, index*2, phase))
-		if command == "capture" {
-			lines = append(lines, fmt.Sprintf(`{"version":1,"runId":%q,"timestamp":"2026-07-26T12:00:%02dZ","event":"progress","phase":"capture","stage":"inventory"}`, runID, index*2+1))
+	var stream bytes.Buffer
+	emit := func(emitter *events.Emitter, phases ...string) {
+		for _, phase := range phases {
+			emitter.EmitPhase(phase)
+			if command == "capture" {
+				emitter.EmitProgress("capture", "inventory")
+				emitter.EmitItem("Notepad++.Notepad++", "winget", "present", "detected", "", "Notepad++")
+				emitter.EmitArtifact("capture", "manifest", "captured.zip")
+			}
+			emitter.EmitSummary(phase, 1, 1, 0, 0)
 		}
-		lines = append(lines, fmt.Sprintf(`{"version":1,"runId":%q,"timestamp":"2026-07-26T12:01:%02dZ","event":"summary","phase":%q,"total":1,"success":1,"skipped":0,"failed":0}`, runID, index, phase))
 	}
-	return []byte(strings.Join(lines, "\n") + "\n")
+	if command == "rebuild" {
+		emit(events.NewEmitterWithWriter("apply-"+runID, true, &stream), "plan", "apply", "restore", "verify")
+		emit(events.NewEmitterWithWriter("verify-"+runID, true, &stream), "verify")
+		return stream.Bytes()
+	}
+	phaseSets := map[string][]string{"apply": {"plan", "apply", "verify"}, "verify": {"verify"}, "capture": {"capture"}, "revert": {"restore"}}
+	emit(events.NewEmitterWithWriter(runID, true, &stream), phaseSets[command]...)
+	return stream.Bytes()
 }
 
 func liveVerifyData() string {
@@ -191,7 +229,7 @@ func liveRebuildData(packageStatus, restoreStatus string) string {
 	if restoreStatus == "skipped_up_to_date" {
 		selected, configSkipped, resolution, resolutionReason, backup = 0, 1, "skipped", `"already_up_to_date"`, "false"
 	}
-	return fmt.Sprintf(`{"from":"$ENDSTATE_ROOT/manifests/captured.zip","dryRun":false,"restore":"enabled","apply":{"dryRun":false,"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured","hash":"sha256:fixture"},"summary":{"total":1,"success":%d,"skipped":%d,"failed":0},"actions":[{"id":"notepad-plus-plus","ref":"Notepad++.Notepad++","driver":"winget","status":%q,"reason":%q,"manual":null}]},"configResolutionSummary":{"total":1,"selected":%d,"skipped":%d,"failed":0},"configResolutions":[{"status":%q,"resolution":"legacy_unverified","reason":%s}],"restoreItems":[{"source":"apps/notepad-plus-plus/config.xml","target":"%%APPDATA%%\\Notepad++\\config.xml","status":%q,"backupCreated":%s,"targetExistedBefore":true,"restoreType":"copy"},{"source":"apps/notepad-plus-plus/shortcuts.xml","target":"%%APPDATA%%\\Notepad++\\shortcuts.xml","status":%q,"backupCreated":%s,"targetExistedBefore":true,"restoreType":"copy"}],"verify":%s}`, success, skipped, packageStatus, reason, selected, configSkipped, resolution, resolutionReason, restoreStatus, backup, restoreStatus, backup, liveVerifyData())
+	return fmt.Sprintf(`{"from":"$ENDSTATE_ROOT/manifests/captured.zip","dryRun":false,"restore":"enabled","apply":{"dryRun":false,"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured","hash":"sha256:fixture"},"summary":{"total":1,"success":%d,"skipped":%d,"failed":0},"actions":[{"id":"notepad-plus-plus","ref":"Notepad++.Notepad++","driver":"winget","status":%q,"reason":%q,"manual":null}]},"configResolutionSummary":{"total":1,"direct":0,"migrate":0,"incompatible":0,"unknown":0,"legacyUnverified":1,"selected":%d,"skipped":%d,"failed":0},"configResolutions":[{"status":%q,"resolution":"legacy_unverified","reason":%s}],"restoreItems":[{"source":"apps/notepad-plus-plus/config.xml","target":"%%APPDATA%%\\Notepad++\\config.xml","status":%q,"backupCreated":%s,"targetExistedBefore":true,"restoreType":"copy"},{"source":"apps/notepad-plus-plus/shortcuts.xml","target":"%%APPDATA%%\\Notepad++\\shortcuts.xml","status":%q,"backupCreated":%s,"targetExistedBefore":true,"restoreType":"copy"}],"verify":%s}`, success, skipped, packageStatus, reason, selected, configSkipped, resolution, resolutionReason, restoreStatus, backup, restoreStatus, backup, liveVerifyData())
 }
 
 func liveApplyData(status string) string {

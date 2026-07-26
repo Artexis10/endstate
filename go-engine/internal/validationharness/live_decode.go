@@ -11,6 +11,8 @@ import (
 	"io"
 	"strings"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/commands"
 )
 
 const (
@@ -47,7 +49,9 @@ type liveJourneyProjection struct {
 	CapturedMappings          int
 	RestoredMappings          int
 	PackagePresentAfterRevert bool
-	ConvergedWithoutMutation  bool
+	// ConvergenceEnvelopeObserved is only an envelope claim. A later state
+	// cross-binding must establish whether it involved no persistent mutation.
+	ConvergenceEnvelopeObserved bool
 }
 
 type liveEnvelope struct {
@@ -60,6 +64,19 @@ type liveEnvelope struct {
 	TestMode      json.RawMessage `json:"testMode"`
 	Data          json.RawMessage `json:"data"`
 	Error         json.RawMessage `json:"error"`
+}
+
+// liveRebuildWire preserves RebuildResult's interface-valued Apply and Verify
+// until their raw proof inventories have been checked. The official command
+// structs are decoded immediately afterwards; this private wrapper is not a
+// second public result schema.
+type liveRebuildWire struct {
+	From    string          `json:"from"`
+	Bundle  json.RawMessage `json:"bundle"`
+	DryRun  bool            `json:"dryRun"`
+	Restore string          `json:"restore"`
+	Apply   json.RawMessage `json:"apply"`
+	Verify  json.RawMessage `json:"verify"`
 }
 
 func decodeLiveJourney(definition LiveDefinition, inputs liveJourneyOutputs) (liveJourneyProjection, *Failure) {
@@ -96,7 +113,7 @@ func decodeLiveJourney(definition LiveDefinition, inputs liveJourneyOutputs) (li
 	}
 	return liveJourneyProjection{
 		ModuleID: definition.ModuleID, Ref: definition.WingetRef, CapturedMappings: len(expectedMappings), RestoredMappings: len(expectedMappings),
-		PackagePresentAfterRevert: true, ConvergedWithoutMutation: true,
+		PackagePresentAfterRevert: true, ConvergenceEnvelopeObserved: true,
 	}, nil
 }
 
@@ -110,6 +127,10 @@ func validateLiveApply(output liveCommandOutput, definition LiveDefinition, conv
 	}
 	data, err := liveObjectAllowed(envelope.Data, []string{"dryRun", "manifest", "summary", "actions"}, []string{"dryRun", "manifest", "summary", "actions", "configModuleMap", "packageModuleMap", "warnings", "restoreModulesAvailable", "pruned", "configResolutions", "configResolutionSummary", "restoreItems"})
 	if err != nil {
+		return liveDecodeFailure("apply", "data")
+	}
+	var official commands.ApplyResult
+	if json.Unmarshal(envelope.Data, &official) != nil {
 		return liveDecodeFailure("apply", "data")
 	}
 	if converged {
@@ -160,6 +181,10 @@ func validateLiveVerify(output liveCommandOutput, definition LiveDefinition, map
 func validateLiveVerifyData(raw json.RawMessage, definition LiveDefinition, mappingCount int) *Failure {
 	data, err := liveObjectAllowed(raw, []string{"manifest", "summary", "results"}, []string{"manifest", "summary", "results", "warnings"})
 	if err != nil {
+		return liveDecodeFailure("verify", "data")
+	}
+	var official commands.VerifyResult
+	if json.Unmarshal(raw, &official) != nil {
 		return liveDecodeFailure("verify", "data")
 	}
 	if _, err := liveObject(data["manifest"], "path", "name"); err != nil {
@@ -219,6 +244,10 @@ func validateLiveCapture(output liveCommandOutput, definition LiveDefinition, ex
 	if err != nil {
 		return liveDecodeFailure("capture", "data")
 	}
+	var official commands.CaptureResult
+	if json.Unmarshal(envelope.Data, &official) != nil {
+		return liveDecodeFailure("capture", "data")
+	}
 	apps, err := liveArray(data["appsIncluded"])
 	modules, modulesErr := liveArray(data["configModules"])
 	if err != nil || modulesErr != nil || len(apps) != 1 || len(modules) != 1 {
@@ -263,6 +292,12 @@ func validateLiveRebuild(output liveCommandOutput, definition LiveDefinition, ex
 	if err != nil {
 		return liveDecodeFailure("rebuild", "data")
 	}
+	var wire liveRebuildWire
+	var officialApply commands.ApplyResult
+	var officialVerify commands.VerifyResult
+	if json.Unmarshal(envelope.Data, &wire) != nil || json.Unmarshal(wire.Apply, &officialApply) != nil || json.Unmarshal(wire.Verify, &officialVerify) != nil {
+		return liveDecodeFailure("rebuild", "data")
+	}
 	var dryRun bool
 	var restore string
 	if json.Unmarshal(data["dryRun"], &dryRun) != nil || dryRun || liveString(data["restore"], &restore) != nil || restore != "enabled" {
@@ -271,11 +306,11 @@ func validateLiveRebuild(output liveCommandOutput, definition LiveDefinition, ex
 	if failure := validateLiveApplyData(data["apply"], definition, !requireInstall, false); failure != nil {
 		return failure
 	}
-	if _, err := liveObject(data["configResolutionSummary"], "total", "selected", "skipped", "failed"); err != nil {
+	if _, err := liveObject(data["configResolutionSummary"], "total", "direct", "migrate", "incompatible", "unknown", "legacyUnverified", "selected", "skipped", "failed"); err != nil {
 		return liveDecodeFailure("rebuild", "config")
 	}
-	var summary struct{ Total, Selected, Skipped, Failed int }
-	if json.Unmarshal(data["configResolutionSummary"], &summary) != nil || summary.Total != 1 || summary.Failed != 0 ||
+	var summary struct{ Total, Direct, Migrate, Incompatible, Unknown, LegacyUnverified, Selected, Skipped, Failed int }
+	if json.Unmarshal(data["configResolutionSummary"], &summary) != nil || summary.Total != 1 || summary.Direct != 0 || summary.Migrate != 0 || summary.Incompatible != 0 || summary.Unknown != 0 || summary.LegacyUnverified != 1 || summary.Failed != 0 ||
 		(!converged && (summary.Selected != 1 || summary.Skipped != 0)) || (converged && (summary.Selected != 0 || summary.Skipped != 1)) {
 		return liveDecodeFailure("rebuild", "config")
 	}
@@ -334,6 +369,10 @@ func validateLiveRevert(output liveCommandOutput, definition LiveDefinition, exp
 	if err != nil {
 		return liveDecodeFailure(phase, "data")
 	}
+	var official commands.RevertData
+	if json.Unmarshal(envelope.Data, &official) != nil {
+		return liveDecodeFailure(phase, "data")
+	}
 	var journal string
 	if liveString(data["journalUsed"], &journal) != nil || journal == "" || journal != journalID {
 		return liveDecodeFailure(phase, "journal")
@@ -385,82 +424,170 @@ func decodeLiveEvents(stderr []byte, command, runID string) *Failure {
 	if len(stderr) == 0 || len(stderr) > maxLiveDecodeOutputBytes || !bytes.HasSuffix(stderr, []byte("\n")) {
 		return liveDecodeFailure(command, "events")
 	}
-	phases := map[string][]string{"apply": {"plan", "apply"}, "verify": {"verify"}, "capture": {"capture"}, "rebuild": {"plan", "apply", "restore", "verify"}, "revert": {"restore"}}[command]
-	if len(phases) == 0 {
-		return liveDecodeFailure(command, "events")
-	}
 	scanner := bufio.NewScanner(bytes.NewReader(stderr))
 	scanner.Buffer(make([]byte, 1024), 64*1024)
-	count, phaseIndex := 0, 0
-	openPhase := ""
+	count := 0
+	var records []liveEventRecord
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		count++
 		if count > maxLiveDecodeEvents || len(line) == 0 || rejectDuplicateJSONKeys(line) != nil {
 			return liveDecodeFailure(command, "events")
 		}
-		fields, err := liveOpenObject(line)
-		if err != nil {
+		record, ok := decodeLiveEvent(line)
+		if !ok {
 			return liveDecodeFailure(command, "events")
 		}
-		var eventRun, timestamp, event string
-		if liveString(fields["runId"], &eventRun) != nil || liveString(fields["timestamp"], &timestamp) != nil || liveString(fields["event"], &event) != nil || eventRun != runID {
-			return liveDecodeFailure(command, "events")
-		}
-		if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
-			return liveDecodeFailure(command, "events")
-		}
-		var version int
-		if json.Unmarshal(fields["version"], &version) != nil || version != 1 {
-			return liveDecodeFailure(command, "events")
-		}
-		if event == "phase" {
-			var eventPhase string
-			if openPhase != "" || phaseIndex >= len(phases) || !liveExactKeySet(fields, "version", "runId", "timestamp", "event", "phase") || liveString(fields["phase"], &eventPhase) != nil || eventPhase != phases[phaseIndex] {
-				return liveDecodeFailure(command, "events")
-			}
-			openPhase = eventPhase
-			continue
-		}
-		if event == "summary" {
-			var eventPhase string
-			var summary struct{ Total, Success, Skipped, Failed int }
-			if openPhase == "" || !liveExactKeySet(fields, "version", "runId", "timestamp", "event", "phase", "total", "success", "skipped", "failed") || liveString(fields["phase"], &eventPhase) != nil || eventPhase != openPhase || json.Unmarshal(line, &summary) != nil || summary.Total < 0 || summary.Success < 0 || summary.Skipped < 0 || summary.Failed != 0 || summary.Total != summary.Success+summary.Skipped+summary.Failed {
-				return liveDecodeFailure(command, "events")
-			}
-			openPhase = ""
-			phaseIndex++
-			continue
-		}
-		if openPhase == "" || !liveAllowedEvent(event, fields) {
-			return liveDecodeFailure(command, "events")
-		}
+		records = append(records, record)
 	}
-	if scanner.Err() != nil || openPhase != "" || phaseIndex != len(phases) {
+	if scanner.Err() != nil || !liveEventTopology(records, command, runID) {
 		return liveDecodeFailure(command, "events")
 	}
 	return nil
 }
 
-func liveAllowedEvent(event string, fields map[string]json.RawMessage) bool {
-	allowed := map[string][]string{"progress": {"version", "runId", "timestamp", "event", "phase", "stage"}, "item": {"version", "runId", "timestamp", "event", "id", "driver", "name", "status", "reason", "message", "rebootRequired"}, "artifact": {"version", "runId", "timestamp", "event", "phase", "kind", "path"}, "config-resolution": {"version", "runId", "timestamp", "event", "captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation"}, "config-migration": {"version", "runId", "timestamp", "event", "captureId", "configSetId", "stage", "fromGeneration", "toGeneration", "status", "reason", "message", "remediation"}, "restore-item": {"version", "runId", "timestamp", "event", "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"}}
-	values, ok := allowed[event]
-	if !ok {
+type liveEventRecord struct {
+	runID string
+	event string
+	phase string
+}
+
+func decodeLiveEvent(raw []byte) (liveEventRecord, bool) {
+	fields, err := liveOpenObject(raw)
+	if err != nil {
+		return liveEventRecord{}, false
+	}
+	var version int
+	var runID, timestamp, event string
+	if json.Unmarshal(fields["version"], &version) != nil || version != 1 || liveString(fields["runId"], &runID) != nil || liveString(fields["timestamp"], &timestamp) != nil || liveString(fields["event"], &event) != nil {
+		return liveEventRecord{}, false
+	}
+	if _, err := time.Parse(time.RFC3339Nano, timestamp); err != nil {
+		return liveEventRecord{}, false
+	}
+	record := liveEventRecord{runID: runID, event: event}
+	base := []string{"version", "runId", "timestamp", "event"}
+	switch event {
+	case "phase":
+		if !liveExactKeySet(fields, append(base, "phase")...) || liveString(fields["phase"], &record.phase) != nil {
+			return liveEventRecord{}, false
+		}
+	case "summary":
+		if !liveExactKeySet(fields, append(base, "phase", "total", "success", "skipped", "failed")...) || liveString(fields["phase"], &record.phase) != nil {
+			return liveEventRecord{}, false
+		}
+		var summary struct{ Total, Success, Skipped, Failed int }
+		if json.Unmarshal(raw, &summary) != nil || summary.Total < 0 || summary.Success < 0 || summary.Skipped < 0 || summary.Failed < 0 || summary.Total != summary.Success+summary.Skipped+summary.Failed {
+			return liveEventRecord{}, false
+		}
+	case "progress":
+		if !liveExactKeySet(fields, append(base, "phase", "stage")...) || liveString(fields["phase"], &record.phase) != nil || liveString(fields["stage"], new(string)) != nil {
+			return liveEventRecord{}, false
+		}
+	case "item":
+		if !liveEventKeys(fields, append(base, "id", "driver", "status", "reason"), append(base, "id", "driver", "name", "status", "reason", "message", "rebootRequired")) || liveString(fields["id"], new(string)) != nil || liveString(fields["driver"], new(string)) != nil || liveString(fields["status"], new(string)) != nil || liveOptionalMapString(fields, "reason", new(string)) != nil {
+			return liveEventRecord{}, false
+		}
+	case "artifact":
+		if !liveExactKeySet(fields, append(base, "phase", "kind", "path")...) || liveString(fields["phase"], &record.phase) != nil || liveString(fields["kind"], new(string)) != nil || liveOptionalString(fields["path"], new(string)) != nil {
+			return liveEventRecord{}, false
+		}
+	case "error":
+		if !liveEventKeys(fields, append(base, "scope", "message"), append(base, "scope", "message", "id")) || liveString(fields["scope"], new(string)) != nil || liveOptionalString(fields["message"], new(string)) != nil {
+			return liveEventRecord{}, false
+		}
+	case "config-resolution":
+		if !liveEventKeys(fields, append(base, "captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "label", "message", "remediation"), append(base, "captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation")) {
+			return liveEventRecord{}, false
+		}
+	case "config-migration":
+		if !liveEventKeys(fields, append(base, "captureId", "configSetId", "stage", "status", "reason", "message", "remediation"), append(base, "captureId", "configSetId", "stage", "fromGeneration", "toGeneration", "status", "reason", "message", "remediation")) {
+			return liveEventRecord{}, false
+		}
+	case "restore-item":
+		if !liveEventKeys(fields, append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message"), append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration")) {
+			return liveEventRecord{}, false
+		}
+	default:
+		return liveEventRecord{}, false
+	}
+	return record, true
+}
+
+func liveEventKeys(fields map[string]json.RawMessage, required, allowed []string) bool {
+	if len(fields) < len(required) {
 		return false
 	}
-	for key := range fields {
-		found := false
-		for _, candidate := range values {
-			if key == candidate {
-				found = true
-				break
-			}
+	permitted := make(map[string]struct{}, len(allowed))
+	for _, key := range allowed {
+		permitted[key] = struct{}{}
+	}
+	for _, key := range required {
+		if _, ok := fields[key]; !ok {
+			return false
 		}
-		if !found {
+	}
+	for key := range fields {
+		if _, ok := permitted[key]; !ok {
 			return false
 		}
 	}
 	return true
+}
+
+func liveEventTopology(records []liveEventRecord, command, envelopeRunID string) bool {
+	if len(records) == 0 {
+		return false
+	}
+	segments := make([][]liveEventRecord, 0, 2)
+	for _, record := range records {
+		if len(segments) == 0 || segments[len(segments)-1][0].runID != record.runID {
+			segments = append(segments, []liveEventRecord{record})
+		} else {
+			segments[len(segments)-1] = append(segments[len(segments)-1], record)
+		}
+	}
+	expected := map[string][][]string{"apply": {{"plan", "apply", "verify"}}, "verify": {{"verify"}}, "capture": {{"capture"}}, "revert": {{"restore"}}, "rebuild": {{"plan", "apply", "restore", "verify"}, {"verify"}}}[command]
+	if len(expected) == 0 || len(segments) != len(expected) {
+		return false
+	}
+	for index, segment := range segments {
+		if command == "rebuild" {
+			if segment[0].runID == envelopeRunID || (index == 0 && !strings.HasPrefix(segment[0].runID, "apply-")) || (index == 1 && !strings.HasPrefix(segment[0].runID, "verify-")) {
+				return false
+			}
+		} else if segment[0].runID != envelopeRunID {
+			return false
+		}
+		if !liveEventSegment(segment, expected[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func liveEventSegment(records []liveEventRecord, phases []string) bool {
+	phaseIndex, open := 0, ""
+	for _, record := range records {
+		switch record.event {
+		case "phase":
+			if open != "" || phaseIndex >= len(phases) || record.phase != phases[phaseIndex] {
+				return false
+			}
+			open = record.phase
+		case "summary":
+			if open == "" || record.phase != open {
+				return false
+			}
+			open = ""
+			phaseIndex++
+		default:
+			if open == "" || (record.phase != "" && record.phase != open) {
+				return false
+			}
+		}
+	}
+	return open == "" && phaseIndex == len(phases)
 }
 
 func validateLiveApplyData(raw json.RawMessage, definition LiveDefinition, converged, includePruned bool) *Failure {
