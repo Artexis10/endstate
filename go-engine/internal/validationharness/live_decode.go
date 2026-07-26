@@ -9,10 +9,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
+	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/planner"
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
 
 const (
@@ -71,12 +75,15 @@ type liveEnvelope struct {
 // structs are decoded immediately afterwards; this private wrapper is not a
 // second public result schema.
 type liveRebuildWire struct {
-	From    string          `json:"from"`
-	Bundle  json.RawMessage `json:"bundle"`
-	DryRun  bool            `json:"dryRun"`
-	Restore string          `json:"restore"`
-	Apply   json.RawMessage `json:"apply"`
-	Verify  json.RawMessage `json:"verify"`
+	From                    string                          `json:"from"`
+	Bundle                  json.RawMessage                 `json:"bundle"`
+	DryRun                  bool                            `json:"dryRun"`
+	Restore                 string                          `json:"restore"`
+	Apply                   json.RawMessage                 `json:"apply"`
+	Verify                  json.RawMessage                 `json:"verify"`
+	ConfigResolutions       []planner.ConfigResolution      `json:"configResolutions"`
+	ConfigResolutionSummary planner.ConfigResolutionSummary `json:"configResolutionSummary"`
+	RestoreItems            []restore.RestoreResult         `json:"restoreItems"`
 }
 
 func decodeLiveJourney(definition LiveDefinition, inputs liveJourneyOutputs) (liveJourneyProjection, *Failure) {
@@ -298,6 +305,12 @@ func validateLiveRebuild(output liveCommandOutput, definition LiveDefinition, ex
 	if json.Unmarshal(envelope.Data, &wire) != nil || json.Unmarshal(wire.Apply, &officialApply) != nil || json.Unmarshal(wire.Verify, &officialVerify) != nil {
 		return liveDecodeFailure("rebuild", "data")
 	}
+	nested, err := liveObjectAllowed(wire.Apply, []string{"dryRun", "manifest", "summary", "actions", "configResolutions", "configResolutionSummary", "restoreItems"}, []string{"dryRun", "manifest", "summary", "actions", "configModuleMap", "packageModuleMap", "warnings", "restoreModulesAvailable", "pruned", "configResolutions", "configResolutionSummary", "restoreItems"})
+	if err != nil || officialApply.ConfigResultFields == nil || !reflect.DeepEqual(commands.ConfigResultFields{
+		ConfigResolutions: wire.ConfigResolutions, ConfigResolutionSummary: wire.ConfigResolutionSummary, RestoreItems: wire.RestoreItems,
+	}, *officialApply.ConfigResultFields) {
+		return liveDecodeFailure("rebuild", "config")
+	}
 	var dryRun bool
 	var restore string
 	if json.Unmarshal(data["dryRun"], &dryRun) != nil || dryRun || liveString(data["restore"], &restore) != nil || restore != "enabled" {
@@ -306,50 +319,8 @@ func validateLiveRebuild(output liveCommandOutput, definition LiveDefinition, ex
 	if failure := validateLiveApplyData(data["apply"], definition, !requireInstall, false); failure != nil {
 		return failure
 	}
-	if _, err := liveObject(data["configResolutionSummary"], "total", "direct", "migrate", "incompatible", "unknown", "legacyUnverified", "selected", "skipped", "failed"); err != nil {
+	if !validateLiveConfigFields(data, definition, expected, converged) || !validateLiveConfigFields(nested, definition, expected, converged) {
 		return liveDecodeFailure("rebuild", "config")
-	}
-	var summary struct{ Total, Direct, Migrate, Incompatible, Unknown, LegacyUnverified, Selected, Skipped, Failed int }
-	if json.Unmarshal(data["configResolutionSummary"], &summary) != nil || summary.Total != 1 || summary.Direct != 0 || summary.Migrate != 0 || summary.Incompatible != 0 || summary.Unknown != 0 || summary.LegacyUnverified != 1 || summary.Failed != 0 ||
-		(!converged && (summary.Selected != 1 || summary.Skipped != 0)) || (converged && (summary.Selected != 0 || summary.Skipped != 1)) {
-		return liveDecodeFailure("rebuild", "config")
-	}
-	resolutions, err := liveArray(data["configResolutions"])
-	if err != nil || len(resolutions) != 1 {
-		return liveDecodeFailure("rebuild", "config")
-	}
-	resolution, err := liveObjectAllowed(resolutions[0], []string{"status", "resolution", "reason"}, []string{"captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation", "status"})
-	if err != nil {
-		return liveDecodeFailure("rebuild", "config")
-	}
-	var status, kind string
-	if liveString(resolution["status"], &status) != nil || liveString(resolution["resolution"], &kind) != nil || kind != "legacy_unverified" ||
-		(!converged && (status != "restored" || !liveNull(resolution["reason"]))) || (converged && (status != "skipped" || !liveStringEquals(resolution["reason"], "already_up_to_date"))) {
-		return liveDecodeFailure("rebuild", "config")
-	}
-	items, err := liveArray(data["restoreItems"])
-	if err != nil || len(items) != len(expected) {
-		return liveDecodeFailure("rebuild", "restoreItems")
-	}
-	seen := make(map[string]struct{}, len(items))
-	for _, raw := range items {
-		item, err := liveObjectAllowed(raw, []string{"source", "target", "status", "backupCreated", "targetExistedBefore", "restoreType"}, []string{"source", "target", "status", "backupPath", "backupCreated", "targetExistedBefore", "restoreType", "warnings", "message", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"})
-		if err != nil {
-			return liveDecodeFailure("rebuild", "restoreItems")
-		}
-		var source, target, itemStatus, restoreType string
-		var backup, existed bool
-		if liveString(item["source"], &source) != nil || liveString(item["target"], &target) != nil || liveString(item["status"], &itemStatus) != nil || liveString(item["restoreType"], &restoreType) != nil || json.Unmarshal(item["backupCreated"], &backup) != nil || json.Unmarshal(item["targetExistedBefore"], &existed) != nil || restoreType != "copy" || !existed || !liveExpectedTarget(definition.Comparator.Mappings, source, target) ||
-			(!converged && (itemStatus != "restored" || !backup)) || (converged && (itemStatus != "skipped_up_to_date" || backup)) {
-			return liveDecodeFailure("rebuild", "restoreItems")
-		}
-		if _, duplicate := seen[source]; duplicate {
-			return liveDecodeFailure("rebuild", "restoreItems")
-		}
-		seen[source] = struct{}{}
-	}
-	if !liveSameStringSet(seen, expected) {
-		return liveDecodeFailure("rebuild", "restoreItems")
 	}
 	if failure := validateLiveVerifyData(data["verify"], definition, len(expected)); failure != nil {
 		return failure
@@ -400,6 +371,55 @@ func validateLiveRevert(output liveCommandOutput, definition LiveDefinition, exp
 		return liveDecodeFailure(phase, "results")
 	}
 	return nil
+}
+
+func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDefinition, expected map[string]struct{}, converged bool) bool {
+	if _, err := liveObject(data["configResolutionSummary"], "total", "direct", "migrate", "incompatible", "unknown", "legacyUnverified", "selected", "skipped", "failed"); err != nil {
+		return false
+	}
+	var summary planner.ConfigResolutionSummary
+	if json.Unmarshal(data["configResolutionSummary"], &summary) != nil || summary.Total != 1 || summary.Direct != 0 || summary.Migrate != 0 || summary.Incompatible != 0 || summary.Unknown != 0 || summary.LegacyUnverified != 1 || summary.Failed != 0 ||
+		(!converged && (summary.Selected != 1 || summary.Skipped != 0)) || (converged && (summary.Selected != 0 || summary.Skipped != 1)) {
+		return false
+	}
+	resolutions, err := liveArray(data["configResolutions"])
+	if err != nil || len(resolutions) != 1 {
+		return false
+	}
+	resolution, err := liveObjectAllowed(resolutions[0], []string{"captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "resolvedTargets", "status", "label", "message", "remediation"}, []string{"captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "resolvedTargets", "label", "message", "remediation", "status"})
+	if err != nil {
+		return false
+	}
+	var moduleID, status, kind string
+	if liveString(resolution["moduleId"], &moduleID) != nil || liveString(resolution["status"], &status) != nil || liveString(resolution["resolution"], &kind) != nil || moduleID != definition.ModuleID || kind != "legacy_unverified" || !liveExactStringSet(resolution["resolvedTargets"], liveExpectedTargets(definition.Comparator.Mappings)) ||
+		(!converged && (status != "restored" || !liveNull(resolution["reason"]))) || (converged && (status != "skipped" || !liveStringEquals(resolution["reason"], "already_up_to_date"))) {
+		return false
+	}
+	items, err := liveArray(data["restoreItems"])
+	if err != nil || len(items) != len(expected) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(items))
+	for _, raw := range items {
+		item, err := liveObjectAllowed(raw, []string{"id", "source", "target", "status", "backupCreated", "targetExistedBefore"}, []string{"id", "source", "target", "status", "backupPath", "backupCreated", "targetExistedBefore", "restoreType", "warnings", "error", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"})
+		if err != nil {
+			return false
+		}
+		var id, source, target, itemStatus, restoreType string
+		var backup, existed bool
+		if liveString(item["id"], &id) != nil || liveString(item["source"], &source) != nil || liveString(item["target"], &target) != nil || liveString(item["status"], &itemStatus) != nil || json.Unmarshal(item["backupCreated"], &backup) != nil || json.Unmarshal(item["targetExistedBefore"], &existed) != nil || id == "" || !existed || !liveExpectedTarget(definition.Comparator.Mappings, source, target) ||
+			(!converged && (itemStatus != "restored" || !backup)) || (converged && (itemStatus != "skipped_up_to_date" || backup)) {
+			return false
+		}
+		if rawType, ok := item["restoreType"]; ok && (liveString(rawType, &restoreType) != nil || restoreType != "copy") {
+			return false
+		}
+		if _, duplicate := seen[source]; duplicate {
+			return false
+		}
+		seen[source] = struct{}{}
+	}
+	return liveSameStringSet(seen, expected)
 }
 
 func decodeLiveEnvelope(stdout []byte, command string) (liveEnvelope, *Failure) {
@@ -472,6 +492,10 @@ func decodeLiveEvent(raw []byte) (liveEventRecord, bool) {
 		if !liveExactKeySet(fields, append(base, "phase")...) || liveString(fields["phase"], &record.phase) != nil {
 			return liveEventRecord{}, false
 		}
+		var official events.PhaseEvent
+		if json.Unmarshal(raw, &official) != nil {
+			return liveEventRecord{}, false
+		}
 	case "summary":
 		if !liveExactKeySet(fields, append(base, "phase", "total", "success", "skipped", "failed")...) || liveString(fields["phase"], &record.phase) != nil {
 			return liveEventRecord{}, false
@@ -480,38 +504,83 @@ func decodeLiveEvent(raw []byte) (liveEventRecord, bool) {
 		if json.Unmarshal(raw, &summary) != nil || summary.Total < 0 || summary.Success < 0 || summary.Skipped < 0 || summary.Failed < 0 || summary.Total != summary.Success+summary.Skipped+summary.Failed {
 			return liveEventRecord{}, false
 		}
+		var official events.SummaryEvent
+		if json.Unmarshal(raw, &official) != nil {
+			return liveEventRecord{}, false
+		}
 	case "progress":
 		if !liveExactKeySet(fields, append(base, "phase", "stage")...) || liveString(fields["phase"], &record.phase) != nil || liveString(fields["stage"], new(string)) != nil {
+			return liveEventRecord{}, false
+		}
+		var official events.ProgressEvent
+		if json.Unmarshal(raw, &official) != nil {
 			return liveEventRecord{}, false
 		}
 	case "item":
 		if !liveEventKeys(fields, append(base, "id", "driver", "status", "reason"), append(base, "id", "driver", "name", "status", "reason", "message", "rebootRequired")) || liveString(fields["id"], new(string)) != nil || liveString(fields["driver"], new(string)) != nil || liveString(fields["status"], new(string)) != nil || liveOptionalMapString(fields, "reason", new(string)) != nil {
 			return liveEventRecord{}, false
 		}
+		var official events.ItemEvent
+		if json.Unmarshal(raw, &official) != nil {
+			return liveEventRecord{}, false
+		}
 	case "artifact":
 		if !liveExactKeySet(fields, append(base, "phase", "kind", "path")...) || liveString(fields["phase"], &record.phase) != nil || liveString(fields["kind"], new(string)) != nil || liveOptionalString(fields["path"], new(string)) != nil {
+			return liveEventRecord{}, false
+		}
+		var official events.ArtifactEvent
+		if json.Unmarshal(raw, &official) != nil {
 			return liveEventRecord{}, false
 		}
 	case "error":
 		if !liveEventKeys(fields, append(base, "scope", "message"), append(base, "scope", "message", "id")) || liveString(fields["scope"], new(string)) != nil || liveOptionalString(fields["message"], new(string)) != nil {
 			return liveEventRecord{}, false
 		}
+		var official events.ErrorEvent
+		if json.Unmarshal(raw, &official) != nil {
+			return liveEventRecord{}, false
+		}
 	case "config-resolution":
 		if !liveEventKeys(fields, append(base, "captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "label", "message", "remediation"), append(base, "captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation")) {
+			return liveEventRecord{}, false
+		}
+		var official events.ConfigResolutionEvent
+		if json.Unmarshal(raw, &official) != nil || !liveResolutionValue(official.Resolution) {
 			return liveEventRecord{}, false
 		}
 	case "config-migration":
 		if !liveEventKeys(fields, append(base, "captureId", "configSetId", "stage", "status", "reason", "message", "remediation"), append(base, "captureId", "configSetId", "stage", "fromGeneration", "toGeneration", "status", "reason", "message", "remediation")) {
 			return liveEventRecord{}, false
 		}
+		var official events.ConfigMigrationEvent
+		if json.Unmarshal(raw, &official) != nil || !liveMigrationStage(official.Stage) || !liveMigrationStatus(official.Status) {
+			return liveEventRecord{}, false
+		}
 	case "restore-item":
 		if !liveEventKeys(fields, append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message"), append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration")) {
+			return liveEventRecord{}, false
+		}
+		var official events.RestoreItemEvent
+		if json.Unmarshal(raw, &official) != nil || !liveRestoreItemStatus(official.Status) {
 			return liveEventRecord{}, false
 		}
 	default:
 		return liveEventRecord{}, false
 	}
 	return record, true
+}
+
+func liveResolutionValue(value planner.Resolution) bool {
+	return value == planner.ResolutionDirect || value == planner.ResolutionMigrate || value == planner.ResolutionIncompatible || value == planner.ResolutionUnknown || value == planner.ResolutionLegacyUnverified
+}
+func liveMigrationStage(value events.ConfigMigrationStage) bool {
+	return value == events.ConfigMigrationStaging || value == events.ConfigMigrationEdge || value == events.ConfigMigrationValidation || value == events.ConfigMigrationCommit || value == events.ConfigMigrationRollback
+}
+func liveMigrationStatus(value events.ConfigProgressStatus) bool {
+	return value == events.ConfigProgressStarted || value == events.ConfigProgressCompleted || value == events.ConfigProgressFailed
+}
+func liveRestoreItemStatus(value events.RestoreItemStatus) bool {
+	return value == events.RestoreItemRestoring || value == events.RestoreItemRestored || value == events.RestoreItemSkippedUpToDate || value == events.RestoreItemSkippedMissingSource || value == events.RestoreItemFailed
 }
 
 func liveEventKeys(fields map[string]json.RawMessage, required, allowed []string) bool {
@@ -556,7 +625,7 @@ func liveEventTopology(records []liveEventRecord, command, envelopeRunID string)
 			if segment[0].runID == envelopeRunID || (index == 0 && !strings.HasPrefix(segment[0].runID, "apply-")) || (index == 1 && !strings.HasPrefix(segment[0].runID, "verify-")) {
 				return false
 			}
-		} else if segment[0].runID != envelopeRunID {
+		} else if !strings.HasPrefix(segment[0].runID, command+"-") {
 			return false
 		}
 		if !liveEventSegment(segment, expected[index]) {
@@ -642,6 +711,13 @@ func liveExpectedMappings(mappings []ComparatorMapping) (map[string]struct{}, bo
 		values[mapping.Identity] = struct{}{}
 	}
 	return values, true
+}
+func liveExpectedTargets(mappings []ComparatorMapping) map[string]struct{} {
+	values := make(map[string]struct{}, len(mappings))
+	for _, mapping := range mappings {
+		values[mapping.RestoreTemplate] = struct{}{}
+	}
+	return values
 }
 func liveExpectedTarget(mappings []ComparatorMapping, source, target string) bool {
 	for _, mapping := range mappings {
