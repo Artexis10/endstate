@@ -169,6 +169,25 @@ func TestPreflightValidationProductionModuleAcceptsCaptureOnlyProvenanceWithoutV
 	}
 }
 
+func TestPreflightValidationProductionModuleAcceptsRelativeSecretGlobWithoutHostAuthority(t *testing.T) {
+	mod := syntheticValidationModule(t, 1)
+	mod.Secrets.Files = []string{`**\EBWebView\**`}
+	mod = repinValidationModule(t, mod)
+	mf := manifestForValidationModule(mod)
+	context, session := validationPreflightSession(t)
+	if err := preflightValidationProductionModule(validationProductionModulePreflight{
+		Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod},
+		Manifest: mf, PortableRoot: context.Root(),
+	}); err != nil {
+		t.Fatalf("relative secret glob preflight: %v; isolation=%v", err, session.IsolationError())
+	}
+	for _, coordinate := range session.filesystemCoordinate {
+		if strings.HasPrefix(coordinate, "secrets.files[") {
+			t.Fatalf("relative match-only secret glob registered host authority at %s", coordinate)
+		}
+	}
+}
+
 func TestPreflightValidationProductionModuleRejectsFabricatedCaptureOnlyProvenanceForCapturelessModule(t *testing.T) {
 	mod := loadValidationProductionModule(t, "kubectl")
 	mf := manifestForValidationModule(mod)

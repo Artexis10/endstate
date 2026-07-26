@@ -611,6 +611,11 @@ func walkValidationModuleDeclarations(context *validationmode.Context, session *
 	}
 	if mod.Secrets != nil {
 		for index, authored := range mod.Secrets.Files {
+			if bundle.IsSafeRelativeCaptureSecretPattern(authored) {
+				// A relative secret glob only filters content below capture sources
+				// that are separately authorized. It is not a host path authority.
+				continue
+			}
 			if err := preflightHostPath(context, session, fmt.Sprintf("secrets.files[%d]", index), authored, validationmode.HostPathPolicy{}); err != nil {
 				return err
 			}

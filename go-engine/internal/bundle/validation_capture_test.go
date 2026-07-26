@@ -199,6 +199,49 @@ func TestValidationSecretsUseTheSameSandboxBoundary(t *testing.T) {
 	}
 }
 
+func TestValidationSecretsAllowSafeRelativeContentGlobs(t *testing.T) {
+	context := activeBundleValidationContext(t, "apps.example")
+	appData, _ := context.VirtualRoot("APPDATA")
+	writeCaptureFile(t, filepath.Join(appData, "Vendor", "settings.json"), []byte("settings"))
+	writeCaptureFile(t, filepath.Join(appData, "Vendor", "nested", "EBWebView", "token.json"), []byte("secret"))
+	mod := &modules.Module{
+		ID:      "apps.example",
+		Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{Source: `%APPDATA%\Vendor`, Dest: "apps/example/Vendor"}}},
+		Secrets: &modules.SecretsDef{Files: []string{`**\EBWebView\**`}},
+	}
+	staging := bundleValidationWorkRoot(t, context, "relative-secrets")
+	_, excluded, err := CollectConfigFilesWithValidation(mod, staging, context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if excluded != 1 {
+		t.Fatalf("secrets excluded = %d, want 1", excluded)
+	}
+	if data, err := os.ReadFile(filepath.Join(staging, "configs", "example", "Vendor", "settings.json")); err != nil || string(data) != "settings" {
+		t.Fatalf("settings payload = %q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(staging, "configs", "example", "Vendor", "nested", "EBWebView")); !os.IsNotExist(err) {
+		t.Fatalf("relative secret directory was published: %v", err)
+	}
+}
+
+func TestSafeRelativeCaptureSecretPattern(t *testing.T) {
+	for _, pattern := range []string{`**\EBWebView\**`, `*.token`, `nested\secret-?.json`, `profiles\[ab]*.key`} {
+		if !IsSafeRelativeCaptureSecretPattern(pattern) {
+			t.Errorf("safe relative secret pattern %q was rejected", pattern)
+		}
+	}
+	for _, pattern := range []string{
+		``, ` `, "secret\x00*", `secret.txt`, `relative\host`, `C:host*.key`, `C:\host\*.key`, `D:/host/*.key`,
+		`\\server\share\*.key`, `/root/*.key`, `..\*.key`, `nested\..\*.key`, `.\*.key`,
+		`%APPDATA%\Vendor\*.key`, `$HOME/*.key`, `~\*.key`, `nested\secret-[.json`,
+	} {
+		if IsSafeRelativeCaptureSecretPattern(pattern) {
+			t.Errorf("unsafe relative secret pattern %q was accepted", pattern)
+		}
+	}
+}
+
 func TestValidationCollectorRejectsReparseEscapeBeforeStaging(t *testing.T) {
 	outside := t.TempDir()
 	writeCaptureFile(t, filepath.Join(outside, "settings.json"), []byte("outside"))

@@ -74,6 +74,13 @@ func resolveCaptureSecretPatterns(context *validationmode.Context, moduleID stri
 	}
 	resolved := make([]string, 0, len(patterns))
 	for index, authored := range patterns {
+		if IsSafeRelativeCaptureSecretPattern(authored) {
+			// Relative secret globs are match-only filters evaluated against each
+			// already-authorized capture source. They grant no filesystem authority
+			// and therefore must not be expanded into a host path.
+			resolved = append(resolved, authored)
+			continue
+		}
 		pattern, err := context.ResolveHostPattern(authored, policy)
 		if err != nil {
 			return nil, captureIsolation(moduleID, fmt.Sprintf("secrets.files[%d]", index), "path", authored, err)
@@ -81,4 +88,26 @@ func resolveCaptureSecretPatterns(context *validationmode.Context, moduleID stri
 		resolved = append(resolved, pattern)
 	}
 	return resolved, nil
+}
+
+// IsSafeRelativeCaptureSecretPattern reports whether authored is a portable,
+// match-only secret glob. These patterns can narrow content beneath an already
+// authorized capture source, but can never name or authorize a host location.
+func IsSafeRelativeCaptureSecretPattern(authored string) bool {
+	if authored == "" || authored != strings.TrimSpace(authored) || strings.ContainsRune(authored, '\x00') {
+		return false
+	}
+	normalized := strings.ReplaceAll(authored, `\`, "/")
+	if strings.HasPrefix(normalized, "/") || strings.ContainsAny(normalized, `%$~:`) || !strings.ContainsAny(normalized, "*?[") {
+		return false
+	}
+	for _, component := range strings.Split(normalized, "/") {
+		if component == "" || component == "." || component == ".." {
+			return false
+		}
+		if _, err := filepath.Match(component, "probe"); err != nil {
+			return false
+		}
+	}
+	return true
 }
