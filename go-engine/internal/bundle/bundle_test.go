@@ -741,6 +741,33 @@ func TestMatchesExcludeGlobs(t *testing.T) {
 	}
 }
 
+func TestConfigPathMatchesExcludeGlobMatchesWildcardDirectorySegments(t *testing.T) {
+	matched, err := ConfigPathMatchesExcludeGlob("profiles/CrashReports/report.dmp", "**/Crash*/**")
+	if err != nil || !matched {
+		t.Fatalf("CrashReports wildcard directory match = %t, %v; want true, nil", matched, err)
+	}
+	matched, err = ConfigPathMatchesExcludeGlob("profiles/CrashReports", "**/Crash*/**")
+	if err != nil || !matched {
+		t.Fatalf("CrashReports directory node match = %t, %v; want true, nil", matched, err)
+	}
+	matched, err = ConfigPathMatchesExcludeGlob("profiles/cache/CrashReports/report.dmp", "**/cache/Crash*/**")
+	if err != nil || !matched {
+		t.Fatalf("multi-component wildcard directory match = %t, %v; want true, nil", matched, err)
+	}
+
+	matched, err = ConfigPathMatchesExcludeGlob("profiles/Crash/Reports/report.dmp", "**/Crash*Reports/**")
+	if err != nil || matched {
+		t.Fatalf("wildcard directory crossing separator = %t, %v; want false, nil", matched, err)
+	}
+	if _, err := ConfigPathMatchesExcludeGlob("profiles", "**/cache/Crash[/**"); err == nil {
+		t.Fatal("malformed directory component was accepted without scanning a candidate")
+	}
+	matched, err = ConfigPathMatchesExcludeGlob("", "*/**")
+	if err != nil || matched {
+		t.Fatalf("empty candidate directory match = %t, %v; want false, nil", matched, err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ExtractBundle - error cases
 // ---------------------------------------------------------------------------

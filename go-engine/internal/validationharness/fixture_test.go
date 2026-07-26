@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
@@ -125,6 +126,65 @@ func TestFixturePlanRejectsUnwitnessableExcludeGlob(t *testing.T) {
 	definitions.Entries[1].TargetExclude = []string{"**/profile-??.tmp"}
 	if _, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); failure == nil || failure.Code != CodeUnsupportedFixture {
 		t.Fatalf("unwitnessable exclude failure = %+v", failure)
+	}
+}
+
+func TestFixturePlanWitnessesWildcardDirectoryExcludeWithProductionMatcher(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	definitions.Entries[1].TargetExclude = []string{"**/Crash*/**"}
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	witnesses := plan.Targets[1].RestoreExcluded
+	if len(witnesses) != 1 {
+		t.Fatalf("wildcard directory witnesses = %+v, want exactly one", witnesses)
+	}
+	if got, want := witnesses[0].Relative, "Crashfixture/"+fixturePayloadName; got != want {
+		t.Fatalf("wildcard directory witness = %q, want %q", got, want)
+	}
+	matched, err := bundle.ConfigPathMatchesExcludeGlob(witnesses[0].Relative, "**/Crash*/**")
+	if err != nil || !matched {
+		t.Fatalf("production matcher witness = %t, %v; want true, nil", matched, err)
+	}
+}
+
+func TestFixturePlanWitnessesWildcardGlobalDirectoryExcludeWithProductionMatcher(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	for index := range definitions.Entries {
+		definitions.Entries[index].GlobalExclude = []string{"**/Crash*/**"}
+	}
+	first, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	second, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	for _, plan := range []*FixturePlan{first, second} {
+		witnesses := plan.Targets[1].CaptureExcluded
+		if len(witnesses) != 1 {
+			t.Fatalf("wildcard global directory witnesses = %+v, want exactly one", witnesses)
+		}
+		if got, want := witnesses[0].Relative, "Crashfixture/"+fixturePayloadName; got != want {
+			t.Fatalf("wildcard global directory witness = %q, want %q", got, want)
+		}
+		matched, err := bundle.ConfigPathMatchesExcludeGlob(witnesses[0].Relative, "**/Crash*/**")
+		if err != nil || !matched {
+			t.Fatalf("production matcher global witness = %t, %v; want true, nil", matched, err)
+		}
+	}
+	if first.Targets[1].CaptureExcluded[0].Relative != second.Targets[1].CaptureExcluded[0].Relative {
+		t.Fatal("wildcard global directory witness is not deterministic")
 	}
 }
 

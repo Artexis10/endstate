@@ -457,12 +457,38 @@ func ConfigPathMatchesExcludeGlob(value, glob string) (bool, error) {
 	pattern := filepath.ToSlash(glob)
 	stripped := strings.TrimPrefix(pattern, "**/")
 	if strings.HasSuffix(stripped, "/**") {
-		dirName := strings.TrimSuffix(stripped, "/**")
-		if dirName == "" {
+		directoryPattern := strings.Trim(strings.TrimSuffix(stripped, "/**"), "/")
+		if directoryPattern == "" {
 			return false, fmt.Errorf("exclude glob %q has no directory segment", glob)
 		}
-		boundedPath := "/" + strings.Trim(normalizedPath, "/") + "/"
-		return strings.Contains(boundedPath, "/"+dirName+"/"), nil
+		directorySegments := strings.Split(directoryPattern, "/")
+		for _, segment := range directorySegments {
+			if _, err := filepath.Match(segment, ""); err != nil {
+				return false, err
+			}
+		}
+		trimmedPath := strings.Trim(normalizedPath, "/")
+		if trimmedPath == "" {
+			return false, nil
+		}
+		pathSegments := strings.Split(trimmedPath, "/")
+		for start := 0; start+len(directorySegments) <= len(pathSegments); start++ {
+			allMatched := true
+			for index, segment := range directorySegments {
+				matched, err := filepath.Match(segment, pathSegments[start+index])
+				if err != nil {
+					return false, err
+				}
+				if !matched {
+					allMatched = false
+					break
+				}
+			}
+			if allMatched {
+				return true, nil
+			}
+		}
+		return false, nil
 	}
 	for _, segment := range strings.Split(normalizedPath, "/") {
 		matched, err := filepath.Match(stripped, segment)

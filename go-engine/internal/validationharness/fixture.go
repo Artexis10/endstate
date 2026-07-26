@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
@@ -159,8 +160,17 @@ func excludedFixtureRelatives(patterns []string) ([]string, bool) {
 		var relative string
 		if strings.HasSuffix(stripped, "/**") {
 			directory := strings.Trim(strings.TrimSuffix(stripped, "/**"), "/")
-			if directory != "" && !strings.ContainsAny(directory, "*?[") {
-				relative = directory + "/" + fixturePayloadName
+			if directory != "" {
+				components := strings.Split(directory, "/")
+				witness := make([]string, 0, len(components)+1)
+				for _, component := range components {
+					if component == "" || component == "." || component == ".." || strings.Contains(component, "**") || strings.ContainsAny(component, "?[") {
+						return nil, false
+					}
+					witness = append(witness, strings.ReplaceAll(component, "*", "fixture"))
+				}
+				witness = append(witness, fixturePayloadName)
+				relative = strings.Join(witness, "/")
 			}
 		} else if !strings.Contains(stripped, "/") {
 			switch {
@@ -171,6 +181,10 @@ func excludedFixtureRelatives(patterns []string) ([]string, bool) {
 			}
 		}
 		if relative == "" {
+			return nil, false
+		}
+		matched, err := bundle.ConfigPathMatchesExcludeGlob(relative, raw)
+		if err != nil || !matched {
 			return nil, false
 		}
 		key := strings.ToLower(relative)
