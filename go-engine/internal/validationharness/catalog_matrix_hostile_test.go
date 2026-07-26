@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,72 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/catalogplan"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
+
+type catalogMatrixHelperContract struct {
+	Action      catalogplan.Action `json:"action"`
+	ExitNonzero bool               `json:"exitNonzero"`
+}
+
+func TestMain(m *testing.M) {
+	if len(os.Args) > 1 && os.Args[1] == "catalog-plan" {
+		runCatalogMatrixHelperProcess()
+	}
+	os.Exit(m.Run())
+}
+
+func runCatalogMatrixHelperProcess() {
+	bundle := ""
+	for index := 0; index+1 < len(os.Args); index++ {
+		if os.Args[index] == "--bundle" {
+			bundle = os.Args[index+1]
+			break
+		}
+	}
+	data, err := os.ReadFile(bundle)
+	if err != nil {
+		os.Exit(2)
+	}
+	contract := catalogMatrixHelperContract{}
+	if err := json.Unmarshal(data, &contract); err != nil {
+		os.Exit(2)
+	}
+	if contract.Action.ModuleID == "" {
+		contract.Action = catalogplan.Action{
+			ModuleID: "apps.work", ModuleRevision: "revision", ModuleSchemaVersion: 1,
+			ValidationHash: "validation", ValidationScenarioCount: 1, Status: "resolved",
+		}
+	}
+	identity, failure := expectedCatalogBundleIdentity(bundle)
+	if failure != nil {
+		os.Exit(2)
+	}
+	contract.Action.BundleID, contract.Action.BundleHash = identity.ID, identity.Hash
+	result := catalogplan.Result{
+		Proof: "catalog", Bundle: catalogplan.Bundle{ID: identity.ID, Name: identity.ID, Path: identity.Path, Hash: identity.Hash, Version: 1},
+		MembershipCount: 1, ActionCount: 1, Actions: []catalogplan.Action{contract.Action},
+	}
+	runID := "catalog-matrix-helper"
+	envelope := catalogEnvelope{SchemaVersion: "1.0", CLIVersion: "test", Command: "catalog-plan", RunID: runID, TimestampUTC: time.Now().UTC().Format(time.RFC3339), Success: true, Data: mustMarshalCatalogMatrixHelper(result), Error: json.RawMessage("null")}
+	if err := json.NewEncoder(os.Stdout).Encode(envelope); err != nil {
+		os.Exit(2)
+	}
+	timestamp := time.Now().UTC().Format(time.RFC3339Nano)
+	_, _ = fmt.Fprintf(os.Stderr, "{\"version\":1,\"runId\":%q,\"timestamp\":%q,\"event\":\"phase\",\"phase\":\"plan\"}\n", runID, timestamp)
+	_, _ = fmt.Fprintf(os.Stderr, "{\"version\":1,\"runId\":%q,\"timestamp\":%q,\"event\":\"item\",\"id\":%q,\"driver\":\"catalog\",\"status\":\"present\",\"reason\":\"detected\"}\n", runID, timestamp, contract.Action.ModuleID)
+	_, _ = fmt.Fprintf(os.Stderr, "{\"version\":1,\"runId\":%q,\"timestamp\":%q,\"event\":\"summary\",\"phase\":\"plan\",\"total\":1,\"success\":1,\"skipped\":0,\"failed\":0}\n", runID, timestamp)
+	if contract.ExitNonzero {
+		os.Exit(1)
+	}
+	os.Exit(0)
+}
+
+func mustMarshalCatalogMatrixHelper(value any) json.RawMessage {
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return data
+}
 
 func TestInvokeCatalogPlanProcessFailures(t *testing.T) {
 	repo := t.TempDir()
@@ -44,6 +112,25 @@ func TestInvokeCatalogPlanProcessFailures(t *testing.T) {
 				t.Fatalf("failure=%+v", failure)
 			}
 		})
+	}
+}
+
+func TestInvokeCatalogPlanRejectsSuccessEnvelopeFromNonzeroHelperProcess(t *testing.T) {
+	bundle := filepath.Join(t.TempDir(), "work.jsonc")
+	data, err := json.Marshal(catalogMatrixHelperContract{ExitNonzero: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bundle, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, failure := invokeCatalogPlanWithLimits(context.Background(), engine, t.TempDir(), bundle, time.Second, 16*1024, 16*1024)
+	if failure == nil || failure.Code != CodeExecutionFailure || failure.Coordinate != "exit" || result.Bundle.ID != "" || len(result.Actions) != 0 {
+		t.Fatalf("result=%+v failure=%+v", result, failure)
 	}
 }
 
@@ -153,12 +240,23 @@ func TestStripCatalogProofInvalidatesEveryRow(t *testing.T) {
 }
 
 func TestValidateCatalogResultPathRejectsRepositoryAndEngineTargets(t *testing.T) {
-	repo := t.TempDir()
-	engine := filepath.Join(t.TempDir(), "endstate.exe")
-	if failure := validateCatalogResultPath(filepath.Join(repo, "endstate-validation-results", "result.json"), repo, engine); failure == nil {
-		t.Fatal("repository result path passed")
+	resultDirectory := filepath.Join(os.TempDir(), "endstate-validation-results")
+	if err := os.MkdirAll(resultDirectory, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if failure := validateCatalogResultPath(engine, repo, engine); failure == nil {
-		t.Fatal("engine result path passed")
+	repo := filepath.Join(resultDirectory, "repository")
+	repositoryResultDirectory := filepath.Join(repo, "endstate-validation-results")
+	if err := os.MkdirAll(repositoryResultDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(resultDirectory, "endstate.exe")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateCatalogResultPath(filepath.Join(repositoryResultDirectory, "result.json"), repo, engine); failure == nil || failure.Code != CodeInvalidResultPath || failure.Coordinate != "repository" {
+		t.Fatalf("repository failure=%+v", failure)
+	}
+	if failure := validateCatalogResultPath(engine, repo, engine); failure == nil || failure.Code != CodeInvalidResultPath || failure.Coordinate != "engine" {
+		t.Fatalf("engine failure=%+v", failure)
 	}
 }
