@@ -109,6 +109,65 @@ func TestPreflightValidationProductionModuleAcceptsEstablishedCaptureProjection(
 	}
 }
 
+func TestPreflightValidationProductionModuleAcceptsReviewedCaptureOnlyProvenance(t *testing.T) {
+	mod := loadValidationProductionModule(t, "mgba")
+	valid := manifestForValidationModule(mod)
+	context, session := validationPreflightSessionFor(t, "mgba")
+	if err := preflightValidationProductionModule(validationProductionModulePreflight{
+		Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: valid, PortableRoot: context.Root(),
+	}); err != nil {
+		t.Fatalf("capture-only projection preflight: %v; isolation=%v", err, session.IsolationError())
+	}
+
+	for _, test := range []struct {
+		name, coordinate string
+		mutate           func(*manifest.Manifest)
+	}{
+		{"missing provenance", "configModules", func(value *manifest.Manifest) { value.ConfigModules = nil }},
+		{"foreign provenance", "configModules[0]", func(value *manifest.Manifest) { value.ConfigModules[0] = "apps.foreign" }},
+		{"duplicate provenance", "configModules[1]", func(value *manifest.Manifest) { value.ConfigModules = append(value.ConfigModules, mod.ID) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := *valid
+			candidate.ConfigModules = append([]string(nil), valid.ConfigModules...)
+			test.mutate(&candidate)
+			context, session := validationPreflightSessionFor(t, "mgba")
+			err := preflightValidationProductionModule(validationProductionModulePreflight{
+				Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: &candidate, PortableRoot: context.Root(),
+			})
+			if !errors.Is(err, validationmode.ErrUnsafePath) || session.IsolationError() == nil || !strings.Contains(session.IsolationError().Error(), "coordinate="+test.coordinate) {
+				t.Fatalf("error=%v isolation=%v, want coordinate %s", err, session.IsolationError(), test.coordinate)
+			}
+		})
+	}
+}
+
+func TestPreflightValidationProductionModuleAcceptsCaptureOnlyProvenanceWithoutVerifiers(t *testing.T) {
+	mod := syntheticValidationModule(t, 1)
+	mod.Restore = nil
+	mod.Verify = nil
+	mod = repinValidationModule(t, mod)
+	mf := &manifest.Manifest{Version: 1, ConfigModules: []string{mod.ID}}
+	context, session := validationPreflightSession(t)
+	if err := preflightValidationProductionModule(validationProductionModulePreflight{
+		Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: mf, PortableRoot: context.Root(),
+	}); err != nil {
+		t.Fatalf("verifier-free capture-only projection preflight: %v; isolation=%v", err, session.IsolationError())
+	}
+}
+
+func TestPreflightValidationProductionModuleRejectsFabricatedCaptureOnlyProvenanceForCapturelessModule(t *testing.T) {
+	mod := loadValidationProductionModule(t, "kubectl")
+	mf := manifestForValidationModule(mod)
+	context, session := validationPreflightSessionFor(t, "kubectl")
+	err := preflightValidationProductionModule(validationProductionModulePreflight{
+		Context: context, Session: session, Catalog: validationCatalog(mod), Modules: []*modules.Module{mod}, Manifest: mf, PortableRoot: context.Root(),
+	})
+	if !errors.Is(err, validationmode.ErrUnsafePath) || session.IsolationError() == nil || !strings.Contains(session.IsolationError().Error(), "coordinate=configModules") {
+		t.Fatalf("captureless fabricated provenance error=%v isolation=%v", err, session.IsolationError())
+	}
+}
+
 func TestPreflightValidationProductionModuleRejectsInvalidLegacyLaneProvenance(t *testing.T) {
 	mod := loadValidationProductionModule(t, "notepad-plus-plus")
 	valid := validationMixedLegacyManifest(mod)

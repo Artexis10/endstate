@@ -42,6 +42,11 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			guardTargets = append(guardTargets, guardFixtureTarget{target.Authored, target.Coordinate, target.Directory})
 		}
 	}
+	if runtime.CapturePlan != nil {
+		for _, target := range runtime.CapturePlan.Targets {
+			guardTargets = append(guardTargets, guardFixtureTarget{target.AuthoredSource, target.Coordinate, false})
+		}
+	}
 	for _, target := range guardTargets {
 		if strings.HasPrefix(strings.ToLower(target.authored), "${instance.root}") {
 			if runtime.V2Plan == nil || !strings.EqualFold(target.authored, "${instance.root}") {
@@ -377,6 +382,32 @@ func (executor *cliJourneyExecutor) Capture(ctx context.Context, runtime *scenar
 	}
 	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
 	return inspectCaptureArtifact(runtime, zipPath)
+}
+
+func (executor *cliJourneyExecutor) CaptureContract(ctx context.Context, runtime *scenarioRuntime) (captureContractEvidence, *Failure) {
+	manifestPath := filepath.Join(runtime.Root, "manifests", "captured.jsonc")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		return captureContractEvidence{}, fail(CodeIsolationFailure, "capture", "manifest", "create capture contract output parent")
+	}
+	output, failure := executor.run(ctx, "capture", "--out", manifestPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
+	if failure != nil {
+		return captureContractEvidence{}, failure
+	}
+	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
+	if failure := validateCaptureContractCommandEvidence(output.Envelope.Data, output.Events, runtime, filepath.Base(zipPath)); failure != nil {
+		return captureContractEvidence{}, failure
+	}
+	return inspectCaptureContractArtifact(runtime, zipPath)
+}
+
+func (executor *cliJourneyExecutor) CaptureContractOptionalAbsent(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	manifestPath := filepath.Join(runtime.Root, "manifests", "optional-absent.jsonc")
+	output, failure := executor.run(ctx, "capture", "--out", manifestPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID)
+	if failure != nil {
+		return failure
+	}
+	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
+	return validateCaptureContractOptionalAbsentOutcome(output.Envelope.Data, output.Events, runtime, zipPath)
 }
 
 func (executor *cliJourneyExecutor) CaptureV2(ctx context.Context, runtime *scenarioRuntime) (captureEvidence, *Failure) {

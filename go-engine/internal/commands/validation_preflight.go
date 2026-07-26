@@ -265,8 +265,9 @@ func validateValidationManifestContracts(session *ValidationModeSession, mod *mo
 	if err != nil {
 		return err
 	}
-	requiresLegacyModule := len(mf.Restore) > 0 || legacyLayout != ""
-	if requiresLegacyModule != seenModule {
+	captureOnlyProvenance := validationModuleDeclaresCaptureOnlyProvenance(mod)
+	requiresModuleProvenance := len(mf.Restore) > 0 || legacyLayout != "" || captureOnlyProvenance && len(mf.Verify) > 0
+	if requiresModuleProvenance && !seenModule || seenModule && !requiresModuleProvenance && !captureOnlyProvenance {
 		return validationPreflightFailure(session, "configModules", "module-provenance", isolationReasonUnsafePath)
 	}
 
@@ -293,6 +294,13 @@ func validateValidationManifestContracts(session *ValidationModeSession, mod *mo
 		return validationPreflightFailure(session, coordinate, "verify-contract", isolationReasonUnsafePath)
 	}
 	return validateValidationConfigCaptures(session, mod, mf, plans, portableRoot)
+}
+
+func validationModuleDeclaresCaptureOnlyProvenance(mod *modules.Module) bool {
+	if mod == nil || mod.EffectiveSchemaVersion() != 1 || mod.Capture == nil || len(mod.Restore) != 0 {
+		return false
+	}
+	return len(mod.Capture.Files)+len(mod.Capture.RegistryKeys)+len(mod.Capture.RegistryValues) > 0
 }
 
 func projectModuleRestores(mod *modules.Module, layoutID string, mixedV2 bool) []string {

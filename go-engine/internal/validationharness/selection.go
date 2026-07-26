@@ -23,6 +23,7 @@ type selection struct {
 	fixture     fixtureDefinitions
 	v2Fixture   v2CompiledFixture
 	installPlan *InstallContractPlan
+	capturePlan *CaptureContractPlan
 }
 
 func compileSelection(request Request, now time.Time) (*selection, *Failure) {
@@ -75,6 +76,12 @@ func compileSelection(request Request, now time.Time) (*selection, *Failure) {
 			return nil, failure
 		}
 		selected.installPlan = plan
+	case validationmatrix.ScenarioCaptureContract:
+		plan, failure := compileCaptureContract(mod, scenario)
+		if failure != nil {
+			return nil, failure
+		}
+		selected.capturePlan = plan
 	default:
 		return nil, fail(CodeUnsupportedFixture, "selection", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
@@ -94,7 +101,7 @@ func selectDeclaredScenario(catalog *validationmatrix.Catalog, mod *modules.Modu
 	if len(matches) != 1 {
 		return validationmatrix.Scenario{}, fail(CodeScenarioSelection, "selection", "scenario", "scenario selection must resolve exactly one declaration")
 	}
-	if matches[0].Mode != validationmatrix.ScenarioConfigRoundtripV1 && matches[0].Mode != validationmatrix.ScenarioConfigGenerationV2 && matches[0].Mode != validationmatrix.ScenarioConfigMigrationV2 && matches[0].Mode != validationmatrix.ScenarioInstallContract {
+	if matches[0].Mode != validationmatrix.ScenarioConfigRoundtripV1 && matches[0].Mode != validationmatrix.ScenarioConfigGenerationV2 && matches[0].Mode != validationmatrix.ScenarioConfigMigrationV2 && matches[0].Mode != validationmatrix.ScenarioInstallContract && matches[0].Mode != validationmatrix.ScenarioCaptureContract {
 		return validationmatrix.Scenario{}, fail(CodeUnsupportedFixture, "selection", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
 	return matches[0], nil

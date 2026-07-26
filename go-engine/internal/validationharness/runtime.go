@@ -70,6 +70,8 @@ func Run(ctx context.Context, request Request) (Result, error) {
 		result = executeV2Journey(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
 	case validationmatrix.ScenarioInstallContract:
 		result = executeInstallJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
+	case validationmatrix.ScenarioCaptureContract:
+		result = executeCaptureContractJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
 	case validationmatrix.ScenarioConfigRoundtripV1:
 		result = executeJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
 	default:
@@ -166,6 +168,7 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	var plan *FixturePlan
 	var v2Plan *V2FixturePlan
 	var installPlan *InstallContractPlan
+	var capturePlan *CaptureContractPlan
 	var fixtureFailure *Failure
 	switch selected.scenario.Mode {
 	case validationmatrix.ScenarioConfigRoundtripV1:
@@ -182,6 +185,29 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		compiled.context = validationContext
 		installPlan = &compiled
 		fixtureFailure = installPlan.materializeManifest(root)
+	case validationmatrix.ScenarioCaptureContract:
+		if selected.capturePlan == nil || selected.capturePlan.Inventory != inventory {
+			fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "inventory", "capture plan inventory differs from runtime authority")
+			break
+		}
+		compiled := *selected.capturePlan
+		compiled.Targets = append([]CaptureContractTarget(nil), selected.capturePlan.Targets...)
+		for index := range compiled.Targets {
+			compiled.Targets[index].Content = append([]byte(nil), selected.capturePlan.Targets[index].Content...)
+			resolved, resolveErr := validationContext.ResolveHostPath(compiled.Targets[index].AuthoredSource, validationmode.HostPathPolicy{})
+			if resolveErr != nil || validationContext.ValidateSandboxPath(resolved) != nil || !fixtureContained(root, resolved) {
+				fixtureFailure = fail(CodeUnsupportedFixture, "fixture", compiled.Targets[index].Coordinate, "capture source cannot be resolved through validation mode")
+				break
+			}
+			compiled.Targets[index].Resolved = resolved
+		}
+		if fixtureFailure != nil {
+			break
+		}
+		compiled.Verifiers = append([]modules.VerifyDef(nil), selected.capturePlan.Verifiers...)
+		compiled.context = validationContext
+		compiled.root = root
+		capturePlan = &compiled
 	default:
 		fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
@@ -198,7 +224,7 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		}
 	}
 	runtime := &scenarioRuntime{
-		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan, InstallPlan: installPlan,
+		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan, InstallPlan: installPlan, CapturePlan: capturePlan,
 		V2Transition:  transition,
 		AuthorityRoot: authorityRoot, Root: root, GuardRoot: guardRoot, ChildWorkingDir: childWorkingDir,
 		Nonce: nonce, Inventory: inventory,

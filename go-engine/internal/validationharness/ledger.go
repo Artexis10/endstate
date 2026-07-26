@@ -42,6 +42,15 @@ var installProofs = map[validationmatrix.ProofLevel]struct{}{
 	validationmatrix.ProofCatalog: {}, validationmatrix.ProofEngineContract: {},
 }
 
+var captureAssertions = map[string]struct{}{
+	validationmatrix.AssertionCaptured: {}, validationmatrix.AssertionContent: {},
+	validationmatrix.AssertionPayload: {}, validationmatrix.AssertionProvenance: {},
+}
+
+var captureProofs = map[validationmatrix.ProofLevel]struct{}{
+	validationmatrix.ProofCatalog: {}, validationmatrix.ProofEngineContract: {},
+}
+
 func evaluateAssertions(scenario validationmatrix.Scenario, counts map[string]int, operations OperationCounts, proof []validationmatrix.ProofLevel) ([]validationmatrix.ProofLevel, *Failure) {
 	if operations.Executed <= 0 || operations.Skipped > 0 && operations.Executed == 0 {
 		return nil, fail(CodeAssertionContract, "assertions", "operations", "scenario must execute at least one operation")
@@ -53,6 +62,9 @@ func evaluateAssertions(scenario validationmatrix.Scenario, counts map[string]in
 		canonical = []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract, validationmatrix.ProofConfigRoundtripV2}
 	} else if scenario.Mode == validationmatrix.ScenarioInstallContract {
 		allowedAssertions, allowedProofs = installAssertions, installProofs
+		canonical = []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract}
+	} else if scenario.Mode == validationmatrix.ScenarioCaptureContract {
+		allowedAssertions, allowedProofs = captureAssertions, captureProofs
 		canonical = []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract}
 	}
 	for name, count := range counts {
