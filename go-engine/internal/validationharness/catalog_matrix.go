@@ -92,18 +92,16 @@ type catalogEnvelope struct {
 func RunCatalogMatrix(ctx context.Context, request CatalogMatrixRequest) (CatalogMatrixResult, error) {
 	result := CatalogMatrixResult{SchemaVersion: catalogMatrixSchemaVersion, Status: ResultStatusFailed, ProofLevels: []validationmatrix.ProofLevel{}, Rows: []CatalogMatrixRow{}, Reuse: []CatalogReuse{}, PhaseTimings: map[string]time.Duration{}}
 	started := time.Now()
+	if failure := validateCatalogResultPathForRequest(request); failure != nil {
+		result.Failure = failure
+		result.PhaseTimings["setup"] = time.Since(started)
+		return result, nil
+	}
 	engine, repo, failure := validateCatalogMatrixRequest(request)
 	if failure != nil {
 		result.Failure = failure
 		result.PhaseTimings["setup"] = time.Since(started)
 		return persistCatalogMatrixResult(request.ResultPath, result)
-	}
-	if request.ResultPath != "" {
-		if failure := validateCatalogResultPath(request.ResultPath, repo, engine); failure != nil {
-			result.Failure = failure
-			result.PhaseTimings["setup"] = time.Since(started)
-			return result, nil
-		}
 	}
 	repoBoundary, err := snapshotBoundaryTree(repo)
 	if err != nil {
@@ -186,6 +184,16 @@ func validateCatalogMatrixRequest(request CatalogMatrixRequest) (string, string,
 		return "", "", fail(CodeIsolationFailure, "setup", "repository", "repository root is not a safe regular directory")
 	}
 	return request.EnginePath, request.RepoRoot, nil
+}
+
+func validateCatalogResultPathForRequest(request CatalogMatrixRequest) *Failure {
+	if request.ResultPath == "" {
+		return nil
+	}
+	if request.EnginePath == "" || request.RepoRoot == "" || !filepath.IsAbs(request.EnginePath) || !filepath.IsAbs(request.RepoRoot) || filepath.Clean(request.EnginePath) != request.EnginePath || filepath.Clean(request.RepoRoot) != request.RepoRoot {
+		return fail(CodeInvalidResultPath, "persistence", "authority", "catalog result path requires canonical engine and repository authorities")
+	}
+	return validateCatalogResultPath(request.ResultPath, request.RepoRoot, request.EnginePath)
 }
 
 func discoverCatalogBundles(repo string) ([]string, *Failure) {
@@ -323,6 +331,9 @@ func catalogChildEnvironment(repo string) []string {
 }
 
 func decodeCatalogEnvelope(stdout []byte) (catalogplan.Result, string, *Failure) {
+	if err := rejectDuplicateJSONKeys(stdout); err != nil {
+		return catalogplan.Result{}, "", fail(CodeEnvelopeContract, "catalog-plan", "stdout", "catalog envelope contains duplicate object keys")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(stdout))
 	decoder.DisallowUnknownFields()
 	var envelope catalogEnvelope
@@ -435,6 +446,9 @@ func decodeCatalogEvents(stderr []byte, runID string, result catalogplan.Result)
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
 			return fail(CodeEventContract, "events", "stderr", "catalog event segment contains a blank line")
+		}
+		if err := rejectDuplicateJSONKeys(line); err != nil {
+			return fail(CodeEventContract, "events", "stderr", "catalog event contains duplicate object keys")
 		}
 		decoder := json.NewDecoder(bytes.NewReader(line))
 		decoder.UseNumber()
@@ -573,6 +587,9 @@ func persistCatalogMatrixResult(path string, result CatalogMatrixResult) (Catalo
 	if err := safepath.AtomicWriteFile(path, append(data, '\n'), 0o600); err != nil {
 		return result, err
 	}
+	if failure := validateCatalogResultPath(path, "", ""); failure != nil {
+		return result, fmt.Errorf("catalog result path failed post-write revalidation: %s", failure.Detail)
+	}
 	return result, nil
 }
 
@@ -583,6 +600,16 @@ func validateCatalogResultPath(path, repo, engine string) *Failure {
 	ownedRoot := filepath.Join(filepath.Clean(os.TempDir()), "endstate-validation-results")
 	if !catalogPathWithin(ownedRoot, path) {
 		return fail(CodeInvalidResultPath, "persistence", "path", "catalog result path is outside the validation-owned result boundary")
+	}
+	parent := filepath.Dir(path)
+	info, err := os.Lstat(parent)
+	if err != nil || safepath.IsLinkOrReparse(info) || !info.IsDir() || safepath.ValidateRoot(parent) != nil {
+		return fail(CodeInvalidResultPath, "persistence", "path", "catalog result path must use an existing link-free validation-owned directory chain")
+	}
+	if existing, err := os.Lstat(path); err == nil && (safepath.IsLinkOrReparse(existing) || !existing.Mode().IsRegular()) {
+		return fail(CodeInvalidResultPath, "persistence", "path", "catalog result path leaf must be absent or regular")
+	} else if err != nil && !os.IsNotExist(err) {
+		return fail(CodeInvalidResultPath, "persistence", "path", "catalog result path leaf cannot be inspected")
 	}
 	if repo != "" && catalogPathWithin(repo, path) {
 		return fail(CodeInvalidResultPath, "persistence", "repository", "catalog result path overlaps the tested repository")

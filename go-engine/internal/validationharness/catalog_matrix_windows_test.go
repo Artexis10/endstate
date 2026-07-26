@@ -64,3 +64,22 @@ func TestRunCatalogMatrixFreshBuiltEngineProductionBundles(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateCatalogResultPathRejectsJunctionInRootChain(t *testing.T) {
+	resultRoot := filepath.Join(os.TempDir(), "endstate-validation-results")
+	outside := t.TempDir()
+	if err := os.MkdirAll(resultRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(outside, "endstate-validation-results"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	junction := filepath.Join(resultRoot, filepath.Base(filepath.Dir(outside)))
+	if output, err := exec.Command("cmd", "/c", "mklink", "/J", junction, outside).CombinedOutput(); err != nil {
+		t.Skipf("junction unavailable: %v\n%s", err, output)
+	}
+	path := filepath.Join(junction, "endstate-validation-results", "result.json")
+	if failure := validateCatalogResultPath(path, "", ""); failure == nil {
+		t.Fatal("result path with junction in root chain passed")
+	}
+}

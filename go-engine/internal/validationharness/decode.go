@@ -36,6 +36,9 @@ func decodeEnvelope(stdout []byte, command, moduleID, scenarioID string, forbidd
 	if leaked(stdout, forbidden...) {
 		return decodedEnvelope{}, fail(CodeIsolationFailure, command, "stdout", "command output leaked validation authority")
 	}
+	if err := rejectDuplicateJSONKeys(stdout); err != nil {
+		return decodedEnvelope{}, fail(CodeEnvelopeContract, command, "stdout", "JSON envelope contains duplicate object keys")
+	}
 	decoder := json.NewDecoder(bytes.NewReader(stdout))
 	decoder.DisallowUnknownFields()
 	var envelope decodedEnvelope
@@ -157,6 +160,9 @@ func decodeEventsWithPolicy(stderr []byte, command, envelopeRunID string, allowV
 			continue
 		}
 		var event map[string]any
+		if err := rejectDuplicateJSONKeys(line); err != nil {
+			return nil, fail(CodeEventContract, "events", "stderr", "JSONL event contains duplicate object keys")
+		}
 		decoder := json.NewDecoder(bytes.NewReader(line))
 		decoder.UseNumber()
 		if err := decoder.Decode(&event); err != nil {
@@ -215,6 +221,64 @@ func decodeEventsWithPolicy(stderr []byte, command, envelopeRunID string, allowV
 		return nil, failure
 	}
 	return events, nil
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := walkJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func walkJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, objectOrArray := token.(json.Delim)
+	if !objectOrArray {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := map[string]struct{}{}
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return fmt.Errorf("object key is not a string")
+			}
+			if _, duplicate := seen[name]; duplicate {
+				return fmt.Errorf("duplicate object key %q", name)
+			}
+			seen[name] = struct{}{}
+			if err := walkJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	case '[':
+		for decoder.More() {
+			if err := walkJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	default:
+		return fmt.Errorf("unexpected JSON delimiter")
+	}
 }
 
 type eventSegmentState struct {

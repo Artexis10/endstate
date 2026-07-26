@@ -227,6 +227,8 @@ func TestDecodeEnvelopeRejectsMalformedIdentityAndNestedFailure(t *testing.T) {
 	}{
 		{"malformed", `{`},
 		{"multiple", valid + ` {}`},
+		{"duplicate top-level key", strings.Replace(valid, `"runId":"rebuild-run"`, `"runId":"rebuild-run","runId":"forged"`, 1)},
+		{"duplicate nested key", strings.Replace(valid, `"failed":0`, `"failed":0,"failed":1`, 1)},
 		{"wrong command", strings.Replace(valid, `"rebuild"`, `"apply"`, 1)},
 		{"missing test mode", strings.Replace(valid, `"testMode":{"active":true,"scenarioId":"default-v1","moduleId":"apps.fixture"},`, "", 1)},
 		{"mismatched scenario", strings.Replace(valid, `"default-v1"`, `"foreign"`, 1)},
@@ -281,6 +283,7 @@ func TestDecodeEventsRejectsMalformedIdentityAndLeaks(t *testing.T) {
 		strings.Replace(valid, `"phase":"capture"`, `"phase":"future"`, 1),
 		strings.Replace(valid, `"stage":"inventory"`, `"stage":"future"`, 1),
 		strings.Replace(valid, `"event":"phase"`, `"event":"phase","future":true`, 1),
+		strings.Replace(valid, `"event":"phase"`, `"event":"phase","event":"forged"`, 1),
 		strings.Replace(valid, `"phase":"capture","total"`, `"phase":"verify","total"`, 1),
 		strings.Replace(valid, `"timestamp":"2026-07-25T12:00:00Z"`, `"timestamp":"not-time"`, 1),
 		strings.Replace(valid, `"failed":0`, `"failed":1`, 1),

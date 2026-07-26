@@ -113,6 +113,11 @@ func Resolve(root, bundlePath string, now time.Time) (*Result, error) {
 		MembershipCount: len(document.Modules),
 		Actions:         make([]Action, 0, len(document.Modules)),
 	}
+	if duplicate := duplicateBundleMembership(document.Modules); duplicate != "" {
+		failure := Failure{ModuleID: "apps." + duplicate, Reason: "duplicate_membership"}
+		result.Failures = append(result.Failures, failure)
+		return result, &ResolutionError{Failure: failure}
+	}
 	catalog, err := validationmatrix.LoadCatalog(root, now)
 	if err != nil {
 		failure := catalogFailure(err, document.Modules)
@@ -286,17 +291,23 @@ func validateBundle(document bundleDocument, filename string) error {
 	if len(document.Modules) == 0 {
 		return fmt.Errorf("bundle modules must not be empty")
 	}
-	seen := make(map[string]struct{}, len(document.Modules))
 	for _, slug := range document.Modules {
 		if !stableSlug.MatchString(slug) {
 			return fmt.Errorf("bundle module reference must be a bare canonical slug")
 		}
+	}
+	return nil
+}
+
+func duplicateBundleMembership(modules []string) string {
+	seen := make(map[string]struct{}, len(modules))
+	for _, slug := range modules {
 		if _, exists := seen[slug]; exists {
-			return fmt.Errorf("bundle module reference %q is duplicated", slug)
+			return slug
 		}
 		seen[slug] = struct{}{}
 	}
-	return nil
+	return ""
 }
 
 func normalizeLineEndings(data []byte) []byte {

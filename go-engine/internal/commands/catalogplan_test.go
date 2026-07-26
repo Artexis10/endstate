@@ -54,6 +54,7 @@ func TestRunCatalogPlan_ReturnsSafePartialFailures(t *testing.T) {
 	}{
 		{name: "missing module", bundle: `{"version":1,"id":"work","name":"Work","modules":["missing"]}`, want: "missing_module"},
 		{name: "stale sidecar", bundle: `{"version":1,"id":"work","name":"Work","modules":["foo"]}`, want: "stale_validation_sidecar", mutate: makeCommandSidecarStale},
+		{name: "duplicate membership", bundle: `{"version":1,"id":"work","name":"Work","modules":["foo","foo"]}`, want: "duplicate_membership"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := commandCatalogRoot(t)

@@ -4,6 +4,7 @@
 package catalogplan
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -60,9 +61,9 @@ func TestResolve_ValidCommentedBundlePreservesDeclaredMembershipOrder(t *testing
 func TestResolve_RejectsNonCanonicalBundleAndMembershipInputs(t *testing.T) {
 	root := testCatalogRoot(t, "foo")
 	for _, tc := range []struct {
-		name    string
+		name     string
 		filename string
-		body    string
+		body     string
 	}{
 		{"unknown field", "work.jsonc", `{"version":1,"id":"work","name":"Work","modules":["foo"],"extra":true}`},
 		{"duplicate field", "work.jsonc", `{"version":1,"id":"work","name":"Work","name":"Again","modules":["foo"]}`},
@@ -87,6 +88,20 @@ func TestResolve_RejectsNonCanonicalBundleAndMembershipInputs(t *testing.T) {
 				t.Fatal("Resolve unexpectedly succeeded")
 			}
 		})
+	}
+}
+
+func TestResolve_DuplicateMembershipReturnsStructuredFailure(t *testing.T) {
+	root := testCatalogRoot(t, "foo")
+	bundle := writeBundle(t, root, "work.jsonc", `{"version":1,"id":"work","name":"Work","modules":["foo","foo"]}`)
+
+	result, err := Resolve(root, bundle, time.Now().UTC())
+	var resolution *ResolutionError
+	if !errors.As(err, &resolution) || result == nil || len(result.Failures) != 1 {
+		t.Fatalf("result=%+v error=%v", result, err)
+	}
+	if got := result.Failures[0]; got.ModuleID != "apps.foo" || got.Reason != "duplicate_membership" {
+		t.Fatalf("failure=%+v", got)
 	}
 }
 
@@ -120,10 +135,40 @@ func TestResolve_RejectsInvalidOrStaleCatalogSidecars(t *testing.T) {
 		name   string
 		mutate func(t *testing.T, root string)
 	}{
-		{"missing sidecar", func(t *testing.T, root string) { if err := os.Remove(filepath.Join(root, "modules", "apps", "foo", "validation.jsonc")); err != nil { t.Fatal(err) } }},
-		{"invalid sidecar", func(t *testing.T, root string) { if err := os.WriteFile(filepath.Join(root, "modules", "apps", "foo", "validation.jsonc"), []byte(`{}`), 0o600); err != nil { t.Fatal(err) } }},
-		{"stale sidecar", func(t *testing.T, root string) { path := filepath.Join(root, "modules", "apps", "foo", "validation.jsonc"); data, err := os.ReadFile(path); if err != nil { t.Fatal(err) }; moduleData, err := os.ReadFile(filepath.Join(root, "modules", "apps", "foo", "module.jsonc")); if err != nil { t.Fatal(err) }; revision, err := modules.ComputeModuleRevision(moduleData); if err != nil { t.Fatal(err) }; data = []byte(strings.Replace(string(data), revision, strings.Repeat("b", 64), 1)); if err := os.WriteFile(path, data, 0o600); err != nil { t.Fatal(err) } }},
-		{"invalid module", func(t *testing.T, root string) { if err := os.WriteFile(filepath.Join(root, "modules", "apps", "foo", "module.jsonc"), []byte(`{"id":"apps.foo"}`), 0o600); err != nil { t.Fatal(err) } }},
+		{"missing sidecar", func(t *testing.T, root string) {
+			if err := os.Remove(filepath.Join(root, "modules", "apps", "foo", "validation.jsonc")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"invalid sidecar", func(t *testing.T, root string) {
+			if err := os.WriteFile(filepath.Join(root, "modules", "apps", "foo", "validation.jsonc"), []byte(`{}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"stale sidecar", func(t *testing.T, root string) {
+			path := filepath.Join(root, "modules", "apps", "foo", "validation.jsonc")
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			moduleData, err := os.ReadFile(filepath.Join(root, "modules", "apps", "foo", "module.jsonc"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			revision, err := modules.ComputeModuleRevision(moduleData)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = []byte(strings.Replace(string(data), revision, strings.Repeat("b", 64), 1))
+			if err := os.WriteFile(path, data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"invalid module", func(t *testing.T, root string) {
+			if err := os.WriteFile(filepath.Join(root, "modules", "apps", "foo", "module.jsonc"), []byte(`{"id":"apps.foo"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := testCatalogRoot(t, "foo")

@@ -35,6 +35,32 @@ func TestRunCatalogMatrixRejectsMissingEngine(t *testing.T) {
 	}
 }
 
+func TestRunCatalogMatrixDoesNotPersistUnsafeSetupFailure(t *testing.T) {
+	resultRoot := filepath.Join(os.TempDir(), "endstate-validation-results")
+	repo := filepath.Join(resultRoot, t.Name())
+	resultDirectory := filepath.Join(repo, "endstate-validation-results")
+	if err := os.MkdirAll(resultDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(resultDirectory, "result.json")
+	defer os.Remove(resultPath)
+
+	result, err := RunCatalogMatrix(context.Background(), CatalogMatrixRequest{
+		EnginePath: filepath.Join(t.TempDir(), "missing.exe"),
+		RepoRoot:   repo,
+		ResultPath: resultPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ResultStatusFailed || result.Failure == nil || len(result.ProofLevels) != 0 {
+		t.Fatalf("result=%+v", result)
+	}
+	if _, err := os.Stat(resultPath); !os.IsNotExist(err) {
+		t.Fatalf("unsafe setup failure persisted result: %v", err)
+	}
+}
+
 func TestValidateCatalogPlanBundleIdentityRejectsForeignHash(t *testing.T) {
 	bundle := filepath.Join(t.TempDir(), "work.jsonc")
 	if err := os.WriteFile(bundle, []byte(`{"version":1}`), 0o600); err != nil {
@@ -43,6 +69,47 @@ func TestValidateCatalogPlanBundleIdentityRejectsForeignHash(t *testing.T) {
 	result := catalogplan.Result{Bundle: catalogplan.Bundle{ID: "work", Path: "bundles/work.jsonc", Hash: "foreign", Version: 1}}
 	if failure := validateCatalogPlanBundleIdentity(result, bundle); failure == nil {
 		t.Fatal("foreign bundle hash passed")
+	}
+}
+
+func TestRunCatalogMatrixRowPreservesDuplicateMembershipFailureEvidence(t *testing.T) {
+	repo := t.TempDir()
+	bundleDirectory := filepath.Join(repo, "bundles")
+	if err := os.MkdirAll(bundleDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(bundleDirectory, "work.jsonc")
+	if err := os.WriteFile(bundle, []byte(`{"version":1,"id":"work","name":"Work","modules":["foo","foo"]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(t.TempDir(), "catalog-plan.cmd")
+	stdout := `{"schemaVersion":"1.0","cliVersion":"test","command":"catalog-plan","runId":"catalog-plan-test","timestampUtc":"2026-07-26T11:00:00Z","success":false,"data":{"proof":"catalog","bundle":{"id":"work","name":"Work","path":"bundles/work.jsonc","hash":"abc","version":1},"membershipCount":2,"actionCount":0,"actions":[],"failures":[{"moduleId":"apps.foo","reason":"duplicate_membership"}]},"error":{"code":"CATALOG_PLAN_INVALID","message":"bad"}}`
+	if err := os.WriteFile(engine, []byte("@echo off\r\necho "+stdout+"\r\nexit /b 1\r\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	row := runCatalogMatrixRow(context.Background(), engine, repo, bundle, nil)
+	if row.Failure == nil || len(row.Failures) != 1 || row.Failures[0].ModuleID != "apps.foo" || row.Failures[0].Reason != "duplicate_membership" {
+		t.Fatalf("row=%+v", row)
+	}
+}
+
+func TestValidateCatalogResultPathRejectsLinkInRootChain(t *testing.T) {
+	resultRoot := filepath.Join(os.TempDir(), "endstate-validation-results")
+	outside := t.TempDir()
+	if err := os.MkdirAll(resultRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(outside, "endstate-validation-results"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(resultRoot, filepath.Base(filepath.Dir(outside)))
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	path := filepath.Join(link, "endstate-validation-results", "result.json")
+	if failure := validateCatalogResultPath(path, "", ""); failure == nil {
+		t.Fatal("result path with link in root chain passed")
 	}
 }
 

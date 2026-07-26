@@ -183,10 +183,21 @@ func TestValidateCatalogPlanActionIdentityRejectsEveryPinnedField(t *testing.T) 
 
 func TestCatalogDecoderRejectsHostileOutput(t *testing.T) {
 	valid := `{"schemaVersion":"1.0","cliVersion":"2.27.4","command":"catalog-plan","runId":"catalog-plan-test","timestampUtc":"2026-07-26T11:00:00Z","success":true,"data":{"proof":"catalog","bundle":{"id":"work","name":"Work","path":"bundles/work.jsonc","hash":"abc","version":1},"membershipCount":1,"actionCount":1,"actions":[{"bundleId":"work","bundleHash":"abc","moduleId":"apps.work","moduleRevision":"rev","moduleSchemaVersion":1,"validationHash":"hash","validationScenarioCount":1,"status":"resolved","skipped":false}]},"error":null}`
-	for _, stdout := range [][]byte{[]byte("{"), []byte(valid + "\n" + valid)} {
+	for _, stdout := range [][]byte{
+		[]byte("{"),
+		[]byte(valid + "\n" + valid),
+		[]byte(strings.Replace(valid, `"runId":"catalog-plan-test"`, `"runId":"catalog-plan-test","runId":"forged"`, 1)),
+		[]byte(strings.Replace(valid, `"moduleRevision":"rev"`, `"moduleRevision":"rev","moduleRevision":"forged"`, 1)),
+		[]byte(strings.Replace(valid, `"validationHash":"hash"`, `"validationHash":"hash","validationHash":"forged"`, 1)),
+		[]byte(strings.Replace(valid, `"moduleId":"apps.work"`, `"moduleId":"apps.work","moduleId":"apps.forged"`, 1)),
+	} {
 		if _, _, failure := decodeCatalogEnvelope(stdout); failure == nil {
 			t.Fatal("hostile stdout passed")
 		}
+	}
+	failed := `{"schemaVersion":"1.0","cliVersion":"2.27.4","command":"catalog-plan","runId":"catalog-plan-test","timestampUtc":"2026-07-26T11:00:00Z","success":false,"data":{"proof":"catalog","bundle":{"id":"work","name":"Work","path":"bundles/work.jsonc","hash":"abc","version":1},"membershipCount":1,"actionCount":0,"actions":[],"failures":[{"moduleId":"apps.missing","reason":"missing_module","reason":"forged"}]},"error":{"code":"CATALOG_PLAN_INVALID","message":"bad"}}`
+	if _, _, failure := decodeCatalogEnvelope([]byte(failed)); failure == nil {
+		t.Fatal("duplicate failure evidence passed")
 	}
 	result, runID, failure := decodeCatalogEnvelope([]byte(valid))
 	if failure != nil {
@@ -195,7 +206,7 @@ func TestCatalogDecoderRejectsHostileOutput(t *testing.T) {
 	validEvents := "{\"version\":1,\"runId\":\"" + runID + "\",\"timestamp\":\"2026-07-26T11:00:00Z\",\"event\":\"phase\",\"phase\":\"plan\"}\n" +
 		"{\"version\":1,\"runId\":\"" + runID + "\",\"timestamp\":\"2026-07-26T11:00:00Z\",\"event\":\"item\",\"id\":\"apps.work\",\"driver\":\"catalog\",\"status\":\"present\",\"reason\":\"detected\"}\n" +
 		"{\"version\":1,\"runId\":\"" + runID + "\",\"timestamp\":\"2026-07-26T11:00:00Z\",\"event\":\"summary\",\"phase\":\"plan\",\"total\":1,\"success\":1,\"skipped\":0,\"failed\":0}\n"
-	for _, stderr := range [][]byte{nil, []byte(validEvents + validEvents), []byte(strings.Replace(validEvents, runID, "foreign", 1)), []byte("not-json\n")} {
+	for _, stderr := range [][]byte{nil, []byte(validEvents + validEvents), []byte(strings.Replace(validEvents, runID, "foreign", 1)), []byte("not-json\n"), []byte(strings.Replace(validEvents, `"event":"phase"`, `"event":"phase","event":"forged"`, 1))} {
 		if failure := decodeCatalogEvents(stderr, runID, result); failure == nil {
 			t.Fatal("hostile event stream passed")
 		}
