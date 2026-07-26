@@ -5,11 +5,14 @@ package configrestore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
 
 func TestActiveStoreRunsOrdersGenerationAndRegisteredLegacyMembers(t *testing.T) {
@@ -132,10 +135,7 @@ func TestMarkLegacyMemberRevertedLeavesWorkWhenMarkerCannotPublish(t *testing.T)
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = guard.Close() })
-	journalPath := filepath.Join(t.TempDir(), "restore-legacy.json")
-	if err := os.WriteFile(journalPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	journalPath := writeLegacyRevertTestJournal(t)
 	member, err := guard.RegisterLegacyJournal(journalPath)
 	if err != nil {
 		t.Fatal(err)
@@ -162,10 +162,7 @@ func TestBeginLiveReapsMarkerBackedLegacyRevertWorkAfterCrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journalPath := filepath.Join(t.TempDir(), "restore-legacy.json")
-	if err := os.WriteFile(journalPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	journalPath := writeLegacyRevertTestJournal(t)
 	member, err := first.RegisterLegacyJournal(journalPath)
 	if err != nil {
 		t.Fatal(err)
@@ -174,6 +171,8 @@ func TestBeginLiveReapsMarkerBackedLegacyRevertWorkAfterCrash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	populateLegacyRevertWork(t, journalPath, workRoot)
+	workFiles := readLegacyRevertWorkFiles(t, workRoot)
 	if err := first.MarkLegacyMemberReverted(ctx, member); err != nil {
 		t.Fatal(err)
 	}
@@ -181,8 +180,10 @@ func TestBeginLiveReapsMarkerBackedLegacyRevertWorkAfterCrash(t *testing.T) {
 	if err := os.Mkdir(workRoot, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(workRoot, "entry-000000.json"), []byte("completed"), 0o600); err != nil {
-		t.Fatal(err)
+	for name, data := range workFiles {
+		if err := os.WriteFile(filepath.Join(workRoot, name), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
@@ -198,6 +199,135 @@ func TestBeginLiveReapsMarkerBackedLegacyRevertWorkAfterCrash(t *testing.T) {
 	}
 }
 
+func TestBeginLiveRejectsForeignMarkerBackedLegacyRevertWork(t *testing.T) {
+	ctx := context.Background()
+	for _, test := range []struct {
+		name  string
+		forge func(t *testing.T, root string)
+	}{
+		{
+			name: "foreign filename",
+			forge: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "foreign.json"), []byte("{}\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "malformed record schema",
+			forge: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "entry-000000.json"), []byte(`{"version":1,"extra":true}`+"\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "out of range record index",
+			forge: func(t *testing.T, root string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(root, "entry-000001.json"), []byte("{}\n"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "record bound to different journal entry",
+			forge: func(t *testing.T, root string) {
+				t.Helper()
+				record := legacyRevertWorkPrepared{
+					Version: 1, EntryIndex: 0, EntryDigest: strings.Repeat("0", 64), Target: "different-target",
+					Before:  legacyRevertWorkState{Kind: "absent", Digest: strings.Repeat("1", 64)},
+					Desired: legacyRevertWorkState{Kind: "absent", Digest: strings.Repeat("2", 64)},
+				}
+				data, err := json.Marshal(record)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "entry-000000.json"), append(data, '\n'), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			journalPath := writeLegacyRevertTestJournal(t)
+			first, err := BeginLive(ctx, stateDir, "legacy-foreign-source", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			member, err := first.RegisterLegacyJournal(journalPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := first.MarkLegacyMemberReverted(ctx, member); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Mkdir(workRoot, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			test.forge(t, workRoot)
+			if err := first.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			guard, err := BeginLive(ctx, stateDir, "legacy-foreign-recovery", nil)
+			if guard != nil {
+				_ = guard.Close()
+			}
+			if !errors.Is(err, ErrRecoveryRequired) {
+				t.Fatalf("BeginLive() error = %v, want ErrRecoveryRequired", err)
+			}
+			if _, err := os.Lstat(workRoot); err != nil {
+				t.Fatalf("foreign marker-backed work was removed: %v", err)
+			}
+		})
+	}
+}
+
+func TestMarkLegacyMemberRevertedRetainsWorkWhenBoundaryRejectsCleanup(t *testing.T) {
+	ctx := context.Background()
+	authorityRoot := t.TempDir()
+	stateDir := filepath.Join(authorityRoot, "state")
+	journalPath := filepath.Join(authorityRoot, "logs", "restore-legacy.json")
+	if err := os.MkdirAll(filepath.Dir(journalPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(journalPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boundary := &recordingHostBoundary{root: authorityRoot, resolved: map[string]string{}, projectRootToken: "$ENDSTATE_ROOT/"}
+	guard, err := BeginLiveWithBoundary(ctx, stateDir, "legacy-boundary-cleanup", nil, boundary)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	member, err := guard.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := guard.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	boundary.rejectPath = workRoot
+	if err := guard.MarkLegacyMemberReverted(ctx, member); err == nil || !strings.Contains(err.Error(), "deliberate member boundary rejection") {
+		t.Fatalf("MarkLegacyMemberReverted() error = %v, want cleanup boundary rejection", err)
+	}
+	if _, err := os.Lstat(filepath.Join(guard.legacyReverts, member.memberID+".json")); err != nil {
+		t.Fatalf("cleanup rejection prevented marker publication: %v", err)
+	}
+	if _, err := os.Lstat(workRoot); err != nil {
+		t.Fatalf("boundary-rejected cleanup removed work: %v", err)
+	}
+}
+
 func TestBeginLivePreservesUnmarkedRegisteredLegacyRevertWork(t *testing.T) {
 	ctx := context.Background()
 	stateDir := t.TempDir()
@@ -205,10 +335,7 @@ func TestBeginLivePreservesUnmarkedRegisteredLegacyRevertWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	journalPath := filepath.Join(t.TempDir(), "restore-legacy.json")
-	if err := os.WriteFile(journalPath, []byte("{}\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	journalPath := writeLegacyRevertTestJournal(t)
 	member, err := first.RegisterLegacyJournal(journalPath)
 	if err != nil {
 		t.Fatal(err)
@@ -217,10 +344,8 @@ func TestBeginLivePreservesUnmarkedRegisteredLegacyRevertWork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	entry := filepath.Join(workRoot, "entry-000000.json")
-	if err := os.WriteFile(entry, []byte("resume"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	populateLegacyRevertWork(t, journalPath, workRoot)
+	workFiles := readLegacyRevertWorkFiles(t, workRoot)
 	if err := first.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -230,8 +355,8 @@ func TestBeginLivePreservesUnmarkedRegisteredLegacyRevertWork(t *testing.T) {
 		t.Fatalf("BeginLive() rejected resumable legacy work: %v", err)
 	}
 	t.Cleanup(func() { _ = second.Close() })
-	if data, err := os.ReadFile(entry); err != nil || string(data) != "resume" {
-		t.Fatalf("resumable legacy work changed = %q, %v", data, err)
+	if got := readLegacyRevertWorkFiles(t, workRoot); !equalLegacyRevertWorkFiles(got, workFiles) {
+		t.Fatalf("resumable legacy work changed = %#v, want %#v", got, workFiles)
 	}
 }
 
@@ -589,4 +714,74 @@ func commitStoredDelete(t *testing.T, guard *Guard, runID, captureID, prior stri
 		t.Fatalf("commit transaction = %+v, %v", result, err)
 	}
 	return target
+}
+
+func writeLegacyRevertTestJournal(t *testing.T) string {
+	t.Helper()
+	directory := t.TempDir()
+	target := filepath.Join(directory, "settings.json")
+	backup := filepath.Join(directory, "settings.backup.json")
+	if err := os.WriteFile(target, []byte("desired"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journal := restore.Journal{RunID: "legacy-work", Entries: []restore.JournalEntry{{
+		TargetPath: target, TargetExistedBefore: true, BackupCreated: true,
+		BackupPath: backup, Action: "restored", RestoreType: "copy",
+	}}}
+	data, err := json.Marshal(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "restore-legacy.json")
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+func populateLegacyRevertWork(t *testing.T, journalPath, workRoot string) {
+	t.Helper()
+	journal, err := restore.ReadJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := restore.RunRevertDurable(journal, "", workRoot); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readLegacyRevertWorkFiles(t *testing.T, root string) map[string][]byte {
+	t.Helper()
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := make(map[string][]byte, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			t.Fatalf("legacy revert work unexpectedly contains directory %q", entry.Name())
+		}
+		data, err := os.ReadFile(filepath.Join(root, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		files[entry.Name()] = data
+	}
+	return files
+}
+
+func equalLegacyRevertWorkFiles(left, right map[string][]byte) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for name, data := range left {
+		other, exists := right[name]
+		if !exists || string(data) != string(other) {
+			return false
+		}
+	}
+	return true
 }

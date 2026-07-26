@@ -451,6 +451,7 @@ func (g *Guard) retireLegacyMemberRevertWork(ctx context.Context, memberID strin
 	if !isOpaqueStoreID(memberID) {
 		return fmt.Errorf("legacy member ID is invalid")
 	}
+	ctx = withHostBoundary(ctx, g.boundary)
 	root := filepath.Join(g.legacyRevertWork, memberID)
 	if err := validateHostIO(ctx, root); err != nil {
 		return err
