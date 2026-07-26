@@ -306,6 +306,246 @@ func TestInspectStoreRejectsMissingRootAndLeaseWithoutWriting(t *testing.T) {
 	}
 }
 
+func TestInspectStoreVerifiesAbsoluteAndProjectedLegacyJournalBytes(t *testing.T) {
+	journalBytes := []byte(`{"runId":"apply-legacy","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[{"resolvedSourcePath":"source","targetPath":"target","action":"restored"}]}`)
+	for _, test := range []struct {
+		name      string
+		projected bool
+	}{{"absolute", false}, {"projected", true}} {
+		t.Run(test.name, func(t *testing.T) {
+			authority := t.TempDir()
+			stateDir := filepath.Join(authority, "state")
+			journalPath := filepath.Join(authority, "logs", "restore-journal.json")
+			if err := os.MkdirAll(filepath.Dir(journalPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(journalPath, journalBytes, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var guard *Guard
+			var boundary HostBoundary
+			var err error
+			if test.projected {
+				boundary = &recordingHostBoundary{root: authority, resolved: map[string]string{}, projectRootToken: "$ENDSTATE_ROOT/"}
+				guard, err = BeginLiveWithBoundary(context.Background(), stateDir, "apply-legacy", nil, boundary)
+			} else {
+				guard, err = BeginLive(context.Background(), stateDir, "apply-legacy", nil)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = guard.Close() })
+			if _, err := guard.RegisterLegacyJournal(journalPath); err != nil {
+				t.Fatal(err)
+			}
+			root := filepath.Join(stateDir, "config-restore", "v1")
+			before := snapshotInspectionTree(t, root)
+			if test.projected {
+				if _, err := InspectStore(root, true); err == nil {
+					t.Fatal("unresolved projected journal was accepted")
+				}
+			}
+			inspection, err := InspectStoreWithBoundary(root, true, boundary)
+			after := snapshotInspectionTree(t, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(before, after) {
+				t.Fatal("legacy inspection changed the store")
+			}
+			identity := inspection.Runs()[0].Members()[0].LegacyJournalIdentity
+			if test.projected {
+				if !strings.HasPrefix(identity, "$ENDSTATE_ROOT/") {
+					t.Fatalf("projected identity = %q", identity)
+				}
+			} else if !strings.HasPrefix(identity, "sha256:") || strings.Contains(identity, authority) {
+				t.Fatalf("absolute identity leaked: %q", identity)
+			}
+			if err := os.WriteFile(journalPath, append(journalBytes, ' '), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := InspectStoreWithBoundary(root, true, boundary); err == nil {
+				t.Fatal("tampered registered journal was accepted")
+			}
+		})
+	}
+}
+
+func TestInspectStoreReturnsOneToOneActionAndBackupRecords(t *testing.T) {
+	stateDir := t.TempDir()
+	guard, err := BeginLive(context.Background(), stateDir, "apply-actions", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	root, err := guard.CreateTransactionRoot("capture-actions")
+	if err != nil {
+		t.Fatal(err)
+	}
+	targets := []string{filepath.Join(t.TempDir(), "one.json"), filepath.Join(t.TempDir(), "two.json")}
+	for _, target := range targets {
+		if err := os.WriteFile(target, []byte("before"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{Set: &MaterializedSet{Actions: []Action{
+		{Kind: ActionDeleteFile, Strategy: "delete-glob", Target: targets[0], SnapshotRequired: true},
+		{Kind: ActionDeleteFile, Strategy: "delete-glob", Target: targets[1], SnapshotRequired: true},
+	}}, TransactionRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lineage := testJournalLineage()
+	lineage.RunID, lineage.CaptureID = "apply-actions", "capture-actions"
+	intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{Prepared: prepared, TransactionRoot: root, Lineage: lineage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ExecuteConfigSetTransaction(context.Background(), TransactionRequest{Prepared: prepared, Intent: intent}); err != nil {
+		t.Fatal(err)
+	}
+	storeRoot := filepath.Join(stateDir, "config-restore", "v1")
+	inspection, err := InspectStore(storeRoot, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	actions := inspection.Runs()[0].Members()[0].Actions()
+	if len(actions) != 2 || actions[0].Index != 0 || actions[1].Index != 1 || actions[0].TargetIdentity == "" ||
+		actions[0].TargetIdentity == targets[0] || !actions[0].Backup.Exists || actions[0].Backup.Digest != actions[0].PriorDigest {
+		t.Fatalf("action inspections = %#v", actions)
+	}
+	if err := os.Remove(filepath.Join(root, "snapshots", "000000", "prior")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectStore(storeRoot, true); err == nil {
+		t.Fatal("missing physical backup was accepted")
+	}
+}
+
+func TestInspectStoreRejectsTamperedOrReorderedJournalActions(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func([]JournalAction)
+	}{
+		{"swapped", func(actions []JournalAction) { actions[0], actions[1] = actions[1], actions[0] }},
+		{"prior digest", func(actions []JournalAction) { actions[0].Prior.Digest = strings.Repeat("0", 64) }},
+		{"desired digest", func(actions []JournalAction) { actions[0].Desired.Digest = strings.Repeat("0", 64) }},
+		{"foreign target", func(actions []JournalAction) { actions[0].Target = "../escape" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			guard, err := BeginLive(context.Background(), stateDir, "apply-tamper", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = guard.Close() })
+			storeRoot := filepath.Join(stateDir, "config-restore", "v1")
+			transaction, err := guard.CreateTransactionRoot("capture-tamper")
+			if err != nil {
+				t.Fatal(err)
+			}
+			targets := []string{filepath.Join(t.TempDir(), "one.json"), filepath.Join(t.TempDir(), "two.json")}
+			for _, target := range targets {
+				if err := os.WriteFile(target, []byte("before"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			prepared, err := PrepareSnapshots(context.Background(), SnapshotRequest{Set: &MaterializedSet{Actions: []Action{
+				{Kind: ActionDeleteFile, Strategy: "delete-glob", Target: targets[0], SnapshotRequired: true},
+				{Kind: ActionDeleteFile, Strategy: "delete-glob", Target: targets[1], SnapshotRequired: true},
+			}}, TransactionRoot: transaction})
+			if err != nil {
+				t.Fatal(err)
+			}
+			lineage := testJournalLineage()
+			lineage.RunID, lineage.CaptureID = "apply-tamper", "capture-tamper"
+			intent, err := PersistJournalIntent(context.Background(), JournalIntentRequest{Prepared: prepared, TransactionRoot: transaction, Lineage: lineage})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ExecuteConfigSetTransaction(context.Background(), TransactionRequest{Prepared: prepared, Intent: intent}); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(filepath.Join(transaction, "journal", "intent.json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			disk, err := decodeJournalIntent(data)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(disk.Actions)
+			_, encoded, err := newJournalIntentDisk(disk.Lineage, disk.Actions, disk.Validations)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(transaction, "journal", "intent.json"), encoded, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshotInspectionTree(t, storeRoot)
+			if _, err := InspectStore(storeRoot, true); err == nil {
+				t.Fatal("tampered journal actions were accepted")
+			}
+			if after := snapshotInspectionTree(t, storeRoot); !reflect.DeepEqual(before, after) {
+				t.Fatal("failed inspection changed tampered store")
+			}
+		})
+	}
+}
+
+type auditingInspectionFS struct {
+	storeInspectionFS
+	operations []string
+}
+
+func (fs *auditingInspectionFS) Lstat(path string) (os.FileInfo, error) {
+	fs.operations = append(fs.operations, "lstat")
+	return fs.storeInspectionFS.Lstat(path)
+}
+func (fs *auditingInspectionFS) ReadDir(path string) ([]os.DirEntry, error) {
+	fs.operations = append(fs.operations, "readdir")
+	return fs.storeInspectionFS.ReadDir(path)
+}
+func (fs *auditingInspectionFS) Open(path string) (storeInspectionFile, error) {
+	fs.operations = append(fs.operations, "open")
+	return fs.storeInspectionFS.Open(path)
+}
+
+func TestInspectStoreUsesOnlyReadOnlyFilesystemSurface(t *testing.T) {
+	stateDir := t.TempDir()
+	guard, err := BeginLive(context.Background(), stateDir, "apply-audit", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	commitStoredDelete(t, guard, "apply-audit", "capture-audit", "before")
+	spy := &auditingInspectionFS{storeInspectionFS: osStoreInspectionFS{}}
+	storeInspectionFilesystem = spy
+	t.Cleanup(func() { storeInspectionFilesystem = osStoreInspectionFS{} })
+	if _, err := InspectStore(filepath.Join(stateDir, "config-restore", "v1"), true); err != nil {
+		t.Fatal(err)
+	}
+	if len(spy.operations) == 0 {
+		t.Fatal("inspection did not use audited read-only surface")
+	}
+	if err := os.WriteFile(filepath.Join(stateDir, "config-restore", "v1", "transactions", "unknown"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	operations := len(spy.operations)
+	if _, err := InspectStore(filepath.Join(stateDir, "config-restore", "v1"), true); err == nil || len(spy.operations) == operations {
+		t.Fatal("failed inspection did not remain on audited read-only surface")
+	}
+	source, err := os.ReadFile("store_inspect.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"os.WriteFile(", "os.Create(", "os.Mkdir(", "os.Remove(", "os.Rename(", "os.Chtimes(", "os.Chmod("} {
+		if strings.Contains(string(source), forbidden) {
+			t.Fatalf("inspector source contains mutator %q", forbidden)
+		}
+	}
+}
+
 type inspectionTreeEntry struct {
 	mode    os.FileMode
 	modTime int64

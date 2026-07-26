@@ -4,9 +4,9 @@
 package configrestore
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
 
 const (
@@ -72,6 +74,34 @@ type StoreMemberInspection struct {
 	Lineage               StoreLineageInspection
 	LegacyJournalIdentity string
 	LegacyJournalDigest   string
+	actions               []StoreActionInspection
+}
+
+func (m StoreMemberInspection) Actions() []StoreActionInspection {
+	return append([]StoreActionInspection(nil), m.actions...)
+}
+
+// StoreActionInspection records only the durable facts available in a
+// generation journal. Filesystem identities are opaque digests, never paths.
+type StoreActionInspection struct {
+	Index          int
+	Kind           ActionKind
+	Strategy       string
+	SourceDigest   string
+	TargetIdentity string
+	PriorDigest    string
+	DesiredDigest  string
+	PriorKind      StateKind
+	DesiredKind    StateKind
+	Backup         StoreBackupInspection
+}
+
+type StoreBackupInspection struct {
+	Exists   bool
+	Identity string
+	Digest   string
+	Kind     StateKind
+	Mode     uint32
 }
 
 // StoreLineageInspection contains only schema-recorded identity facts.
@@ -97,28 +127,57 @@ func (l StoreLineageInspection) MigrationPath() []string {
 // fails closed when any byte or metadata changes between scans.
 var storeInspectionAfterFirstScan func()
 
+type storeInspectionFile interface {
+	io.Reader
+	Stat() (os.FileInfo, error)
+	Close() error
+}
+
+// storeInspectionFS deliberately has no mutation operations. Tests may
+// replace this private read-only surface to audit every inspector operation.
+type storeInspectionFS interface {
+	Lstat(string) (os.FileInfo, error)
+	ReadDir(string) ([]os.DirEntry, error)
+	Open(string) (storeInspectionFile, error)
+}
+
+type osStoreInspectionFS struct{}
+
+func (osStoreInspectionFS) Lstat(path string) (os.FileInfo, error)        { return os.Lstat(path) }
+func (osStoreInspectionFS) ReadDir(path string) ([]os.DirEntry, error)    { return os.ReadDir(path) }
+func (osStoreInspectionFS) Open(path string) (storeInspectionFile, error) { return os.Open(path) }
+
+var storeInspectionFilesystem storeInspectionFS = osStoreInspectionFS{}
+
 // InspectStore validates the existing config-restore/v1 store without writing
 // to it. exclusiveLease is an explicit caller precondition: a concurrent
 // writer makes the evidence invalid, and passing false is always rejected.
 func InspectStore(root string, exclusiveLease bool) (*StoreInspection, error) {
+	return InspectStoreWithBoundary(root, exclusiveLease, nil)
+}
+
+// InspectStoreWithBoundary resolves projected legacy journal identities under
+// the caller's already-authorized host boundary without acquiring any lock.
+func InspectStoreWithBoundary(root string, exclusiveLease bool, boundary HostBoundary) (*StoreInspection, error) {
 	if !exclusiveLease {
 		return nil, fmt.Errorf("config restore inspection requires an exclusive no-concurrent-writer lease")
 	}
-	if err := validateInspectionRoot(root); err != nil {
+	fs := storeInspectionFilesystem
+	if err := validateInspectionRoot(fs, root); err != nil {
 		return nil, err
 	}
-	before, err := scanStoreInspectionTree(root)
+	before, err := scanStoreInspectionTree(fs, root)
 	if err != nil {
 		return nil, err
 	}
 	if storeInspectionAfterFirstScan != nil {
 		storeInspectionAfterFirstScan()
 	}
-	inspection, err := inspectClosedStore(root)
+	inspection, err := inspectClosedStore(fs, root, boundary)
 	if err != nil {
 		return nil, err
 	}
-	after, err := scanStoreInspectionTree(root)
+	after, err := scanStoreInspectionTree(fs, root)
 	if err != nil {
 		return nil, err
 	}
@@ -128,15 +187,12 @@ func InspectStore(root string, exclusiveLease bool) (*StoreInspection, error) {
 	return inspection, nil
 }
 
-func validateInspectionRoot(root string) error {
+func validateInspectionRoot(fs storeInspectionFS, root string) error {
 	if root == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root ||
 		filepath.Base(root) != "v1" || filepath.Base(filepath.Dir(root)) != "config-restore" {
 		return fmt.Errorf("config restore inspector requires an existing clean config-restore/v1 root")
 	}
-	if err := rejectExistingTargetLinks(root); err != nil {
-		return fmt.Errorf("inspect config restore root: %w", err)
-	}
-	info, err := os.Lstat(root)
+	info, err := fs.Lstat(root)
 	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
 		return fmt.Errorf("config restore inspector requires an existing safe store root")
 	}
@@ -165,7 +221,7 @@ func (tree storeInspectionTree) equal(other storeInspectionTree) bool {
 	return true
 }
 
-func scanStoreInspectionTree(root string) (storeInspectionTree, error) {
+func scanStoreInspectionTree(fs storeInspectionFS, root string) (storeInspectionTree, error) {
 	tree := storeInspectionTree{entries: make(map[string]storeInspectionTreeEntry)}
 	var total int64
 	var visit func(string, int) error
@@ -173,7 +229,7 @@ func scanStoreInspectionTree(root string) (storeInspectionTree, error) {
 		if depth > maxStoreInspectionDepth {
 			return fmt.Errorf("config restore store exceeds inspection depth limit")
 		}
-		info, err := os.Lstat(current)
+		info, err := fs.Lstat(current)
 		if err != nil {
 			return err
 		}
@@ -188,7 +244,7 @@ func scanStoreInspectionTree(root string) (storeInspectionTree, error) {
 		record := storeInspectionTreeEntry{mode: info.Mode(), size: info.Size(), modifiedNS: info.ModTime().UnixNano()}
 		switch {
 		case info.IsDir():
-			entries, err := os.ReadDir(current)
+			entries, err := fs.ReadDir(current)
 			if err != nil {
 				return err
 			}
@@ -208,21 +264,11 @@ func scanStoreInspectionTree(root string) (storeInspectionTree, error) {
 			if info.Size() < 0 || info.Size() > maxStoreInspectionFile || total > maxStoreInspectionBytes-info.Size() {
 				return fmt.Errorf("config restore store exceeds inspection byte limit")
 			}
-			file, err := os.Open(current)
+			read, err := readInspectionBoundedFile(fs, current)
 			if err != nil {
 				return err
 			}
-			hash := sha256.New()
-			_, copyErr := io.Copy(hash, io.LimitReader(file, maxStoreInspectionFile+1))
-			closeErr := file.Close()
-			if copyErr != nil || closeErr != nil {
-				return fmt.Errorf("read config restore store record: %w", firstInspectionError(copyErr, closeErr))
-			}
-			after, err := os.Lstat(current)
-			if err != nil || after.Mode() != info.Mode() || after.Size() != info.Size() || after.ModTime() != info.ModTime() || isLinkOrReparse(after) {
-				return fmt.Errorf("config restore store record changed while scanning")
-			}
-			record.digest = hex.EncodeToString(hash.Sum(nil))
+			record.digest = read.digest
 			total += info.Size()
 			tree.entries[portable] = record
 			if len(tree.entries) > maxStoreInspectionEntries {
@@ -239,6 +285,72 @@ func scanStoreInspectionTree(root string) (storeInspectionTree, error) {
 	return tree, nil
 }
 
+type inspectionRead struct {
+	data   []byte
+	info   os.FileInfo
+	digest string
+}
+
+func readInspectionBoundedFile(fs storeInspectionFS, path string) (inspectionRead, error) {
+	if err := validateInspectionPathNoLinks(fs, path); err != nil {
+		return inspectionRead{}, err
+	}
+	before, err := fs.Lstat(path)
+	if err != nil {
+		return inspectionRead{}, err
+	}
+	if !before.Mode().IsRegular() || isLinkOrReparse(before) || before.Size() < 0 || before.Size() > maxStoreInspectionFile {
+		return inspectionRead{}, fmt.Errorf("config restore record is not a bounded safe regular file")
+	}
+	file, err := fs.Open(path)
+	if err != nil {
+		return inspectionRead{}, err
+	}
+	opened, statErr := file.Stat()
+	if statErr != nil || !opened.Mode().IsRegular() || isLinkOrReparse(opened) || !os.SameFile(before, opened) || opened.Size() != before.Size() {
+		_ = file.Close()
+		return inspectionRead{}, fmt.Errorf("config restore record changed before bounded read")
+	}
+	data, readErr := io.ReadAll(io.LimitReader(file, maxStoreInspectionFile+1))
+	closeErr := file.Close()
+	if readErr != nil || closeErr != nil || int64(len(data)) != before.Size() || len(data) > maxStoreInspectionFile {
+		return inspectionRead{}, fmt.Errorf("read bounded config restore record: %w", firstInspectionError(readErr, closeErr))
+	}
+	after, err := fs.Lstat(path)
+	if err != nil || !after.Mode().IsRegular() || isLinkOrReparse(after) || !os.SameFile(before, after) ||
+		after.Size() != before.Size() || after.Mode() != before.Mode() || after.ModTime() != before.ModTime() {
+		return inspectionRead{}, fmt.Errorf("config restore record changed during bounded read")
+	}
+	digest := sha256.Sum256(data)
+	return inspectionRead{data: data, info: after, digest: hex.EncodeToString(digest[:])}, nil
+}
+
+func validateInspectionPathNoLinks(fs storeInspectionFS, path string) error {
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("inspection path is not clean and absolute")
+	}
+	volume := filepath.VolumeName(path)
+	current := volume + string(filepath.Separator)
+	relative, err := filepath.Rel(current, path)
+	if err != nil || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("inspection path escapes volume root")
+	}
+	for _, component := range strings.Split(relative, string(filepath.Separator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := fs.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if isLinkOrReparse(info) {
+			return fmt.Errorf("inspection path contains link or reparse point")
+		}
+	}
+	return nil
+}
+
 func firstInspectionError(errors ...error) error {
 	for _, err := range errors {
 		if err != nil {
@@ -248,27 +360,27 @@ func firstInspectionError(errors ...error) error {
 	return nil
 }
 
-func inspectClosedStore(root string) (*StoreInspection, error) {
+func inspectClosedStore(fs storeInspectionFS, root string, boundary HostBoundary) (*StoreInspection, error) {
 	transactions := filepath.Join(root, "transactions")
 	legacyMembers := filepath.Join(root, "legacy-members")
 	legacyReverts := filepath.Join(root, "legacy-reverts")
 	legacyWork := filepath.Join(root, "legacy-revert-work")
-	if err := requireInspectionDirectory(root, "transactions", transactions); err != nil {
+	if err := requireInspectionDirectory(fs, root, "transactions", transactions); err != nil {
 		return nil, err
 	}
-	if err := requireInspectionDirectory(root, "legacy-members", legacyMembers); err != nil {
+	if err := requireInspectionDirectory(fs, root, "legacy-members", legacyMembers); err != nil {
 		return nil, err
 	}
-	if err := requireInspectionDirectory(root, "legacy-reverts", legacyReverts); err != nil {
+	if err := requireInspectionDirectory(fs, root, "legacy-reverts", legacyReverts); err != nil {
 		return nil, err
 	}
-	if err := requireInspectionDirectory(root, "legacy-revert-work", legacyWork); err != nil {
+	if err := requireInspectionDirectory(fs, root, "legacy-revert-work", legacyWork); err != nil {
 		return nil, err
 	}
-	if err := requireEmptyInspectionDirectory(legacyWork); err != nil {
+	if err := requireEmptyInspectionDirectory(fs, legacyWork); err != nil {
 		return nil, fmt.Errorf("legacy revert work is incomplete or ambiguous: %w", err)
 	}
-	entries, err := os.ReadDir(root)
+	entries, err := fs.ReadDir(root)
 	if err != nil {
 		return nil, err
 	}
@@ -300,11 +412,11 @@ func inspectClosedStore(root string) (*StoreInspection, error) {
 		return nil
 	}
 
-	transactionCount, err := inspectGenerationTransactions(transactions, add)
+	transactionCount, err := inspectGenerationTransactions(fs, transactions, add)
 	if err != nil {
 		return nil, err
 	}
-	legacyCount, err := inspectLegacyMembers(legacyMembers, legacyReverts, add)
+	legacyCount, err := inspectLegacyMembers(fs, legacyMembers, legacyReverts, boundary, add)
 	if err != nil {
 		return nil, err
 	}
@@ -322,19 +434,19 @@ func inspectClosedStore(root string) (*StoreInspection, error) {
 	return result, nil
 }
 
-func requireInspectionDirectory(root, name, directory string) error {
+func requireInspectionDirectory(fs storeInspectionFS, root, name, directory string) error {
 	if filepath.Dir(directory) != root || filepath.Base(directory) != name {
 		return fmt.Errorf("invalid inspection directory")
 	}
-	info, err := os.Lstat(directory)
+	info, err := fs.Lstat(directory)
 	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
 		return fmt.Errorf("config restore store %q is not a safe directory", name)
 	}
 	return nil
 }
 
-func requireEmptyInspectionDirectory(directory string) error {
-	entries, err := os.ReadDir(directory)
+func requireEmptyInspectionDirectory(fs storeInspectionFS, directory string) error {
+	entries, err := fs.ReadDir(directory)
 	if err != nil {
 		return err
 	}
@@ -345,10 +457,11 @@ func requireEmptyInspectionDirectory(directory string) error {
 }
 
 func inspectGenerationTransactions(
+	fs storeInspectionFS,
 	directory string,
 	add func(string, string, string, StoreMemberInspection) error,
 ) (int, error) {
-	entries, err := os.ReadDir(directory)
+	entries, err := fs.ReadDir(directory)
 	if err != nil {
 		return 0, err
 	}
@@ -357,15 +470,15 @@ func inspectGenerationTransactions(
 			return 0, fmt.Errorf("config restore store has unknown transaction entry %q", entry.Name())
 		}
 		root := filepath.Join(directory, entry.Name())
-		info, err := os.Lstat(root)
+		info, err := fs.Lstat(root)
 		if err != nil || isLinkOrReparse(info) {
 			return 0, fmt.Errorf("config restore transaction %q is unsafe", entry.Name())
 		}
-		descriptor, started, err := readStoredTransactionDescriptor(root)
+		descriptor, started, err := readInspectionTransactionDescriptor(fs, root)
 		if err != nil {
 			return 0, fmt.Errorf("inspect transaction %q descriptor: %w", entry.Name(), err)
 		}
-		intent, err := ReadJournalIntent(context.Background(), root)
+		intent, err := readInspectionJournalIntent(fs, root)
 		if err != nil {
 			return 0, fmt.Errorf("inspect transaction %q intent: %w", entry.Name(), err)
 		}
@@ -374,21 +487,25 @@ func inspectGenerationTransactions(
 			return 0, fmt.Errorf("config restore transaction %q descriptor differs from intent lineage", entry.Name())
 		}
 		terminalPath := journalMarkerPath(filepath.Join(root, "journal"), JournalCommitted, intent.Digest())
-		terminal, err := readJournalMarkerFile(root, terminalPath, intent)
+		terminal, err := readInspectionJournalMarker(fs, root, terminalPath, intent)
 		if err != nil {
 			return 0, fmt.Errorf("config restore transaction %q is pending or has invalid terminal marker: %w", entry.Name(), err)
 		}
 		if terminal.State() != JournalCommitted {
 			return 0, fmt.Errorf("config restore transaction %q is rolled back or ambiguous", entry.Name())
 		}
-		if err := requireCanonicalTransactionLayout(root, intent.Digest()); err != nil {
+		if err := requireCanonicalTransactionLayout(fs, root, intent.Digest()); err != nil {
 			return 0, fmt.Errorf("config restore transaction %q layout: %w", entry.Name(), err)
 		}
 		reverted, revertDigest, err := inspectMemberRevert(
-			filepath.Join(root, "reverted.json"), StoreMemberGeneration, descriptor.TransactionID, terminal.Digest(),
+			fs, filepath.Join(root, "reverted.json"), StoreMemberGeneration, descriptor.TransactionID, terminal.Digest(),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("config restore transaction %q revert: %w", entry.Name(), err)
+		}
+		actions, err := inspectionJournalActions(fs, root, intent.Actions())
+		if err != nil {
+			return 0, fmt.Errorf("config restore transaction %q actions: %w", entry.Name(), err)
 		}
 		member := StoreMemberInspection{
 			Kind: StoreMemberGeneration, ID: descriptor.TransactionID, Ordinal: descriptor.MutationOrdinal,
@@ -397,6 +514,7 @@ func inspectGenerationTransactions(
 			ValidationStatus: terminal.ValidationStatus(), RollbackOutcome: terminal.RollbackOutcome(),
 			Reverted: reverted, RevertDigest: revertDigest, HasLineage: true,
 			Lineage: inspectionLineage(lineage),
+			actions: actions,
 		}
 		if err := add(descriptor.RestoreRunID, descriptor.RunID, started.UTC().Format(time.RFC3339Nano), member); err != nil {
 			return 0, err
@@ -405,8 +523,8 @@ func inspectGenerationTransactions(
 	return len(entries), nil
 }
 
-func requireCanonicalTransactionLayout(root, intentDigest string) error {
-	entries, err := os.ReadDir(root)
+func requireCanonicalTransactionLayout(fs storeInspectionFS, root, intentDigest string) error {
+	entries, err := fs.ReadDir(root)
 	if err != nil {
 		return err
 	}
@@ -416,7 +534,7 @@ func requireCanonicalTransactionLayout(root, intentDigest string) error {
 			return fmt.Errorf("unknown entry %q", entry.Name())
 		}
 		path := filepath.Join(root, entry.Name())
-		info, err := os.Lstat(path)
+		info, err := fs.Lstat(path)
 		if err != nil || isLinkOrReparse(info) {
 			return fmt.Errorf("unsafe entry %q", entry.Name())
 		}
@@ -424,14 +542,14 @@ func requireCanonicalTransactionLayout(root, intentDigest string) error {
 			return fmt.Errorf("entry %q has wrong file type", entry.Name())
 		}
 	}
-	if err := requireCanonicalJournalLayout(filepath.Join(root, "journal"), intentDigest); err != nil {
+	if err := requireCanonicalJournalLayout(fs, filepath.Join(root, "journal"), intentDigest); err != nil {
 		return err
 	}
 	return nil
 }
 
-func requireCanonicalJournalLayout(directory, intentDigest string) error {
-	entries, err := os.ReadDir(directory)
+func requireCanonicalJournalLayout(fs storeInspectionFS, directory, intentDigest string) error {
+	entries, err := fs.ReadDir(directory)
 	if err != nil {
 		return err
 	}
@@ -443,7 +561,7 @@ func requireCanonicalJournalLayout(directory, intentDigest string) error {
 		if entry.Name() != "intent.json" && entry.Name() != expectedTerminal {
 			return fmt.Errorf("journal contains unknown entry %q", entry.Name())
 		}
-		info, err := os.Lstat(filepath.Join(directory, entry.Name()))
+		info, err := fs.Lstat(filepath.Join(directory, entry.Name()))
 		if err != nil || !info.Mode().IsRegular() || isLinkOrReparse(info) {
 			return fmt.Errorf("journal entry %q is not a safe regular file", entry.Name())
 		}
@@ -451,11 +569,198 @@ func requireCanonicalJournalLayout(directory, intentDigest string) error {
 	return nil
 }
 
+func readInspectionTransactionDescriptor(fs storeInspectionFS, root string) (transactionDescriptorDisk, time.Time, error) {
+	read, err := readInspectionBoundedFile(fs, filepath.Join(root, "transaction.json"))
+	if err != nil {
+		return transactionDescriptorDisk{}, time.Time{}, err
+	}
+	disk, _, err := decodeTransactionDescriptor(read.data)
+	if err != nil || disk.TransactionID != filepath.Base(root) {
+		return transactionDescriptorDisk{}, time.Time{}, fmt.Errorf("invalid transaction descriptor")
+	}
+	started, err := time.Parse(time.RFC3339Nano, disk.RunStartedAtUTC)
+	return disk, started, err
+}
+
+func readInspectionJournalIntent(fs storeInspectionFS, root string) (*JournalIntent, error) {
+	path := filepath.Join(root, "journal", "intent.json")
+	read, err := readInspectionBoundedFile(fs, path)
+	if err != nil {
+		return nil, err
+	}
+	disk, err := decodeJournalIntent(read.data)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateJournalLineage(disk.Lineage); err != nil {
+		return nil, err
+	}
+	if err := validateJournalActions(root, disk.Actions); err != nil {
+		return nil, err
+	}
+	if err := validateJournalValidations(root, disk.Actions, disk.Validations); err != nil {
+		return nil, err
+	}
+	if err := verifyInspectionSnapshotLayout(fs, root, disk.Actions); err != nil {
+		return nil, err
+	}
+	if _, err := inspectionJournalActions(fs, root, disk.Actions); err != nil {
+		return nil, err
+	}
+	return intentFromDisk(root, path, disk), nil
+}
+
+func verifyInspectionSnapshotLayout(fs storeInspectionFS, root string, actions []JournalAction) error {
+	snapshotRoot := filepath.Join(root, "snapshots")
+	entries, err := fs.ReadDir(snapshotRoot)
+	if err != nil || len(entries) != len(actions) {
+		return fmt.Errorf("snapshot layout is not canonical")
+	}
+	for index, action := range actions {
+		name := formatActionIndex(index)
+		if entries[index].Name() != name || !entries[index].IsDir() {
+			return fmt.Errorf("snapshot action layout is not canonical")
+		}
+		actionRoot := filepath.Join(snapshotRoot, name)
+		members, err := fs.ReadDir(actionRoot)
+		if err != nil {
+			return err
+		}
+		if action.Prior.Kind == StateAbsent {
+			if len(members) != 0 {
+				return fmt.Errorf("absent snapshot has artifacts")
+			}
+			continue
+		}
+		want := "prior"
+		if action.Kind == ActionRegistrySet {
+			want = "prior.registry"
+		}
+		if len(members) != 1 || members[0].Name() != want || members[0].IsDir() {
+			return fmt.Errorf("snapshot backup layout is not canonical")
+		}
+	}
+	return nil
+}
+
+func readInspectionJournalMarker(fs storeInspectionFS, root, path string, intent *JournalIntent) (*JournalMarker, error) {
+	read, err := readInspectionBoundedFile(fs, path)
+	if err != nil {
+		return nil, err
+	}
+	disk, err := decodeJournalMarker(read.data)
+	if err != nil || disk.IntentDigest != intent.Digest() || path != journalMarkerPath(filepath.Join(root, "journal"), disk.State, disk.IntentDigest) {
+		return nil, fmt.Errorf("invalid journal terminal marker")
+	}
+	return markerFromDisk(root, path, disk, intent), nil
+}
+
+func inspectionJournalActions(fs storeInspectionFS, root string, actions []JournalAction) ([]StoreActionInspection, error) {
+	result := make([]StoreActionInspection, len(actions))
+	for index, action := range actions {
+		item := StoreActionInspection{Index: action.Index, Kind: action.Kind, Strategy: action.Strategy, SourceDigest: action.SourceDigest,
+			TargetIdentity: opaqueInspectionIdentity(action.Target), PriorDigest: action.Prior.Digest, DesiredDigest: action.Desired.Digest,
+			PriorKind: action.Prior.Kind, DesiredKind: action.Desired.Kind}
+		backup, err := inspectActionBackup(fs, root, action)
+		if err != nil {
+			return nil, fmt.Errorf("action[%d] backup: %w", index, err)
+		}
+		item.Backup = backup
+		result[index] = item
+	}
+	return result, nil
+}
+
+func inspectActionBackup(fs storeInspectionFS, root string, action JournalAction) (StoreBackupInspection, error) {
+	if action.Prior.Kind == StateAbsent {
+		return StoreBackupInspection{}, nil
+	}
+	path := action.Prior.BackupPath
+	if path == "" {
+		return StoreBackupInspection{}, fmt.Errorf("missing prior backup path")
+	}
+	backup := StoreBackupInspection{Exists: true, Identity: opaqueInspectionIdentity(path), Kind: action.Prior.Kind, Mode: action.Prior.Mode}
+	if action.Kind == ActionRegistrySet {
+		read, err := readInspectionBoundedFile(fs, path)
+		if err != nil {
+			return StoreBackupInspection{}, err
+		}
+		var snapshot registrySnapshot
+		if err := json.Unmarshal(read.data, &snapshot); err != nil || snapshot.Key != action.RegistryKey || snapshot.ValueName != action.RegistryValueName ||
+			snapshot.Exists != (action.Prior.Kind == StateRegistryValue) || digestRegistrySnapshot(snapshot) != action.Prior.Digest {
+			return StoreBackupInspection{}, fmt.Errorf("registry backup differs from journal")
+		}
+		backup.Digest = action.Prior.Digest
+		return backup, nil
+	}
+	state, err := scanInspectionFilesystemState(fs, path)
+	if err != nil || state.Digest != action.Prior.Digest || uint32(state.Mode.Perm()) != action.Prior.Mode {
+		return StoreBackupInspection{}, fmt.Errorf("filesystem backup differs from journal: %w", err)
+	}
+	backup.Digest, backup.Kind, backup.Mode = state.Digest, state.Kind, uint32(state.Mode.Perm())
+	return backup, nil
+}
+
+func scanInspectionFilesystemState(fs storeInspectionFS, root string) (filesystemState, error) {
+	info, err := fs.Lstat(root)
+	if os.IsNotExist(err) {
+		return absentFilesystemState(), nil
+	}
+	if err != nil || isLinkOrReparse(info) {
+		return filesystemState{}, fmt.Errorf("unsafe snapshot path")
+	}
+	entries := map[string]filesystemEntry{}
+	var visit func(string, string) error
+	visit = func(path, relative string) error {
+		entry, err := fs.Lstat(path)
+		if err != nil || isLinkOrReparse(entry) {
+			return fmt.Errorf("unsafe snapshot entry")
+		}
+		portable := filepath.ToSlash(relative)
+		switch {
+		case entry.Mode().IsRegular():
+			read, err := readInspectionBoundedFile(fs, path)
+			if err != nil {
+				return err
+			}
+			entries[portable] = filesystemEntry{Path: portable, Kind: StateFile, Mode: entry.Mode().Perm(), Size: entry.Size(), ContentHash: read.digest}
+		case entry.IsDir():
+			entries[portable] = filesystemEntry{Path: portable, Kind: StateDirectory, Mode: entry.Mode().Perm()}
+			children, err := fs.ReadDir(path)
+			if err != nil {
+				return err
+			}
+			for _, child := range children {
+				if err := visit(filepath.Join(path, child.Name()), filepath.Join(relative, child.Name())); err != nil {
+					return err
+				}
+			}
+		default:
+			return fmt.Errorf("unsupported snapshot special file")
+		}
+		return nil
+	}
+	if err := visit(root, "."); err != nil {
+		return filesystemState{}, err
+	}
+	rootEntry := entries["."]
+	state := filesystemState{Kind: rootEntry.Kind, Mode: rootEntry.Mode, Entries: entries}
+	state.Digest = digestFilesystemState(state)
+	return state, nil
+}
+
+func opaqueInspectionIdentity(value string) string {
+	digest := sha256.Sum256([]byte(value))
+	return "sha256:" + hex.EncodeToString(digest[:])
+}
+
 func inspectLegacyMembers(
+	fs storeInspectionFS,
 	membersDirectory, revertsDirectory string,
+	boundary HostBoundary,
 	add func(string, string, string, StoreMemberInspection) error,
 ) (int, error) {
-	entries, err := os.ReadDir(membersDirectory)
+	entries, err := fs.ReadDir(membersDirectory)
 	if err != nil {
 		return 0, err
 	}
@@ -467,7 +772,7 @@ func inspectLegacyMembers(
 			return 0, fmt.Errorf("config restore store has unknown legacy member entry %q", entry.Name())
 		}
 		path := filepath.Join(membersDirectory, entry.Name())
-		data, _, err := readInspectionRegularFile(path)
+		data, _, err := readInspectionRegularFile(fs, path)
 		if err != nil {
 			return 0, err
 		}
@@ -475,8 +780,16 @@ func inspectLegacyMembers(
 		if err != nil || disk.MemberID != id {
 			return 0, fmt.Errorf("config restore legacy member %q is invalid", id)
 		}
-		if !strings.HasPrefix(disk.JournalPath, "$ENDSTATE_ROOT/logs/") {
-			return 0, fmt.Errorf("config restore legacy member %q has no portable journal identity", id)
+		journalPath, journalIdentity, err := resolveInspectionLegacyJournal(fs, disk.JournalPath, boundary)
+		if err != nil {
+			return 0, fmt.Errorf("config restore legacy member %q journal identity: %w", id, err)
+		}
+		journal, err := inspectLegacyJournal(fs, journalPath, disk.JournalDigest)
+		if err != nil {
+			return 0, fmt.Errorf("config restore legacy member %q journal: %w", id, err)
+		}
+		if journal.RunID != disk.RunID {
+			return 0, fmt.Errorf("config restore legacy member %q journal run differs", id)
 		}
 		identity := disk.JournalPath + "\x00" + disk.JournalDigest
 		if _, duplicate := journalIdentities[identity]; duplicate {
@@ -485,7 +798,7 @@ func inspectLegacyMembers(
 		journalIdentities[identity] = struct{}{}
 		memberByID[id] = disk
 		reverted, revertDigest, err := inspectMemberRevert(
-			filepath.Join(revertsDirectory, id+".json"), StoreMemberLegacy, id, disk.MemberDigest,
+			fs, filepath.Join(revertsDirectory, id+".json"), StoreMemberLegacy, id, disk.MemberDigest,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("config restore legacy member %q revert: %w", id, err)
@@ -493,13 +806,13 @@ func inspectLegacyMembers(
 		member := StoreMemberInspection{
 			Kind: StoreMemberLegacy, ID: id, Ordinal: disk.MutationOrdinal, MemberDigest: disk.MemberDigest,
 			Reverted: reverted, RevertDigest: revertDigest,
-			LegacyJournalIdentity: disk.JournalPath, LegacyJournalDigest: disk.JournalDigest,
+			LegacyJournalIdentity: journalIdentity, LegacyJournalDigest: disk.JournalDigest,
 		}
 		if err := add(disk.RestoreRunID, disk.RunID, started.UTC().Format(time.RFC3339Nano), member); err != nil {
 			return 0, err
 		}
 	}
-	if err := requireCanonicalLegacyReverts(revertsDirectory, memberByID); err != nil {
+	if err := requireCanonicalLegacyReverts(fs, revertsDirectory, memberByID); err != nil {
 		return 0, err
 	}
 	return len(entries), nil
@@ -513,8 +826,8 @@ func inspectionRecordID(name string) (string, bool) {
 	return id, isOpaqueStoreID(id)
 }
 
-func requireCanonicalLegacyReverts(directory string, members map[string]legacyMemberDisk) error {
-	entries, err := os.ReadDir(directory)
+func requireCanonicalLegacyReverts(fs storeInspectionFS, directory string, members map[string]legacyMemberDisk) error {
+	entries, err := fs.ReadDir(directory)
 	if err != nil {
 		return err
 	}
@@ -527,15 +840,15 @@ func requireCanonicalLegacyReverts(directory string, members map[string]legacyMe
 		if !exists {
 			return fmt.Errorf("config restore store has orphan legacy revert %q", entry.Name())
 		}
-		if _, _, err := inspectMemberRevert(filepath.Join(directory, entry.Name()), StoreMemberLegacy, id, member.MemberDigest); err != nil {
+		if _, _, err := inspectMemberRevert(fs, filepath.Join(directory, entry.Name()), StoreMemberLegacy, id, member.MemberDigest); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func inspectMemberRevert(path string, kind StoreMemberKind, id, sourceDigest string) (bool, string, error) {
-	data, exists, err := readInspectionRegularFile(path)
+func inspectMemberRevert(fs storeInspectionFS, path string, kind StoreMemberKind, id, sourceDigest string) (bool, string, error) {
+	data, exists, err := readInspectionRegularFile(fs, path)
 	if os.IsNotExist(err) {
 		return false, "", nil
 	}
@@ -549,16 +862,72 @@ func inspectMemberRevert(path string, kind StoreMemberKind, id, sourceDigest str
 	return true, disk.RevertDigest, nil
 }
 
-func readInspectionRegularFile(path string) ([]byte, bool, error) {
-	info, err := os.Lstat(path)
+func readInspectionRegularFile(fs storeInspectionFS, path string) ([]byte, bool, error) {
+	info, err := fs.Lstat(path)
 	if os.IsNotExist(err) {
 		return nil, false, err
 	}
 	if err != nil || !info.Mode().IsRegular() || isLinkOrReparse(info) {
 		return nil, false, fmt.Errorf("config restore record is not a safe regular file")
 	}
-	data, err := os.ReadFile(path)
-	return data, true, err
+	read, err := readInspectionBoundedFile(fs, path)
+	return read.data, true, err
+}
+
+func resolveInspectionLegacyJournal(fs storeInspectionFS, identity string, boundary HostBoundary) (string, string, error) {
+	path := identity
+	if !filepath.IsAbs(path) {
+		if boundary == nil {
+			return "", "", fmt.Errorf("projected journal requires a host boundary")
+		}
+		var err error
+		path, err = boundary.ResolveFilesystemIdentity(identity)
+		if err != nil || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return "", "", fmt.Errorf("cannot resolve projected journal")
+		}
+		if err := boundary.ValidateFilesystemTarget(path); err != nil {
+			return "", "", err
+		}
+	}
+	if filepath.Clean(path) != path || containsControl(path) {
+		return "", "", fmt.Errorf("journal path is not clean")
+	}
+	if _, err := readInspectionBoundedFile(fs, path); err != nil {
+		return "", "", err
+	}
+	projected := ""
+	if boundary != nil {
+		if value, err := boundary.ProjectFilesystemIdentity(path); err == nil && value != "" && !filepath.IsAbs(value) {
+			projected = value
+		}
+	}
+	if projected == "" {
+		projected = opaqueInspectionIdentity(path)
+	}
+	return path, projected, nil
+}
+
+func inspectLegacyJournal(fs storeInspectionFS, path, digest string) (*restore.Journal, error) {
+	read, err := readInspectionBoundedFile(fs, path)
+	if err != nil {
+		return nil, err
+	}
+	if read.digest != digest {
+		return nil, fmt.Errorf("registered journal digest changed")
+	}
+	journal, err := restore.ParseJournal(read.data)
+	if err != nil || journal.RunID == "" || journal.RunID != strings.TrimSpace(journal.RunID) || containsControl(journal.RunID) {
+		return nil, fmt.Errorf("legacy journal is malformed")
+	}
+	if len(journal.Entries) > maxStoreInspectionEntries {
+		return nil, fmt.Errorf("legacy journal exceeds inspection entry limit")
+	}
+	for index, entry := range journal.Entries {
+		if entry.Action == "" || entry.Action != strings.TrimSpace(entry.Action) || containsControl(entry.Action) || containsControl(entry.TargetPath) || containsControl(entry.ResolvedSourcePath) {
+			return nil, fmt.Errorf("legacy journal action[%d] is malformed", index)
+		}
+	}
+	return journal, nil
 }
 
 func inspectionLineage(lineage JournalLineage) StoreLineageInspection {
