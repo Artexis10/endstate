@@ -14,6 +14,7 @@ const (
 	ErrManifestWriteFailed        ErrorCode = "MANIFEST_WRITE_FAILED"
 	ErrPlanNotFound               ErrorCode = "PLAN_NOT_FOUND"
 	ErrPlanParseError             ErrorCode = "PLAN_PARSE_ERROR"
+	ErrCatalogPlanInvalid         ErrorCode = "CATALOG_PLAN_INVALID"
 	ErrWingetNotAvailable         ErrorCode = "WINGET_NOT_AVAILABLE"
 	ErrRealizerUnavailable        ErrorCode = "REALIZER_UNAVAILABLE"
 	ErrEngineCLINotFound          ErrorCode = "ENGINE_CLI_NOT_FOUND"

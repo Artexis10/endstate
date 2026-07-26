@@ -34,6 +34,7 @@ Commands:
   verify          Verify machine state against manifest
   capture         Capture current machine state
   plan            Generate execution plan
+  catalog-plan    Resolve one tracked catalog bundle
   restore         Restore configuration files
   revert          Revert last restore operation
   export-config   Export configuration files from system
@@ -56,6 +57,7 @@ Global flags:
 Per-command flags:
   --manifest <path>    Path to manifest file (apply, verify, plan, capture, restore)
                        Alias: --profile <path> (apply, verify, plan)
+  --bundle <path>      Tracked bundle path (catalog-plan)
   --dry-run            Preview changes without applying them (apply, restore)
   --enable-restore     Enable restore operations during apply, and home-manager config rollback (opt-in)
   --out <path>         Output file path (capture)
@@ -123,6 +125,8 @@ type parsedArgs struct {
 
 	// Per-command flags
 	manifest       string
+	bundle         string
+	bundleMissingValue bool
 	dryRun         bool
 	enableRestore  bool
 	export         string   // --export <path>
@@ -296,6 +300,13 @@ func parseArgs(args []string) parsedArgs {
 				p.manifest = args[i+1]
 				i++
 			}
+		case "--bundle":
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				p.bundle = args[i+1]
+				i++
+			} else {
+				p.bundleMissingValue = true
+			}
 		case "--out", "-Out":
 			if i+1 < len(args) {
 				p.out = args[i+1]
@@ -424,6 +435,8 @@ func commandUsage(cmd string) string {
 		return "Usage: endstate capture [--only <id[,id...]>] [--share] [--discover] [--sanitize] [--name <name>] [--out <path>] [--profile <name>] [--manifest <path>] [--update] [--include-runtimes] [--include-store-apps] [--exclude-store-apps] [--minimize] [--pin] [--driver <name>]... [--json] [--events jsonl]\n\nCapture current machine state. Microsoft Store apps are included by default; --include-store-apps is a deprecated compatibility no-op and --exclude-store-apps wins when both are supplied. Repeat --driver to select more than one package driver. With --only, capture just the listed items: a bare id selects a detected app, an 'apps.'-prefixed id selects a config module (e.g. --only git-git,apps.vscode). Under --only, a config module attaches only when a selected app matches it by package reference or the module is named outright, so unselected apps' settings are never bundled. Combining --only with --update adds the selection to an existing manifest rather than truncating it. With --share, the bundle is produced for someone else: config restore prefers merging onto the recipient's existing settings rather than replacing them, and the capturing machine name is omitted. --share requires --only and cannot be combined with --sanitize.\n"
 	case "plan":
 		return "Usage: endstate plan --manifest <path> [--json] [--events jsonl]\n\nGenerate execution plan.\n"
+	case "catalog-plan":
+		return "Usage: endstate catalog-plan --bundle <tracked-bundle-path> [--json] [--events jsonl]\n\nResolve one tracked catalog bundle into ordered module actions without package installation or mutation.\n"
 	case "restore":
 		return "Usage: endstate restore [--manifest <path>] [--enable-restore] [--dry-run] [--export <path>] [--restore-filter <expr>] [--restore-target <captureId>=<targetInstanceId>] [--json] [--events jsonl]\n\nRestore configuration files. --restore-target is repeatable and selects a detected target instance for one generation-aware capture; --restore-filter remains the module-level filter and takes precedence.\n"
 	case "revert":
@@ -468,6 +481,7 @@ var validationModeCommands = map[string]struct{}{
 var knownCommands = map[string]struct{}{
 	"capabilities": {}, "apply": {}, "rebuild": {}, "import": {}, "verify": {},
 	"capture": {}, "plan": {}, "report": {}, "generations": {}, "rollback": {},
+	"catalog-plan": {},
 	"doctor": {}, "profile": {}, "restore": {}, "revert": {}, "export-config": {},
 	"validate-export": {}, "bootstrap": {}, "backup": {}, "account": {}, "schedule": {},
 }
@@ -832,6 +846,18 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 		return commands.RunPlan(commands.PlanFlags{
 			Manifest: p.manifest,
 			Events:   p.events,
+		})
+
+	case "catalog-plan":
+		if p.bundleMissingValue || p.bundle == "" {
+			return nil, envelope.NewError(
+				envelope.ErrCatalogPlanInvalid,
+				"--bundle requires a tracked bundle path.").
+				WithRemediation("Provide a path such as bundles/dev-tools.jsonc.")
+		}
+		return commands.RunCatalogPlan(commands.CatalogPlanFlags{
+			Bundle: p.bundle,
+			Events: p.events,
 		})
 
 	case "report":

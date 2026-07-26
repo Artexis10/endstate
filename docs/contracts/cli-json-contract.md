@@ -223,6 +223,10 @@ endstate capabilities --json
         "supported": true,
         "flags": ["--manifest", "--json", "--events"]
       },
+      "catalog-plan": {
+        "supported": true,
+        "flags": ["--bundle", "--json", "--events"]
+      },
       "restore": {
         "supported": true,
         "flags": ["--manifest", "--restore-filter", "--restore-target", "--json", "--events"]
@@ -278,6 +282,30 @@ endstate capabilities --json
 | `bootstrapTimestamp` | string\|null | Yes | ISO 8601 UTC timestamp of last bootstrap, or `null` if not bootstrapped |
 
 > **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the supported package backends in deterministic registry order. Windows reports `{ "os": "windows", "drivers": ["winget", "chocolatey"] }`; Winget remains its default. Linux reports the Nix realizer, and macOS reports Nix plus the additive Brew driver. On a host with no implemented backend, `drivers` is an empty array (`[]`). Consumers MUST NOT infer that every advertised optional driver is currently installed.
+
+---
+
+## Command: `catalog-plan`
+
+Resolves exactly one tracked immediate child of `bundles/` through the strict production module and validation-sidecar catalog. It is read-only and emits only `catalog` proof; it never chooses a package reference, creates an app declaration, or runs install, restore, or verification work.
+
+```powershell
+endstate catalog-plan --bundle bundles/dev-tools.jsonc --json --events jsonl
+```
+
+`data` has this stable shape:
+
+```json
+{
+  "proof": "catalog",
+  "bundle": {"id":"dev-tools","name":"Development Tools","path":"bundles/dev-tools.jsonc","hash":"<sha256>","version":1},
+  "membershipCount": 2,
+  "actionCount": 2,
+  "actions": [{"bundleId":"dev-tools","bundleHash":"<sha256>","moduleId":"apps.git","moduleRevision":"<sha256>","moduleSchemaVersion":1,"validationHash":"<sha256>","validationScenarioCount":1,"status":"resolved","skipped":false}]
+}
+```
+
+Actions are in authored membership order. `actionCount` equals `membershipCount` and both are nonzero on success. `bundle.path` is repository-relative; absolute host or repository paths are never serialized.
 
 ---
 

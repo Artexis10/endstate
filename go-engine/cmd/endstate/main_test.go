@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -627,6 +628,51 @@ func TestParseArgs_CaptureRepeatableDriver(t *testing.T) {
 	got := parseArgs([]string{"capture", "--driver", "winget", "--driver", "chocolatey", "--json"})
 	if want := []string{"winget", "chocolatey"}; !reflect.DeepEqual(got.drivers, want) {
 		t.Fatalf("drivers = %v, want %v", got.drivers, want)
+	}
+}
+
+func TestCatalogPlanCLIForwardsTrackedBundleAndEmitsEnvelopeEvents(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
+	t.Setenv("ENDSTATE_ROOT", root)
+
+	parsed := parseArgs([]string{"catalog-plan", "--bundle", "bundles/dev-tools.jsonc", "--json", "--events", "jsonl"})
+	if parsed.bundle != "bundles/dev-tools.jsonc" {
+		t.Fatalf("bundle = %q", parsed.bundle)
+	}
+	if !strings.Contains(commandUsage("catalog-plan"), "--bundle <tracked-bundle-path>") || !strings.Contains(usageText, "catalog-plan") {
+		t.Fatal("catalog-plan help is incomplete")
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"catalog-plan", "--bundle", "bundles/dev-tools.jsonc", "--json", "--events", "jsonl"}, &stdout, &stderr); code != 0 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	env := decodeCLIEnvelope(t, stdout.String())
+	if env["command"] != "catalog-plan" || env["success"] != true {
+		t.Fatalf("envelope = %s", stdout.String())
+	}
+	data := env["data"].(map[string]interface{})
+	if data["proof"] != "catalog" || data["actionCount"] != data["membershipCount"] || data["actionCount"].(float64) == 0 {
+		t.Fatalf("data = %#v", data)
+	}
+}
+
+func TestCatalogPlanCLIRejectsMissingBundleArgument(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"catalog-plan", "--bundle", "--json"}, &stdout, &stderr); code != 1 {
+		t.Fatalf("exit = %d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+	env := decodeCLIEnvelope(t, stdout.String())
+	if env["success"] != false {
+		t.Fatalf("envelope = %s", stdout.String())
+	}
+	err := env["error"].(map[string]interface{})
+	if err["code"] != string(envelope.ErrCatalogPlanInvalid) {
+		t.Fatalf("error = %#v", err)
 	}
 }
 

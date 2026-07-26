@@ -117,6 +117,10 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 				Supported: true,
 				Flags:     []string{"--manifest", "--json", "--events"},
 			},
+			"catalog-plan": {
+				Supported: true,
+				Flags:     []string{"--bundle", "--json", "--events"},
+			},
 			"restore": {
 				Supported: true,
 				Flags:     []string{"--manifest", "--restore-filter", "--restore-target", "--json", "--events"},

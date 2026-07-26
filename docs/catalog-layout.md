@@ -68,7 +68,8 @@ Endstate organizes configuration portability through three artifact types:
 **Characteristics:**
 - Bundles reference modules by ID
 - No overrides or customization in v1
-- Bundles simplify multi-module workflows
+- `endstate catalog-plan --bundle bundles/<id>.jsonc --json --events jsonl` strictly resolves one tracked bundle into ordered catalog-module actions
+- The command is read-only and catalog-only: it does not install packages, synthesize manifest apps, or execute restore/verify work
 
 ---
 
@@ -78,26 +79,13 @@ Endstate organizes configuration portability through three artifact types:
 
 **Purpose:** Executable specifications consumed by the Endstate engine.
 
-**Schema (v1 with catalog support):**
+**Schema (v1):**
 ```jsonc
 {
   "version": 1,
   "name": "string",
   "captured": "ISO8601",
   "apps": [],
-  
-  // Optional: Reference bundles from ./bundles/
-  "bundles": [
-    "bundle-id-1",
-    "bundle-id-2"
-  ],
-  
-  // Optional: Reference modules from ./modules/apps/
-  "modules": [
-    "msi-afterburner",
-    "powertoys"
-  ],
-  
   // Optional: Inline restore entries
   "restore": [
     {
@@ -114,42 +102,15 @@ Endstate organizes configuration portability through three artifact types:
 
 **Characteristics:**
 - Manifests are what the engine executes
-- Manifests can reference bundles, modules, or contain inline restore entries
-- All three approaches can be combined in a single manifest
+- Manifest `bundles` and `modules` composition is not implemented by the ordinary manifest planner
+- Use `catalog-plan` to validate a tracked bundle; explicit app and restore declarations remain the executable manifest authority
 - Manifests live in `./manifests/examples/` (examples) or `./manifests/local/` (user-specific)
-
-**Restore Entry Resolution Order:**
-
-When a manifest contains `bundles`, `modules`, and/or inline `restore` entries, the engine expands them in the following order:
-
-1. **Bundle modules** (in bundle order, module order within each bundle)
-2. **Manifest modules** (in order)
-3. **Manifest inline restore[]** (appended last)
-
-This ordering ensures predictable behavior and allows manifests to override or extend bundle/module configurations.
-
-**Example:**
-```jsonc
-{
-  "version": 1,
-  "name": "my-setup",
-  "bundles": ["core-utilities"],  // Expands to msi-afterburner + powertoys
-  "modules": ["custom-app"],      // Adds custom-app restore entries
-  "restore": [                    // Adds final inline entry
-    { "type": "copy", "source": "./configs/override.cfg", ... }
-  ]
-}
-```
-
-**Error Handling:**
-- If a referenced bundle or module file does not exist, the engine fails with a clear error message
-- If a module exists but has no restore entries, it is treated as empty (no error)
 
 ---
 
 ## Current State
 
-**Engine behavior:** The engine supports module and bundle references in manifests. Catalogs are resolved at manifest load time and expanded into a single restore[] array.
+**Engine behavior:** The engine resolves a tracked bundle only through `catalog-plan`. Ordinary manifest planning does not expand `bundles` or `modules` fields.
 
 **Architecture:** Modules under `modules/apps/*/module.jsonc` are the single source of truth for app configuration.
 
