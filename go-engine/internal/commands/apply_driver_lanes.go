@@ -98,6 +98,7 @@ func runApplyDriverLanes(
 	}
 
 	detections := detectPackageDriverLanes(lanes)
+	inventory := readARPInventoryFn()
 	planEntries := make([]packageAppPlan, 0, len(routed))
 	presentCount, toInstallCount, planSkipped, planFailed := 0, 0, 0, 0
 
@@ -171,7 +172,8 @@ func runApplyDriverLanes(
 			entry.displayName = displayName
 			entry.action.Name = displayName
 		}
-		entry.action.Version = version
+		presence := observeAppPresence(installed, version, app, inventory)
+		entry.action.Version = presence.Version
 
 		if entry.detectErr != nil {
 			entry.action.Status = driver.StatusFailed
@@ -179,13 +181,13 @@ func runApplyDriverLanes(
 			entry.action.Message = entry.detectErr.Error()
 			planFailed++
 			emitter.EmitItem(route.ref, route.driverName, driver.StatusFailed, driver.ReasonInstallFailed, entry.action.Message, entry.displayName)
-		} else if installed {
+		} else if presence.Present {
 			entry.action.Status = driver.StatusPresent
 			entry.action.Reason = driver.ReasonAlreadyInstalled
-			if flags.Repin && app.Version != "" && version != "" && strings.TrimSpace(version) != strings.TrimSpace(app.Version) {
+			if flags.Repin && app.Version != "" && presence.Version != "" && presence.Version != strings.TrimSpace(app.Version) {
 				entry.repin = true
 				entry.action.Reason = driver.ReasonVersionDrift
-				entry.action.Message = fmt.Sprintf("Version drift: installed %s, want %s", version, app.Version)
+				entry.action.Message = fmt.Sprintf("Version drift: installed %s, want %s", presence.Version, app.Version)
 				emitter.EmitItem(route.ref, route.driverName, driver.StatusPresent, driver.ReasonVersionDrift, entry.action.Message, entry.displayName)
 			} else {
 				entry.action.Message = "Already installed"
@@ -235,6 +237,7 @@ func runApplyDriverLanes(
 	}
 
 	successCount, skippedCount, failedCount := 0, 0, 0
+	mutated := false
 	if !flags.DryRun {
 		emitter.EmitPhase("apply")
 		for i, entry := range planEntries {
@@ -268,6 +271,7 @@ func runApplyDriverLanes(
 					continue
 				}
 				emitter.EmitItem(route.ref, route.driverName, "installing", "", fmt.Sprintf("Re-pinning %s to %s", route.ref, route.app.Version), entry.displayName)
+				mutated = true
 				var result *driver.InstallResult
 				var err error
 				if sourceVI, sourceOK := route.drv.(driver.SourceVersionedInstaller); sourceOK && route.source != "" {
@@ -302,6 +306,7 @@ func runApplyDriverLanes(
 				continue
 			}
 			emitter.EmitItem(route.ref, route.driverName, "installing", "", fmt.Sprintf("Installing %s", route.ref), entry.displayName)
+			mutated = true
 			pinned := route.app.Version != ""
 			var result *driver.InstallResult
 			var installErr error
@@ -368,6 +373,11 @@ func runApplyDriverLanes(
 		}
 
 		emitter.EmitPhase("verify")
+		// A real install may have created or updated an ARP row. Re-read it
+		// before post-apply verification rather than using pre-mutation state.
+		if mutated {
+			inventory = readARPInventoryFn()
+		}
 		verifyDetections := detectPackageDriverLanes(lanes)
 		verifyPass, verifyFail, verifySkip := 0, 0, 0
 		for i, entry := range planEntries {
@@ -412,28 +422,31 @@ func runApplyDriverLanes(
 			if detectErr != nil {
 				emitter.EmitItem(route.ref, route.driverName, driver.StatusFailed, driver.ReasonInstallFailed, detectErr.Error(), entry.displayName)
 				verifyFail++
-			} else if got, want := strings.TrimSpace(verifyVersion), strings.TrimSpace(route.app.Version); detected && want != "" && got != "" && got != want {
-				message := fmt.Sprintf("installed %s, want %s", got, want)
-				emitter.EmitItem(route.ref, route.driverName, driver.StatusFailed, driver.ReasonVersionDrift, message, resolveItemDisplayName(verifyName, route.app, route.ref))
-				if verifyName != "" {
-					finalActions[i].Name = verifyName
-				}
-				finalActions[i].Version = got
-				finalActions[i].Reason = driver.ReasonVersionDrift
-				finalActions[i].Message = message
-				verifyFail++
-			} else if detected {
-				emitter.EmitItem(route.ref, route.driverName, driver.StatusPresent, "", "Verified installed", resolveItemDisplayName(verifyName, route.app, route.ref))
-				if verifyName != "" {
-					finalActions[i].Name = verifyName
-				}
-				if verifyVersion != "" {
-					finalActions[i].Version = verifyVersion
-				}
-				verifyPass++
 			} else {
-				emitter.EmitItem(route.ref, route.driverName, driver.StatusFailed, driver.ReasonMissing, "Missing after apply", entry.displayName)
-				verifyFail++
+				presence := observeAppPresence(detected, verifyVersion, route.app, inventory)
+				if got, want := presence.Version, strings.TrimSpace(route.app.Version); presence.Present && want != "" && got != "" && got != want {
+					message := fmt.Sprintf("installed %s, want %s", got, want)
+					emitter.EmitItem(route.ref, route.driverName, driver.StatusFailed, driver.ReasonVersionDrift, message, resolveItemDisplayName(verifyName, route.app, route.ref))
+					if verifyName != "" {
+						finalActions[i].Name = verifyName
+					}
+					finalActions[i].Version = got
+					finalActions[i].Reason = driver.ReasonVersionDrift
+					finalActions[i].Message = message
+					verifyFail++
+				} else if presence.Present {
+					emitter.EmitItem(route.ref, route.driverName, driver.StatusPresent, "", "Verified installed", resolveItemDisplayName(verifyName, route.app, route.ref))
+					if verifyName != "" {
+						finalActions[i].Name = verifyName
+					}
+					if presence.Version != "" {
+						finalActions[i].Version = presence.Version
+					}
+					verifyPass++
+				} else {
+					emitter.EmitItem(route.ref, route.driverName, driver.StatusFailed, driver.ReasonMissing, "Missing after apply", entry.displayName)
+					verifyFail++
+				}
 			}
 		}
 		emitter.EmitSummary("verify", verifyPass+verifyFail+verifySkip, verifyPass, verifySkip, verifyFail)

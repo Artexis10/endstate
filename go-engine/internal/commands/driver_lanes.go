@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/Artexis10/endstate/go-engine/internal/arp"
 	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
@@ -179,10 +180,14 @@ func resolvePackageDriverLanesWithOverrides(apps []manifest.App, overrides map[s
 }
 
 func computeDriverLanePlan(mf *manifest.Manifest) (*planner.Plan, []CommandWarning, error) {
-	return computeDriverLanePlanWithOverrides(mf, nil)
+	return computeDriverLanePlanWithInventory(mf, nil, readARPInventoryFn())
 }
 
 func computeDriverLanePlanWithOverrides(mf *manifest.Manifest, overrides map[string]driverLaneOverride) (*planner.Plan, []CommandWarning, error) {
+	return computeDriverLanePlanWithInventory(mf, overrides, readARPInventoryFn())
+}
+
+func computeDriverLanePlanWithInventory(mf *manifest.Manifest, overrides map[string]driverLaneOverride, inventory []arp.Entry) (*planner.Plan, []CommandWarning, error) {
 	lanes, routed, err := resolvePackageDriverLanesWithOverrides(mf.Apps, overrides)
 	if err != nil {
 		return nil, nil, err
@@ -218,6 +223,10 @@ func computeDriverLanePlanWithOverrides(mf *manifest.Manifest, overrides map[str
 			return nil, nil, planErr
 		}
 		for i, action := range lanePlan.Actions {
+			if action.CurrentStatus == "missing" && appPresent(false, lane.apps[i].app, inventory) {
+				action.CurrentStatus = "present"
+				action.PlannedAction = "none"
+			}
 			actionsByIndex[lane.apps[i].index] = action
 		}
 	}

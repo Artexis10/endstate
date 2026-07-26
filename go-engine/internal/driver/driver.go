@@ -183,10 +183,12 @@ type SourceBatchDetector interface {
 // package enumeration. Ref is the stable manager-specific package identifier;
 // DisplayName and Version are best-effort evidence exposed by that manager.
 type InstalledPackage struct {
-	Ref         string
-	DisplayName string
-	Version     string
-	Source      string
+	Ref                        string
+	DisplayName                string
+	Version                    string
+	Source                     string
+	InventoryLocalIdentifiers  []string
+	InventoryRelationshipKnown bool
 }
 
 // InstalledEnumerator is an optional driver capability for capture. It reports

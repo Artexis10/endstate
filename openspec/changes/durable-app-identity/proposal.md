@@ -37,6 +37,19 @@ registry hives (ARP) — rather than from any one package manager's bookkeeping.
 - Capture enumerates the union of the driver ledger and the ARP inventory, so software
   outside a package manager's tracking stops disappearing from new profiles.
 
+### Implementation amendment: authoritative local bindings
+
+Capture must never infer an ARP relationship from a display name. WinGet 1.29's
+`winget list --details` is the authoritative source for its per-package local ARP
+identifier; a valid details block without an ARP identifier is known but not
+correlatable. Normal capture uses `winget export` plus `list --details`; the
+legacy table is fallback evidence only. ARP union is safe only when every ledger
+relationship is known. Exact local bindings are consumed before filtering so a
+filtered runtime cannot reappear as an inventory-only app. Multiple local bindings
+for one package ID are retained as a set. The existing empty-WinGet-export failure
+also remains a hard safety boundary; ARP inventory cannot prove that an empty export
+was genuine rather than transiently incomplete.
+
 The ARP **key** is the identity, not the display name. Observed on a real machine:
 
 | Registry key | DisplayName | DisplayVersion | Publisher |

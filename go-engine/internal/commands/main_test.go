@@ -7,6 +7,7 @@ import (
 	"os"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/arp"
 	"github.com/Artexis10/endstate/go-engine/internal/bootstrap"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
@@ -65,6 +66,7 @@ func TestMain(m *testing.M) {
 	loadCaptureModuleCatalogFn = func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
 		return map[string]*modules.Module{}, []modules.CatalogDiagnostic{}, nil
 	}
+	readARPInventoryFn = func() []arp.Entry { return nil }
 
 	code := m.Run()
 	cleanup()

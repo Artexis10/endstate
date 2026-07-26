@@ -60,23 +60,47 @@ type captureEnumeratorWithWarnings interface {
 }
 
 var enumerateWingetSourceFn = enumerateWingetSource
+var wingetDetailsSourceFn = snapshot.WingetDetailsSource
+var takeSnapshotSourceFn = snapshot.TakeSnapshotSource
 
 func enumerateWingetSource(source string, structuredEvents bool) ([]driver.InstalledPackage, error) {
 	type snapshotResult struct {
 		apps []snapshot.SnapshotApp
 		err  error
 	}
-	exportCh, listCh := make(chan snapshotResult, 1), make(chan snapshotResult, 1)
+	exportCh, detailsCh := make(chan snapshotResult, 1), make(chan map[string]snapshot.SnapshotApp, 1)
 	go func() { apps, err := snapshot.WingetExportSource(source); exportCh <- snapshotResult{apps, err} }()
-	go func() { apps, err := snapshot.TakeSnapshotSource(source); listCh <- snapshotResult{apps, err} }()
-	exported, listed := <-exportCh, <-listCh
+	go func() {
+		details, err := wingetDetailsSourceFn(source)
+		if err != nil {
+			detailsCh <- nil
+			return
+		}
+		detailsCh <- details
+	}()
+	exported := <-exportCh
 	if exported.err != nil {
 		return nil, exported.err
 	}
-	evidence := make(map[string]snapshot.SnapshotApp, len(listed.apps))
-	if listed.err == nil {
-		for _, app := range listed.apps {
-			evidence[strings.ToLower(app.ID)] = app
+	details := <-detailsCh
+	needFallback := details == nil
+	if !needFallback {
+		for _, app := range exported.apps {
+			if strings.TrimSpace(app.ID) != "" {
+				if _, ok := details[strings.ToLower(app.ID)]; !ok {
+					needFallback = true
+					break
+				}
+			}
+		}
+	}
+	evidence := map[string]snapshot.SnapshotApp{}
+	if needFallback {
+		listed, err := takeSnapshotSourceFn(source)
+		if err == nil {
+			for _, app := range listed {
+				evidence[strings.ToLower(app.ID)] = app
+			}
 		}
 	}
 	packages := make([]driver.InstalledPackage, 0, len(exported.apps))
@@ -92,7 +116,14 @@ func enumerateWingetSource(source string, structuredEvents bool) ([]driver.Insta
 		if version == "" {
 			version = app.Version
 		}
-		packages = append(packages, driver.InstalledPackage{Ref: app.ID, DisplayName: name, Version: version, Source: source})
+		detail, known := details[strings.ToLower(app.ID)]
+		if details == nil {
+			known = false
+		}
+		if detail.Name != "" {
+			name = detail.Name
+		}
+		packages = append(packages, driver.InstalledPackage{Ref: app.ID, DisplayName: name, Version: version, Source: source, InventoryLocalIdentifiers: detail.InventoryLocalIdentifiers, InventoryRelationshipKnown: known})
 	}
 	return packages, nil
 }
