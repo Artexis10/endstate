@@ -39,14 +39,34 @@ func AtomicCopyFile(source, destination string, mode os.FileMode) error {
 }
 
 func ReadRegularFile(source string) ([]byte, os.FileMode, error) {
+	return readRegularFileBounded(source, math.MaxInt64)
+}
+
+// ReadRegularFileBounded returns race-checked regular-file bytes, rejecting a
+// file whose verified size exceeds maxBytes.
+func ReadRegularFileBounded(source string, maxBytes int64) ([]byte, os.FileMode, error) {
+	return readRegularFileBounded(source, maxBytes)
+}
+
+func readRegularFileBounded(source string, maxBytes int64) ([]byte, os.FileMode, error) {
 	input, openedInfo, err := openVerifiedRegularFile(source)
 	if err != nil {
 		return nil, 0, err
 	}
 	defer input.Close()
-	data, err := io.ReadAll(input)
+	if maxBytes < 0 || openedInfo.Size() < 0 || openedInfo.Size() > maxBytes {
+		return nil, 0, ErrByteLimit
+	}
+	reader := io.Reader(input)
+	if maxBytes < math.MaxInt64 {
+		reader = io.LimitReader(input, maxBytes+1)
+	}
+	data, err := io.ReadAll(reader)
 	if err != nil {
 		return nil, 0, err
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, 0, ErrByteLimit
 	}
 	postReadInfo, err := input.Stat()
 	if err != nil {

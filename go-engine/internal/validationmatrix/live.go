@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -17,6 +16,8 @@ import (
 )
 
 var stableKebabPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+const maxHashBoundSeedBytes = 1 << 20
 
 func validateLivePolicy(record *ValidationRecord, mod *modules.Module) error {
 	live := &record.Live
@@ -133,49 +134,44 @@ func validateSeedFile(record *ValidationRecord, live LivePolicy) error {
 	if live.Seed == "" {
 		return nil
 	}
-	return verifyHashBoundSeedFile(*record, live.Seed, trustSeedHash(live.Trust))
+	_, err := readHashBoundSeedFile(*record, live.Seed, trustSeedHash(live.Trust))
+	return err
 }
 
-// VerifyHashBoundSeed rechecks the current seed containment and exact bytes.
-// Callers use it immediately before execution; it never executes the seed.
-func VerifyHashBoundSeed(record ValidationRecord) error {
-	return verifyHashBoundSeedFile(record, record.Live.Seed, trustSeedHash(record.Live.Trust))
+// ReadHashBoundSeed returns a bounded, race-checked, hash-bound seed copy.
+// Later runners must execute staged returned bytes, never reopen the source.
+func ReadHashBoundSeed(record ValidationRecord) ([]byte, error) {
+	return readHashBoundSeedFile(record, record.Live.Seed, trustSeedHash(record.Live.Trust))
 }
 
-// verifyHashBoundSeedFile validates a seed inside its module directory before
-// hashing its exact bytes. Runtime execution can reuse this helper for a later
-// pre-execution rehash without changing the containment contract.
-func verifyHashBoundSeedFile(record ValidationRecord, seed, expectedDigest string) error {
+func readHashBoundSeedFile(record ValidationRecord, seed, expectedDigest string) ([]byte, error) {
 	if !isPortableRepositoryRelativePath(seed) {
-		return fmt.Errorf("seed must be a safe repository-relative path")
+		return nil, fmt.Errorf("seed must be a safe repository-relative path")
 	}
 	if record.FilePath == "" {
-		return fmt.Errorf("seed has no module directory")
+		return nil, fmt.Errorf("seed has no module directory")
 	}
 	moduleDirectory, err := filepath.Abs(filepath.Dir(record.FilePath))
 	if err != nil {
-		return fmt.Errorf("resolve seed module directory: %w", err)
+		return nil, fmt.Errorf("resolve seed module directory: %w", err)
 	}
 	path, err := safepath.Resolve(moduleDirectory, seed)
 	if err != nil {
-		return fmt.Errorf("seed must be a contained regular file: %w", err)
+		return nil, fmt.Errorf("seed must be a contained regular file: %w", err)
 	}
-	info, err := os.Lstat(path)
+	data, _, err := safepath.ReadRegularFileBounded(path, maxHashBoundSeedBytes)
 	if err != nil {
-		return fmt.Errorf("inspect hash-bound seed: %w", err)
-	}
-	if safepath.IsLinkOrReparse(info) || !info.Mode().IsRegular() {
-		return fmt.Errorf("seed must be a contained regular file")
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("read hash-bound seed: %w", err)
+		return nil, fmt.Errorf("read hash-bound seed: %w", err)
 	}
 	digest := sha256.Sum256(data)
 	if hex.EncodeToString(digest[:]) != expectedDigest {
-		return fmt.Errorf("seedSha256 does not match %s", seed)
+		return nil, fmt.Errorf("seedSha256 does not match %s", seed)
 	}
-	return nil
+	postReadPath, err := safepath.Resolve(moduleDirectory, seed)
+	if err != nil || postReadPath != path {
+		return nil, fmt.Errorf("seed path authority changed after read")
+	}
+	return append([]byte(nil), data...), nil
 }
 
 func validateNamedTrustHash(name, input, hash string) error {

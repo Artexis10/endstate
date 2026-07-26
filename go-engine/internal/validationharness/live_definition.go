@@ -6,6 +6,7 @@ package validationharness
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -125,6 +126,8 @@ type LiveResult struct {
 	SchemaVersion          int                           `json:"schemaVersion"`
 	ModuleID               string                        `json:"moduleId"`
 	ModuleRevision         string                        `json:"moduleRevision"`
+	ValidationSourceSHA256 string                        `json:"validationSourceSha256"`
+	DefinitionSHA256       string                        `json:"definitionSha256"`
 	Status                 LiveStatus                    `json:"status"`
 	PublicEvidenceEligible bool                          `json:"publicEvidenceEligible"`
 	ProvenProofLevels      []validationmatrix.ProofLevel `json:"provenProofLevels"`
@@ -153,10 +156,14 @@ func CompileLiveDefinition(repoRoot, moduleID string) (LiveDefinition, error) {
 	if mod == nil {
 		return LiveDefinition{}, fmt.Errorf("live definition module %q has no production definition", moduleID)
 	}
-	return compileLiveDefinition(record, mod)
+	return compileLiveDefinitionAt(repoRoot, record, mod)
 }
 
 func compileLiveDefinition(record validationmatrix.ValidationRecord, module *modules.Module) (LiveDefinition, error) {
+	return compileLiveDefinitionAt("", record, module)
+}
+
+func compileLiveDefinitionAt(repoRoot string, record validationmatrix.ValidationRecord, module *modules.Module) (LiveDefinition, error) {
 	if module == nil || record.ModuleID == "" || record.ModuleID != module.ID || record.Live.Mode != validationmatrix.LiveCandidate {
 		return LiveDefinition{}, fmt.Errorf("live definition requires a candidate policy for its current module")
 	}
@@ -166,10 +173,14 @@ func compileLiveDefinition(record validationmatrix.ValidationRecord, module *mod
 	if err := rejectDuplicateJSONKeys(manifest.StripJsoncComments(record.SourceSnapshot())); err != nil {
 		return LiveDefinition{}, fmt.Errorf("live definition validation source has duplicate object keys")
 	}
-	if err := validationmatrix.VerifyHashBoundSeed(record); err != nil {
+	if _, err := validationmatrix.ReadHashBoundSeed(record); err != nil {
 		return LiveDefinition{}, fmt.Errorf("live definition seed is stale or unsafe: %w", err)
 	}
-	comparator, err := deriveExactBytesComparator(module)
+	definitions, err := compileLiveFixtureDefinitions(repoRoot, record, module)
+	if err != nil {
+		return LiveDefinition{}, err
+	}
+	comparator, err := deriveExactBytesComparator(module, definitions)
 	if err != nil {
 		return LiveDefinition{}, err
 	}
@@ -201,16 +212,50 @@ func cloneLivePolicy(policy validationmatrix.LivePolicy) validationmatrix.LivePo
 	return copy
 }
 
-func deriveExactBytesComparator(module *modules.Module) (ExactBytesComparator, error) {
+func compileLiveFixtureDefinitions(repoRoot string, record validationmatrix.ValidationRecord, module *modules.Module) (fixtureDefinitions, error) {
+	if repoRoot == "" {
+		return fixtureDefinitions{}, fmt.Errorf("live exact-bytes comparator requires repository fixture authority")
+	}
+	var matches []validationmatrix.Scenario
+	for _, scenario := range record.Synthetic.Scenarios {
+		if scenario.Mode == validationmatrix.ScenarioConfigRoundtripV1 {
+			matches = append(matches, scenario)
+		}
+	}
+	if len(matches) != 1 {
+		return fixtureDefinitions{}, fmt.Errorf("live exact-bytes comparator requires exactly one schema-v1 config-roundtrip scenario")
+	}
+	if matches[0].Fixture.Type != validationmatrix.FixtureDeclarative {
+		return fixtureDefinitions{}, fmt.Errorf("live exact-bytes comparator requires a hash-bound declarative fixture")
+	}
+	definitions, failure := compileFixtureDefinitionsAt(repoRoot, module, matches[0])
+	if failure != nil {
+		return fixtureDefinitions{}, fmt.Errorf("live exact-bytes comparator fixture is invalid: %s", failure)
+	}
+	return definitions, nil
+}
+
+func deriveExactBytesComparator(module *modules.Module, definitions fixtureDefinitions) (ExactBytesComparator, error) {
 	if module.Capture == nil || len(module.Capture.Files) == 0 || len(module.Capture.RegistryKeys) != 0 || len(module.Capture.RegistryValues) != 0 {
 		return ExactBytesComparator{}, fmt.Errorf("live exact-bytes comparator requires file-only capture mappings")
 	}
-	if len(module.Restore) == 0 {
+	if len(module.Restore) == 0 || len(definitions.Entries) != len(module.Capture.Files) {
 		return ExactBytesComparator{}, fmt.Errorf("live exact-bytes comparator requires copy restore mappings")
 	}
 
-	captures := make(map[string]modules.CaptureFile, len(module.Capture.Files))
+	mappings := make([]ComparatorMapping, 0, len(module.Capture.Files))
+	seen := make(map[string]struct{}, len(module.Capture.Files))
 	for index, capture := range module.Capture.Files {
+		definition := definitions.Entries[index]
+		if definition.Coordinate != fmt.Sprintf("capture.files[%d]", index) {
+			return ExactBytesComparator{}, fmt.Errorf("live capture.files[%d] lacks matching fixture classification", index)
+		}
+		if definition.Kind == fixtureKindDirectory {
+			continue
+		}
+		if definition.Kind != fixtureKindFile {
+			return ExactBytesComparator{}, fmt.Errorf("live capture.files[%d] has unsupported fixture kind", index)
+		}
 		identity, err := liveCaptureIdentity(capture.Dest)
 		if err != nil {
 			return ExactBytesComparator{}, fmt.Errorf("live capture.files[%d]: %w", index, err)
@@ -218,40 +263,23 @@ func deriveExactBytesComparator(module *modules.Module) (ExactBytesComparator, e
 		if !validLiveUserTemplate(capture.Source) {
 			return ExactBytesComparator{}, fmt.Errorf("live capture.files[%d] source must be a static user-scoped template", index)
 		}
-		if _, duplicate := captures[identity]; duplicate {
+		if _, duplicate := seen[identity]; duplicate {
 			return ExactBytesComparator{}, fmt.Errorf("live capture.files[%d] duplicates identity %q", index, identity)
 		}
-		captures[identity] = capture
-	}
-
-	restores := make(map[string]modules.RestoreDef, len(module.Restore))
-	for index, restore := range module.Restore {
-		if restore.Type != "copy" || restore.Pattern != "" || len(restore.Exclude) != 0 {
-			return ExactBytesComparator{}, fmt.Errorf("live restore[%d] must be a plain file copy", index)
+		seen[identity] = struct{}{}
+		var restores []modules.RestoreDef
+		for _, restore := range module.Restore {
+			if capture.Source == restore.Target && payloadDestination(restore.Source) == definition.Destination {
+				restores = append(restores, restore)
+			}
 		}
-		identity, err := liveRestoreIdentity(restore.Source)
-		if err != nil {
-			return ExactBytesComparator{}, fmt.Errorf("live restore[%d]: %w", index, err)
+		if len(restores) != 1 || restores[0].Type != "copy" || restores[0].Pattern != "" || len(restores[0].Exclude) != 0 {
+			return ExactBytesComparator{}, fmt.Errorf("live exact-bytes mapping %q must have one plain file restore", identity)
 		}
-		if !validLiveUserTemplate(restore.Target) {
-			return ExactBytesComparator{}, fmt.Errorf("live restore[%d] target must be a static user-scoped template", index)
-		}
-		if _, duplicate := restores[identity]; duplicate {
-			return ExactBytesComparator{}, fmt.Errorf("live restore[%d] duplicates identity %q", index, identity)
-		}
-		restores[identity] = restore
-	}
-
-	if len(captures) != len(restores) {
-		return ExactBytesComparator{}, fmt.Errorf("live exact-bytes mappings are asymmetric")
-	}
-	mappings := make([]ComparatorMapping, 0, len(captures))
-	for identity, capture := range captures {
-		restore, ok := restores[identity]
-		if !ok || !sameLiveTemplate(capture.Source, restore.Target) {
+		if definition.Destination != filepath.ToSlash(capture.Dest) || !sameLiveTemplate(capture.Source, definition.Source) || !sameLiveTemplate(capture.Source, definition.Target) {
 			return ExactBytesComparator{}, fmt.Errorf("live exact-bytes mapping %q is asymmetric", identity)
 		}
-		mappings = append(mappings, ComparatorMapping{Identity: identity, CaptureTemplate: capture.Source, RestoreTemplate: restore.Target, Optional: capture.Optional || restore.Optional})
+		mappings = append(mappings, ComparatorMapping{Identity: identity, CaptureTemplate: capture.Source, RestoreTemplate: definition.Target, Optional: definition.Optional})
 	}
 	sort.Slice(mappings, func(left, right int) bool { return mappings[left].Identity < mappings[right].Identity })
 	if len(mappings) == 0 {
@@ -311,7 +339,7 @@ func sameLiveTemplate(left, right string) bool {
 // ValidateLiveResult enforces the deliberately narrow result contract before a
 // later runner serializes or persists it.
 func ValidateLiveResult(result LiveResult) error {
-	if result.SchemaVersion != LiveResultSchemaVersion || !validLiveModuleID(result.ModuleID) || !lowerSHA256(result.ModuleRevision) || !knownLiveStatus(result.Status) {
+	if result.SchemaVersion != LiveResultSchemaVersion || !validLiveModuleID(result.ModuleID) || !lowerSHA256(result.ModuleRevision) || !lowerSHA256(result.ValidationSourceSHA256) || !lowerSHA256(result.DefinitionSHA256) || !knownLiveStatus(result.Status) {
 		return fmt.Errorf("live result identity is invalid")
 	}
 	if result.PublicEvidenceEligible || len(result.ProvenProofLevels) != 0 {
@@ -335,9 +363,121 @@ func ValidateLiveResult(result LiveResult) error {
 				return fmt.Errorf("live result comparator outcome is invalid")
 			}
 		}
-		if attempt.Status == LiveStatusPassed && len(attempt.Comparator) == 0 {
-			return fmt.Errorf("live result attempt %d pass is vacuous", index)
+	}
+	return validateLiveResultState(result)
+}
+
+// CanonicalLiveDefinitionSHA256 returns the deterministic digest that binds a
+// result to all non-authorizing preparation inputs.
+func CanonicalLiveDefinitionSHA256(definition LiveDefinition) (string, error) {
+	if err := validateLiveDefinition(definition); err != nil {
+		return "", err
+	}
+	encoded, err := json.Marshal(definition)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:]), nil
+}
+
+// ValidateLiveResultForDefinition binds a result to the exact compiled
+// definition and the package/comparator identities it authorizes for
+// observation only.
+func ValidateLiveResultForDefinition(result LiveResult, definition LiveDefinition) error {
+	if err := ValidateLiveResult(result); err != nil {
+		return err
+	}
+	digest, err := CanonicalLiveDefinitionSHA256(definition)
+	if err != nil {
+		return err
+	}
+	if result.ModuleID != definition.ModuleID || result.ModuleRevision != definition.ModuleRevision || result.ValidationSourceSHA256 != definition.ValidationSourceSHA256 || result.DefinitionSHA256 != digest {
+		return fmt.Errorf("live result definition binding is stale")
+	}
+	identities := make(map[string]struct{}, len(definition.Comparator.Mappings))
+	for _, mapping := range definition.Comparator.Mappings {
+		identities[mapping.Identity] = struct{}{}
+	}
+	for _, attempt := range result.Attempts {
+		if attempt.Package.Ref != "" && attempt.Package.Ref != definition.WingetRef {
+			return fmt.Errorf("live result package reference is not bound to definition")
 		}
+		seen := make(map[string]struct{}, len(attempt.Comparator))
+		for _, outcome := range attempt.Comparator {
+			if _, ok := identities[outcome.Identity]; !ok {
+				return fmt.Errorf("live result comparator identity is not bound to definition")
+			}
+			if _, duplicate := seen[outcome.Identity]; duplicate {
+				return fmt.Errorf("live result comparator identity is duplicated")
+			}
+			seen[outcome.Identity] = struct{}{}
+		}
+		if attempt.Status == LiveStatusPassed && len(seen) != len(identities) {
+			return fmt.Errorf("passed live result comparator identities do not match definition")
+		}
+	}
+	return nil
+}
+
+func validateLiveResultState(result LiveResult) error {
+	switch result.Status {
+	case LiveStatusPending:
+		if len(result.Attempts) != 0 || result.FailureCategory != LiveFailureNone {
+			return fmt.Errorf("pending live result must have no attempts or failure")
+		}
+		return nil
+	case LiveStatusPassed:
+		if len(result.Attempts) == 0 || result.FailureCategory != LiveFailureNone {
+			return fmt.Errorf("passed live result must have attempts and no top-level failure")
+		}
+		for index, attempt := range result.Attempts {
+			if index == len(result.Attempts)-1 {
+				if attempt.Status != LiveStatusPassed || attempt.FailureCategory != LiveFailureNone {
+					return fmt.Errorf("passed live result final attempt must pass without failure")
+				}
+				if err := validatePassedLiveAttempt(attempt); err != nil {
+					return err
+				}
+				continue
+			}
+			if attempt.Status != LiveStatusFailed || attempt.FailureCategory == LiveFailureNone {
+				return fmt.Errorf("passed live result retry attempt %d must fail with a category", index)
+			}
+		}
+		return nil
+	case LiveStatusFailed:
+		if len(result.Attempts) == 0 || result.FailureCategory == LiveFailureNone {
+			return fmt.Errorf("failed live result requires attempts and a top-level failure")
+		}
+		for index, attempt := range result.Attempts {
+			if attempt.Status != LiveStatusFailed || attempt.FailureCategory == LiveFailureNone {
+				return fmt.Errorf("failed live result attempt %d must fail with a category", index)
+			}
+		}
+		final := result.Attempts[len(result.Attempts)-1]
+		if final.FailureCategory != result.FailureCategory {
+			return fmt.Errorf("failed live result final failure must match top-level failure")
+		}
+		return nil
+	default:
+		return fmt.Errorf("live result status is invalid")
+	}
+}
+
+func validatePassedLiveAttempt(attempt LiveAttempt) error {
+	if attempt.Package.Ref == "" || attempt.Package.Status != "passed" || len(attempt.Comparator) == 0 {
+		return fmt.Errorf("passed live result attempt must have passed package and comparator observations")
+	}
+	seen := make(map[string]struct{}, len(attempt.Comparator))
+	for _, outcome := range attempt.Comparator {
+		if outcome.Status != "passed" {
+			return fmt.Errorf("passed live result comparator outcome must pass")
+		}
+		if _, duplicate := seen[outcome.Identity]; duplicate {
+			return fmt.Errorf("passed live result comparator outcomes must be unique")
+		}
+		seen[outcome.Identity] = struct{}{}
 	}
 	return nil
 }
