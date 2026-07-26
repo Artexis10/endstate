@@ -31,6 +31,9 @@ func TestCompileLiveDefinitionProductionNotepadPlusPlusIsDiagnosticOnly(t *testi
 	if definition.Policy.Mode != "candidate" || definition.WingetRef != "Notepad++.Notepad++" || definition.MutationAuthorized {
 		t.Fatalf("definition authority = %+v", definition)
 	}
+	if definition.Observer.WingetRef != definition.WingetRef || !exactStrings(definition.Observer.UninstallDisplayName, []string{`^Notepad\+\+`}) || !exactStrings(definition.Observer.ExecutableNames, []string{"notepad++.exe"}) {
+		t.Fatalf("definition observer = %+v", definition.Observer)
+	}
 	if len(definition.Comparator.Mappings) != 5 || definition.Comparator.MinimumExistingMappings != 1 {
 		t.Fatalf("definition comparator = %+v", definition.Comparator)
 	}

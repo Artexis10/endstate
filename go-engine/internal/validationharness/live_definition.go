@@ -75,6 +75,7 @@ type LiveDefinition struct {
 	ValidationSourceSHA256  string                      `json:"validationSourceSha256"`
 	Policy                  validationmatrix.LivePolicy `json:"policy"`
 	WingetRef               string                      `json:"wingetRef"`
+	Observer                LiveObserverDefinition      `json:"observer"`
 	SeedRepositoryPath      string                      `json:"seedRepositoryPath"`
 	SeedSHA256              string                      `json:"seedSha256"`
 	RunnerLabel             string                      `json:"runnerLabel"`
@@ -193,6 +194,7 @@ func compileLiveDefinitionAt(repoRoot string, record validationmatrix.Validation
 	definition := LiveDefinition{
 		SchemaVersion: LiveDefinitionSchemaVersion, ModuleID: record.ModuleID, ModuleRevision: module.Revision,
 		ValidationSourceSHA256: hex.EncodeToString(digest[:]), Policy: policy, WingetRef: policy.Ref,
+		Observer:           LiveObserverDefinition{WingetRef: policy.Ref, UninstallDisplayName: append([]string(nil), module.Matches.UninstallDisplayName...), ExecutableNames: append([]string(nil), module.Matches.Exe...)},
 		SeedRepositoryPath: policy.Seed, SeedSHA256: policy.Trust.SeedSHA256, RunnerLabel: policy.RunnerLabel,
 		PRTimeoutMinutes: policy.PRTimeoutMinutes, ScheduledTimeoutMinutes: policy.ScheduledTimeoutMinutes,
 		Comparator: comparator, NonAuthorizing: true, MutationAuthorized: false,
@@ -568,6 +570,9 @@ func validateLiveDefinition(definition LiveDefinition) error {
 	}
 	if definition.WingetRef != policy.Ref || definition.SeedRepositoryPath != policy.Seed || definition.SeedSHA256 != policy.Trust.SeedSHA256 || definition.RunnerLabel != policy.RunnerLabel || definition.PRTimeoutMinutes != policy.PRTimeoutMinutes || definition.ScheduledTimeoutMinutes != policy.ScheduledTimeoutMinutes {
 		return fmt.Errorf("live definition policy binding is invalid")
+	}
+	if definition.Observer.WingetRef != definition.WingetRef || validateLiveObserverDefinition(definition.Observer) != nil {
+		return fmt.Errorf("live definition observer is invalid")
 	}
 	if policy.PRTimeoutMinutes < 1 || policy.PRTimeoutMinutes > 25 || policy.ScheduledTimeoutMinutes < 1 || policy.ScheduledTimeoutMinutes > 45 || len(definition.Comparator.Mappings) == 0 || len(definition.Comparator.Mappings) > maxLiveMappings || definition.Comparator.MinimumExistingMappings < 1 || definition.Comparator.MinimumExistingMappings > len(definition.Comparator.Mappings) {
 		return fmt.Errorf("live definition comparator bounds are invalid")
