@@ -221,6 +221,41 @@ func TestRestoreCopy_ExcludeGlobs(t *testing.T) {
 	}
 }
 
+func TestRestoreCopy_WildcardDirectoryExcludeGlobs(t *testing.T) {
+	tmp := t.TempDir()
+	source := filepath.Join(tmp, "source")
+	if err := os.MkdirAll(filepath.Join(source, "CrashReports"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "settings.json"), []byte("settings"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "CrashReports", "report.dmp"), []byte("crash"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "target")
+	result, err := RestoreCopy(RestoreAction{
+		Type: "copy", Source: source, Target: target, Exclude: []string{"**/Crash*/**"},
+	}, source, target, RestoreOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "restored" {
+		t.Fatalf("restore result = %+v", result)
+	}
+	if data, err := os.ReadFile(filepath.Join(target, "settings.json")); err != nil || string(data) != "settings" {
+		t.Fatalf("settings payload = %q err=%v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "CrashReports")); !os.IsNotExist(err) {
+		t.Fatalf("wildcard-excluded crash directory was restored: %v", err)
+	}
+	for _, relative := range []string{"CrashReports", "CrashReports/report.dmp"} {
+		if !isPathExcluded(relative, []string{"**/Crash*/**"}) {
+			t.Errorf("wildcard restore matcher did not exclude %q", relative)
+		}
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Merge-JSON strategy tests
 // ---------------------------------------------------------------------------

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 )
 
 // RestoreCopy implements the copy restore strategy. It handles both file and
@@ -364,32 +366,12 @@ func validateRestoreCopyTreeWithBoundary(source, target string, exclude func(str
 	})
 }
 
-// isPathExcluded checks whether a relative path matches any of the exclude
-// patterns. Patterns use doublestar-style matching: ** matches any path
-// segment. The implementation strips leading/trailing ** and checks if the
-// remaining pattern is contained in the path.
+// isPathExcluded checks a restore member with the exact production matcher
+// used by capture so wildcard directory semantics cannot drift by direction.
 func isPathExcluded(relPath string, patterns []string) bool {
-	// Normalise to forward-slash for consistent matching.
-	normalizedPath := filepath.ToSlash(relPath)
-
 	for _, pattern := range patterns {
-		normalizedPattern := filepath.ToSlash(pattern)
-
-		// Strip leading and trailing ** segments.
-		searchPattern := normalizedPattern
-		searchPattern = strings.TrimPrefix(searchPattern, "**/")
-		searchPattern = strings.TrimPrefix(searchPattern, "**\\")
-		searchPattern = strings.TrimPrefix(searchPattern, "**")
-		searchPattern = strings.TrimSuffix(searchPattern, "/**")
-		searchPattern = strings.TrimSuffix(searchPattern, "\\**")
-		searchPattern = strings.TrimSuffix(searchPattern, "**")
-
-		if searchPattern == "" {
-			continue
-		}
-
-		// Check if the normalised path contains the search pattern.
-		if strings.Contains(normalizedPath, searchPattern) {
+		matched, err := bundle.ConfigPathMatchesExcludeGlob(relPath, pattern)
+		if err == nil && matched {
 			return true
 		}
 	}
