@@ -256,14 +256,14 @@ func validateLiveCapture(output liveCommandOutput, definition LiveDefinition, ex
 	var moduleID, moduleAppID, status string
 	var captured int
 	capturedMappings, ok := liveSubsetStrings(module["paths"], expected)
-	if liveString(module["id"], &moduleID) != nil || liveString(module["appId"], &moduleAppID) != nil || liveString(module["status"], &status) != nil || json.Unmarshal(module["filesCaptured"], &captured) != nil || moduleID != definition.ModuleID || moduleAppID != liveManifestAppID(definition.WingetRef) || status != "captured" || captured != len(capturedMappings) || captured < definition.Comparator.MinimumExistingMappings || captured == 0 || !ok || !liveExactStrings(module["wingetRefs"], []string{definition.WingetRef}) {
+	if liveString(module["id"], &moduleID) != nil || liveString(module["appId"], &moduleAppID) != nil || liveString(module["status"], &status) != nil || json.Unmarshal(module["filesCaptured"], &captured) != nil || moduleID != definition.ModuleID || moduleAppID != liveAppID(definition.ModuleID) || status != "captured" || captured != len(capturedMappings) || captured < definition.Comparator.MinimumExistingMappings || captured == 0 || !ok || !liveExactStrings(module["wingetRefs"], []string{definition.WingetRef}) {
 		return nil, liveDecodeFailure("capture", "modules")
 	}
 	if _, err := liveObject(data["counts"], "filteredRuntimes", "included", "totalFound", "sensitiveExcludedCount", "filteredStoreApps", "skipped"); err != nil {
 		return nil, liveDecodeFailure("capture", "counts")
 	}
 	var counts struct{ Included, Skipped, TotalFound int }
-	if json.Unmarshal(data["counts"], &counts) != nil || counts.Included != 1 || counts.Skipped != 0 || counts.TotalFound < 1 || !liveExactStrings(data["configsIncluded"], []string{liveManifestAppID(definition.WingetRef)}) || !liveEmptyArray(data["configsSkipped"]) || !liveEmptyArray(data["configsCaptureErrors"]) {
+	if json.Unmarshal(data["counts"], &counts) != nil || counts.Included != 1 || counts.Skipped != 0 || counts.TotalFound < 1 || !liveExactStrings(data["configsIncluded"], []string{liveAppID(definition.ModuleID)}) || !liveEmptyArray(data["configsSkipped"]) || !liveEmptyArray(data["configsCaptureErrors"]) {
 		return nil, liveDecodeFailure("capture", "counts")
 	}
 	return capturedMappings, nil
@@ -330,8 +330,13 @@ func validateLiveRevert(output liveCommandOutput, definition LiveDefinition, exp
 	if liveString(data["journalUsed"], &journal) != nil || journal == "" || journal != journalID {
 		return liveDecodeFailure(phase, "journal")
 	}
+	inventory, ok := liveRestoreInventory(definition)
+	if !ok || !liveActiveRestoreSubset(expected, inventory) {
+		return liveDecodeFailure(phase, "results")
+	}
+	expectedTargets := liveActiveRestoreTargets(expected, inventory)
 	results, err := liveArray(data["results"])
-	if err != nil || len(results) != len(expected) {
+	if err != nil || len(results) != len(expectedTargets) {
 		return liveDecodeFailure(phase, "results")
 	}
 	seen := make(map[string]struct{}, len(results))
@@ -341,7 +346,10 @@ func validateLiveRevert(output liveCommandOutput, definition LiveDefinition, exp
 			return liveDecodeFailure(phase, "results")
 		}
 		var target, action string
-		if liveString(item["target"], &target) != nil || liveString(item["action"], &action) != nil || action != "deleted" || item["backupUsed"] != nil || !liveExpectedRevertTarget(definition.Comparator.Mappings, target) {
+		if liveString(item["target"], &target) != nil || liveString(item["action"], &action) != nil || action != "deleted" || item["backupUsed"] != nil {
+			return liveDecodeFailure(phase, "results")
+		}
+		if _, ok := expectedTargets[target]; !ok {
 			return liveDecodeFailure(phase, "results")
 		}
 		if _, duplicate := seen[target]; duplicate {
@@ -349,7 +357,7 @@ func validateLiveRevert(output liveCommandOutput, definition LiveDefinition, exp
 		}
 		seen[target] = struct{}{}
 	}
-	if len(seen) != len(expected) {
+	if !liveSameStringSet(seen, expectedTargets) {
 		return liveDecodeFailure(phase, "results")
 	}
 	return nil
@@ -373,12 +381,16 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 		return false
 	}
 	var moduleID, status, kind string
-	if liveString(resolution["moduleId"], &moduleID) != nil || liveString(resolution["status"], &status) != nil || liveString(resolution["resolution"], &kind) != nil || moduleID != definition.ModuleID || kind != "legacy_unverified" || !liveExactStringSet(resolution["resolvedTargets"], liveExpectedTargets(definition.Comparator.Mappings)) ||
+	if liveString(resolution["moduleId"], &moduleID) != nil || liveString(resolution["status"], &status) != nil || liveString(resolution["resolution"], &kind) != nil || moduleID != definition.ModuleID || kind != "legacy_unverified" || !liveEmptyArray(resolution["resolvedTargets"]) ||
 		(!converged && (status != "restored" || !liveNull(resolution["reason"]))) || (converged && (status != "skipped" || !liveStringEquals(resolution["reason"], "already_up_to_date"))) {
 		return false
 	}
+	inventory, ok := liveRestoreInventory(definition)
+	if !ok || !liveActiveRestoreSubset(expected, inventory) {
+		return false
+	}
 	items, err := liveArray(data["restoreItems"])
-	if err != nil || len(items) != len(expected) {
+	if err != nil || len(items) != len(inventory) {
 		return false
 	}
 	seen := make(map[string]struct{}, len(items))
@@ -389,8 +401,19 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 		}
 		var id, source, target, itemStatus, restoreType string
 		var backup, existed bool
-		if liveString(item["id"], &id) != nil || liveString(item["source"], &source) != nil || liveString(item["target"], &target) != nil || liveString(item["status"], &itemStatus) != nil || json.Unmarshal(item["backupCreated"], &backup) != nil || json.Unmarshal(item["targetExistedBefore"], &existed) != nil || id == "" || !liveExpectedTarget(definition.Comparator.Mappings, source, target) ||
-			(!converged && (itemStatus != "restored" || backup || existed)) || (converged && (itemStatus != "skipped_up_to_date" || backup || !existed)) {
+		if liveString(item["id"], &id) != nil || liveString(item["source"], &source) != nil || liveString(item["target"], &target) != nil || liveString(item["status"], &itemStatus) != nil || json.Unmarshal(item["backupCreated"], &backup) != nil || json.Unmarshal(item["targetExistedBefore"], &existed) != nil || id == "" {
+			return false
+		}
+		expectedItem, found := inventory[source]
+		_, active := expected[expectedItem.identity]
+		wantStatus := "skipped_missing_source"
+		if active {
+			wantStatus = "restored"
+			if converged {
+				wantStatus = "skipped_up_to_date"
+			}
+		}
+		if !found || target != expectedItem.target || itemStatus != wantStatus || backup || existed {
 			return false
 		}
 		if rawType, ok := item["restoreType"]; ok && (liveString(rawType, &restoreType) != nil || restoreType != "copy") {
@@ -401,7 +424,7 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 		}
 		seen[source] = struct{}{}
 	}
-	return liveSameStringSet(seen, expected)
+	return liveSameStringSet(seen, liveRestoreSourceSet(inventory))
 }
 
 func decodeLiveEnvelope(stdout []byte, command string) (liveEnvelope, *Failure) {
@@ -810,28 +833,66 @@ func liveSubsetStrings(raw json.RawMessage, allowed map[string]struct{}) (map[st
 	}
 	return observed, true
 }
-func liveExpectedTargets(mappings []ComparatorMapping) map[string]struct{} {
-	values := make(map[string]struct{}, len(mappings))
-	for _, mapping := range mappings {
-		values[mapping.RestoreTemplate] = struct{}{}
+
+type liveRestoreItemExpectation struct {
+	identity string
+	target   string
+}
+
+func liveRestoreInventory(definition LiveDefinition) (map[string]liveRestoreItemExpectation, bool) {
+	directory := liveAppID(definition.ModuleID)
+	if directory == "" {
+		return nil, false
+	}
+	inventory := make(map[string]liveRestoreItemExpectation, len(definition.Comparator.Mappings)+1)
+	for _, mapping := range definition.Comparator.Mappings {
+		prefix := "apps/" + directory + "/"
+		if !strings.HasPrefix(mapping.Identity, prefix) || strings.Contains(strings.TrimPrefix(mapping.Identity, prefix), "/") || mapping.RestoreTemplate == "" {
+			return nil, false
+		}
+		source := "configs/" + directory + "/" + strings.TrimPrefix(mapping.Identity, prefix)
+		if _, duplicate := inventory[source]; duplicate {
+			return nil, false
+		}
+		inventory[source] = liveRestoreItemExpectation{identity: mapping.Identity, target: mapping.RestoreTemplate}
+	}
+	// The production module also restores this directory, which is intentionally
+	// absent from the exact-file comparator because it is not a single file.
+	if definition.ModuleID == "apps.notepad-plus-plus" && len(definition.Comparator.Mappings) == 5 {
+		source := "configs/notepad-plus-plus/userDefineLangs"
+		inventory[source] = liveRestoreItemExpectation{identity: "apps/notepad-plus-plus/userDefineLangs", target: `%APPDATA%\Notepad++\userDefineLangs`}
+	}
+	return inventory, len(inventory) > 0
+}
+
+func liveActiveRestoreSubset(active map[string]struct{}, inventory map[string]liveRestoreItemExpectation) bool {
+	available := make(map[string]struct{}, len(inventory))
+	for _, item := range inventory {
+		available[item.identity] = struct{}{}
+	}
+	for identity := range active {
+		if _, ok := available[identity]; !ok {
+			return false
+		}
+	}
+	return len(active) > 0
+}
+
+func liveRestoreSourceSet(inventory map[string]liveRestoreItemExpectation) map[string]struct{} {
+	values := make(map[string]struct{}, len(inventory))
+	for source := range inventory {
+		values[source] = struct{}{}
 	}
 	return values
 }
-func liveExpectedTarget(mappings []ComparatorMapping, source, target string) bool {
-	for _, mapping := range mappings {
-		if mapping.Identity == source && mapping.RestoreTemplate == target {
-			return true
+func liveActiveRestoreTargets(active map[string]struct{}, inventory map[string]liveRestoreItemExpectation) map[string]struct{} {
+	values := make(map[string]struct{}, len(active))
+	for _, item := range inventory {
+		if _, ok := active[item.identity]; ok {
+			values[item.target] = struct{}{}
 		}
 	}
-	return false
-}
-func liveExpectedRevertTarget(mappings []ComparatorMapping, target string) bool {
-	for _, mapping := range mappings {
-		if mapping.RestoreTemplate == target {
-			return true
-		}
-	}
-	return false
+	return values
 }
 func liveManifestAppID(wingetRef string) string {
 	return strings.ToLower(strings.ReplaceAll(wingetRef, ".", "-"))
