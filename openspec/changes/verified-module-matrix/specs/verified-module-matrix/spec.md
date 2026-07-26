@@ -61,6 +61,15 @@ The system SHALL maintain tracked, schema-versioned validation metadata for ever
 - **AND** the pull request SHALL NOT evade the previously required automated lane by changing its own metadata
 - **AND** head metadata SHALL NOT authorize a new package reference, installer argument, seed, comparator, timeout, or proof mode for live execution
 
+#### Scenario: Candidate baseline remains diagnostic until trusted hosted success
+
+- **WHEN** a candidate declares a proposed live configuration baseline
+- **THEN** its policy SHALL use a production Winget install reference, a safe module-relative SHA-256-bound seed, the closed built-in `exact-bytes` comparator enum, live configuration proof mode, bounded timeouts, and no comparator artifact hash
+- **AND** normal pull-request, scheduled, dispatch, hosted-denominator, and verified-count planning SHALL exclude the candidate
+- **AND** an explicit candidate-baseline selection SHALL require matching `LiveRow` identities plus policy and identity rows from trusted main or the trusted merge base, and SHALL reject head-only or untrusted policy
+- **AND** the candidate-baseline result SHALL be diagnostic and SHALL NOT constitute proof or promote the candidate
+- **AND** only a successful fresh trusted GitHub-hosted baseline MAY support a later trusted metadata change from `candidate` to `hosted`
+
 ### Requirement: Catalog-Wide Production-Engine Scenarios
 
 The system SHALL run every production module and every required schema-v2 alternative/migration scenario through the workflow-built `endstate` executable on every pull request using isolated deterministic fixtures and production module definitions.

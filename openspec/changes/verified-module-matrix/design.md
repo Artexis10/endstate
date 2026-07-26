@@ -68,11 +68,18 @@ Illustrative shape:
     ]
   },
   "live": {
-    "mode": "hosted", // hosted, candidate, blocked, lab, manual, or not-applicable
+    "mode": "candidate", // hosted, candidate, blocked, lab, manual, or not-applicable
+    "reasonCode": "unproven-hosted-baseline",
+    "explanation": "Awaiting a trusted hosted baseline.",
     "driver": "winget",
     "ref": "Notepad++.Notepad++",
     "seed": "seed.ps1",
-    "timeoutMinutes": 20
+    "comparator": "exact-bytes",
+    "proofMode": "live-config-roundtrip",
+    "prTimeoutMinutes": 20,
+    "scheduledTimeoutMinutes": 30,
+    "runnerLabel": "windows-latest",
+    "trust": { "seedSha256": "<lowercase-sha256>" }
   }
 }
 ```
@@ -112,7 +119,7 @@ Rules:
 - Install contracts accept any nonblank production app reference family: Winget, Chocolatey, executable, uninstall-display-name, or path-exists. They still require at least one production verifier.
 - Automatic fixtures derive deterministic, non-secret sentinel content from the production capture/restore definitions. Format-aware fixture builders cover copy, directory copy, merge-json, merge-ini, append, and registry operations.
 - A module may select a tracked custom fixture script when automatic synthesis cannot represent a dynamic path or format. Custom fixtures run only inside the same isolated roots and must declare their expected assertions.
-- `live.mode: hosted` requires an unattended package reference, a reconciled real seed where configuration is claimed, a successful baseline run, and a standard-runner timeout. Unproven installable entries start as `candidate`; known automation gaps use `blocked`. `candidate`, `blocked`, `lab`, `manual`, and `not-applicable` require a stable reason code and human-readable explanation and never count as verified.
+- `live.mode: hosted` requires an unattended package reference, a reconciled real seed where configuration is claimed, a successful baseline run, and a standard-runner timeout. Unproven installable entries start as `candidate`; known automation gaps use `blocked`. A candidate may carry a complete proposed `live-config-roundtrip` execution policy only for the explicit trusted candidate-baseline path: Winget driver/ref must exactly match the production module's Winget install reference, the safe module-relative seed is SHA-256-bound, `comparator` is the closed built-in `exact-bytes` enum, and no fake `comparatorSha256` is allowed. The compared target set is derived later from production capture/restore definitions, not duplicated in metadata. External comparator artifacts are unsupported unless a future schema adds a hash-required artifact form. `candidate`, `blocked`, `lab`, `manual`, and `not-applicable` require a stable reason code and human-readable explanation and never count as verified.
 - A downgrade from `hosted` or any required config scenario, or any quarantine, is evaluated from both the merge base and pull-request head so a pull request cannot evade an existing required lane by editing its own metadata.
 - Validation metadata is schema-checked, module IDs are unique, and every module has exactly one matching sidecar. Missing, duplicate, stale, or unknown entries fail the catalog gate.
 
@@ -183,7 +190,7 @@ Install-only modules can earn `live-install` without a configuration roundtrip. 
 
 ### Pull-request trust boundary
 
-A pull request cannot authorize the installer or seed that its own untrusted code will execute. Live PR selection uses a merge-base-controlled allowlist of package source/driver/ref, installer arguments, seed hash, proof mode, comparator, and timeout. A new or materially changed live definition remains `candidate/deferred` on the PR and first runs after trusted merge or explicit maintainer approval; head metadata cannot self-promote it to `hosted`.
+A pull request cannot authorize the installer or seed that its own untrusted code will execute. Live PR selection uses a merge-base-controlled allowlist of package source/driver/ref, installer arguments, seed hash, proof mode, comparator, and timeout. Normal PR, scheduled, dispatch, hosted-denominator, and verified-count planners select only `hosted` rows. A candidate's proposed policy can be selected only by an explicit candidate-baseline API with matching `LiveRow` module/revision/validation identities and a policy plus identity from trusted main or the trusted merge base; it never accepts a head-only/untrusted policy. That baseline is diagnostic and non-proof: it cannot promote itself. Only a successful fresh trusted GitHub-hosted baseline may later change the module from `candidate` to `hosted` in trusted metadata. A new or materially changed live definition remains `candidate/deferred` on the PR and first runs after trusted merge or explicit maintainer approval; head metadata cannot self-promote it to `hosted`.
 
 Actions are pinned to immutable commit SHAs, checkout uses `persist-credentials: false`, installer subprocesses receive no GitHub token, and live workflows use `pull_request` rather than `pull_request_target`. This does not make untrusted code trusted; it prevents the validation metadata from expanding the external code executed with the hosted Windows runner's elevated account.
 
