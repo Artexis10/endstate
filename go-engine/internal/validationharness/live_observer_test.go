@@ -222,6 +222,22 @@ func TestObserveLiveMarksUnboundPathExecutableAsMixedNotAbsent(t *testing.T) {
 	}
 }
 
+func TestObserveLiveFailsClosedForUnsafeUnboundPathEntries(t *testing.T) {
+	for _, entry := range []string{"", ".", `relative\\bin`, `C:relative`} {
+		t.Run(fmt.Sprintf("%q", entry), func(t *testing.T) {
+			observer := LiveObserver{
+				Process:  &fakeLiveProcess{result: LiveProcessResult{ExitCode: 2316632084, Classification: LiveProcessNoInstalled}},
+				Registry: fakeLiveRegistry{},
+				Path:     fakeLivePath{entries: []string{entry}},
+				Files:    fakeLiveFiles{},
+			}
+			if result := observer.Observe(context.Background(), observerDefinition()); result.Status != LiveObservationFailed {
+				t.Fatalf("result = %+v", result)
+			}
+		})
+	}
+}
+
 func TestObserveLiveRejectsExecutableOutsideTrustedUninstallRoots(t *testing.T) {
 	outside := `C:\Elsewhere\fixture.exe`
 	observer := LiveObserver{

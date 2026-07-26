@@ -369,9 +369,14 @@ func (observer LiveObserver) observeUnboundPathExecutables(paths, names []string
 	}
 	seen := make(map[string]struct{}, len(paths)*len(allowed))
 	for _, entry := range paths {
+		// Windows treats an empty PATH segment as the current directory. That
+		// is neither stable host evidence nor a safe executable search root.
+		if entry == "" || strings.TrimSpace(entry) != entry {
+			return false, fmt.Errorf("live PATH entry is unsafe")
+		}
 		root, ok := cleanLiveWindowsDirectory(entry)
 		if !ok {
-			continue
+			return false, fmt.Errorf("live PATH entry is unsafe")
 		}
 		for _, name := range allowed {
 			candidate := root + `\` + name
