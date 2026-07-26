@@ -4,11 +4,15 @@
 package validationmatrix
 
 import (
+	"crypto/sha256"
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
@@ -241,38 +245,70 @@ func TestPlanPullRequestDefersUntrustedHostedPolicies(t *testing.T) {
 	})
 }
 
-func TestSelectCandidateBaselineRequiresTrustedMatchingRows(t *testing.T) {
-	policy := candidateBaselinePolicy(strings.Repeat("a", 64))
-	trusted := plannerLiveRecord("apps.fixture", policy)
-	trusted.ModuleRevision = strings.Repeat("2", 64)
-	row, err := liveRow(trusted, PlanStatusCandidate, ReasonTrustedCandidateBaseline, PolicySourceTrustedMain)
+func TestSelectCandidateBaselineDerivesTrustedCatalogSnapshot(t *testing.T) {
+	root := t.TempDir()
+	mod := writeModule(t, root, "fixture", schemaV1Module("apps.fixture", true))
+	seed := []byte("seed")
+	if err := os.WriteFile(filepath.Join(root, "modules", "apps", "fixture", "seed.ps1"), seed, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	seedDigest := sha256.Sum256(seed)
+	record := validV1Validation("apps.fixture", mod.Revision)
+	record.Live = candidateBaselinePolicy(fmt.Sprintf("%x", seedDigest))
+	writeValidation(t, root, "fixture", record)
+	catalog, err := LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	selected, err := SelectCandidateBaseline(CandidateBaselineSelection{TrustedPolicy: row, TrustedIdentity: row})
+	selection := CandidateBaselineSelection{Catalog: catalog, ModuleID: "apps.fixture", TrustedSource: PolicySourceTrustedMain}
+	selected, err := SelectCandidateBaseline(selection)
 	if err != nil {
 		t.Fatalf("SelectCandidateBaseline returned %v", err)
 	}
 	if selected.Status != PlanStatusRequired || selected.Reason != ReasonTrustedCandidateBaseline || selected.PolicySource != PolicySourceTrustedMain {
 		t.Fatalf("selected baseline = %#v", selected)
 	}
-	if !reflect.DeepEqual(selected.Policy, policy) {
-		t.Fatalf("selected policy = %#v, want %#v", selected.Policy, policy)
+	if !reflect.DeepEqual(selected.Policy, record.Live) {
+		t.Fatalf("selected policy = %#v, want %#v", selected.Policy, record.Live)
+	}
+	wantDigest, err := canonicalDigest(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if selected.ModuleRevision != mod.Revision || selected.ValidationDigest != wantDigest {
+		t.Fatalf("selected identity = %q/%q, want %q/%q", selected.ModuleRevision, selected.ValidationDigest, mod.Revision, wantDigest)
 	}
 
 	for _, tt := range []struct {
 		name   string
 		mutate func(*CandidateBaselineSelection)
 	}{
-		{"head policy is untrusted", func(selection *CandidateBaselineSelection) { selection.TrustedPolicy.PolicySource = PolicySourceHead }},
-		{"head identity is untrusted", func(selection *CandidateBaselineSelection) { selection.TrustedIdentity.PolicySource = PolicySourceHead }},
-		{"identity drift is rejected", func(selection *CandidateBaselineSelection) {
-			selection.TrustedIdentity.ValidationDigest = strings.Repeat("f", 64)
+		{"missing catalog is rejected", func(selection *CandidateBaselineSelection) { selection.Catalog = nil }},
+		{"head source is untrusted", func(selection *CandidateBaselineSelection) { selection.TrustedSource = PolicySourceHead }},
+		{"missing module is rejected", func(selection *CandidateBaselineSelection) { selection.ModuleID = "apps.missing" }},
+		{"policy graft is rejected", func(selection *CandidateBaselineSelection) {
+			record := selection.Catalog.Records[selection.ModuleID]
+			record.Live.Ref = "Vendor.Grafted"
+			selection.Catalog.Records[selection.ModuleID] = record
+		}},
+		{"quarantine mutation is rejected", func(selection *CandidateBaselineSelection) {
+			record := selection.Catalog.Records[selection.ModuleID]
+			record.Quarantines = []Quarantine{{ReasonCode: "grafted"}}
+			selection.Catalog.Records[selection.ModuleID] = record
+		}},
+		{"incomplete policy is rejected", func(selection *CandidateBaselineSelection) {
+			record := selection.Catalog.Records[selection.ModuleID]
+			record.sourceSnapshot = nil
+			selection.Catalog.Records[selection.ModuleID] = record
 		}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			selection := CandidateBaselineSelection{TrustedPolicy: row, TrustedIdentity: row}
+			trustedCatalog, loadErr := LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+			if loadErr != nil {
+				t.Fatal(loadErr)
+			}
+			selection := CandidateBaselineSelection{Catalog: trustedCatalog, ModuleID: "apps.fixture", TrustedSource: PolicySourceTrustedMain}
 			tt.mutate(&selection)
 			if _, err := SelectCandidateBaseline(selection); ErrorCode(err) != CodeInvalidCandidateBaseline {
 				t.Fatalf("SelectCandidateBaseline error = %v (code %q), want %q", err, ErrorCode(err), CodeInvalidCandidateBaseline)

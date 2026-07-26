@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 var stableKebabPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
@@ -25,6 +26,9 @@ func validateLivePolicy(record *ValidationRecord, mod *modules.Module) error {
 	if live.Mode == LiveCandidate && hasExecutionPolicy(*live) {
 		if !stableKebabPattern.MatchString(live.ReasonCode) || strings.TrimSpace(live.Explanation) == "" {
 			return validationError(CodeInvalidLivePolicy, record.ModuleID, record.FilePath, "candidate live mode requires a kebab-case reasonCode and explanation")
+		}
+		if live.ProofMode != ProofLiveConfigRoundtrip {
+			return validationError(CodeInvalidLivePolicy, record.ModuleID, record.FilePath, "candidate execution policy requires live-config-roundtrip proofMode")
 		}
 		return validateExecutionPolicy(record, mod, live)
 	}
@@ -129,17 +133,34 @@ func validateSeedFile(record *ValidationRecord, live LivePolicy) error {
 	if live.Seed == "" {
 		return nil
 	}
-	if !isPortableRepositoryRelativePath(live.Seed) {
+	return verifyHashBoundSeedFile(*record, live.Seed, trustSeedHash(live.Trust))
+}
+
+// verifyHashBoundSeedFile validates a seed inside its module directory before
+// hashing its exact bytes. Runtime execution can reuse this helper for a later
+// pre-execution rehash without changing the containment contract.
+func verifyHashBoundSeedFile(record ValidationRecord, seed, expectedDigest string) error {
+	if !isPortableRepositoryRelativePath(seed) {
 		return fmt.Errorf("seed must be a safe repository-relative path")
 	}
-	path := filepath.Join(filepath.Dir(record.FilePath), filepath.FromSlash(live.Seed))
+	path, err := safepath.Resolve(filepath.Dir(record.FilePath), seed)
+	if err != nil {
+		return fmt.Errorf("seed must be a contained regular file: %w", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect hash-bound seed: %w", err)
+	}
+	if safepath.IsLinkOrReparse(info) || !info.Mode().IsRegular() {
+		return fmt.Errorf("seed must be a contained regular file")
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("read hash-bound seed: %w", err)
 	}
 	digest := sha256.Sum256(data)
-	if hex.EncodeToString(digest[:]) != trustSeedHash(live.Trust) {
-		return fmt.Errorf("seedSha256 does not match %s", live.Seed)
+	if hex.EncodeToString(digest[:]) != expectedDigest {
+		return fmt.Errorf("seedSha256 does not match %s", seed)
 	}
 	return nil
 }

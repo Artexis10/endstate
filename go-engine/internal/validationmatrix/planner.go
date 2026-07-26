@@ -7,9 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
 
 const (
@@ -96,45 +99,84 @@ type LiveRow struct {
 	Quarantines      []Quarantine `json:"quarantines,omitempty"`
 }
 
-// CandidateBaselineSelection intentionally requires separate trusted policy
-// and identity rows so callers cannot execute an untrusted head policy under
-// a trusted identity.
+// CandidateBaselineSelection identifies a candidate in a catalog loaded from
+// trusted main or a trusted merge base. It deliberately accepts no policy or
+// identity row from the caller: selection reconstructs both from snapshots
+// pinned by catalog loading.
 type CandidateBaselineSelection struct {
-	TrustedPolicy   LiveRow
-	TrustedIdentity LiveRow
+	Catalog       *Catalog
+	ModuleID      string
+	TrustedSource PolicySource
 }
 
 // SelectCandidateBaseline is the only candidate execution selection path. It
-// accepts only matching rows from trusted main or a trusted merge base; normal
-// PR and hosted planning continue to exclude candidates.
+// accepts only a candidate reconstructed from trusted catalog snapshots;
+// normal PR and hosted planning continue to exclude candidates.
 func SelectCandidateBaseline(selection CandidateBaselineSelection) (LiveRow, error) {
-	policy := selection.TrustedPolicy
-	identity := selection.TrustedIdentity
-	if !trustedCandidateSource(policy.PolicySource) || !trustedCandidateSource(identity.PolicySource) {
-		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, policy.ModuleID, "", "candidate baseline requires trusted-main or merge-base policy and identity rows")
+	if !trustedCandidateSource(selection.TrustedSource) {
+		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, selection.ModuleID, "", "candidate baseline requires a trusted-main or merge-base catalog")
 	}
-	if policy.Policy.Mode != LiveCandidate || !hasExecutionPolicy(policy.Policy) {
-		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, policy.ModuleID, "", "candidate baseline requires a proposed candidate execution policy")
+	record, mod, err := trustedCandidateRecord(selection.Catalog, selection.ModuleID)
+	if err != nil {
+		return LiveRow{}, err
 	}
-	if !equalLiveRowIdentity(policy, identity) {
-		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, policy.ModuleID, "", "candidate baseline policy and identity rows must match exactly")
+	if record.Live.Mode != LiveCandidate || !hasExecutionPolicy(record.Live) {
+		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, record.ModuleID, record.FilePath, "candidate baseline requires a proposed candidate execution policy")
 	}
-	if policy.ModuleID == "" || !lowerSHA256Pattern.MatchString(policy.ModuleRevision) || !lowerSHA256Pattern.MatchString(policy.ValidationDigest) {
-		return LiveRow{}, validationError(CodeInvalidCandidateBaseline, policy.ModuleID, "", "candidate baseline row identity is incomplete")
+	if err := validateLivePolicy(&record, mod); err != nil {
+		return LiveRow{}, validationErrorWithCause(CodeInvalidCandidateBaseline, record.ModuleID, record.FilePath, "candidate baseline policy is invalid", err)
 	}
-	return LiveRow{
-		ModuleID: policy.ModuleID, ModuleRevision: policy.ModuleRevision, ValidationDigest: policy.ValidationDigest,
-		Status: PlanStatusRequired, Reason: ReasonTrustedCandidateBaseline, PolicySource: policy.PolicySource,
-		Policy: cloneLivePolicy(policy.Policy), Quarantines: canonicalQuarantines(policy.Quarantines),
-	}, nil
+	return liveRow(record, PlanStatusRequired, ReasonTrustedCandidateBaseline, selection.TrustedSource)
 }
 
 func trustedCandidateSource(source PolicySource) bool {
 	return source == PolicySourceTrustedMain || source == PolicySourceMergeBase
 }
 
-func equalLiveRowIdentity(left, right LiveRow) bool {
-	return left.ModuleID == right.ModuleID && left.ModuleRevision == right.ModuleRevision && left.ValidationDigest == right.ValidationDigest
+func trustedCandidateRecord(catalog *Catalog, moduleID string) (ValidationRecord, *modules.Module, error) {
+	if catalog == nil || strings.TrimSpace(moduleID) == "" {
+		return ValidationRecord{}, nil, validationError(CodeInvalidCandidateBaseline, moduleID, "", "candidate baseline requires a catalog and module ID")
+	}
+	loadedRecord, found := catalog.Records[moduleID]
+	if !found {
+		return ValidationRecord{}, nil, validationError(CodeInvalidCandidateBaseline, moduleID, "", "candidate baseline module is absent from the trusted catalog")
+	}
+	loadedModule, found := catalog.Modules[moduleID]
+	if !found || loadedModule == nil {
+		return ValidationRecord{}, nil, validationError(CodeInvalidCandidateBaseline, moduleID, loadedRecord.FilePath, "candidate baseline module definition is absent from the trusted catalog")
+	}
+
+	record, err := parseValidationJSONC(loadedRecord.SourceSnapshot())
+	if err != nil {
+		return ValidationRecord{}, nil, validationErrorWithCause(CodeInvalidCandidateBaseline, moduleID, loadedRecord.FilePath, "parse trusted validation snapshot", err)
+	}
+	record.FilePath = loadedRecord.FilePath
+	moduleSnapshot, err := trustedModuleSnapshot(loadedModule)
+	if err != nil {
+		return ValidationRecord{}, nil, validationErrorWithCause(CodeInvalidCandidateBaseline, moduleID, loadedRecord.FilePath, "parse trusted module snapshot", err)
+	}
+	if record.ModuleID != moduleID || moduleSnapshot.ID != moduleID || record.ModuleRevision != moduleSnapshot.Revision {
+		return ValidationRecord{}, nil, validationError(CodeInvalidCandidateBaseline, moduleID, loadedRecord.FilePath, "candidate baseline trusted snapshot identity is incomplete or mismatched")
+	}
+	if loadedRecord.ModuleID != record.ModuleID || loadedRecord.ModuleRevision != record.ModuleRevision ||
+		!reflect.DeepEqual(loadedRecord.Live, record.Live) || !equalQuarantineSets(loadedRecord.Quarantines, record.Quarantines) {
+		return ValidationRecord{}, nil, validationError(CodeInvalidCandidateBaseline, moduleID, loadedRecord.FilePath, "candidate baseline catalog row differs from its trusted snapshot")
+	}
+	return record, moduleSnapshot, nil
+}
+
+func trustedModuleSnapshot(loaded *modules.Module) (*modules.Module, error) {
+	data := loaded.CanonicalSnapshot()
+	if len(data) == 0 {
+		return nil, fmt.Errorf("module snapshot is missing")
+	}
+	var snapshot modules.Module
+	if err := json.Unmarshal(data, &snapshot); err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(data)
+	snapshot.Revision = hex.EncodeToString(digest[:])
+	return &snapshot, nil
 }
 
 func PlanSynthetic(catalog *Catalog, options SyntheticPlanOptions) (SyntheticPlan, error) {

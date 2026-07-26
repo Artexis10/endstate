@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -395,6 +397,11 @@ func TestLivePolicyContract(t *testing.T) {
 	}{
 		{"candidate", nonHostedLivePolicy(LiveCandidate), false},
 		{"candidate proposed baseline", candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b"), false},
+		{"candidate baseline rejects live install proof", func() LivePolicy {
+			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+			p.ProofMode = ProofLiveInstall
+			return p
+		}(), true},
 		{"blocked", nonHostedLivePolicy(LiveBlocked), false},
 		{"lab", nonHostedLivePolicy(LiveLab), false},
 		{"manual", nonHostedLivePolicy(LiveManual), false},
@@ -458,6 +465,84 @@ func TestLivePolicyContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadCatalogRejectsLinkedHashBoundSeeds(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, moduleDir, targetDir string) string
+	}{
+		{
+			name: "leaf symlink",
+			setup: func(t *testing.T, moduleDir, targetDir string) string {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(targetDir, "seed.ps1"), []byte("seed"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(filepath.Join(targetDir, "seed.ps1"), filepath.Join(moduleDir, "seed.ps1")); err != nil {
+					if runtime.GOOS == "windows" {
+						t.Skipf("symlink unavailable: %v", err)
+					}
+					t.Fatal(err)
+				}
+				return "seed.ps1"
+			},
+		},
+		{
+			name: "intermediate symlink",
+			setup: func(t *testing.T, moduleDir, targetDir string) string {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(targetDir, "seed.ps1"), []byte("seed"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(targetDir, filepath.Join(moduleDir, "linked")); err != nil {
+					if runtime.GOOS == "windows" {
+						t.Skipf("symlink unavailable: %v", err)
+					}
+					t.Fatal(err)
+				}
+				return "linked/seed.ps1"
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+			seed := tt.setup(t, filepath.Join(root, "modules", "apps", "alpha"), t.TempDir())
+			record := validV1Validation("apps.alpha", mod.Revision)
+			record.Live = candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+			record.Live.Seed = seed
+			writeValidation(t, root, "alpha", record)
+			if _, err := LoadCatalog(root, now); ErrorCode(err) != CodeInvalidLivePolicy {
+				t.Fatalf("LoadCatalog error = %v (code %q), want %q", err, ErrorCode(err), CodeInvalidLivePolicy)
+			}
+		})
+	}
+
+	if runtime.GOOS != "windows" {
+		return
+	}
+	t.Run("intermediate junction", func(t *testing.T) {
+		root := t.TempDir()
+		mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+		target := t.TempDir()
+		if err := os.WriteFile(filepath.Join(target, "seed.ps1"), []byte("seed"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		junction := filepath.Join(root, "modules", "apps", "alpha", "linked")
+		if output, err := exec.Command("cmd", "/c", "mklink", "/J", junction, target).CombinedOutput(); err != nil {
+			t.Skipf("junction unavailable: %v: %s", err, output)
+		}
+		record := validV1Validation("apps.alpha", mod.Revision)
+		record.Live = candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+		record.Live.Seed = "linked/seed.ps1"
+		writeValidation(t, root, "alpha", record)
+		if _, err := LoadCatalog(root, now); ErrorCode(err) != CodeInvalidLivePolicy {
+			t.Fatalf("LoadCatalog error = %v (code %q), want %q", err, ErrorCode(err), CodeInvalidLivePolicy)
+		}
+	})
 }
 
 func candidateBaselinePolicy(seedSHA256 string) LivePolicy {

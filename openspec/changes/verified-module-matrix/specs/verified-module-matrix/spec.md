@@ -66,7 +66,7 @@ The system SHALL maintain tracked, schema-versioned validation metadata for ever
 - **WHEN** a candidate declares a proposed live configuration baseline
 - **THEN** its policy SHALL use a production Winget install reference, a safe module-relative SHA-256-bound seed, the closed built-in `exact-bytes` comparator enum, live configuration proof mode, bounded timeouts, and no comparator artifact hash
 - **AND** normal pull-request, scheduled, dispatch, hosted-denominator, and verified-count planning SHALL exclude the candidate
-- **AND** an explicit candidate-baseline selection SHALL require matching `LiveRow` identities plus policy and identity rows from trusted main or the trusted merge base, and SHALL reject head-only or untrusted policy
+- **AND** an explicit candidate-baseline selection SHALL accept only a module ID and trusted-main or trusted-merge-base catalog source, derive the policy, quarantines, module revision, and validation digest from immutable loaded catalog snapshots, and reject head-only, untrusted, incomplete, or drifted catalog rows
 - **AND** the candidate-baseline result SHALL be diagnostic and SHALL NOT constitute proof or promote the candidate
 - **AND** only a successful fresh trusted GitHub-hosted baseline MAY support a later trusted metadata change from `candidate` to `hosted`
 
