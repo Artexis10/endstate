@@ -544,8 +544,8 @@ func TestRunCapture_Sanitize_StripsMeta_SortsByID(t *testing.T) {
 
 	// Verify _name is not present in sanitized output.
 	for _, app := range apps {
-		if _, has := app["_name"]; has {
-			t.Errorf("sanitized app should not have _name field: %v", app)
+		if _, has := app["displayName"]; has {
+			t.Errorf("sanitized app should not have displayName field: %v", app)
 		}
 	}
 
@@ -927,6 +927,53 @@ func TestRunCapture_ProfileName_UsedAsManifestName(t *testing.T) {
 
 	if result.Manifest.Name != "work-laptop" {
 		t.Errorf("expected manifest name=%q from profile, got %q", "work-laptop", result.Manifest.Name)
+	}
+}
+
+// TestRunCapture_WritesDisplayNameUnderTheKeyReadersBind pins the serialized key
+// for an app's display name.
+//
+// The name was written under "_name", which no reader binds. The bundle writer
+// round-trips the manifest through manifest.App — which binds "displayName" —
+// so the value was dropped on re-serialization and every bundle shipped apps
+// carrying no name at all. Nothing surfaced the loss until a profile was applied
+// months later and reported still-installed software as missing: the display
+// name is an app's only identity once its package id stops resolving.
+func TestRunCapture_WritesDisplayNameUnderTheKeyReadersBind(t *testing.T) {
+	tmpDir := t.TempDir()
+	outPath := filepath.Join(tmpDir, "display-name.jsonc")
+
+	displayNames := map[string]string{
+		"Microsoft.VisualStudioCode": "Visual Studio Code",
+		"Git.Git":                    "Git",
+		"Google.Chrome":              "Google Chrome",
+	}
+
+	withMockSnapshot(sampleApps(), nil, func() {
+		withMockDisplayNames(displayNames, nil, func() {
+			emptyCatalog(func() {
+				if _, err := RunCapture(CaptureFlags{Out: outPath}); err != nil {
+					t.Fatalf("RunCapture returned unexpected error: %+v", err)
+				}
+			})
+		})
+	})
+
+	apps := readManifestApps(t, outPath)
+	if len(apps) == 0 {
+		t.Fatal("capture wrote no apps")
+	}
+	named := 0
+	for _, app := range apps {
+		if _, has := app["_name"]; has {
+			t.Errorf("app still serializes the unbindable _name key: %v", app)
+		}
+		if name, _ := app["displayName"].(string); name != "" {
+			named++
+		}
+	}
+	if named != len(apps) {
+		t.Fatalf("only %d of %d apps carry displayName; the enumeration supplied a name for each", named, len(apps))
 	}
 }
 
@@ -2025,8 +2072,8 @@ func TestRunCapture_PinSanitize_KeepsVersions(t *testing.T) {
 	}
 	prevID := ""
 	for i, app := range apps {
-		if _, has := app["_name"]; has {
-			t.Errorf("sanitized app should not have _name field: %v", app)
+		if _, has := app["displayName"]; has {
+			t.Errorf("sanitized app should not have displayName field: %v", app)
 		}
 		if v, _ := app["version"].(string); v == "" {
 			t.Errorf("expected version present under --pin --sanitize for %v", app["id"])

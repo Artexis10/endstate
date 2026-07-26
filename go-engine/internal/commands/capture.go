@@ -291,7 +291,16 @@ type capturedApp struct {
 	Refs             map[string]string `json:"refs"`
 	Driver           string            `json:"driver,omitempty"`
 	Version          string            `json:"version,omitempty"`
-	Name             string            `json:"_name,omitempty"`
+	// Serialized as displayName, matching manifest.App.DisplayName. Under the
+	// old "_name" key this value was written by capture and then silently lost:
+	// the bundle writer round-trips the manifest through manifest.App, which
+	// binds displayName, so an unrecognised "_name" was dropped on
+	// re-serialization and every bundle shipped apps carrying no display name.
+	//
+	// That name is the app's only identity that survives losing package-manager
+	// tracking — without it a still-installed app looks missing once its
+	// package id stops resolving.
+	Name             string            `json:"displayName,omitempty"`
 	Installed        bool              `json:"-"`
 	InstalledVersion string            `json:"-"`
 	Backend          string            `json:"-"`
