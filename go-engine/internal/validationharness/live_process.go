@@ -25,6 +25,10 @@ const (
 	LiveExecutionUninstall LiveExecutionClass = "uninstaller"
 )
 
+type liveProbeOperation string
+
+const liveProbeWingetList liveProbeOperation = "winget-list"
+
 type LiveExecutionFailureCode string
 
 const (
@@ -68,23 +72,28 @@ func liveExecutionError(code LiveExecutionFailureCode, cause error) *LiveExecuti
 // workflow may construct it only after validating its external authority; a
 // catalog row or caller outside this package cannot turn candidate data into a
 // mutation permit.
-type trustedLiveMutationPermit struct{ granted bool }
+type trustedLiveMutationPermit struct{ capability *liveMutationCapability }
+
+type liveMutationCapability struct{}
+
+var trustedLiveMutationCapability = &liveMutationCapability{}
 
 func newTrustedLiveMutationPermit() trustedLiveMutationPermit {
-	return trustedLiveMutationPermit{granted: true}
+	return trustedLiveMutationPermit{capability: trustedLiveMutationCapability}
 }
 
-// LiveProcessRequest is an internal execution request. Its zero class is a
-// read-only probe. Mutating classes require a trusted in-memory permit.
+// LiveProcessRequest is an internal execution request. It has no zero-value
+// behavior: probes are created only by a reviewed typed builder, and mutations
+// only by a permit-bearing typed builder.
 type LiveProcessRequest struct {
-	Name        string
-	Args        []string
-	Dir         string
-	Environment map[string]string
-	OutputLimit int
-	Class       LiveExecutionClass
-
-	permit trustedLiveMutationPermit
+	executable  string
+	args        []string
+	dir         string
+	environment map[string]string
+	outputLimit int
+	class       LiveExecutionClass
+	probe       liveProbeOperation
+	permit      trustedLiveMutationPermit
 }
 
 // liveProcessOutput is deliberately private and has no serialization tags:
@@ -95,18 +104,28 @@ type liveProcessOutput struct {
 	Stderr   []byte
 }
 
-func (request LiveProcessRequest) executionClass() LiveExecutionClass {
-	if request.Class == "" {
-		return LiveExecutionProbe
+func newLiveWingetListProbe(executable, ref string, environment map[string]string, outputLimit int) LiveProcessRequest {
+	return LiveProcessRequest{
+		executable: executable, environment: environment, outputLimit: outputLimit, class: LiveExecutionProbe, probe: liveProbeWingetList,
+		args: []string{"list", "--id", ref, "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"},
 	}
-	return request.Class
 }
 
-func (request LiveProcessRequest) outputLimit() int {
-	if request.OutputLimit == 0 {
+func newLiveEngineMutation(permit trustedLiveMutationPermit, executable string, args []string, environment map[string]string, outputLimit int) LiveProcessRequest {
+	return newLiveMutationRequest(permit, LiveExecutionEngine, executable, args, environment, outputLimit)
+}
+
+func newLiveMutationRequest(permit trustedLiveMutationPermit, class LiveExecutionClass, executable string, args []string, environment map[string]string, outputLimit int) LiveProcessRequest {
+	return LiveProcessRequest{executable: executable, args: append([]string(nil), args...), environment: environment, outputLimit: outputLimit, class: class, permit: permit}
+}
+
+func (request LiveProcessRequest) executionClass() LiveExecutionClass { return request.class }
+
+func (request LiveProcessRequest) outputByteLimit() int {
+	if request.outputLimit == 0 {
 		return maxLiveProcessOutputBytes
 	}
-	return request.OutputLimit
+	return request.outputLimit
 }
 
 func (request LiveProcessRequest) mutates() bool {
@@ -119,7 +138,7 @@ func (request LiveProcessRequest) mutates() bool {
 }
 
 func validateLiveProcessRequest(request LiveProcessRequest) error {
-	if !validLiveProcessValue(request.Name) || !filepath.IsAbs(request.Name) || filepath.Clean(request.Name) != request.Name || !validLiveProcessValue(request.Dir) && request.Dir != "" {
+	if !validLiveProcessValue(request.executable) || !filepath.IsAbs(request.executable) || filepath.Clean(request.executable) != request.executable || !validLiveProcessValue(request.dir) && request.dir != "" {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
 	switch request.executionClass() {
@@ -127,21 +146,36 @@ func validateLiveProcessRequest(request LiveProcessRequest) error {
 	default:
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
-	if len(request.Args) > 64 || request.outputLimit() < 1 || request.outputLimit() > maxLiveProcessOutputBytes {
+	if len(request.args) > 64 || request.outputByteLimit() < 1 || request.outputByteLimit() > maxLiveProcessOutputBytes {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
-	for _, arg := range request.Args {
+	for _, arg := range request.args {
 		if !validLiveProcessValue(arg) {
 			return liveExecutionError(LiveExecutionInvalidRequest, nil)
 		}
 	}
-	if _, err := liveProcessEnvironment(request.Environment); err != nil {
+	if _, err := liveProcessEnvironment(request.environment); err != nil {
 		return err
 	}
-	if request.mutates() && !request.permit.granted {
+	if request.class == LiveExecutionProbe && !validLiveProbe(request) {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	if request.mutates() && request.permit.capability != trustedLiveMutationCapability {
 		return liveExecutionError(LiveExecutionMutationDenied, nil)
 	}
 	return nil
+}
+
+func validLiveProbe(request LiveProcessRequest) bool {
+	_, ok := liveWingetListProbeReference(request.args)
+	return request.probe == liveProbeWingetList && ok
+}
+
+func liveWingetListProbeReference(args []string) (string, bool) {
+	if len(args) != 8 || args[0] != "list" || args[1] != "--id" || !validLiveProcessValue(args[2]) {
+		return "", false
+	}
+	return args[2], args[3] == "--exact" && args[4] == "--source" && args[5] == "winget" && args[6] == "--accept-source-agreements" && args[7] == "--disable-interactivity"
 }
 
 func runLiveProcess(ctx context.Context, request LiveProcessRequest) (liveProcessOutput, error) {

@@ -8,7 +8,6 @@ package validationharness
 import (
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,12 +20,13 @@ import (
 )
 
 const liveWindowsJobDrainTimeout = 30 * time.Second
+const liveWindowsReaderDrainTimeout = 2 * time.Second
 
 func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (liveProcessOutput, error) {
-	if err := validateLiveWindowsExecutable(request.Name); err != nil {
+	if err := validateLiveWindowsExecutable(request.executable); err != nil {
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionInvalidRequest, err)
 	}
-	environment, err := liveProcessEnvironment(request.Environment)
+	environment, err := liveProcessEnvironment(request.environment)
 	if err != nil {
 		return liveProcessOutput{}, err
 	}
@@ -45,7 +45,12 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 	if err != nil {
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionStartFailed, err)
 	}
-	defer windows.CloseHandle(stdinWrite)
+	stdinWriteOpen := true
+	defer func() {
+		if stdinWriteOpen {
+			_ = windows.CloseHandle(stdinWrite)
+		}
+	}()
 	stdoutRead, stdoutWrite, err := newLiveWindowsPipe(false)
 	if err != nil {
 		windows.CloseHandle(stdinRead)
@@ -68,8 +73,23 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 		windows.CloseHandle(stderrRead)
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionStartFailed, err)
 	}
+	if err := windows.CloseHandle(stdinWrite); err != nil {
+		_ = windows.TerminateProcess(process.Process, 1)
+		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
+		windows.CloseHandle(stdoutRead)
+		windows.CloseHandle(stderrRead)
+		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
+	}
+	stdinWriteOpen = false
 	defer windows.CloseHandle(process.Thread)
 	defer windows.CloseHandle(process.Process)
+	if err := verifyLiveWindowsProcessImage(process.Process, request.executable); err != nil {
+		_ = windows.TerminateProcess(process.Process, 1)
+		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
+		windows.CloseHandle(stdoutRead)
+		windows.CloseHandle(stderrRead)
+		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
+	}
 	if err := windows.AssignProcessToJobObject(job, process.Process); err != nil {
 		_ = windows.TerminateProcess(process.Process, 1)
 		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
@@ -85,13 +105,10 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
 	}
 
-	limit := request.outputLimit()
-	stdout, stderr := &liveWindowsOutputCollector{}, &liveWindowsOutputCollector{}
+	limit := request.outputByteLimit()
 	overflow := make(chan struct{}, 2)
-	var readers sync.WaitGroup
-	readers.Add(2)
-	go readLiveWindowsPipe(&readers, stdoutRead, limit, stdout, overflow)
-	go readLiveWindowsPipe(&readers, stderrRead, limit, stderr, overflow)
+	stdout := startLiveWindowsReader(stdoutRead, limit, overflow)
+	stderr := startLiveWindowsReader(stderrRead, limit, overflow)
 	finished := make(chan error, 1)
 	go func() {
 		state, waitErr := windows.WaitForSingleObject(process.Process, windows.INFINITE)
@@ -118,9 +135,17 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 	jobOpen = false
 	if terminalErr != nil {
 		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
+		stdout.close()
+		stderr.close()
 	}
-	readers.Wait()
-	if stdout.exceeded || stderr.exceeded {
+	if !waitLiveWindowsReaders(stdout, stderr) {
+		stdout.close()
+		stderr.close()
+		if !waitLiveWindowsReaders(stdout, stderr) && terminalErr == nil {
+			terminalErr = liveExecutionError(LiveExecutionContainment, errors.New("reader did not stop"))
+		}
+	}
+	if stdout.collector.exceeded || stderr.collector.exceeded {
 		terminalErr = liveExecutionError(LiveExecutionOutputLimit, nil)
 	}
 	if terminalErr != nil {
@@ -130,11 +155,30 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 	if err := windows.GetExitCodeProcess(process.Process, &exitCode); err != nil {
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
 	}
-	result := liveProcessOutput{ExitCode: int(int32(exitCode)), Stdout: stdout.bytes, Stderr: stderr.bytes}
+	result := liveProcessOutput{ExitCode: int(int32(exitCode)), Stdout: stdout.collector.bytes, Stderr: stderr.collector.bytes}
 	if result.ExitCode != 0 {
 		return result, liveExecutionError(LiveExecutionProcessExit, nil)
 	}
 	return result, nil
+}
+
+var liveWindowsProcessImagePath = queryLiveWindowsProcessImagePath
+
+func verifyLiveWindowsProcessImage(process windows.Handle, expected string) error {
+	actual, err := liveWindowsProcessImagePath(process)
+	if err != nil || !strings.EqualFold(filepath.Clean(actual), expected) {
+		return errors.New("created process image does not match trusted executable")
+	}
+	return validateLiveWindowsExecutable(actual)
+}
+
+func queryLiveWindowsProcessImagePath(process windows.Handle) (string, error) {
+	buffer := make([]uint16, 32768)
+	size := uint32(len(buffer))
+	if err := windows.QueryFullProcessImageName(process, 0, &buffer[0], &size); err != nil {
+		return "", err
+	}
+	return windows.UTF16ToString(buffer[:size]), nil
 }
 
 func validateLiveWindowsExecutable(path string) error {
@@ -192,18 +236,18 @@ func newLiveWindowsPipe(childReads bool) (windows.Handle, windows.Handle, error)
 }
 
 func startLiveWindowsProcess(request LiveProcessRequest, environment []string, stdin, stdout, stderr windows.Handle) (windows.ProcessInformation, error) {
-	application, err := windows.UTF16PtrFromString(request.Name)
+	application, err := windows.UTF16PtrFromString(request.executable)
 	if err != nil {
 		return windows.ProcessInformation{}, err
 	}
-	commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{request.Name}, request.Args...)))
+	commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(append([]string{request.executable}, request.args...)))
 	if err != nil {
 		return windows.ProcessInformation{}, err
 	}
 	environmentBlock := liveWindowsEnvironmentBlock(environment)
 	var currentDirectory *uint16
-	if request.Dir != "" {
-		currentDirectory, err = windows.UTF16PtrFromString(request.Dir)
+	if request.dir != "" {
+		currentDirectory, err = windows.UTF16PtrFromString(request.dir)
 		if err != nil {
 			return windows.ProcessInformation{}, err
 		}
@@ -276,35 +320,79 @@ type liveWindowsOutputCollector struct {
 	exceeded bool
 }
 
-func readLiveWindowsPipe(group *sync.WaitGroup, handle windows.Handle, limit int, collector *liveWindowsOutputCollector, overflow chan<- struct{}) {
-	defer group.Done()
-	file := os.NewFile(uintptr(handle), "")
-	defer file.Close()
+type liveWindowsPipeReader struct {
+	handle    windows.Handle
+	collector liveWindowsOutputCollector
+	overflow  chan<- struct{}
+	done      chan struct{}
+	closeOnce sync.Once
+}
+
+func startLiveWindowsReader(handle windows.Handle, limit int, overflow chan<- struct{}) *liveWindowsPipeReader {
+	reader := &liveWindowsPipeReader{handle: handle, overflow: overflow, done: make(chan struct{})}
+	go reader.read(limit)
+	return reader
+}
+
+func (reader *liveWindowsPipeReader) read(limit int) {
+	defer close(reader.done)
+	defer reader.close()
 	buffer := make([]byte, 32*1024)
 	for {
-		count, err := file.Read(buffer)
+		var count uint32
+		err := windows.ReadFile(reader.handle, buffer, &count, nil)
 		if count > 0 {
-			remaining := limit - len(collector.bytes)
+			remaining := limit - len(reader.collector.bytes)
 			if remaining > 0 {
-				if count < remaining {
-					collector.bytes = append(collector.bytes, buffer[:count]...)
+				if int(count) < remaining {
+					reader.collector.bytes = append(reader.collector.bytes, buffer[:count]...)
 				} else {
-					collector.bytes = append(collector.bytes, buffer[:remaining]...)
+					reader.collector.bytes = append(reader.collector.bytes, buffer[:remaining]...)
 				}
 			}
-			if count > remaining && !collector.exceeded {
-				collector.exceeded = true
+			if int(count) > remaining && !reader.collector.exceeded {
+				reader.collector.exceeded = true
 				select {
-				case overflow <- struct{}{}:
+				case reader.overflow <- struct{}{}:
 				default:
 				}
 			}
 		}
 		if err != nil {
-			if err == io.EOF {
-				return
-			}
 			return
 		}
 	}
+}
+
+func (reader *liveWindowsPipeReader) close() {
+	reader.closeOnce.Do(func() {
+		_ = windows.CancelIoEx(reader.handle, nil)
+		_ = windows.CloseHandle(reader.handle)
+	})
+}
+
+func (reader *liveWindowsPipeReader) closeAndWait(timeout time.Duration) bool {
+	reader.close()
+	select {
+	case <-reader.done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func waitLiveWindowsReaders(readers ...*liveWindowsPipeReader) bool {
+	deadline := time.Now().Add(liveWindowsReaderDrainTimeout)
+	for _, reader := range readers {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return false
+		}
+		select {
+		case <-reader.done:
+		case <-time.After(remaining):
+			return false
+		}
+	}
+	return true
 }

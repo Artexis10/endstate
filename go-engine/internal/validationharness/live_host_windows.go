@@ -78,7 +78,11 @@ func (process windowsLiveProcess) Run(ctx context.Context, name string, args ...
 	if err := validateTrustedLiveWingetExecutable(executable); err != nil {
 		return LiveProcessResult{}, err
 	}
-	output, err := runLiveProcess(ctx, LiveProcessRequest{Name: executable, Args: args, Environment: environment, OutputLimit: maxLiveObserverOutputBytes})
+	ref, ok := liveWingetListProbeReference(args)
+	if !ok {
+		return LiveProcessResult{}, fmt.Errorf("live process rejects an unreviewed winget operation")
+	}
+	output, err := runLiveProcess(ctx, newLiveWingetListProbe(executable, ref, environment, maxLiveObserverOutputBytes))
 	if err == nil {
 		return LiveProcessResult{ExitCode: output.ExitCode, Stdout: output.Stdout, Classification: LiveProcessCompleted}, nil
 	}
