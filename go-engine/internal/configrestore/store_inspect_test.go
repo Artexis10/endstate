@@ -505,8 +505,14 @@ func TestInspectStoreRejectsDuplicateLegacyBackupMembership(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	entry := `{"resolvedSourcePath":"source","targetPath":"target","backupRequested":true,"backupCreated":true,"backupPath":"$ENDSTATE_ROOT/state/backups/apply-legacy-duplicate/backup","action":"restored"}`
-	journalBytes := []byte(`{"runId":"apply-legacy-duplicate","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[` + entry + `,` + entry + `]}`)
+	alias := strings.ToUpper(backup)
+	if _, err := os.Lstat(alias); err != nil {
+		t.Skip("filesystem does not resolve mixed-case aliases")
+	}
+	entry := func(backupPath string) string {
+		return `{"resolvedSourcePath":"source","targetPath":"target","backupRequested":true,"backupCreated":true,"backupPath":` + fmt.Sprintf("%q", backupPath) + `,"action":"restored"}`
+	}
+	journalBytes := []byte(`{"runId":"apply-legacy-duplicate","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[` + entry("$ENDSTATE_ROOT/state/backups/apply-legacy-duplicate/backup") + `,` + entry(alias) + `]}`)
 	if err := os.WriteFile(journal, journalBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}

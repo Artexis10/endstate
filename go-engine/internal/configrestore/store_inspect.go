@@ -1089,7 +1089,7 @@ func inspectLegacyActionBackup(
 	if err != nil {
 		return StoreBackupInspection{}, err
 	}
-	key := opaqueInspectionIdentity(path)
+	key := opaqueInspectionIdentity(canonicalFilesystemTarget(path))
 	if _, exists := backupInspection.evidence[key]; exists {
 		return StoreBackupInspection{}, fmt.Errorf("legacy backup is registered by more than one action")
 	}
