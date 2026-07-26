@@ -8,6 +8,7 @@ package validationharness
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -22,7 +23,7 @@ const liveWindowsJobDrainTimeout = 30 * time.Second
 const liveWindowsReaderDrainTimeout = 2 * time.Second
 
 func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (liveProcessOutput, error) {
-	binding, err := bindLiveWindowsExecutable(request.executable)
+	binding, err := bindLiveWindowsRequestExecutable(request)
 	if err != nil {
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionInvalidRequest, err)
 	}
@@ -163,6 +164,13 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 	return result, nil
 }
 
+func bindLiveWindowsRequestExecutable(request LiveProcessRequest) (*liveWindowsExecutableBinding, error) {
+	if request.appx != nil {
+		return bindLiveTrustedAppXExecutable(*request.appx)
+	}
+	return bindLiveWindowsExecutable(request.executable)
+}
+
 var liveWindowsProcessImagePath = queryLiveWindowsProcessImagePath
 var liveWindowsProcessImageIdentity = liveWindowsPathIdentity
 
@@ -245,6 +253,92 @@ func bindLiveWindowsExecutable(path string) (*liveWindowsExecutableBinding, erro
 		return fail(errors.New("executable path changed during binding"))
 	}
 	return binding, nil
+}
+
+func newLiveTrustedAppXBinding(metadata liveAppXPackageMetadata) (liveTrustedAppXBinding, error) {
+	appsRoot, err := liveWindowsAppsRoot()
+	if err != nil || metadata.familyName == "" || metadata.fullName == "" || metadata.executableName != "winget.exe" || filepath.Base(metadata.fullName) != metadata.fullName || filepath.Base(metadata.packageRoot) != metadata.fullName || !strings.EqualFold(filepath.Dir(metadata.packageRoot), appsRoot) {
+		return liveTrustedAppXBinding{}, errors.New("AppX package metadata is not exact trusted authority")
+	}
+	return liveTrustedAppXBinding{metadata: metadata}, nil
+}
+
+func bindLiveTrustedAppXExecutable(trusted liveTrustedAppXBinding) (*liveWindowsExecutableBinding, error) {
+	metadata := trusted.metadata
+	validated, err := newLiveTrustedAppXBinding(metadata)
+	if err != nil {
+		return nil, err
+	}
+	appsRoot, _ := liveWindowsAppsRoot()
+	binding := &liveWindowsExecutableBinding{path: filepath.Join(validated.metadata.packageRoot, validated.metadata.executableName)}
+	fail := func(err error) (*liveWindowsExecutableBinding, error) { binding.Close(); return nil, err }
+	volume := filepath.VolumeName(appsRoot)
+	root := volume + `\`
+	for _, directory := range []string{root, filepath.Join(root, "Program Files")} {
+		handle, _, err := openLiveWindowsPath(directory, true, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE)
+		if err != nil {
+			return fail(err)
+		}
+		binding.handles = append(binding.handles, handle)
+	}
+	handle, accessible, err := openLiveWindowsAppsAncestor(appsRoot)
+	if err != nil {
+		return fail(err)
+	}
+	if accessible {
+		binding.handles = append(binding.handles, handle)
+	}
+	packageHandle, _, err := openLiveWindowsPath(validated.metadata.packageRoot, true, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE)
+	if err != nil {
+		return fail(err)
+	}
+	binding.handles = append(binding.handles, packageHandle)
+	executable, identity, err := openLiveWindowsPath(binding.path, false, windows.FILE_SHARE_READ)
+	if err != nil {
+		return fail(err)
+	}
+	binding.handles = append(binding.handles, executable)
+	canonical, err := liveWindowsFinalPath(executable)
+	if err != nil || !strings.EqualFold(canonical, binding.path) {
+		return fail(errors.New("AppX executable path changed during binding"))
+	}
+	binding.identity = identity
+	return binding, nil
+}
+
+func liveWindowsAppsRoot() (string, error) {
+	volume := filepath.VolumeName(os.Getenv("SystemRoot"))
+	if volume == "" {
+		return "", errors.New("Windows system volume is unavailable")
+	}
+	return filepath.Join(volume+`\`, "Program Files", "WindowsApps"), nil
+}
+
+func openLiveWindowsAppsAncestor(path string) (windows.Handle, bool, error) {
+	wide, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return 0, false, err
+	}
+	attributes, err := windows.GetFileAttributes(wide)
+	if err != nil || attributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || attributes&windows.FILE_ATTRIBUTE_DIRECTORY == 0 {
+		return 0, false, errors.New("WindowsApps ancestor is unsafe")
+	}
+	handle, _, err := openLiveWindowsPath(path, true, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE)
+	if err == nil {
+		return handle, true, nil
+	}
+	if !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+		return 0, false, err
+	}
+	mutation, mutationErr := windows.CreateFile(wide, windows.FILE_GENERIC_WRITE, windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, nil, windows.OPEN_EXISTING, windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	if mutationErr == nil {
+		windows.CloseHandle(mutation)
+		return 0, false, errors.New("WindowsApps ancestor is mutable by caller")
+	}
+	if !errors.Is(mutationErr, windows.ERROR_ACCESS_DENIED) {
+		return 0, false, mutationErr
+	}
+	return 0, false, nil
 }
 
 func liveWindowsPathIdentity(path string) (liveWindowsFileIdentity, error) {

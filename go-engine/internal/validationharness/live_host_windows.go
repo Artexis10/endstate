@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -55,13 +54,18 @@ func NewWindowsLiveObserver(versions LiveVersionSource) (LiveObserver, error) {
 // PATH result, or reparse point. This slice has no such resolver yet, so the
 // production adapter uses the fail-closed implementation below.
 type liveTrustedWingetResolver interface {
-	ResolveLiveWinget(context.Context) (string, map[string]string, error)
+	ResolveLiveWinget(context.Context) (liveTrustedWingetTarget, error)
+}
+
+type liveTrustedWingetTarget struct {
+	binding     liveTrustedAppXBinding
+	environment map[string]string
 }
 
 type unavailableLiveWingetResolver struct{}
 
-func (unavailableLiveWingetResolver) ResolveLiveWinget(context.Context) (string, map[string]string, error) {
-	return "", nil, fmt.Errorf("trusted App Installer metadata resolver is unavailable")
+func (unavailableLiveWingetResolver) ResolveLiveWinget(context.Context) (liveTrustedWingetTarget, error) {
+	return liveTrustedWingetTarget{}, fmt.Errorf("trusted App Installer metadata resolver is unavailable")
 }
 
 type windowsLiveProcess struct{ resolver liveTrustedWingetResolver }
@@ -70,18 +74,15 @@ func (process windowsLiveProcess) Run(ctx context.Context, name string, args ...
 	if name != "winget" || process.resolver == nil {
 		return LiveProcessResult{}, fmt.Errorf("live process rejects untrusted executable selection")
 	}
-	executable, environment, err := process.resolver.ResolveLiveWinget(ctx)
+	target, err := process.resolver.ResolveLiveWinget(ctx)
 	if err != nil {
-		return LiveProcessResult{}, err
-	}
-	if err := validateTrustedLiveWingetExecutable(executable); err != nil {
 		return LiveProcessResult{}, err
 	}
 	ref, ok := liveWingetListProbeReference(args)
 	if !ok {
 		return LiveProcessResult{}, fmt.Errorf("live process rejects an unreviewed winget operation")
 	}
-	output, err := runLiveProcess(ctx, newLiveWingetListProbe(executable, ref, environment, maxLiveObserverOutputBytes))
+	output, err := runLiveProcess(ctx, newLiveTrustedAppXWingetListProbe(target.binding, ref, target.environment, maxLiveObserverOutputBytes))
 	if err == nil {
 		return LiveProcessResult{ExitCode: output.ExitCode, Stdout: output.Stdout, Classification: LiveProcessCompleted}, nil
 	}
@@ -101,17 +102,6 @@ func classifyLiveWingetExitCode(exitCode int) LiveProcessClassification {
 		return LiveProcessNoInstalled
 	}
 	return ""
-}
-
-func validateTrustedLiveWingetExecutable(executable string) error {
-	if !filepath.IsAbs(executable) || filepath.Clean(executable) != executable || !strings.EqualFold(filepath.Base(executable), "winget.exe") {
-		return fmt.Errorf("trusted App Installer executable is invalid")
-	}
-	info, err := (windowsLiveFiles{}).Stat(executable)
-	if err != nil || !info.Regular || info.ReparsePoint {
-		return fmt.Errorf("trusted App Installer executable is unsafe")
-	}
-	return nil
 }
 
 type windowsLiveRegistry struct{}

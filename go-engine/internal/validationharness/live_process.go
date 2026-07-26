@@ -94,7 +94,17 @@ type LiveProcessRequest struct {
 	class       LiveExecutionClass
 	probe       liveProbeOperation
 	permit      trustedLiveMutationPermit
+	appx        *liveTrustedAppXBinding
 }
+
+type liveAppXPackageMetadata struct {
+	familyName, fullName, packageRoot, executableName string
+}
+
+// liveTrustedAppXBinding can only be constructed by the Windows AppModel
+// resolver after it has selected exact package metadata. It is not a generic
+// path exemption.
+type liveTrustedAppXBinding struct{ metadata liveAppXPackageMetadata }
 
 // liveProcessOutput is deliberately private and has no serialization tags:
 // callers must decode it before creating any public evidence object.
@@ -109,6 +119,12 @@ func newLiveWingetListProbe(executable, ref string, environment map[string]strin
 		executable: executable, environment: environment, outputLimit: outputLimit, class: LiveExecutionProbe, probe: liveProbeWingetList,
 		args: []string{"list", "--id", ref, "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"},
 	}
+}
+
+func newLiveTrustedAppXWingetListProbe(binding liveTrustedAppXBinding, ref string, environment map[string]string, outputLimit int) LiveProcessRequest {
+	request := newLiveWingetListProbe(filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName), ref, environment, outputLimit)
+	request.appx = &binding
+	return request
 }
 
 func newLiveEngineMutation(permit trustedLiveMutationPermit, executable string, args []string, environment map[string]string, outputLimit int) LiveProcessRequest {

@@ -7,6 +7,7 @@ package validationharness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -121,6 +122,39 @@ func TestLiveWindowsProcessImageIdentityMismatchFailsWithSameSpelling(t *testing
 	if err := verifyLiveWindowsProcessImage(0, binding); err == nil {
 		t.Fatal("verifyLiveWindowsProcessImage() accepted a different file identity with the same spelling")
 	}
+}
+
+func TestLiveTrustedAppXBindingRejectsUntrustedMetadata(t *testing.T) {
+	if _, err := newLiveTrustedAppXBinding(liveAppXPackageMetadata{familyName: "Vendor.Package_123", fullName: "Vendor.Package_1.0.0.0_x64__123", packageRoot: `C:\temp\package`, executableName: "winget.exe"}); err == nil {
+		t.Fatal("newLiveTrustedAppXBinding() accepted a non-WindowsApps package root")
+	}
+}
+
+func TestLiveTrustedAppXBindingDesktopAppInstallerWhenAvailable(t *testing.T) {
+	output, err := exec.Command("powershell", "-NoProfile", "-Command", "$p=Get-AppxPackage -Name Microsoft.DesktopAppInstaller | Select-Object -First 1; if ($p) { $p | Select-Object PackageFamilyName,PackageFullName,InstallLocation | ConvertTo-Json -Compress }").Output()
+	if err != nil {
+		t.Skipf("Desktop App Installer metadata is unavailable: %v", err)
+	}
+	if len(output) == 0 {
+		t.Skip("Desktop App Installer is not installed")
+	}
+	var metadata struct {
+		FamilyName  string `json:"PackageFamilyName"`
+		FullName    string `json:"PackageFullName"`
+		PackageRoot string `json:"InstallLocation"`
+	}
+	if err := json.Unmarshal(output, &metadata); err != nil {
+		t.Fatalf("decode Desktop App Installer metadata: %v", err)
+	}
+	binding, err := newLiveTrustedAppXBinding(liveAppXPackageMetadata{familyName: metadata.FamilyName, fullName: metadata.FullName, packageRoot: metadata.PackageRoot, executableName: "winget.exe"})
+	if err != nil {
+		t.Fatalf("newLiveTrustedAppXBinding() error = %v", err)
+	}
+	bound, err := bindLiveTrustedAppXExecutable(binding)
+	if err != nil {
+		t.Fatalf("bindLiveTrustedAppXExecutable() error = %v", err)
+	}
+	bound.Close()
 }
 
 func TestLiveProcessBoundsOutputWhileReading(t *testing.T) {
