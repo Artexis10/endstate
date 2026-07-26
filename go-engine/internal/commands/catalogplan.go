@@ -26,13 +26,19 @@ type CatalogPlanResult = catalogplan.Result
 func RunCatalogPlan(flags CatalogPlanFlags) (interface{}, *envelope.Error) {
 	result, err := catalogplan.Resolve(config.ResolveRepoRoot(), flags.Bundle, time.Now().UTC())
 	if err != nil {
-		return nil, envelope.NewError(envelope.ErrCatalogPlanInvalid, "Catalog bundle cannot be resolved.")
+		var detail interface{}
+		if result != nil && len(result.Failures) > 0 {
+			detail = struct {
+				Failures []catalogplan.Failure `json:"failures"`
+			}{Failures: result.Failures}
+		}
+		return result, envelope.NewError(envelope.ErrCatalogPlanInvalid, "Catalog bundle cannot be resolved.").WithDetail(detail)
 	}
 
 	emitter := events.NewEmitter(buildRunID("catalog-plan"), flags.Events == "jsonl")
 	emitter.EmitPhase("plan")
 	for _, action := range result.Actions {
-		emitter.EmitItem(action.ModuleID, "catalog", action.Status, "", "catalog resolution", "")
+		emitter.EmitItem(action.ModuleID, "catalog", "present", "detected", "catalog module resolved", "")
 	}
 	emitter.EmitSummary("plan", result.ActionCount, result.ActionCount, 0, 0)
 	return result, nil

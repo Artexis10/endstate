@@ -86,6 +86,7 @@ When `success` is `false`, the `error` field contains:
 | `MANIFEST_WRITE_FAILED` | Manifest file could not be written or is empty |
 | `PLAN_NOT_FOUND` | Plan file does not exist |
 | `PLAN_PARSE_ERROR` | Plan file is invalid |
+| `CATALOG_PLAN_INVALID` | A tracked catalog bundle or its production module/validation catalog cannot be resolved; safe failure details identify affected module IDs and stable reasons without filesystem paths |
 | `WINGET_NOT_AVAILABLE` | winget is not installed or accessible |
 | `REALIZER_UNAVAILABLE` | The package realizer is unavailable (e.g. the Nix daemon/store is unreachable, or `nix` is not installed) |
 | `ENGINE_CLI_NOT_FOUND` | Engine CLI not found (repo root not configured) |

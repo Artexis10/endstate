@@ -10,6 +10,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -52,11 +53,30 @@ type Action struct {
 // limited to catalog: resolving memberships proves neither installation nor
 // configuration behavior.
 type Result struct {
-	Proof           string   `json:"proof"`
-	Bundle          Bundle   `json:"bundle"`
-	MembershipCount int      `json:"membershipCount"`
-	ActionCount     int      `json:"actionCount"`
-	Actions         []Action `json:"actions"`
+	Proof           string    `json:"proof"`
+	Bundle          Bundle    `json:"bundle"`
+	MembershipCount int       `json:"membershipCount"`
+	ActionCount     int       `json:"actionCount"`
+	Actions         []Action  `json:"actions"`
+	Failures        []Failure `json:"failures,omitempty"`
+}
+
+// Failure describes one safe, machine-readable failed membership or catalog
+// record. It intentionally excludes filesystem paths and host-specific error
+// text so callers can surface it in envelopes and evidence.
+type Failure struct {
+	ModuleID string `json:"moduleId"`
+	Reason   string `json:"reason"`
+}
+
+// ResolutionError preserves the stable failure identity while allowing callers
+// to keep the human-facing envelope message free of host paths.
+type ResolutionError struct {
+	Failure Failure
+}
+
+func (err *ResolutionError) Error() string {
+	return err.Failure.Reason
 }
 
 type bundleDocument struct {
@@ -86,11 +106,6 @@ func Resolve(root, bundlePath string, now time.Time) (*Result, error) {
 		return nil, err
 	}
 
-	catalog, err := validationmatrix.LoadCatalog(root, now)
-	if err != nil {
-		return nil, fmt.Errorf("resolve production catalog: %w", err)
-	}
-
 	bundleHash := sha256Hex(normalizeLineEndings(data))
 	result := &Result{
 		Proof:           "catalog",
@@ -98,15 +113,25 @@ func Resolve(root, bundlePath string, now time.Time) (*Result, error) {
 		MembershipCount: len(document.Modules),
 		Actions:         make([]Action, 0, len(document.Modules)),
 	}
+	catalog, err := validationmatrix.LoadCatalog(root, now)
+	if err != nil {
+		failure := catalogFailure(err, document.Modules)
+		result.Failures = append(result.Failures, failure)
+		return result, &ResolutionError{Failure: failure}
+	}
 	for _, slug := range document.Modules {
 		moduleID := "apps." + slug
 		mod, exists := catalog.Modules[moduleID]
 		if !exists {
-			return nil, fmt.Errorf("bundle module %q is not in the production catalog", slug)
+			failure := Failure{ModuleID: moduleID, Reason: "missing_module"}
+			result.Failures = append(result.Failures, failure)
+			return result, &ResolutionError{Failure: failure}
 		}
 		record, exists := catalog.Records[moduleID]
 		if !exists {
-			return nil, fmt.Errorf("bundle module %q has no validation record", slug)
+			failure := Failure{ModuleID: moduleID, Reason: "missing_validation_sidecar"}
+			result.Failures = append(result.Failures, failure)
+			return result, &ResolutionError{Failure: failure}
 		}
 		validationHash := sha256Hex(normalizeLineEndings(record.SourceSnapshot()))
 		result.Actions = append(result.Actions, Action{
@@ -126,6 +151,21 @@ func Resolve(root, bundlePath string, now time.Time) (*Result, error) {
 		return nil, fmt.Errorf("catalog plan did not resolve every bundle membership")
 	}
 	return result, nil
+}
+
+func catalogFailure(err error, memberships []string) Failure {
+	failure := Failure{Reason: validationmatrix.ErrorCode(err)}
+	if failure.Reason == "" {
+		failure.Reason = "invalid_catalog"
+	}
+	var validationError *validationmatrix.ValidationError
+	if errors.As(err, &validationError) {
+		failure.ModuleID = validationError.ModuleID
+	}
+	if failure.ModuleID == "" && len(memberships) > 0 {
+		failure.ModuleID = "apps." + memberships[0]
+	}
+	return failure
 }
 
 func resolveBundlePath(root, input string) (string, string, error) {

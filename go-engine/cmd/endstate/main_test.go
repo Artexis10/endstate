@@ -676,6 +676,37 @@ func TestCatalogPlanCLIRejectsMissingBundleArgument(t *testing.T) {
 	}
 }
 
+func TestBuiltCatalogPlanEmitsContractValidJSONL(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", ".."))
+	binaryPath := filepath.Join(t.TempDir(), "endstate-catalog-plan-test.exe")
+	build := exec.Command("go", "build", "-o", binaryPath, "./cmd/endstate")
+	build.Dir = filepath.Join(root, "go-engine")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build failed: %v\n%s", err, output)
+	}
+	command := exec.Command(binaryPath, "catalog-plan", "--bundle", "bundles/core-utilities.jsonc", "--json", "--events", "jsonl")
+	command.Dir = root
+	command.Env = append(os.Environ(), "ENDSTATE_ROOT="+root)
+	var stdout, stderr bytes.Buffer
+	command.Stdout, command.Stderr = &stdout, &stderr
+	if err := command.Run(); err != nil {
+		t.Fatalf("catalog-plan failed: %v\nstdout=%s\nstderr=%s", err, stdout.String(), stderr.String())
+	}
+	for _, line := range strings.Split(strings.TrimSpace(stderr.String()), "\n") {
+		var event map[string]interface{}
+		if err := json.Unmarshal([]byte(line), &event); err != nil {
+			t.Fatalf("invalid event %q: %v", line, err)
+		}
+		if event["event"] == "item" && (event["status"] != "present" || event["reason"] != "detected") {
+			t.Fatalf("catalog item event = %#v", event)
+		}
+	}
+}
+
 func TestParseArgs_CaptureDriverRequiresValue(t *testing.T) {
 	for _, args := range [][]string{
 		{"capture", "--driver"},
