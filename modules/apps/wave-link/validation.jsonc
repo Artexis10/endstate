@@ -8,7 +8,9 @@
         "id": "default-v1",
         "mode": "config-roundtrip-v1",
         "fixture": {
-          "type": "auto"
+          "type": "declarative",
+          "path": "modules/apps/wave-link/validation-fixtures/default-v1.jsonc",
+          "sha256": "cf9bb50c289e40321835f2fdbb638491284c79a7e3135531fb1ae2381c1ce8d4"
         },
         "timeoutSeconds": 120,
         "minimumAssertions": {

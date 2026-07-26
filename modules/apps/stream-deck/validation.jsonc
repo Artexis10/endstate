@@ -8,7 +8,9 @@
         "id": "default-v1",
         "mode": "config-roundtrip-v1",
         "fixture": {
-          "type": "auto"
+          "type": "declarative",
+          "path": "modules/apps/stream-deck/validation-fixtures/default-v1.jsonc",
+          "sha256": "8eeeca9ba5ef8857b244fdd4ff9486470879b4190f7c73f5e3760d8c9d5aaed9"
         },
         "timeoutSeconds": 120,
         "minimumAssertions": {
