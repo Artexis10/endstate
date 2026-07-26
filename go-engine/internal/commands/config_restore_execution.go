@@ -377,7 +377,7 @@ func (session *configRestoreExecutionSession) Execute(
 		result.RestoreItems = append(result.RestoreItems, ordinary...)
 		result.EventResults = append(result.EventResults, eventResults...)
 		legacyItems := append(append([]restore.RestoreResult{}, legacy.RestoreItems...), ordinary...)
-		if len(legacyItems) > 0 {
+		if len(legacyItems) > 0 && !allLegacyConfigRestoreResultsUpToDate(legacyItems) {
 			journalPath, journalErr := writeLegacyConfigRestoreJournal(options, legacyItems)
 			if journalErr != nil {
 				return result, envelope.NewError(envelope.ErrRestoreFailed, "Failed to write the configuration restore journal.").
@@ -395,6 +395,15 @@ func (session *configRestoreExecutionSession) Execute(
 	result.Results = append(result.Results, result.RestoreItems...)
 	recomputeConfigPlanSummary(&result.Plan)
 	return result, nil
+}
+
+func allLegacyConfigRestoreResultsUpToDate(results []restore.RestoreResult) bool {
+	for _, result := range results {
+		if result.Status != "skipped_up_to_date" {
+			return false
+		}
+	}
+	return true
 }
 
 func emitGenerationConfigResolutions(emitter *events.Emitter, plan planner.ConfigPlan) {

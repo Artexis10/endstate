@@ -558,9 +558,11 @@ func (coordinator *staticConfigRestoreCoordinator) ExecutionPlan() (planner.Conf
 }
 
 type recordingLiveConfigRestoreGuard struct {
-	base       string
-	created    []string
-	closeCount int
+	base        string
+	created     []string
+	registered  []string
+	registerErr error
+	closeCount  int
 }
 
 func (guard *recordingLiveConfigRestoreGuard) CreateTransactionRoot(captureID string) (string, error) {
@@ -573,13 +575,198 @@ func (guard *recordingLiveConfigRestoreGuard) DiscardTransactionRoot(root string
 	return os.RemoveAll(root)
 }
 
-func (guard *recordingLiveConfigRestoreGuard) RegisterLegacyJournal(string) (*configrestore.StoreMember, error) {
+func (guard *recordingLiveConfigRestoreGuard) RegisterLegacyJournal(path string) (*configrestore.StoreMember, error) {
+	guard.registered = append(guard.registered, path)
+	if guard.registerErr != nil {
+		return nil, guard.registerErr
+	}
 	return nil, nil
 }
 
 func (guard *recordingLiveConfigRestoreGuard) Close() error {
 	guard.closeCount++
 	return nil
+}
+
+func TestConfigRestoreExecutionBeginsLiveRecoveryBeforeLegacyRestoreExecution(t *testing.T) {
+	manifestDir := t.TempDir()
+	target := filepath.Join(t.TempDir(), "settings.json")
+	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+	inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+		restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "settings.json", Target: target, FromModule: "apps.legacy"}},
+	}}}
+	restoreExecutionSeams(t,
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			if err := os.WriteFile(filepath.Join(manifestDir, "settings.json"), []byte("restored"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return guard, nil
+		},
+		stageConfigRestoreSetFn, materializeConfigRestoreSetFn, executeLiveConfigRestoreSetFn,
+	)
+
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, RunID: "recovery-before-legacy", StateDir: t.TempDir(),
+		ManifestDir: manifestDir, JournalLogsDir: filepath.Join(t.TempDir(), "logs"),
+	})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil || string(data) != "restored" {
+		t.Fatalf("legacy restore did not run after BeginLive: data=%q err=%v", data, err)
+	}
+	if len(result.RestoreItems) != 1 || result.RestoreItems[0].Status != "restored" ||
+		len(guard.registered) != 1 || guard.closeCount != 1 {
+		t.Fatalf("result=%+v registered=%v closeCount=%d", result, guard.registered, guard.closeCount)
+	}
+}
+
+func TestConfigRestoreExecutionSkipsLegacyJournalOnlyForAllUpToDateResults(t *testing.T) {
+	manifestDir := t.TempDir()
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	source := filepath.Join(manifestDir, "settings.json")
+	target := filepath.Join(t.TempDir(), "settings.json")
+	for _, path := range []string{source, target} {
+		if err := os.WriteFile(path, []byte("current"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+	inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+		restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "settings.json", Target: target, FromModule: "apps.legacy"}},
+	}}}
+	restoreExecutionSeams(t,
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			return guard, nil
+		},
+		stageConfigRestoreSetFn, materializeConfigRestoreSetFn, executeLiveConfigRestoreSetFn,
+	)
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, RunID: "all-current", StateDir: t.TempDir(), ManifestDir: manifestDir, JournalLogsDir: logsDir,
+	})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	if len(result.RestoreItems) != 1 || result.RestoreItems[0].Status != "skipped_up_to_date" ||
+		result.JournalPath != "" || len(guard.registered) != 0 || guard.closeCount != 1 {
+		t.Fatalf("result=%+v registered=%v closeCount=%d", result, guard.registered, guard.closeCount)
+	}
+	if _, err := os.Stat(logsDir); !os.IsNotExist(err) {
+		t.Fatalf("all-current restore created journal state: %v", err)
+	}
+}
+
+func TestConfigRestoreExecutionWritesLegacyJournalForMixedResults(t *testing.T) {
+	manifestDir := t.TempDir()
+	logsDir := filepath.Join(t.TempDir(), "logs")
+	if err := os.WriteFile(filepath.Join(manifestDir, "current.json"), []byte("current"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(manifestDir, "restore.json"), []byte("restored"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	currentTarget := filepath.Join(t.TempDir(), "current.json")
+	if err := os.WriteFile(currentTarget, []byte("current"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+	inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+		captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+		restoreEntries: []manifest.RestoreEntry{
+			{Type: "copy", Source: "current.json", Target: currentTarget, FromModule: "apps.legacy"},
+			{Type: "copy", Source: "restore.json", Target: filepath.Join(t.TempDir(), "restore.json"), FromModule: "apps.legacy"},
+		},
+	}}}
+	restoreExecutionSeams(t,
+		func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+			return guard, nil
+		},
+		stageConfigRestoreSetFn, materializeConfigRestoreSetFn, executeLiveConfigRestoreSetFn,
+	)
+	session := &configRestoreExecutionSession{
+		runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+		coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+	}
+	result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+		RestoreEnabled: true, RunID: "mixed-current", StateDir: t.TempDir(), ManifestDir: manifestDir, JournalLogsDir: logsDir,
+	})
+	if envErr != nil {
+		t.Fatalf("Execute() error = %+v", envErr)
+	}
+	if len(result.RestoreItems) != 2 || result.RestoreItems[0].Status != "skipped_up_to_date" ||
+		result.RestoreItems[1].Status != "restored" || result.JournalPath == "" || len(guard.registered) != 1 ||
+		guard.registered[0] != result.JournalPath {
+		t.Fatalf("result=%+v registered=%v", result, guard.registered)
+	}
+	if _, err := os.Stat(result.JournalPath); err != nil {
+		t.Fatalf("mixed restore journal was not written: %v", err)
+	}
+}
+
+func TestConfigRestoreExecutionRetainsFatalLegacyJournalFailures(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		configure      func(t *testing.T, guard *recordingLiveConfigRestoreGuard) string
+		wantRegistered int
+		wantJournal    bool
+	}{
+		{
+			name: "write", configure: func(t *testing.T, _ *recordingLiveConfigRestoreGuard) string {
+				path := filepath.Join(t.TempDir(), "journal-file")
+				if err := os.WriteFile(path, []byte("not a directory"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				return path
+			},
+		},
+		{
+			name: "registration", configure: func(t *testing.T, guard *recordingLiveConfigRestoreGuard) string {
+				guard.registerErr = errors.New("store unavailable")
+				return filepath.Join(t.TempDir(), "logs")
+			}, wantRegistered: 1, wantJournal: true,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manifestDir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(manifestDir, "settings.json"), []byte("restored"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			guard := &recordingLiveConfigRestoreGuard{base: t.TempDir()}
+			logsDir := test.configure(t, guard)
+			inputs := configRestoreInputs{hasConfigPayloads: true, legacyLanes: []configRestoreLegacyLane{{
+				captureID: bundle.LegacyCaptureID("apps.legacy"), moduleID: "apps.legacy", configSetID: "legacy", selected: true,
+				restoreEntries: []manifest.RestoreEntry{{Type: "copy", Source: "settings.json", Target: filepath.Join(t.TempDir(), "settings.json"), FromModule: "apps.legacy"}},
+			}}}
+			restoreExecutionSeams(t,
+				func(context.Context, string, string, configrestore.RegistryMutator, configrestore.HostBoundary) (liveConfigRestoreGuard, error) {
+					return guard, nil
+				},
+				stageConfigRestoreSetFn, materializeConfigRestoreSetFn, executeLiveConfigRestoreSetFn,
+			)
+			session := &configRestoreExecutionSession{
+				runtime:     newConfigRestoreRuntimeFromInputs(inputs, emptyConfigCatalogSnapshot()),
+				coordinator: &staticConfigRestoreCoordinator{final: emptyConfigRestorePlan()},
+			}
+			result, envErr := session.Execute(context.Background(), configRestoreExecutionOptions{
+				RestoreEnabled: true, RunID: "fatal-journal-" + test.name, StateDir: t.TempDir(),
+				ManifestDir: manifestDir, JournalLogsDir: logsDir,
+			})
+			if envErr == nil || len(guard.registered) != test.wantRegistered || (result.JournalPath != "") != test.wantJournal {
+				t.Fatalf("result=%+v error=%+v registered=%v", result, envErr, guard.registered)
+			}
+		})
+	}
 }
 
 func TestConfigRestoreExecutionContinuesAfterRolledBackSet(t *testing.T) {
