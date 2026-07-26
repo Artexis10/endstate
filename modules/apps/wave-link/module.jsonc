@@ -69,6 +69,8 @@
       "**\\Temp\\**",
       "**\\Crash*\\**",
       "**\\GPUCache\\**",
+      "**\\EBWebView\\**",
+      "**\\AudioPluginCache\\**",
       "**\\Downloads\\**",
       "**\\Marketplace\\**",
       "**\\*.cache",
@@ -80,7 +82,10 @@
   },
 
   "secrets": {
-    "files": [],
+    "files": [
+      "**\\EBWebView\\**",
+      "**\\AudioPluginCache\\**"
+    ],
     "warning": "Wave Link backups can contain application audio-routing information and device-specific identifiers. Review a bundle before sharing it.",
     "restorer": "warn-only"
   },

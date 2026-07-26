@@ -82,11 +82,11 @@
     "files": [
       "%APPDATA%\\Elgato\\StreamDeck\\Plugins"
     ],
-    "warning": "Plugin data and binaries are excluded. Plugins may maintain authentication tokens or other account data and must be reinstalled separately.",
+    "warning": "Profiles and backups include plain-text action settings and may contain user-entered sensitive values; review bundles before sharing. Installed plugin data and binaries are excluded and must be reinstalled separately.",
     "restorer": "warn-only"
   },
 
-  "notes": "Captures the active Stream Deck profiles from %APPDATA%\\Elgato\\StreamDeck\\ProfilesV3 plus vendor-created profile backups from the current BackupV3 layout and optional legacy Backup layout. Live profiles are included because automatic backups can lag behind current edits. Profiles can contain actions with local paths and account-linked actions, so sensitivity is medium. Installed plugins, NodeJS runtimes, logs, caches, Marketplace web state, and icon packs are deliberately excluded; plugins and icon packs must be reinstalled separately. Close Stream Deck before capture or restore so profile manifests are consistent. Direct restore replaces ProfilesV3 only after Endstate backs up its prior contents; the portable .streamDeckProfilesBackup files remain available as a fallback. These paths were confirmed against a Stream Deck installation in July 2026.",
+  "notes": "Captures the active Stream Deck profiles from %APPDATA%\\Elgato\\StreamDeck\\ProfilesV3 plus vendor-created profile backups from the current BackupV3 layout and optional legacy Backup layout. Live profiles are included because automatic backups can lag behind current edits. Profiles can contain plain-text action settings, local paths, account-linked actions, and user-entered sensitive values, so review bundles before sharing; sensitivity is medium because plugins should store credentials in global settings outside exported profiles. Installed plugins, NodeJS runtimes, logs, caches, Marketplace web state, and icon packs are deliberately excluded; plugins and icon packs must be reinstalled separately. Close Stream Deck before capture or restore so profile manifests are consistent. Direct restore replaces ProfilesV3 only after Endstate backs up its prior contents; the portable .streamDeckProfilesBackup files remain available as a fallback. These paths were confirmed against a Stream Deck installation in July 2026.",
 
   "curation": {
     "snapshotRoots": ["%APPDATA%\\Elgato\\StreamDeck"],
