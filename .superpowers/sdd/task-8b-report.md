@@ -90,3 +90,37 @@ Go emits the pre-existing inaccessible telemetry upload-token warning despite
 task-owned Go cache and `GOTELEMETRY=off`; it did not affect any command exit
 status. The known protected-Documents/native-registry host baselines were not
 weakened or exercised by this read-only catalog matrix.
+
+## Review fixes
+
+The corrected harness independently joins every emitted action to the strict
+validation catalog and exact pinned module/sidecar identities. Failed
+catalog-plan envelopes now preserve safe structured failure records on the
+expected discovered bundle row. The child environment is allowlisted, result
+paths are constrained to the validation-owned temp result boundary and reject
+repository/engine overlap, and any aggregate-wide failure strips catalog proof
+from every row.
+
+Additional hostile coverage rejects malformed/multiple stdout envelopes;
+missing, extra, malformed, and foreign-run events; wrong revision, schema,
+validation hash, or scenario count; credential leakage; invalid result paths;
+and aggregate proof retention after an authority failure.
+
+### Review-fix RED → GREEN
+
+- RED: action identity, child-environment, and proof-stripping tests failed to
+  compile because those authority helpers did not exist. GREEN: focused tests
+  pass after exact catalog joins, allowlisting, and proof invalidation.
+- RED: a structured nonzero catalog-plan envelope discarded its safe failure
+  records. GREEN: decoder and row evidence preserve `moduleId`/`reason`.
+- RED: repository/engine result-path rejection test failed to compile.
+  GREEN: strict validation-owned result-path checks pass.
+
+### Review-fix verification
+
+- Focused hostile/matrix tests: PASS.
+- Fresh-built 12-bundle acceptance: PASS in 21.83s.
+- Full `go test ./internal/validationharness -count=1`: PASS in 188.532s.
+- `go vet ./...` and `go test -run '^$' ./...` from `go-engine`: PASS.
+- `npm run openspec:validate`: PASS, 91 passed / 0 failed.
+- `git diff --check`: PASS.

@@ -65,6 +65,7 @@ type CatalogMatrixRow struct {
 	Actions         []catalogplan.Action          `json:"actions"`
 	PlanExecutions  int                           `json:"planExecutions"`
 	AssertionCounts map[string]int                `json:"assertionCounts"`
+	Failures        []catalogplan.Failure         `json:"failures,omitempty"`
 	Failure         *Failure                      `json:"failure,omitempty"`
 	PhaseTimings    map[string]time.Duration      `json:"phaseTimings"`
 }
@@ -95,6 +96,13 @@ func RunCatalogMatrix(ctx context.Context, request CatalogMatrixRequest) (Catalo
 		result.PhaseTimings["setup"] = time.Since(started)
 		return persistCatalogMatrixResult(request.ResultPath, result)
 	}
+	if request.ResultPath != "" {
+		if failure := validateCatalogResultPath(request.ResultPath, repo, engine); failure != nil {
+			result.Failure = failure
+			result.PhaseTimings["setup"] = time.Since(started)
+			return result, nil
+		}
+	}
 	repoBoundary, err := snapshotBoundaryTree(repo)
 	if err != nil {
 		return result, err
@@ -111,9 +119,15 @@ func RunCatalogMatrix(ctx context.Context, request CatalogMatrixRequest) (Catalo
 		result.PhaseTimings["discovery"] = time.Since(started)
 		return persistCatalogMatrixResult(request.ResultPath, result)
 	}
+	catalog, catalogErr := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if catalogErr != nil {
+		result.Failure = fail(CodeScenarioSelection, "discovery", "catalog", "strict module and validation catalog cannot be loaded")
+		result.PhaseTimings["discovery"] = time.Since(started)
+		return persistCatalogMatrixResult(request.ResultPath, result)
+	}
 	result.CatalogCount = len(bundles)
 	for _, bundle := range bundles {
-		row := runCatalogMatrixRow(ctx, engine, repo, bundle)
+		row := runCatalogMatrixRow(ctx, engine, repo, bundle, catalog)
 		result.Rows = append(result.Rows, row)
 		result.Attempted++
 		if row.Status == ResultStatusPassed {
@@ -135,6 +149,9 @@ func RunCatalogMatrix(ctx context.Context, request CatalogMatrixRequest) (Catalo
 		result.ProofLevels = []validationmatrix.ProofLevel{validationmatrix.ProofCatalog}
 	} else if result.Failure == nil {
 		result.Failure = fail(CodeAssertionContract, "aggregate", "rows", "catalog aggregate is incomplete or contains failed rows")
+	}
+	if result.Failure != nil {
+		stripCatalogProof(&result, result.Failure)
 	}
 	result.PhaseTimings["total"] = time.Since(started)
 	return persistCatalogMatrixResult(request.ResultPath, result)
@@ -182,16 +199,27 @@ func discoverCatalogBundles(repo string) ([]string, *Failure) {
 	return bundles, nil
 }
 
-func runCatalogMatrixRow(ctx context.Context, engine, repo, bundle string) CatalogMatrixRow {
+func runCatalogMatrixRow(ctx context.Context, engine, repo, bundle string, catalog *validationmatrix.Catalog) CatalogMatrixRow {
 	row := CatalogMatrixRow{SchemaVersion: catalogMatrixSchemaVersion, Status: ResultStatusFailed, ProofLevels: []validationmatrix.ProofLevel{}, Actions: []catalogplan.Action{}, AssertionCounts: map[string]int{}, PhaseTimings: map[string]time.Duration{}}
+	if identity, failure := expectedCatalogBundleIdentity(bundle); failure != nil {
+		row.Failure = failure
+		return row
+	} else {
+		row.BundleID, row.BundleHash = identity.ID, identity.Hash
+	}
 	firstStarted := time.Now()
 	first, failure := invokeCatalogPlan(ctx, engine, repo, bundle)
 	row.PhaseTimings["firstPlan"] = time.Since(firstStarted)
 	if failure != nil {
+		row.Failures = append([]catalogplan.Failure(nil), first.Failures...)
 		row.Failure = failure
 		return row
 	}
 	if failure := validateCatalogPlanBundleIdentity(first, bundle); failure != nil {
+		row.Failure = failure
+		return row
+	}
+	if failure := validateCatalogPlanActionIdentity(first, catalog); failure != nil {
 		row.Failure = failure
 		return row
 	}
@@ -202,10 +230,15 @@ func runCatalogMatrixRow(ctx context.Context, engine, repo, bundle string) Catal
 	second, failure := invokeCatalogPlan(ctx, engine, repo, bundle)
 	row.PhaseTimings["secondPlan"] = time.Since(secondStarted)
 	if failure != nil {
+		row.Failures = append([]catalogplan.Failure(nil), second.Failures...)
 		row.Failure = failure
 		return row
 	}
 	if failure := validateCatalogPlanBundleIdentity(second, bundle); failure != nil {
+		row.Failure = failure
+		return row
+	}
+	if failure := validateCatalogPlanActionIdentity(second, catalog); failure != nil {
 		row.Failure = failure
 		return row
 	}
@@ -242,7 +275,7 @@ func invokeCatalogPlan(ctx context.Context, engine, repo, bundle string) (catalo
 	}
 	result, runID, failure := decodeCatalogEnvelope(stdout.Bytes())
 	if failure != nil {
-		return catalogplan.Result{}, failure
+		return result, failure
 	}
 	if failure := decodeCatalogEvents(stderr.Bytes(), runID, result); failure != nil {
 		return catalogplan.Result{}, failure
@@ -254,18 +287,13 @@ func invokeCatalogPlan(ctx context.Context, engine, repo, bundle string) (catalo
 }
 
 func catalogChildEnvironment(repo string) []string {
-	blocked := []string{"ENDSTATE_TESTMODE", "ENDSTATE_ROOT", "GITHUB_TOKEN", "GH_TOKEN", "GIT_ASKPASS", "SSH_AUTH_SOCK", "AWS_SECRET_ACCESS_KEY", "AZURE_CLIENT_SECRET"}
-	result := make([]string, 0, len(os.Environ())+1)
+	allowed := map[string]struct{}{
+		"COMSPEC": {}, "PATH": {}, "PATHEXT": {}, "SYSTEMROOT": {}, "TEMP": {}, "TMP": {}, "WINDIR": {},
+	}
+	result := make([]string, 0, len(allowed)+1)
 	for _, value := range os.Environ() {
 		name := value[:strings.IndexByte(value, '=')]
-		skip := false
-		for _, blockedName := range blocked {
-			if strings.EqualFold(name, blockedName) {
-				skip = true
-				break
-			}
-		}
-		if !skip {
+		if _, ok := allowed[strings.ToUpper(name)]; ok {
 			result = append(result, value)
 		}
 	}
@@ -283,7 +311,7 @@ func decodeCatalogEnvelope(stdout []byte) (catalogplan.Result, string, *Failure)
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return catalogplan.Result{}, "", fail(CodeEnvelopeContract, "catalog-plan", "stdout", "stdout must contain exactly one JSON envelope")
 	}
-	if envelope.SchemaVersion != "1.0" || strings.TrimSpace(envelope.CLIVersion) == "" || envelope.Command != "catalog-plan" || strings.TrimSpace(envelope.RunID) == "" || !envelope.Success || string(envelope.Error) != "null" || len(envelope.TestMode) != 0 && string(envelope.TestMode) != "null" {
+	if envelope.SchemaVersion != "1.0" || strings.TrimSpace(envelope.CLIVersion) == "" || envelope.Command != "catalog-plan" || strings.TrimSpace(envelope.RunID) == "" || len(envelope.TestMode) != 0 && string(envelope.TestMode) != "null" {
 		return catalogplan.Result{}, "", fail(CodeEnvelopeContract, "catalog-plan", "envelope", "catalog envelope identity is invalid")
 	}
 	if _, err := time.Parse(time.RFC3339, envelope.TimestampUTC); err != nil {
@@ -298,10 +326,24 @@ func decodeCatalogEnvelope(stdout []byte) (catalogplan.Result, string, *Failure)
 	if err := dataDecoder.Decode(&trailing); err != io.EOF {
 		return catalogplan.Result{}, "", fail(CodeEnvelopeContract, "catalog-plan", "data", "catalog data contains multiple JSON values")
 	}
-	if failure := validateCatalogPlanData(result); failure != nil {
-		return catalogplan.Result{}, "", failure
+	if envelope.Success {
+		if string(envelope.Error) != "null" {
+			return catalogplan.Result{}, "", fail(CodeEnvelopeContract, "catalog-plan", "envelope", "successful catalog envelope contains an error")
+		}
+		if failure := validateCatalogPlanData(result); failure != nil {
+			return catalogplan.Result{}, "", failure
+		}
+		return result, envelope.RunID, nil
 	}
-	return result, envelope.RunID, nil
+	if string(envelope.Error) == "null" || len(result.Failures) == 0 {
+		return catalogplan.Result{}, "", fail(CodeEnvelopeContract, "catalog-plan", "envelope", "failed catalog envelope has no structured failure evidence")
+	}
+	for _, item := range result.Failures {
+		if strings.TrimSpace(item.ModuleID) == "" || strings.TrimSpace(item.Reason) == "" {
+			return catalogplan.Result{}, "", fail(CodeEnvelopeContract, "catalog-plan", "data.failures", "catalog failure evidence is malformed")
+		}
+	}
+	return result, envelope.RunID, fail(CodeExecutionFailure, "catalog-plan", "success", "engine envelope reported catalog-plan failure")
 }
 
 func validateCatalogPlanData(result catalogplan.Result) *Failure {
@@ -321,19 +363,46 @@ func validateCatalogPlanData(result catalogplan.Result) *Failure {
 	return nil
 }
 
-func validateCatalogPlanBundleIdentity(result catalogplan.Result, bundlePath string) *Failure {
-	data, err := os.ReadFile(bundlePath)
-	if err != nil {
-		return fail(CodeIsolationFailure, "identity", "bundle", "bundle bytes cannot be re-read safely")
+func validateCatalogPlanActionIdentity(result catalogplan.Result, catalog *validationmatrix.Catalog) *Failure {
+	if catalog == nil {
+		return fail(CodeAssertionContract, "identity", "catalog", "strict module catalog authority is unavailable")
 	}
-	normalized := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
-	sum := sha256.Sum256(normalized)
-	wantID := strings.TrimSuffix(filepath.Base(bundlePath), filepath.Ext(bundlePath))
-	wantPath := filepath.ToSlash(filepath.Join("bundles", filepath.Base(bundlePath)))
-	if result.Bundle.ID != wantID || result.Bundle.Path != wantPath || result.Bundle.Hash != hex.EncodeToString(sum[:]) {
+	for _, action := range result.Actions {
+		mod, found := catalog.Modules[action.ModuleID]
+		record, recordFound := catalog.Records[action.ModuleID]
+		if !found || !recordFound {
+			return fail(CodeEnvelopeContract, "identity", "actions", "catalog action references a module or validation sidecar outside the strict authority")
+		}
+		validationBytes := bytes.ReplaceAll(record.SourceSnapshot(), []byte("\r\n"), []byte("\n"))
+		validationHash := sha256.Sum256(validationBytes)
+		if action.ModuleRevision != mod.Revision || action.ModuleSchemaVersion != mod.EffectiveSchemaVersion() || action.ValidationHash != hex.EncodeToString(validationHash[:]) || action.ValidationScenarioCount != len(record.Synthetic.Scenarios) {
+			return fail(CodeEnvelopeContract, "identity", "actions", "catalog action differs from the pinned module or validation-sidecar authority")
+		}
+	}
+	return nil
+}
+
+func validateCatalogPlanBundleIdentity(result catalogplan.Result, bundlePath string) *Failure {
+	expected, failure := expectedCatalogBundleIdentity(bundlePath)
+	if failure != nil {
+		return failure
+	}
+	if result.Bundle.ID != expected.ID || result.Bundle.Path != expected.Path || result.Bundle.Hash != expected.Hash {
 		return fail(CodeEnvelopeContract, "identity", "bundle", "catalog plan bundle identity differs from the tracked input bytes")
 	}
 	return nil
+}
+
+type catalogBundleIdentity struct{ ID, Path, Hash string }
+
+func expectedCatalogBundleIdentity(bundlePath string) (catalogBundleIdentity, *Failure) {
+	data, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return catalogBundleIdentity{}, fail(CodeIsolationFailure, "identity", "bundle", "bundle bytes cannot be re-read safely")
+	}
+	normalized := bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	sum := sha256.Sum256(normalized)
+	return catalogBundleIdentity{ID: strings.TrimSuffix(filepath.Base(bundlePath), filepath.Ext(bundlePath)), Path: filepath.ToSlash(filepath.Join("bundles", filepath.Base(bundlePath))), Hash: hex.EncodeToString(sum[:])}, nil
 }
 
 func decodeCatalogEvents(stderr []byte, runID string, result catalogplan.Result) *Failure {
@@ -433,6 +502,22 @@ func catalogReuse(rows []CatalogMatrixRow) ([]CatalogReuse, int) {
 	return reuse, len(owners)
 }
 
+func stripCatalogProof(result *CatalogMatrixResult, failure *Failure) {
+	if result == nil {
+		return
+	}
+	result.Status = ResultStatusFailed
+	result.ProofLevels = []validationmatrix.ProofLevel{}
+	result.Failure = failure
+	for index := range result.Rows {
+		result.Rows[index].Status = ResultStatusFailed
+		result.Rows[index].ProofLevels = []validationmatrix.ProofLevel{}
+		if result.Rows[index].Failure == nil {
+			result.Rows[index].Failure = failure
+		}
+	}
+}
+
 func catalogBoundaryHash(tree boundaryTree) string {
 	keys := make([]string, 0, len(tree))
 	for key := range tree {
@@ -451,8 +536,8 @@ func persistCatalogMatrixResult(path string, result CatalogMatrixResult) (Catalo
 	if path == "" {
 		return result, nil
 	}
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Base(filepath.Dir(path)) != "endstate-validation-results" {
-		return result, fmt.Errorf("catalog result path must be inside an existing validation-owned result directory")
+	if failure := validateCatalogResultPath(path, "", ""); failure != nil {
+		return result, fmt.Errorf("catalog result path failed validation: %s", failure.Detail)
 	}
 	parent := filepath.Dir(path)
 	info, err := os.Lstat(parent)
@@ -467,4 +552,26 @@ func persistCatalogMatrixResult(path string, result CatalogMatrixResult) (Catalo
 		return result, err
 	}
 	return result, nil
+}
+
+func validateCatalogResultPath(path, repo, engine string) *Failure {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Base(filepath.Dir(path)) != "endstate-validation-results" {
+		return fail(CodeInvalidResultPath, "persistence", "path", "catalog result path must be a canonical leaf in an existing validation-owned result directory")
+	}
+	ownedRoot := filepath.Join(filepath.Clean(os.TempDir()), "endstate-validation-results")
+	if !catalogPathWithin(ownedRoot, path) {
+		return fail(CodeInvalidResultPath, "persistence", "path", "catalog result path is outside the validation-owned result boundary")
+	}
+	if repo != "" && catalogPathWithin(repo, path) {
+		return fail(CodeInvalidResultPath, "persistence", "repository", "catalog result path overlaps the tested repository")
+	}
+	if engine != "" && (filepath.Clean(path) == filepath.Clean(engine) || catalogPathWithin(engine, path)) {
+		return fail(CodeInvalidResultPath, "persistence", "engine", "catalog result path overlaps the tested engine authority")
+	}
+	return nil
+}
+
+func catalogPathWithin(root, candidate string) bool {
+	relative, err := filepath.Rel(filepath.Clean(root), filepath.Clean(candidate))
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
