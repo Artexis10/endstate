@@ -187,22 +187,17 @@ func (runtime *scenarioRuntime) fileVerifierRequiresDirectory(path string) (bool
 	if runtime == nil || runtime.Plan == nil {
 		return false, nil
 	}
-	fileDescendant := false
+	exactDirectory := false
 	for _, target := range runtime.Plan.Targets {
 		if target.Resolved == "" || !pathIsEqualOrAncestor(path, target.Resolved) {
 			continue
 		}
-		if target.Directory {
+		if !strings.EqualFold(filepath.Clean(path), filepath.Clean(target.Resolved)) {
 			return true, nil
 		}
-		if !strings.EqualFold(filepath.Clean(path), filepath.Clean(target.Resolved)) {
-			fileDescendant = true
-		}
+		exactDirectory = exactDirectory || target.Directory
 	}
-	if fileDescendant {
-		return false, fmt.Errorf("file verifier is an ancestor of a file fixture target")
-	}
-	return false, nil
+	return exactDirectory, nil
 }
 
 func pathIsEqualOrAncestor(path, target string) bool {
@@ -553,27 +548,15 @@ func (executor *cliJourneyExecutor) VerifyV2(ctx context.Context, runtime *scena
 }
 
 func (executor *cliJourneyExecutor) CaptureOptionalAbsent(ctx context.Context, runtime *scenarioRuntime) *Failure {
-	manifestPath := filepath.Join(runtime.Root, "manifests", "optional-absent.jsonc")
-	if _, failure := executor.run(ctx, "capture", "--out", manifestPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID); failure != nil {
+	artifactPath := captureArtifactPath(runtime.Root, "optional-absent")
+	if _, failure := executor.run(ctx, "capture", "--out", artifactPath, "--only", runtime.Inventory.AppID+","+runtime.Module.ID); failure != nil {
 		return failure
 	}
-	zipPath := strings.TrimSuffix(manifestPath, filepath.Ext(manifestPath)) + ".zip"
-	info, err := os.Lstat(zipPath)
-	if os.IsNotExist(err) {
-		for _, target := range runtime.Plan.Targets {
-			if !target.Optional {
-				return fail(CodeArtifactContract, "capture", target.Coordinate, "required config disappeared from optional-absence capture")
-			}
-		}
-		if manifestInfo, manifestErr := os.Lstat(manifestPath); manifestErr != nil || !manifestInfo.Mode().IsRegular() || safepath.IsLinkOrReparse(manifestInfo) {
-			return fail(CodeArtifactContract, "capture", "optional", "optional-absence capture emitted no regular artifact")
-		}
-		return nil
-	}
+	info, err := os.Lstat(artifactPath)
 	if err != nil || !info.Mode().IsRegular() || safepath.IsLinkOrReparse(info) {
 		return fail(CodeArtifactContract, "capture", "optional", "optional-absence bundle is linked or malformed")
 	}
-	entries, failure := readCaptureArtifactEntries(zipPath)
+	entries, failure := readCaptureArtifactEntries(artifactPath)
 	if failure != nil {
 		return failure
 	}
