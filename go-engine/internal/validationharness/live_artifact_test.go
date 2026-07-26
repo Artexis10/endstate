@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -70,6 +71,30 @@ func TestInspectLiveCaptureArtifactRejectsHostileSchemaV1Bundles(t *testing.T) {
 			value["apps"].([]any)[0].(map[string]any)["refs"].(map[string]any)["windows"] = "Other.App"
 			entries["manifest.jsonc"] = mustJSON(t, value)
 		}},
+		{"includes", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["manifest.jsonc"], &value)
+			value["includes"] = []string{"foreign.jsonc"}
+			entries["manifest.jsonc"] = mustJSON(t, value)
+		}},
+		{"verify", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["manifest.jsonc"], &value)
+			value["verify"].([]any)[0].(map[string]any)["command"] = "foreign"
+			entries["manifest.jsonc"] = mustJSON(t, value)
+		}},
+		{"manual app", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["manifest.jsonc"], &value)
+			value["apps"].([]any)[0].(map[string]any)["manual"] = map[string]string{"verifyPath": "foreign"}
+			entries["manifest.jsonc"] = mustJSON(t, value)
+		}},
+		{"app version", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["manifest.jsonc"], &value)
+			value["apps"].([]any)[0].(map[string]any)["version"] = "1.0"
+			entries["manifest.jsonc"] = mustJSON(t, value)
+		}},
 		{"wrong capture identity", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
 			var value bundle.BundleMetadata
 			mustJSONUnmarshal(t, entries["metadata.json"], &value)
@@ -86,6 +111,36 @@ func TestInspectLiveCaptureArtifactRejectsHostileSchemaV1Bundles(t *testing.T) {
 			var value bundle.BundleMetadata
 			mustJSONUnmarshal(t, entries["metadata.json"], &value)
 			value.EndstateVersion = "foreign"
+			entries["metadata.json"] = mustJSON(t, value)
+		}},
+		{"metadata os", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["metadata.json"], &value)
+			value["os"] = "linux"
+			entries["metadata.json"] = mustJSON(t, value)
+		}},
+		{"metadata share", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["metadata.json"], &value)
+			value["share"] = true
+			entries["metadata.json"] = mustJSON(t, value)
+		}},
+		{"metadata name", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["metadata.json"], &value)
+			value["name"] = "foreign"
+			entries["metadata.json"] = mustJSON(t, value)
+		}},
+		{"metadata redaction", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["metadata.json"], &value)
+			value["redaction"] = map[string]any{}
+			entries["metadata.json"] = mustJSON(t, value)
+		}},
+		{"metadata manifest version", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
+			var value map[string]any
+			mustJSONUnmarshal(t, entries["metadata.json"], &value)
+			value["manifestVersion"] = 2
 			entries["metadata.json"] = mustJSON(t, value)
 		}},
 		{"unrelated payload", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
@@ -118,6 +173,18 @@ func TestInspectLiveCaptureArtifactRejectsUnsafeZipAndPathClaims(t *testing.T) {
 	}{
 		{"duplicate", func(path string) {
 			writeLiveArtifactZip(t, filepath.Dir(path), filepath.Base(path), entries, func(writer *zip.Writer) { _, _ = writer.Create("manifest.jsonc") })
+		}, nil},
+		{"noncanonical case", func(path string) {
+			candidate := cloneLiveArtifactEntries(entries)
+			candidate["CONFIGS/notepad-plus-plus/config.xml"] = candidate["configs/notepad-plus-plus/config.xml"]
+			delete(candidate, "configs/notepad-plus-plus/config.xml")
+			writeLiveArtifactZip(t, filepath.Dir(path), filepath.Base(path), candidate, nil)
+		}, nil},
+		{"backslash member", func(path string) {
+			candidate := cloneLiveArtifactEntries(entries)
+			candidate[`configs\notepad-plus-plus\config.xml`] = candidate["configs/notepad-plus-plus/config.xml"]
+			delete(candidate, "configs/notepad-plus-plus/config.xml")
+			writeLiveArtifactZip(t, filepath.Dir(path), filepath.Base(path), candidate, nil)
 		}, nil},
 		{"directory", func(path string) {
 			writeLiveArtifactZip(t, filepath.Dir(path), filepath.Base(path), entries, func(writer *zip.Writer) { _, _ = writer.Create("foreign/") })
@@ -174,22 +241,7 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 	}
 	appData := t.TempDir()
 	t.Setenv("APPDATA", appData)
-	allowed := map[string]ComparatorMapping{}
-	for _, mapping := range definition.Comparator.Mappings {
-		allowed[mapping.Identity] = mapping
-	}
-	module.Capture.Files = module.Capture.Files[:0]
-	filteredRestores := make([]modules.RestoreDef, 0, len(allowed))
-	for _, restore := range module.Restore {
-		identity, err := liveRestoreIdentity(restore.Source)
-		if err == nil {
-			if _, ok := allowed[identity]; ok {
-				filteredRestores = append(filteredRestores, restore)
-			}
-		}
-	}
-	module.Restore = filteredRestores
-	snapshots := make([]liveTargetSnapshot, 0, len(allowed))
+	snapshots := make([]liveTargetSnapshot, 0, len(definition.Comparator.Mappings))
 	for _, mapping := range definition.Comparator.Mappings {
 		relative := strings.TrimPrefix(strings.ReplaceAll(mapping.CaptureTemplate, "%APPDATA%\\", ""), `\`)
 		target := filepath.Join(appData, filepath.FromSlash(strings.ReplaceAll(relative, `\`, "/")))
@@ -201,7 +253,6 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 			t.Fatal(err)
 		}
 		snapshots = append(snapshots, liveTargetSnapshot{Identity: mapping.Identity, Mode: 0o600, Size: int64(len(payload)), SHA256: liveSHA256(payload), Bytes: payload})
-		module.Capture.Files = append(module.Capture.Files, modules.CaptureFile{Source: mapping.CaptureTemplate, Dest: mapping.Identity})
 	}
 	manifestPath := filepath.Join(t.TempDir(), "captured.jsonc")
 	input := manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: "notepad-plus-plus", Refs: map[string]string{"windows": definition.WingetRef}, Driver: "winget", Source: "winget"}}}
@@ -209,11 +260,17 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 		t.Fatal(err)
 	}
 	output := filepath.Join(t.TempDir(), "captured.zip")
-	report, err := bundle.CreateBundleWithReport(manifestPath, []*modules.Module{module}, output, "test-version", nil)
+	result, err := bundle.CreateCaptureBundle(bundle.CaptureBundleRequest{ManifestPath: manifestPath, OutputPath: output, EndstateVersion: "test-version", Modules: []*modules.Module{module}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	claims := &liveCaptureArtifactClaims{OutputPath: output, EventPath: output, Receipt: liveReceiptArtifactPathClaim{Path: output}, ModuleRevision: definition.ModuleRevision, MachineName: report.Metadata.MachineName, CapturedAt: report.Metadata.CapturedAt, EndstateVersion: report.Metadata.EndstateVersion}
+	if result.ManifestVersion != 1 || result.BundleSchemaVersion != "1.0" || len(result.LegacyModules) != 1 || result.LegacyModules[0].FilesCaptured != len(definition.Comparator.Mappings) {
+		t.Fatalf("production v1 capture result = %+v", result)
+	}
+	entries := readLiveArtifactEntriesForTest(t, output)
+	var metadata bundle.BundleMetadata
+	mustJSONUnmarshal(t, entries["metadata.json"], &metadata)
+	claims := &liveCaptureArtifactClaims{OutputPath: output, EventPath: output, Receipt: liveReceiptArtifactPathClaim{Path: output}, ModuleRevision: definition.ModuleRevision, MachineName: metadata.MachineName, CapturedAt: metadata.CapturedAt, EndstateVersion: metadata.EndstateVersion, OS: runtime.GOOS, RestoreProjection: append([]modules.RestoreDef(nil), module.Restore...), VerifyProjection: append([]modules.VerifyDef(nil), module.Verify...)}
 	return definition, output, snapshots, claims
 }
 
