@@ -180,6 +180,9 @@ func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(plan.Rows) != 362 {
+		t.Fatalf("production plan rows = %d, want 362", len(plan.Rows))
+	}
 	shards := make([][]ShardRow, ShardCount)
 	for _, row := range plan.Rows {
 		identity, err := rowIdentity(row)
@@ -189,9 +192,16 @@ func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
 		shards[row.Shard] = append(shards[row.Shard], ShardRow{Identity: identity, Result: compactHarnessResult(maximumLegitimateFailedResult(row))})
 	}
 	maximum := 0
+	minimumRows := len(plan.Rows) / ShardCount
+	maximumRows := minimumRows
+	if len(plan.Rows)%ShardCount != 0 {
+		maximumRows++
+	}
+	assignedRows := 0
 	for shard, rows := range shards {
-		if len(rows) != 45 {
-			t.Fatalf("shard %d rows = %d, want 45", shard, len(rows))
+		assignedRows += len(rows)
+		if len(rows) < minimumRows || len(rows) > maximumRows {
+			t.Fatalf("shard %d rows = %d, want between %d and %d", shard, len(rows), minimumRows, maximumRows)
 		}
 		data, err := json.Marshal(ShardResult{SchemaVersion: SchemaVersion, Commit: strings.Repeat("a", 40), EngineSHA256: strings.Repeat("b", 64), RepositoryHash: strings.Repeat("c", 64), ShardCount: ShardCount, Shard: shard, Status: validationharness.ResultStatusFailed, Rows: rows, Failure: "scenario failed"})
 		if err != nil {
@@ -203,6 +213,9 @@ func TestProductionScaleCompactShardEvidenceFitsLimit(t *testing.T) {
 		if len(data) > maxResultSize {
 			t.Fatalf("shard %d serialized to %d bytes, exceeds %d", shard, len(data), maxResultSize)
 		}
+	}
+	if assignedRows != 362 {
+		t.Fatalf("assigned rows = %d, want 362", assignedRows)
 	}
 	headroom := maxResultSize - maximum
 	if headroom < 4*1024 {

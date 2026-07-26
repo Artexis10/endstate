@@ -32,7 +32,7 @@ const (
 	SchemaVersion        = 1
 	ShardCount           = 8
 	maxResultSize        = 64 * 1024
-	maxFailureDetailSize = 192
+	maxFailureDetailSize = 184
 )
 
 var commitPattern = regexp.MustCompile(`^[a-f0-9]{40}$`)
