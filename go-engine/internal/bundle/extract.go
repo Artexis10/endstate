@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 )
 
 // ExtractBundle extracts a zip bundle to a temporary directory and returns the
@@ -35,10 +37,11 @@ func ExtractBundle(zipPath string) (string, error) {
 	return manifestPath, nil
 }
 
-// IsBundle checks if the given path has a .zip extension, indicating it is a
-// bundle file.
+// IsBundle checks whether the given path names a capture bundle (.endstate, or
+// the legacy .zip). Delegates to manifest.IsBundlePath so the engine has
+// exactly one definition of the bundle extension set.
 func IsBundle(path string) bool {
-	return strings.EqualFold(filepath.Ext(path), ".zip")
+	return manifest.IsBundlePath(path)
 }
 
 // extractZipToDir extracts all entries from a zip file into destDir.

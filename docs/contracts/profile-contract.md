@@ -6,7 +6,7 @@ This document defines the canonical profile manifest contract for Endstate. Both
 
 A **profile** describes a desired machine state. Profiles exist in three formats:
 
-1. **Zip bundle** (`<name>.zip`) — preferred format containing manifest, config payloads, and metadata
+1. **Bundle** (`<name>.endstate`, or the legacy `<name>.zip`) — preferred format containing manifest, config payloads, and metadata
 2. **Loose folder** (`<name>\manifest.jsonc`) — unzipped bundle or manually assembled folder
 3. **Bare manifest** (`<name>.jsonc`) — single JSON/JSONC/JSON5 file (legacy, install-only)
 
@@ -14,12 +14,12 @@ The engine is the authority on what constitutes a valid profile; the GUI relies 
 
 ## Profile Formats
 
-### Format 1: Zip Bundle (Preferred)
+### Format 1: Bundle (Preferred)
 
-A `.zip` file containing either a legacy/schema-v1 layout or a generation-aware layout:
+A zip container — written as `<name>.endstate`, and still accepted as `<name>.zip` — holding either a legacy/schema-v1 layout or a generation-aware layout. The extension is matched case-insensitively; `.endstate` is a rename, not a new format, so a bundle renamed to `.zip` opens in any archiver:
 
 ```
-<name>.zip
+<name>.endstate
 ├── manifest.jsonc          # App list (standard profile manifest)
 ├── configs/                # Config module payloads (optional)
 │   ├── <module-id>/
@@ -31,7 +31,7 @@ A `.zip` file containing either a legacy/schema-v1 layout or a generation-aware 
 Generation-aware payloads use stable capture IDs and include inspectable provenance:
 
 ```
-<name>.zip
+<name>.endstate
 ├── manifest.jsonc          # version: 2; configCaptures[]
 ├── configs/
 │   └── <capture-id>/       # complete relative payload hierarchy
@@ -222,9 +222,10 @@ Test-ProfileManifest -Path <path>
 
 When resolving `--profile "Name"`, the engine checks in order:
 
-1. `<ProfilesDir>\Name.zip` — zip bundle
-2. `<ProfilesDir>\Name\manifest.jsonc` — loose folder
-3. `<ProfilesDir>\Name.jsonc` — bare manifest
+1. `<ProfilesDir>\Name.endstate` — bundle
+2. `<ProfilesDir>\Name.zip` — bundle, legacy extension
+3. `<ProfilesDir>\Name\manifest.jsonc` — loose folder
+4. `<ProfilesDir>\Name.jsonc` — bare manifest
 
 First match wins. The default profiles directory is `Documents\Endstate\Profiles\`.
 
@@ -232,10 +233,10 @@ First match wins. The default profiles directory is `Documents\Endstate\Profiles
 
 1. List all items in the profiles directory
 2. Discover profiles in three passes:
-   - **Zip bundles:** `*.zip` files (validate by checking for `manifest.jsonc` entry)
+   - **Bundles:** `*.endstate` and `*.zip` files (validate by checking for a `manifest.jsonc` entry)
    - **Loose folders:** directories containing `manifest.jsonc`
    - **Bare manifests:** `.json`, `.jsonc`, `.json5` files (excluding `*.meta.json`)
-3. Deduplicate: if a name appears in multiple formats, prefer zip → folder → bare
+3. Deduplicate: if a name appears in multiple formats, prefer bundle → folder → bare
 4. For each candidate:
    - Parse the manifest content
    - Ask the engine to validate against the versioned profile signature

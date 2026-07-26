@@ -518,11 +518,20 @@ func emptyCaptureConfigFinalization(manifestPath string) *captureConfigFinalizat
 	}
 }
 
+// captureBundleOutputPath decides where the capture bundle is written.
+//
+// The default extension is manifest.BundleExt (.endstate). An explicit --out
+// keeps whatever bundle extension the caller asked for — passing a .zip path
+// still produces that exact .zip path, permanently. Only a path with no
+// extension, or one whose extension does not name a bundle at all, is
+// normalized to the default; writing a zip container under, say, a .jsonc name
+// would make the result unreadable by every loader that dispatches on
+// extension.
 func captureBundleOutputPath(flags CaptureFlags, manifestPath string) (string, error) {
 	if flags.Profile != "" {
 		profilesDir := resolveProfileDirFn()
 		if profilesDir != "" {
-			return filepath.Abs(filepath.Join(profilesDir, flags.Profile+".zip"))
+			return filepath.Abs(filepath.Join(profilesDir, flags.Profile+manifest.BundleExt))
 		}
 	}
 	if flags.Out != "" {
@@ -530,24 +539,22 @@ func captureBundleOutputPath(flags CaptureFlags, manifestPath string) (string, e
 		if err != nil {
 			return "", fmt.Errorf("resolve capture output: %w", err)
 		}
-		extension := filepath.Ext(absolute)
-		if strings.EqualFold(extension, ".zip") {
+		if manifest.IsBundlePath(absolute) {
 			return absolute, nil
 		}
-		if extension == "" {
-			return absolute + ".zip", nil
-		}
-		return strings.TrimSuffix(absolute, extension) + ".zip", nil
+		return withBundleExtension(absolute), nil
 	}
 	absolute, err := filepath.Abs(manifestPath)
 	if err != nil {
 		return "", fmt.Errorf("resolve capture manifest: %w", err)
 	}
-	extension := filepath.Ext(absolute)
-	if extension == "" {
-		return absolute + ".zip", nil
-	}
-	return strings.TrimSuffix(absolute, extension) + ".zip", nil
+	return withBundleExtension(absolute), nil
+}
+
+// withBundleExtension replaces any existing extension on path with the default
+// bundle extension.
+func withBundleExtension(path string) string {
+	return strings.TrimSuffix(path, filepath.Ext(path)) + manifest.BundleExt
 }
 
 func buildCaptureConfigSummary(planning captureConfigPlanning, result *bundle.CaptureBundleResult) CaptureConfigSummary {
