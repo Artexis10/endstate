@@ -123,7 +123,7 @@ func TestRunCatalogMatrixStripsPersistedProofAfterRepositoryMutation(t *testing.
 	if err := os.MkdirAll(moduleDirectory, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range []string{"module.jsonc", "validation.jsonc"} {
+	for _, name := range []string{"module.jsonc", "validation.jsonc", "seed.ps1"} {
 		data, err := os.ReadFile(filepath.Join(sourceRepo, "modules", "apps", "notepad-plus-plus", name))
 		if err != nil {
 			t.Fatal(err)
