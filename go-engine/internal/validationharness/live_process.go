@@ -99,6 +99,16 @@ type LiveProcessRequest struct {
 
 type liveAppXPackageMetadata struct {
 	familyName, fullName, packageRoot, executableName string
+	receipt                                           liveTrustedAppXReceipt
+}
+
+// liveTrustedAppXReceipt is populated only after AppModel selection, protected
+// binding, and Authenticode verification. The runner rechecks it immediately
+// before launch rather than treating a package-root spelling as authority.
+type liveTrustedAppXReceipt struct {
+	volume, indexHigh, indexLow uint32
+	sha256                      [32]byte
+	valid                       bool
 }
 
 // liveTrustedAppXBinding can only be constructed by the Windows AppModel

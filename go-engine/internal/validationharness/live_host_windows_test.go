@@ -7,8 +7,18 @@ package validationharness
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
+
+func TestNewWindowsLiveObserverFailsClosedWhenTrustedResolverIsUnavailable(t *testing.T) {
+	original := newWindowsLiveWingetResolver
+	newWindowsLiveWingetResolver = func() (liveTrustedWingetResolver, error) { return nil, errors.New("unavailable") }
+	defer func() { newWindowsLiveWingetResolver = original }()
+	if _, err := NewWindowsLiveObserver(fakeLiveFiles{}); err == nil {
+		t.Fatal("NewWindowsLiveObserver() accepted an unavailable trusted resolver")
+	}
+}
 
 func TestClassifyLiveWingetExitCodeAcceptsOnlyReviewedNoPackageResult(t *testing.T) {
 	tests := []struct {

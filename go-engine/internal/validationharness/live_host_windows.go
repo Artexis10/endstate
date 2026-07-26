@@ -41,13 +41,19 @@ func NewWindowsLiveObserver(versions LiveVersionSource) (LiveObserver, error) {
 	if versions == nil {
 		return LiveObserver{}, fmt.Errorf("live observer requires a file version source")
 	}
+	resolver, err := newWindowsLiveWingetResolver()
+	if err != nil {
+		return LiveObserver{}, fmt.Errorf("live observer trusted winget resolver unavailable")
+	}
 	return LiveObserver{
-		Process:  windowsLiveProcess{resolver: unavailableLiveWingetResolver{}},
+		Process:  windowsLiveProcess{resolver: resolver},
 		Registry: windowsLiveRegistry{},
 		Path:     windowsLivePath{},
 		Files:    windowsLiveFiles{versions: versions},
 	}, nil
 }
+
+var newWindowsLiveWingetResolver = newLiveWingetResolver
 
 // liveTrustedWingetResolver must resolve the genuine App Installer executable
 // from reviewed package metadata. It must never return an app-execution alias,
@@ -60,12 +66,6 @@ type liveTrustedWingetResolver interface {
 type liveTrustedWingetTarget struct {
 	binding     liveTrustedAppXBinding
 	environment map[string]string
-}
-
-type unavailableLiveWingetResolver struct{}
-
-func (unavailableLiveWingetResolver) ResolveLiveWinget(context.Context) (liveTrustedWingetTarget, error) {
-	return liveTrustedWingetTarget{}, fmt.Errorf("trusted App Installer metadata resolver is unavailable")
 }
 
 type windowsLiveProcess struct{ resolver liveTrustedWingetResolver }

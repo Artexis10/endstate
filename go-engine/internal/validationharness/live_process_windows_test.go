@@ -7,7 +7,6 @@ package validationharness
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -131,25 +130,7 @@ func TestLiveTrustedAppXBindingRejectsUntrustedMetadata(t *testing.T) {
 }
 
 func TestLiveTrustedAppXBindingDesktopAppInstallerWhenAvailable(t *testing.T) {
-	output, err := exec.Command("powershell", "-NoProfile", "-Command", "$p=Get-AppxPackage -Name Microsoft.DesktopAppInstaller | Select-Object -First 1; if ($p) { $p | Select-Object PackageFamilyName,PackageFullName,InstallLocation | ConvertTo-Json -Compress }").Output()
-	if err != nil {
-		t.Skipf("Desktop App Installer metadata is unavailable: %v", err)
-	}
-	if len(output) == 0 {
-		t.Skip("Desktop App Installer is not installed")
-	}
-	var metadata struct {
-		FamilyName  string `json:"PackageFamilyName"`
-		FullName    string `json:"PackageFullName"`
-		PackageRoot string `json:"InstallLocation"`
-	}
-	if err := json.Unmarshal(output, &metadata); err != nil {
-		t.Fatalf("decode Desktop App Installer metadata: %v", err)
-	}
-	binding, err := newLiveTrustedAppXBinding(liveAppXPackageMetadata{familyName: metadata.FamilyName, fullName: metadata.FullName, packageRoot: metadata.PackageRoot, executableName: "winget.exe"})
-	if err != nil {
-		t.Fatalf("newLiveTrustedAppXBinding() error = %v", err)
-	}
+	binding := liveResolvedDesktopAppInstaller(t)
 	bound, err := bindLiveTrustedAppXExecutable(binding)
 	if err != nil {
 		t.Fatalf("bindLiveTrustedAppXExecutable() error = %v", err)
@@ -158,25 +139,7 @@ func TestLiveTrustedAppXBindingDesktopAppInstallerWhenAvailable(t *testing.T) {
 }
 
 func TestLiveTrustedAppXBindingVerifiesImageWithoutGenericTraversal(t *testing.T) {
-	output, err := exec.Command("powershell", "-NoProfile", "-Command", "$p=Get-AppxPackage -Name Microsoft.DesktopAppInstaller | Select-Object -First 1; if ($p) { $p | Select-Object PackageFamilyName,PackageFullName,InstallLocation | ConvertTo-Json -Compress }").Output()
-	if err != nil {
-		t.Skipf("Desktop App Installer metadata is unavailable: %v", err)
-	}
-	if len(output) == 0 {
-		t.Skip("Desktop App Installer is not installed")
-	}
-	var metadata struct {
-		FamilyName  string `json:"PackageFamilyName"`
-		FullName    string `json:"PackageFullName"`
-		PackageRoot string `json:"InstallLocation"`
-	}
-	if err := json.Unmarshal(output, &metadata); err != nil {
-		t.Fatalf("decode Desktop App Installer metadata: %v", err)
-	}
-	trusted, err := newLiveTrustedAppXBinding(liveAppXPackageMetadata{familyName: metadata.FamilyName, fullName: metadata.FullName, packageRoot: metadata.PackageRoot, executableName: "winget.exe"})
-	if err != nil {
-		t.Fatalf("newLiveTrustedAppXBinding() error = %v", err)
-	}
+	trusted := liveResolvedDesktopAppInstaller(t)
 	binding, err := bindLiveTrustedAppXExecutable(trusted)
 	if err != nil {
 		t.Fatalf("bindLiveTrustedAppXExecutable() error = %v", err)
@@ -196,6 +159,30 @@ func TestLiveTrustedAppXBindingVerifiesImageWithoutGenericTraversal(t *testing.T
 	if calledGenericIdentity {
 		t.Fatal("verifyLiveWindowsProcessImage() re-entered the generic executable binder")
 	}
+}
+
+func liveResolvedDesktopAppInstaller(t *testing.T) liveTrustedAppXBinding {
+	t.Helper()
+	appmodel, err := newLiveWindowsAppModel()
+	if err != nil {
+		t.Fatalf("Desktop App Installer AppModel API unavailable: %v", err)
+	}
+	packages, err := appmodel.Packages(context.Background())
+	if err != nil {
+		t.Fatalf("Desktop App Installer AppModel query failed: %v", err)
+	}
+	if len(packages) == 0 {
+		t.Skip("Desktop App Installer is not installed")
+	}
+	resolver, err := newLiveWingetResolver()
+	if err != nil {
+		t.Fatalf("newLiveWingetResolver() error = %v", err)
+	}
+	target, err := resolver.ResolveLiveWinget(context.Background())
+	if err != nil {
+		t.Fatalf("ResolveLiveWinget() error = %v", err)
+	}
+	return target.binding
 }
 
 func TestLiveProcessBoundsOutputWhileReading(t *testing.T) {

@@ -7,7 +7,9 @@ package validationharness
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -281,6 +283,24 @@ func newLiveTrustedAppXBinding(metadata liveAppXPackageMetadata) (liveTrustedApp
 }
 
 func bindLiveTrustedAppXExecutable(trusted liveTrustedAppXBinding) (*liveWindowsExecutableBinding, error) {
+	binding, err := bindLiveTrustedAppXExecutableUnverified(trusted)
+	if err != nil {
+		return nil, err
+	}
+	metadata := trusted.metadata
+	if !metadata.receipt.valid || binding.identity.volume != metadata.receipt.volume || binding.identity.indexHigh != metadata.receipt.indexHigh || binding.identity.indexLow != metadata.receipt.indexLow {
+		binding.Close()
+		return nil, errors.New("AppX executable identity does not match resolver receipt")
+	}
+	digest, err := liveWindowsFileSHA256(binding.path)
+	if err != nil || digest != metadata.receipt.sha256 {
+		binding.Close()
+		return nil, errors.New("AppX executable digest does not match resolver receipt")
+	}
+	return binding, nil
+}
+
+func bindLiveTrustedAppXExecutableUnverified(trusted liveTrustedAppXBinding) (*liveWindowsExecutableBinding, error) {
 	metadata := trusted.metadata
 	validated, err := newLiveTrustedAppXBinding(metadata)
 	if err != nil {
@@ -321,6 +341,25 @@ func bindLiveTrustedAppXExecutable(trusted liveTrustedAppXBinding) (*liveWindows
 	}
 	binding.identity = identity
 	return binding, nil
+}
+
+func liveWindowsFileSHA256(path string) ([32]byte, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return [32]byte{}, err
+	}
+	defer file.Close()
+	return sha256File(file)
+}
+
+func sha256File(file *os.File) ([32]byte, error) {
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return [32]byte{}, err
+	}
+	var digest [32]byte
+	copy(digest[:], hash.Sum(nil))
+	return digest, nil
 }
 
 func liveWindowsAppsRoot() (string, error) {
