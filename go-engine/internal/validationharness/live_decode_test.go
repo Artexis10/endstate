@@ -84,7 +84,7 @@ func TestLiveDecoderAcceptsProductionCommandEncoders(t *testing.T) {
 	apply, err := envelope.Marshal(envelope.NewSuccess("apply", "apply-production", "1.0", "0.1.0", commands.ApplyResult{
 		Manifest: commands.ApplyManifestRef{Path: "$ENDSTATE_ROOT/manifests/captured.jsonc", Name: "captured", Hash: "sha256:fixture"},
 		Summary:  commands.ApplySummary{Total: 1, Success: 1},
-		Actions:  []commands.ApplyAction{{ID: "notepad-plus-plus", Ref: &ref, Driver: "winget", Status: "installed", Manual: nil}},
+		Actions:  []commands.ApplyAction{{ID: "notepad++-notepad++", Ref: &ref, Driver: "winget", Status: "installed", Manual: nil}},
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -95,27 +95,45 @@ func TestLiveDecoderAcceptsProductionCommandEncoders(t *testing.T) {
 
 	verify, err := envelope.Marshal(envelope.NewSuccess("verify", "verify-production", "1.0", "0.1.0", commands.VerifyResult{
 		Manifest: commands.VerifyManifestRef{Path: "$ENDSTATE_ROOT/manifests/captured.jsonc", Name: "captured"},
-		Summary:  commands.VerifySummary{Total: 3, Pass: 3},
-		Results:  []commands.VerifyItem{{Type: "app", ID: "notepad-plus-plus", Ref: ref, Driver: "winget", Status: "pass"}, {Type: "file-exists", Status: "pass"}, {Type: "file-exists", Status: "pass"}},
+		Summary:  commands.VerifySummary{Total: 1, Pass: 1},
+		Results:  []commands.VerifyItem{{Type: "command-exists", Status: "pass"}},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if failure := validateLiveVerify(liveCommandOutput{Stdout: verify, Stderr: liveEvents("verify", "verify-production")}, definition, 2); failure != nil {
+	if failure := validateLiveVerify(liveCommandOutput{Stdout: verify, Stderr: liveEvents("verify", "verify-production")}, definition, 0); failure != nil {
 		t.Fatalf("production verify rejected: %+v", failure)
 	}
 
 	capture, err := envelope.Marshal(envelope.NewSuccess("capture", "capture-production", "1.0", "0.1.0", commands.CaptureResult{
-		AppsIncluded:    []commands.CaptureApp{{Source: "winget", ID: ref, ManifestID: "notepad-plus-plus"}},
-		ConfigModules:   []commands.CaptureModuleResult{{DisplayName: "Notepad++", WingetRefs: []string{ref}, ChocolateyRefs: []string{}, AppID: "notepad-plus-plus", ID: definition.ModuleID, Paths: []string{"apps/notepad-plus-plus/config.xml", "apps/notepad-plus-plus/shortcuts.xml"}, FilesCaptured: 2, Status: "captured"}},
-		ConfigModuleMap: map[string]string{"notepad-plus-plus": definition.ModuleID}, PackageModuleMap: map[string][]string{ref: {definition.ModuleID}}, OutputPath: "$ENDSTATE_ROOT/manifests/captured.zip", OutputFormat: "zip", ConfigsIncluded: []string{"notepad-plus-plus"}, ConfigsSkipped: []string{}, ConfigsCaptureErrors: []string{}, Sanitized: true, IsExample: false, Counts: commands.CaptureCountsFull{Included: 1, TotalFound: 1}, CaptureWarnings: []string{}, Manifest: commands.CaptureManifest{Name: "captured", Path: "$ENDSTATE_ROOT/manifests/captured.zip"},
+		AppsIncluded:    []commands.CaptureApp{{Source: "winget", ID: ref, ManifestID: "notepad++-notepad++"}},
+		ConfigModules:   []commands.CaptureModuleResult{{DisplayName: "Notepad++", WingetRefs: []string{ref}, ChocolateyRefs: []string{}, AppID: "notepad++-notepad++", ID: definition.ModuleID, Paths: []string{"apps/notepad-plus-plus/config.xml", "apps/notepad-plus-plus/shortcuts.xml"}, FilesCaptured: 2, Status: "captured"}},
+		ConfigModuleMap: map[string]string{"notepad++-notepad++": definition.ModuleID}, PackageModuleMap: map[string][]string{ref: {definition.ModuleID}}, OutputPath: "$ENDSTATE_ROOT/manifests/captured.zip", OutputFormat: "zip", ConfigsIncluded: []string{"notepad++-notepad++"}, ConfigsSkipped: []string{}, ConfigsCaptureErrors: []string{}, Sanitized: true, IsExample: false, Counts: commands.CaptureCountsFull{Included: 1, TotalFound: 1}, CaptureWarnings: []string{}, Manifest: commands.CaptureManifest{Name: "captured", Path: "$ENDSTATE_ROOT/manifests/captured.zip"},
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	expected, _ := liveExpectedMappings(definition.Comparator.Mappings)
-	if failure := validateLiveCapture(liveCommandOutput{Stdout: capture, Stderr: liveEvents("capture", "capture-production")}, definition, expected); failure != nil {
+	if _, failure := validateLiveCapture(liveCommandOutput{Stdout: capture, Stderr: liveEvents("capture", "capture-production")}, definition, expected); failure != nil {
 		t.Fatalf("production capture rejected: %+v", failure)
+	}
+}
+
+func TestLiveDecoderAcceptsOnlySeededOptionalMappings(t *testing.T) {
+	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed, ok := liveExpectedMappings(definition.Comparator.Mappings)
+	if !ok {
+		t.Fatal("production comparator mappings are invalid")
+	}
+	captured, failure := validateLiveCapture(liveCommandOutput{Stdout: liveTestEnvelope("capture", "capture-seeded", liveCaptureData()), Stderr: liveEvents("capture", "capture-seeded")}, definition, allowed)
+	if failure != nil {
+		t.Fatalf("seeded optional capture rejected: %+v", failure)
+	}
+	if len(captured) != 2 {
+		t.Fatalf("captured optional mappings = %#v, want only the two seeded files", captured)
 	}
 }
 
@@ -131,7 +149,7 @@ func TestLiveDecoderAcceptsProductionRebuildEncoder(t *testing.T) {
 		ResolvedTargets:  []string{definition.Comparator.Mappings[0].RestoreTemplate},
 		Status:           planner.StatusRestored,
 	}
-	item := restore.RestoreResult{ID: "restore-config", Source: definition.Comparator.Mappings[0].Identity, Target: definition.Comparator.Mappings[0].RestoreTemplate, Status: "restored", BackupCreated: true, TargetExistedBefore: true, RestoreType: "copy"}
+	item := restore.RestoreResult{ID: "restore-config", Source: definition.Comparator.Mappings[0].Identity, Target: definition.Comparator.Mappings[0].RestoreTemplate, Status: "restored", BackupCreated: false, TargetExistedBefore: false, RestoreType: "copy"}
 	fields := &commands.ConfigResultFields{
 		ConfigResolutions:       []planner.ConfigResolution{resolution},
 		ConfigResolutionSummary: planner.ConfigResolutionSummary{Total: 1, LegacyUnverified: 1, Selected: 1},
@@ -141,13 +159,13 @@ func TestLiveDecoderAcceptsProductionRebuildEncoder(t *testing.T) {
 	apply := &commands.ApplyResult{
 		Manifest:           commands.ApplyManifestRef{Path: "$ENDSTATE_ROOT/manifests/captured.jsonc", Name: "captured", Hash: "sha256:fixture"},
 		Summary:            commands.ApplySummary{Total: 1, Success: 1},
-		Actions:            []commands.ApplyAction{{ID: "notepad-plus-plus", Ref: &ref, Driver: "winget", Status: "installed"}},
+		Actions:            []commands.ApplyAction{{ID: "notepad++-notepad++", Ref: &ref, Driver: "winget", Status: "installed"}},
 		ConfigResultFields: fields,
 	}
 	verify := &commands.VerifyResult{
 		Manifest: commands.VerifyManifestRef{Path: "$ENDSTATE_ROOT/manifests/captured.jsonc", Name: "captured"},
-		Summary:  commands.VerifySummary{Total: 2, Pass: 2},
-		Results:  []commands.VerifyItem{{Type: "app", ID: "notepad-plus-plus", Ref: ref, Driver: "winget", Status: "pass"}, {Type: "file-exists", Status: "pass"}},
+		Summary:  commands.VerifySummary{Total: 1, Pass: 1},
+		Results:  []commands.VerifyItem{{Type: "command-exists", Status: "pass"}},
 	}
 	encoded, err := envelope.Marshal(envelope.NewSuccess("rebuild", "rebuild-production", "1.0", "0.1.0", &commands.RebuildResult{
 		From:               "$ENDSTATE_ROOT/manifests/captured.zip",
@@ -256,7 +274,7 @@ func TestDecodeLiveJourneyFailsClosedOnForgedOrIncompleteLiveProof(t *testing.T)
 			value.Capture.Stdout = []byte(strings.Replace(string(value.Capture.Stdout), `"counts":`, `"future":true,"counts":`, 1))
 		}},
 		{"unexpected nested field", func(value *liveJourneyOutputs) {
-			value.Verify.Stdout = []byte(strings.Replace(string(value.Verify.Stdout), `"pass":3`, `"pass":3,"future":true`, 1))
+			value.Verify.Stdout = []byte(strings.Replace(string(value.Verify.Stdout), `"pass":1`, `"pass":1,"future":true`, 1))
 		}},
 		{"multiple stdout envelopes", func(value *liveJourneyOutputs) { value.Revert.Stdout = append(value.Revert.Stdout, []byte(` {}`)...) }},
 		{"oversized output", func(value *liveJourneyOutputs) {
@@ -302,11 +320,11 @@ func liveEvents(command, runID string) []byte {
 }
 
 func liveVerifyData() string {
-	return `{"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured"},"summary":{"total":3,"pass":3,"fail":0,"skipped":0},"results":[{"type":"app","id":"notepad-plus-plus","ref":"Notepad++.Notepad++","driver":"winget","status":"pass"},{"type":"file-exists","status":"pass"},{"type":"file-exists","status":"pass"}]}`
+	return `{"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured"},"summary":{"total":1,"pass":1,"fail":0,"skipped":0},"results":[{"type":"command-exists","status":"pass"}]}`
 }
 
 func liveCaptureData() string {
-	return `{"appsIncluded":[{"source":"winget","id":"Notepad++.Notepad++","manifestId":"notepad-plus-plus"}],"configModules":[{"displayName":"Notepad++","wingetRefs":["Notepad++.Notepad++"],"chocolateyRefs":[],"appId":"notepad-plus-plus","id":"apps.notepad-plus-plus","paths":["apps/notepad-plus-plus/config.xml","apps/notepad-plus-plus/shortcuts.xml"],"filesCaptured":2,"status":"captured"}],"configModuleMap":{"notepad-plus-plus":"apps.notepad-plus-plus"},"packageModuleMap":{"Notepad++.Notepad++":["apps.notepad-plus-plus"]},"outputPath":"$ENDSTATE_ROOT/manifests/captured.zip","outputFormat":"zip","configsIncluded":["notepad-plus-plus"],"configsSkipped":[],"configsCaptureErrors":[],"sanitized":true,"isExample":false,"counts":{"filteredRuntimes":0,"included":1,"totalFound":1,"sensitiveExcludedCount":0,"filteredStoreApps":0,"skipped":0},"captureWarnings":[],"manifest":{"name":"captured","path":"$ENDSTATE_ROOT/manifests/captured.zip"}}`
+	return `{"appsIncluded":[{"source":"winget","id":"Notepad++.Notepad++","manifestId":"notepad++-notepad++"}],"configModules":[{"displayName":"Notepad++","wingetRefs":["Notepad++.Notepad++"],"chocolateyRefs":[],"appId":"notepad++-notepad++","id":"apps.notepad-plus-plus","paths":["apps/notepad-plus-plus/config.xml","apps/notepad-plus-plus/shortcuts.xml"],"filesCaptured":2,"status":"captured"}],"configModuleMap":{"notepad++-notepad++":"apps.notepad-plus-plus"},"packageModuleMap":{"Notepad++.Notepad++":["apps.notepad-plus-plus"]},"outputPath":"$ENDSTATE_ROOT/manifests/captured.zip","outputFormat":"zip","configsIncluded":["notepad++-notepad++"],"configsSkipped":[],"configsCaptureErrors":[],"sanitized":true,"isExample":false,"counts":{"filteredRuntimes":0,"included":1,"totalFound":1,"sensitiveExcludedCount":0,"filteredStoreApps":0,"skipped":0},"captureWarnings":[],"manifest":{"name":"captured","path":"$ENDSTATE_ROOT/manifests/captured.zip"}}`
 }
 
 func liveRebuildData(packageStatus, restoreStatus string) string {
@@ -314,12 +332,12 @@ func liveRebuildData(packageStatus, restoreStatus string) string {
 	if packageStatus == "installed" {
 		success, skipped, reason = 1, 0, ""
 	}
-	selected, configSkipped, resolution, resolutionReason, backup := 1, 0, "restored", "null", "true"
+	selected, configSkipped, resolution, resolutionReason, backup, existed := 1, 0, "restored", "null", "false", "false"
 	if restoreStatus == "skipped_up_to_date" {
-		selected, configSkipped, resolution, resolutionReason, backup = 0, 1, "skipped", `"already_up_to_date"`, "false"
+		selected, configSkipped, resolution, resolutionReason, backup, existed = 0, 1, "skipped", `"already_up_to_date"`, "false", "true"
 	}
-	config := fmt.Sprintf(`"configResolutionSummary":{"total":1,"direct":0,"migrate":0,"incompatible":0,"unknown":0,"legacyUnverified":1,"selected":%d,"skipped":%d,"failed":0},"configResolutions":[{"captureId":"legacy:apps.notepad-plus-plus","moduleId":"apps.notepad-plus-plus","configSetId":"legacy","targetCandidates":[],"resolution":"legacy_unverified","reason":%s,"migrationPath":[],"resolvedTargets":["%%APPDATA%%\\Notepad++\\config.xml","%%APPDATA%%\\Notepad++\\shortcuts.xml"],"status":%q,"label":"","message":"","remediation":null}],"restoreItems":[{"id":"restore-config","source":"apps/notepad-plus-plus/config.xml","target":"%%APPDATA%%\\Notepad++\\config.xml","status":%q,"backupCreated":%s,"targetExistedBefore":true,"restoreType":"copy"},{"id":"restore-shortcuts","source":"apps/notepad-plus-plus/shortcuts.xml","target":"%%APPDATA%%\\Notepad++\\shortcuts.xml","status":%q,"backupCreated":%s,"targetExistedBefore":true,"restoreType":"copy"}]`, selected, configSkipped, resolutionReason, resolution, restoreStatus, backup, restoreStatus, backup)
-	return fmt.Sprintf(`{"from":"$ENDSTATE_ROOT/manifests/captured.zip","dryRun":false,"restore":"enabled","apply":{"dryRun":false,"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured","hash":"sha256:fixture"},"summary":{"total":1,"success":%d,"skipped":%d,"failed":0},"actions":[{"id":"notepad-plus-plus","ref":"Notepad++.Notepad++","driver":"winget","status":%q,"reason":%q,"manual":null}],%s},%s,"verify":%s}`, success, skipped, packageStatus, reason, config, config, liveVerifyData())
+	config := fmt.Sprintf(`"configResolutionSummary":{"total":1,"direct":0,"migrate":0,"incompatible":0,"unknown":0,"legacyUnverified":1,"selected":%d,"skipped":%d,"failed":0},"configResolutions":[{"captureId":"legacy:apps.notepad-plus-plus","moduleId":"apps.notepad-plus-plus","configSetId":"legacy","targetCandidates":[],"resolution":"legacy_unverified","reason":%s,"migrationPath":[],"resolvedTargets":["%%APPDATA%%\\Notepad++\\config.xml","%%APPDATA%%\\Notepad++\\shortcuts.xml"],"status":%q,"label":"","message":"","remediation":null}],"restoreItems":[{"id":"restore-config","source":"apps/notepad-plus-plus/config.xml","target":"%%APPDATA%%\\Notepad++\\config.xml","status":%q,"backupCreated":%s,"targetExistedBefore":%s,"restoreType":"copy"},{"id":"restore-shortcuts","source":"apps/notepad-plus-plus/shortcuts.xml","target":"%%APPDATA%%\\Notepad++\\shortcuts.xml","status":%q,"backupCreated":%s,"targetExistedBefore":%s,"restoreType":"copy"}]`, selected, configSkipped, resolutionReason, resolution, restoreStatus, backup, existed, restoreStatus, backup, existed)
+	return fmt.Sprintf(`{"from":"$ENDSTATE_ROOT/manifests/captured.zip","dryRun":false,"restore":"enabled","apply":{"dryRun":false,"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured","hash":"sha256:fixture"},"summary":{"total":1,"success":%d,"skipped":%d,"failed":0},"actions":[{"id":"notepad++-notepad++","ref":"Notepad++.Notepad++","driver":"winget","status":%q,"reason":%q,"manual":null}],%s},%s,"verify":%s}`, success, skipped, packageStatus, reason, config, config, liveVerifyData())
 }
 
 func liveApplyData(status string) string {
@@ -327,9 +345,9 @@ func liveApplyData(status string) string {
 	if status == "installed" {
 		success, skipped, reason = 1, 0, ""
 	}
-	return fmt.Sprintf(`{"dryRun":false,"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured","hash":"sha256:fixture"},"summary":{"total":1,"success":%d,"skipped":%d,"failed":0},"actions":[{"id":"notepad-plus-plus","ref":"Notepad++.Notepad++","driver":"winget","status":%q,"reason":%q,"manual":null}]}`, success, skipped, status, reason)
+	return fmt.Sprintf(`{"dryRun":false,"manifest":{"path":"$ENDSTATE_ROOT/manifests/captured.jsonc","name":"captured","hash":"sha256:fixture"},"summary":{"total":1,"success":%d,"skipped":%d,"failed":0},"actions":[{"id":"notepad++-notepad++","ref":"Notepad++.Notepad++","driver":"winget","status":%q,"reason":%q,"manual":null}]}`, success, skipped, status, reason)
 }
 
 func liveRevertData() string {
-	return `{"journalUsed":"opaque-journal","results":[{"target":"%APPDATA%\\Notepad++\\shortcuts.xml","action":"reverted","backupUsed":"opaque-backup-two"},{"target":"%APPDATA%\\Notepad++\\config.xml","action":"reverted","backupUsed":"opaque-backup-one"}]}`
+	return `{"journalUsed":"opaque-journal","results":[{"target":"%APPDATA%\\Notepad++\\shortcuts.xml","action":"deleted"},{"target":"%APPDATA%\\Notepad++\\config.xml","action":"deleted"}]}`
 }
