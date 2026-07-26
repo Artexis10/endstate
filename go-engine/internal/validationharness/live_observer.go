@@ -5,13 +5,18 @@ package validationharness
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"regexp"
 	"sort"
 	"strings"
 )
 
-const maxLiveObserverOutputBytes = 16 * 1024
+const (
+	maxLiveObserverOutputBytes = 16 * 1024
+	maxLiveObserverCandidates  = 4096
+)
 
 type LiveProcessClassification string
 
@@ -133,7 +138,7 @@ func (observer LiveObserver) Observe(ctx context.Context, definition LiveObserve
 	if registryPresent && !registryAmbiguous && registryErr == nil && matchErr == nil {
 		trustedRecord = &record
 	}
-	executablePresent, executableVersion, executableAmbiguous, executableErr := observer.observeExecutable(ctx, trustedRecord, definition.ExecutableNames)
+	executablePresent, executableVersion, executableAmbiguous, executableDirty, executableErr := observer.observeExecutable(ctx, trustedRecord, definition.ExecutableNames)
 	result.ExecutablePresent, result.ExecutableVersion = executablePresent, executableVersion
 
 	if wingetErr != nil || registryErr != nil || matchErr != nil || registryVersionErr != nil || executableErr != nil {
@@ -141,6 +146,10 @@ func (observer LiveObserver) Observe(ctx context.Context, definition LiveObserve
 	}
 	if registryAmbiguous || executableAmbiguous {
 		result.Status = LiveObservationAmbiguous
+		return result
+	}
+	if executableDirty {
+		result.Status = LiveObservationMixed
 		return result
 	}
 
@@ -307,46 +316,88 @@ func sameLiveRecordValue(left, right string) bool {
 	return strings.EqualFold(strings.TrimSpace(left), strings.TrimSpace(right))
 }
 
-func (observer LiveObserver) observeExecutable(ctx context.Context, record *LiveUninstallRecord, names []string) (bool, string, bool, error) {
+func (observer LiveObserver) observeExecutable(ctx context.Context, record *LiveUninstallRecord, names []string) (bool, string, bool, bool, error) {
 	paths, err := observer.Path.MachineAndUserPath(ctx)
 	if err != nil {
-		return false, "", false, err
+		return false, "", false, false, err
+	}
+	if len(paths) > maxLiveObserverRecords {
+		return false, "", false, false, fmt.Errorf("live PATH entries exceed bound")
 	}
 	if record == nil {
-		return false, "", false, nil
+		dirty, err := observer.observeUnboundPathExecutables(paths, names)
+		return false, "", false, dirty, err
 	}
 	candidates := liveExecutableCandidates(*record, names, paths)
 	var found []string
 	for _, candidate := range candidates {
 		info, statErr := observer.Files.Stat(candidate)
-		if statErr == nil && info.Regular && !info.ReparsePoint {
+		if statErr != nil {
+			if isLiveFileNotExist(statErr) {
+				continue
+			}
+			return false, "", false, false, statErr
+		}
+		if info.Regular && !info.ReparsePoint {
 			found = append(found, candidate)
 		}
 	}
 	if len(found) == 0 {
-		return false, "", false, nil
+		return false, "", false, false, nil
 	}
 	if len(found) != 1 {
-		return false, "", true, nil
+		return false, "", true, false, nil
 	}
 	version, err := observer.Files.FileVersion(found[0])
 	if err != nil {
-		return false, "", false, err
+		return false, "", false, false, err
 	}
 	normalized, err := NormalizeLiveVersion(version)
 	if err != nil {
-		return false, "", false, err
+		return false, "", false, false, err
 	}
-	return true, normalized, false, nil
+	return true, normalized, false, false, nil
+}
+
+func (observer LiveObserver) observeUnboundPathExecutables(paths, names []string) (bool, error) {
+	allowed := liveExecutableNames(names)
+	if len(allowed) == 0 {
+		return false, fmt.Errorf("live executable names are invalid")
+	}
+	if len(paths) > maxLiveObserverRecords || len(paths)*len(allowed) > maxLiveObserverCandidates {
+		return false, fmt.Errorf("live PATH candidate set exceeds bound")
+	}
+	seen := make(map[string]struct{}, len(paths)*len(allowed))
+	for _, entry := range paths {
+		root, ok := cleanLiveWindowsDirectory(entry)
+		if !ok {
+			continue
+		}
+		for _, name := range allowed {
+			candidate := root + `\` + name
+			key := strings.ToLower(candidate)
+			if _, duplicate := seen[key]; duplicate {
+				continue
+			}
+			seen[key] = struct{}{}
+			if _, err := observer.Files.Stat(candidate); err == nil {
+				// This is deliberately dirty evidence only: it cannot prove the
+				// executable belongs to the module without a matching ARP record.
+				return true, nil
+			} else if !isLiveFileNotExist(err) {
+				return false, err
+			}
+		}
+	}
+	return false, nil
+}
+
+func isLiveFileNotExist(err error) bool {
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 func liveExecutableCandidates(record LiveUninstallRecord, names, paths []string) []string {
-	allowed := make(map[string]string, len(names))
-	for _, name := range names {
-		if validLiveExecutableName(name) {
-			allowed[strings.ToLower(name)] = name
-		}
-	}
+	allowed := liveExecutableNames(names)
 	if len(allowed) == 0 {
 		return nil
 	}
@@ -381,6 +432,16 @@ func liveExecutableCandidates(record LiveUninstallRecord, names, paths []string)
 		return strings.ToLower(candidates[left]) < strings.ToLower(candidates[right])
 	})
 	return candidates
+}
+
+func liveExecutableNames(names []string) map[string]string {
+	allowed := make(map[string]string, len(names))
+	for _, name := range names {
+		if validLiveExecutableName(name) {
+			allowed[strings.ToLower(name)] = name
+		}
+	}
+	return allowed
 }
 
 func liveTrustedExecutableRoots(record LiveUninstallRecord) []string {

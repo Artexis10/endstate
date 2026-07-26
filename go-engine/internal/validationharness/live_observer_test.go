@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"reflect"
 	"strings"
 	"testing"
@@ -54,7 +55,7 @@ type fakeLiveFiles struct {
 func (f fakeLiveFiles) Stat(path string) (LiveFileInfo, error) {
 	value, ok := f.files[path]
 	if !ok {
-		return LiveFileInfo{}, errors.New("not found")
+		return LiveFileInfo{}, fs.ErrNotExist
 	}
 	return value, nil
 }
@@ -204,6 +205,20 @@ func TestObserveLiveFailsClosedWhenAbsentRegistryStillHasPathError(t *testing.T)
 	}
 	if pathCalls != 1 {
 		t.Fatalf("PATH calls = %d, want 1", pathCalls)
+	}
+}
+
+func TestObserveLiveMarksUnboundPathExecutableAsMixedNotAbsent(t *testing.T) {
+	shadow := `C:\Shadow\fixture.exe`
+	observer := LiveObserver{
+		Process:  &fakeLiveProcess{result: LiveProcessResult{ExitCode: 2316632084, Classification: LiveProcessNoInstalled}},
+		Registry: fakeLiveRegistry{},
+		Path:     fakeLivePath{entries: []string{`C:\Shadow`}},
+		Files:    fakeLiveFiles{files: map[string]LiveFileInfo{shadow: {Regular: false}}},
+	}
+	result := observer.Observe(context.Background(), observerDefinition())
+	if result.Status != LiveObservationMixed || result.ExecutablePresent {
+		t.Fatalf("result = %+v", result)
 	}
 }
 

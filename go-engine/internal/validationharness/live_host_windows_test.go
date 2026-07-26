@@ -17,6 +17,9 @@ func TestClassifyLiveWingetExitCodeAcceptsOnlyReviewedNoPackageResult(t *testing
 	}{
 		{0, LiveProcessCompleted},
 		{liveWingetNoInstalledExitCode, LiveProcessNoInstalled},
+		{2316632084, LiveProcessNoInstalled},
+		{2316632083, ""},
+		{-1978335211, ""},
 		{1, ""},
 		{-1, ""},
 	}

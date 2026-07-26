@@ -26,7 +26,8 @@ const (
 
 	// WinGet's reviewed no-package HRESULT, returned as signed process status.
 	// This numeric contract is the only non-zero result that proves absence.
-	liveWingetNoInstalledExitCode = -1978335212 // 0x8A150014
+	liveWingetNoInstalledExitCode = -1978335212
+	liveWingetNoInstalledHRESULT  = uint32(0x8A150014)
 )
 
 // LiveVersionSource isolates native file-version extraction. Callers may use a
@@ -90,14 +91,13 @@ func (process windowsLiveProcess) Run(ctx context.Context, name string, args ...
 }
 
 func classifyLiveWingetExitCode(exitCode int) LiveProcessClassification {
-	switch exitCode {
-	case 0:
+	if exitCode == 0 {
 		return LiveProcessCompleted
-	case liveWingetNoInstalledExitCode:
-		return LiveProcessNoInstalled
-	default:
-		return ""
 	}
+	if uint32(exitCode) == liveWingetNoInstalledHRESULT {
+		return LiveProcessNoInstalled
+	}
+	return ""
 }
 
 func validateTrustedLiveWingetExecutable(executable string) error {
