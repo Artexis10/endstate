@@ -193,6 +193,7 @@ The default output is `manifests/local/imported-unigetui.jsonc` (gitignored); ou
 |---------|-------------|
 | `bootstrap` | Install endstate command to user PATH for global access |
 | `capture` | Capture current machine state into a manifest |
+| `catalog-plan` | Resolve one tracked catalog bundle into read-only module actions (no package installation or manifest composition) |
 | `plan` | Generate execution plan from manifest without applying |
 | `apply` | Execute the plan (with optional `-DryRun`) |
 | `rebuild` | Rebuild a machine from a bundle/manifest in one step (install + restore + verify; live run needs `--confirm`) |

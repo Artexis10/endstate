@@ -174,3 +174,40 @@ and aggregate proof retention after an authority failure.
 The Go tool still emits the pre-existing inaccessible telemetry upload-token
 warning even with `GOTELEMETRY=off`; every verification command above exited
 successfully.
+
+## Final whole-task review fixes
+
+### Fix commit
+
+`be6545f` `fix(validation): harden catalog matrix review boundaries`
+
+### RED → GREEN evidence
+
+- RED: duplicate bundle membership returned a bare resolver error. GREEN:
+  `apps.foo` now reaches the resolver result, CLI failure data, and failed
+  matrix row as `duplicate_membership` without host paths.
+- RED: a duplicate top-level `runId`, nested action identity/failure field, or
+  JSONL event key was accepted by Go's last-key-wins decoder. GREEN: recursive
+  token-walk validation rejects duplicate keys before every envelope, nested
+  data, or event typed decode.
+- RED: a missing engine could persist a failure result below the requested
+  repository before repository/engine overlap safety was established. GREEN:
+  no result file is written and no proof is emitted.
+- RED: a result path crossing a symlink or Windows junction inside
+  `%TEMP%\endstate-validation-results` passed because only the immediate
+  parent was checked. GREEN: every root-chain component plus the leaf is
+  checked before and after atomic replacement; the portable symlink test runs
+  where permitted and the Windows junction regression passes.
+- README now inventories `catalog-plan` as a catalog-only, read-only command
+  without implying installation or normal manifest composition.
+
+### Final verification
+
+- Focused catalogplan/commands/hostile matrix suite: PASS. The fresh-built
+  production matrix passed `12/12` bundles with `315` memberships, `313`
+  unique modules, exactly two reuse entries, and two plans per row in 30.38s.
+- `go test ./internal/validationharness -count=1`: PASS in 151.512s.
+- `go vet ./...`: PASS.
+- `go test -run '^$' ./...`: PASS.
+- `npm run openspec:validate`: PASS, 91 passed / 0 failed.
+- `git diff --check`: PASS before the documentation/report commit.
