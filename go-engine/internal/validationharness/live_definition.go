@@ -533,7 +533,7 @@ func validateFailedLiveAttempt(attempt LiveAttempt) error {
 }
 
 func validatePassedLiveAttempt(attempt LiveAttempt) error {
-	if attempt.Package.Ref == "" || attempt.Package.Status != "passed" || len(attempt.Comparator) == 0 {
+	if attempt.Phase != LivePhaseCompare || attempt.Package.Ref == "" || attempt.Package.Status != "passed" || len(attempt.Comparator) == 0 {
 		return fmt.Errorf("passed live result attempt must have passed package and comparator observations")
 	}
 	seen := make(map[string]struct{}, len(attempt.Comparator))

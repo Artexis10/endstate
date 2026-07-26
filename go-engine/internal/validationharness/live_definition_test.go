@@ -307,6 +307,24 @@ func TestValidateLiveResultEnforcesFailedAttemptEvidence(t *testing.T) {
 	}
 }
 
+func TestValidateLiveResultRequiresSuccessfulComparisonPhase(t *testing.T) {
+	t.Parallel()
+
+	for _, phase := range []LivePhase{LivePhasePreparation, LivePhasePackage} {
+		t.Run(string(phase), func(t *testing.T) {
+			result := LiveResult{
+				SchemaVersion: LiveResultSchemaVersion, ModuleID: "apps.fixture", ModuleRevision: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+				ValidationSourceSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", DefinitionSHA256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+				Status:   LiveStatusPassed,
+				Attempts: []LiveAttempt{{Number: 1, Phase: phase, Status: LiveStatusPassed, Package: PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}, Comparator: []ComparatorOutcome{{Identity: "apps/fixture/settings.json", Status: "passed"}}}},
+			}
+			if err := ValidateLiveResult(result); err == nil {
+				t.Fatalf("passed %s attempt was accepted", phase)
+			}
+		})
+	}
+}
+
 func TestValidateLiveResultForDefinitionRejectsStalePolicyAndMappings(t *testing.T) {
 	t.Parallel()
 
