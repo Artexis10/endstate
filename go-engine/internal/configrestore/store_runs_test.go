@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -113,8 +114,222 @@ func TestRegisterLegacyJournalIsIdempotentAndRevertWorkIsOneShot(t *testing.T) {
 	if err := guard.MarkLegacyMemberReverted(ctx, first); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := os.Lstat(firstRoot); !os.IsNotExist(err) {
+		t.Fatalf("consumed legacy revert work remains at %q: %v", firstRoot, err)
+	}
+	if err := guard.MarkLegacyMemberReverted(ctx, second); err != nil {
+		t.Fatalf("repeat MarkLegacyMemberReverted() error = %v", err)
+	}
 	if _, err := guard.LegacyMemberRevertRoot(ctx, second); !errors.Is(err, ErrStoreMemberReverted) {
 		t.Fatalf("consumed revert root error = %v", err)
+	}
+}
+
+func TestMarkLegacyMemberRevertedLeavesWorkWhenMarkerCannotPublish(t *testing.T) {
+	ctx := context.Background()
+	guard, err := BeginLive(ctx, t.TempDir(), "legacy-marker-failure", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = guard.Close() })
+	journalPath := filepath.Join(t.TempDir(), "restore-legacy.json")
+	if err := os.WriteFile(journalPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	member, err := guard.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := guard.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(guard.legacyReverts, member.memberID+".json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.MarkLegacyMemberReverted(ctx, member); err == nil {
+		t.Fatal("MarkLegacyMemberReverted() accepted an unpublishable marker path")
+	}
+	if _, err := os.Lstat(workRoot); err != nil {
+		t.Fatalf("marker failure removed legacy work: %v", err)
+	}
+}
+
+func TestBeginLiveReapsMarkerBackedLegacyRevertWorkAfterCrash(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	first, err := BeginLive(ctx, stateDir, "legacy-cleanup-source", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(t.TempDir(), "restore-legacy.json")
+	if err := os.WriteFile(journalPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	member, err := first.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.MarkLegacyMemberReverted(ctx, member); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a crash after the durable marker but before work retirement.
+	if err := os.Mkdir(workRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(workRoot, "entry-000000.json"), []byte("completed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := BeginLive(ctx, stateDir, "legacy-cleanup-recovery", nil)
+	if err != nil {
+		t.Fatalf("BeginLive() recovery error = %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	if _, err := os.Lstat(workRoot); !os.IsNotExist(err) {
+		t.Fatalf("marker-backed legacy work remains at %q: %v", workRoot, err)
+	}
+}
+
+func TestBeginLivePreservesUnmarkedRegisteredLegacyRevertWork(t *testing.T) {
+	ctx := context.Background()
+	stateDir := t.TempDir()
+	first, err := BeginLive(ctx, stateDir, "legacy-resume-source", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journalPath := filepath.Join(t.TempDir(), "restore-legacy.json")
+	if err := os.WriteFile(journalPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	member, err := first.RegisterLegacyJournal(journalPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(workRoot, "entry-000000.json")
+	if err := os.WriteFile(entry, []byte("resume"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := BeginLive(ctx, stateDir, "legacy-resume-recovery", nil)
+	if err != nil {
+		t.Fatalf("BeginLive() rejected resumable legacy work: %v", err)
+	}
+	t.Cleanup(func() { _ = second.Close() })
+	if data, err := os.ReadFile(entry); err != nil || string(data) != "resume" {
+		t.Fatalf("resumable legacy work changed = %q, %v", data, err)
+	}
+}
+
+func TestBeginLiveRejectsUnsafeLegacyRevertWork(t *testing.T) {
+	ctx := context.Background()
+	for _, test := range []struct {
+		name  string
+		forge func(t *testing.T, guard *Guard, member *StoreMember, workRoot string)
+	}{
+		{
+			name: "unknown member directory",
+			forge: func(t *testing.T, guard *Guard, _ *StoreMember, _ string) {
+				t.Helper()
+				if err := os.Mkdir(filepath.Join(guard.legacyRevertWork, strings.Repeat("a", 32)), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "mismatched marker",
+			forge: func(t *testing.T, guard *Guard, member *StoreMember, workRoot string) {
+				t.Helper()
+				disk, encoded, err := newMemberRevert(StoreMemberLegacy, member.memberID, strings.Repeat("0", 64))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if disk.MemberID != member.memberID {
+					t.Fatal("forged marker did not retain member identity")
+				}
+				if err := os.WriteFile(filepath.Join(guard.legacyReverts, member.memberID+".json"), encoded, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := os.Lstat(workRoot); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "linked work root",
+			forge: func(t *testing.T, guard *Guard, _ *StoreMember, workRoot string) {
+				t.Helper()
+				if err := os.Remove(workRoot); err != nil {
+					t.Fatal(err)
+				}
+				target := filepath.Join(t.TempDir(), "unrelated")
+				if err := os.Mkdir(target, 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, workRoot); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+		},
+		{
+			name: "linked work entry",
+			forge: func(t *testing.T, _ *Guard, _ *StoreMember, workRoot string) {
+				t.Helper()
+				target := filepath.Join(t.TempDir(), "unrelated")
+				if err := os.WriteFile(target, []byte("untouched"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, filepath.Join(workRoot, "entry-000000.json")); err != nil {
+					t.Skipf("symlinks unavailable: %v", err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			stateDir := t.TempDir()
+			first, err := BeginLive(ctx, stateDir, "legacy-work-source", nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			journalPath := filepath.Join(t.TempDir(), "restore-legacy.json")
+			if err := os.WriteFile(journalPath, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			member, err := first.RegisterLegacyJournal(journalPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			workRoot, err := first.LegacyMemberRevertRoot(ctx, member)
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.forge(t, first, member, workRoot)
+			if err := first.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			guard, err := BeginLive(ctx, stateDir, "legacy-work-recovery", nil)
+			if guard != nil {
+				_ = guard.Close()
+			}
+			if !errors.Is(err, ErrRecoveryRequired) {
+				t.Fatalf("BeginLive() error = %v, want ErrRecoveryRequired", err)
+			}
+		})
 	}
 }
 

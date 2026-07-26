@@ -423,7 +423,7 @@ func (g *Guard) MarkLegacyMemberReverted(ctx context.Context, member *StoreMembe
 	if reverted, err := memberReverted(revertPath, StoreMemberLegacy, disk.MemberID, disk.MemberDigest, g.boundary); err != nil {
 		return err
 	} else if reverted {
-		return nil
+		return g.retireLegacyMemberRevertWork(ctx, disk.MemberID)
 	}
 	journalPath, err := resolveLegacyJournalIdentity(disk.JournalPath, g.boundary)
 	if err != nil {
@@ -443,6 +443,20 @@ func (g *Guard) MarkLegacyMemberReverted(ctx context.Context, member *StoreMembe
 	}
 	if err := publishImmutableStoreRecord(g.legacyReverts, disk.MemberID+".json", encoded, g.boundary); err != nil {
 		return fmt.Errorf("publish legacy revert record: %w", err)
+	}
+	return g.retireLegacyMemberRevertWork(ctx, disk.MemberID)
+}
+
+func (g *Guard) retireLegacyMemberRevertWork(ctx context.Context, memberID string) error {
+	if !isOpaqueStoreID(memberID) {
+		return fmt.Errorf("legacy member ID is invalid")
+	}
+	root := filepath.Join(g.legacyRevertWork, memberID)
+	if err := validateHostIO(ctx, root); err != nil {
+		return err
+	}
+	if err := removeSafeTransactionPath(context.WithoutCancel(ctx), root); err != nil {
+		return fmt.Errorf("retire legacy revert work: %w", err)
 	}
 	return nil
 }
@@ -800,6 +814,28 @@ func (g *Guard) loadLegacyMember(member *StoreMember) (legacyMemberDisk, error) 
 		disk.MutationOrdinal != member.ordinal || disk.MemberDigest != member.sourceDigest ||
 		disk.JournalPath != member.legacyPath {
 		return legacyMemberDisk{}, fmt.Errorf("legacy member differs from its immutable record")
+	}
+	return disk, nil
+}
+
+func (g *Guard) loadLegacyMemberByID(memberID string) (legacyMemberDisk, error) {
+	if !isOpaqueStoreID(memberID) {
+		return legacyMemberDisk{}, fmt.Errorf("legacy member ID is invalid")
+	}
+	path := filepath.Join(g.legacyMembers, memberID+".json")
+	if err := validateBoundaryHostIO(g.boundary, path); err != nil {
+		return legacyMemberDisk{}, err
+	}
+	data, _, err := safepath.ReadRegularFile(path)
+	if err != nil {
+		return legacyMemberDisk{}, err
+	}
+	disk, _, err := decodeLegacyMember(data)
+	if err != nil {
+		return legacyMemberDisk{}, err
+	}
+	if disk.MemberID != memberID {
+		return legacyMemberDisk{}, fmt.Errorf("legacy member path identity differs")
 	}
 	return disk, nil
 }

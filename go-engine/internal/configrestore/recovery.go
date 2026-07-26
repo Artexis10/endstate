@@ -47,6 +47,9 @@ type storedPendingTransaction struct {
 
 func (g *Guard) recoverPending(ctx context.Context) error {
 	ctx = withHostBoundary(ctx, g.boundary)
+	if err := g.reconcileLegacyRevertWork(ctx); err != nil {
+		return err
+	}
 	pending, err := g.scanPending(ctx)
 	if err != nil {
 		return err
@@ -54,6 +57,111 @@ func (g *Guard) recoverPending(ctx context.Context) error {
 	for _, transaction := range pending {
 		if err := g.recoverOne(context.WithoutCancel(ctx), transaction); err != nil {
 			return &RecoveryError{TransactionID: transaction.descriptor.TransactionID, Err: err}
+		}
+	}
+	return nil
+}
+
+// reconcileLegacyRevertWork retires only legacy work roots backed by an exact
+// durable consumption marker. Unmarked registered roots are resumable; every
+// other shape is recovery-required rather than ignored.
+func (g *Guard) reconcileLegacyRevertWork(ctx context.Context) error {
+	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, g.legacyRevertWork); err != nil {
+		return &RecoveryError{TransactionID: "legacy-revert-work", Err: err}
+	}
+	if err := rejectExistingTargetLinks(g.legacyRevertWork); err != nil {
+		return &RecoveryError{TransactionID: "legacy-revert-work", Err: err}
+	}
+	entries, err := os.ReadDir(g.legacyRevertWork)
+	if err != nil {
+		return &RecoveryError{TransactionID: "legacy-revert-work", Err: fmt.Errorf("read legacy revert work store: %w", err)}
+	}
+	for _, entry := range entries {
+		if err := checkSnapshotContext(ctx); err != nil {
+			return err
+		}
+		memberID := entry.Name()
+		root := filepath.Join(g.legacyRevertWork, memberID)
+		if err := validateHostIO(ctx, root); err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: err}
+		}
+		if !isOpaqueStoreID(memberID) || !entry.IsDir() {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: fmt.Errorf("unexpected legacy revert work entry")}
+		}
+		info, err := os.Lstat(root)
+		if err != nil || !info.IsDir() || isLinkOrReparse(info) {
+			if err == nil {
+				err = fmt.Errorf("legacy revert work root is not a safe directory")
+			}
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: err}
+		}
+		disk, err := g.loadLegacyMemberByID(memberID)
+		if err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: fmt.Errorf("read matching legacy member: %w", err)}
+		}
+		reverted, err := memberReverted(
+			filepath.Join(g.legacyReverts, memberID+".json"), StoreMemberLegacy, memberID, disk.MemberDigest, g.boundary,
+		)
+		if err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: fmt.Errorf("read matching legacy revert marker: %w", err)}
+		}
+		if reverted {
+			if err := g.retireLegacyMemberRevertWork(ctx, memberID); err != nil {
+				return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: err}
+			}
+			continue
+		}
+		if err := validateLegacyRevertWorkTree(ctx, root); err != nil {
+			return &RecoveryError{TransactionID: "legacy-revert-work/" + memberID, Err: err}
+		}
+	}
+	return nil
+}
+
+func validateLegacyRevertWorkTree(ctx context.Context, root string) error {
+	if err := checkSnapshotContext(ctx); err != nil {
+		return err
+	}
+	if err := validateHostIO(ctx, root); err != nil {
+		return err
+	}
+	if err := rejectExistingTargetLinks(root); err != nil {
+		return err
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || isLinkOrReparse(info) {
+		if err == nil {
+			err = fmt.Errorf("legacy revert work path is not a safe directory")
+		}
+		return err
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		path := filepath.Join(root, entry.Name())
+		if err := validateHostIO(ctx, path); err != nil {
+			return err
+		}
+		info, err := os.Lstat(path)
+		if err != nil {
+			return err
+		}
+		if isLinkOrReparse(info) {
+			return fmt.Errorf("legacy revert work entry %q is a link or reparse point", path)
+		}
+		if info.IsDir() {
+			if err := validateLegacyRevertWorkTree(ctx, path); err != nil {
+				return err
+			}
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("legacy revert work entry %q has unsupported special type", path)
 		}
 	}
 	return nil
