@@ -1,5 +1,33 @@
 # Sandbox-Based Module Validation
 
+## CI synthetic evidence
+
+The pull-request workflow runs the production catalog through the workflow-built
+`endstate.exe` in eight synthetic shards, then aggregates compact JSON evidence.
+It also runs every tracked bundle twice and a synthetic Notepad++
+engine-contract canary. These are `catalog`, `engine-contract`, and
+scenario-specific configuration proof only: they are not live-install, hosted,
+GUI, public compatibility, or release proof.
+
+To exercise the CI commands locally after building both binaries, keep result
+files beneath the active temp root in `endstate-validation-results`:
+
+```powershell
+cd go-engine
+go build -o endstate.exe ./cmd/endstate
+go build -o endstate-validation.exe ./cmd/endstate-validation
+$resultRoot = Join-Path $env:TEMP 'endstate-validation-results'
+New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
+$commit = (git -C .. rev-parse HEAD).ToLower()
+.\endstate-validation.exe shard --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --commit $commit --shards 8 --shard 0 --result (Join-Path $resultRoot 'shard-0.json')
+.\endstate-validation.exe catalog --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --commit $commit --result (Join-Path $resultRoot 'catalog.json')
+.\endstate-validation.exe --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --module apps.notepad-plus-plus --scenario default-v1 --result (Join-Path $resultRoot 'canary.json')
+```
+
+Aggregation requires all eight shard files plus `catalog.json` and `canary.json`
+in one explicit temp-root input directory. It fails closed on missing, foreign,
+malformed, failed, or identity-drifting evidence.
+
 This document describes how to use the automated Sandbox-based validation loop to test Endstate modules without touching the host environment.
 
 ## Overview
@@ -13,7 +41,7 @@ The validation loop performs a complete capture/restore cycle inside Windows San
 5. **Restore** - Restore files using the module's `restore` definitions
 6. **Verify** - Run verification checks from the module's `verify` section
 
-The result is a deterministic **PASS/FAIL** output with full artifacts for debugging.
+The result is a deterministic **PASS/FAIL** output with full artifacts for debugging. Sandbox direct-copy output is curation-only evidence; it is not `catalog`, `engine-contract`, configuration-roundtrip, live-install, or GUI proof.
 
 ## Prerequisites
 

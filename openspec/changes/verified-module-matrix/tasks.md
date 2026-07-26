@@ -38,18 +38,18 @@
 ## 5. Evidence and Aggregation
 
 - [ ] 5.1 Define schema-versioned evidence with workflow run/attempt/event/ref/time/artifact digest; engine commit/version/binary hash; canonical module/seed/comparator/metadata/fixture hashes; scenario kind/proof mode/status; stable runner lane plus exact image; package driver/source/ref/version; timings/assertions; local comparator outcome; scheduled-attempt identity; retry/freshness/quarantine fields.
-- [ ] 5.2 Add an `always()` aggregator named `Verified Module Matrix` that rejects missing, skipped, cancelled, neutral, timed-out, duplicate, wrong-commit, and incompatible rows and enforces protected-main-approved quarantine semantics.
+- [ ] 5.2 Add an `always()` aggregator named `Verified Module Matrix` that rejects missing, skipped, cancelled, neutral, timed-out, duplicate, wrong-commit, and incompatible rows and enforces protected-main-approved quarantine semantics. (The delivered synthetic aggregate rejects compact evidence failures and identity drift; protected-main quarantine policy remains a later hosted-live concern.)
 - [ ] 5.3 Publish exact `passed / eligible` and `eligible / catalog` denominators plus scenario counts to the job summary and compact JSON; preserve candidate/blocked/deferred/stale/quarantined/retry/manual/N/A/missing rows.
 - [ ] 5.4 Add tests proving skipped, candidate, blocked, deferred/stale, manual, lab, quarantined, expired, pass-after-retry, infrastructure-failed, not-applicable, and missing states cannot become clean pass or shrink denominators.
 
 ## 6. GitHub Actions
 
-- [ ] 6.1 Preserve the existing `Go Tests` required check and build the Windows engine once for reuse with one-day artifact retention.
-- [ ] 6.2 Add the all-module/all-schema-scenario synthetic and all-bundle PR matrix using 8 balanced shards, `fail-fast: false`, a 15-minute shard timeout, and the stable aggregate blocking result.
+- [x] 6.1 Preserve the existing `Go Tests` required check and build the Windows engine once for reuse with one-day artifact retention.
+- [x] 6.2 Add the all-module/all-schema-scenario synthetic and all-bundle PR matrix using 8 balanced shards, `fail-fast: false`, a 15-minute shard timeout, and the stable aggregate blocking result.
 - [ ] 6.3 Add the engine-change Notepad++ live canary with a 25-minute timeout.
 - [ ] 6.4 Select up to three changed live modules from merge-base-controlled policy; report overflow and head-added/materially changed live definitions as deferred/candidate and provide exact-commit trusted dispatch limited to one deterministic chunk of at most 64 jobs/2,880 runner-minutes with `max-parallel: 8` and a 100 MiB upload cap.
 - [ ] 6.5 Add scheduled rotation with `max-parallel: 8`, at most 64 jobs/2,880 runner-minutes per run, seven-day hosted attempt freshness, immediate stale-on-any-proof-identity-change semantics, per-module nightly-only timeout up to 45 minutes, complete aggregation, and no `continue-on-error` proof lanes.
-- [ ] 6.6 Use standard runners and immutable action SHAs; on forks use `pull_request`, read-only permissions, `persist-credentials: false`, no installer token/secrets, trusted live allowlists, no `pull_request_target` untrusted execution, and no self-hosted jobs.
+- [ ] 6.6 Use standard runners and immutable action SHAs; on forks use `pull_request`, read-only permissions, `persist-credentials: false`, no installer token/secrets, trusted live allowlists, no `pull_request_target` untrusted execution, and no self-hosted jobs. (The synthetic workflow has the stated read-only/action-pin/no-installer boundaries; trusted live allowlist work remains open.)
 - [ ] 6.7 Enforce artifact caps/retention: engine one day; evidence 64 KiB each with PR retention at most seven days and scheduled-live retention 90 days; diagnostics 1 MiB per module/three days; 100 MiB total per run; never cache installers or upload captured configs.
 - [ ] 6.8 Measure representative cold engine-only, one-module, and harness-change PRs including build/transfer/planning/aggregation; require p95 critical path <=40 minutes and <=250 new runner-minutes before gating.
 - [ ] 6.9 Configure branch protection to require the exact stable `Verified Module Matrix` aggregate check after missing-job and cold-run acceptance pass.

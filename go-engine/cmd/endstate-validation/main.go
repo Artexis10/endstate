@@ -13,6 +13,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/validationci"
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
@@ -20,7 +21,90 @@ import (
 type scenarioRunner func(context.Context, validationharness.Request) (validationharness.Result, error)
 
 func main() {
-	os.Exit(runCLI(os.Args[1:], os.Stdout, os.Stderr, validationharness.Run))
+	os.Exit(runCLICommands(os.Args[1:], os.Stdout, os.Stderr, validationharness.Run))
+}
+
+// runCLICommands preserves the original no-subcommand byte contract. New
+// subcommands deliberately have their own compact evidence JSON contracts.
+func runCLICommands(args []string, stdout, stderr io.Writer, runner scenarioRunner) int {
+	if len(args) == 0 || (args[0] != "shard" && args[0] != "catalog" && args[0] != "aggregate") {
+		return runCLI(args, stdout, stderr, runner)
+	}
+	switch args[0] {
+	case "shard":
+		return runShard(args[1:], stdout)
+	case "catalog":
+		return runCatalog(args[1:], stdout)
+	default:
+		return runAggregate(args[1:], stdout)
+	}
+}
+
+func runShard(args []string, stdout io.Writer) int {
+	flags := flag.NewFlagSet("endstate-validation shard", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	request := validationci.ShardRequest{}
+	flags.StringVar(&request.EnginePath, "engine", "", "absolute built engine path")
+	flags.StringVar(&request.RepoRoot, "repo", "", "absolute repository root")
+	flags.StringVar(&request.Commit, "commit", "", "exact checked-out commit")
+	flags.IntVar(&request.ShardCount, "shards", validationci.ShardCount, "exact shard count")
+	flags.IntVar(&request.Shard, "shard", -1, "zero-based shard index")
+	flags.StringVar(&request.ResultPath, "result", "", "compact result path")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return writeCommandError(stdout, "invalid shard flags")
+	}
+	result, err := validationci.RunSyntheticShard(request)
+	if err != nil {
+		return writeJSON(stdout, result, true)
+	}
+	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
+}
+
+func runCatalog(args []string, stdout io.Writer) int {
+	flags := flag.NewFlagSet("endstate-validation catalog", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	request := validationci.CatalogRequest{}
+	flags.StringVar(&request.EnginePath, "engine", "", "absolute built engine path")
+	flags.StringVar(&request.RepoRoot, "repo", "", "absolute repository root")
+	flags.StringVar(&request.Commit, "commit", "", "exact checked-out commit")
+	flags.StringVar(&request.ResultPath, "result", "", "compact result path")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return writeCommandError(stdout, "invalid catalog flags")
+	}
+	result, err := validationci.RunCatalog(request)
+	if err != nil {
+		return writeJSON(stdout, result, true)
+	}
+	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
+}
+
+func runAggregate(args []string, stdout io.Writer) int {
+	flags := flag.NewFlagSet("endstate-validation aggregate", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	request := validationci.AggregateRequest{}
+	flags.StringVar(&request.EnginePath, "engine", "", "absolute built engine path")
+	flags.StringVar(&request.RepoRoot, "repo", "", "absolute repository root")
+	flags.StringVar(&request.Commit, "commit", "", "exact checked-out commit")
+	flags.StringVar(&request.InputDir, "input", "", "runner-temp evidence directory")
+	flags.StringVar(&request.ResultPath, "result", "", "compact result path")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return writeCommandError(stdout, "invalid aggregate flags")
+	}
+	result, err := validationci.Aggregate(request)
+	if err != nil {
+		return writeJSON(stdout, result, true)
+	}
+	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
+}
+
+func writeCommandError(stdout io.Writer, detail string) int {
+	return writeJSON(stdout, map[string]any{"schemaVersion": 1, "status": validationharness.ResultStatusFailed, "failure": detail}, true)
+}
+func writeJSON(stdout io.Writer, value any, failed bool) int {
+	if err := json.NewEncoder(stdout).Encode(value); err != nil || failed {
+		return 1
+	}
+	return 0
 }
 
 func runCLI(args []string, stdout, _ io.Writer, runner scenarioRunner) int {

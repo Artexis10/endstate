@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
 
 func TestRunCLIEmitsOneResultAndUsesExactRequest(t *testing.T) {
@@ -69,6 +70,20 @@ func TestRunCLIFailsClosedAsOneJSONResult(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRunCLICommandsKeepsLegacyScenarioFlags(t *testing.T) {
+	args := []string{"--engine", `C:\\build\\endstate.exe`, "--repo", `C:\\repo`, "--module", "apps.fixture", "--scenario", "default-v1", "--result", `C:\\tmp\\result.json`}
+	called := false
+	runner := func(_ context.Context, request validationharness.Request) (validationharness.Result, error) {
+		called = true
+		return validationharness.Result{SchemaVersion: 1, ModuleID: request.ModuleID, ScenarioID: request.ScenarioID, Status: validationharness.ResultStatusPassed, ProofLevels: []validationmatrix.ProofLevel{validationmatrix.ProofEngineContract}, AssertionCounts: map[string]int{}, PhaseTimings: map[string]time.Duration{}}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLICommands(args, &stdout, &stderr, runner); code != 0 || !called {
+		t.Fatalf("legacy exit = %d called=%t stdout=%s", code, called, stdout.String())
+	}
+	decodeOneResult(t, stdout.Bytes())
 }
 
 func decodeOneResult(t *testing.T, data []byte) validationharness.Result {
