@@ -133,6 +133,73 @@ func TestSchemaV2TrackedDirectFixturesCompileFromProduction(t *testing.T) {
 	}
 }
 
+func TestSchemaV2OwnCloudMigrationFixtureCompilesProductionEdge(t *testing.T) {
+	_, mod, scenario := trackedV2Fixture(t, "apps.owncloud", "migration-preferences-g1-to-g2")
+	raw := []byte(`{
+	  "schemaVersion": 1,
+	  "sourceVersion": "2.4",
+	  "targetVersion": "2.5",
+	  "entries": [{
+	    "captureCoordinate": "config.sets[0].generations[0].capture.files[0]",
+	    "restoreCoordinate": "config.sets[0].generations[1].restore[0]",
+	    "kind": "file",
+	    "format": "ini"
+	  }]
+	}`)
+	digest := sha256.Sum256(raw)
+	repo := t.TempDir()
+	writeV2TestFile(t, filepath.Join(repo, "migration.jsonc"), raw)
+	scenario.Fixture = validationmatrix.Fixture{
+		Type: validationmatrix.FixtureDeclarative, Path: "migration.jsonc", SHA256: hex.EncodeToString(digest[:]),
+	}
+
+	if _, failure := compileV2FixtureAt(repo, mod, scenario); failure != nil {
+		t.Fatalf("compile exact ownCloud g1-to-g2 fixture: %+v", failure)
+	}
+}
+
+func TestSchemaV2TrackedOwnCloudMigrationFixtureBindsSourceTargetAndEdge(t *testing.T) {
+	repo, mod, scenario := trackedV2Fixture(t, "apps.owncloud", "migration-preferences-g1-to-g2")
+	compiled, failure := compileV2FixtureAt(repo, mod, scenario)
+	if failure != nil {
+		t.Fatalf("compile tracked ownCloud migration fixture: %+v", failure)
+	}
+	if compiled.Generation.ID != "g1" || compiled.TargetGeneration.ID != "g2" || compiled.Migration == nil ||
+		compiled.Migration.From != "g1" || compiled.Migration.To != "g2" || len(compiled.Migration.Operations) != 1 ||
+		compiled.Migration.Operations[0].Type != "file-move" || len(compiled.Entries) != 1 ||
+		compiled.Entries[0].Capture.Source != `%LOCALAPPDATA%\ownCloud\owncloud.cfg` ||
+		compiled.Entries[0].Restore.Target != `%APPDATA%\ownCloud\owncloud.cfg` ||
+		len(compiled.Entries[0].MigrationValidations) != 1 || len(compiled.Entries[0].TargetValidations) != 1 {
+		t.Fatalf("tracked migration fixture did not bind exact production source/target/edge: %+v", compiled)
+	}
+}
+
+func TestSchemaV2OwnCloudMigrationPlanUsesDistinctProductionHostStates(t *testing.T) {
+	repo, mod, scenario := trackedV2Fixture(t, "apps.owncloud", "migration-preferences-g1-to-g2")
+	compiled, failure := compileV2FixtureAt(repo, mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	context := fixtureValidationContext(t, mod.ID, scenario.ID)
+	inventory := validationInventory(mod)
+	inventory.Version = compiled.Definition.SourceVersion
+	plan, failure := compileV2FixturePlan(context, mod, scenario, compiled, inventory)
+	if failure != nil {
+		t.Fatalf("compile ownCloud migration plan: %+v", failure)
+	}
+	local, _ := context.VirtualRoot("LOCALAPPDATA")
+	roaming, _ := context.VirtualRoot("APPDATA")
+	wantSource := filepath.Join(local, "ownCloud", "owncloud.cfg")
+	wantTarget := filepath.Join(roaming, "ownCloud", "owncloud.cfg")
+	if len(plan.CaptureTargets) != 1 || len(plan.Targets) != 1 ||
+		!strings.EqualFold(plan.CaptureTargets[0].Resolved, wantSource) ||
+		!strings.EqualFold(plan.Targets[0].Resolved, wantTarget) ||
+		strings.EqualFold(plan.CaptureTargets[0].Resolved, plan.Targets[0].Resolved) ||
+		plan.Instance.Version.Raw != "2.4" || plan.TargetInstance.Version.Raw != "2.5" {
+		t.Fatalf("migration source/target host states = %+v", plan)
+	}
+}
+
 func TestV2FixtureContentFormatsAreSyntacticallyValid(t *testing.T) {
 	for _, format := range []v2FixtureFormat{v2FormatJSON, v2FormatINI, v2FormatFile} {
 		captured, mutated, err := v2FixtureContents("apps.fixture", "generation-g1", "coordinate", format)

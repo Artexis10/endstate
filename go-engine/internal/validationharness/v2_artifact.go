@@ -83,7 +83,7 @@ func inspectV2CaptureArtifact(runtime *scenarioRuntime, zipPath string, captureE
 	}
 
 	expectedPayload := map[string][]byte{}
-	for _, target := range plan.Targets {
+	for _, target := range plan.CaptureTargets {
 		for _, member := range target.Members {
 			relative := target.Destination
 			if target.Directory {
@@ -141,7 +141,11 @@ func inspectV2CaptureArtifact(runtime *scenarioRuntime, zipPath string, captureE
 	counts := map[string]int{
 		validationmatrix.AssertionCaptured: len(expectedPayload), validationmatrix.AssertionPayload: len(expectedPayload),
 		validationmatrix.AssertionProvenance: 1, validationmatrix.AssertionRewrittenRestore: len(plan.Targets),
-		validationmatrix.AssertionGeneration: 1, validationmatrix.AssertionValidation: plan.Validations,
+		validationmatrix.AssertionGeneration: 1,
+		validationmatrix.AssertionValidation: plan.MigrationValidations + plan.Validations,
+	}
+	if plan.Compiled.Migration != nil {
+		counts[validationmatrix.AssertionMigration] = 1
 	}
 	return captureEvidence{ArtifactPath: zipPath, VerifyManifest: verifyManifest, AssertionCounts: counts, V2: &v2CaptureEvidence{Capture: capture, Entries: entries}}, nil
 }

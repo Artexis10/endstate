@@ -33,6 +33,13 @@ type v2RebuildEvidence struct {
 
 type v2ApplySummary struct{ Total, Success, Skipped, Failed int }
 
+func validateV2RebuildEvidence(raw []byte, events []map[string]any, runtime *scenarioRuntime, iteration int) (v2RebuildEvidence, *Failure) {
+	if runtime != nil && runtime.V2Plan != nil && runtime.V2Plan.Compiled.Migration != nil {
+		return validateV2MigrationRebuildEvidence(raw, events, runtime, iteration)
+	}
+	return validateV2DirectRebuildEvidence(raw, events, runtime, iteration)
+}
+
 func validateV2DirectRebuildEvidence(raw []byte, events []map[string]any, runtime *scenarioRuntime, iteration int) (v2RebuildEvidence, *Failure) {
 	var data v2RebuildEvidence
 	if runtime == nil || runtime.V2Plan == nil || iteration < 0 || iteration > 2 || json.Unmarshal(raw, &data) != nil {
@@ -79,6 +86,52 @@ func validateV2DirectRebuildEvidence(raw []byte, events []map[string]any, runtim
 	return data, nil
 }
 
+func validateV2MigrationRebuildEvidence(raw []byte, events []map[string]any, runtime *scenarioRuntime, iteration int) (v2RebuildEvidence, *Failure) {
+	var data v2RebuildEvidence
+	if runtime == nil || runtime.V2Plan == nil || runtime.V2Plan.Compiled.Migration == nil || iteration < 0 || iteration > 2 || json.Unmarshal(raw, &data) != nil {
+		return data, fail(CodeEnvelopeContract, "rebuild", "data", "schema-v2 migration rebuild evidence is malformed")
+	}
+	if data.Apply.Summary != (v2ApplySummary{Total: 1, Skipped: 1}) || len(data.Apply.Actions) != 1 {
+		return data, fail(CodeEnvelopeContract, "rebuild", "apply", "migration rebuild did not exercise exactly one already-present target app")
+	}
+	action := data.Apply.Actions[0]
+	expectedSource := runtime.Inventory.Source
+	if expectedSource == "" && !strings.EqualFold(runtime.Inventory.Driver, "validation") {
+		expectedSource = runtime.Inventory.Driver
+	}
+	if action.ID != runtime.Inventory.AppID || !strings.EqualFold(action.Driver, runtime.Inventory.Driver) ||
+		action.Source != expectedSource || action.Ref != runtime.Inventory.Ref || action.Name != runtime.Inventory.DisplayName ||
+		action.Version != runtime.V2Plan.Compiled.Definition.TargetVersion || action.Status != "present" || action.Reason != "already_installed" {
+		return data, fail(CodeEnvelopeContract, "rebuild", "apply.actions", fmt.Sprintf("target app action differs from exact 2.5 validation inventory: got=%+v", action))
+	}
+	if !reflect.DeepEqual(data.ConfigResolutionSummary, data.Apply.ConfigResolutionSummary) ||
+		!reflect.DeepEqual(data.ConfigResolutions, data.Apply.ConfigResolutions) || !reflect.DeepEqual(data.RestoreItems, data.Apply.RestoreItems) {
+		return data, fail(CodeEnvelopeContract, "rebuild", "apply", "nested and outer migration config evidence differ")
+	}
+	repeat := iteration == 2
+	wantSummary := planner.ConfigResolutionSummary{Total: 1, Migrate: 1, Selected: 1}
+	if repeat {
+		wantSummary.Selected, wantSummary.Skipped = 0, 1
+	}
+	if data.ConfigResolutionSummary != wantSummary || len(data.ConfigResolutions) != 1 || len(data.RestoreItems) != len(runtime.V2Plan.Targets) {
+		return data, fail(CodeEnvelopeContract, "rebuild", "configResolutionSummary", "migration resolution accounting is not exact")
+	}
+	resolution := data.ConfigResolutions[0]
+	if failure := validateV2MigrationResolution(resolution, runtime, repeat); failure != nil {
+		return data, failure
+	}
+	if failure := validateV2RestoreItems(data.RestoreItems, runtime, resolution, repeat); failure != nil {
+		return data, failure
+	}
+	if failure := validateVerifyEvidence(data.Verify, runtime, "rebuild"); failure != nil {
+		return data, failure
+	}
+	if failure := validateV2MigrationRebuildEvents(events, runtime, resolution, data.RestoreItems, repeat); failure != nil {
+		return data, failure
+	}
+	return data, nil
+}
+
 func validateV2DirectResolution(resolution planner.ConfigResolution, runtime *scenarioRuntime, repeat bool) *Failure {
 	plan, instance := runtime.V2Plan, runtime.V2Plan.Instance
 	wantStatus := planner.StatusRestored
@@ -120,6 +173,50 @@ func validateV2DirectResolution(resolution planner.ConfigResolution, runtime *sc
 	return nil
 }
 
+func validateV2MigrationResolution(resolution planner.ConfigResolution, runtime *scenarioRuntime, repeat bool) *Failure {
+	plan := runtime.V2Plan
+	sourceInstance, targetInstance := plan.Instance, plan.TargetInstance
+	wantStatus := planner.StatusRestored
+	var wantReason *planner.ResolutionReason
+	if repeat {
+		value := planner.ReasonAlreadyUpToDate
+		wantReason, wantStatus = &value, planner.StatusSkipped
+	}
+	if plan.Compiled.Migration == nil ||
+		resolution.CaptureID != plan.CaptureID || resolution.ModuleID != runtime.Module.ID || resolution.ConfigSetID != plan.Compiled.Set.ID ||
+		resolution.SourceInstance == nil || resolution.SourceInstanceID != sourceInstance.ID || resolution.TargetInstanceID != targetInstance.ID ||
+		resolution.SourceGeneration != plan.Compiled.Generation.ID || resolution.SourceGenerationFingerprint != plan.Compiled.Generation.Fingerprint ||
+		resolution.TargetGeneration != plan.Compiled.TargetGeneration.ID || resolution.Resolution != planner.ResolutionMigrate ||
+		resolution.Status != wantStatus || !reflect.DeepEqual(resolution.Reason, wantReason) ||
+		!reflect.DeepEqual(resolution.MigrationPath, []string{plan.Compiled.Generation.ID, plan.Compiled.TargetGeneration.ID}) ||
+		resolution.CaptureModuleRevision != runtime.Module.Revision || resolution.RestoreModuleRevision != runtime.Module.Revision || len(resolution.TargetCandidates) != 1 {
+		return fail(CodeMigrationContract, "rebuild", "configResolutions[0]", "migration generation identity, path, status, or immutable provenance differs")
+	}
+	source := resolution.SourceInstance
+	if source.ID != sourceInstance.ID || source.DetectorID != sourceInstance.DetectorID || source.RawVersion != sourceInstance.Version.Raw ||
+		source.NormalizedVersion != sourceInstance.Version.Normalized || !exactPlannerEvidence(source.Evidence, sourceInstance) {
+		return fail(CodeMigrationContract, "rebuild", "configResolutions[0].sourceInstance", "migration source detector evidence differs")
+	}
+	candidate := resolution.TargetCandidates[0]
+	if candidate.ID != targetInstance.ID || candidate.ModuleID != runtime.Module.ID || candidate.DetectorID != targetInstance.DetectorID ||
+		candidate.RawVersion != targetInstance.Version.Raw || candidate.NormalizedVersion != targetInstance.Version.Normalized ||
+		candidate.Generation != plan.Compiled.TargetGeneration.ID || candidate.GenerationFingerprint != plan.Compiled.TargetGeneration.Fingerprint ||
+		candidate.ModuleRevision != runtime.Module.Revision || !exactPlannerEvidence(candidate.Evidence, targetInstance) {
+		return fail(CodeMigrationContract, "rebuild", "configResolutions[0].targetCandidates", "migration target detector or generation evidence differs")
+	}
+	if len(resolution.ResolvedTargets) != len(plan.Targets) {
+		return fail(CodeMigrationContract, "rebuild", "configResolutions[0].resolvedTargets", "migration resolved target count differs")
+	}
+	for index, target := range plan.Targets {
+		relative, err := filepath.Rel(runtime.Root, target.Resolved)
+		display := "$ENDSTATE_ROOT/" + filepath.ToSlash(relative)
+		if err != nil || relative == "." || strings.HasPrefix(filepath.ToSlash(relative), "../") || !strings.EqualFold(filepath.ToSlash(resolution.ResolvedTargets[index]), display) {
+			return fail(CodeMigrationContract, "rebuild", "configResolutions[0].resolvedTargets", fmt.Sprintf("migration target is not detector-derived: got=%q want=%q", resolution.ResolvedTargets[index], display))
+		}
+	}
+	return nil
+}
+
 func exactPlannerEvidence(evidence planner.InstanceEvidence, instance modules.ConfigInstance) bool {
 	want := instance.Evidence
 	return evidence.Type == want.Type && evidence.AppID == want.AppID && evidence.Backend == want.Backend &&
@@ -128,6 +225,10 @@ func exactPlannerEvidence(evidence planner.InstanceEvidence, instance modules.Co
 
 func validateV2RestoreItems(items []restore.RestoreResult, runtime *scenarioRuntime, resolution planner.ConfigResolution, repeat bool) *Failure {
 	expected := map[string]V2FixtureTarget{}
+	targetGenerationID := runtime.V2Plan.Compiled.TargetGeneration.ID
+	if targetGenerationID == "" {
+		targetGenerationID = runtime.V2Plan.Compiled.Generation.ID
+	}
 	for _, target := range runtime.V2Plan.Targets {
 		display, err := runtime.validationContext().DisplayPath(target.Resolved)
 		if err != nil {
@@ -143,8 +244,8 @@ func validateV2RestoreItems(items []restore.RestoreResult, runtime *scenarioRunt
 		}
 		if !ok || filepath.ToSlash(item.Source) != wantSource || item.ID == "" || item.RestoreType != "copy" || !item.TargetExistedBefore ||
 			item.Error != "" || len(item.Warnings) != 0 || item.CaptureID != runtime.V2Plan.CaptureID || item.ConfigSetID != runtime.V2Plan.Compiled.Set.ID ||
-			item.TargetInstanceID != resolution.TargetInstanceID || item.SourceGeneration != runtime.V2Plan.Compiled.Generation.ID || item.TargetGeneration != runtime.V2Plan.Compiled.Generation.ID {
-			return fail(CodeEnvelopeContract, "rebuild", "restoreItems", fmt.Sprintf("restore item does not bind the exact direct target action: got=%+v wantSource=%q", item, wantSource))
+			item.TargetInstanceID != resolution.TargetInstanceID || item.SourceGeneration != runtime.V2Plan.Compiled.Generation.ID || item.TargetGeneration != targetGenerationID {
+			return fail(CodeEnvelopeContract, "rebuild", "restoreItems", fmt.Sprintf("restore item does not bind the exact schema-v2 target action: got=%+v wantSource=%q", item, wantSource))
 		}
 		if repeat {
 			if item.Status != "skipped_up_to_date" || item.BackupCreated || item.BackupPath != "" {
@@ -262,6 +363,110 @@ func validateV2DirectRebuildEvents(events []map[string]any, runtime *scenarioRun
 	}
 	if !v2SummaryEventExact(segment[len(segment)-1], "restore", len(items), wantRestoreSuccess, wantRestoreSkipped, 0) {
 		return fail(CodeEventContract, "rebuild", "restore.summary", "direct restore summary accounting differs")
+	}
+	return validateV2VerifyEventSegments(events, runtime, true)
+}
+
+func validateV2MigrationRebuildEvents(events []map[string]any, runtime *scenarioRuntime, resolution planner.ConfigResolution, items []restore.RestoreResult, repeat bool) *Failure {
+	if len(events) < 19 || len(items) != 1 {
+		return fail(CodeEventContract, "rebuild", "events", "migration event stream is incomplete")
+	}
+	restoreStart, restoreEnd := -1, -1
+	for index, event := range events {
+		if event["event"] == "phase" && event["phase"] == "restore" {
+			restoreStart = index
+		}
+		if restoreStart >= 0 && event["event"] == "summary" && event["phase"] == "restore" {
+			restoreEnd = index
+			break
+		}
+	}
+	if restoreStart < 0 || restoreEnd < 0 {
+		return fail(CodeEventContract, "rebuild", "restore", "migration restore event segment is absent")
+	}
+	want := []string{"phase"}
+	for range 8 {
+		want = append(want, "config-migration")
+	}
+	want = append(want, "config-resolution")
+	if !repeat {
+		want = append(want, "restore-item")
+		for range 4 {
+			want = append(want, "config-migration")
+		}
+	}
+	want = append(want, "restore-item", "summary")
+	segment := events[restoreStart : restoreEnd+1]
+	if len(segment) != len(want) {
+		return fail(CodeEventContract, "rebuild", "restore", fmt.Sprintf("migration restore event count=%d want=%d", len(segment), len(want)))
+	}
+	for index := range want {
+		if segment[index]["event"] != want[index] {
+			return fail(CodeEventContract, "rebuild", "restore", "migration restore event order differs")
+		}
+	}
+	type migrationStep struct {
+		index                  int
+		stage, status, message string
+		from, to               string
+	}
+	steps := []migrationStep{
+		{1, "staging", "started", "staging settings payload", "", ""},
+		{2, "staging", "completed", "settings payload staged", "", ""},
+		{3, "edge", "started", "applying migration edge", runtime.V2Plan.Compiled.Generation.ID, runtime.V2Plan.Compiled.TargetGeneration.ID},
+		{4, "edge", "completed", "migration edge validated", runtime.V2Plan.Compiled.Generation.ID, runtime.V2Plan.Compiled.TargetGeneration.ID},
+		{5, "validation", "started", "validating staged settings", "", ""},
+		{6, "validation", "completed", "staged settings validated", "", ""},
+		{7, "validation", "started", "validating staged settings", "", ""},
+		{8, "validation", "completed", "staged settings validated", "", ""},
+	}
+	if !repeat {
+		steps = append(steps,
+			migrationStep{11, "commit", "started", "committing settings", "", ""},
+			migrationStep{12, "commit", "completed", "settings committed", "", ""},
+			migrationStep{13, "validation", "started", "validating restored settings", "", ""},
+			migrationStep{14, "validation", "completed", "restored settings validated", "", ""},
+		)
+	}
+	for _, step := range steps {
+		event := segment[step.index]
+		from, hasFrom := event["fromGeneration"]
+		to, hasTo := event["toGeneration"]
+		wantEdge := step.from != ""
+		if event["stage"] != step.stage || event["status"] != step.status || event["message"] != step.message ||
+			event["captureId"] != resolution.CaptureID || event["configSetId"] != resolution.ConfigSetID ||
+			event["reason"] != nil || event["remediation"] != nil || hasFrom != wantEdge || hasTo != wantEdge ||
+			wantEdge && (from != step.from || to != step.to) {
+			return fail(CodeEventContract, "rebuild", "config-migration", "migration edge/validation stage sequence differs")
+		}
+	}
+	resolutionEvent := segment[9]
+	if resolutionEvent["captureId"] != resolution.CaptureID || resolutionEvent["moduleId"] != runtime.Module.ID || resolutionEvent["configSetId"] != resolution.ConfigSetID ||
+		resolutionEvent["sourceInstanceId"] != resolution.SourceInstanceID || resolutionEvent["targetInstanceId"] != resolution.TargetInstanceID ||
+		resolutionEvent["sourceGeneration"] != resolution.SourceGeneration || resolutionEvent["sourceGenerationFingerprint"] != resolution.SourceGenerationFingerprint ||
+		resolutionEvent["targetGeneration"] != resolution.TargetGeneration || resolutionEvent["resolution"] != "migrate" ||
+		resolutionEvent["captureModuleRevision"] != resolution.CaptureModuleRevision || resolutionEvent["restoreModuleRevision"] != resolution.RestoreModuleRevision {
+		return fail(CodeEventContract, "rebuild", "config-resolution", "migration resolution event identity differs")
+	}
+	if !eventValueMatches(resolutionEvent["sourceInstance"], resolution.SourceInstance) || !eventValueMatches(resolutionEvent["reason"], resolution.Reason) ||
+		!eventStringSliceExact(resolutionEvent["migrationPath"], resolution.MigrationPath) || !eventCandidatesMatch(resolutionEvent["targetCandidates"], resolution.TargetCandidates) ||
+		resolutionEvent["label"] != resolution.Label || resolutionEvent["message"] != resolution.Message || !eventValueMatches(resolutionEvent["remediation"], resolution.Remediation) {
+		return fail(CodeEventContract, "rebuild", "config-resolution", "migration resolution event path/candidates differ")
+	}
+	firstItem, lastItem := segment[10], segment[len(segment)-2]
+	wantFirst := "restoring"
+	if repeat {
+		wantFirst = "skipped_up_to_date"
+	}
+	if !v2RestoreEventMatches(firstItem, items[0], runtime.Module.ID, wantFirst) || !repeat && !v2RestoreEventMatches(lastItem, items[0], runtime.Module.ID, "restored") {
+		return fail(CodeEventContract, "rebuild", "restore-item", "migration restore item lifecycle differs")
+	}
+	wantRestoreSuccess, wantRestoreSkipped := len(items), 0
+	if repeat {
+		wantRestoreSuccess, wantRestoreSkipped = 0, len(items)
+	}
+	if !v2SummaryEventExact(segment[len(segment)-1], "restore", len(items), wantRestoreSuccess, wantRestoreSkipped, 0) {
+		return fail(CodeEventContract, "rebuild", "restore.summary", "migration restore summary accounting differs")
 	}
 	return validateV2VerifyEventSegments(events, runtime, true)
 }

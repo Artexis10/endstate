@@ -74,6 +74,7 @@ func TestRunFreshBuiltEngineTrackedSchemaV2(t *testing.T) {
 		{"apps.windows-terminal", "generation-preferences-g1-97631ba2d2e5"},
 		{"apps.owncloud", "generation-preferences-g1-1c4479cb88b9"},
 		{"apps.owncloud", "generation-preferences-g2-899536c068d4"},
+		{"apps.owncloud", "migration-preferences-g1-to-g2"},
 		{"apps.studio-one", "generation-preferences-g1-61e9f6f3c254"},
 	}
 	for _, test := range tests {

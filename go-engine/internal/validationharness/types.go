@@ -25,6 +25,7 @@ const (
 	CodeRevertFailure      = "revert_failure"
 	CodeIsolationFailure   = "isolation_failure"
 	CodeGenerationContract = "generation_contract"
+	CodeMigrationContract  = "migration_contract"
 	ResultSchemaVersion    = 1
 	ResultStatusPassed     = "passed"
 	ResultStatusFailed     = "failed"

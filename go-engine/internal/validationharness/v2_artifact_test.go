@@ -92,6 +92,7 @@ func v2ArtifactFixture(t *testing.T) (*scenarioRuntime, manifest.Manifest, map[s
 	runtime.Module = mod
 	runtime.V2Plan.Compiled.Generation.Fingerprint = strings.Repeat("b", 64)
 	capturedBytes := []byte("[endstate-validation]\nvalue=captured\n")
+	runtime.V2Plan.CaptureTargets[0].Members = []V2FixtureFile{{Relative: ".", Path: runtime.V2Plan.CaptureTargets[0].Resolved, Captured: capturedBytes}}
 	runtime.V2Plan.Targets[0].Members = []V2FixtureFile{{Relative: ".", Path: runtime.V2Plan.Targets[0].Resolved, Captured: capturedBytes}}
 	digest := sha256.Sum256(capturedBytes)
 	snapshotPath := "provenance/modules/apps.fixture-" + mod.Revision + ".json"

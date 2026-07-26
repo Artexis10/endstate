@@ -38,7 +38,7 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 		}
 	}
 	if runtime.V2Plan != nil {
-		for _, target := range runtime.V2Plan.Targets {
+		for _, target := range append(append([]V2FixtureTarget(nil), runtime.V2Plan.CaptureTargets...), runtime.V2Plan.Targets...) {
 			guardTargets = append(guardTargets, guardFixtureTarget{target.Authored, target.Coordinate, target.Directory})
 		}
 	}
@@ -318,7 +318,19 @@ func (executor *cliJourneyExecutor) CaptureV2(ctx context.Context, runtime *scen
 	return inspectV2CaptureArtifact(runtime, zipPath, output.Envelope.Data)
 }
 
+func (executor *cliJourneyExecutor) TransitionV2(_ context.Context, runtime *scenarioRuntime, evidence captureEvidence) *Failure {
+	if runtime == nil || runtime.V2Transition == nil || evidence.ArtifactPath == "" {
+		return fail(CodeMigrationContract, "transition", "state", "migration transition authority or captured bundle is absent")
+	}
+	return runtime.V2Transition.Apply(evidence.ArtifactPath)
+}
+
 func (executor *cliJourneyExecutor) RebuildV2(ctx context.Context, runtime *scenarioRuntime, evidence captureEvidence) *Failure {
+	if runtime.V2Transition != nil {
+		if failure := runtime.V2Transition.ValidateBundle(evidence.ArtifactPath); failure != nil {
+			return failure
+		}
+	}
 	storageBefore, failure := snapshotV2Storage(runtime)
 	if failure != nil {
 		return failure
@@ -327,7 +339,12 @@ func (executor *cliJourneyExecutor) RebuildV2(ctx context.Context, runtime *scen
 	if failure != nil {
 		return failure
 	}
-	validated, failure := validateV2DirectRebuildEvidence(output.Envelope.Data, output.Events, runtime, executor.rebuildIteration)
+	if runtime.V2Transition != nil {
+		if failure := runtime.V2Transition.ValidateReinitialized(evidence.ArtifactPath); failure != nil {
+			return failure
+		}
+	}
+	validated, failure := validateV2RebuildEvidence(output.Envelope.Data, output.Events, runtime, executor.rebuildIteration)
 	if failure != nil {
 		return failure
 	}
@@ -343,9 +360,19 @@ func (executor *cliJourneyExecutor) RebuildV2(ctx context.Context, runtime *scen
 }
 
 func (executor *cliJourneyExecutor) RevertV2(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	if runtime.V2Transition != nil {
+		if failure := runtime.V2Transition.ValidateBundle(runtime.V2Transition.bundlePath); failure != nil {
+			return failure
+		}
+	}
 	storageBefore, failure := snapshotV2Storage(runtime)
 	if failure != nil {
 		return failure
+	}
+	if runtime.V2Transition != nil {
+		if failure := runtime.V2Transition.ValidateReinitialized(runtime.V2Transition.bundlePath); failure != nil {
+			return failure
+		}
 	}
 	output, failure := executor.run(ctx, "revert")
 	if failure != nil {
@@ -358,9 +385,19 @@ func (executor *cliJourneyExecutor) RevertV2(ctx context.Context, runtime *scena
 }
 
 func (executor *cliJourneyExecutor) VerifyV2(ctx context.Context, runtime *scenarioRuntime, evidence captureEvidence) *Failure {
+	if runtime.V2Transition != nil {
+		if failure := runtime.V2Transition.ValidateReinitialized(evidence.ArtifactPath); failure != nil {
+			return failure
+		}
+	}
 	output, failure := executor.run(ctx, "verify", "--manifest", evidence.VerifyManifest)
 	if failure != nil {
 		return failure
+	}
+	if runtime.V2Transition != nil {
+		if failure := runtime.V2Transition.ValidateReinitialized(evidence.ArtifactPath); failure != nil {
+			return failure
+		}
 	}
 	if failure := validateVerifyEvidence(output.Envelope.Data, runtime, "verify"); failure != nil {
 		return failure

@@ -235,6 +235,40 @@ func TestV2TransactionRejectsCorruptActionLineageValidationPriorAndMarker(t *tes
 	})
 }
 
+func TestV2MigrationTransactionRejectsWrongPathTargetAndMissingValidation(t *testing.T) {
+	runtime, root, item := validV2MigrationTransactionFixture(t, nil)
+	if _, failure := validateV2Transaction(context.Background(), runtime, root, []restore.RestoreResult{item}); failure != nil {
+		t.Fatalf("valid migration transaction: %+v", failure)
+	}
+	for _, test := range []struct {
+		name       string
+		coordinate string
+		mutate     func(*configrestore.MaterializedSet, *configrestore.JournalLineage)
+	}{
+		{name: "wrong migration path", coordinate: "intent.lineage", mutate: func(_ *configrestore.MaterializedSet, lineage *configrestore.JournalLineage) {
+			lineage.MigrationPath = []string{"g1", "g3"}
+			lineage.TargetGeneration = "g3"
+		}},
+		{name: "wrong target generation", coordinate: "intent.lineage", mutate: func(_ *configrestore.MaterializedSet, lineage *configrestore.JournalLineage) {
+			lineage.TargetGeneration = "g1"
+			lineage.MigrationPath = []string{}
+		}},
+		{name: "wrong target instance", coordinate: "intent.lineage", mutate: func(_ *configrestore.MaterializedSet, lineage *configrestore.JournalLineage) {
+			lineage.TargetInstanceID = "foreign"
+		}},
+		{name: "missing target validation", coordinate: "intent", mutate: func(set *configrestore.MaterializedSet, _ *configrestore.JournalLineage) {
+			set.Validations = nil
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime, root, item := validV2MigrationTransactionFixture(t, test.mutate)
+			if _, failure := validateV2Transaction(context.Background(), runtime, root, []restore.RestoreResult{item}); failure == nil || failure.Code != CodeMigrationContract || failure.Coordinate != test.coordinate {
+				t.Fatalf("failure = %+v, want migration_contract/%s", failure, test.coordinate)
+			}
+		})
+	}
+}
+
 func TestV2TransactionExactlyBindsDesiredSourceAndMissingParentState(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -419,14 +453,29 @@ func validV2TransactionDescriptor(runtime *scenarioRuntime, id string) v2Transac
 }
 
 func validV2TransactionFixture(t *testing.T, mutate func(*configrestore.MaterializedSet, *configrestore.JournalLineage)) (*scenarioRuntime, string, restore.RestoreResult) {
+	return validV2TransactionFixtureMode(t, false, mutate)
+}
+
+func validV2MigrationTransactionFixture(t *testing.T, mutate func(*configrestore.MaterializedSet, *configrestore.JournalLineage)) (*scenarioRuntime, string, restore.RestoreResult) {
+	return validV2TransactionFixtureMode(t, true, mutate)
+}
+
+func validV2TransactionFixtureMode(t *testing.T, migrating bool, mutate func(*configrestore.MaterializedSet, *configrestore.JournalLineage)) (*scenarioRuntime, string, restore.RestoreResult) {
 	t.Helper()
 	runtime, _, item := v2EvidenceFixture(t)
+	if migrating {
+		runtime, _, item = v2MigrationEvidenceFixture(t)
+	}
 	target := &runtime.V2Plan.Targets[0]
 	captured := []byte("[endstate-validation]\nvalue=captured\n")
 	mutated := []byte("[endstate-validation]\nvalue=mutated\n")
 	target.Members = []V2FixtureFile{{Relative: ".", Path: target.Resolved, Captured: captured, Mutated: mutated}}
 	validation := modules.ValidationDef{Type: "ini-parse", Path: target.Destination}
-	runtime.V2Plan.Compiled.Generation.Validate = []modules.ValidationDef{validation}
+	if migrating {
+		runtime.V2Plan.Compiled.TargetGeneration.Validate = []modules.ValidationDef{validation}
+	} else {
+		runtime.V2Plan.Compiled.Generation.Validate = []modules.ValidationDef{validation}
+	}
 	runtime.V2Plan.Validations = 1
 
 	source := filepath.Join(runtime.Root, "state", "stage", "settings.ini")
@@ -449,6 +498,11 @@ func validV2TransactionFixture(t *testing.T, mutate func(*configrestore.Material
 		SourceGeneration: runtime.V2Plan.Compiled.Generation.ID, TargetGeneration: runtime.V2Plan.Compiled.Generation.ID,
 		MigrationPath: []string{}, SourceGenerationFingerprint: runtime.V2Plan.Compiled.Generation.Fingerprint,
 		CaptureModuleRevision: runtime.Module.Revision, RestoreModuleRevision: runtime.Module.Revision,
+	}
+	if migrating {
+		lineage.TargetInstanceID = runtime.V2Plan.TargetInstance.ID
+		lineage.TargetGeneration = runtime.V2Plan.Compiled.TargetGeneration.ID
+		lineage.MigrationPath = []string{runtime.V2Plan.Compiled.Generation.ID, runtime.V2Plan.Compiled.TargetGeneration.ID}
 	}
 	if mutate != nil {
 		mutate(set, &lineage)

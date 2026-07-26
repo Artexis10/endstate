@@ -19,6 +19,7 @@ type scenarioRuntime struct {
 	Scenario            validationmatrix.Scenario
 	Plan                *FixturePlan
 	V2Plan              *V2FixturePlan
+	V2Transition        *v2VersionTransition
 	AuthorityRoot       string
 	Root                string
 	GuardRoot           string
@@ -87,7 +88,7 @@ func (runtime *scenarioRuntime) forbiddenOutputValues() []string {
 		}
 	}
 	if runtime.V2Plan != nil {
-		for _, target := range runtime.V2Plan.Targets {
+		for _, target := range append(append([]V2FixtureTarget(nil), runtime.V2Plan.CaptureTargets...), runtime.V2Plan.Targets...) {
 			add(target.Resolved)
 			for _, member := range target.Members {
 				add(member.Path)

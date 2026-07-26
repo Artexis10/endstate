@@ -59,6 +59,47 @@ func TestV2DirectResolutionRejectsWrongFingerprintTargetAndDetectorEvidence(t *t
 	}
 }
 
+func TestV2MigrationResolutionBindsDistinctGenerationsPathAndTarget(t *testing.T) {
+	runtime, resolution, _ := v2MigrationEvidenceFixture(t)
+	if failure := validateV2MigrationResolution(resolution, runtime, false); failure != nil {
+		t.Fatalf("valid migration resolution: %+v", failure)
+	}
+
+	tests := []struct {
+		name       string
+		mutate     func(*planner.ConfigResolution)
+		coordinate string
+	}{
+		{name: "direct instead of migrate", coordinate: "configResolutions[0]", mutate: func(value *planner.ConfigResolution) {
+			value.Resolution = planner.ResolutionDirect
+		}},
+		{name: "wrong target generation", coordinate: "configResolutions[0]", mutate: func(value *planner.ConfigResolution) {
+			value.TargetGeneration = "g1"
+		}},
+		{name: "wrong path", coordinate: "configResolutions[0]", mutate: func(value *planner.ConfigResolution) {
+			value.MigrationPath = []string{"g1", "g3"}
+		}},
+		{name: "wrong target fingerprint", coordinate: "configResolutions[0].targetCandidates", mutate: func(value *planner.ConfigResolution) {
+			value.TargetCandidates[0].GenerationFingerprint = strings.Repeat("f", 64)
+		}},
+		{name: "wrong target version", coordinate: "configResolutions[0].targetCandidates", mutate: func(value *planner.ConfigResolution) {
+			value.TargetCandidates[0].RawVersion = "2.4"
+		}},
+		{name: "source host path reused", coordinate: "configResolutions[0].resolvedTargets", mutate: func(value *planner.ConfigResolution) {
+			value.ResolvedTargets[0] = "$ENDSTATE_ROOT/host/localappdata/ownCloud/owncloud.cfg"
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := cloneV2Resolution(t, resolution)
+			test.mutate(&candidate)
+			if failure := validateV2MigrationResolution(candidate, runtime, false); failure == nil || failure.Coordinate != test.coordinate {
+				t.Fatalf("failure = %+v, want coordinate %q", failure, test.coordinate)
+			}
+		})
+	}
+}
+
 func TestV2RestoreAndRevertEvidenceRejectsWrongBindingFailureAndRepeatDrift(t *testing.T) {
 	runtime, resolution, item := v2EvidenceFixture(t)
 	if failure := validateV2RestoreItems([]restore.RestoreResult{item}, runtime, resolution, false); failure != nil {
@@ -153,6 +194,42 @@ func TestV2DirectEventsBindEveryConfigAndRestoreField(t *testing.T) {
 			candidate[test.index][test.field] = test.value
 			if failure := validateV2DirectRebuildEvents(candidate, runtime, resolution, []restore.RestoreResult{item}, false); failure == nil || failure.Coordinate != test.coordinate {
 				t.Fatalf("mutated %s accepted: %+v", test.field, failure)
+			}
+		})
+	}
+}
+
+func TestV2MigrationEventsBindEdgeAndTargetValidationSequence(t *testing.T) {
+	runtime, resolution, item := v2MigrationEvidenceFixture(t)
+	events := v2MigrationEventsFixture(t, runtime, resolution, item)
+	if failure := validateV2MigrationRebuildEvents(events, runtime, resolution, []restore.RestoreResult{item}, false); failure != nil {
+		t.Fatalf("valid migration events: %+v", failure)
+	}
+	tests := []struct {
+		name       string
+		index      int
+		field      string
+		value      any
+		coordinate string
+	}{
+		{name: "edge from", index: 6, field: "fromGeneration", value: "g0", coordinate: "config-migration"},
+		{name: "edge target", index: 6, field: "toGeneration", value: "g3", coordinate: "config-migration"},
+		{name: "missing edge completion", index: 7, field: "stage", value: "validation", coordinate: "config-migration"},
+		{name: "failed edge validation", index: 9, field: "status", value: "failed", coordinate: "config-migration"},
+		{name: "failed target validation", index: 11, field: "status", value: "failed", coordinate: "config-migration"},
+		{name: "resolution changed direct", index: 12, field: "resolution", value: "direct", coordinate: "config-resolution"},
+		{name: "migration path", index: 12, field: "migrationPath", value: []any{"g1"}, coordinate: "config-resolution"},
+		{name: "restore target generation", index: 13, field: "targetGeneration", value: "g1", coordinate: "restore-item"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := make([]map[string]any, len(events))
+			for index := range events {
+				candidate[index] = cloneV2EventMap(t, events[index])
+			}
+			candidate[test.index][test.field] = test.value
+			if failure := validateV2MigrationRebuildEvents(candidate, runtime, resolution, []restore.RestoreResult{item}, false); failure == nil || failure.Coordinate != test.coordinate {
+				t.Fatalf("mutated %s accepted: %+v", test.name, failure)
 			}
 		})
 	}
@@ -333,8 +410,9 @@ func v2EvidenceFixture(t *testing.T) (*scenarioRuntime, planner.ConfigResolution
 	}
 	plan := &V2FixturePlan{
 		context: context, CaptureID: "capture-fixture", Instance: instance,
-		Compiled: v2CompiledFixture{Set: modules.ConfigSetDef{ID: "preferences"}, Generation: modules.GenerationDef{ID: "g1", Fingerprint: strings.Repeat("b", 64)}},
-		Targets:  []V2FixtureTarget{{Coordinate: "capture.files[0]", Authored: `%APPDATA%\Vendor\settings.ini`, Destination: "settings.ini", Resolved: resolved}},
+		Compiled:       v2CompiledFixture{Set: modules.ConfigSetDef{ID: "preferences"}, Generation: modules.GenerationDef{ID: "g1", Fingerprint: strings.Repeat("b", 64)}},
+		CaptureTargets: []V2FixtureTarget{{Coordinate: "capture.files[0]", Authored: `%APPDATA%\Vendor\settings.ini`, Destination: "settings.ini", Resolved: resolved}},
+		Targets:        []V2FixtureTarget{{Coordinate: "capture.files[0]", Authored: `%APPDATA%\Vendor\settings.ini`, Destination: "settings.ini", Resolved: resolved}},
 	}
 	runtime := &scenarioRuntime{
 		Module: &modules.Module{ID: "apps.fixture", Revision: strings.Repeat("a", 64)}, Root: context.Root(), V2Plan: plan,
@@ -364,6 +442,45 @@ func v2EvidenceFixture(t *testing.T) (*scenarioRuntime, planner.ConfigResolution
 		RestoreType: "copy", CaptureID: plan.CaptureID, ConfigSetID: plan.Compiled.Set.ID, TargetInstanceID: instance.ID,
 		SourceGeneration: "g1", TargetGeneration: "g1",
 	}
+	return runtime, resolution, item
+}
+
+func v2MigrationEvidenceFixture(t *testing.T) (*scenarioRuntime, planner.ConfigResolution, restore.RestoreResult) {
+	t.Helper()
+	runtime, resolution, item := v2EvidenceFixture(t)
+	plan := runtime.V2Plan
+	plan.Compiled.TargetGeneration = modules.GenerationDef{ID: "g2", Fingerprint: strings.Repeat("c", 64)}
+	plan.Compiled.Migration = &modules.MigrationEdgeDef{From: "g1", To: "g2"}
+	plan.TargetInstance = plan.Instance
+	plan.TargetInstance.Version = modules.NewVersionEvidence("2.5")
+	plan.Instance.Version = modules.NewVersionEvidence("2.4")
+	runtime.Inventory.Version = "2.4"
+	appData, ok := plan.context.VirtualRoot("APPDATA")
+	if !ok {
+		t.Fatal("APPDATA validation root is absent")
+	}
+	plan.Targets[0].Resolved = filepath.Join(appData, "ownCloud", "owncloud.cfg")
+	plan.Targets[0].Authored = `%APPDATA%\ownCloud\owncloud.cfg`
+	plan.Targets[0].Destination = "ownCloud/owncloud.cfg"
+
+	resolution.SourceInstance.RawVersion = "2.4"
+	resolution.SourceInstance.NormalizedVersion = "2.4"
+	resolution.TargetGeneration = "g2"
+	resolution.Resolution = planner.ResolutionMigrate
+	resolution.MigrationPath = []string{"g1", "g2"}
+	resolution.TargetCandidates[0].RawVersion = "2.5"
+	resolution.TargetCandidates[0].NormalizedVersion = "2.5"
+	resolution.TargetCandidates[0].Generation = "g2"
+	resolution.TargetCandidates[0].GenerationFingerprint = plan.Compiled.TargetGeneration.Fingerprint
+	resolution.ResolvedTargets = []string{"$ENDSTATE_ROOT/" + filepath.ToSlash(mustV2Relative(t, plan.context.Root(), plan.Targets[0].Resolved))}
+	display, err := plan.context.DisplayPath(plan.Targets[0].Resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item.Target = display
+	item.Source = plan.Targets[0].Destination
+	item.SourceGeneration = "g1"
+	item.TargetGeneration = "g2"
 	return runtime, resolution, item
 }
 
@@ -497,6 +614,35 @@ func v2DirectEventsFixture(t *testing.T, runtime *scenarioRuntime, resolution pl
 		map[string]any{"event": "summary", "phase": "restore", "total": json.Number("1"), "success": json.Number("1"), "skipped": json.Number("0"), "failed": json.Number("0")},
 	)
 	return append(events, verify()...)
+}
+
+func v2MigrationEventsFixture(t *testing.T, runtime *scenarioRuntime, resolution planner.ConfigResolution, item restore.RestoreResult) []map[string]any {
+	t.Helper()
+	direct := v2DirectEventsFixture(t, runtime, resolution, item)
+	migration := func(stage, status, message string, edge bool) map[string]any {
+		event := map[string]any{
+			"event": "config-migration", "captureId": resolution.CaptureID, "configSetId": resolution.ConfigSetID,
+			"stage": stage, "status": status, "reason": nil, "message": message, "remediation": nil,
+		}
+		if edge {
+			event["fromGeneration"] = "g1"
+			event["toGeneration"] = "g2"
+		}
+		return event
+	}
+	segment := []map[string]any{
+		direct[3],
+		migration("staging", "started", "staging settings payload", false),
+		migration("staging", "completed", "settings payload staged", false),
+		migration("edge", "started", "applying migration edge", true),
+		migration("edge", "completed", "migration edge validated", true),
+		migration("validation", "started", "validating staged settings", false),
+		migration("validation", "completed", "staged settings validated", false),
+		migration("validation", "started", "validating staged settings", false),
+		migration("validation", "completed", "staged settings validated", false),
+		direct[8], direct[9], direct[10], direct[11], direct[12], direct[13], direct[14], direct[15],
+	}
+	return append(append(append([]map[string]any{}, direct[:3]...), segment...), direct[16:]...)
 }
 
 func v2RepeatEventsFixture(t *testing.T, runtime *scenarioRuntime, resolution planner.ConfigResolution, item restore.RestoreResult) ([]map[string]any, planner.ConfigResolution, restore.RestoreResult) {

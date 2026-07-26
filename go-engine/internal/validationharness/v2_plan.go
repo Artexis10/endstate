@@ -18,12 +18,16 @@ import (
 )
 
 type V2FixturePlan struct {
-	context     *validationmode.Context
-	Compiled    v2CompiledFixture
-	Instance    modules.ConfigInstance
-	CaptureID   string
-	Targets     []V2FixtureTarget
-	Validations int
+	context              *validationmode.Context
+	Compiled             v2CompiledFixture
+	Instance             modules.ConfigInstance
+	TargetInstance       modules.ConfigInstance
+	CaptureID            string
+	CaptureTargets       []V2FixtureTarget
+	Targets              []V2FixtureTarget
+	CaptureValidations   int
+	MigrationValidations int
+	Validations          int
 }
 
 type V2FixtureTarget struct {
@@ -76,30 +80,63 @@ func compileV2FixturePlan(context *validationmode.Context, mod *modules.Module, 
 	if err != nil || selected == nil || selected.ID != compiled.Generation.ID || selected.Fingerprint != compiled.Generation.Fingerprint {
 		return bad("instance.version", "detected instance does not select the compiled production generation")
 	}
+	targetInventory := inventory
+	if compiled.Definition.TargetVersion != "" {
+		targetInventory.Version = compiled.Definition.TargetVersion
+	}
+	targetInstances, failure := discoverV2FixtureInstances(context, mod, compiled, targetInventory)
+	if failure != nil {
+		return nil, failure
+	}
+	if len(targetInstances) != 1 || targetInstances[0].DetectorID != compiled.Detector.ID {
+		return bad("targetInstance", "production detector must resolve exactly one target fixture instance")
+	}
+	targetInstance := targetInstances[0]
+	targetSelected, err := modules.SelectGeneration(&compiled.Set, targetInstance.Version)
+	if err != nil || targetSelected == nil || targetSelected.ID != compiled.TargetGeneration.ID || targetSelected.Fingerprint != compiled.TargetGeneration.Fingerprint {
+		return bad("targetInstance.version", "detected target instance does not select the compiled production target generation")
+	}
 	plan := &V2FixturePlan{
-		context: context, Compiled: compiled, Instance: instance,
+		context: context, Compiled: compiled, Instance: instance, TargetInstance: targetInstance,
 		CaptureID: bundle.CaptureID(mod.ID, compiled.Set.ID, instance.ID),
 	}
 	for index, entry := range compiled.Entries {
-		policy := validationmode.HostPathPolicy{InstanceRoot: instance.Root}
+		sourcePolicy := validationmode.HostPathPolicy{InstanceRoot: instance.Root}
 		if compiled.Detector.Type == "path" {
-			policy.InstanceAlias = v2DetectorAlias(compiled.Detector.Glob)
+			sourcePolicy.InstanceAlias = v2DetectorAlias(compiled.Detector.Glob)
 		}
-		capturePolicy := policy
+		capturePolicy := sourcePolicy
 		capturePolicy.AllowRoot = strings.EqualFold(entry.Capture.Source, "${instance.root}")
 		source, err := context.ResolveHostPath(entry.Capture.Source, capturePolicy)
 		if err != nil {
 			return bad(entry.Shape.CaptureCoordinate, "capture source did not resolve inside detector authority")
 		}
-		restorePolicy := policy
+		targetPolicy := validationmode.HostPathPolicy{InstanceRoot: targetInstance.Root}
+		if compiled.Detector.Type == "path" {
+			targetPolicy.InstanceAlias = v2DetectorAlias(compiled.Detector.Glob)
+		}
+		restorePolicy := targetPolicy
 		restorePolicy.AllowRoot = strings.EqualFold(entry.Restore.Target, "${instance.root}")
 		target, err := context.ResolveHostPath(entry.Restore.Target, restorePolicy)
-		if err != nil || filepath.Clean(target) != filepath.Clean(source) {
+		if err != nil {
+			return bad(entry.Shape.RestoreCoordinate, "restore target did not resolve inside detector authority")
+		}
+		if compiled.Migration == nil && filepath.Clean(target) != filepath.Clean(source) {
 			return bad(entry.Shape.RestoreCoordinate, "direct capture/restore targets did not resolve identically")
 		}
-		targetPlan := V2FixtureTarget{
-			Coordinate: entry.Shape.CaptureCoordinate, Authored: entry.Restore.Target,
+		if compiled.Migration != nil && filepath.Clean(target) == filepath.Clean(source) {
+			return nil, fail(CodeMigrationContract, "fixture", entry.Shape.RestoreCoordinate, "migration source and target host coordinates are not distinct")
+		}
+		capturePlan := V2FixtureTarget{
+			Coordinate: entry.Shape.CaptureCoordinate, Authored: entry.Capture.Source,
 			Destination: filepath.ToSlash(entry.Capture.Dest), Resolved: source,
+			Directory:    entry.Shape.Kind == fixtureKindDirectory,
+			PreserveRoot: strings.Contains(entry.Capture.Source, "${instance.root}"),
+			Optional:     entry.Capture.Optional,
+		}
+		targetPlan := V2FixtureTarget{
+			Coordinate: entry.Shape.RestoreCoordinate, Authored: entry.Restore.Target,
+			Destination: filepath.ToSlash(entry.Restore.Source), Resolved: target,
 			Directory:    entry.Shape.Kind == fixtureKindDirectory,
 			PreserveRoot: strings.Contains(entry.Restore.Target, "${instance.root}"),
 			Optional:     entry.Capture.Optional || entry.Restore.Optional,
@@ -110,33 +147,59 @@ func compileV2FixturePlan(context *validationmode.Context, mod *modules.Module, 
 				if err != nil {
 					return unsupported(entry.Shape.CaptureCoordinate, "fixture member content cannot satisfy its declared format")
 				}
-				targetPlan.Members = append(targetPlan.Members, V2FixtureFile{
+				capturePlan.Members = append(capturePlan.Members, V2FixtureFile{
 					Relative: filepath.ToSlash(member.Path), Path: filepath.Join(source, filepath.FromSlash(member.Path)),
 					Captured: captured, Mutated: mutated,
 				})
+				targetPlan.Members = append(targetPlan.Members, V2FixtureFile{
+					Relative: filepath.ToSlash(member.Path), Path: filepath.Join(target, filepath.FromSlash(member.Path)),
+					Captured: captured, Mutated: mutated,
+				})
 			}
-			witnesses, witnessFailure := compileV2ExcludeWitnesses(mod.ID, scenario.ID, source, entry)
+			captureWitnesses, witnessFailure := compileV2ExcludeWitnesses(mod.ID, scenario.ID, source, entry)
 			if witnessFailure != nil {
 				return nil, witnessFailure
 			}
-			targetPlan.Excluded = witnesses
+			targetWitnesses, witnessFailure := compileV2ExcludeWitnesses(mod.ID, scenario.ID, target, entry)
+			if witnessFailure != nil {
+				return nil, witnessFailure
+			}
+			capturePlan.Excluded = captureWitnesses
+			targetPlan.Excluded = targetWitnesses
 		} else {
 			if failure := proveV2SingleFileExcludes(entry); failure != nil {
 				return nil, failure
 			}
-			captured, mutated, err := v2FixtureContents(mod.ID, scenario.ID, entry.Shape.CaptureCoordinate, entry.Shape.Format)
+			captured, sourceMutated, err := v2FixtureContents(mod.ID, scenario.ID, entry.Shape.CaptureCoordinate, entry.Shape.Format)
 			if err != nil {
 				return unsupported(entry.Shape.CaptureCoordinate, "fixture content cannot satisfy its declared format")
 			}
-			targetPlan.Members = []V2FixtureFile{{Relative: ".", Path: source, Captured: captured, Mutated: mutated}}
+			targetMutated := sourceMutated
+			if compiled.Migration != nil {
+				_, targetMutated, err = v2FixtureContents(mod.ID, scenario.ID, entry.Shape.RestoreCoordinate, entry.Shape.Format)
+				if err != nil {
+					return unsupported(entry.Shape.RestoreCoordinate, "target fixture content cannot satisfy its declared format")
+				}
+			}
+			capturePlan.Members = []V2FixtureFile{{Relative: ".", Path: source, Captured: captured, Mutated: sourceMutated}}
+			targetPlan.Members = []V2FixtureFile{{Relative: ".", Path: target, Captured: captured, Mutated: targetMutated}}
 		}
-		if context.ValidateSandboxPath(source) != nil {
+		if context.ValidateSandboxPath(source) != nil || context.ValidateSandboxPath(target) != nil {
 			return bad(entry.Shape.CaptureCoordinate, "resolved fixture target left validation authority")
 		}
+		plan.CaptureTargets = append(plan.CaptureTargets, capturePlan)
 		plan.Targets = append(plan.Targets, targetPlan)
-		plan.Validations += len(entry.Validations)
+		plan.CaptureValidations += len(entry.Validations)
+		plan.MigrationValidations += len(entry.MigrationValidations)
+		plan.Validations += len(entry.TargetValidations)
+		if compiled.Migration == nil {
+			plan.Validations += len(entry.Validations)
+		}
 	}
-	if len(plan.Targets) == 0 || plan.Validations != len(compiled.Generation.Validate) || plan.Validations == 0 {
+	if len(plan.CaptureTargets) == 0 || len(plan.CaptureTargets) != len(plan.Targets) ||
+		plan.CaptureValidations != len(compiled.Generation.Validate) || plan.CaptureValidations == 0 ||
+		plan.Validations != len(compiled.TargetGeneration.Validate) || plan.Validations == 0 ||
+		compiled.Migration != nil && plan.MigrationValidations != len(compiled.Migration.Validate) {
 		return unsupported("operations", "fixture plan is vacuous or omits production validation")
 	}
 	return plan, nil
@@ -215,7 +278,7 @@ func discoverV2FixtureInstances(context *validationmode.Context, mod *modules.Mo
 	if err != nil {
 		return bad("detector", "production path detector rejected fixture root")
 	}
-	if len(instances) != 1 || instances[0].Root != root || instances[0].Evidence.Type != "path" || instances[0].Version.Raw != compiled.Definition.SourceVersion {
+	if len(instances) != 1 || instances[0].Root != root || instances[0].Evidence.Type != "path" || instances[0].Version.Raw != inventory.Version {
 		return bad("detector", "production path detector evidence differs from fixture authority")
 	}
 	return instances, nil
@@ -323,14 +386,16 @@ func v2MatchesExclude(relative, rawPattern string) bool {
 	return false
 }
 
-func (plan *V2FixturePlan) MaterializeCaptured() *Failure { return plan.materialize(false) }
-func (plan *V2FixturePlan) Mutate() *Failure              { return plan.materialize(true) }
-func (plan *V2FixturePlan) CompareCaptured() *Failure     { return plan.compare(false) }
-func (plan *V2FixturePlan) CompareMutated() *Failure      { return plan.compare(true) }
+func (plan *V2FixturePlan) MaterializeCaptured() *Failure {
+	return plan.materialize(plan.CaptureTargets, false)
+}
+func (plan *V2FixturePlan) Mutate() *Failure          { return plan.materialize(plan.Targets, true) }
+func (plan *V2FixturePlan) CompareCaptured() *Failure { return plan.compare(false) }
+func (plan *V2FixturePlan) CompareMutated() *Failure  { return plan.compare(true) }
 
-func (plan *V2FixturePlan) materialize(mutated bool) *Failure {
-	for index := range plan.Targets {
-		target := &plan.Targets[index]
+func (plan *V2FixturePlan) materialize(targets []V2FixtureTarget, mutated bool) *Failure {
+	for index := range targets {
+		target := &targets[index]
 		if failure := plan.clearTarget(target); failure != nil {
 			return failure
 		}

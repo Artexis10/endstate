@@ -65,7 +65,7 @@ func Run(ctx context.Context, request Request) (Result, error) {
 		return failedSelectionResult(selected, fail(CodeIsolationFailure, "setup", "runtime", "prepare disposable runtime")), err
 	}
 	var result Result
-	if selected.scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 {
+	if selected.scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 || selected.scenario.Mode == validationmatrix.ScenarioConfigMigrationV2 {
 		result = executeV2Journey(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
 	} else {
 		result = executeJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
@@ -129,7 +129,7 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	}
 
 	inventory := validationInventory(selected.module)
-	if selected.scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 {
+	if selected.scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 || selected.scenario.Mode == validationmatrix.ScenarioConfigMigrationV2 {
 		inventory.Version = selected.v2Fixture.Definition.SourceVersion
 	}
 	descriptor := validationmode.Descriptor{
@@ -170,8 +170,17 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		_ = cleanup()
 		return nil, func() error { return nil }, fixtureFailure, nil
 	}
+	var transition *v2VersionTransition
+	if selected.scenario.Mode == validationmatrix.ScenarioConfigMigrationV2 {
+		transition, fixtureFailure = compileV2VersionTransition(root, selected.scenario, selected.v2Fixture, selected.module, inventory, nonce, descriptor, data)
+		if fixtureFailure != nil {
+			_ = cleanup()
+			return nil, func() error { return nil }, fixtureFailure, nil
+		}
+	}
 	runtime := &scenarioRuntime{
 		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan,
+		V2Transition:  transition,
 		AuthorityRoot: authorityRoot, Root: root, GuardRoot: guardRoot, ChildWorkingDir: childWorkingDir,
 		Nonce: nonce, Inventory: inventory,
 	}

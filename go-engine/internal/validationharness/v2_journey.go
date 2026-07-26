@@ -10,7 +10,15 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
 
-func executeV2Journey(ctx context.Context, runtime *scenarioRuntime, executor *cliJourneyExecutor) Result {
+type v2JourneyExecutor interface {
+	CaptureV2(context.Context, *scenarioRuntime) (captureEvidence, *Failure)
+	TransitionV2(context.Context, *scenarioRuntime, captureEvidence) *Failure
+	RebuildV2(context.Context, *scenarioRuntime, captureEvidence) *Failure
+	RevertV2(context.Context, *scenarioRuntime) *Failure
+	VerifyV2(context.Context, *scenarioRuntime, captureEvidence) *Failure
+}
+
+func executeV2Journey(ctx context.Context, runtime *scenarioRuntime, executor v2JourneyExecutor) Result {
 	result := Result{
 		SchemaVersion: ResultSchemaVersion, ModuleID: runtime.Module.ID, ModuleRevision: runtime.Module.Revision,
 		ScenarioID: runtime.Scenario.ID, Kind: runtime.Scenario.Mode, Status: ResultStatusFailed,
@@ -43,6 +51,11 @@ func executeV2Journey(ctx context.Context, runtime *scenarioRuntime, executor *c
 	}
 	for name, count := range evidence.AssertionCounts {
 		result.AssertionCounts[name] += count
+	}
+	if runtime.Scenario.Mode == validationmatrix.ScenarioConfigMigrationV2 {
+		if failure := timed("transition", func() *Failure { return executor.TransitionV2(ctx, runtime, evidence) }); failure != nil {
+			return failResult(failure)
+		}
 	}
 	if failure := timed("mutation", runtime.V2Plan.Mutate); failure != nil {
 		return failResult(failure)

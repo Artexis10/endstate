@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -212,35 +213,47 @@ type v2TransactionDescriptorIdentity struct {
 }
 
 func validateV2Transaction(ctx context.Context, runtime *scenarioRuntime, root string, items []restore.RestoreResult) (v2TransactionBinding, *Failure) {
+	contractCode := CodeGenerationContract
+	if runtime.V2Plan.Compiled.Migration != nil {
+		contractCode = CodeMigrationContract
+	}
 	data, _, err := safepath.ReadRegularFile(filepath.Join(root, "transaction.json"))
 	var descriptor v2TransactionDescriptor
 	if err != nil || strictV2JSON(data, &descriptor) != nil || descriptor.Format != "endstate.config-restore-transaction" || descriptor.Version != 1 ||
 		descriptor.TransactionID != filepath.Base(root) || !v2OpaqueID(descriptor.TransactionID) || !v2OpaqueID(descriptor.RestoreRunID) ||
 		!strings.HasPrefix(descriptor.RunID, "apply-") || descriptor.CaptureID != runtime.V2Plan.CaptureID || !v2Digest(descriptor.DescriptorDigest) {
-		return v2TransactionBinding{}, fail(CodeGenerationContract, "rebuild", "transaction.json", "transaction descriptor identity is malformed")
+		return v2TransactionBinding{}, fail(contractCode, "rebuild", "transaction.json", "transaction descriptor identity is malformed")
 	}
 	started, err := time.Parse(time.RFC3339Nano, descriptor.RunStartedAtUTC)
 	identity := v2TransactionDescriptorIdentity{descriptor.Format, descriptor.Version, descriptor.TransactionID, descriptor.RestoreRunID, descriptor.RunID, descriptor.RunStartedAtUTC, descriptor.MutationOrdinal, descriptor.CaptureID}
 	encoded, _ := json.Marshal(identity)
 	digest := sha256.Sum256(encoded)
 	if err != nil || started.Location() != time.UTC || descriptor.DescriptorDigest != hex.EncodeToString(digest[:]) {
-		return v2TransactionBinding{}, fail(CodeGenerationContract, "rebuild", "transaction.json", "transaction descriptor timestamp or digest differs")
+		return v2TransactionBinding{}, fail(contractCode, "rebuild", "transaction.json", "transaction descriptor timestamp or digest differs")
 	}
 	intent, err := configrestore.ReadJournalIntentWithBoundary(ctx, root, v2HostBoundary{runtime.validationContext()})
 	if err != nil || intent == nil || intent.State() != configrestore.JournalPending || !v2Digest(intent.Digest()) {
-		return v2TransactionBinding{}, fail(CodeGenerationContract, "rebuild", "intent", "transaction intent or physical snapshots are invalid")
+		return v2TransactionBinding{}, fail(contractCode, "rebuild", "intent", "transaction intent or physical snapshots are invalid")
 	}
 	lineage := intent.Lineage()
 	plan := runtime.V2Plan
+	targetInstanceID := plan.Instance.ID
+	targetGenerationID := plan.Compiled.Generation.ID
+	wantMigrationPath := []string(nil)
+	if plan.Compiled.Migration != nil {
+		targetInstanceID = plan.TargetInstance.ID
+		targetGenerationID = plan.Compiled.TargetGeneration.ID
+		wantMigrationPath = []string{plan.Compiled.Generation.ID, plan.Compiled.TargetGeneration.ID}
+	}
 	if lineage.RunID != descriptor.RunID || lineage.CaptureID != plan.CaptureID || lineage.ModuleID != runtime.Module.ID || lineage.ConfigSetID != plan.Compiled.Set.ID ||
-		lineage.TargetInstanceID != plan.Instance.ID || lineage.SourceGeneration != plan.Compiled.Generation.ID || lineage.TargetGeneration != plan.Compiled.Generation.ID ||
-		len(lineage.MigrationPath) != 0 || lineage.SourceGenerationFingerprint != plan.Compiled.Generation.Fingerprint ||
+		lineage.TargetInstanceID != targetInstanceID || lineage.SourceGeneration != plan.Compiled.Generation.ID || lineage.TargetGeneration != targetGenerationID ||
+		!slices.Equal(lineage.MigrationPath, wantMigrationPath) || lineage.SourceGenerationFingerprint != plan.Compiled.Generation.Fingerprint ||
 		lineage.CaptureModuleRevision != runtime.Module.Revision || lineage.RestoreModuleRevision != runtime.Module.Revision {
-		return v2TransactionBinding{}, fail(CodeGenerationContract, "rebuild", "intent.lineage", "transaction lineage differs from direct resolution")
+		return v2TransactionBinding{}, fail(contractCode, "rebuild", "intent.lineage", "transaction lineage differs from exact schema-v2 resolution")
 	}
 	actions := intent.Actions()
 	if len(actions) != len(plan.Targets) || len(items) != len(plan.Targets) || len(intent.Validations()) != plan.Validations {
-		return v2TransactionBinding{}, fail(CodeGenerationContract, "rebuild", "intent", "transaction actions or target-generation validations are incomplete")
+		return v2TransactionBinding{}, fail(contractCode, "rebuild", "intent", "transaction actions or target-generation validations are incomplete")
 	}
 	binding := v2TransactionBinding{Root: root, ID: descriptor.TransactionID, DescriptorDigest: descriptor.DescriptorDigest, IntentDigest: intent.Digest(), Targets: map[string]string{}}
 	for index, action := range actions {
@@ -254,7 +267,7 @@ func validateV2Transaction(ctx context.Context, runtime *scenarioRuntime, root s
 			!v2Digest(action.SourceDigest) || action.Prior.Kind != v2TargetStateKind(target) || action.Desired.Kind != v2TargetStateKind(target) ||
 			len(action.MissingParents) != 0 || !equalV2JournalState(action.Prior, expectedPrior) || !equalV2JournalState(action.Desired, expectedDesired) ||
 			action.SourceDigest != expectedSource.Digest {
-			return v2TransactionBinding{}, fail(CodeGenerationContract, "rebuild", "intent.actions", "transaction action does not bind exact target/prior/desired state")
+			return v2TransactionBinding{}, fail(contractCode, "rebuild", "intent.actions", "transaction action does not bind exact target/prior/desired state")
 		}
 		backup, err := resolveV2SemanticPath(runtime, item.BackupPath, root)
 		if err != nil {
@@ -265,15 +278,19 @@ func validateV2Transaction(ctx context.Context, runtime *scenarioRuntime, root s
 		}
 		binding.Targets[strings.ToLower(item.Target)] = backup
 	}
+	targetValidations := plan.Compiled.TargetGeneration.Validate
+	if plan.Compiled.Migration == nil && len(targetValidations) == 0 {
+		targetValidations = plan.Compiled.Generation.Validate
+	}
 	for index, validation := range intent.Validations() {
-		if index >= len(plan.Compiled.Generation.Validate) {
-			return v2TransactionBinding{}, fail(CodeGenerationContract, "rebuild", "intent.validations", "transaction has an extra target-generation validation")
+		if index >= len(targetValidations) {
+			return v2TransactionBinding{}, fail(contractCode, "rebuild", "intent.validations", "transaction has an extra target-generation validation")
 		}
-		declaration := plan.Compiled.Generation.Validate[index]
+		declaration := targetValidations[index]
 		hostPath, hostErr := (v2HostBoundary{runtime.validationContext()}).ResolveFilesystemIdentity(validation.HostPath)
 		wantHost, found := v2ValidationHostPath(plan, declaration.Path)
 		if validation.Type != declaration.Type || validation.Path != declaration.Path || validation.JSONPath != declaration.JSONPath || validation.Section != declaration.Section || validation.Key != declaration.Key || hostErr != nil || !found || !strings.EqualFold(filepath.Clean(hostPath), filepath.Clean(wantHost)) {
-			return v2TransactionBinding{}, fail(CodeGenerationContract, "rebuild", "intent.validations", "target-generation validation does not bind the production primitive and resolved target")
+			return v2TransactionBinding{}, fail(contractCode, "rebuild", "intent.validations", "target-generation validation does not bind the production primitive and resolved target")
 		}
 	}
 	terminalDigest, failure := validateV2CommittedMarker(root, intent.Digest())

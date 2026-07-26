@@ -53,21 +53,27 @@ type v2FixtureMember struct {
 }
 
 type v2CompiledFixture struct {
-	Definition v2FixtureDefinition
-	Detector   modules.InstanceDetectorDef
-	Set        modules.ConfigSetDef
-	Generation modules.GenerationDef
-	Entries    []v2CompiledEntry
+	ModuleID         string
+	ModuleRevision   string
+	Definition       v2FixtureDefinition
+	Detector         modules.InstanceDetectorDef
+	Set              modules.ConfigSetDef
+	Generation       modules.GenerationDef
+	TargetGeneration modules.GenerationDef
+	Migration        *modules.MigrationEdgeDef
+	Entries          []v2CompiledEntry
 }
 
 type v2CompiledEntry struct {
-	Shape       v2FixtureEntry
-	Capture     modules.CaptureFile
-	Restore     modules.RestoreDef
-	Validations []modules.ValidationDef
-	CaptureOnly []string
-	RestoreOnly []string
-	Overlapping []string
+	Shape                v2FixtureEntry
+	Capture              modules.CaptureFile
+	Restore              modules.RestoreDef
+	Validations          []modules.ValidationDef
+	CaptureOnly          []string
+	RestoreOnly          []string
+	Overlapping          []string
+	MigrationValidations []modules.ValidationDef
+	TargetValidations    []modules.ValidationDef
 }
 
 func decodeV2Fixture(raw []byte) (v2FixtureDefinition, error) {
@@ -154,8 +160,10 @@ func compileV2FixtureAt(repoRoot string, mod *modules.Module, scenario validatio
 	generationFailure := func(coordinate, detail string) (v2CompiledFixture, *Failure) {
 		return v2CompiledFixture{}, fail(CodeGenerationContract, "fixture", coordinate, detail)
 	}
-	if mod == nil || mod.EffectiveSchemaVersion() != 2 || mod.Config == nil || scenario.Mode != validationmatrix.ScenarioConfigGenerationV2 || scenario.Expected == nil {
-		return unsupported("schema", "direct generation fixture requires one schema-v2 generation scenario")
+	migrating := scenario.Mode == validationmatrix.ScenarioConfigMigrationV2
+	if mod == nil || mod.EffectiveSchemaVersion() != 2 || mod.Config == nil ||
+		!migrating && scenario.Mode != validationmatrix.ScenarioConfigGenerationV2 || scenario.Expected == nil {
+		return unsupported("schema", "fixture requires one schema-v2 generation or migration scenario")
 	}
 	if scenario.Fixture.Type != validationmatrix.FixtureDeclarative || repoRoot == "" || !filepath.IsAbs(repoRoot) || filepath.Clean(repoRoot) != repoRoot {
 		return unsupported("fixture", "schema-v2 generation fixture must be declarative and repository-contained")
@@ -176,8 +184,11 @@ func compileV2FixtureAt(repoRoot string, mod *modules.Module, scenario validatio
 	if err != nil {
 		return unsupported("fixture.path", "fixture JSONC is malformed or unsupported")
 	}
-	if definition.TargetVersion != "" && definition.TargetVersion != definition.SourceVersion {
+	if !migrating && definition.TargetVersion != "" && definition.TargetVersion != definition.SourceVersion {
 		return unsupported("targetVersion", "direct generation targetVersion must equal sourceVersion")
+	}
+	if migrating && (definition.TargetVersion == "" || definition.TargetVersion == definition.SourceVersion) {
+		return failFixture(CodeMigrationContract, "targetVersion", "migration targetVersion must declare a distinct forward host state")
 	}
 
 	var detectors []modules.InstanceDetectorDef
@@ -205,10 +216,14 @@ func compileV2FixtureAt(repoRoot string, mod *modules.Module, scenario validatio
 	}
 	set := sets[0]
 	generation, err := modules.SelectGeneration(&set, modules.NewVersionEvidence(definition.SourceVersion))
-	if err != nil || generation == nil || generation.ID != scenario.Expected.GenerationID {
+	wantSourceGeneration := scenario.Expected.GenerationID
+	if migrating {
+		wantSourceGeneration = scenario.Expected.MigrationFrom
+	}
+	if err != nil || generation == nil || generation.ID != wantSourceGeneration {
 		return generationFailure("sourceVersion", "sourceVersion does not select the expected production generation")
 	}
-	if generation.Fingerprint != scenario.Expected.Fingerprint {
+	if !migrating && generation.Fingerprint != scenario.Expected.Fingerprint {
 		return generationFailure("expected.fingerprint", "scenario fingerprint is not the current production generation fingerprint")
 	}
 	if generation.Capture == nil || len(generation.Capture.Files) == 0 || len(generation.Restore) == 0 {
@@ -218,14 +233,43 @@ func compileV2FixtureAt(repoRoot string, mod *modules.Module, scenario validatio
 		return unsupported("operations", "direct generation fixture supports file capture operations only")
 	}
 
-	compiled := v2CompiledFixture{Definition: definition, Detector: detector, Set: set, Generation: *generation}
+	targetGeneration := generation
+	var migration *modules.MigrationEdgeDef
+	if migrating {
+		targetGeneration, err = modules.SelectGeneration(&set, modules.NewVersionEvidence(definition.TargetVersion))
+		if err != nil || targetGeneration == nil || targetGeneration.ID != scenario.Expected.GenerationID ||
+			targetGeneration.ID != scenario.Expected.MigrationTo || targetGeneration.Fingerprint != scenario.Expected.Fingerprint {
+			return failFixture(CodeMigrationContract, "targetVersion", "targetVersion does not select the exact expected production migration target")
+		}
+		for index := range set.Migrations {
+			candidate := &set.Migrations[index]
+			if candidate.From == scenario.Expected.MigrationFrom && candidate.To == scenario.Expected.MigrationTo {
+				if migration != nil {
+					return failFixture(CodeMigrationContract, "migration", "authored migration edge is ambiguous")
+				}
+				migration = candidate
+			}
+		}
+		if migration == nil || migration.From != generation.ID || migration.To != targetGeneration.ID ||
+			len(migration.Operations) != 1 || migration.Operations[0].Type != "file-move" || len(migration.Validate) == 0 {
+			return failFixture(CodeMigrationContract, "migration", "scenario does not bind one exact forward file-move edge with validation")
+		}
+	}
+	if len(targetGeneration.Restore) == 0 || len(targetGeneration.Validate) == 0 {
+		return unsupported("operations", "selected target generation has no restore or validation operations")
+	}
+	compiled := v2CompiledFixture{
+		ModuleID: mod.ID, ModuleRevision: mod.Revision,
+		Definition: definition, Detector: detector, Set: set, Generation: *generation,
+		TargetGeneration: *targetGeneration, Migration: migration,
+	}
 	usedCapture := map[int]struct{}{}
 	usedRestore := map[int]struct{}{}
 	for entryIndex, shape := range definition.Entries {
 		captureIndex := coordinateIndex(shape.CaptureCoordinate, "config.sets[%d].generations[%d].capture.files[%d]", mod, set.ID, generation.ID)
-		restoreIndex := coordinateIndex(shape.RestoreCoordinate, "config.sets[%d].generations[%d].restore[%d]", mod, set.ID, generation.ID)
-		if captureIndex < 0 || captureIndex >= len(generation.Capture.Files) || restoreIndex < 0 || restoreIndex >= len(generation.Restore) {
-			return unsupported(fmt.Sprintf("entries[%d]", entryIndex), "fixture coordinate does not select the current production generation")
+		restoreIndex := coordinateIndex(shape.RestoreCoordinate, "config.sets[%d].generations[%d].restore[%d]", mod, set.ID, targetGeneration.ID)
+		if captureIndex < 0 || captureIndex >= len(generation.Capture.Files) || restoreIndex < 0 || restoreIndex >= len(targetGeneration.Restore) {
+			return unsupported(fmt.Sprintf("entries[%d]", entryIndex), "fixture coordinate does not select the exact source capture and target restore")
 		}
 		if _, duplicate := usedCapture[captureIndex]; duplicate {
 			return unsupported(shape.CaptureCoordinate, "capture coordinate is duplicated")
@@ -235,9 +279,18 @@ func compileV2FixtureAt(repoRoot string, mod *modules.Module, scenario validatio
 		}
 		usedCapture[captureIndex] = struct{}{}
 		usedRestore[restoreIndex] = struct{}{}
-		capture, restore := generation.Capture.Files[captureIndex], generation.Restore[restoreIndex]
-		if restore.Type != "copy" || !restore.Backup || restore.Source != capture.Dest || restore.Target != capture.Source {
+		capture, restore := generation.Capture.Files[captureIndex], targetGeneration.Restore[restoreIndex]
+		if restore.Type != "copy" || !restore.Backup {
 			return unsupported(shape.RestoreCoordinate, "capture and restore are not one exact backup-enabled copy pair")
+		}
+		if !migrating && (restore.Source != capture.Dest || restore.Target != capture.Source) {
+			return unsupported(shape.RestoreCoordinate, "direct capture and restore paths are not symmetric")
+		}
+		if migrating {
+			operation := migration.Operations[0]
+			if operation.Source != capture.Dest || operation.Target != restore.Source || strings.EqualFold(capture.Source, restore.Target) {
+				return failFixture(CodeMigrationContract, shape.RestoreCoordinate, "file-move edge does not bind the source capture to a distinct target restore")
+			}
 		}
 		if shape.Kind == fixtureKindFile && (strings.Contains(capture.Source, "${instance.root}") || strings.Contains(restore.Target, "${instance.root}")) {
 			return unsupported(shape.CaptureCoordinate, "instance-root capture must declare a directory tree")
@@ -262,7 +315,7 @@ func compileV2FixtureAt(repoRoot string, mod *modules.Module, scenario validatio
 		}
 		compiled.Entries = append(compiled.Entries, entry)
 	}
-	if len(usedCapture) != len(generation.Capture.Files) || len(usedRestore) != len(generation.Restore) {
+	if len(usedCapture) != len(generation.Capture.Files) || len(usedRestore) != len(targetGeneration.Restore) {
 		return unsupported("fixture.entries", "fixture must cover every selected capture and restore coordinate exactly once")
 	}
 	for validationIndex, validation := range generation.Validate {
@@ -283,8 +336,44 @@ func compileV2FixtureAt(repoRoot string, mod *modules.Module, scenario validatio
 	if len(generation.Validate) == 0 {
 		return unsupported("validate", "selected production generation has no validation primitive")
 	}
+	if migrating {
+		for validationIndex, validation := range migration.Validate {
+			matched := -1
+			for entryIndex := range compiled.Entries {
+				if v2PathValidationWitnessed(compiled.Entries[entryIndex].Shape, compiled.Entries[entryIndex].Restore.Source, validation) {
+					if matched >= 0 {
+						return failFixture(CodeMigrationContract, fmt.Sprintf("migration.validate[%d]", validationIndex), "migration validation is ambiguously witnessed")
+					}
+					matched = entryIndex
+				}
+			}
+			if matched < 0 {
+				return failFixture(CodeMigrationContract, fmt.Sprintf("migration.validate[%d]", validationIndex), "migration validation has no exact target fixture witness")
+			}
+			compiled.Entries[matched].MigrationValidations = append(compiled.Entries[matched].MigrationValidations, validation)
+		}
+		for validationIndex, validation := range targetGeneration.Validate {
+			matched := -1
+			for entryIndex := range compiled.Entries {
+				if v2PathValidationWitnessed(compiled.Entries[entryIndex].Shape, compiled.Entries[entryIndex].Restore.Source, validation) {
+					if matched >= 0 {
+						return failFixture(CodeMigrationContract, fmt.Sprintf("target.validate[%d]", validationIndex), "target validation is ambiguously witnessed")
+					}
+					matched = entryIndex
+				}
+			}
+			if matched < 0 {
+				return failFixture(CodeMigrationContract, fmt.Sprintf("target.validate[%d]", validationIndex), "target validation has no exact fixture witness")
+			}
+			compiled.Entries[matched].TargetValidations = append(compiled.Entries[matched].TargetValidations, validation)
+		}
+	}
 	_ = os.PathSeparator // retain platform-aware filepath semantics in this compiler
 	return compiled, nil
+}
+
+func failFixture(code, coordinate, detail string) (v2CompiledFixture, *Failure) {
+	return v2CompiledFixture{}, fail(code, "fixture", coordinate, detail)
 }
 
 func coordinateIndex(coordinate, format string, mod *modules.Module, setID, generationID string) int {
@@ -316,8 +405,12 @@ func stringSet(values []string) map[string]struct{} {
 }
 
 func v2ValidationWitnessed(shape v2FixtureEntry, capture modules.CaptureFile, validation modules.ValidationDef) bool {
+	return v2PathValidationWitnessed(shape, capture.Dest, validation)
+}
+
+func v2PathValidationWitnessed(shape v2FixtureEntry, root string, validation modules.ValidationDef) bool {
 	path := filepath.ToSlash(validation.Path)
-	destination := filepath.ToSlash(capture.Dest)
+	destination := filepath.ToSlash(root)
 	if shape.Kind == fixtureKindFile {
 		if path != destination {
 			return false

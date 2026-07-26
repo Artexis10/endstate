@@ -27,7 +27,7 @@ var v2Assertions = map[string]struct{}{
 	validationmatrix.AssertionContent: {}, validationmatrix.AssertionRebuild: {},
 	validationmatrix.AssertionVerify: {}, validationmatrix.AssertionNestedSummary: {},
 	validationmatrix.AssertionRevert: {}, validationmatrix.AssertionGeneration: {},
-	validationmatrix.AssertionValidation: {},
+	validationmatrix.AssertionValidation: {}, validationmatrix.AssertionMigration: {},
 }
 
 var v2Proofs = map[validationmatrix.ProofLevel]struct{}{
@@ -40,7 +40,7 @@ func evaluateAssertions(scenario validationmatrix.Scenario, counts map[string]in
 	}
 	allowedAssertions, allowedProofs := v1Assertions, v1Proofs
 	canonical := []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract, validationmatrix.ProofConfigRoundtripV1}
-	if scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 {
+	if scenario.Mode == validationmatrix.ScenarioConfigGenerationV2 || scenario.Mode == validationmatrix.ScenarioConfigMigrationV2 {
 		allowedAssertions, allowedProofs = v2Assertions, v2Proofs
 		canonical = []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract, validationmatrix.ProofConfigRoundtripV2}
 	}
