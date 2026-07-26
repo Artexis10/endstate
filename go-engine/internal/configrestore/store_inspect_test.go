@@ -5,6 +5,9 @@ package configrestore
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -383,7 +386,14 @@ func TestInspectStoreRetainsLegacyJournalActions(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	journalBytes := []byte(`{"runId":"apply-legacy-actions","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[{"resolvedSourcePath":"source-one","targetPath":"target-one","backupRequested":true,"backupCreated":true,"backupPath":"backup-one","action":"restored"},{"resolvedSourcePath":"source-two","targetPath":"target-two","action":"skipped"}]}`)
+	backup := filepath.Join(authority, "state", "backups", "apply-legacy-actions", "backup-one")
+	if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backup, []byte("prior"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	journalBytes := []byte(`{"runId":"apply-legacy-actions","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[{"resolvedSourcePath":"source-one","targetPath":"target-one","backupRequested":true,"backupCreated":true,"backupPath":"$ENDSTATE_ROOT/state/backups/apply-legacy-actions/backup-one","action":"restored"},{"resolvedSourcePath":"source-two","targetPath":"target-two","action":"skipped"}]}`)
 	if err := os.WriteFile(journal, journalBytes, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -396,14 +406,140 @@ func TestInspectStoreRetainsLegacyJournalActions(t *testing.T) {
 	if _, err := guard.RegisterLegacyJournal(journal); err != nil {
 		t.Fatal(err)
 	}
+	spy := &auditingInspectionFS{storeInspectionFS: osStoreInspectionFS{}}
+	storeInspectionFilesystem = spy
+	t.Cleanup(func() { storeInspectionFilesystem = osStoreInspectionFS{} })
 	inspection, err := InspectStoreWithBoundary(filepath.Join(stateDir, "config-restore", "v1"), true, boundary)
 	if err != nil {
 		t.Fatal(err)
 	}
 	actions := inspection.Runs()[0].Members()[0].Actions()
-	if len(actions) != 2 || actions[0].Index != 0 || actions[1].Index != 1 || actions[0].TargetIdentity == "" || actions[0].SourceIdentity == "" || actions[0].TargetIdentity == actions[1].TargetIdentity {
+	if len(actions) != 2 || actions[0].Index != 0 || actions[1].Index != 1 || actions[0].TargetIdentity == "" || actions[0].SourceIdentity == "" || actions[0].TargetIdentity == actions[1].TargetIdentity || !actions[0].Backup.Exists || actions[0].Backup.Digest == "" || actions[0].Backup.Kind != StateFile {
 		t.Fatalf("legacy actions = %#v", actions)
 	}
+	journalOpens := 0
+	for _, path := range spy.opened {
+		if path == journal {
+			journalOpens++
+		}
+	}
+	if journalOpens != 1 {
+		t.Fatalf("legacy journal opens = %d, want 1", journalOpens)
+	}
+	if err := os.Remove(backup); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := InspectStoreWithBoundary(filepath.Join(stateDir, "config-restore", "v1"), true, boundary); err == nil {
+		t.Fatal("missing legacy backup was accepted")
+	}
+	linkedTarget := filepath.Join(authority, "state", "backups", "apply-legacy-actions", "linked-target")
+	if err := os.WriteFile(linkedTarget, []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(linkedTarget, backup); err == nil {
+		if _, err := InspectStoreWithBoundary(filepath.Join(stateDir, "config-restore", "v1"), true, boundary); err == nil {
+			t.Fatal("linked legacy backup was accepted")
+		}
+	}
+}
+
+func TestInspectStoreRejectsInvalidLegacyActionEvidence(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		entry  string
+		backup bool
+	}{
+		{name: "missing created backup", entry: `{"resolvedSourcePath":"source","targetPath":"target","backupRequested":true,"backupCreated":true,"backupPath":"$ENDSTATE_ROOT/state/backups/apply-legacy-invalid/backup","action":"restored"}`},
+		{name: "backup path without creation", entry: `{"resolvedSourcePath":"source","targetPath":"target","backupCreated":false,"backupPath":"$ENDSTATE_ROOT/state/backups/apply-legacy-invalid/backup","action":"restored"}`, backup: true},
+		{name: "unknown action", entry: `{"resolvedSourcePath":"source","targetPath":"target","action":"../../invented"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			authority := t.TempDir()
+			stateDir := filepath.Join(authority, "state")
+			journal := filepath.Join(authority, "logs", "restore-journal.json")
+			if err := os.MkdirAll(filepath.Dir(journal), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if test.backup {
+				backup := filepath.Join(authority, "state", "backups", "apply-legacy-invalid", "backup")
+				if err := os.MkdirAll(filepath.Dir(backup), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(backup, []byte("prior"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			journalBytes := []byte(`{"runId":"apply-legacy-invalid","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[` + test.entry + `]}`)
+			if err := os.WriteFile(journal, journalBytes, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			boundary := &recordingHostBoundary{root: authority, resolved: map[string]string{}, projectRootToken: "$ENDSTATE_ROOT/"}
+			guard, err := BeginLiveWithBoundary(context.Background(), stateDir, "apply-legacy-invalid", nil, boundary)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = guard.Close() })
+			if _, err := guard.RegisterLegacyJournal(journal); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := InspectStoreWithBoundary(guard.storeRoot, true, boundary); err == nil {
+				t.Fatal("invalid legacy action evidence was accepted")
+			}
+		})
+	}
+}
+
+func TestInspectLegacyJournalsEnforceAggregateBudgets(t *testing.T) {
+	writeJournal := func(t *testing.T, root, runID string, actionCount int) (string, string, int64) {
+		t.Helper()
+		entry := `{"resolvedSourcePath":"source","targetPath":"target","action":"restored"}`
+		data := []byte(`{"runId":"` + runID + `","timestamp":"2026-01-01T00:00:00Z","manifestPath":"manifest","manifestDir":"manifest","entries":[` + strings.TrimSuffix(strings.Repeat(entry+`,`, actionCount), `,`) + `]}`)
+		path := filepath.Join(root, runID+".json")
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		digest := sha256.Sum256(data)
+		return path, hex.EncodeToString(digest[:]), int64(len(data))
+	}
+
+	t.Run("journal count", func(t *testing.T) {
+		root := t.TempDir()
+		budget := legacyInspectionBudget{}
+		for index := 0; index <= maxStoreInspectionJournals; index++ {
+			path, digest, _ := writeJournal(t, root, fmt.Sprintf("journal-%03d", index), 1)
+			_, err := inspectLegacyJournal(storeInspectionFilesystem, path, digest, &budget)
+			if index < maxStoreInspectionJournals && err != nil {
+				t.Fatalf("journal %d: %v", index, err)
+			}
+			if index == maxStoreInspectionJournals && err == nil {
+				t.Fatal("aggregate legacy journal count was accepted")
+			}
+		}
+	})
+
+	t.Run("action entries", func(t *testing.T) {
+		root := t.TempDir()
+		budget := legacyInspectionBudget{}
+		for index := 0; ; index++ {
+			path, digest, _ := writeJournal(t, root, fmt.Sprintf("actions-%03d", index), 17)
+			_, err := inspectLegacyJournal(storeInspectionFilesystem, path, digest, &budget)
+			if err != nil {
+				break
+			}
+		}
+		if budget.entries != maxStoreInspectionEntries-16 {
+			t.Fatalf("retained legacy entries = %d, want %d", budget.entries, maxStoreInspectionEntries-16)
+		}
+	})
+
+	t.Run("journal bytes", func(t *testing.T) {
+		root := t.TempDir()
+		path, digest, size := writeJournal(t, root, "bytes", 1)
+		budget := legacyInspectionBudget{bytes: maxStoreInspectionBytes - size + 1}
+		if _, err := inspectLegacyJournal(storeInspectionFilesystem, path, digest, &budget); err == nil {
+			t.Fatal("aggregate legacy journal bytes were accepted")
+		}
+	})
 }
 
 func TestInspectStoreRejectsForeignAbsoluteLegacyJournalBeforeRead(t *testing.T) {
@@ -687,6 +823,7 @@ func TestInspectStoreRejectsTamperedOrReorderedJournalActions(t *testing.T) {
 type auditingInspectionFS struct {
 	storeInspectionFS
 	operations []string
+	opened     []string
 }
 
 func (fs *auditingInspectionFS) Lstat(path string) (os.FileInfo, error) {
@@ -699,6 +836,7 @@ func (fs *auditingInspectionFS) ReadDir(path string) ([]os.DirEntry, error) {
 }
 func (fs *auditingInspectionFS) Open(path string) (storeInspectionFile, error) {
 	fs.operations = append(fs.operations, "open")
+	fs.opened = append(fs.opened, path)
 	return fs.storeInspectionFS.Open(path)
 }
 

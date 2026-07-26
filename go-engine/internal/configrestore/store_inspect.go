@@ -19,10 +19,11 @@ import (
 )
 
 const (
-	maxStoreInspectionEntries = 4096
-	maxStoreInspectionDepth   = 12
-	maxStoreInspectionFile    = 8 << 20
-	maxStoreInspectionBytes   = 64 << 20
+	maxStoreInspectionEntries  = 4096
+	maxStoreInspectionDepth    = 12
+	maxStoreInspectionFile     = 8 << 20
+	maxStoreInspectionBytes    = 64 << 20
+	maxStoreInspectionJournals = 256
 )
 
 // StoreInspection is an immutable, value-only view of one closed config
@@ -86,7 +87,7 @@ func (m StoreMemberInspection) Actions() []StoreActionInspection {
 type StoreActionInspection struct {
 	Index          int
 	Kind           ActionKind
-	Status         string
+	Status         StoreActionStatus
 	Strategy       string
 	SourceIdentity string
 	SourceDigest   string
@@ -97,6 +98,18 @@ type StoreActionInspection struct {
 	DesiredKind    StateKind
 	Backup         StoreBackupInspection
 }
+
+// StoreActionStatus is a closed legacy restore outcome vocabulary.
+type StoreActionStatus string
+
+const (
+	StoreActionStatusFailed               StoreActionStatus = "failed"
+	StoreActionStatusInstalled            StoreActionStatus = "installed"
+	StoreActionStatusRestored             StoreActionStatus = "restored"
+	StoreActionStatusSkipped              StoreActionStatus = "skipped"
+	StoreActionStatusSkippedMissingSource StoreActionStatus = "skipped_missing_source"
+	StoreActionStatusSkippedUpToDate      StoreActionStatus = "skipped_up_to_date"
+)
 
 type StoreBackupInspection struct {
 	Exists   bool
@@ -707,6 +720,9 @@ func inspectActionBackup(fs storeInspectionFS, root string, action JournalAction
 }
 
 func scanInspectionFilesystemState(fs storeInspectionFS, root string) (filesystemState, error) {
+	if err := validateInspectionPathNoLinks(fs, root); err != nil {
+		return filesystemState{}, err
+	}
 	info, err := fs.Lstat(root)
 	if os.IsNotExist(err) {
 		return absentFilesystemState(), nil
@@ -783,6 +799,8 @@ func inspectLegacyMembers(
 	}
 	memberByID := make(map[string]legacyMemberDisk, len(entries))
 	journalIdentities := make(map[string]struct{}, len(entries))
+	journalCache := make(map[string]legacyInspectionJournal, len(entries))
+	budget := legacyInspectionBudget{}
 	for _, entry := range entries {
 		id, ok := inspectionRecordID(entry.Name())
 		if !ok || entry.IsDir() {
@@ -797,22 +815,31 @@ func inspectLegacyMembers(
 		if err != nil || disk.MemberID != id {
 			return 0, fmt.Errorf("config restore legacy member %q is invalid", id)
 		}
-		journalPath, journalIdentity, err := resolveInspectionLegacyJournal(fs, disk.JournalPath, boundary)
+		journalPath, journalIdentity, err := resolveInspectionLegacyJournal(disk.JournalPath, boundary)
 		if err != nil {
 			return 0, fmt.Errorf("config restore legacy member %q journal identity: %w", id, err)
-		}
-		journal, err := inspectLegacyJournal(fs, journalPath, disk.JournalDigest)
-		if err != nil {
-			return 0, fmt.Errorf("config restore legacy member %q journal: %w", id, err)
-		}
-		if journal.RunID != disk.RunID {
-			return 0, fmt.Errorf("config restore legacy member %q journal run differs", id)
 		}
 		identity := disk.JournalPath + "\x00" + disk.JournalDigest
 		if _, duplicate := journalIdentities[identity]; duplicate {
 			return 0, fmt.Errorf("config restore store duplicates registered legacy journal")
 		}
 		journalIdentities[identity] = struct{}{}
+		cached, exists := journalCache[identity]
+		if !exists {
+			journal, err := inspectLegacyJournal(fs, journalPath, disk.JournalDigest, &budget)
+			if err != nil {
+				return 0, fmt.Errorf("config restore legacy member %q journal: %w", id, err)
+			}
+			actions, err := inspectionLegacyJournalActions(fs, journal, boundary)
+			if err != nil {
+				return 0, fmt.Errorf("config restore legacy member %q backup: %w", id, err)
+			}
+			cached = legacyInspectionJournal{journal: journal, actions: actions}
+			journalCache[identity] = cached
+		}
+		if cached.journal.RunID != disk.RunID {
+			return 0, fmt.Errorf("config restore legacy member %q journal run differs", id)
+		}
 		memberByID[id] = disk
 		reverted, revertDigest, err := inspectMemberRevert(
 			fs, filepath.Join(revertsDirectory, id+".json"), StoreMemberLegacy, id, disk.MemberDigest,
@@ -824,7 +851,7 @@ func inspectLegacyMembers(
 			Kind: StoreMemberLegacy, ID: id, Ordinal: disk.MutationOrdinal, MemberDigest: disk.MemberDigest,
 			Reverted: reverted, RevertDigest: revertDigest,
 			LegacyJournalIdentity: journalIdentity, LegacyJournalDigest: disk.JournalDigest,
-			actions: inspectionLegacyJournalActions(journal),
+			actions: cached.actions,
 		}
 		if err := add(disk.RestoreRunID, disk.RunID, started.UTC().Format(time.RFC3339Nano), member); err != nil {
 			return 0, err
@@ -892,7 +919,18 @@ func readInspectionRegularFile(fs storeInspectionFS, path string) ([]byte, bool,
 	return read.data, true, err
 }
 
-func resolveInspectionLegacyJournal(fs storeInspectionFS, identity string, boundary HostBoundary) (string, string, error) {
+type legacyInspectionBudget struct {
+	journals int
+	bytes    int64
+	entries  int
+}
+
+type legacyInspectionJournal struct {
+	journal *restore.Journal
+	actions []StoreActionInspection
+}
+
+func resolveInspectionLegacyJournal(identity string, boundary HostBoundary) (string, string, error) {
 	path := identity
 	projectedInput := !filepath.IsAbs(path)
 	if boundary == nil {
@@ -920,9 +958,6 @@ func resolveInspectionLegacyJournal(fs storeInspectionFS, identity string, bound
 	if err := boundary.ValidateFilesystemTarget(path); err != nil {
 		return "", "", err
 	}
-	if _, err := readInspectionBoundedFile(fs, path); err != nil {
-		return "", "", err
-	}
 	projected := ""
 	if projectedInput {
 		value, err := boundary.ProjectFilesystemIdentity(path)
@@ -938,10 +973,16 @@ func resolveInspectionLegacyJournal(fs storeInspectionFS, identity string, bound
 	return path, projected, nil
 }
 
-func inspectLegacyJournal(fs storeInspectionFS, path, digest string) (*restore.Journal, error) {
+func inspectLegacyJournal(fs storeInspectionFS, path, digest string, budget *legacyInspectionBudget) (*restore.Journal, error) {
+	if budget.journals >= maxStoreInspectionJournals {
+		return nil, fmt.Errorf("legacy journal count exceeds inspection limit")
+	}
 	read, err := readInspectionBoundedFile(fs, path)
 	if err != nil {
 		return nil, err
+	}
+	if budget.bytes > maxStoreInspectionBytes-int64(len(read.data)) {
+		return nil, fmt.Errorf("legacy journals exceed inspection byte limit")
 	}
 	if read.digest != digest {
 		return nil, fmt.Errorf("registered journal digest changed")
@@ -953,27 +994,100 @@ func inspectLegacyJournal(fs storeInspectionFS, path, digest string) (*restore.J
 	if len(journal.Entries) > maxStoreInspectionEntries {
 		return nil, fmt.Errorf("legacy journal exceeds inspection entry limit")
 	}
+	retained := len(journal.Entries)
+	for _, entry := range journal.Entries {
+		if entry.BackupCreated {
+			retained++
+		}
+	}
+	if budget.entries > maxStoreInspectionEntries-retained {
+		return nil, fmt.Errorf("legacy journal actions exceed inspection limit")
+	}
 	for index, entry := range journal.Entries {
-		if entry.Action == "" || entry.Action != strings.TrimSpace(entry.Action) || containsControl(entry.Action) || containsControl(entry.TargetPath) || containsControl(entry.ResolvedSourcePath) {
+		if !validStoreActionStatus(entry.Action) || containsControl(entry.TargetPath) || containsControl(entry.ResolvedSourcePath) {
 			return nil, fmt.Errorf("legacy journal action[%d] is malformed", index)
 		}
-		if entry.BackupCreated && entry.BackupPath == "" {
+		if entry.BackupCreated != entry.BackupRequested || (entry.BackupCreated && entry.BackupPath == "") || (!entry.BackupCreated && entry.BackupPath != "") {
 			return nil, fmt.Errorf("legacy journal action[%d] has missing backup identity", index)
 		}
 	}
+	budget.journals++
+	budget.bytes += int64(len(read.data))
+	budget.entries += retained
 	return journal, nil
 }
 
-func inspectionLegacyJournalActions(journal *restore.Journal) []StoreActionInspection {
+func validStoreActionStatus(value string) bool {
+	switch StoreActionStatus(value) {
+	case StoreActionStatusFailed, StoreActionStatusInstalled, StoreActionStatusRestored,
+		StoreActionStatusSkipped, StoreActionStatusSkippedMissingSource, StoreActionStatusSkippedUpToDate:
+		return true
+	default:
+		return false
+	}
+}
+
+func inspectionLegacyJournalActions(fs storeInspectionFS, journal *restore.Journal, boundary HostBoundary) ([]StoreActionInspection, error) {
 	result := make([]StoreActionInspection, len(journal.Entries))
 	for index, entry := range journal.Entries {
-		item := StoreActionInspection{Index: index, Status: entry.Action, SourceIdentity: opaqueInspectionIdentity(entry.ResolvedSourcePath), TargetIdentity: opaqueInspectionIdentity(entry.TargetPath)}
-		if entry.BackupPath != "" {
-			item.Backup = StoreBackupInspection{Exists: entry.BackupCreated, Identity: opaqueInspectionIdentity(entry.BackupPath)}
+		item := StoreActionInspection{Index: index, Status: StoreActionStatus(entry.Action), SourceIdentity: opaqueInspectionIdentity(entry.ResolvedSourcePath), TargetIdentity: opaqueInspectionIdentity(entry.TargetPath)}
+		if entry.BackupCreated {
+			backup, err := inspectLegacyActionBackup(fs, entry.BackupPath, boundary)
+			if err != nil {
+				return nil, fmt.Errorf("action[%d]: %w", index, err)
+			}
+			item.Backup = backup
 		}
 		result[index] = item
 	}
-	return result
+	return result, nil
+}
+
+func inspectLegacyActionBackup(fs storeInspectionFS, identity string, boundary HostBoundary) (StoreBackupInspection, error) {
+	path, err := resolveInspectionLegacyBackup(identity, boundary)
+	if err != nil {
+		return StoreBackupInspection{}, err
+	}
+	state, err := scanInspectionFilesystemState(fs, path)
+	if err != nil {
+		return StoreBackupInspection{}, fmt.Errorf("inspect legacy backup: %w", err)
+	}
+	if state.Kind == StateAbsent {
+		return StoreBackupInspection{}, fmt.Errorf("legacy backup is unavailable")
+	}
+	return StoreBackupInspection{
+		Exists: true, Identity: opaqueInspectionIdentity(identity), Digest: state.Digest,
+		Kind: state.Kind, Mode: uint32(state.Mode.Perm()),
+	}, nil
+}
+
+func resolveInspectionLegacyBackup(identity string, boundary HostBoundary) (string, error) {
+	if boundary == nil {
+		return "", fmt.Errorf("legacy backup inspection requires an authorized host boundary")
+	}
+	path := identity
+	if !filepath.IsAbs(path) {
+		if !strings.HasPrefix(path, "$ENDSTATE_ROOT/state/backups/") {
+			return "", fmt.Errorf("legacy backup is outside the authorized backup root")
+		}
+		var err error
+		path, err = boundary.ResolveFilesystemIdentity(identity)
+		if err != nil || !filepath.IsAbs(path) || filepath.Clean(path) != path {
+			return "", fmt.Errorf("cannot resolve legacy backup identity")
+		}
+	}
+	if filepath.Clean(path) != path || containsControl(path) {
+		return "", fmt.Errorf("legacy backup path is not clean")
+	}
+	if err := boundary.ValidateFilesystemTarget(path); err != nil {
+		return "", err
+	}
+	projected, err := boundary.ProjectFilesystemIdentity(path)
+	if err != nil || filepath.IsAbs(projected) ||
+		(!strings.HasPrefix(projected, "$ENDSTATE_ROOT/state/backups/") && !strings.HasPrefix(projected, "$BOUNDARY/state/backups/")) {
+		return "", fmt.Errorf("legacy backup is outside the authorized backup root")
+	}
+	return path, nil
 }
 
 func inspectionLineage(lineage JournalLineage) StoreLineageInspection {
