@@ -5,8 +5,10 @@ package validationharness
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +17,35 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/catalogplan"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
+
+func TestInvokeCatalogPlanProcessFailures(t *testing.T) {
+	repo := t.TempDir()
+	bundle := filepath.Join(repo, "work.jsonc")
+	if err := os.WriteFile(bundle, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name, body string
+		timeout    time.Duration
+		out        int
+		coordinate string
+	}{
+		{"nonzero", "echo {\"schemaVersion\":\"1.0\"}\r\nexit /b 1", time.Second, 1024, "envelope"},
+		{"timeout", "ping 127.0.0.1 -n 3 >nul", 10 * time.Millisecond, 1024, "timeout"},
+		{"overflow", "echo 012345678901234567890123456789012345678901234567890123456789", time.Second, 8, "output"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			engine := filepath.Join(t.TempDir(), "child.cmd")
+			if err := os.WriteFile(engine, []byte("@echo off\r\n"+test.body+"\r\n"), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			_, failure := invokeCatalogPlanWithLimits(context.Background(), engine, repo, bundle, test.timeout, test.out, test.out)
+			if failure == nil || failure.Coordinate != test.coordinate {
+				t.Fatalf("failure=%+v", failure)
+			}
+		})
+	}
+}
 
 func TestValidateCatalogPlanActionIdentityRejectsWrongRevision(t *testing.T) {
 	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))

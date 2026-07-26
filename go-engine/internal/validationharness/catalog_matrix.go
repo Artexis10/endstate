@@ -272,17 +272,21 @@ func runCatalogMatrixRow(ctx context.Context, engine, repo, bundle string, catal
 }
 
 func invokeCatalogPlan(ctx context.Context, engine, repo, bundle string) (catalogplan.Result, *Failure) {
+	return invokeCatalogPlanWithLimits(ctx, engine, repo, bundle, 60*time.Second, maxCommandOutputBytes, maxCommandOutputBytes)
+}
+
+func invokeCatalogPlanWithLimits(ctx context.Context, engine, repo, bundle string, timeout time.Duration, stdoutLimit, stderrLimit int) (catalogplan.Result, *Failure) {
 	work, err := os.MkdirTemp("", "endstate-catalog-matrix-")
 	if err != nil {
 		return catalogplan.Result{}, fail(CodeIsolationFailure, "execution", "workingDirectory", "create validation child working directory")
 	}
 	defer os.RemoveAll(work)
-	bounded, cancel := context.WithTimeout(ctx, 60*time.Second)
+	bounded, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	command := exec.CommandContext(bounded, engine, "catalog-plan", "--bundle", bundle, "--json", "--events", "jsonl")
 	command.Dir = work
 	command.Env = catalogChildEnvironment(repo)
-	stdout, stderr := &boundedBuffer{limit: maxCommandOutputBytes}, &boundedBuffer{limit: maxCommandOutputBytes}
+	stdout, stderr := &boundedBuffer{limit: stdoutLimit}, &boundedBuffer{limit: stderrLimit}
 	command.Stdout, command.Stderr = stdout, stderr
 	processErr := command.Run()
 	if stdout.exceeded || stderr.exceeded {
