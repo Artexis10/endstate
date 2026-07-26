@@ -5,6 +5,7 @@ package validationharness
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ func TestLiveProcessRejectsZeroValueRequest(t *testing.T) {
 }
 
 func TestLiveProcessRejectsMutationWithoutTrustedPermit(t *testing.T) {
-	_, err := runLiveProcess(context.Background(), newLiveMutationRequest(trustedLiveMutationPermit{}, LiveExecutionWinget, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, nil, 0))
+	_, err := runLiveProcess(context.Background(), newLiveTypedMutation(liveTestAdmission(t, liveOperationWingetExactInstall), trustedLiveMutationPermit{}, liveOperationWingetExactInstall, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, "", nil, liveReceiptExpectedIdentity{}, 0))
 	if err == nil {
 		t.Fatal("runLiveProcess() error = nil, want mutation denial")
 	}
@@ -31,7 +32,7 @@ func TestLiveProcessRejectsMutationWithoutTrustedPermit(t *testing.T) {
 }
 
 func TestLiveProcessRejectsSeparatelyConstructedMutationCapability(t *testing.T) {
-	request := newLiveMutationRequest(trustedLiveMutationPermit{capability: &liveMutationCapability{}}, LiveExecutionWinget, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, nil, 0)
+	request := newLiveTypedMutation(liveTestAdmission(t, liveOperationWingetExactInstall), trustedLiveMutationPermit{capability: &liveMutationCapability{}}, liveOperationWingetExactInstall, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, "", nil, liveReceiptExpectedIdentity{}, 0)
 	err := validateLiveProcessRequest(request)
 	var executionErr *LiveExecutionError
 	if !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionMutationDenied {
@@ -64,10 +65,10 @@ func TestLiveProcessEnvironmentDoesNotInheritSecrets(t *testing.T) {
 
 func TestLiveProcessRejectsUnsafeRequestValues(t *testing.T) {
 	for _, request := range []LiveProcessRequest{
-		{executable: "bad\nname", class: LiveExecutionProbe},
-		{executable: liveTestExecutable(t), args: []string{"bad\x00arg"}, class: LiveExecutionProbe},
-		{executable: liveTestExecutable(t), outputLimit: maxLiveProcessOutputBytes + 1, class: LiveExecutionProbe},
-		{executable: filepath.Base(liveTestExecutable(t)), class: LiveExecutionProbe},
+		{executable: "bad\nname", operation: liveOperationWingetExactList, admission: liveTestAdmission(t, liveOperationWingetExactList)},
+		{executable: liveTestExecutable(t), args: []string{"bad\x00arg"}, operation: liveOperationWingetExactList, admission: liveTestAdmission(t, liveOperationWingetExactList)},
+		{executable: liveTestExecutable(t), outputLimit: maxLiveProcessOutputBytes + 1, operation: liveOperationWingetExactList, admission: liveTestAdmission(t, liveOperationWingetExactList)},
+		{executable: filepath.Base(liveTestExecutable(t)), operation: liveOperationWingetExactList, admission: liveTestAdmission(t, liveOperationWingetExactList)},
 	} {
 		if err := validateLiveProcessRequest(request); err == nil {
 			t.Fatalf("validateLiveProcessRequest(%+v) error = nil", request)
@@ -77,10 +78,10 @@ func TestLiveProcessRejectsUnsafeRequestValues(t *testing.T) {
 
 func TestLiveProcessProbeRejectsArbitraryAndMutatingCommands(t *testing.T) {
 	for _, request := range []LiveProcessRequest{
-		{executable: liveTestExecutable(t), args: []string{"/d", "/c", "echo mutation"}, class: LiveExecutionProbe},
-		{executable: liveTestExecutable(t), args: []string{"install", "Vendor.Fixture"}, class: LiveExecutionProbe},
-		{executable: liveTestExecutable(t), args: []string{"uninstall", "Vendor.Fixture"}, class: LiveExecutionProbe},
-		{executable: liveTestExecutable(t), args: []string{"list", "--id", "Vendor.Fixture"}, class: LiveExecutionProbe},
+		{executable: liveTestExecutable(t), args: []string{"/d", "/c", "echo mutation"}, operation: liveOperationWingetExactList, admission: liveTestAdmission(t, liveOperationWingetExactList)},
+		{executable: liveTestExecutable(t), args: []string{"install", "Vendor.Fixture"}, operation: liveOperationWingetExactList, admission: liveTestAdmission(t, liveOperationWingetExactList)},
+		{executable: liveTestExecutable(t), args: []string{"uninstall", "Vendor.Fixture"}, operation: liveOperationWingetExactList, admission: liveTestAdmission(t, liveOperationWingetExactList)},
+		{executable: liveTestExecutable(t), args: []string{"list", "--id", "Vendor.Fixture"}, operation: liveOperationWingetExactList, admission: liveTestAdmission(t, liveOperationWingetExactList)},
 	} {
 		if err := validateLiveProcessRequest(request); err == nil {
 			t.Fatalf("validateLiveProcessRequest(%+v) accepted a non-reviewed probe", request)
@@ -89,7 +90,8 @@ func TestLiveProcessProbeRejectsArbitraryAndMutatingCommands(t *testing.T) {
 }
 
 func TestLiveProcessWingetListProbeHasExactReviewedArguments(t *testing.T) {
-	request := newLiveWingetListProbe(liveTestExecutable(t), "Vendor.Fixture", nil, 0)
+	request := newLiveWingetListProbe(liveTestAdmission(t, liveOperationWingetExactList), liveTestExecutable(t), "Vendor.Fixture", nil, 0)
+	request.expected.packageRef = sha256.Sum256([]byte("package"))
 	want := []string{"list", "--id", "Vendor.Fixture", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
 	if !reflect.DeepEqual(request.args, want) {
 		t.Fatalf("probe args = %#v, want %#v", request.args, want)
@@ -97,6 +99,33 @@ func TestLiveProcessWingetListProbeHasExactReviewedArguments(t *testing.T) {
 	if err := validateLiveProcessRequest(request); err != nil {
 		t.Fatalf("validateLiveProcessRequest() error = %v", err)
 	}
+}
+
+func TestLiveProcessRejectsMissingProofIdentity(t *testing.T) {
+	request := newLiveTypedMutation(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)
+	if err := validateLiveProcessRequest(request); err == nil {
+		t.Fatal("validateLiveProcessRequest() accepted missing proof identities")
+	}
+}
+
+func liveTestExpectedIdentity() liveReceiptExpectedIdentity {
+	return liveReceiptExpectedIdentity{
+		definition: sha256.Sum256([]byte("definition")),
+		engine:     sha256.Sum256([]byte("engine")),
+		seed:       sha256.Sum256([]byte("seed")),
+		packageRef: sha256.Sum256([]byte("package")),
+	}
+}
+
+func liveTestAdmission(t *testing.T, operation liveOperation) liveReceiptAdmission {
+	t.Helper()
+	issuer := newLiveReceiptIssuer()
+	nonce := liveReceiptTestNonce(byte(t.Name()[0]))
+	admission, err := issuer.admit(operation, 1, nonce)
+	if err != nil {
+		t.Fatalf("issuer.admit() error = %v", err)
+	}
+	return admission
 }
 
 func liveTestExecutable(t *testing.T) string {

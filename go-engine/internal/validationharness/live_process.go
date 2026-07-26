@@ -5,9 +5,11 @@ package validationharness
 
 import (
 	"context"
+	"crypto/sha256"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -24,10 +26,6 @@ const (
 	LiveExecutionWinget    LiveExecutionClass = "winget"
 	LiveExecutionUninstall LiveExecutionClass = "uninstaller"
 )
-
-type liveProbeOperation string
-
-const liveProbeWingetList liveProbeOperation = "winget-list"
 
 type LiveExecutionFailureCode string
 
@@ -58,10 +56,7 @@ func (err *LiveExecutionError) Error() string {
 }
 
 func (err *LiveExecutionError) Unwrap() error {
-	if err == nil {
-		return nil
-	}
-	return err.cause
+	return nil
 }
 
 func liveExecutionError(code LiveExecutionFailureCode, cause error) *LiveExecutionError {
@@ -91,8 +86,9 @@ type LiveProcessRequest struct {
 	dir         string
 	environment map[string]string
 	outputLimit int
-	class       LiveExecutionClass
-	probe       liveProbeOperation
+	operation   liveOperation
+	admission   liveReceiptAdmission
+	expected    liveReceiptExpectedIdentity
 	permit      trustedLiveMutationPermit
 	appx        *liveTrustedAppXBinding
 }
@@ -122,30 +118,70 @@ type liveProcessOutput struct {
 	ExitCode int
 	Stdout   []byte
 	Stderr   []byte
+	launched bool
+	image    liveReceiptImageIdentity
+	pid      uint32
+	created  time.Time
+	started  time.Time
+	finished time.Time
 }
 
-func newLiveWingetListProbe(executable, ref string, environment map[string]string, outputLimit int) LiveProcessRequest {
+func newLiveWingetListProbe(admission liveReceiptAdmission, executable, ref string, environment map[string]string, outputLimit int) LiveProcessRequest {
 	return LiveProcessRequest{
-		executable: executable, environment: environment, outputLimit: outputLimit, class: LiveExecutionProbe, probe: liveProbeWingetList,
+		executable: executable, environment: cloneLiveEnvironment(environment), outputLimit: outputLimit, operation: liveOperationWingetExactList, admission: admission,
 		args: []string{"list", "--id", ref, "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"},
 	}
 }
 
-func newLiveTrustedAppXWingetListProbe(binding liveTrustedAppXBinding, ref string, environment map[string]string, outputLimit int) LiveProcessRequest {
-	request := newLiveWingetListProbe(filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName), ref, environment, outputLimit)
+func newLiveTrustedAppXWingetListProbe(admission liveReceiptAdmission, binding liveTrustedAppXBinding, ref string, environment map[string]string, outputLimit int) LiveProcessRequest {
+	request := newLiveWingetListProbe(admission, filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName), ref, environment, outputLimit)
 	request.appx = &binding
+	request.expected.packageRef = binding.metadata.receipt.sha256
 	return request
 }
 
-func newLiveEngineMutation(permit trustedLiveMutationPermit, executable string, args []string, environment map[string]string, outputLimit int) LiveProcessRequest {
-	return newLiveMutationRequest(permit, LiveExecutionEngine, executable, args, environment, outputLimit)
+func newLiveEngineApply(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineApply, executable, args, dir, environment, expected, outputLimit)
 }
 
-func newLiveMutationRequest(permit trustedLiveMutationPermit, class LiveExecutionClass, executable string, args []string, environment map[string]string, outputLimit int) LiveProcessRequest {
-	return LiveProcessRequest{executable: executable, args: append([]string(nil), args...), environment: environment, outputLimit: outputLimit, class: class, permit: permit}
+func newLiveEngineVerify(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineVerify, executable, args, dir, environment, expected, outputLimit)
 }
 
-func (request LiveProcessRequest) executionClass() LiveExecutionClass { return request.class }
+func newLiveEngineCapture(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineCapture, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveEngineRebuild(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineRebuild, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveEngineRevert(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationEngineRevert, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveHashBoundSeed(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return newLiveTypedMutation(admission, permit, liveOperationHashBoundSeed, executable, args, dir, environment, expected, outputLimit)
+}
+
+func newLiveTypedMutation(admission liveReceiptAdmission, permit trustedLiveMutationPermit, operation liveOperation, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
+	return LiveProcessRequest{executable: executable, args: append([]string(nil), args...), dir: dir, environment: cloneLiveEnvironment(environment), outputLimit: outputLimit, operation: operation, admission: admission, expected: expected, permit: permit}
+}
+
+func (request LiveProcessRequest) executionClass() LiveExecutionClass {
+	switch request.operation {
+	case liveOperationWingetExactList:
+		return LiveExecutionProbe
+	case liveOperationHashBoundSeed:
+		return LiveExecutionSeed
+	case liveOperationWingetExactInstall:
+		return LiveExecutionWinget
+	case liveOperationWingetExactUninstall:
+		return LiveExecutionUninstall
+	default:
+		return LiveExecutionEngine
+	}
+}
 
 func (request LiveProcessRequest) outputByteLimit() int {
 	if request.outputLimit == 0 {
@@ -155,21 +191,14 @@ func (request LiveProcessRequest) outputByteLimit() int {
 }
 
 func (request LiveProcessRequest) mutates() bool {
-	switch request.executionClass() {
-	case LiveExecutionEngine, LiveExecutionSeed, LiveExecutionWinget, LiveExecutionUninstall:
-		return true
-	default:
-		return false
-	}
+	return request.operation.mutation()
 }
 
 func validateLiveProcessRequest(request LiveProcessRequest) error {
 	if !validLiveProcessValue(request.executable) || !filepath.IsAbs(request.executable) || filepath.Clean(request.executable) != request.executable || !validLiveProcessValue(request.dir) && request.dir != "" {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
-	switch request.executionClass() {
-	case LiveExecutionProbe, LiveExecutionEngine, LiveExecutionSeed, LiveExecutionWinget, LiveExecutionUninstall:
-	default:
+	if !request.operation.valid() || !request.admission.valid() || request.admission.operation != request.operation {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
 	if len(request.args) > 64 || request.outputByteLimit() < 1 || request.outputByteLimit() > maxLiveProcessOutputBytes {
@@ -183,18 +212,21 @@ func validateLiveProcessRequest(request LiveProcessRequest) error {
 	if _, err := liveProcessEnvironment(request.environment); err != nil {
 		return err
 	}
-	if request.class == LiveExecutionProbe && !validLiveProbe(request) {
+	if request.operation == liveOperationWingetExactList && !validLiveProbe(request) {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
 	if request.mutates() && request.permit.capability != trustedLiveMutationCapability {
 		return liveExecutionError(LiveExecutionMutationDenied, nil)
+	}
+	if !request.expected.valid(request.operation) {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
 	return nil
 }
 
 func validLiveProbe(request LiveProcessRequest) bool {
 	_, ok := liveWingetListProbeReference(request.args)
-	return request.probe == liveProbeWingetList && ok
+	return request.operation == liveOperationWingetExactList && ok
 }
 
 func liveWingetListProbeReference(args []string) (string, bool) {
@@ -204,14 +236,32 @@ func liveWingetListProbeReference(args []string) (string, bool) {
 	return args[2], args[3] == "--exact" && args[4] == "--source" && args[5] == "winget" && args[6] == "--accept-source-agreements" && args[7] == "--disable-interactivity"
 }
 
-func runLiveProcess(ctx context.Context, request LiveProcessRequest) (liveProcessOutput, error) {
+func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecutionReceipt, error) {
 	if err := validateLiveProcessRequest(request); err != nil {
-		return liveProcessOutput{}, err
+		return nil, err
 	}
+	defer request.admission.complete()
 	if err := ctx.Err(); err != nil {
-		return liveProcessOutput{}, liveProcessContextError(err)
+		return nil, liveProcessContextError(err)
 	}
-	return runLiveProcessPlatform(ctx, request)
+	output, err := runLiveProcessPlatform(ctx, request)
+	if !output.launched {
+		return nil, err
+	}
+	receipt := &liveExecutionReceipt{
+		capability: request.admission.issuer.capability, issuer: request.admission.issuer, operation: request.operation, sequence: request.admission.sequence, nonce: request.admission.nonce,
+		executable: request.executable, args: append([]string(nil), request.args...), directory: request.dir, environment: cloneLiveEnvironment(request.environment), expected: request.expected,
+		image: output.image, pid: output.pid, created: output.created.UTC(), started: output.started.UTC(), finished: output.finished.UTC(), exitCode: output.ExitCode,
+		stdout: append([]byte(nil), output.Stdout...), stderr: append([]byte(nil), output.Stderr...), sealed: true,
+	}
+	if execution, ok := err.(*LiveExecutionError); ok {
+		receipt.failure = execution.Code
+	}
+	receipt.requestSHA256 = receipt.requestDigest()
+	receipt.stdoutSHA256 = sha256.Sum256(receipt.stdout)
+	receipt.stderrSHA256 = sha256.Sum256(receipt.stderr)
+	receipt.resultSHA256 = receipt.resultDigest()
+	return receipt, err
 }
 
 func liveProcessContextError(err error) error {

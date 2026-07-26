@@ -76,22 +76,38 @@ func (process windowsLiveProcess) Run(ctx context.Context, name string, args ...
 	}
 	target, err := process.resolver.ResolveLiveWinget(ctx)
 	if err != nil {
-		return LiveProcessResult{}, err
+		return LiveProcessResult{}, fmt.Errorf("live process trusted resolver unavailable")
 	}
 	ref, ok := liveWingetListProbeReference(args)
 	if !ok {
 		return LiveProcessResult{}, fmt.Errorf("live process rejects an unreviewed winget operation")
 	}
-	output, err := runLiveProcess(ctx, newLiveTrustedAppXWingetListProbe(target.binding, ref, target.environment, maxLiveObserverOutputBytes))
+	nonce, err := newLiveReceiptNonce()
+	if err != nil {
+		return LiveProcessResult{}, fmt.Errorf("live process receipt nonce unavailable")
+	}
+	issuer := newLiveReceiptIssuer()
+	admission, err := issuer.admit(liveOperationWingetExactList, 1, nonce)
+	if err != nil {
+		return LiveProcessResult{}, fmt.Errorf("live process receipt admission rejected")
+	}
+	receipt, err := runLiveProcess(ctx, newLiveTrustedAppXWingetListProbe(admission, target.binding, ref, target.environment, maxLiveObserverOutputBytes))
 	if err == nil {
-		return LiveProcessResult{ExitCode: output.ExitCode, Stdout: output.Stdout, Classification: LiveProcessCompleted}, nil
+		stdout, _, handoffErr := liveReceiptDecoderHandoff(receipt, liveOperationWingetExactList, 1, nonce)
+		if handoffErr != nil {
+			return LiveProcessResult{}, fmt.Errorf("live process receipt handoff rejected")
+		}
+		return LiveProcessResult{ExitCode: receipt.exitCode, Stdout: stdout, Classification: LiveProcessCompleted}, nil
 	}
 	var execution *LiveExecutionError
 	if errors.As(err, &execution) && execution.Code == LiveExecutionProcessExit {
-		result := LiveProcessResult{ExitCode: output.ExitCode, Classification: classifyLiveWingetExitCode(output.ExitCode)}
+		result := LiveProcessResult{ExitCode: receipt.exitCode, Classification: classifyLiveWingetExitCode(receipt.exitCode)}
 		return result, nil
 	}
-	return LiveProcessResult{}, err
+	if execution != nil {
+		return LiveProcessResult{}, fmt.Errorf("live process execution %s", execution.Code)
+	}
+	return LiveProcessResult{}, fmt.Errorf("live process execution failed")
 }
 
 func classifyLiveWingetExitCode(exitCode int) LiveProcessClassification {

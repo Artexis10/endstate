@@ -30,6 +30,10 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionInvalidRequest, err)
 	}
 	defer binding.Close()
+	image, err := liveWindowsReceiptImage(binding)
+	if err != nil {
+		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
+	}
 	environment, err := liveProcessEnvironment(request.environment)
 	if err != nil {
 		return liveProcessOutput{}, err
@@ -77,12 +81,21 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 		windows.CloseHandle(stderrRead)
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionStartFailed, err)
 	}
-	if err := windows.CloseHandle(stdinWrite); err != nil {
+	created, err := liveWindowsProcessCreationTime(process.Process)
+	if err != nil {
 		_ = windows.TerminateProcess(process.Process, 1)
 		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
 		windows.CloseHandle(stdoutRead)
 		windows.CloseHandle(stderrRead)
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
+	}
+	result := liveProcessOutput{image: image, pid: process.ProcessId, created: created.UTC()}
+	if err := windows.CloseHandle(stdinWrite); err != nil {
+		_ = windows.TerminateProcess(process.Process, 1)
+		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
+		windows.CloseHandle(stdoutRead)
+		windows.CloseHandle(stderrRead)
+		return result, liveExecutionError(LiveExecutionContainment, err)
 	}
 	stdinWriteOpen = false
 	defer windows.CloseHandle(process.Thread)
@@ -92,22 +105,24 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
 		windows.CloseHandle(stdoutRead)
 		windows.CloseHandle(stderrRead)
-		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
+		return result, liveExecutionError(LiveExecutionContainment, err)
 	}
 	if err := windows.AssignProcessToJobObject(job, process.Process); err != nil {
 		_ = windows.TerminateProcess(process.Process, 1)
 		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
 		windows.CloseHandle(stdoutRead)
 		windows.CloseHandle(stderrRead)
-		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
+		return result, liveExecutionError(LiveExecutionContainment, err)
 	}
 	if _, err := windows.ResumeThread(process.Thread); err != nil {
 		_ = stopLiveWindowsJob(job)
 		jobOpen = false
 		windows.CloseHandle(stdoutRead)
 		windows.CloseHandle(stderrRead)
-		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
+		return result, liveExecutionError(LiveExecutionContainment, err)
 	}
+	result.launched = true
+	result.started = time.Now().UTC()
 
 	limit := request.outputByteLimit()
 	overflow := make(chan struct{}, 2)
@@ -139,8 +154,6 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 	jobOpen = false
 	if terminalErr != nil {
 		_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
-		stdout.close()
-		stderr.close()
 	}
 	if !waitLiveWindowsReaders(stdout, stderr) {
 		stdout.close()
@@ -152,14 +165,17 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 	if stdout.collector.exceeded || stderr.collector.exceeded {
 		terminalErr = liveExecutionError(LiveExecutionOutputLimit, nil)
 	}
-	if terminalErr != nil {
-		return liveProcessOutput{}, terminalErr
-	}
 	var exitCode uint32
 	if err := windows.GetExitCodeProcess(process.Process, &exitCode); err != nil {
-		return liveProcessOutput{}, liveExecutionError(LiveExecutionContainment, err)
+		return result, liveExecutionError(LiveExecutionContainment, err)
 	}
-	result := liveProcessOutput{ExitCode: int(int32(exitCode)), Stdout: stdout.collector.bytes, Stderr: stderr.collector.bytes}
+	result.ExitCode = int(int32(exitCode))
+	result.Stdout = append([]byte(nil), stdout.collector.bytes...)
+	result.Stderr = append([]byte(nil), stderr.collector.bytes...)
+	result.finished = time.Now().UTC()
+	if terminalErr != nil {
+		return result, terminalErr
+	}
 	if result.ExitCode != 0 {
 		return result, liveExecutionError(LiveExecutionProcessExit, nil)
 	}
@@ -174,34 +190,16 @@ func bindLiveWindowsRequestExecutable(request LiveProcessRequest) (*liveWindowsE
 }
 
 var liveWindowsProcessImagePath = queryLiveWindowsProcessImagePath
-var liveWindowsProcessImageIdentity = liveWindowsPathIdentity
 
 func verifyLiveWindowsProcessImage(process windows.Handle, expected *liveWindowsExecutableBinding) error {
 	actual, err := liveWindowsProcessImagePath(process)
 	if err != nil || !strings.EqualFold(filepath.Clean(actual), expected.path) {
 		return errors.New("created process image does not match trusted executable")
 	}
-	identity, err := liveWindowsVerifiedProcessImageIdentity(actual, expected)
-	if err != nil || identity != expected.identity {
-		return errors.New("created process image identity does not match trusted executable")
+	if expected.imageHandle == 0 || expected.identity.volume == 0 || expected.identity.indexHigh == 0 && expected.identity.indexLow == 0 {
+		return errors.New("trusted executable binding is incomplete")
 	}
 	return nil
-}
-
-func liveWindowsVerifiedProcessImageIdentity(path string, expected *liveWindowsExecutableBinding) (liveWindowsFileIdentity, error) {
-	if !expected.trustedAppX {
-		return liveWindowsProcessImageIdentity(path)
-	}
-	handle, identity, err := openLiveWindowsPath(path, false, windows.FILE_SHARE_READ)
-	if err != nil {
-		return liveWindowsFileIdentity{}, err
-	}
-	defer windows.CloseHandle(handle)
-	canonical, err := liveWindowsFinalPath(handle)
-	if err != nil || !strings.EqualFold(canonical, expected.path) {
-		return liveWindowsFileIdentity{}, errors.New("AppX process image path changed during verification")
-	}
-	return identity, nil
 }
 
 func queryLiveWindowsProcessImagePath(process windows.Handle) (string, error) {
@@ -220,6 +218,7 @@ type liveWindowsFileIdentity struct {
 type liveWindowsExecutableBinding struct {
 	path        string
 	identity    liveWindowsFileIdentity
+	imageHandle windows.Handle
 	handles     []windows.Handle
 	trustedAppX bool
 }
@@ -266,6 +265,7 @@ func bindLiveWindowsExecutable(path string) (*liveWindowsExecutableBinding, erro
 		return fail(err)
 	}
 	binding.handles = append(binding.handles, handle)
+	binding.imageHandle = handle
 	binding.identity = identity
 	canonical, err := liveWindowsFinalPath(handle)
 	if err != nil || !strings.EqualFold(canonical, path) {
@@ -335,6 +335,7 @@ func bindLiveTrustedAppXExecutableUnverified(trusted liveTrustedAppXBinding) (*l
 		return fail(err)
 	}
 	binding.handles = append(binding.handles, executable)
+	binding.imageHandle = executable
 	canonical, err := liveWindowsFinalPath(executable)
 	if err != nil || !strings.EqualFold(canonical, binding.path) {
 		return fail(errors.New("AppX executable path changed during binding"))
@@ -350,6 +351,39 @@ func liveWindowsFileSHA256(path string) ([32]byte, error) {
 	}
 	defer file.Close()
 	return sha256File(file)
+}
+
+func liveWindowsReceiptImage(binding *liveWindowsExecutableBinding) (liveReceiptImageIdentity, error) {
+	if binding == nil || binding.imageHandle == 0 || binding.identity.volume == 0 || binding.identity.indexHigh == 0 && binding.identity.indexLow == 0 {
+		return liveReceiptImageIdentity{}, errors.New("trusted executable binding is incomplete")
+	}
+	current := windows.CurrentProcess()
+	var duplicate windows.Handle
+	if err := windows.DuplicateHandle(current, binding.imageHandle, current, &duplicate, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+		return liveReceiptImageIdentity{}, err
+	}
+	file := os.NewFile(uintptr(duplicate), "live-receipt-image")
+	if file == nil {
+		windows.CloseHandle(duplicate)
+		return liveReceiptImageIdentity{}, errors.New("trusted executable duplicate is unavailable")
+	}
+	digest, err := sha256File(file)
+	closeErr := file.Close()
+	if err != nil {
+		return liveReceiptImageIdentity{}, err
+	}
+	if closeErr != nil {
+		return liveReceiptImageIdentity{}, closeErr
+	}
+	return liveReceiptImageIdentity{canonical: binding.path, volume: binding.identity.volume, indexHigh: binding.identity.indexHigh, indexLow: binding.identity.indexLow, sha256: digest}, nil
+}
+
+func liveWindowsProcessCreationTime(process windows.Handle) (time.Time, error) {
+	var creation, exit, kernel, user windows.Filetime
+	if err := windows.GetProcessTimes(process, &creation, &exit, &kernel, &user); err != nil {
+		return time.Time{}, err
+	}
+	return time.Unix(0, creation.Nanoseconds()), nil
 }
 
 func sha256File(file *os.File) ([32]byte, error) {
@@ -415,7 +449,11 @@ func openLiveWindowsPath(path string, directory bool, share uint32) (windows.Han
 	if directory {
 		flags |= windows.FILE_FLAG_BACKUP_SEMANTICS
 	}
-	handle, err := windows.CreateFile(wide, windows.FILE_READ_ATTRIBUTES, share, nil, windows.OPEN_EXISTING, flags, 0)
+	access := uint32(windows.FILE_READ_ATTRIBUTES)
+	if !directory {
+		access = windows.GENERIC_READ
+	}
+	handle, err := windows.CreateFile(wide, access, share, nil, windows.OPEN_EXISTING, flags, 0)
 	if err != nil {
 		return 0, liveWindowsFileIdentity{}, err
 	}

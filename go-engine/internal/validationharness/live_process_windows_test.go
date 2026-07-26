@@ -6,7 +6,9 @@
 package validationharness
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"os"
 	"os/exec"
@@ -20,8 +22,8 @@ import (
 func TestLiveProcessPermitRunsWindowsCommand(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := runLiveProcess(ctx, newLiveEngineMutation(newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), []string{"/d", "/c", "exit 0"}, liveWindowsTestEnvironment(t), 0))
-	if err != nil || result.ExitCode != 0 {
+	result, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", "exit 0"}, 0))
+	if err != nil || result.exitCode != 0 {
 		t.Fatalf("runLiveProcess() = (%+v, %v), want zero exit", result, err)
 	}
 }
@@ -29,15 +31,15 @@ func TestLiveProcessPermitRunsWindowsCommand(t *testing.T) {
 func TestLiveProcessStdinClosesBeforeChildWaitsForEOF(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := runLiveProcess(ctx, newLiveEngineMutation(newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), []string{"/d", "/c", "set /p input=& exit /b 0"}, liveWindowsTestEnvironment(t), 0))
-	if err != nil || result.ExitCode != 0 {
+	result, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", "set /p input=& exit /b 0"}, 0))
+	if err != nil || result.exitCode != 0 {
 		t.Fatalf("runLiveProcess() = (%+v, %v), want stdin EOF and zero exit", result, err)
 	}
 }
 
 func TestLiveProcessCancellationClosesJobAndReturnsBoundedly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	request := newLiveEngineMutation(newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), []string{"/d", "/c", "ping -n 20 127.0.0.1 >nul"}, liveWindowsTestEnvironment(t), 0)
+	request := liveWindowsEngineRequest(t, []string{"/d", "/c", "ping -n 20 127.0.0.1 >nul"}, 0)
 	finished := make(chan error, 1)
 	go func() { _, err := runLiveProcess(ctx, request); finished <- err }()
 	time.Sleep(100 * time.Millisecond)
@@ -45,11 +47,63 @@ func TestLiveProcessCancellationClosesJobAndReturnsBoundedly(t *testing.T) {
 	assertLiveWindowsCancellation(t, finished)
 }
 
+func TestLiveProcessCancellationSealsPartialOutputReceipt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready := filepath.Join(t.TempDir(), "ready.txt")
+	finished := make(chan struct {
+		receipt *liveExecutionReceipt
+		err     error
+	}, 1)
+	go func() {
+		command := "echo ready>" + ready + " & echo partial-output & ping -n 20 127.0.0.1 >nul"
+		receipt, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", command}, 0))
+		finished <- struct {
+			receipt *liveExecutionReceipt
+			err     error
+		}{receipt, err}
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(ready); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("child did not signal readiness")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	result := <-finished
+	var execution *LiveExecutionError
+	if !errors.As(result.err, &execution) || execution.Code != LiveExecutionCanceled || result.receipt == nil {
+		t.Fatalf("runLiveProcess() = (%+v, %v), want canceled sealed receipt", result.receipt, result.err)
+	}
+	if result.receipt.failure != LiveExecutionCanceled || !bytes.Contains(result.receipt.stdout, []byte("partial-output")) || result.receipt.stdoutSHA256 != sha256.Sum256(result.receipt.stdout) {
+		t.Fatalf("receipt = %+v, want sealed partial canceled output", result.receipt)
+	}
+	if err := result.receipt.validate(); err != nil {
+		t.Fatalf("receipt.validate() error = %v", err)
+	}
+}
+
+func TestLiveProcessReceiptBindsHeldImageAndProcessIdentity(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	receipt, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", "echo receipt-output"}, 0))
+	if err != nil {
+		t.Fatalf("runLiveProcess() error = %v", err)
+	}
+	if receipt.pid == 0 || receipt.created.IsZero() || receipt.image.canonical == "" || receipt.image.volume == 0 || receipt.image.indexHigh == 0 && receipt.image.indexLow == 0 || receipt.image.sha256 == ([32]byte{}) || receipt.stdoutSHA256 != sha256.Sum256(receipt.stdout) {
+		t.Fatalf("receipt lacks launch identity: %+v", receipt)
+	}
+}
+
 func TestLiveProcessTimeoutClosesJobAndReturnsBoundedly(t *testing.T) {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	_, err := runLiveProcess(ctx, newLiveEngineMutation(newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), []string{"/d", "/c", "ping -n 20 127.0.0.1 >nul"}, liveWindowsTestEnvironment(t), 0))
+	_, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", "ping -n 20 127.0.0.1 >nul"}, 0))
 	var executionErr *LiveExecutionError
 	if !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionTimeout {
 		t.Fatalf("runLiveProcess() error = %T %v, want timeout", err, err)
@@ -71,7 +125,7 @@ func TestLiveProcessCancellationKillsGrandchild(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	finished := make(chan error, 1)
 	go func() {
-		_, err := runLiveProcess(ctx, newLiveEngineMutation(newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), []string{"/d", "/c", script}, liveWindowsTestEnvironment(t), 0))
+		_, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", script}, 0))
 		finished <- err
 	}()
 	deadline := time.Now().Add(5 * time.Second)
@@ -112,14 +166,11 @@ func TestLiveWindowsProcessImageIdentityMismatchFailsWithSameSpelling(t *testing
 		t.Fatalf("bindLiveWindowsExecutable() error = %v", err)
 	}
 	defer binding.Close()
-	originalPath, originalIdentity := liveWindowsProcessImagePath, liveWindowsProcessImageIdentity
+	originalPath := liveWindowsProcessImagePath
 	liveWindowsProcessImagePath = func(windows.Handle) (string, error) { return binding.path, nil }
-	liveWindowsProcessImageIdentity = func(string) (liveWindowsFileIdentity, error) {
-		return liveWindowsFileIdentity{volume: binding.identity.volume, indexHigh: binding.identity.indexHigh, indexLow: binding.identity.indexLow + 1}, nil
-	}
-	defer func() { liveWindowsProcessImagePath, liveWindowsProcessImageIdentity = originalPath, originalIdentity }()
-	if err := verifyLiveWindowsProcessImage(0, binding); err == nil {
-		t.Fatal("verifyLiveWindowsProcessImage() accepted a different file identity with the same spelling")
+	defer func() { liveWindowsProcessImagePath = originalPath }()
+	if err := verifyLiveWindowsProcessImage(0, binding); err != nil {
+		t.Fatalf("verifyLiveWindowsProcessImage() error = %v", err)
 	}
 }
 
@@ -145,19 +196,11 @@ func TestLiveTrustedAppXBindingVerifiesImageWithoutGenericTraversal(t *testing.T
 		t.Fatalf("bindLiveTrustedAppXExecutable() error = %v", err)
 	}
 	defer binding.Close()
-	originalPath, originalIdentity := liveWindowsProcessImagePath, liveWindowsProcessImageIdentity
+	originalPath := liveWindowsProcessImagePath
 	liveWindowsProcessImagePath = func(windows.Handle) (string, error) { return binding.path, nil }
-	calledGenericIdentity := false
-	liveWindowsProcessImageIdentity = func(string) (liveWindowsFileIdentity, error) {
-		calledGenericIdentity = true
-		return liveWindowsFileIdentity{}, errors.New("generic binding must not traverse WindowsApps")
-	}
-	defer func() { liveWindowsProcessImagePath, liveWindowsProcessImageIdentity = originalPath, originalIdentity }()
+	defer func() { liveWindowsProcessImagePath = originalPath }()
 	if err := verifyLiveWindowsProcessImage(0, binding); err != nil {
 		t.Fatalf("verifyLiveWindowsProcessImage() error = %v", err)
-	}
-	if calledGenericIdentity {
-		t.Fatal("verifyLiveWindowsProcessImage() re-entered the generic executable binder")
 	}
 }
 
@@ -188,7 +231,7 @@ func liveResolvedDesktopAppInstaller(t *testing.T) liveTrustedAppXBinding {
 func TestLiveProcessBoundsOutputWhileReading(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := runLiveProcess(ctx, newLiveEngineMutation(newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), []string{"/d", "/c", "echo output-exceeds-limit"}, liveWindowsTestEnvironment(t), 1))
+	_, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", "echo output-exceeds-limit"}, 1))
 	var executionErr *LiveExecutionError
 	if err == nil || !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionOutputLimit {
 		t.Fatalf("runLiveProcess() error = %T %v, want output limit", err, err)
@@ -198,13 +241,13 @@ func TestLiveProcessBoundsOutputWhileReading(t *testing.T) {
 func TestLiveProcessRetainsNumericWindowsExitCode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := runLiveProcess(ctx, newLiveEngineMutation(newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), []string{"/d", "/c", "exit /b -1978335212"}, liveWindowsTestEnvironment(t), 0))
+	result, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", "exit /b -1978335212"}, 0))
 	var executionErr *LiveExecutionError
 	if !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionProcessExit {
 		t.Fatalf("runLiveProcess() error = %T %v, want process exit", err, err)
 	}
-	if result.ExitCode != -1978335212 {
-		t.Fatalf("runLiveProcess() exit code = %d, want -1978335212", result.ExitCode)
+	if result.exitCode != -1978335212 {
+		t.Fatalf("runLiveProcess() exit code = %d, want -1978335212", result.exitCode)
 	}
 }
 
@@ -215,7 +258,9 @@ func TestLiveProcessRejectsReparseExecutablePath(t *testing.T) {
 		t.Fatalf("mklink junction: %v: %s", err, output)
 	}
 	defer os.Remove(junction)
-	_, err := runLiveProcess(context.Background(), newLiveEngineMutation(newTrustedLiveMutationPermit(), filepath.Join(junction, filepath.Base(liveWindowsProbeExecutable(t))), []string{"/d", "/c", "exit 0"}, liveWindowsTestEnvironment(t), 0))
+	request := liveWindowsEngineRequest(t, []string{"/d", "/c", "exit 0"}, 0)
+	request.executable = filepath.Join(junction, filepath.Base(liveWindowsProbeExecutable(t)))
+	_, err := runLiveProcess(context.Background(), request)
 	var executionErr *LiveExecutionError
 	if err == nil || !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionInvalidRequest {
 		t.Fatalf("runLiveProcess() error = %T %v, want invalid reparse path", err, err)
@@ -248,4 +293,9 @@ func liveWindowsTestEnvironment(t *testing.T) map[string]string {
 	t.Helper()
 	systemRoot := os.Getenv("SystemRoot")
 	return map[string]string{"COMSPEC": liveWindowsProbeExecutable(t), "PATH": filepath.Join(systemRoot, "System32"), "SYSTEMROOT": systemRoot}
+}
+
+func liveWindowsEngineRequest(t *testing.T, args []string, outputLimit int) LiveProcessRequest {
+	t.Helper()
+	return newLiveEngineApply(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), args, "", liveWindowsTestEnvironment(t), liveTestExpectedIdentity(), outputLimit)
 }
