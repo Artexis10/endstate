@@ -387,7 +387,7 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 		return false
 	}
 	resolution, err := liveObjectAllowed(resolutions[0], []string{"captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "resolvedTargets", "status", "label", "message", "remediation"}, []string{"captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "resolvedTargets", "label", "message", "remediation", "status"})
-	if err != nil {
+	if err != nil || !validateLiveResolutionSubobjects(resolution) {
 		return false
 	}
 	var moduleID, status, kind string
@@ -544,24 +544,35 @@ func decodeLiveEvent(raw []byte) (liveEventRecord, bool) {
 		if !liveEventKeys(fields, append(base, "captureId", "moduleId", "configSetId", "targetCandidates", "resolution", "reason", "migrationPath", "label", "message", "remediation"), append(base, "captureId", "moduleId", "configSetId", "sourceInstance", "sourceInstanceId", "targetInstanceId", "targetCandidates", "sourceGeneration", "sourceGenerationFingerprint", "targetGeneration", "resolution", "reason", "migrationPath", "captureModuleRevision", "restoreModuleRevision", "label", "message", "remediation")) {
 			return liveEventRecord{}, false
 		}
+		if !validateLiveResolutionSubobjects(fields) {
+			return liveEventRecord{}, false
+		}
 		var official events.ConfigResolutionEvent
-		if json.Unmarshal(raw, &official) != nil || !liveResolutionValue(official.Resolution) {
+		if json.Unmarshal(raw, &official) != nil || !liveResolutionValue(official.Resolution) || !liveResolutionReason(official.Reason) {
 			return liveEventRecord{}, false
 		}
 	case "config-migration":
 		if !liveEventKeys(fields, append(base, "captureId", "configSetId", "stage", "status", "reason", "message", "remediation"), append(base, "captureId", "configSetId", "stage", "fromGeneration", "toGeneration", "status", "reason", "message", "remediation")) {
 			return liveEventRecord{}, false
 		}
+		if liveString(fields["captureId"], new(string)) != nil || liveString(fields["configSetId"], new(string)) != nil {
+			return liveEventRecord{}, false
+		}
 		var official events.ConfigMigrationEvent
-		if json.Unmarshal(raw, &official) != nil || !liveMigrationStage(official.Stage) || !liveMigrationStatus(official.Status) {
+		if json.Unmarshal(raw, &official) != nil || !liveMigrationStage(official.Stage) || !liveMigrationStatus(official.Status) || !liveNullableNonempty(fields["reason"]) {
 			return liveEventRecord{}, false
 		}
 	case "restore-item":
 		if !liveEventKeys(fields, append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message"), append(base, "id", "module", "restorer", "source", "target", "status", "reason", "backupPath", "targetExisted", "message", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration")) {
 			return liveEventRecord{}, false
 		}
+		for _, key := range []string{"id", "module", "restorer", "source", "target", "status", "message"} {
+			if liveString(fields[key], new(string)) != nil {
+				return liveEventRecord{}, false
+			}
+		}
 		var official events.RestoreItemEvent
-		if json.Unmarshal(raw, &official) != nil || !liveRestoreItemStatus(official.Status) {
+		if json.Unmarshal(raw, &official) != nil || !liveRestoreItemStatus(official.Status) || !liveNullableNonempty(fields["reason"]) {
 			return liveEventRecord{}, false
 		}
 	default:
@@ -581,6 +592,90 @@ func liveMigrationStatus(value events.ConfigProgressStatus) bool {
 }
 func liveRestoreItemStatus(value events.RestoreItemStatus) bool {
 	return value == events.RestoreItemRestoring || value == events.RestoreItemRestored || value == events.RestoreItemSkippedUpToDate || value == events.RestoreItemSkippedMissingSource || value == events.RestoreItemFailed
+}
+
+func liveResolutionReason(value *planner.ResolutionReason) bool {
+	if value == nil {
+		return true
+	}
+	switch *value {
+	case planner.ReasonUnknownGeneration, planner.ReasonAmbiguousGeneration, planner.ReasonDowngradeUnsupported,
+		planner.ReasonMigrationPathMissing, planner.ReasonAmbiguousTargetInstance, planner.ReasonTargetNotDetected,
+		planner.ReasonMappedTargetNotDetected, planner.ReasonMappedTargetIncompatible, planner.ReasonTargetCollision,
+		planner.ReasonPayloadIntegrityFailed, planner.ReasonUnsupportedModuleSchema, planner.ReasonCatalogModuleMissing,
+		planner.ReasonConfigSetMissing, planner.ReasonSourceGenerationUnknown, planner.ReasonSourceGenerationDefinitionChanged,
+		planner.ReasonAppRunning, planner.ReasonRecoveryRequired, planner.ReasonRestoreFiltered, planner.ReasonRestoreNotEnabled,
+		planner.ReasonTargetDetectionFailed, planner.ReasonStagingValidationFailed, planner.ReasonBackupFailed,
+		planner.ReasonJournalIntentFailed, planner.ReasonCommitFailed, planner.ReasonTargetValidationFailed,
+		planner.ReasonJournalCompletionFailed, planner.ReasonAlreadyUpToDate:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateLiveResolutionSubobjects(fields map[string]json.RawMessage) bool {
+	for _, key := range []string{"captureId", "moduleId", "configSetId"} {
+		if liveString(fields[key], new(string)) != nil {
+			return false
+		}
+	}
+	if raw, ok := fields["sourceInstance"]; ok && !liveNull(raw) && !validateLiveSourceInstance(raw) {
+		return false
+	}
+	targets, err := liveArray(fields["targetCandidates"])
+	if err != nil {
+		return false
+	}
+	for _, raw := range targets {
+		if !validateLiveTargetInstance(raw) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateLiveSourceInstance(raw json.RawMessage) bool {
+	fields, err := liveObject(raw, "id", "detectorId", "rawVersion", "normalizedVersion", "evidence")
+	if err != nil {
+		return false
+	}
+	for _, key := range []string{"id", "detectorId", "rawVersion", "normalizedVersion"} {
+		if liveString(fields[key], new(string)) != nil {
+			return false
+		}
+	}
+	return validateLiveInstanceEvidence(fields["evidence"])
+}
+
+func validateLiveTargetInstance(raw json.RawMessage) bool {
+	fields, err := liveObjectAllowed(raw, []string{"id", "moduleId", "detectorId", "rawVersion", "normalizedVersion", "evidence", "restoreModuleRevision"}, []string{"id", "moduleId", "detectorId", "rawVersion", "normalizedVersion", "evidence", "targetGeneration", "targetGenerationFingerprint", "restoreModuleRevision"})
+	if err != nil {
+		return false
+	}
+	for _, key := range []string{"id", "moduleId", "detectorId", "rawVersion", "normalizedVersion", "restoreModuleRevision"} {
+		if liveString(fields[key], new(string)) != nil {
+			return false
+		}
+	}
+	return validateLiveInstanceEvidence(fields["evidence"])
+}
+
+func validateLiveInstanceEvidence(raw json.RawMessage) bool {
+	fields, err := liveObjectAllowed(raw, []string{"type"}, []string{"type", "appId", "backend", "platform", "ref", "driver"})
+	if err != nil || liveString(fields["type"], new(string)) != nil {
+		return false
+	}
+	for _, key := range []string{"appId", "backend", "platform", "ref", "driver"} {
+		if value, ok := fields[key]; ok && liveString(value, new(string)) != nil {
+			return false
+		}
+	}
+	return true
+}
+
+func liveNullableNonempty(raw json.RawMessage) bool {
+	return liveNull(raw) || liveString(raw, new(string)) == nil
 }
 
 func liveEventKeys(fields map[string]json.RawMessage, required, allowed []string) bool {

@@ -58,6 +58,26 @@ func TestDecodeLiveEventsRejectsUnknownTypedMigrationStage(t *testing.T) {
 	}
 }
 
+func TestDecodeLiveEventRejectsNestedConfigResolutionForgery(t *testing.T) {
+	valid := []byte(`{"version":1,"runId":"apply-events","timestamp":"2026-07-26T12:00:00Z","event":"config-resolution","captureId":"capture","moduleId":"apps.notepad-plus-plus","configSetId":"set","sourceInstance":{"id":"source","detectorId":"winget","rawVersion":"1","normalizedVersion":"1","evidence":{"type":"package","ref":"Notepad++.Notepad++"}},"targetCandidates":[{"id":"target","moduleId":"apps.notepad-plus-plus","detectorId":"winget","rawVersion":"1","normalizedVersion":"1","evidence":{"type":"package","ref":"Notepad++.Notepad++"},"restoreModuleRevision":"revision"}],"resolution":"direct","reason":null,"migrationPath":[],"label":"","message":"","remediation":null}`)
+	if _, ok := decodeLiveEvent(valid); !ok {
+		t.Fatal("valid production-form config-resolution rejected")
+	}
+	for _, mutation := range []struct{ name, old, new string }{
+		{"source object", `"detectorId":"winget"`, `"futureAuthorization":true,"detectorId":"winget"`},
+		{"target object", `"restoreModuleRevision":"revision"`, `"futureAuthorization":true,"restoreModuleRevision":"revision"`},
+		{"nested evidence", `"type":"package","ref"`, `"type":"package","futureAuthorization":true,"ref"`},
+		{"invented reason", `"reason":null`, `"reason":"future_authorization"`},
+		{"null capture id", `"captureId":"capture"`, `"captureId":null`},
+	} {
+		t.Run(mutation.name, func(t *testing.T) {
+			if _, ok := decodeLiveEvent([]byte(strings.Replace(string(valid), mutation.old, mutation.new, 1))); ok {
+				t.Fatal("forged config-resolution accepted")
+			}
+		})
+	}
+}
+
 func TestLiveDecoderAcceptsProductionCommandEncoders(t *testing.T) {
 	ref := "Notepad++.Notepad++"
 	definition := LiveDefinition{ModuleID: "apps.notepad-plus-plus", WingetRef: ref, Comparator: ExactBytesComparator{Mappings: []ComparatorMapping{{Identity: "apps/notepad-plus-plus/config.xml"}, {Identity: "apps/notepad-plus-plus/shortcuts.xml"}}}}
