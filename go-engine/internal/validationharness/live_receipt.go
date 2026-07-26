@@ -44,11 +44,12 @@ func (operation liveOperation) valid() bool {
 func (operation liveOperation) mutation() bool { return operation != liveOperationWingetExactList }
 
 type liveReceiptIssuer struct {
-	id        uint64
-	admitFn   func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
-	sealFn    func(*liveExecutionReceipt) error
-	consumeFn func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
-	releaseFn func(liveReceiptAdmission)
+	id             uint64
+	admitFn        func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
+	sealFn         func(*liveExecutionReceipt) error
+	consumeFn      func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
+	consumeBatchFn func([]liveReceiptExpectation) bool
+	releaseFn      func(liveReceiptAdmission)
 }
 
 type liveReceiptAdmission struct {
@@ -122,6 +123,30 @@ func newLiveReceiptIssuer() *liveReceiptIssuer {
 		consumed[receipt.admissionToken] = struct{}{}
 		return true
 	}
+	issuer.consumeBatchFn = func(expectations []liveReceiptExpectation) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if len(expectations) == 0 {
+			return false
+		}
+		for _, expected := range expectations {
+			receipt := expected.receipt
+			if receipt == nil || receipt.issuerID != issuer.id || receipt.operation != expected.operation || receipt.sequence != expected.sequence || receipt.nonce != expected.nonce || receipt.failure != "" || receipt.validate() != nil {
+				return false
+			}
+			want := liveReceiptMAC(key, receipt)
+			if !hmac.Equal(receipt.tag[:], want[:]) {
+				return false
+			}
+			if _, exists := consumed[receipt.admissionToken]; exists {
+				return false
+			}
+		}
+		for _, expected := range expectations {
+			consumed[expected.receipt.admissionToken] = struct{}{}
+		}
+		return true
+	}
 	return issuer
 }
 
@@ -156,6 +181,41 @@ type liveReceiptExpectedIdentity struct {
 	engine     [32]byte
 	seed       [32]byte
 	packageRef [32]byte
+}
+
+type liveReceiptExpectation struct {
+	receipt   *liveExecutionReceipt
+	operation liveOperation
+	sequence  uint64
+	nonce     [32]byte
+}
+
+type liveJourneyReceiptSet struct {
+	ScenarioID                                                                                 string
+	InitialApply, Verify, Capture, RestoreRebuild, Revert, RecoveryRebuild, ConvergenceRebuild liveReceiptExpectation
+	RestoreJournalID                                                                           string
+	PackageAfterRevert                                                                         PackageObservation
+}
+
+// decodeLiveJourneyReceipts is the proof-only handoff for engine evidence. It
+// consumes every authenticated phase atomically, decodes inside this package,
+// and exposes only the projection returned by the official decoder.
+func decodeLiveJourneyReceipts(issuer *liveReceiptIssuer, definition LiveDefinition, set liveJourneyReceiptSet) (liveJourneyProjection, *Failure) {
+	if issuer == nil || issuer.consumeBatchFn == nil {
+		return liveJourneyProjection{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt issuer is unavailable")
+	}
+	expected := []liveReceiptExpectation{set.InitialApply, set.Verify, set.Capture, set.RestoreRebuild, set.Revert, set.RecoveryRebuild, set.ConvergenceRebuild}
+	for _, expectation := range expected {
+		if expectation.operation != liveOperationEngineApply && expectation.operation != liveOperationEngineVerify && expectation.operation != liveOperationEngineCapture && expectation.operation != liveOperationEngineRebuild && expectation.operation != liveOperationEngineRevert {
+			return liveJourneyProjection{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt operation is invalid")
+		}
+	}
+	if !issuer.consumeBatchFn(expected) {
+		return liveJourneyProjection{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt handoff rejected")
+	}
+	inputs := liveJourneyOutputs{ScenarioID: set.ScenarioID, RestoreJournalID: set.RestoreJournalID, PackageAfterRevert: set.PackageAfterRevert,
+		InitialApply: liveCommandOutput{Stdout: set.InitialApply.receipt.stdout, Stderr: set.InitialApply.receipt.stderr}, Verify: liveCommandOutput{Stdout: set.Verify.receipt.stdout, Stderr: set.Verify.receipt.stderr}, Capture: liveCommandOutput{Stdout: set.Capture.receipt.stdout, Stderr: set.Capture.receipt.stderr}, RestoreRebuild: liveCommandOutput{Stdout: set.RestoreRebuild.receipt.stdout, Stderr: set.RestoreRebuild.receipt.stderr}, Revert: liveCommandOutput{Stdout: set.Revert.receipt.stdout, Stderr: set.Revert.receipt.stderr}, RecoveryRebuild: liveCommandOutput{Stdout: set.RecoveryRebuild.receipt.stdout, Stderr: set.RecoveryRebuild.receipt.stderr}, ConvergenceRebuild: liveCommandOutput{Stdout: set.ConvergenceRebuild.receipt.stdout, Stderr: set.ConvergenceRebuild.receipt.stderr}}
+	return decodeLiveJourney(definition, inputs)
 }
 
 func (identity liveReceiptExpectedIdentity) valid(operation liveOperation) bool {

@@ -177,6 +177,41 @@ func TestLiveReceiptDecoderRejectsForgedRecomputedDigests(t *testing.T) {
 	}
 }
 
+func TestLiveReceiptBatchConsumptionIsAtomicAndSingleUse(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	first, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(13))
+	if err != nil {
+		t.Fatalf("first admit: %v", err)
+	}
+	firstReceipt := liveReceiptForTest(t, first, nil, nil)
+	first.complete()
+	second, err := issuer.admit(liveOperationEngineCapture, 2, liveReceiptTestNonce(14))
+	if err != nil {
+		t.Fatalf("second admit: %v", err)
+	}
+	secondReceipt := liveReceiptForTest(t, second, nil, nil)
+	second.complete()
+	batch := []liveReceiptExpectation{{receipt: firstReceipt, operation: liveOperationEngineApply, sequence: 1, nonce: first.nonce}, {receipt: secondReceipt, operation: liveOperationEngineCapture, sequence: 2, nonce: second.nonce}}
+	if !issuer.consumeBatchFn(batch) {
+		t.Fatal("consumeBatchFn() rejected valid receipt batch")
+	}
+	if issuer.consumeBatchFn(batch) {
+		t.Fatal("consumeBatchFn() accepted replayed receipt batch")
+	}
+	third, err := issuer.admit(liveOperationEngineRebuild, 3, liveReceiptTestNonce(15))
+	if err != nil {
+		t.Fatalf("third admit: %v", err)
+	}
+	thirdReceipt := liveReceiptForTest(t, third, nil, nil)
+	third.complete()
+	if issuer.consumeBatchFn([]liveReceiptExpectation{{receipt: thirdReceipt, operation: liveOperationEngineApply, sequence: 3, nonce: third.nonce}}) {
+		t.Fatal("consumeBatchFn() accepted wrong operation")
+	}
+	if issuer.consumeBatchFn([]liveReceiptExpectation{{receipt: thirdReceipt, operation: liveOperationEngineRebuild, sequence: 3, nonce: liveReceiptTestNonce(16)}}) {
+		t.Fatal("consumeBatchFn() accepted wrong nonce")
+	}
+}
+
 func liveReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, stderr []byte) *liveExecutionReceipt {
 	t.Helper()
 	started := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
