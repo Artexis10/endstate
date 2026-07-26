@@ -158,7 +158,29 @@ func TestValidateLiveResultEnforcesAttemptStateMachine(t *testing.T) {
 		return LiveAttempt{Number: number, Phase: LivePhaseCompare, Status: LiveStatusPassed, Package: PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}, Comparator: []ComparatorOutcome{{Identity: "apps/fixture/settings.json", Status: "passed"}}}
 	}
 	failedAttempt := func(number int, category LiveFailureCategory) LiveAttempt {
-		return LiveAttempt{Number: number, Phase: LivePhaseCompare, Status: LiveStatusFailed, Package: PackageObservation{Ref: "Vendor.Fixture", Status: "failed"}, FailureCategory: category}
+		attempt := LiveAttempt{Number: number, Status: LiveStatusFailed, FailureCategory: category}
+		switch category {
+		case LiveFailureDefinition, LiveFailureEnvironment:
+			attempt.Phase = LivePhasePreparation
+			attempt.Package.Status = "not-observed"
+		case LiveFailurePackage:
+			attempt.Phase = LivePhasePackage
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "failed"}
+		case LiveFailureSeed:
+			attempt.Phase = LivePhaseSeed
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}
+		case LiveFailureCapture:
+			attempt.Phase = LivePhaseCapture
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}
+		case LiveFailureRestore:
+			attempt.Phase = LivePhaseRestore
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}
+		case LiveFailureComparison:
+			attempt.Phase = LivePhaseCompare
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}
+			attempt.Comparator = []ComparatorOutcome{{Identity: "apps/fixture/settings.json", Status: "failed"}}
+		}
+		return attempt
 	}
 	result := func(status LiveStatus, attempts []LiveAttempt, category LiveFailureCategory) LiveResult {
 		return LiveResult{SchemaVersion: LiveResultSchemaVersion, ModuleID: "apps.fixture", ModuleRevision: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", ValidationSourceSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", DefinitionSHA256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", Status: status, Attempts: attempts, FailureCategory: category}
@@ -192,6 +214,96 @@ func TestValidateLiveResultEnforcesAttemptStateMachine(t *testing.T) {
 				t.Fatalf("ValidateLiveResult() error = %v, wantErr %v", err, test.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateLiveResultEnforcesFailedAttemptEvidence(t *testing.T) {
+	t.Parallel()
+
+	failed := func(category LiveFailureCategory) LiveAttempt {
+		attempt := LiveAttempt{Number: 1, Status: LiveStatusFailed, FailureCategory: category}
+		switch category {
+		case LiveFailureDefinition, LiveFailureEnvironment:
+			attempt.Phase = LivePhasePreparation
+			attempt.Package.Status = "not-observed"
+		case LiveFailurePackage:
+			attempt.Phase = LivePhasePackage
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "failed"}
+		case LiveFailureSeed:
+			attempt.Phase = LivePhaseSeed
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}
+		case LiveFailureCapture:
+			attempt.Phase = LivePhaseCapture
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}
+		case LiveFailureRestore:
+			attempt.Phase = LivePhaseRestore
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}
+		case LiveFailureComparison:
+			attempt.Phase = LivePhaseCompare
+			attempt.Package = PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}
+			attempt.Comparator = []ComparatorOutcome{{Identity: "apps/fixture/settings.json", Status: "failed"}}
+		}
+		return attempt
+	}
+	result := func(attempt LiveAttempt) LiveResult {
+		return LiveResult{SchemaVersion: LiveResultSchemaVersion, ModuleID: "apps.fixture", ModuleRevision: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", ValidationSourceSHA256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef", DefinitionSHA256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789", Status: LiveStatusFailed, Attempts: []LiveAttempt{attempt}, FailureCategory: attempt.FailureCategory}
+	}
+	cases := []struct {
+		name    string
+		attempt LiveAttempt
+		wantErr bool
+	}{
+		{name: "definition preparation", attempt: failed(LiveFailureDefinition)},
+		{name: "environment preparation", attempt: failed(LiveFailureEnvironment)},
+		{name: "package observation failed", attempt: failed(LiveFailurePackage)},
+		{name: "seed after package", attempt: failed(LiveFailureSeed)},
+		{name: "capture after package", attempt: failed(LiveFailureCapture)},
+		{name: "restore after package", attempt: failed(LiveFailureRestore)},
+		{name: "comparison observation failed", attempt: failed(LiveFailureComparison)},
+		{name: "package category with passed package", attempt: func() LiveAttempt {
+			attempt := failed(LiveFailurePackage)
+			attempt.Package.Status = "passed"
+			return attempt
+		}(), wantErr: true},
+		{name: "comparison category without failed comparator", attempt: func() LiveAttempt {
+			attempt := failed(LiveFailureComparison)
+			attempt.Comparator[0].Status = "passed"
+			return attempt
+		}(), wantErr: true},
+		{name: "seed category at compare phase", attempt: func() LiveAttempt {
+			attempt := failed(LiveFailureSeed)
+			attempt.Phase = LivePhaseCompare
+			return attempt
+		}(), wantErr: true},
+		{name: "capture category with failed package", attempt: func() LiveAttempt {
+			attempt := failed(LiveFailureCapture)
+			attempt.Package.Status = "failed"
+			return attempt
+		}(), wantErr: true},
+		{name: "restore category after completed comparison", attempt: func() LiveAttempt {
+			attempt := failed(LiveFailureRestore)
+			attempt.Comparator = []ComparatorOutcome{{Identity: "apps/fixture/settings.json", Status: "passed"}}
+			return attempt
+		}(), wantErr: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateLiveResult(result(test.attempt))
+			if (err != nil) != test.wantErr {
+				t.Fatalf("ValidateLiveResult() error = %v, wantErr %v", err, test.wantErr)
+			}
+		})
+	}
+
+	passed := LiveAttempt{Number: 2, Phase: LivePhaseCompare, Status: LiveStatusPassed, Package: PackageObservation{Ref: "Vendor.Fixture", Status: "passed"}, Comparator: []ComparatorOutcome{{Identity: "apps/fixture/settings.json", Status: "passed"}}}
+	invalidRetry := failed(LiveFailureSeed)
+	invalidRetry.Phase = LivePhaseCompare
+	passedResult := result(invalidRetry)
+	passedResult.Status = LiveStatusPassed
+	passedResult.FailureCategory = LiveFailureNone
+	passedResult.Attempts = []LiveAttempt{invalidRetry, passed}
+	if err := ValidateLiveResult(passedResult); err == nil {
+		t.Fatal("passed result accepted an internally inconsistent failed retry")
 	}
 }
 
@@ -320,6 +432,73 @@ func TestDeriveExactBytesComparatorRejectsUnsupportedMappings(t *testing.T) {
 			}
 			if _, err := deriveExactBytesComparator(module, definitions); err == nil {
 				t.Fatal("unsupported mapping was accepted")
+			}
+		})
+	}
+}
+
+func TestLiveRestoreIdentityRejectsUnsafeOrForeignSources(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		source  string
+		want    string
+		wantErr bool
+	}{
+		{name: "portable payload identity", source: "./payload/apps/fixture/settings.json", want: "apps/fixture/settings.json"},
+		{name: "absolute Windows path", source: `C:\payload\apps\fixture\settings.json`, wantErr: true},
+		{name: "UNC path", source: `\\server\share\payload\apps\fixture\settings.json`, wantErr: true},
+		{name: "foreign payload prefix", source: "./foreign/payload/apps/fixture/settings.json", wantErr: true},
+		{name: "traversal", source: "./payload/apps/fixture/../settings.json", wantErr: true},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			identity, err := liveRestoreIdentity(test.source)
+			if (err != nil) != test.wantErr || identity != test.want {
+				t.Fatalf("liveRestoreIdentity(%q) = %q, %v; want %q, error %v", test.source, identity, err, test.want, test.wantErr)
+			}
+		})
+	}
+}
+
+func TestDeriveExactBytesComparatorRejectsUnsafeRestoreSources(t *testing.T) {
+	t.Parallel()
+
+	valid := func() (*modules.Module, fixtureDefinitions) {
+		module := &modules.Module{Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{Source: `%APPDATA%\Fixture\settings.json`, Dest: "apps/fixture/settings.json", Optional: true}}}, Restore: []modules.RestoreDef{{Type: "copy", Source: "./payload/apps/fixture/settings.json", Target: `%APPDATA%\Fixture\settings.json`, Optional: true}}}
+		definitions := fixtureDefinitions{Entries: []fixtureDefinition{{Coordinate: "capture.files[0]", Source: `%APPDATA%\Fixture\settings.json`, Destination: "apps/fixture/settings.json", Target: `%APPDATA%\Fixture\settings.json`, Optional: true, Kind: fixtureKindFile}}}
+		return module, definitions
+	}
+	for _, source := range []string{`C:\payload\apps\fixture\settings.json`, `\\server\share\payload\apps\fixture\settings.json`, "./foreign/payload/apps/fixture/settings.json"} {
+		t.Run(source, func(t *testing.T) {
+			module, definitions := valid()
+			module.Restore[0].Source = source
+			if _, err := deriveExactBytesComparator(module, definitions); err == nil {
+				t.Fatal("unsafe restore source was accepted")
+			}
+		})
+	}
+}
+
+func TestValidLiveUserTemplateRejectsDynamicAndUnsafeWindowsPaths(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name  string
+		value string
+		valid bool
+	}{
+		{name: "production Notepad template", value: `%APPDATA%\Notepad++\config.xml`, valid: true},
+		{name: "NTFS alternate data stream", value: `%APPDATA%\Fixture\settings.json:stream`},
+		{name: "nested environment placeholder", value: `%APPDATA%\Fixture\%TEMP%\settings.json`},
+		{name: "NUL", value: "%APPDATA%\\Fixture\\settings\x00.json"},
+		{name: "reserved device", value: `%APPDATA%\Fixture\CON`},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			if got := validLiveUserTemplate(test.value); got != test.valid {
+				t.Fatalf("validLiveUserTemplate(%q) = %v, want %v", test.value, got, test.valid)
 			}
 		})
 	}

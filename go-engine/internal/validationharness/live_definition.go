@@ -269,7 +269,11 @@ func deriveExactBytesComparator(module *modules.Module, definitions fixtureDefin
 		seen[identity] = struct{}{}
 		var restores []modules.RestoreDef
 		for _, restore := range module.Restore {
-			if capture.Source == restore.Target && payloadDestination(restore.Source) == definition.Destination {
+			restoreIdentity, err := liveRestoreIdentity(restore.Source)
+			if err != nil {
+				continue
+			}
+			if capture.Source == restore.Target && restoreIdentity == definition.Destination {
 				restores = append(restores, restore)
 			}
 		}
@@ -320,16 +324,42 @@ func validLiveIdentity(identity string) bool {
 }
 
 func validLiveUserTemplate(template string) bool {
-	if template == "" || len(template) > maxLiveStringBytes || strings.ContainsAny(template, `*?[]{}$`) || strings.Contains(template, "..") || strings.HasSuffix(template, `\\`) || strings.Contains(template, "/") {
+	if template == "" || len(template) > maxLiveStringBytes || strings.ContainsAny(template, `*?[]{}$/<>"|`) || strings.Contains(template, "..") || strings.HasSuffix(template, "\\") {
 		return false
+	}
+	for _, character := range template {
+		if character < 0x20 || character == 0x7f {
+			return false
+		}
 	}
 	upper := strings.ToUpper(template)
 	for _, root := range []string{"%APPDATA%\\", "%LOCALAPPDATA%\\", "%USERPROFILE%\\"} {
-		if strings.HasPrefix(upper, root) && len(template) > len(root) {
-			return true
+		if !strings.HasPrefix(upper, root) {
+			continue
 		}
+		relative := template[len(root):]
+		if strings.ContainsAny(relative, ":%") {
+			return false
+		}
+		for _, component := range strings.Split(relative, "\\") {
+			if !validLiveWindowsComponent(component) {
+				return false
+			}
+		}
+		return true
 	}
 	return false
+}
+
+func validLiveWindowsComponent(component string) bool {
+	if component == "" || component == "." || component == ".." || strings.TrimRight(component, " .") != component {
+		return false
+	}
+	name := strings.SplitN(strings.ToUpper(component), ".", 2)[0]
+	if name == "CON" || name == "PRN" || name == "AUX" || name == "NUL" {
+		return false
+	}
+	return len(name) != 4 || (name[:3] != "COM" && name[:3] != "LPT") || name[3] < '1' || name[3] > '9'
 }
 
 func sameLiveTemplate(left, right string) bool {
@@ -444,6 +474,9 @@ func validateLiveResultState(result LiveResult) error {
 			if attempt.Status != LiveStatusFailed || attempt.FailureCategory == LiveFailureNone {
 				return fmt.Errorf("passed live result retry attempt %d must fail with a category", index)
 			}
+			if err := validateFailedLiveAttempt(attempt); err != nil {
+				return err
+			}
 		}
 		return nil
 	case LiveStatusFailed:
@@ -454,6 +487,9 @@ func validateLiveResultState(result LiveResult) error {
 			if attempt.Status != LiveStatusFailed || attempt.FailureCategory == LiveFailureNone {
 				return fmt.Errorf("failed live result attempt %d must fail with a category", index)
 			}
+			if err := validateFailedLiveAttempt(attempt); err != nil {
+				return err
+			}
 		}
 		final := result.Attempts[len(result.Attempts)-1]
 		if final.FailureCategory != result.FailureCategory {
@@ -463,6 +499,37 @@ func validateLiveResultState(result LiveResult) error {
 	default:
 		return fmt.Errorf("live result status is invalid")
 	}
+}
+
+func validateFailedLiveAttempt(attempt LiveAttempt) error {
+	switch attempt.FailureCategory {
+	case LiveFailureDefinition, LiveFailureEnvironment:
+		if attempt.Phase != LivePhasePreparation || attempt.Package.Ref != "" || attempt.Package.Version != "" || attempt.Package.Status != "not-observed" || len(attempt.Comparator) != 0 {
+			return fmt.Errorf("preparation failure must not report completed observations")
+		}
+	case LiveFailurePackage:
+		if attempt.Phase != LivePhasePackage || attempt.Package.Ref == "" || attempt.Package.Status != "failed" || len(attempt.Comparator) != 0 {
+			return fmt.Errorf("package failure must report a failed package observation")
+		}
+	case LiveFailureSeed, LiveFailureCapture, LiveFailureRestore:
+		phase := map[LiveFailureCategory]LivePhase{LiveFailureSeed: LivePhaseSeed, LiveFailureCapture: LivePhaseCapture, LiveFailureRestore: LivePhaseRestore}[attempt.FailureCategory]
+		if attempt.Phase != phase || attempt.Package.Ref == "" || attempt.Package.Status != "passed" || len(attempt.Comparator) != 0 {
+			return fmt.Errorf("%s failure has inconsistent phase or observations", attempt.FailureCategory)
+		}
+	case LiveFailureComparison:
+		if attempt.Phase != LivePhaseCompare || attempt.Package.Ref == "" || attempt.Package.Status != "passed" {
+			return fmt.Errorf("comparison failure must follow a passed package observation")
+		}
+		for _, outcome := range attempt.Comparator {
+			if outcome.Status == "failed" {
+				return nil
+			}
+		}
+		return fmt.Errorf("comparison failure must report a failed comparator observation")
+	default:
+		return fmt.Errorf("live failure category is invalid")
+	}
+	return nil
 }
 
 func validatePassedLiveAttempt(attempt LiveAttempt) error {
