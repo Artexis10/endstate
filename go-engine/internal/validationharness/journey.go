@@ -21,6 +21,7 @@ type scenarioRuntime struct {
 	V2Plan              *V2FixturePlan
 	InstallPlan         *InstallContractPlan
 	CapturePlan         *CaptureContractPlan
+	RestorePlan         *RestoreContractPlan
 	V2Transition        *v2VersionTransition
 	AuthorityRoot       string
 	Root                string
@@ -109,6 +110,9 @@ func (runtime *scenarioRuntime) forbiddenOutputValues() []string {
 			add(target.Resolved)
 		}
 	}
+	if runtime.RestorePlan != nil {
+		add(runtime.RestorePlan.PayloadPath)
+	}
 	return result
 }
 
@@ -127,6 +131,9 @@ func (runtime *scenarioRuntime) validationContext() *validationmode.Context {
 	}
 	if runtime.CapturePlan != nil {
 		return runtime.CapturePlan.context
+	}
+	if runtime.RestorePlan != nil {
+		return runtime.RestorePlan.context
 	}
 	return nil
 }

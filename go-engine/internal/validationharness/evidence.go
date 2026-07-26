@@ -84,6 +84,26 @@ type rebuildEvidence struct {
 			Status string `json:"status"`
 			Reason string `json:"reason"`
 		} `json:"actions"`
+		ConfigResolutionSummary struct {
+			Total    int `json:"total"`
+			Selected int `json:"selected"`
+			Skipped  int `json:"skipped"`
+			Failed   int `json:"failed"`
+		} `json:"configResolutionSummary"`
+		ConfigResolutions []struct {
+			Status     string  `json:"status"`
+			Resolution string  `json:"resolution"`
+			Reason     *string `json:"reason"`
+		} `json:"configResolutions"`
+		RestoreItems []struct {
+			Source              string `json:"source"`
+			Target              string `json:"target"`
+			Status              string `json:"status"`
+			BackupPath          string `json:"backupPath"`
+			BackupCreated       bool   `json:"backupCreated"`
+			TargetExistedBefore bool   `json:"targetExistedBefore"`
+			RestoreType         string `json:"restoreType"`
+		} `json:"restoreItems"`
 	} `json:"apply"`
 	ConfigResolutionSummary struct {
 		Total    int `json:"total"`

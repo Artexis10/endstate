@@ -51,6 +51,16 @@ var captureProofs = map[validationmatrix.ProofLevel]struct{}{
 	validationmatrix.ProofCatalog: {}, validationmatrix.ProofEngineContract: {},
 }
 
+var restoreAssertions = map[string]struct{}{
+	validationmatrix.AssertionRestored: {}, validationmatrix.AssertionContent: {},
+	validationmatrix.AssertionNestedSummary: {}, validationmatrix.AssertionRevert: {},
+	validationmatrix.AssertionVerify: {},
+}
+
+var restoreProofs = map[validationmatrix.ProofLevel]struct{}{
+	validationmatrix.ProofEngineContract: {},
+}
+
 func evaluateAssertions(scenario validationmatrix.Scenario, counts map[string]int, operations OperationCounts, proof []validationmatrix.ProofLevel) ([]validationmatrix.ProofLevel, *Failure) {
 	if operations.Executed <= 0 || operations.Skipped > 0 && operations.Executed == 0 {
 		return nil, fail(CodeAssertionContract, "assertions", "operations", "scenario must execute at least one operation")
@@ -66,6 +76,9 @@ func evaluateAssertions(scenario validationmatrix.Scenario, counts map[string]in
 	} else if scenario.Mode == validationmatrix.ScenarioCaptureContract {
 		allowedAssertions, allowedProofs = captureAssertions, captureProofs
 		canonical = []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract}
+	} else if scenario.Mode == validationmatrix.ScenarioRestoreContract {
+		allowedAssertions, allowedProofs = restoreAssertions, restoreProofs
+		canonical = []validationmatrix.ProofLevel{validationmatrix.ProofEngineContract}
 	}
 	for name, count := range counts {
 		if _, known := allowedAssertions[name]; !known || count <= 0 {

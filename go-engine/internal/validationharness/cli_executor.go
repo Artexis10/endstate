@@ -562,6 +562,40 @@ func (executor *cliJourneyExecutor) Rebuild(ctx context.Context, runtime *scenar
 	return nil
 }
 
+func (executor *cliJourneyExecutor) RebuildRestoreContract(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	if runtime == nil || runtime.RestorePlan == nil || runtime.RestorePlan.ArtifactPath == "" {
+		return fail(CodeIsolationFailure, "rebuild", "artifact", "restore-contract artifact authority is absent")
+	}
+	storageBefore, failure := snapshotRebuildStorage(runtime)
+	if failure != nil {
+		return failure
+	}
+	output, failure := executor.run(ctx, "rebuild", "--from", runtime.RestorePlan.ArtifactPath, "--only", runtime.Inventory.AppID, "--confirm")
+	if failure != nil {
+		return failure
+	}
+	if failure := validateRestoreContractRebuildEvidence(output.Envelope.Data, runtime); failure != nil {
+		return failure
+	}
+	if failure := validateRestoreContractRebuildEvents(output.Events, runtime); failure != nil {
+		return failure
+	}
+	binding, _, failure := validateRebuildStorageEvidence(runtime, output.Envelope.Data, 0, storageBefore)
+	if failure != nil {
+		return failure
+	}
+	executor.firstRebuild = binding
+	return nil
+}
+
+func (executor *cliJourneyExecutor) RevertRestoreContract(ctx context.Context, runtime *scenarioRuntime) *Failure {
+	output, failure := executor.run(ctx, "revert")
+	if failure != nil {
+		return failure
+	}
+	return validateRestoreContractRevertEvidence(output.Envelope.Data, output.Events, runtime, executor.firstRebuild)
+}
+
 func (executor *cliJourneyExecutor) Revert(ctx context.Context, runtime *scenarioRuntime) *Failure {
 	output, failure := executor.run(ctx, "revert")
 	if failure != nil {
@@ -606,3 +640,4 @@ func (buffer *boundedBuffer) Bytes() []byte { return buffer.buffer.Bytes() }
 
 var _ journeyExecutor = (*cliJourneyExecutor)(nil)
 var _ installJourneyExecutor = (*cliJourneyExecutor)(nil)
+var _ restoreContractJourneyExecutor = (*cliJourneyExecutor)(nil)

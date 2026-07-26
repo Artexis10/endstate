@@ -72,6 +72,8 @@ func Run(ctx context.Context, request Request) (Result, error) {
 		result = executeInstallJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
 	case validationmatrix.ScenarioCaptureContract:
 		result = executeCaptureContractJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
+	case validationmatrix.ScenarioRestoreContract:
+		result = executeRestoreContractJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
 	case validationmatrix.ScenarioConfigRoundtripV1:
 		result = executeJourney(ctx, runtime, newCLIJourneyExecutor(selected, runtime))
 	default:
@@ -169,6 +171,7 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	var v2Plan *V2FixturePlan
 	var installPlan *InstallContractPlan
 	var capturePlan *CaptureContractPlan
+	var restorePlan *RestoreContractPlan
 	var fixtureFailure *Failure
 	switch selected.scenario.Mode {
 	case validationmatrix.ScenarioConfigRoundtripV1:
@@ -208,6 +211,32 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		compiled.context = validationContext
 		compiled.root = root
 		capturePlan = &compiled
+	case validationmatrix.ScenarioRestoreContract:
+		if selected.restorePlan == nil || selected.restorePlan.Inventory != inventory {
+			fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "inventory", "restore plan inventory differs from runtime authority")
+			break
+		}
+		compiled := *selected.restorePlan
+		compiled.Verifiers = append([]modules.VerifyDef(nil), selected.restorePlan.Verifiers...)
+		compiled.Restored = append([]byte(nil), selected.restorePlan.Restored...)
+		compiled.Original = append([]byte(nil), selected.restorePlan.Original...)
+		compiled.PayloadPath = ""
+		compiled.context = validationContext
+		compiled.root = root
+		resolved, resolveErr := validationContext.ResolveHostPath(compiled.Restore.Target, validationmode.HostPathPolicy{})
+		if resolveErr != nil || validationContext.ValidateSandboxPath(resolved) != nil || !fixtureContained(root, resolved) {
+			fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "restore[0].target", "restore target cannot be resolved through validation mode")
+			break
+		}
+		plan = &FixturePlan{context: validationContext, Targets: []FixtureTarget{{
+			Coordinate: "restore[0]", Authored: compiled.Restore.Target,
+			Destination: strings.TrimPrefix(filepath.ToSlash(compiled.Restore.Source), "./payload/"),
+			Resolved:    resolved, PayloadPath: resolved, Captured: string(compiled.Restored), Mutated: string(compiled.Original),
+		}}}
+		if fixtureFailure = compiled.materializeArtifact(root); fixtureFailure != nil {
+			break
+		}
+		restorePlan = &compiled
 	default:
 		fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
@@ -224,7 +253,7 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		}
 	}
 	runtime := &scenarioRuntime{
-		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan, InstallPlan: installPlan, CapturePlan: capturePlan,
+		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan, InstallPlan: installPlan, CapturePlan: capturePlan, RestorePlan: restorePlan,
 		V2Transition:  transition,
 		AuthorityRoot: authorityRoot, Root: root, GuardRoot: guardRoot, ChildWorkingDir: childWorkingDir,
 		Nonce: nonce, Inventory: inventory,

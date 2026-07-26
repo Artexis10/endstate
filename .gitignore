@@ -28,6 +28,9 @@ plans/
 /state/
 capture/
 payload/
+!go-engine/internal/validationharness/testdata/restore-contract/payload/
+go-engine/internal/validationharness/testdata/restore-contract/payload/*
+!go-engine/internal/validationharness/testdata/restore-contract/payload/settings.ini
 .endstate/
 
 # ---------------------------------------------------------------------------

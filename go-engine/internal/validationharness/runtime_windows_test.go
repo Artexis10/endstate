@@ -142,6 +142,47 @@ func TestRunFreshBuiltEngineTrackedMGBACaptureV1(t *testing.T) {
 	}
 }
 
+func TestRunFreshBuiltEngineTrackedRestoreContractV1(t *testing.T) {
+	engineRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := materializeRestoreContractRepository(t)
+	buildRoot := t.TempDir()
+	engine := filepath.Join(buildRoot, "endstate.exe")
+	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
+	build.Dir = engineRoot
+	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
+		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build engine: %v\n%s", err, output)
+	}
+
+	resultPath := filepath.Join(t.TempDir(), "restore-contract-v1.json")
+	result, err := Run(context.Background(), Request{
+		EnginePath: engine, RepoRoot: repoRoot, ModuleID: restoreContractFixtureModuleID,
+		ScenarioID: "reviewed-restore-v1", ResultPath: resultPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ResultStatusPassed || result.Failure != nil {
+		t.Fatalf("failure = %+v; counts=%v timings=%v", result.Failure, result.AssertionCounts, result.PhaseTimings)
+	}
+	wantCounts := map[string]int{"restored": 1, "content": 1, "nestedSummary": 1, "revert": 1, "verify": 1}
+	if len(result.AssertionCounts) != len(wantCounts) {
+		t.Fatalf("assertion counts = %v", result.AssertionCounts)
+	}
+	for name, want := range wantCounts {
+		if result.AssertionCounts[name] != want {
+			t.Fatalf("assertion counts = %v", result.AssertionCounts)
+		}
+	}
+	if len(result.ProofLevels) != 1 || result.ProofLevels[0] != "engine-contract" {
+		t.Fatalf("proof levels = %v", result.ProofLevels)
+	}
+}
+
 func TestRunFreshBuiltEngineTrackedSchemaV2(t *testing.T) {
 	engineRoot, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
