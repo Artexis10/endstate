@@ -346,7 +346,7 @@ func TestCreateCaptureBundleWithValidationPreservesGenerationProvenance(t *testi
 	}
 }
 
-func TestCreateCaptureBundleWithValidationLoadsPrivateDriverIntermediateWithoutPublishedDisplayName(t *testing.T) {
+func TestCreateCaptureBundleWithValidationLoadsPrivateDriverIntermediateWithPublishedDisplayName(t *testing.T) {
 	context := activeBundleValidationContextWithInventory(t, "apps.studio-one", validationmode.Inventory{
 		AppID: "studio-one", Driver: "validation", Ref: "studio-one", DisplayName: "PreSonus Studio One",
 		Version: "7", InitialState: "present",
@@ -355,9 +355,7 @@ func TestCreateCaptureBundleWithValidationLoadsPrivateDriverIntermediateWithoutP
 	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	// Capture uses _name as private display metadata. The authored app declaration
-	// deliberately has no displayName field.
-	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"capture","apps":[{"id":"studio-one","refs":{"windows":"studio-one"},"driver":"validation","_name":"PreSonus Studio One"}]}`), 0o600); err != nil {
+	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"name":"capture","apps":[{"id":"studio-one","refs":{"windows":"studio-one"},"driver":"validation","displayName":"PreSonus Studio One"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	outputPath := filepath.Join(context.Root(), "manifests", "validation-driver.zip")

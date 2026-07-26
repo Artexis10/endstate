@@ -35,7 +35,7 @@ func TestProjectCapturePlanningManifestUsesProductionProjection(t *testing.T) {
 		t.Fatalf("projected topology = %+v", projected)
 	}
 	capture := projected.ConfigCaptures[0]
-	if capture.CaptureID != CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID) || capture.PayloadRoot != "configs/"+capture.CaptureID {
+	if capture.CaptureID != CaptureID(plan.Module.ID, plan.Set.ID, plan.Instance.ID) || capture.PayloadRoot != ConfigPayloadRoot(plan.Module.ID, capture.CaptureID) {
 		t.Fatalf("projected generation capture = %+v", capture)
 	}
 	snapshot, err := WriteModuleSnapshot(t.TempDir(), plan.Module)
@@ -45,7 +45,9 @@ func TestProjectCapturePlanningManifestUsesProductionProjection(t *testing.T) {
 	if capture.CaptureModule.ContentHash != snapshot.ContentHash || capture.CaptureModule.SnapshotPath != snapshot.Path {
 		t.Fatalf("projected provenance = %+v, production snapshot = %+v", capture.CaptureModule, snapshot)
 	}
-	if len(projected.Restore) != 1 || projected.Restore[0].Source != "./configs/"+LegacyCaptureID(legacy.ID)+"/settings.json" || projected.Restore[0].FromModule != legacy.ID {
+	legacyRoot := ConfigPayloadRoot(legacy.ID, LegacyCaptureID(legacy.ID))
+	if len(projected.LegacyConfigLanes) != 1 || projected.LegacyConfigLanes[0].PayloadRoot != legacyRoot ||
+		len(projected.Restore) != 1 || projected.Restore[0].Source != "./"+legacyRoot+"/settings.json" || projected.Restore[0].FromModule != legacy.ID {
 		t.Fatalf("projected legacy restore = %+v", projected.Restore)
 	}
 	if len(projected.Verify) != 1 || projected.Verify[0].Type != "file-exists" {

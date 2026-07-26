@@ -265,10 +265,7 @@ func CreateCaptureBundle(request CaptureBundleRequest) (*CaptureBundleResult, er
 	var validationCaptureApp *manifest.App
 	if request.ValidationContext != nil && strings.EqualFold(request.ValidationContext.Descriptor().Inventory.Driver, "validation") {
 		inventory := request.ValidationContext.Descriptor().Inventory
-		// The intermediate capture manifest publishes only declaration fields.
-		// Display text is carried privately as _name and therefore is not part of
-		// the descriptor-bound App shape admitted by the narrow loader.
-		expected := manifest.App{ID: inventory.AppID, Refs: map[string]string{"windows": inventory.Ref}, Driver: inventory.Driver, Source: inventory.Source}
+		expected := manifest.App{ID: inventory.AppID, Refs: map[string]string{"windows": inventory.Ref}, Driver: inventory.Driver, Source: inventory.Source, DisplayName: inventory.DisplayName}
 		validationCaptureApp = &expected
 		baseManifest, err = manifest.LoadManifestForValidationCapture(request.ManifestPath, expected)
 	} else {
