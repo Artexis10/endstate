@@ -26,9 +26,6 @@ func validateSchemaV1Classification(record *ValidationRecord, mod *modules.Modul
 	switch {
 	case fullyRestorable:
 		want = ScenarioConfigRoundtripV1
-		if len(mod.Verify) == 0 {
-			return validationError(CodeInvalidClassification, record.ModuleID, record.FilePath, "config roundtrip requires a production verifier")
-		}
 	case hasCapture:
 		want = ScenarioCaptureContract
 	case hasRestore:

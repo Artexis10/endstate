@@ -191,6 +191,31 @@ func TestValidationScenarioMinimaAndModuleClassification(t *testing.T) {
 	}
 }
 
+func TestSchemaV1RoundtripWithoutModuleVerifierUsesSelectedAppVerification(t *testing.T) {
+	root := t.TempDir()
+	module := strings.Replace(
+		schemaV1Module("apps.alpha", true),
+		`"verify": [{"type": "file-exists", "path": "%APPDATA%\\Fixture\\settings.json"}],`,
+		`"verify": [],`,
+		1,
+	)
+	mod := writeModule(t, root, "alpha", module)
+	record := validV1Validation(mod.ID, mod.Revision)
+	writeValidation(t, root, "alpha", record)
+
+	catalog, err := LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("LoadCatalog returned %v", err)
+	}
+	scenarios := catalog.Records[mod.ID].Synthetic.Scenarios
+	if len(scenarios) != 1 || scenarios[0].Mode != ScenarioConfigRoundtripV1 {
+		t.Fatalf("scenarios = %+v, want exactly one config roundtrip", scenarios)
+	}
+	if got := scenarios[0].MinimumAssertions[AssertionVerify]; got != 1 {
+		t.Fatalf("verify minimum = %d, want 1", got)
+	}
+}
+
 func TestScenarioIDAcceptsAnyNonBlankUniqueValue(t *testing.T) {
 	root := t.TempDir()
 	mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
