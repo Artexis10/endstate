@@ -18,10 +18,18 @@ const bundleFixtureManifest = `{
   "apps": [{ "id": "7zip-7zip", "refs": { "windows": "7zip.7zip" } }]
 }`
 
-// writeBundle builds a zip whose entries are the given name→content pairs.
+// writeBundle builds a legacy-named .zip bundle whose entries are the given
+// name→content pairs.
 func writeBundle(t *testing.T, entries map[string]string) string {
 	t.Helper()
-	bundlePath := filepath.Join(t.TempDir(), "endstate-capture.zip")
+	return writeBundleNamed(t, "endstate-capture"+LegacyBundleExt, entries)
+}
+
+// writeBundleNamed builds a bundle under an exact file name, so a test can
+// assert that the container is identical and only the extension differs.
+func writeBundleNamed(t *testing.T, fileName string, entries map[string]string) string {
+	t.Helper()
+	bundlePath := filepath.Join(t.TempDir(), fileName)
 	file, err := os.Create(bundlePath)
 	if err != nil {
 		t.Fatal(err)
@@ -115,14 +123,60 @@ func TestLoadManifestOrBundleRejectsAnUnreadableBundle(t *testing.T) {
 }
 
 func TestIsBundlePathMatchesExtensionCaseInsensitively(t *testing.T) {
-	for _, bundle := range []string{"a.zip", "a.ZIP", `C:\x\endstate-capture.Zip`} {
+	bundles := []string{
+		"a.zip", "a.ZIP", `C:\x\endstate-capture.Zip`,
+		"a.endstate", "a.ENDSTATE", `C:\x\endstate-capture.EndState`,
+	}
+	for _, bundle := range bundles {
 		if !IsBundlePath(bundle) {
 			t.Fatalf("%q should be treated as a bundle", bundle)
 		}
 	}
-	for _, plain := range []string{"manifest.jsonc", "a.zip.jsonc", "zip"} {
+	plains := []string{
+		"manifest.jsonc", "a.zip.jsonc", "zip",
+		"a.endstate.jsonc", "endstate", "endstate.json",
+	}
+	for _, plain := range plains {
 		if IsBundlePath(plain) {
 			t.Fatalf("%q should not be treated as a bundle", plain)
 		}
+	}
+}
+
+// .endstate is the same zip container under a new name, so the manifest loader
+// must produce an identical result for both extensions. .zip is permanent
+// back-compat, not a deprecation.
+func TestLoadManifestOrBundleReadsEndstateAndZipIdentically(t *testing.T) {
+	entries := map[string]string{
+		BundleManifestEntry:               bundleFixtureManifest,
+		"configs/7zip-135f78ef/7-Zip.reg": "payload",
+		"metadata.json":                   `{"schemaVersion":"2.0"}`,
+	}
+
+	for _, fileName := range []string{
+		"endstate-capture" + BundleExt,
+		"endstate-capture" + LegacyBundleExt,
+		"endstate-capture.ENDSTATE",
+	} {
+		loaded, err := LoadManifestOrBundle(writeBundleNamed(t, fileName, entries))
+		if err != nil {
+			t.Fatalf("LoadManifestOrBundle(%s): %v", fileName, err)
+		}
+		if loaded.Name != "captured" || len(loaded.Apps) != 1 || loaded.Apps[0].ID != "7zip-7zip" {
+			t.Fatalf("LoadManifestOrBundle(%s) = %+v", fileName, loaded)
+		}
+	}
+}
+
+// An .endstate that is not a zip must fail as a bundle, not silently fall back
+// to being parsed as raw JSONC.
+func TestLoadManifestOrBundleRejectsAnUnreadableEndstateBundle(t *testing.T) {
+	notAZip := filepath.Join(t.TempDir(), "endstate-capture"+BundleExt)
+	if err := os.WriteFile(notAZip, []byte("this is not a zip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadManifestOrBundle(notAZip); err == nil {
+		t.Fatal("an .endstate that is not a zip must be rejected, not parsed as JSONC")
 	}
 }

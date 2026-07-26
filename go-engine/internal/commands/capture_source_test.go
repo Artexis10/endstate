@@ -350,8 +350,8 @@ func TestRunCapture_PreservesStoreSourceAndOmitsStorePin(t *testing.T) {
 	captureGOOSFn = func() string { return "windows" }
 	resolveCaptureEnumeratorFn = func(name string, structured bool) (driver.InstalledEnumerator, error) {
 		return sourceCaptureFixture{packages: []driver.InstalledPackage{
-			{Ref: "Vendor.App", DisplayName: "Community", Version: "1.2.3", Source: "winget"},
-			{Ref: "9NBLGGH4NNS1", DisplayName: "Store App", Version: "9.9.9", Source: "msstore"},
+			{Ref: "Vendor.App", DisplayName: "Community", Version: "1.2.3", Source: "winget", InventoryRelationshipKnown: true},
+			{Ref: "9NBLGGH4NNS1", DisplayName: "Store App", Version: "9.9.9", Source: "msstore", InventoryRelationshipKnown: true},
 		}}, nil
 	}
 	out := filepath.Join(t.TempDir(), "capture.jsonc")
