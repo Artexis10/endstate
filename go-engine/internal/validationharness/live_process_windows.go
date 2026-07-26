@@ -165,11 +165,17 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 	if stdout.collector.exceeded || stderr.collector.exceeded {
 		terminalErr = liveExecutionError(LiveExecutionOutputLimit, nil)
 	}
+	if (stdout.collector.err != nil || stderr.collector.err != nil) && terminalErr == nil {
+		terminalErr = liveExecutionError(LiveExecutionContainment, nil)
+	}
 	var exitCode uint32
 	if err := windows.GetExitCodeProcess(process.Process, &exitCode); err != nil {
-		return result, liveExecutionError(LiveExecutionContainment, err)
+		if terminalErr == nil {
+			terminalErr = liveExecutionError(LiveExecutionContainment, err)
+		}
+	} else {
+		result.ExitCode = int(int32(exitCode))
 	}
-	result.ExitCode = int(int32(exitCode))
 	result.Stdout = append([]byte(nil), stdout.collector.bytes...)
 	result.Stderr = append([]byte(nil), stderr.collector.bytes...)
 	result.finished = time.Now().UTC()
@@ -591,6 +597,7 @@ func waitLiveWindowsJobEmpty(job windows.Handle) error {
 type liveWindowsOutputCollector struct {
 	bytes    []byte
 	exceeded bool
+	err      error
 }
 
 type liveWindowsPipeReader struct {
@@ -632,6 +639,9 @@ func (reader *liveWindowsPipeReader) read(limit int) {
 			}
 		}
 		if err != nil {
+			if !errors.Is(err, windows.ERROR_BROKEN_PIPE) && !errors.Is(err, windows.ERROR_OPERATION_ABORTED) {
+				reader.collector.err = err
+			}
 			return
 		}
 	}

@@ -297,5 +297,12 @@ func liveWindowsTestEnvironment(t *testing.T) map[string]string {
 
 func liveWindowsEngineRequest(t *testing.T, args []string, outputLimit int) LiveProcessRequest {
 	t.Helper()
-	return newLiveEngineApply(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), liveWindowsProbeExecutable(t), args, "", liveWindowsTestEnvironment(t), liveTestExpectedIdentity(), outputLimit)
+	executable := liveWindowsProbeExecutable(t)
+	expected := liveTestExpectedIdentity()
+	var err error
+	expected.engine, err = liveWindowsFileSHA256(executable)
+	if err != nil {
+		t.Fatalf("liveWindowsFileSHA256() error = %v", err)
+	}
+	return newLiveEngineApply(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), executable, args, "", liveWindowsTestEnvironment(t), expected, outputLimit)
 }

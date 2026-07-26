@@ -5,6 +5,7 @@ package validationharness
 
 import (
 	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
@@ -42,14 +43,12 @@ func (operation liveOperation) valid() bool {
 
 func (operation liveOperation) mutation() bool { return operation != liveOperationWingetExactList }
 
-type liveReceiptCapability struct{ serial uint64 }
-
 type liveReceiptIssuer struct {
-	capability *liveReceiptCapability
-	mu         sync.Mutex
-	next       uint64
-	active     bool
-	nonces     map[[32]byte]struct{}
+	id        uint64
+	admitFn   func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
+	sealFn    func(*liveExecutionReceipt) error
+	consumeFn func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
+	releaseFn func(liveReceiptAdmission)
 }
 
 type liveReceiptAdmission struct {
@@ -57,12 +56,73 @@ type liveReceiptAdmission struct {
 	operation liveOperation
 	sequence  uint64
 	nonce     [32]byte
+	token     [32]byte
 }
 
 var liveReceiptSerial atomic.Uint64
+var liveReceiptIssuers sync.Map
 
 func newLiveReceiptIssuer() *liveReceiptIssuer {
-	return &liveReceiptIssuer{capability: &liveReceiptCapability{serial: liveReceiptSerial.Add(1)}, nonces: make(map[[32]byte]struct{})}
+	issuer := &liveReceiptIssuer{id: liveReceiptSerial.Add(1)}
+	liveReceiptIssuers.Store(issuer.id, issuer)
+	key := make([]byte, sha256.Size)
+	_, _ = rand.Read(key)
+	var mu sync.Mutex
+	var next uint64
+	var active liveReceiptAdmission
+	nonces := make(map[[32]byte]struct{})
+	consumed := make(map[[32]byte]struct{})
+	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if !operation.valid() || sequence == 0 || nonce == ([32]byte{}) || active.issuer != nil || sequence != next+1 {
+			return liveReceiptAdmission{}, errors.New("live receipt admission rejected")
+		}
+		if _, exists := nonces[nonce]; exists {
+			return liveReceiptAdmission{}, errors.New("live receipt nonce replay")
+		}
+		var token [32]byte
+		if _, err := rand.Read(token[:]); err != nil || token == ([32]byte{}) {
+			return liveReceiptAdmission{}, errors.New("live receipt token unavailable")
+		}
+		admission := liveReceiptAdmission{issuer: issuer, operation: operation, sequence: sequence, nonce: nonce, token: token}
+		nonces[nonce], next, active = struct{}{}, sequence, admission
+		return admission, nil
+	}
+	issuer.releaseFn = func(admission liveReceiptAdmission) {
+		mu.Lock()
+		defer mu.Unlock()
+		if active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
+			active = liveReceiptAdmission{}
+		}
+	}
+	issuer.sealFn = func(receipt *liveExecutionReceipt) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if receipt == nil || active.issuer != issuer || receipt.issuerID != issuer.id || receipt.sequence != active.sequence || receipt.nonce != active.nonce || receipt.admissionToken != active.token {
+			return errors.New("live receipt seal rejected")
+		}
+		receipt.tag = liveReceiptMAC(key, receipt)
+		receipt.sealed = true
+		return nil
+	}
+	issuer.consumeFn = func(receipt *liveExecutionReceipt, operation liveOperation, sequence uint64, nonce [32]byte) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if receipt == nil || receipt.issuerID != issuer.id || receipt.operation != operation || receipt.sequence != sequence || receipt.nonce != nonce || receipt.admissionToken == ([32]byte{}) || receipt.failure != "" || receipt.validate() != nil {
+			return false
+		}
+		want := liveReceiptMAC(key, receipt)
+		if !hmac.Equal(receipt.tag[:], want[:]) {
+			return false
+		}
+		if _, exists := consumed[receipt.admissionToken]; exists {
+			return false
+		}
+		consumed[receipt.admissionToken] = struct{}{}
+		return true
+	}
+	return issuer
 }
 
 func newLiveReceiptNonce() ([32]byte, error) {
@@ -74,40 +134,21 @@ func newLiveReceiptNonce() ([32]byte, error) {
 }
 
 func (issuer *liveReceiptIssuer) admit(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
-	if issuer == nil || issuer.capability == nil || issuer.capability.serial == 0 || !operation.valid() || sequence == 0 || nonce == ([32]byte{}) {
-		return liveReceiptAdmission{}, errors.New("invalid live receipt admission")
+	if issuer == nil || issuer.admitFn == nil {
+		return liveReceiptAdmission{}, errors.New("invalid live receipt issuer")
 	}
-	issuer.mu.Lock()
-	defer issuer.mu.Unlock()
-	if issuer.active || sequence != issuer.next+1 {
-		return liveReceiptAdmission{}, errors.New("live receipt admission order rejected")
-	}
-	if _, exists := issuer.nonces[nonce]; exists {
-		return liveReceiptAdmission{}, errors.New("live receipt nonce replay")
-	}
-	issuer.nonces[nonce] = struct{}{}
-	issuer.next = sequence
-	issuer.active = true
-	return liveReceiptAdmission{issuer: issuer, operation: operation, sequence: sequence, nonce: nonce}, nil
+	return issuer.admitFn(operation, sequence, nonce)
 }
 
 func (admission liveReceiptAdmission) complete() {
 	if admission.issuer == nil {
 		return
 	}
-	admission.issuer.mu.Lock()
-	admission.issuer.active = false
-	admission.issuer.mu.Unlock()
+	admission.issuer.releaseFn(admission)
 }
 
 func (admission liveReceiptAdmission) valid() bool {
-	if admission.issuer == nil || admission.issuer.capability == nil || admission.issuer.capability.serial == 0 || !admission.operation.valid() || admission.sequence == 0 || admission.nonce == ([32]byte{}) {
-		return false
-	}
-	admission.issuer.mu.Lock()
-	defer admission.issuer.mu.Unlock()
-	_, used := admission.issuer.nonces[admission.nonce]
-	return used && admission.issuer.active && admission.sequence <= admission.issuer.next
+	return admission.issuer != nil && admission.issuer.admitFn != nil && admission.operation.valid() && admission.sequence != 0 && admission.nonce != ([32]byte{}) && admission.token != ([32]byte{})
 }
 
 type liveReceiptExpectedIdentity struct {
@@ -139,11 +180,11 @@ type liveReceiptImageIdentity struct {
 }
 
 type liveExecutionReceipt struct {
-	capability *liveReceiptCapability
-	issuer     *liveReceiptIssuer
-	operation  liveOperation
-	sequence   uint64
-	nonce      [32]byte
+	issuerID       uint64
+	operation      liveOperation
+	sequence       uint64
+	nonce          [32]byte
+	admissionToken [32]byte
 
 	executable    string
 	args          []string
@@ -165,6 +206,7 @@ type liveExecutionReceipt struct {
 	stdoutSHA256 [32]byte
 	stderrSHA256 [32]byte
 	resultSHA256 [32]byte
+	tag          [32]byte
 	sealed       bool
 }
 
@@ -234,7 +276,7 @@ func liveReceiptWriteValues(buffer *bytes.Buffer, values []string) {
 }
 
 func (receipt *liveExecutionReceipt) validate() error {
-	if receipt == nil || receipt.issuer == nil || receipt.capability == nil || receipt.capability.serial == 0 || receipt.issuer.capability != receipt.capability || !receipt.operation.valid() || receipt.sequence == 0 || receipt.nonce == ([32]byte{}) || !receipt.sealed || receipt.requestSHA256 != receipt.requestDigest() || receipt.stdoutSHA256 != sha256.Sum256(receipt.stdout) || receipt.stderrSHA256 != sha256.Sum256(receipt.stderr) || receipt.resultSHA256 != receipt.resultDigest() {
+	if receipt == nil || receipt.issuerID == 0 || !receipt.operation.valid() || receipt.sequence == 0 || receipt.nonce == ([32]byte{}) || receipt.admissionToken == ([32]byte{}) || !receipt.sealed || receipt.requestSHA256 != receipt.requestDigest() || receipt.stdoutSHA256 != sha256.Sum256(receipt.stdout) || receipt.stderrSHA256 != sha256.Sum256(receipt.stderr) || receipt.resultSHA256 != receipt.resultDigest() {
 		return errors.New("invalid live execution receipt")
 	}
 	if receipt.image.canonical == "" || receipt.image.volume == 0 || receipt.image.indexHigh == 0 && receipt.image.indexLow == 0 || receipt.image.sha256 == ([32]byte{}) || receipt.pid == 0 || receipt.created.IsZero() || receipt.started.IsZero() || receipt.finished.IsZero() || receipt.finished.Before(receipt.started) {
@@ -246,8 +288,36 @@ func (receipt *liveExecutionReceipt) validate() error {
 // liveReceiptDecoderHandoff is the only output handoff permitted to package
 // internal evidence decoders. It validates the sealed causal receipt before
 // returning defensive output copies; failures are diagnostic only.
+func liveReceiptMAC(key []byte, receipt *liveExecutionReceipt) [32]byte {
+	mac := hmac.New(sha256.New, key)
+	var header bytes.Buffer
+	liveReceiptWriteString(&header, string(receipt.operation))
+	var word [8]byte
+	binary.BigEndian.PutUint64(word[:], receipt.issuerID)
+	header.Write(word[:])
+	binary.BigEndian.PutUint64(word[:], receipt.sequence)
+	header.Write(word[:])
+	mac.Write(header.Bytes())
+	mac.Write(receipt.nonce[:])
+	mac.Write(receipt.requestSHA256[:])
+	mac.Write(receipt.resultSHA256[:])
+	mac.Write(receipt.admissionToken[:])
+	mac.Write(receipt.stdoutSHA256[:])
+	mac.Write(receipt.stderrSHA256[:])
+	var tag [32]byte
+	copy(tag[:], mac.Sum(nil))
+	return tag
+}
+
+// liveReceiptDecoderHandoff is retained only for package-internal transitional
+// decoders; it authenticates and consumes the receipt before copying output.
 func liveReceiptDecoderHandoff(receipt *liveExecutionReceipt, operation liveOperation, sequence uint64, nonce [32]byte) ([]byte, []byte, error) {
-	if receipt == nil || receipt.operation != operation || receipt.sequence != sequence || receipt.nonce != nonce || receipt.failure != "" || receipt.validate() != nil {
+	if receipt == nil {
+		return nil, nil, errors.New("live receipt handoff rejected")
+	}
+	value, ok := liveReceiptIssuers.Load(receipt.issuerID)
+	issuer, ok := value.(*liveReceiptIssuer)
+	if !ok || !issuer.consumeFn(receipt, operation, sequence, nonce) {
 		return nil, nil, errors.New("live receipt handoff rejected")
 	}
 	return append([]byte(nil), receipt.stdout...), append([]byte(nil), receipt.stderr...), nil

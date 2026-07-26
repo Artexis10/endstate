@@ -71,12 +71,6 @@ type trustedLiveMutationPermit struct{ capability *liveMutationCapability }
 
 type liveMutationCapability struct{ serial uint64 }
 
-var trustedLiveMutationCapability = &liveMutationCapability{serial: 1}
-
-func newTrustedLiveMutationPermit() trustedLiveMutationPermit {
-	return trustedLiveMutationPermit{capability: trustedLiveMutationCapability}
-}
-
 // LiveProcessRequest is an internal execution request. It has no zero-value
 // behavior: probes are created only by a reviewed typed builder, and mutations
 // only by a permit-bearing typed builder.
@@ -215,7 +209,7 @@ func validateLiveProcessRequest(request LiveProcessRequest) error {
 	if request.operation == liveOperationWingetExactList && !validLiveProbe(request) {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
-	if request.mutates() && request.permit.capability != trustedLiveMutationCapability {
+	if request.mutates() && request.permit.capability == nil {
 		return liveExecutionError(LiveExecutionMutationDenied, nil)
 	}
 	if !request.expected.valid(request.operation) {
@@ -237,10 +231,10 @@ func liveWingetListProbeReference(args []string) (string, bool) {
 }
 
 func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecutionReceipt, error) {
+	defer request.admission.complete()
 	if err := validateLiveProcessRequest(request); err != nil {
 		return nil, err
 	}
-	defer request.admission.complete()
 	if err := ctx.Err(); err != nil {
 		return nil, liveProcessContextError(err)
 	}
@@ -248,11 +242,17 @@ func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecu
 	if !output.launched {
 		return nil, err
 	}
+	if request.executionClass() == LiveExecutionEngine && request.expected.engine != output.image.sha256 {
+		err = liveExecutionError(LiveExecutionContainment, nil)
+	}
+	if request.appx != nil && request.appx.metadata.receipt.sha256 != output.image.sha256 {
+		err = liveExecutionError(LiveExecutionContainment, nil)
+	}
 	receipt := &liveExecutionReceipt{
-		capability: request.admission.issuer.capability, issuer: request.admission.issuer, operation: request.operation, sequence: request.admission.sequence, nonce: request.admission.nonce,
+		issuerID: request.admission.issuer.id, operation: request.operation, sequence: request.admission.sequence, nonce: request.admission.nonce, admissionToken: request.admission.token,
 		executable: request.executable, args: append([]string(nil), request.args...), directory: request.dir, environment: cloneLiveEnvironment(request.environment), expected: request.expected,
 		image: output.image, pid: output.pid, created: output.created.UTC(), started: output.started.UTC(), finished: output.finished.UTC(), exitCode: output.ExitCode,
-		stdout: append([]byte(nil), output.Stdout...), stderr: append([]byte(nil), output.Stderr...), sealed: true,
+		stdout: append([]byte(nil), output.Stdout...), stderr: append([]byte(nil), output.Stderr...),
 	}
 	if execution, ok := err.(*LiveExecutionError); ok {
 		receipt.failure = execution.Code
@@ -261,6 +261,9 @@ func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecu
 	receipt.stdoutSHA256 = sha256.Sum256(receipt.stdout)
 	receipt.stderrSHA256 = sha256.Sum256(receipt.stderr)
 	receipt.resultSHA256 = receipt.resultDigest()
+	if err := request.admission.issuer.sealFn(receipt); err != nil {
+		return nil, liveExecutionError(LiveExecutionContainment, err)
+	}
 	return receipt, err
 }
 

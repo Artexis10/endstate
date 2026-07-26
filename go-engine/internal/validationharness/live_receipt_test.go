@@ -30,12 +30,12 @@ func TestLiveReceiptIssuerRejectsZeroReplayAndOutOfOrderAdmissions(t *testing.T)
 func TestLiveReceiptAdmissionCannotBeReusedAfterCompletion(t *testing.T) {
 	issuer := newLiveReceiptIssuer()
 	admission, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(8))
-	if err != nil || !admission.valid() {
-		t.Fatalf("admit() = (%+v, %v), want active admission", admission, err)
+	if err != nil {
+		t.Fatalf("admit() error = %v", err)
 	}
 	admission.complete()
-	if admission.valid() {
-		t.Fatal("completed admission remained valid for replay")
+	if _, err := issuer.admit(liveOperationEngineApply, 2, liveReceiptTestNonce(9)); err != nil {
+		t.Fatalf("completed admission did not release exact issuer state: %v", err)
 	}
 }
 
@@ -57,12 +57,12 @@ func TestLiveReceiptDecoderRejectsForgedOrMismatchedReceipt(t *testing.T) {
 		t.Fatal("liveReceiptDecoderHandoff() accepted the wrong nonce")
 	}
 	forged := *receipt
-	forged.capability = &liveReceiptCapability{serial: 99}
+	forged.issuerID++
 	if _, _, err := liveReceiptDecoderHandoff(&forged, liveOperationEngineCapture, 1, nonce); err == nil {
 		t.Fatal("liveReceiptDecoderHandoff() accepted a distinct capability")
 	}
 	zero := *receipt
-	zero.capability = nil
+	zero.issuerID = 0
 	if _, _, err := liveReceiptDecoderHandoff(&zero, liveOperationEngineCapture, 1, nonce); err == nil {
 		t.Fatal("liveReceiptDecoderHandoff() accepted a zero capability")
 	}
@@ -146,19 +146,35 @@ func TestLiveReceiptDecoderRejectsResultIdentityMutation(t *testing.T) {
 	}
 }
 
+func TestLiveReceiptDecoderRejectsForgedRecomputedDigests(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	nonce := liveReceiptTestNonce(10)
+	admission, err := issuer.admit(liveOperationEngineApply, 1, nonce)
+	if err != nil {
+		t.Fatalf("admit() error = %v", err)
+	}
+	receipt := liveReceiptForTest(t, admission, []byte("original"), nil)
+	receipt.stdout = []byte("substituted")
+	receipt.stdoutSHA256 = sha256.Sum256(receipt.stdout)
+	receipt.resultSHA256 = receipt.resultDigest()
+	if _, _, err := liveReceiptDecoderHandoff(receipt, liveOperationEngineApply, 1, nonce); err == nil {
+		t.Fatal("liveReceiptDecoderHandoff() accepted a forged recomputed receipt")
+	}
+}
+
 func liveReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, stderr []byte) *liveExecutionReceipt {
 	t.Helper()
 	started := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	receipt := &liveExecutionReceipt{
-		capability:  admission.issuer.capability,
-		issuer:      admission.issuer,
-		operation:   admission.operation,
-		sequence:    admission.sequence,
-		nonce:       admission.nonce,
-		executable:  `C:\trusted\engine.exe`,
-		args:        []string{"capture", "apps.fixture"},
-		directory:   `C:\trusted`,
-		environment: map[string]string{"PATH": `C:\Windows\System32`},
+		issuerID:       admission.issuer.id,
+		operation:      admission.operation,
+		sequence:       admission.sequence,
+		nonce:          admission.nonce,
+		admissionToken: admission.token,
+		executable:     `C:\trusted\engine.exe`,
+		args:           []string{"capture", "apps.fixture"},
+		directory:      `C:\trusted`,
+		environment:    map[string]string{"PATH": `C:\Windows\System32`},
 		expected: liveReceiptExpectedIdentity{
 			definition: sha256.Sum256([]byte("definition")),
 			engine:     sha256.Sum256([]byte("engine")),
@@ -173,12 +189,14 @@ func liveReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, st
 		exitCode: 0,
 		stdout:   append([]byte(nil), stdout...),
 		stderr:   append([]byte(nil), stderr...),
-		sealed:   true,
 	}
 	receipt.requestSHA256 = receipt.requestDigest()
 	receipt.stdoutSHA256 = sha256.Sum256(receipt.stdout)
 	receipt.stderrSHA256 = sha256.Sum256(receipt.stderr)
 	receipt.resultSHA256 = receipt.resultDigest()
+	if err := admission.issuer.sealFn(receipt); err != nil {
+		t.Fatalf("seal receipt: %v", err)
+	}
 	return receipt
 }
 

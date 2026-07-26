@@ -14,6 +14,10 @@ import (
 	"testing"
 )
 
+func newTrustedLiveMutationPermit() trustedLiveMutationPermit {
+	return trustedLiveMutationPermit{capability: &liveMutationCapability{serial: 1}}
+}
+
 func TestLiveProcessRejectsZeroValueRequest(t *testing.T) {
 	if err := validateLiveProcessRequest(LiveProcessRequest{}); err == nil {
 		t.Fatal("validateLiveProcessRequest() accepted a zero-value request")
@@ -105,6 +109,18 @@ func TestLiveProcessRejectsMissingProofIdentity(t *testing.T) {
 	request := newLiveTypedMutation(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)
 	if err := validateLiveProcessRequest(request); err == nil {
 		t.Fatal("validateLiveProcessRequest() accepted missing proof identities")
+	}
+}
+
+func TestLiveProcessInvalidRequestReleasesAdmission(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	admission, err := issuer.admit(liveOperationWingetExactList, 1, liveReceiptTestNonce(11))
+	if err != nil {
+		t.Fatalf("admit() error = %v", err)
+	}
+	_, _ = runLiveProcess(context.Background(), LiveProcessRequest{operation: liveOperationWingetExactList, admission: admission})
+	if _, err := issuer.admit(liveOperationWingetExactList, 2, liveReceiptTestNonce(12)); err != nil {
+		t.Fatalf("invalid request retained admission: %v", err)
 	}
 }
 
