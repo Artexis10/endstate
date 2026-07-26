@@ -396,9 +396,9 @@ func TestLivePolicyContract(t *testing.T) {
 		wantErr bool
 	}{
 		{"candidate", nonHostedLivePolicy(LiveCandidate), false},
-		{"candidate proposed baseline", candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b"), false},
-		{"candidate baseline rejects live install proof", func() LivePolicy {
-			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+		{"candidate proposed policy", candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b"), false},
+		{"candidate policy rejects live install proof", func() LivePolicy {
+			p := candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
 			p.ProofMode = ProofLiveInstall
 			return p
 		}(), true},
@@ -409,24 +409,24 @@ func TestLivePolicyContract(t *testing.T) {
 		{"unknown mode", LivePolicy{Mode: LiveMode("future")}, true},
 		{"invalid reason code", LivePolicy{Mode: LiveBlocked, ReasonCode: "UPSTREAM_FLAKE", Explanation: "blocked"}, true},
 		{"non-hosted execution policy", LivePolicy{Mode: LiveCandidate, ReasonCode: "candidate", Explanation: "candidate", Driver: "winget"}, true},
-		{"candidate baseline requires exact winget reference", func() LivePolicy {
-			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+		{"candidate policy requires exact winget reference", func() LivePolicy {
+			p := candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
 			p.Ref = "Vendor.Other"
 			return p
 		}(), true},
-		{"candidate baseline requires safe seeded file", func() LivePolicy {
-			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+		{"candidate policy requires safe seeded file", func() LivePolicy {
+			p := candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
 			p.Seed = "../seed.ps1"
 			return p
 		}(), true},
-		{"candidate baseline requires matching seed hash", candidateBaselinePolicy(strings.Repeat("b", 64)), true},
-		{"candidate baseline rejects external comparator", func() LivePolicy {
-			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+		{"candidate policy requires matching seed hash", candidatePolicy(strings.Repeat("b", 64)), true},
+		{"candidate policy rejects external comparator", func() LivePolicy {
+			p := candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
 			p.Comparator = "exact-json"
 			return p
 		}(), true},
-		{"candidate baseline does not accept comparator artifact hash", func() LivePolicy {
-			p := candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+		{"candidate policy does not accept comparator artifact hash", func() LivePolicy {
+			p := candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
 			p.Trust.ComparatorSHA256 = strings.Repeat("b", 64)
 			return p
 		}(), true},
@@ -512,7 +512,7 @@ func TestLoadCatalogRejectsLinkedHashBoundSeeds(t *testing.T) {
 			mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
 			seed := tt.setup(t, filepath.Join(root, "modules", "apps", "alpha"), t.TempDir())
 			record := validV1Validation("apps.alpha", mod.Revision)
-			record.Live = candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+			record.Live = candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
 			record.Live.Seed = seed
 			writeValidation(t, root, "alpha", record)
 			if _, err := LoadCatalog(root, now); ErrorCode(err) != CodeInvalidLivePolicy {
@@ -536,7 +536,7 @@ func TestLoadCatalogRejectsLinkedHashBoundSeeds(t *testing.T) {
 			t.Skipf("junction unavailable: %v: %s", err, output)
 		}
 		record := validV1Validation("apps.alpha", mod.Revision)
-		record.Live = candidateBaselinePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
+		record.Live = candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
 		record.Live.Seed = "linked/seed.ps1"
 		writeValidation(t, root, "alpha", record)
 		if _, err := LoadCatalog(root, now); ErrorCode(err) != CodeInvalidLivePolicy {
@@ -545,7 +545,7 @@ func TestLoadCatalogRejectsLinkedHashBoundSeeds(t *testing.T) {
 	})
 }
 
-func candidateBaselinePolicy(seedSHA256 string) LivePolicy {
+func candidatePolicy(seedSHA256 string) LivePolicy {
 	return LivePolicy{
 		Mode: LiveCandidate, ReasonCode: "unproven-hosted-baseline", Explanation: "awaiting a trusted hosted baseline",
 		Driver: "winget", Ref: "Vendor.Fixture", Seed: "seed.ps1", Comparator: ComparatorExactBytes,

@@ -4,7 +4,6 @@
 package validationmatrix
 
 import (
-	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -245,75 +244,53 @@ func TestPlanPullRequestDefersUntrustedHostedPolicies(t *testing.T) {
 	})
 }
 
-func TestSelectCandidateBaselineDerivesTrustedCatalogSnapshot(t *testing.T) {
+func TestCandidatePolicyLoadsButNoPlannerEmitsIt(t *testing.T) {
 	root := t.TempDir()
 	mod := writeModule(t, root, "fixture", schemaV1Module("apps.fixture", true))
-	seed := []byte("seed")
-	if err := os.WriteFile(filepath.Join(root, "modules", "apps", "fixture", "seed.ps1"), seed, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "modules", "apps", "fixture", "seed.ps1"), []byte("seed"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	seedDigest := sha256.Sum256(seed)
 	record := validV1Validation("apps.fixture", mod.Revision)
-	record.Live = candidateBaselinePolicy(fmt.Sprintf("%x", seedDigest))
+	record.Live = candidatePolicy("19b25856e1c150ca834cffc8b59b23adbd0ec0389e58eb22b3b64768098d002b")
 	writeValidation(t, root, "fixture", record)
 	catalog, err := LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if got := catalog.Records[record.ModuleID].Live; !reflect.DeepEqual(got, record.Live) {
+		t.Fatalf("loaded candidate policy = %#v, want %#v", got, record.Live)
+	}
 
-	selection := CandidateBaselineSelection{Catalog: catalog, ModuleID: "apps.fixture", TrustedSource: PolicySourceTrustedMain}
-	selected, err := SelectCandidateBaseline(selection)
+	pr, err := PlanPullRequest(catalog, catalog, []string{"modules/apps/fixture/validation.jsonc"}, PullRequestPlanOptions{})
 	if err != nil {
-		t.Fatalf("SelectCandidateBaseline returned %v", err)
+		t.Fatalf("PlanPullRequest returned %v", err)
 	}
-	if selected.Status != PlanStatusRequired || selected.Reason != ReasonTrustedCandidateBaseline || selected.PolicySource != PolicySourceTrustedMain {
-		t.Fatalf("selected baseline = %#v", selected)
+	if len(pr.Live.Run) != 0 || len(pr.Live.Deferred) != 0 {
+		t.Fatalf("pull-request live plan = %#v, want no candidate rows", pr.Live)
 	}
-	if !reflect.DeepEqual(selected.Policy, record.Live) {
-		t.Fatalf("selected policy = %#v, want %#v", selected.Policy, record.Live)
+
+	hosted, err := PlanHostedCatalog(catalog)
+	if err != nil {
+		t.Fatalf("PlanHostedCatalog returned %v", err)
 	}
-	wantDigest, err := canonicalDigest(record)
+	if hosted.HostedCount != 0 || len(hosted.Jobs) != 0 || len(hosted.Chunks) != 0 {
+		t.Fatalf("hosted plan = %#v, want no candidate rows", hosted)
+	}
+
+	scheduled, err := PlanScheduled(catalog, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if selected.ModuleRevision != mod.Revision || selected.ValidationDigest != wantDigest {
-		t.Fatalf("selected identity = %q/%q, want %q/%q", selected.ModuleRevision, selected.ValidationDigest, mod.Revision, wantDigest)
+	if scheduled.HostedCount != 0 || len(scheduled.Jobs) != 0 {
+		t.Fatalf("scheduled plan = %#v, want no candidate rows", scheduled)
 	}
 
-	for _, tt := range []struct {
-		name   string
-		mutate func(*CandidateBaselineSelection)
-	}{
-		{"missing catalog is rejected", func(selection *CandidateBaselineSelection) { selection.Catalog = nil }},
-		{"head source is untrusted", func(selection *CandidateBaselineSelection) { selection.TrustedSource = PolicySourceHead }},
-		{"missing module is rejected", func(selection *CandidateBaselineSelection) { selection.ModuleID = "apps.missing" }},
-		{"policy graft is rejected", func(selection *CandidateBaselineSelection) {
-			record := selection.Catalog.Records[selection.ModuleID]
-			record.Live.Ref = "Vendor.Grafted"
-			selection.Catalog.Records[selection.ModuleID] = record
-		}},
-		{"quarantine mutation is rejected", func(selection *CandidateBaselineSelection) {
-			record := selection.Catalog.Records[selection.ModuleID]
-			record.Quarantines = []Quarantine{{ReasonCode: "grafted"}}
-			selection.Catalog.Records[selection.ModuleID] = record
-		}},
-		{"incomplete policy is rejected", func(selection *CandidateBaselineSelection) {
-			record := selection.Catalog.Records[selection.ModuleID]
-			record.sourceSnapshot = nil
-			selection.Catalog.Records[selection.ModuleID] = record
-		}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			trustedCatalog, loadErr := LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
-			if loadErr != nil {
-				t.Fatal(loadErr)
-			}
-			selection := CandidateBaselineSelection{Catalog: trustedCatalog, ModuleID: "apps.fixture", TrustedSource: PolicySourceTrustedMain}
-			tt.mutate(&selection)
-			if _, err := SelectCandidateBaseline(selection); ErrorCode(err) != CodeInvalidCandidateBaseline {
-				t.Fatalf("SelectCandidateBaseline error = %v (code %q), want %q", err, ErrorCode(err), CodeInvalidCandidateBaseline)
-			}
-		})
+	release, err := PlanRelease(catalog, testEngineCommit40)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if release.HostedCount != 0 || len(release.Chunks) != 0 {
+		t.Fatalf("release plan = %#v, want no candidate rows", release)
 	}
 }
 
