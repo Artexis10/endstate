@@ -323,7 +323,7 @@ The system SHALL keep pull-request, scheduled, dispatch, and release validation 
 #### Scenario: Engine-affecting pull request runs
 
 - **WHEN** a pull request changes engine behavior, module loading, capture, restore, verification, config generations, package drivers, the validation harness, or its workflow
-- **THEN** the live Notepad++ canary SHALL run with a timeout of at most 25 minutes
+- **THEN** the synthetic Notepad++ engine-contract canary SHALL run with a timeout of at most 25 minutes
 
 #### Scenario: Module pull request runs
 

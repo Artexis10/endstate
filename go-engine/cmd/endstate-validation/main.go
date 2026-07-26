@@ -27,20 +27,22 @@ func main() {
 // runCLICommands preserves the original no-subcommand byte contract. New
 // subcommands deliberately have their own compact evidence JSON contracts.
 func runCLICommands(args []string, stdout, stderr io.Writer, runner scenarioRunner) int {
-	if len(args) == 0 || (args[0] != "shard" && args[0] != "catalog" && args[0] != "aggregate") {
+	if len(args) == 0 || (args[0] != "shard" && args[0] != "catalog" && args[0] != "canary" && args[0] != "aggregate") {
 		return runCLI(args, stdout, stderr, runner)
 	}
 	switch args[0] {
 	case "shard":
-		return runShard(args[1:], stdout)
+		return runShard(args[1:], stdout, runner)
 	case "catalog":
 		return runCatalog(args[1:], stdout)
+	case "canary":
+		return runCanary(args[1:], stdout, runner)
 	default:
 		return runAggregate(args[1:], stdout)
 	}
 }
 
-func runShard(args []string, stdout io.Writer) int {
+func runShard(args []string, stdout io.Writer, runner scenarioRunner) int {
 	flags := flag.NewFlagSet("endstate-validation shard", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	request := validationci.ShardRequest{}
@@ -53,7 +55,26 @@ func runShard(args []string, stdout io.Writer) int {
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
 		return writeCommandError(stdout, "invalid shard flags")
 	}
+	request.Run = validationci.ScenarioRunner(runner)
 	result, err := validationci.RunSyntheticShard(request)
+	if err != nil {
+		return writeJSON(stdout, result, true)
+	}
+	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
+}
+
+func runCanary(args []string, stdout io.Writer, runner scenarioRunner) int {
+	flags := flag.NewFlagSet("endstate-validation canary", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	request := validationci.CanaryRequest{Run: validationci.ScenarioRunner(runner)}
+	flags.StringVar(&request.EnginePath, "engine", "", "absolute built engine path")
+	flags.StringVar(&request.RepoRoot, "repo", "", "absolute repository root")
+	flags.StringVar(&request.Commit, "commit", "", "exact checked-out commit")
+	flags.StringVar(&request.ResultPath, "result", "", "compact result path")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 {
+		return writeCommandError(stdout, "invalid canary flags")
+	}
+	result, err := validationci.RunCanary(request)
 	if err != nil {
 		return writeJSON(stdout, result, true)
 	}

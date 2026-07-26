@@ -12,9 +12,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"sort"
 	"strings"
@@ -60,6 +62,27 @@ type ShardResult struct {
 type ShardRow struct {
 	Identity validationmatrix.SyntheticRow `json:"identity"`
 	Result   validationharness.Result      `json:"result"`
+}
+
+type CanaryRequest struct {
+	EnginePath string
+	RepoRoot   string
+	Commit     string
+	ResultPath string
+	Run        ScenarioRunner
+}
+
+// CanaryResult is the compact, commit-bound wrapper for the fixed synthetic
+// Notepad++ scenario. It deliberately retains the planned row identity.
+type CanaryResult struct {
+	SchemaVersion  int                           `json:"schemaVersion"`
+	Commit         string                        `json:"commit"`
+	EngineSHA256   string                        `json:"engineSha256"`
+	RepositoryHash string                        `json:"repositoryHash"`
+	Identity       validationmatrix.SyntheticRow `json:"identity"`
+	Result         validationharness.Result      `json:"result"`
+	Status         string                        `json:"status"`
+	Failure        string                        `json:"failure,omitempty"`
 }
 
 type CatalogRequest struct {
@@ -149,24 +172,22 @@ func RunSyntheticShard(request ShardRequest) (ShardResult, error) {
 			return ShardResult{}, errors.New("duplicate planned row")
 		}
 		seen[key] = struct{}{}
-		rowPath := filepath.Join(filepath.Dir(request.ResultPath), fmt.Sprintf("row-%d.json", rowNumber))
+		rowPath := fmt.Sprintf("row-%d.json", rowNumber)
 		rowNumber++
-		harnessResult, runErr := run(context.Background(), validationharness.Request{EnginePath: request.EnginePath, RepoRoot: request.RepoRoot, ModuleID: row.ModuleID, ScenarioID: row.ScenarioID, ResultPath: rowPath})
-		if removeErr := os.Remove(rowPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return ShardResult{}, errors.New("remove temporary row result")
-		}
+		harnessResult, runErr := runHarnessScenario(run, request.EnginePath, request.RepoRoot, row.ModuleID, row.ScenarioID, rowPath)
 		if runErr != nil {
 			harnessResult = failedRow(row, "harness I/O failure")
 		}
 		if !matchesRow(row, harnessResult) {
 			return ShardResult{}, errors.New("row result identity drift")
 		}
-		if !validHarnessResult(harnessResult) {
+		if !validRowResult(row, harnessResult) {
 			return ShardResult{}, errors.New("impossible proof or status combination")
 		}
 		result.Rows = append(result.Rows, ShardRow{Identity: row, Result: harnessResult})
 		if harnessResult.Status != validationharness.ResultStatusPassed {
 			result.Status = validationharness.ResultStatusFailed
+			result.Failure = "scenario failed"
 		}
 	}
 	if after, afterErr := fileSHA256(request.EnginePath); afterErr != nil || after != engineHash {
@@ -177,6 +198,65 @@ func RunSyntheticShard(request ShardRequest) (ShardResult, error) {
 	}
 	if err := persist(request.ResultPath, result); err != nil {
 		return ShardResult{}, err
+	}
+	return result, nil
+}
+
+func RunCanary(request CanaryRequest) (CanaryResult, error) {
+	if err := validateAuthority(request.EnginePath, request.RepoRoot, request.Commit, request.ResultPath, "canary.json"); err != nil {
+		return CanaryResult{}, err
+	}
+	engineHash, err := fileSHA256(request.EnginePath)
+	if err != nil {
+		return CanaryResult{}, errors.New("read engine identity")
+	}
+	repositoryHash, err := repositorySHA256(request.RepoRoot)
+	if err != nil {
+		return CanaryResult{}, errors.New("read repository identity")
+	}
+	catalog, err := validationmatrix.LoadCatalog(request.RepoRoot, time.Now().UTC())
+	if err != nil {
+		return CanaryResult{}, errors.New("load production catalog")
+	}
+	plan, err := validationmatrix.PlanSynthetic(catalog, validationmatrix.SyntheticPlanOptions{ShardCount: ShardCount})
+	if err != nil {
+		return CanaryResult{}, err
+	}
+	var row validationmatrix.SyntheticRow
+	for _, candidate := range plan.Rows {
+		if candidate.ModuleID == "apps.notepad-plus-plus" && candidate.ScenarioID == "default-v1" {
+			if row.ModuleID != "" {
+				return CanaryResult{}, errors.New("duplicate planned canary")
+			}
+			row = candidate
+		}
+	}
+	if row.ModuleID == "" {
+		return CanaryResult{}, errors.New("missing planned canary")
+	}
+	run := request.Run
+	if run == nil {
+		run = validationharness.Run
+	}
+	harnessResult, runErr := runHarnessScenario(run, request.EnginePath, request.RepoRoot, row.ModuleID, row.ScenarioID, "canary-harness.json")
+	if runErr != nil {
+		harnessResult = failedRow(row, "harness I/O failure")
+	}
+	if !matchesRow(row, harnessResult) || !validRowResult(row, harnessResult) {
+		return CanaryResult{}, errors.New("impossible canary proof or status combination")
+	}
+	result := CanaryResult{SchemaVersion: SchemaVersion, Commit: request.Commit, EngineSHA256: engineHash, RepositoryHash: repositoryHash, Identity: row, Result: harnessResult, Status: harnessResult.Status}
+	if result.Status != validationharness.ResultStatusPassed {
+		result.Failure = "scenario failed"
+	}
+	if after, afterErr := fileSHA256(request.EnginePath); afterErr != nil || after != engineHash {
+		return CanaryResult{}, errors.New("engine changed during canary")
+	}
+	if after, afterErr := repositorySHA256(request.RepoRoot); afterErr != nil || after != repositoryHash {
+		return CanaryResult{}, errors.New("repository changed during canary")
+	}
+	if err := persist(request.ResultPath, result); err != nil {
+		return CanaryResult{}, err
 	}
 	return result, nil
 }
@@ -250,19 +330,19 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 		if err := readBounded(filepath.Join(request.InputDir, fmt.Sprintf("shard-%d.json", shard)), &evidence); err != nil {
 			return aggregateFailure(request, result, "missing or malformed shard evidence")
 		}
-		if evidence.SchemaVersion != SchemaVersion || evidence.Commit != request.Commit || evidence.EngineSHA256 != engineHash || evidence.RepositoryHash != repositoryHash || evidence.ShardCount != ShardCount || evidence.Shard != shard {
+		if evidence.SchemaVersion != SchemaVersion || evidence.Commit != request.Commit || evidence.EngineSHA256 != engineHash || evidence.RepositoryHash != repositoryHash || evidence.ShardCount != ShardCount || evidence.Shard != shard || evidence.Status != validationharness.ResultStatusPassed || evidence.Failure != "" {
 			return aggregateFailure(request, result, "foreign shard evidence")
 		}
 		for _, row := range evidence.Rows {
 			key := rowKey(row.Identity)
 			expectedRow, ok := expected[key]
-			if row.Identity.Shard != shard || !ok || rowKey(expectedRow) != rowKey(row.Identity) {
+			if row.Identity.Shard != shard || !ok || !reflect.DeepEqual(expectedRow, row.Identity) {
 				return aggregateFailure(request, result, "row proof identity drift")
 			}
 			if _, duplicate := seen[key]; duplicate {
 				return aggregateFailure(request, result, "duplicate row evidence")
 			}
-			if !matchesRow(row.Identity, row.Result) || !validHarnessResult(row.Result) || row.Result.Status != validationharness.ResultStatusPassed {
+			if !matchesRow(row.Identity, row.Result) || !validPassedRow(row.Identity, row.Result) {
 				return aggregateFailure(request, result, "failed row evidence")
 			}
 			seen[key] = struct{}{}
@@ -278,7 +358,7 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 	}
 	result.Modules.Passed = len(modulePass)
 	var catalogEvidence CatalogResult
-	if err := readBounded(filepath.Join(request.InputDir, "catalog.json"), &catalogEvidence); err != nil || catalogEvidence.SchemaVersion != SchemaVersion || catalogEvidence.Commit != request.Commit || catalogEvidence.EngineSHA256 != engineHash || catalogEvidence.RepositoryHash != repositoryHash || catalogEvidence.Status != validationharness.ResultStatusPassed || catalogEvidence.Failed != 0 || catalogEvidence.Passed != catalogEvidence.CatalogCount {
+	if err := readBounded(filepath.Join(request.InputDir, "catalog.json"), &catalogEvidence); err != nil || catalogEvidence.SchemaVersion != SchemaVersion || catalogEvidence.Commit != request.Commit || catalogEvidence.EngineSHA256 != engineHash || catalogEvidence.RepositoryHash != repositoryHash || catalogEvidence.Status != validationharness.ResultStatusPassed || catalogEvidence.Failure != "" || catalogEvidence.Failed != 0 || catalogEvidence.Passed != catalogEvidence.CatalogCount {
 		return aggregateFailure(request, result, "missing or failed catalog evidence")
 	}
 	expectedBundles, err := filepath.Glob(filepath.Join(request.RepoRoot, "bundles", "*.jsonc"))
@@ -290,8 +370,8 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 		return aggregateFailure(request, result, "catalog bundle count drift")
 	}
 	result.Bundles.Passed = catalogEvidence.Passed
-	var canary validationharness.Result
-	if err := readBounded(filepath.Join(request.InputDir, "canary.json"), &canary); err != nil || canary.ModuleID != "apps.notepad-plus-plus" || canary.ScenarioID != "default-v1" || canary.Status != validationharness.ResultStatusPassed || !syntheticProof(canary.ProofLevels) {
+	var canary CanaryResult
+	if err := readBounded(filepath.Join(request.InputDir, "canary.json"), &canary); err != nil || !validCanary(canary, request.Commit, engineHash, repositoryHash, expected) {
 		return aggregateFailure(request, result, "missing or failed synthetic canary")
 	}
 	result.Status = validationharness.ResultStatusPassed
@@ -313,22 +393,77 @@ func failedRow(row validationmatrix.SyntheticRow, detail string) validationharne
 func matchesRow(row validationmatrix.SyntheticRow, result validationharness.Result) bool {
 	return result.SchemaVersion == validationharness.ResultSchemaVersion && result.ModuleID == row.ModuleID && result.ModuleRevision == row.ModuleRevision && result.ScenarioID == row.ScenarioID && result.Kind == row.ScenarioKind
 }
-func validHarnessResult(result validationharness.Result) bool {
+func validRowResult(row validationmatrix.SyntheticRow, result validationharness.Result) bool {
 	if result.Status == validationharness.ResultStatusPassed {
-		return result.Failure == nil && len(result.ProofLevels) > 0
+		return validPassedRow(row, result)
 	}
-	return result.Status == validationharness.ResultStatusFailed && len(result.ProofLevels) == 0 && result.Failure != nil
+	return result.Status == validationharness.ResultStatusFailed && result.Failure != nil && len(result.ProofLevels) == 0 && len(result.AssertionCounts) == 0
 }
-func hasProof(levels []validationmatrix.ProofLevel, wanted validationmatrix.ProofLevel) bool {
-	for _, level := range levels {
-		if level == wanted {
-			return true
+
+func validPassedRow(row validationmatrix.SyntheticRow, result validationharness.Result) bool {
+	if result.Status != validationharness.ResultStatusPassed || result.Failure != nil || len(result.AssertionCounts) == 0 || !reflect.DeepEqual(result.ProofLevels, canonicalProofs(row.ScenarioKind)) {
+		return false
+	}
+	allowed := allowedAssertions(row.ScenarioKind)
+	for name, count := range result.AssertionCounts {
+		if _, ok := allowed[name]; !ok || count <= 0 {
+			return false
 		}
 	}
-	return false
+	for name, minimum := range row.Scenario.MinimumAssertions {
+		if minimum <= 0 || result.AssertionCounts[name] < minimum {
+			return false
+		}
+	}
+	return true
 }
-func syntheticProof(levels []validationmatrix.ProofLevel) bool {
-	return hasProof(levels, validationmatrix.ProofEngineContract) || hasProof(levels, validationmatrix.ProofConfigRoundtripV1) || hasProof(levels, validationmatrix.ProofConfigRoundtripV2)
+
+func canonicalProofs(kind validationmatrix.ScenarioKind) []validationmatrix.ProofLevel {
+	switch kind {
+	case validationmatrix.ScenarioConfigRoundtripV1:
+		return []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract, validationmatrix.ProofConfigRoundtripV1}
+	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
+		return []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract, validationmatrix.ProofConfigRoundtripV2}
+	case validationmatrix.ScenarioInstallContract, validationmatrix.ScenarioCaptureContract:
+		return []validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract}
+	case validationmatrix.ScenarioRestoreContract:
+		return []validationmatrix.ProofLevel{validationmatrix.ProofEngineContract}
+	default:
+		return nil
+	}
+}
+
+func allowedAssertions(kind validationmatrix.ScenarioKind) map[string]struct{} {
+	all := func(names ...string) map[string]struct{} {
+		values := make(map[string]struct{}, len(names))
+		for _, name := range names {
+			values[name] = struct{}{}
+		}
+		return values
+	}
+	roundtrip := []string{validationmatrix.AssertionCaptured, validationmatrix.AssertionPayload, validationmatrix.AssertionProvenance, validationmatrix.AssertionRewrittenRestore, validationmatrix.AssertionContent, validationmatrix.AssertionRebuild, validationmatrix.AssertionVerify, validationmatrix.AssertionNestedSummary, validationmatrix.AssertionRevert}
+	switch kind {
+	case validationmatrix.ScenarioConfigRoundtripV1:
+		return all(roundtrip...)
+	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
+		return all(append(roundtrip, validationmatrix.AssertionGeneration, validationmatrix.AssertionValidation, validationmatrix.AssertionMigration)...)
+	case validationmatrix.ScenarioInstallContract:
+		return all(validationmatrix.AssertionAppReferences, validationmatrix.AssertionVerify)
+	case validationmatrix.ScenarioCaptureContract:
+		return all(validationmatrix.AssertionCaptured, validationmatrix.AssertionContent, validationmatrix.AssertionPayload, validationmatrix.AssertionProvenance)
+	case validationmatrix.ScenarioRestoreContract:
+		return all(validationmatrix.AssertionRestored, validationmatrix.AssertionContent, validationmatrix.AssertionNestedSummary, validationmatrix.AssertionRevert, validationmatrix.AssertionVerify)
+	default:
+		return nil
+	}
+}
+
+func validCanary(canary CanaryResult, commit, engineHash, repositoryHash string, expected map[string]validationmatrix.SyntheticRow) bool {
+	if canary.SchemaVersion != SchemaVersion || canary.Commit != commit || canary.EngineSHA256 != engineHash || canary.RepositoryHash != repositoryHash || canary.Status != validationharness.ResultStatusPassed || canary.Failure != "" || canary.Identity.ModuleID != "apps.notepad-plus-plus" || canary.Identity.ScenarioID != "default-v1" {
+		return false
+	}
+	row, ok := expected[rowKey(canary.Identity)]
+	return ok && reflect.DeepEqual(row, canary.Identity) && matchesRow(row, canary.Result) && validPassedRow(row, canary.Result)
 }
 func rowKey(row validationmatrix.SyntheticRow) string {
 	return strings.Join([]string{row.ModuleID, row.ModuleRevision, row.ScenarioID, string(row.ScenarioKind), row.ScenarioDigest}, "\x00")
@@ -352,7 +487,7 @@ func validateAuthority(engine, repo, commit, resultPath, leaf string) error {
 	return validateResultPath(resultPath, leaf)
 }
 func validateInputDirectory(path string) error {
-	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || !withinTemp(path) {
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || !withinEvidenceRoot(path) {
 		return errors.New("input directory is outside runner temp")
 	}
 	info, err := os.Lstat(path)
@@ -385,7 +520,7 @@ func validateEvidenceInventory(path string) error {
 	return nil
 }
 func validateResultPath(path, leaf string) error {
-	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Base(path) != leaf || filepath.Base(filepath.Dir(path)) != "endstate-validation-results" || !withinTemp(path) {
+	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path || filepath.Base(path) != leaf || filepath.Base(filepath.Dir(path)) != "endstate-validation-results" || !withinEvidenceRoot(path) {
 		return errors.New("result path is unsafe")
 	}
 	info, err := os.Lstat(filepath.Dir(path))
@@ -394,9 +529,28 @@ func validateResultPath(path, leaf string) error {
 	}
 	return nil
 }
-func withinTemp(path string) bool {
-	relative, err := filepath.Rel(filepath.Clean(os.TempDir()), filepath.Clean(path))
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+func withinEvidenceRoot(path string) bool {
+	root, err := evidenceRoot()
+	if err != nil {
+		return false
+	}
+	relative, err := filepath.Rel(root, filepath.Clean(path))
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
+}
+
+func evidenceRoot() (string, error) {
+	root := os.TempDir()
+	if runnerTemp, set := os.LookupEnv("RUNNER_TEMP"); set {
+		root = runnerTemp
+	}
+	if root == "" || !filepath.IsAbs(root) || filepath.Clean(root) != root {
+		return "", errors.New("runner temp is not canonical")
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || safepath.IsLinkOrReparse(info) {
+		return "", errors.New("runner temp is unsafe")
+	}
+	return root, nil
 }
 func persist(path string, value any) error {
 	data, err := json.Marshal(value)
@@ -423,10 +577,52 @@ func readBounded(path string, target any) error {
 		return err
 	}
 	var extra any
-	if err := decoder.Decode(&extra); err == nil {
-		return errors.New("evidence contains multiple JSON values")
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("evidence contains multiple JSON values")
+		}
+		return err
 	}
 	return nil
+}
+
+func runHarnessScenario(run ScenarioRunner, engine, repo, moduleID, scenarioID, leaf string) (result validationharness.Result, err error) {
+	scratch, err := os.MkdirTemp(os.TempDir(), "endstate-validation-ci-")
+	if err != nil {
+		return validationharness.Result{}, err
+	}
+	resultPath := filepath.Join(scratch, leaf)
+	result, runErr := run(context.Background(), validationharness.Request{EnginePath: engine, RepoRoot: repo, ModuleID: moduleID, ScenarioID: scenarioID, ResultPath: resultPath})
+	if cleanupErr := cleanupHarnessScratch(scratch, resultPath); cleanupErr != nil {
+		return result, cleanupErr
+	}
+	return result, runErr
+}
+
+func cleanupHarnessScratch(root, resultPath string) error {
+	if !strictTempDescendant(root) || filepath.Dir(resultPath) != root || filepath.Base(root) == "" || !strings.HasPrefix(filepath.Base(root), "endstate-validation-ci-") {
+		return errors.New("temporary harness scratch is unsafe")
+	}
+	info, err := os.Lstat(root)
+	if err != nil || !info.IsDir() || safepath.IsLinkOrReparse(info) {
+		return errors.New("temporary harness scratch changed type")
+	}
+	if resultInfo, resultErr := os.Lstat(resultPath); resultErr == nil {
+		if !resultInfo.Mode().IsRegular() || safepath.IsLinkOrReparse(resultInfo) {
+			return errors.New("temporary harness result changed type")
+		}
+		if err := os.Remove(resultPath); err != nil {
+			return err
+		}
+	} else if !os.IsNotExist(resultErr) {
+		return resultErr
+	}
+	return os.Remove(root)
+}
+
+func strictTempDescendant(path string) bool {
+	relative, err := filepath.Rel(filepath.Clean(os.TempDir()), filepath.Clean(path))
+	return err == nil && relative != "." && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }
 func fileSHA256(path string) (string, error) {
 	data, err := os.ReadFile(path)

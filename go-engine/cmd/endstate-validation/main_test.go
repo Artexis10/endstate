@@ -86,6 +86,23 @@ func TestRunCLICommandsKeepsLegacyScenarioFlags(t *testing.T) {
 	decodeOneResult(t, stdout.Bytes())
 }
 
+func TestRunCLICommandsDispatchesCanaryFlags(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	if code := runCLICommands([]string{"canary", "--unknown"}, &stdout, &stderr, nil); code == 0 {
+		t.Fatalf("exit = 0, stdout=%s", stdout.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["failure"] != "invalid canary flags" {
+		t.Fatalf("canary dispatch result = %s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
 func decodeOneResult(t *testing.T, data []byte) validationharness.Result {
 	t.Helper()
 	decoder := json.NewDecoder(bytes.NewReader(data))

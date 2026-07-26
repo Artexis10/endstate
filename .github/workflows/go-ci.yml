@@ -178,7 +178,7 @@ jobs:
           $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
           New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
           Push-Location go-engine
-          .\endstate-validation.exe --engine (Join-Path $PWD 'endstate.exe') --repo $env:GITHUB_WORKSPACE --module apps.notepad-plus-plus --scenario default-v1 --result (Join-Path $resultRoot 'canary.json')
+          .\endstate-validation.exe canary --engine (Join-Path $PWD 'endstate.exe') --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --result (Join-Path $resultRoot 'canary.json')
           exit $LASTEXITCODE
       - name: Upload synthetic canary evidence
         if: always()
@@ -244,6 +244,15 @@ jobs:
           } else {
             "## Verified Module Matrix`nEvidence aggregation did not produce JSON." | Add-Content $env:GITHUB_STEP_SUMMARY
           }
+      - name: Upload compact aggregate evidence
+        if: always()
+        # v4.6.2
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: verified-module-matrix-aggregate
+          path: ${{ runner.temp }}/endstate-validation-results/aggregate.json
+          if-no-files-found: ignore
+          retention-days: 7
 
   test-unix:
     name: Go Tests (${{ matrix.os }})

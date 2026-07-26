@@ -21,12 +21,15 @@ New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
 $commit = (git -C .. rev-parse HEAD).ToLower()
 .\endstate-validation.exe shard --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --commit $commit --shards 8 --shard 0 --result (Join-Path $resultRoot 'shard-0.json')
 .\endstate-validation.exe catalog --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --commit $commit --result (Join-Path $resultRoot 'catalog.json')
-.\endstate-validation.exe --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --module apps.notepad-plus-plus --scenario default-v1 --result (Join-Path $resultRoot 'canary.json')
+.\endstate-validation.exe canary --engine (Join-Path $PWD 'endstate.exe') --repo (Resolve-Path ..) --commit $commit --result (Join-Path $resultRoot 'canary.json')
 ```
 
 Aggregation requires all eight shard files plus `catalog.json` and `canary.json`
 in one explicit temp-root input directory. It fails closed on missing, foreign,
-malformed, failed, or identity-drifting evidence.
+malformed, failed, or identity-drifting evidence. The canary record is a
+schema-v1 wrapper that binds the planned Notepad++ row, commit, engine hash,
+repository hash, status, and result. Final evidence is written under
+`RUNNER_TEMP` in CI; the harness uses private system-temp scratch files.
 
 This document describes how to use the automated Sandbox-based validation loop to test Endstate modules without touching the host environment.
 
