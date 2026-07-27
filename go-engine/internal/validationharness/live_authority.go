@@ -196,11 +196,32 @@ func (session *LiveAuthoritySession) NonceFor(operation liveOperation, sequence 
 
 // SkipOptionalPreflight advances only a campaign-declared preflight uninstall.
 // The receipt issuer records the nonce, so apply may admit only as sequence 2.
-func (session *LiveAuthoritySession) SkipOptionalPreflight(issuer *liveReceiptIssuer) error {
-	if session == nil || session.definition.operations[1].Operation != string(liveOperationWingetExactUninstall) {
-		return fmt.Errorf("optional preflight is not declared")
+func (session *LiveAuthoritySession) NewReceiptIssuer() *liveReceiptIssuer {
+	issuer := newLiveReceiptIssuer()
+	if session == nil {
+		return issuer
 	}
-	return issuer.skipOptional(liveOperationWingetExactUninstall, 1, session.NonceFor(liveOperationWingetExactUninstall, 1))
+	baseAdmit := issuer.admitFn
+	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
+		entry, ok := session.definition.operations[sequence]
+		if !ok || entry.Operation != string(operation) || nonce != session.NonceFor(operation, sequence) {
+			return liveReceiptAdmission{}, fmt.Errorf("hosted receipt admission is outside campaign plan")
+		}
+		return baseAdmit(operation, sequence, nonce)
+	}
+	issuer.skipPreflightFn = func() error {
+		entry, ok := session.definition.operations[1]
+		if !ok || entry.Operation != string(liveOperationWingetExactUninstall) {
+			return fmt.Errorf("optional preflight is not declared")
+		}
+		admission, err := issuer.admit(liveOperationWingetExactUninstall, 1, session.NonceFor(liveOperationWingetExactUninstall, 1))
+		if err != nil {
+			return err
+		}
+		admission.complete()
+		return nil
+	}
+	return issuer
 }
 
 func (session *LiveAuthoritySession) MintMutationPermit(operation liveOperation, sequence uint64, nonce [32]byte) (trustedLiveMutationPermit, error) {

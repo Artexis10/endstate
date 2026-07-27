@@ -8,14 +8,16 @@ import "testing"
 func TestLiveReceiptIssuerOptionalPreflightSkipPreservesApplyOrdering(t *testing.T) {
 	issuer := newLiveReceiptIssuer()
 	preflightNonce := liveReceiptTestNonce(71)
-	if err := issuer.skipOptional(liveOperationWingetExactUninstall, 1, preflightNonce); err != nil {
-		t.Fatalf("skipOptional() error = %v", err)
+	if err := issuer.skipDeclaredPreflight(); err == nil {
+		t.Fatal("generic issuer exposed preflight skip")
 	}
+	admission, err := issuer.admit(liveOperationWingetExactUninstall, 1, preflightNonce)
+	if err != nil {
+		t.Fatalf("admit preflight error = %v", err)
+	}
+	admission.complete()
 	if _, err := issuer.admit(liveOperationEngineApply, 2, liveReceiptTestNonce(72)); err != nil {
 		t.Fatalf("admit apply after explicit skip: %v", err)
-	}
-	if err := issuer.skipOptional(liveOperationWingetExactUninstall, 1, preflightNonce); err == nil {
-		t.Fatal("skipOptional() accepted replay")
 	}
 
 	withoutPreflight := newLiveReceiptIssuer()

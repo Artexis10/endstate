@@ -44,13 +44,13 @@ func (operation liveOperation) valid() bool {
 func (operation liveOperation) mutation() bool { return operation != liveOperationWingetExactList }
 
 type liveReceiptIssuer struct {
-	id             uint64
-	admitFn        func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
-	sealFn         func(*liveExecutionReceipt) error
-	consumeFn      func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
-	consumeBatchFn func([]liveReceiptExpectation) bool
-	releaseFn      func(liveReceiptAdmission)
-	skipFn         func(liveOperation, uint64, [32]byte) error
+	id              uint64
+	admitFn         func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
+	sealFn          func(*liveExecutionReceipt) error
+	consumeFn       func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
+	consumeBatchFn  func([]liveReceiptExpectation) bool
+	releaseFn       func(liveReceiptAdmission)
+	skipPreflightFn func() error
 }
 
 type liveReceiptAdmission struct {
@@ -97,18 +97,6 @@ func newLiveReceiptIssuer() *liveReceiptIssuer {
 		if active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
 			active = liveReceiptAdmission{}
 		}
-	}
-	issuer.skipFn = func(operation liveOperation, sequence uint64, nonce [32]byte) error {
-		mu.Lock()
-		defer mu.Unlock()
-		if !operation.valid() || sequence == 0 || nonce == ([32]byte{}) || active.issuer != nil || sequence != next+1 {
-			return errors.New("live receipt skip rejected")
-		}
-		if _, exists := nonces[nonce]; exists {
-			return errors.New("live receipt nonce replay")
-		}
-		nonces[nonce], next = struct{}{}, sequence
-		return nil
 	}
 	issuer.sealFn = func(receipt *liveExecutionReceipt) error {
 		mu.Lock()
@@ -178,11 +166,11 @@ func (issuer *liveReceiptIssuer) admit(operation liveOperation, sequence uint64,
 	return issuer.admitFn(operation, sequence, nonce)
 }
 
-func (issuer *liveReceiptIssuer) skipOptional(operation liveOperation, sequence uint64, nonce [32]byte) error {
-	if issuer == nil || issuer.skipFn == nil {
+func (issuer *liveReceiptIssuer) skipDeclaredPreflight() error {
+	if issuer == nil || issuer.skipPreflightFn == nil {
 		return errors.New("invalid live receipt issuer")
 	}
-	return issuer.skipFn(operation, sequence, nonce)
+	return issuer.skipPreflightFn()
 }
 
 func (admission liveReceiptAdmission) complete() {
