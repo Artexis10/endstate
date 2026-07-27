@@ -591,6 +591,86 @@ func TestFinalizeCaptureConfigBuildsSideBySideV2SummaryFromWrittenPayloadsWithou
 	}
 }
 
+func TestFinalizeCaptureConfigOnlyKeepsExplicitlyNamedLegacyModuleWithoutSources(t *testing.T) {
+	dir := t.TempDir()
+	wave := &modules.Module{
+		ID:          "apps.wave",
+		DisplayName: "Wave",
+		Matches:     modules.MatchCriteria{PathExists: []string{filepath.Join(dir, "not-installed")}},
+		Capture: &modules.CaptureDef{Files: []modules.CaptureFile{{
+			Source: filepath.Join(dir, "not-installed", "settings.json"), Dest: "apps/wave/settings.json", Optional: true,
+		}}},
+	}
+	withCaptureCatalogLoader(t, map[string]*modules.Module{wave.ID: wave}, nil)
+	manifestPath := writeCaptureInputManifest(t, dir)
+
+	got, err := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		Flags: CaptureFlags{Out: manifestPath}, ManifestPath: manifestPath,
+		Selection: captureSelection{moduleIDs: []string{wave.ID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ConfigModules) != 1 || got.ConfigModules[0].ID != wave.ID || got.ConfigModules[0].Status != CaptureConfigStatusSkipped || got.ConfigModules[0].FilesCaptured != 0 {
+		t.Fatalf("explicit absent legacy module result = %+v", got.ConfigModules)
+	}
+	if !equalStrings(got.ConfigsSkipped, []string{"wave"}) || len(got.ConfigsIncluded) != 0 {
+		t.Fatalf("explicit absent legacy module summary = included %v skipped %v", got.ConfigsIncluded, got.ConfigsSkipped)
+	}
+	loaded := loadManifestFromCaptureZip(t, got.OutputPath)
+	if len(loaded.ConfigCaptures) != 0 {
+		t.Fatalf("absent legacy module created config payload provenance: %+v", loaded.ConfigCaptures)
+	}
+}
+
+func TestPrepareCaptureConfigOnlyKeepsExplicitV2ModuleWithoutInstances(t *testing.T) {
+	dir := t.TempDir()
+	streamDeck := testCaptureGenerationModule(t, captureGenerationModuleSpec{
+		ID: "apps.stream-deck", PathMatch: filepath.Join(dir, "not-installed"),
+		Detectors: []modules.InstanceDetectorDef{{
+			ID: "profiles", Type: "path", Glob: filepath.Join(dir, "not-installed", "*"),
+		}},
+		Sets: []testCaptureSet{{ID: "preferences", Generations: []testCaptureGeneration{{ID: "g1", Capture: true}}}},
+	})
+	pathOnly := testCaptureGenerationModule(t, captureGenerationModuleSpec{
+		ID: "apps.path-only", PathMatch: dir,
+		Detectors: []modules.InstanceDetectorDef{{
+			ID: "profiles", Type: "path", Glob: filepath.Join(dir, "*"),
+		}},
+		Sets: []testCaptureSet{{ID: "preferences", Generations: []testCaptureGeneration{{ID: "g1", Capture: true}}}},
+	})
+	withCaptureCatalogLoader(t, map[string]*modules.Module{streamDeck.ID: streamDeck, pathOnly.ID: pathOnly}, nil)
+	manifestPath := writeCaptureInputManifest(t, dir)
+
+	prepared, err := prepareCaptureConfig(captureConfigFinalizeRequest{
+		Flags: CaptureFlags{Out: filepath.Join(dir, "capture.endstate")}, ManifestPath: manifestPath,
+		Selection: captureSelection{moduleIDs: []string{streamDeck.ID}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(prepared.Planning.Modules) != 1 || prepared.Planning.Modules[0].ID != streamDeck.ID {
+		t.Fatalf("explicit v2 module planning = %+v", moduleIDs(prepared.Planning.Modules))
+	}
+	if len(prepared.Planning.GenerationPlans) != 0 || len(prepared.Planning.Candidates) != 0 || len(prepared.Planning.PreplanningDiagnostics) != 0 {
+		t.Fatalf("zero-instance explicit v2 module created capture facts: %+v", prepared.Planning)
+	}
+	got, err := finalizeCaptureConfig(captureConfigFinalizeRequest{
+		Flags: CaptureFlags{Out: filepath.Join(dir, "capture.endstate")}, ManifestPath: manifestPath,
+		Prepared: prepared,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.ConfigModules) != 1 || got.ConfigModules[0].ID != streamDeck.ID || got.ConfigModules[0].FilesCaptured != 0 {
+		t.Fatalf("explicit zero-instance v2 module result = %+v", got.ConfigModules)
+	}
+	loaded := loadManifestFromCaptureZip(t, got.OutputPath)
+	if len(loaded.ConfigCaptures) != 0 || len(loaded.LegacyConfigLanes) != 0 {
+		t.Fatalf("zero-instance v2 module created payload provenance: captures=%+v legacy=%+v", loaded.ConfigCaptures, loaded.LegacyConfigLanes)
+	}
+}
+
 func TestFinalizeCaptureConfigPreservesChocolateyRefsInCapturedModuleResult(t *testing.T) {
 	dir := t.TempDir()
 	configRoot := filepath.Join(dir, "config")

@@ -266,7 +266,7 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 		return nil, err
 	}
 	return &captureConfigPreparation{
-		RepoRoot: repoRoot, Catalog: catalog, Planning: planCaptureConfigWithValidation(catalog, request.Apps, diagnostics, request.ValidationContext),
+		RepoRoot: repoRoot, Catalog: catalog, Planning: planCaptureConfigWithValidation(catalog, request.Apps, diagnostics, request.ValidationContext, request.Selection),
 		OutputPath: outputPath, CatalogUnavailable: repoRoot == "", ValidationContext: request.ValidationContext,
 	}, nil
 }
@@ -276,10 +276,10 @@ func prepareCaptureConfig(request captureConfigFinalizeRequest) (*captureConfigP
 // are considered by detector eligibility, even without an application match,
 // so path-only instances remain discoverable.
 func planCaptureConfig(catalog map[string]*modules.Module, apps []manifest.App, catalogDiagnostics []modules.CatalogDiagnostic) captureConfigPlanning {
-	return planCaptureConfigWithValidation(catalog, apps, catalogDiagnostics, nil)
+	return planCaptureConfigWithValidation(catalog, apps, catalogDiagnostics, nil, captureSelection{})
 }
 
-func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []manifest.App, catalogDiagnostics []modules.CatalogDiagnostic, context *validationmode.Context) captureConfigPlanning {
+func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []manifest.App, catalogDiagnostics []modules.CatalogDiagnostic, context *validationmode.Context, selection captureSelection) captureConfigPlanning {
 	planning := captureConfigPlanning{
 		Modules:                []*modules.Module{},
 		LegacyModules:          []*modules.Module{},
@@ -303,7 +303,21 @@ func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []
 			}
 		}
 	}
-	planning.LegacyModules = nonNilModules(matchModulesForAppsFn(legacyCatalog, apps))
+	legacyModules := make(map[string]*modules.Module)
+	for _, mod := range nonNilModules(matchModulesForAppsFn(legacyCatalog, apps)) {
+		legacyModules[mod.ID] = mod
+	}
+	explicitModuleIDs := make(map[string]struct{}, len(selection.moduleIDs))
+	for _, id := range selection.moduleIDs {
+		explicitModuleIDs[id] = struct{}{}
+		if mod := legacyCatalog[id]; mod != nil {
+			legacyModules[id] = mod
+		}
+	}
+	planning.LegacyModules = make([]*modules.Module, 0, len(legacyModules))
+	for _, mod := range legacyModules {
+		planning.LegacyModules = append(planning.LegacyModules, mod)
+	}
 	sort.Slice(planning.LegacyModules, func(left, right int) bool { return planning.LegacyModules[left].ID < planning.LegacyModules[right].ID })
 	sort.Slice(generationModules, func(left, right int) bool { return generationModules[left].ID < generationModules[right].ID })
 	planning.Modules = append(planning.Modules, planning.LegacyModules...)
@@ -373,7 +387,8 @@ func planCaptureConfigWithValidation(catalog map[string]*modules.Module, apps []
 				}
 			}
 		}
-		if len(planning.Candidates) > candidateStart || len(planning.PreplanningDiagnostics) > diagnosticStart {
+		_, explicitlySelected := explicitModuleIDs[mod.ID]
+		if explicitlySelected || len(planning.Candidates) > candidateStart || len(planning.PreplanningDiagnostics) > diagnosticStart {
 			planning.Modules = append(planning.Modules, mod)
 			relevantModuleIDs[mod.ID] = struct{}{}
 		}
