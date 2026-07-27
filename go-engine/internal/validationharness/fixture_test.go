@@ -214,6 +214,41 @@ func TestProductionWinampAutoFixtureHasNoRedundantMilkdropTargetOrOverlap(t *tes
 			}
 		}
 	}
+
+	wantCachePatterns := []string{
+		`**\main.dat`, `**\main.idx`, `**\recent.dat`, `**\recent.idx`,
+		`**\met*.vmd`, `**\Cache\**`, `**\*.log`, `**\Temp\**`,
+	}
+	if !exactStrings(mod.Capture.ExcludeGlobs, wantCachePatterns) {
+		t.Fatalf("Winamp capture exclusions = %v, want precise cache patterns %v", mod.Capture.ExcludeGlobs, wantCachePatterns)
+	}
+	for _, relative := range []string{"ml/settings.ini", "ml/theme.xml"} {
+		for _, pattern := range mod.Capture.ExcludeGlobs {
+			matched, err := bundle.ConfigPathMatchesExcludeGlob(relative, pattern)
+			if err != nil {
+				t.Fatalf("Winamp capture pattern %q is invalid: %v", pattern, err)
+			}
+			if matched {
+				t.Fatalf("Winamp capture pattern %q suppresses non-cache path %q", pattern, relative)
+			}
+		}
+	}
+	for _, relative := range []string{"ml/main.dat", "ml/recent.idx", "ml/metadata.vmd"} {
+		matched := false
+		for _, pattern := range mod.Capture.ExcludeGlobs {
+			if ok, err := bundle.ConfigPathMatchesExcludeGlob(relative, pattern); err == nil && ok {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			t.Fatalf("Winamp capture keeps known cache path %q", relative)
+		}
+	}
+	pluginsRestore := mod.Restore[len(mod.Restore)-1]
+	if pluginsRestore.Target != `%APPDATA%\Winamp\Plugins` || !exactStrings(pluginsRestore.Exclude, wantCachePatterns) {
+		t.Fatalf("Winamp Plugins restore exclusions = target:%q patterns:%v, want %v", pluginsRestore.Target, pluginsRestore.Exclude, wantCachePatterns)
+	}
 }
 
 func TestProductionWaveLinkV1ArtifactFlattensNestedDestination(t *testing.T) {

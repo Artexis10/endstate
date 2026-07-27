@@ -74,13 +74,22 @@
       "optional": true
     },
     {
-      // Plugin configuration files (gen_ml.ini media-library config + per-plugin .ini settings)
+      // Plugin configuration and other non-cache plugin state.
       "type": "copy",
       "source": "./payload/apps/winamp/Plugins",
       "target": "%APPDATA%\\Winamp\\Plugins",
       "backup": true,
       "optional": true,
-      "exclude": ["**\\ml\\**", "**\\*.dat", "**\\*.idx"]
+      "exclude": [
+        "**\\main.dat",
+        "**\\main.idx",
+        "**\\recent.dat",
+        "**\\recent.idx",
+        "**\\met*.vmd",
+        "**\\Cache\\**",
+        "**\\*.log",
+        "**\\Temp\\**"
+      ]
     }
   ],
 
@@ -94,12 +103,11 @@
       { "source": "%APPDATA%\\Winamp\\winamp.bm8", "dest": "apps/winamp/winamp.bm8", "optional": true },
       // User skins
       { "source": "%APPDATA%\\Winamp\\Skins", "dest": "apps/winamp/Skins", "optional": true },
-      // Plugin .ini config only - the large media-library DB (Plugins\ml) is excluded below
+      // Plugin state; known media-library and cache files are excluded below.
       { "source": "%APPDATA%\\Winamp\\Plugins", "dest": "apps/winamp/Plugins", "optional": true }
     ],
     "excludeGlobs": [
-      // Media library database - large, machine-specific (absolute paths), regenerable on rescan
-      "**\\ml\\**",
+      // Known media-library database files - large, machine-specific, regenerable on rescan
       "**\\main.dat",
       "**\\main.idx",
       // Recently-played history caches
@@ -114,5 +122,5 @@
     ]
   },
 
-  "notes": "Captures Winamp preferences (winamp.ini), modern-skin config (studio.xnf), Milkdrop visualizer settings (Plugins\\milk2.ini), EQ preset banks (winamp.q1/q2), bookmarks (winamp.bm/.bm8), user-installed Skins, and plugin .ini configs (incl. gen_ml.ini), all under %APPDATA%\\Winamp. milk2.ini lives under the Plugins\\ subfolder (per MilkDrop/Geiss documentation), not the Winamp root. The media library database (Plugins\\ml\\main.dat/main.idx), recent-played history, and local view caches are excluded - they are large, store absolute machine-specific file paths, and rebuild on rescan. Plugin binaries (.dll) install separately under Program Files and are not captured. Confidence: high - %APPDATA%\\Winamp root and the winamp.ini/studio.xnf/EQ/bookmarks/Skins/Plugins layout are confirmed by official Winamp forum threads and MilkDrop documentation."
+  "notes": "Captures Winamp preferences (winamp.ini), modern-skin config (studio.xnf), Milkdrop visualizer settings (Plugins\\milk2.ini), EQ preset banks (winamp.q1/q2), bookmarks (winamp.bm/.bm8), user-installed Skins, and non-cache plugin state (including gen_ml.ini), all under %APPDATA%\\Winamp. milk2.ini lives under the Plugins\\ subfolder (per MilkDrop/Geiss documentation), not the Winamp root. Known media-library database files (main.dat/main.idx), recent-played history, and local view caches are excluded - they are large, store absolute machine-specific file paths, and rebuild on rescan. Other files under Plugins\\ml and folders named ml inside user skins remain captured. Plugin binaries (.dll) install separately under Program Files and are not captured. Confidence: high - %APPDATA%\\Winamp root and the winamp.ini/studio.xnf/EQ/bookmarks/Skins/Plugins layout are confirmed by official Winamp forum threads and MilkDrop documentation."
 }
