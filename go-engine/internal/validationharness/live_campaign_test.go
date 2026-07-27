@@ -5,6 +5,7 @@ package validationharness
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -18,10 +19,13 @@ func TestCampaignCanonicalIdentityExcludesControllerCommitAndBindsPinnedFields(t
 	if err != nil {
 		t.Fatal(err)
 	}
-	otherController := campaign
-	otherController.ControllerCommit = strings.Repeat("c", 40)
-	if got, err := CanonicalLiveCampaignIdentity(otherController); err != nil || got != identity {
-		t.Fatalf("controller-only change = %q, %v; want stable %q", got, err, identity)
+	otherRun := campaign
+	otherRun.ControllerCommit = strings.Repeat("c", 40)
+	otherRun.RunID = 5678
+	otherRun.PhaseNonce = strings.Repeat("a", 64)
+	otherRun.ExpiresAt = otherRun.ExpiresAt.Add(time.Hour)
+	if got, err := CanonicalLiveCampaignIdentity(otherRun); err != nil || got != identity {
+		t.Fatalf("runtime-only change = %q, %v; want stable %q", got, err, identity)
 	}
 	for _, mutate := range []func(*LiveCampaign){
 		func(value *LiveCampaign) { value.TestedCheckoutCommit = strings.Repeat("c", 40) },
@@ -34,11 +38,12 @@ func TestCampaignCanonicalIdentityExcludesControllerCommitAndBindsPinnedFields(t
 		func(value *LiveCampaign) { value.TargetsSHA256 = strings.Repeat("b", 64) },
 		func(value *LiveCampaign) { value.ObserverSHA256 = strings.Repeat("c", 64) },
 		func(value *LiveCampaign) { value.WorkflowPolicySHA256 = strings.Repeat("d", 64) },
-		func(value *LiveCampaign) { value.PhaseNonce = strings.Repeat("e", 64) },
 	} {
 		changed := campaign
 		changed.PackageArguments = append([]string(nil), campaign.PackageArguments...)
+		changed.Operations = append([]LiveCampaignOperation(nil), campaign.Operations...)
 		mutate(&changed)
+		liveTestBindEngineOperations(&changed)
 		if got, err := CanonicalLiveCampaignIdentity(changed); err != nil || got == identity {
 			t.Fatalf("pinned field change = %q, %v; want identity reset from %q", got, err, identity)
 		}
@@ -59,6 +64,8 @@ func TestLiveCampaignRejectsUntrustedModesAndDrift(t *testing.T) {
 		func(value *LiveCampaign) { value.PackageRef = "Vendor.Foreign" },
 		func(value *LiveCampaign) { value.PackageArguments = []string{"install", "Vendor.Foreign"} },
 		func(value *LiveCampaign) { value.ExpiresAt = time.Time{} },
+		func(value *LiveCampaign) { value.BuildPolicy = "-trimpath=false;-buildid=endstate-v1" },
+		func(value *LiveCampaign) { value.BuildPolicy = "-trimpath;-buildid=endstate-v1;-x" },
 	} {
 		candidate := liveTestCampaign()
 		mutate(&candidate)
@@ -70,8 +77,8 @@ func TestLiveCampaignRejectsUntrustedModesAndDrift(t *testing.T) {
 	baseline := liveTestCampaign()
 	baseline.Mode = LiveCampaignDiagnosticBaseline
 	baseline.Event = "workflow_dispatch"
-	baseline.RunID = 0
-	baseline.RunAttempt = 0
+	baseline.RunID = 4321
+	baseline.RunAttempt = 1
 	baseline.TestedCheckoutCommit = baseline.ControllerCommit
 	if err := ValidateLiveCampaign(baseline); err != nil {
 		t.Fatalf("baseline campaign rejected: %v", err)
@@ -80,7 +87,7 @@ func TestLiveCampaignRejectsUntrustedModesAndDrift(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if proposal.Mode != LiveCampaignScheduledQualification || proposal.Event != "schedule" || proposal.RunID != 0 || proposal.RunAttempt != 0 {
+	if proposal.Mode != LiveCampaignScheduledQualification || proposal.Event != "schedule" || proposal.RunID != 0 || proposal.RunAttempt != 0 || proposal.ControllerCommit != "" || proposal.PhaseNonce != "" || !proposal.ExpiresAt.IsZero() {
 		t.Fatalf("proposal = %#v", proposal)
 	}
 	if roundTrip, err := DecodeLiveCampaignJSON(mustLiveCampaignJSON(t, proposal)); err != nil || !reflect.DeepEqual(roundTrip, proposal) {
@@ -94,9 +101,26 @@ func liveTestCampaign() LiveCampaign {
 		Repository: "Artexis10/endstate", WorkflowPath: ".github/workflows/hosted-live.yml", Event: "schedule", Ref: "refs/heads/main",
 		ControllerCommit: strings.Repeat("a", 40), TestedCheckoutCommit: strings.Repeat("b", 40), RunID: 1234, RunAttempt: 1, TrustedActorClass: "User",
 		EngineSHA256: strings.Repeat("c", 64), ValidatorSHA256: strings.Repeat("d", 64), GoToolchain: "go1.24.2", BuildPolicy: "-trimpath;-buildid=endstate-v1",
-		PackageDriver: "winget", PackageRef: "Notepad++.Notepad++", PackageArguments: []string{"install", "Notepad++.Notepad++", "--exact"},
+		PackageDriver: "winget", PackageRef: "Notepad++.Notepad++", PackageArguments: []string{"uninstall", "Notepad++.Notepad++", "--exact"}, Operations: liveTestCampaignOperations(),
 		ModuleID: "apps.notepad-plus-plus", ModuleRevision: strings.Repeat("e", 64), ValidationSourceSHA256: strings.Repeat("f", 64), SeedSHA256: strings.Repeat("a", 64),
 		ComparatorSHA256: strings.Repeat("b", 64), TargetsSHA256: strings.Repeat("c", 64), ObserverSHA256: strings.Repeat("d", 64), WorkflowPolicySHA256: strings.Repeat("e", 64), PhaseNonce: strings.Repeat("f", 64),
 		ExpiresAt: time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
 	}
+}
+
+func liveTestCampaignOperations() []LiveCampaignOperation {
+	operations := make([]LiveCampaignOperation, 0, 10)
+	for sequence, operation := range map[uint64]liveOperation{2: liveOperationEngineApply, 3: liveOperationEngineVerify, 4: liveOperationHashBoundSeed, 5: liveOperationEngineCapture, 6: liveOperationWingetExactUninstall, 7: liveOperationEngineRebuild, 8: liveOperationEngineRevert, 9: liveOperationEngineRebuild, 10: liveOperationEngineRebuild, 11: liveOperationWingetExactUninstall} {
+		arguments := []string{string(operation)}
+		if operation == liveOperationWingetExactUninstall {
+			arguments = []string{"uninstall", "Notepad++.Notepad++", "--exact"}
+		}
+		executableSHA256 := strings.Repeat("a", 64)
+		if liveCampaignEngineOperation(operation) {
+			executableSHA256 = strings.Repeat("c", 64)
+		}
+		operations = append(operations, LiveCampaignOperation{Sequence: sequence, Operation: string(operation), Executable: `C:\reviewed\runner.exe`, ExecutableSHA256: executableSHA256, Arguments: arguments})
+	}
+	sort.Slice(operations, func(left, right int) bool { return operations[left].Sequence < operations[right].Sequence })
+	return operations
 }

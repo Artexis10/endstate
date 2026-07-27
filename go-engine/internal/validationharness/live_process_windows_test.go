@@ -262,8 +262,8 @@ func TestLiveProcessRejectsReparseExecutablePath(t *testing.T) {
 	request.executable = filepath.Join(junction, filepath.Base(liveWindowsProbeExecutable(t)))
 	_, err := runLiveProcess(context.Background(), request)
 	var executionErr *LiveExecutionError
-	if err == nil || !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionInvalidRequest {
-		t.Fatalf("runLiveProcess() error = %T %v, want invalid reparse path", err, err)
+	if err == nil || !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionMutationDenied {
+		t.Fatalf("runLiveProcess() error = %T %v, want prelaunch mutation denial", err, err)
 	}
 }
 
@@ -305,5 +305,6 @@ func liveWindowsEngineRequest(t *testing.T, args []string, outputLimit int) Live
 		t.Fatalf("liveWindowsFileSHA256() error = %v", err)
 	}
 	admission := liveTestAdmission(t, liveOperationEngineApply)
-	return newLiveEngineApply(admission, newTrustedLiveMutationPermit(admission, expected, args), executable, args, "", liveWindowsTestEnvironment(t), expected, outputLimit)
+	environment := liveWindowsTestEnvironment(t)
+	return newLiveEngineApply(admission, newTrustedLiveMutationPermit(admission, expected, executable, args, "", environment), executable, args, "", environment, expected, outputLimit)
 }

@@ -83,6 +83,11 @@ type liveMutationCapability struct {
 	comparator, targets, observer [32]byte
 	workflow                      [32]byte
 	packageArguments              []string
+	executable                    string
+	executableSHA256              [32]byte
+	arguments                     []string
+	directory                     string
+	environment                   map[string]string
 	consumed                      atomic.Bool
 }
 
@@ -90,13 +95,34 @@ func (capability *liveMutationCapability) validFor(request LiveProcessRequest, n
 	if capability == nil || capability.campaign == ([32]byte{}) || !capability.operation.mutation() || capability.operation != request.operation || capability.sequence != request.admission.sequence || capability.nonce != request.admission.nonce || capability.issuedAt.IsZero() || capability.expiresAt.IsZero() || capability.issuedAt.After(now) || !capability.expiresAt.After(now) || capability.definition == ([32]byte{}) || capability.engine == ([32]byte{}) || capability.seed == ([32]byte{}) || capability.packageRef == ([32]byte{}) || capability.comparator == ([32]byte{}) || capability.targets == ([32]byte{}) || capability.observer == ([32]byte{}) || capability.workflow == ([32]byte{}) || capability.consumed.Load() {
 		return false
 	}
-	if request.expected.definition != capability.definition || request.expected.engine != capability.engine || request.expected.seed != capability.seed || request.expected.packageRef != capability.packageRef {
+	if request.expected.definition != capability.definition || request.expected.engine != capability.engine || request.expected.seed != capability.seed || request.expected.packageRef != capability.packageRef || request.expected.comparator != capability.comparator || request.expected.targets != capability.targets || request.expected.observer != capability.observer || request.expected.workflow != capability.workflow || request.executable != capability.executable || request.dir != capability.directory || !sameLiveArguments(request.args, capability.arguments) || !sameLiveEnvironment(request.environment, capability.environment) {
+		return false
+	}
+	if request.executionClass() == LiveExecutionEngine && capability.executableSHA256 != request.expected.engine {
+		return false
+	}
+	if request.executionClass() != LiveExecutionEngine && capability.executableSHA256 != request.expected.runner {
 		return false
 	}
 	if request.operation != liveOperationWingetExactInstall {
 		return true
 	}
 	return len(request.args) == 3 && len(capability.packageArguments) == 3 && liveExactPackageArguments(request.args, request.args[1]) && request.args[1] != "" && strings.Join(request.args, "\x00") == strings.Join(capability.packageArguments, "\x00")
+}
+
+func sameLiveArguments(left, right []string) bool {
+	return strings.Join(left, "\x00") == strings.Join(right, "\x00")
+}
+func sameLiveEnvironment(left, right map[string]string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, value := range left {
+		if right[key] != value {
+			return false
+		}
+	}
+	return true
 }
 
 func (capability *liveMutationCapability) consume() bool {

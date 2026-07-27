@@ -181,6 +181,11 @@ type liveReceiptExpectedIdentity struct {
 	engine     [32]byte
 	seed       [32]byte
 	packageRef [32]byte
+	comparator [32]byte
+	targets    [32]byte
+	observer   [32]byte
+	workflow   [32]byte
+	runner     [32]byte
 }
 
 type liveReceiptExpectation struct {
@@ -225,7 +230,7 @@ func (identity liveReceiptExpectedIdentity) valid(operation liveOperation) bool 
 	if operation == liveOperationWingetExactList {
 		return true
 	}
-	if identity.definition == ([32]byte{}) || identity.engine == ([32]byte{}) {
+	if identity.definition == ([32]byte{}) || identity.engine == ([32]byte{}) || identity.comparator == ([32]byte{}) || identity.targets == ([32]byte{}) || identity.observer == ([32]byte{}) || identity.workflow == ([32]byte{}) || identity.runner == ([32]byte{}) {
 		return false
 	}
 	return operation != liveOperationHashBoundSeed || identity.seed != ([32]byte{})
@@ -289,6 +294,11 @@ func (receipt *liveExecutionReceipt) requestDigest() [32]byte {
 	canonical.Write(receipt.expected.engine[:])
 	canonical.Write(receipt.expected.seed[:])
 	canonical.Write(receipt.expected.packageRef[:])
+	canonical.Write(receipt.expected.comparator[:])
+	canonical.Write(receipt.expected.targets[:])
+	canonical.Write(receipt.expected.observer[:])
+	canonical.Write(receipt.expected.workflow[:])
+	canonical.Write(receipt.expected.runner[:])
 	return sha256.Sum256(canonical.Bytes())
 }
 

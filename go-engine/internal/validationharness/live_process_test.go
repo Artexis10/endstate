@@ -15,11 +15,11 @@ import (
 	"time"
 )
 
-func newTrustedLiveMutationPermit(admission liveReceiptAdmission, expected liveReceiptExpectedIdentity, arguments []string) trustedLiveMutationPermit {
+func newTrustedLiveMutationPermit(admission liveReceiptAdmission, expected liveReceiptExpectedIdentity, executable string, arguments []string, directory string, environment map[string]string) trustedLiveMutationPermit {
 	return trustedLiveMutationPermit{capability: &liveMutationCapability{
 		serial: 1, campaign: sha256.Sum256([]byte("campaign")), operation: admission.operation, sequence: admission.sequence, nonce: admission.nonce,
 		issuedAt: time.Now().UTC().Add(-time.Minute), expiresAt: time.Now().UTC().Add(time.Minute), definition: expected.definition, engine: expected.engine, seed: expected.seed, packageRef: expected.packageRef,
-		comparator: sha256.Sum256([]byte("comparator")), targets: sha256.Sum256([]byte("targets")), observer: sha256.Sum256([]byte("observer")), workflow: sha256.Sum256([]byte("workflow")), packageArguments: append([]string(nil), arguments...),
+		comparator: sha256.Sum256([]byte("comparator")), targets: sha256.Sum256([]byte("targets")), observer: sha256.Sum256([]byte("observer")), workflow: sha256.Sum256([]byte("workflow")), packageArguments: append([]string(nil), arguments...), executable: executable, executableSHA256: expected.engine, arguments: append([]string(nil), arguments...), directory: directory, environment: cloneLiveEnvironment(environment),
 	}}
 }
 
@@ -52,9 +52,35 @@ func TestLiveProcessRejectsMutationWithoutProofIdentity(t *testing.T) {
 func TestLiveProcessRejectsMalformedBoundInstallWithoutPanicking(t *testing.T) {
 	admission := liveTestAdmission(t, liveOperationWingetExactInstall)
 	expected := liveTestExpectedIdentity()
-	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, expected, nil), liveOperationWingetExactInstall, liveTestExecutable(t), nil, "", nil, expected, 0)
+	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), nil, "", nil), liveOperationWingetExactInstall, liveTestExecutable(t), nil, "", nil, expected, 0)
 	if err := validateLiveProcessRequest(request); err == nil {
 		t.Fatal("validateLiveProcessRequest() accepted malformed install request")
+	}
+}
+
+func TestLiveProcessRejectsHostilePermitInvocationSubstitution(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	executable := liveTestExecutable(t)
+	permit := newTrustedLiveMutationPermit(admission, expected, executable, []string{"apply"}, `C:\reviewed`, map[string]string{"PATH": `C:\Windows\System32`})
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, executable, []string{"apply"}, `C:\reviewed`, map[string]string{"PATH": `C:\Windows\System32`}, expected, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("bound request rejected: %v", err)
+	}
+	for _, mutate := range []func(*LiveProcessRequest){
+		func(value *LiveProcessRequest) { value.executable = filepath.Join(os.TempDir(), "substituted.exe") },
+		func(value *LiveProcessRequest) { value.args = []string{"apply", "--foreign"} },
+		func(value *LiveProcessRequest) { value.dir = `C:\foreign` },
+		func(value *LiveProcessRequest) { value.environment = map[string]string{"PATH": `C:\foreign`} },
+		func(value *LiveProcessRequest) { value.expected.comparator = sha256.Sum256([]byte("foreign")) },
+	} {
+		candidate := request
+		candidate.args = append([]string(nil), request.args...)
+		candidate.environment = cloneLiveEnvironment(request.environment)
+		mutate(&candidate)
+		if err := validateLiveProcessRequest(candidate); err == nil {
+			t.Fatal("validateLiveProcessRequest accepted a substituted invocation")
+		}
 	}
 }
 
@@ -121,7 +147,7 @@ func TestLiveProcessWingetListProbeHasExactReviewedArguments(t *testing.T) {
 
 func TestLiveProcessRejectsMissingProofIdentity(t *testing.T) {
 	admission := liveTestAdmission(t, liveOperationEngineApply)
-	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, liveReceiptExpectedIdentity{}, []string{"apply"}), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)
+	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, liveReceiptExpectedIdentity{}, liveTestExecutable(t), []string{"apply"}, "", nil), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)
 	if err := validateLiveProcessRequest(request); err == nil {
 		t.Fatal("validateLiveProcessRequest() accepted missing proof identities")
 	}
@@ -145,6 +171,11 @@ func liveTestExpectedIdentity() liveReceiptExpectedIdentity {
 		engine:     sha256.Sum256([]byte("engine")),
 		seed:       sha256.Sum256([]byte("seed")),
 		packageRef: sha256.Sum256([]byte("package")),
+		comparator: sha256.Sum256([]byte("comparator")),
+		targets:    sha256.Sum256([]byte("targets")),
+		observer:   sha256.Sum256([]byte("observer")),
+		workflow:   sha256.Sum256([]byte("workflow")),
+		runner:     sha256.Sum256([]byte("runner")),
 	}
 }
 
