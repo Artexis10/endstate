@@ -109,8 +109,8 @@ func liveTestCampaign() LiveCampaign {
 }
 
 func liveTestCampaignOperations() []LiveCampaignOperation {
-	operations := make([]LiveCampaignOperation, 0, 10)
-	for sequence, operation := range map[uint64]liveOperation{2: liveOperationEngineApply, 3: liveOperationEngineVerify, 4: liveOperationHashBoundSeed, 5: liveOperationEngineCapture, 6: liveOperationWingetExactUninstall, 7: liveOperationEngineRebuild, 8: liveOperationEngineRevert, 9: liveOperationEngineRebuild, 10: liveOperationEngineRebuild, 11: liveOperationWingetExactUninstall} {
+	operations := make([]LiveCampaignOperation, 0, 11)
+	for sequence, operation := range map[uint64]liveOperation{1: liveOperationWingetExactUninstall, 2: liveOperationEngineApply, 3: liveOperationEngineVerify, 4: liveOperationHashBoundSeed, 5: liveOperationEngineCapture, 6: liveOperationWingetExactUninstall, 7: liveOperationEngineRebuild, 8: liveOperationEngineRevert, 9: liveOperationEngineRebuild, 10: liveOperationEngineRebuild, 11: liveOperationWingetExactUninstall} {
 		arguments := []string{string(operation)}
 		if operation == liveOperationWingetExactUninstall {
 			arguments = []string{"uninstall", "Notepad++.Notepad++", "--exact"}

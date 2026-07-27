@@ -84,6 +84,28 @@ func TestLiveProcessRejectsHostilePermitInvocationSubstitution(t *testing.T) {
 	}
 }
 
+func TestLiveMutationPermitFinalGateBindsImageAndExpiry(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, expected, 0)
+	if permit.capability.finalize(request, sha256.Sum256([]byte("substituted")), time.Now().UTC()) {
+		t.Fatal("final gate accepted substituted image")
+	}
+	if permit.capability.consumed.Load() {
+		t.Fatal("substituted image consumed permit")
+	}
+	permit = newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	permit.capability.expiresAt = time.Now().UTC().Add(-time.Second)
+	if permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate accepted expired permit")
+	}
+	permit = newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	if !permit.capability.finalize(request, expected.engine, time.Now().UTC()) || permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate did not consume exactly once")
+	}
+}
+
 func TestLiveProcessEnvironmentDoesNotInheritSecrets(t *testing.T) {
 	const secretName = "ENDSTATE_LIVE_TEST_SECRET"
 	t.Setenv(secretName, "must-not-be-inherited")

@@ -104,10 +104,10 @@ func (capability *liveMutationCapability) validFor(request LiveProcessRequest, n
 	if request.executionClass() != LiveExecutionEngine && capability.executableSHA256 != request.expected.runner {
 		return false
 	}
-	if request.operation != liveOperationWingetExactInstall {
+	if request.operation != liveOperationWingetExactUninstall {
 		return true
 	}
-	return len(request.args) == 3 && len(capability.packageArguments) == 3 && liveExactPackageArguments(request.args, request.args[1]) && request.args[1] != "" && strings.Join(request.args, "\x00") == strings.Join(capability.packageArguments, "\x00")
+	return len(request.args) == 3 && len(capability.packageArguments) == 3 && liveExactWingetUninstallArguments(request.args, request.args[1]) && request.args[1] != "" && strings.Join(request.args, "\x00") == strings.Join(capability.packageArguments, "\x00")
 }
 
 func sameLiveArguments(left, right []string) bool {
@@ -118,15 +118,16 @@ func sameLiveEnvironment(left, right map[string]string) bool {
 		return false
 	}
 	for key, value := range left {
-		if right[key] != value {
+		rightValue, exists := right[key]
+		if !exists || rightValue != value {
 			return false
 		}
 	}
 	return true
 }
 
-func (capability *liveMutationCapability) consume() bool {
-	return capability != nil && capability.consumed.CompareAndSwap(false, true)
+func (capability *liveMutationCapability) finalize(request LiveProcessRequest, image [32]byte, now time.Time) bool {
+	return capability != nil && capability.validFor(request, now) && capability.executableSHA256 == image && capability.consumed.CompareAndSwap(false, true)
 }
 
 // LiveProcessRequest is an internal execution request. It has no zero-value
@@ -296,12 +297,17 @@ func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecu
 	if err := ctx.Err(); err != nil {
 		return nil, liveProcessContextError(err)
 	}
-	if request.mutates() && !request.permit.capability.consume() {
-		return nil, liveExecutionError(LiveExecutionMutationDenied, nil)
-	}
-	output, err := runLiveProcessPlatform(ctx, request)
+	output, err := runLiveProcessPlatform(ctx, request, func(image liveReceiptImageIdentity) error {
+		if request.mutates() && !request.permit.capability.finalize(request, image.sha256, time.Now().UTC()) {
+			return liveExecutionError(LiveExecutionMutationDenied, nil)
+		}
+		return nil
+	})
 	if !output.launched {
 		return nil, err
+	}
+	if request.mutates() && request.permit.capability.executableSHA256 != output.image.sha256 {
+		err = liveExecutionError(LiveExecutionContainment, nil)
 	}
 	if request.executionClass() == LiveExecutionEngine && request.expected.engine != output.image.sha256 {
 		err = liveExecutionError(LiveExecutionContainment, nil)

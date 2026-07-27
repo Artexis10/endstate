@@ -7,6 +7,6 @@ package validationharness
 
 import "context"
 
-func runLiveProcessPlatform(context.Context, LiveProcessRequest) (liveProcessOutput, error) {
+func runLiveProcessPlatform(context.Context, LiveProcessRequest, func(liveReceiptImageIdentity) error) (liveProcessOutput, error) {
 	return liveProcessOutput{}, liveExecutionError(LiveExecutionUnsupported, nil)
 }

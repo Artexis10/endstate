@@ -159,8 +159,8 @@ func TestLiveAuthoritySessionMintsSingleBoundPermit(t *testing.T) {
 	if _, err := session.MintMutationPermit(liveOperationEngineApply, 2, nonce); err == nil {
 		t.Fatal("session minted a second permit for one operation")
 	}
-	if !permit.capability.consume() || permit.capability.consume() {
-		t.Fatal("permit was not single-use")
+	if permit.capability.consumed.Load() {
+		t.Fatal("minted permit was pre-consumed")
 	}
 }
 

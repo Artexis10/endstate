@@ -102,14 +102,16 @@ func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef,
 		return false
 	}
 	seen := make(map[uint64]struct{}, len(operations))
+	bySequence := make(map[uint64]liveOperation, len(operations))
 	for _, operation := range operations {
-		if !liveAuthorityOperationSequence(liveOperation(operation.Operation), operation.Sequence) || !lowerSHA256(operation.ExecutableSHA256) || operation.Executable == "" || len(operation.Arguments) == 0 || len(operation.Arguments) > 64 || len(operation.Environment) > len(liveProcessEnvironmentAllowlist) {
+		if !liveOperation(operation.Operation).valid() || !lowerSHA256(operation.ExecutableSHA256) || operation.Executable == "" || len(operation.Arguments) == 0 || len(operation.Arguments) > 64 || len(operation.Environment) > len(liveProcessEnvironmentAllowlist) {
 			return false
 		}
 		if _, duplicate := seen[operation.Sequence]; duplicate {
 			return false
 		}
 		seen[operation.Sequence] = struct{}{}
+		bySequence[operation.Sequence] = liveOperation(operation.Operation)
 		for _, argument := range operation.Arguments {
 			if !validLiveProcessValue(argument) {
 				return false
@@ -127,8 +129,18 @@ func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef,
 			return false
 		}
 	}
-	_, final := seen[11]
-	return final
+	preflight := bySequence[1] == liveOperationWingetExactUninstall
+	offset := uint64(0)
+	if preflight {
+		offset = 1
+	}
+	expected := []liveOperation{liveOperationEngineApply, liveOperationEngineVerify, liveOperationHashBoundSeed, liveOperationEngineCapture, liveOperationWingetExactUninstall, liveOperationEngineRebuild, liveOperationEngineRevert, liveOperationEngineRebuild, liveOperationEngineRebuild, liveOperationWingetExactUninstall}
+	for index, operation := range expected {
+		if bySequence[uint64(index)+1+offset] != operation {
+			return false
+		}
+	}
+	return len(operations) == len(expected)+int(offset)
 }
 
 func liveCampaignEngineOperation(operation liveOperation) bool {

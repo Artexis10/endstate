@@ -195,7 +195,7 @@ func (session *LiveAuthoritySession) NonceFor(operation liveOperation, sequence 
 }
 
 func (session *LiveAuthoritySession) MintMutationPermit(operation liveOperation, sequence uint64, nonce [32]byte) (trustedLiveMutationPermit, error) {
-	if session == nil || !liveAuthorityOperationSequence(operation, sequence) || nonce != session.NonceFor(operation, sequence) {
+	if session == nil || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
 	}
 	key := liveAuthorityPermitKey{operation: operation, sequence: sequence}
