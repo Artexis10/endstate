@@ -7,7 +7,6 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -33,7 +32,7 @@ func inspectCaptureContractArtifact(runtime *scenarioRuntime, zipPath string) (c
 	if len(runtime.CapturePlan.Targets) != 1 || len(entries) != 3 {
 		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP is not the exact three-file mGBA artifact")
 	}
-	expectedPayload := strings.ToLower("configs/" + strings.TrimPrefix(filepath.ToSlash(runtime.CapturePlan.Targets[0].Destination), "apps/"))
+	expectedPayload := strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination))
 	if !captureContractArtifactNamesExact(zipPath, "configs/", "configs/mgba/", "manifest.jsonc", "metadata.json", expectedPayload) {
 		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP member casing or portable names are not exact")
 	}

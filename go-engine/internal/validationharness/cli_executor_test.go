@@ -160,7 +160,7 @@ func TestDolphinDirectoryFixtureUsesNestedFileVerifierAsPayloadWitness(t *testin
 	if failure := runtime.Plan.CompareCaptured(); failure != nil {
 		t.Fatal(failure)
 	}
-	payloadName, ok := targetArtifactPayloadName(target)
+	payloadName, ok := targetArtifactPayloadName(mod.ID, target)
 	if !ok {
 		t.Fatal("nested verifier payload has no artifact name")
 	}

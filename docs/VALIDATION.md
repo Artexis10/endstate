@@ -9,6 +9,14 @@ engine-contract canary. These are `catalog`, `engine-contract`, and
 scenario-specific configuration proof only: they are not live-install, hosted,
 GUI, public compatibility, or release proof.
 
+### Synthetic fixture convention
+
+For schema-v1 `fixture.type: auto`, the harness constructs deterministic
+representative fixtures: a capture destination with an extension is a file, and
+an extensionless destination is a directory. This is only fixture construction;
+it does not infer or claim the live application's target type. Modules that need
+an exact type-sensitive shape use a tracked SHA-256-bound declarative fixture.
+
 To exercise the CI commands locally after building both binaries, keep result
 files beneath the active temp root in `endstate-validation-results`:
 

@@ -64,9 +64,6 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 	result := fixtureDefinitions{}
 	consumedRestore := make(map[int]struct{}, len(mod.Restore))
 	for captureIndex, capture := range mod.Capture.Files {
-		if scenario.Fixture.Type == validationmatrix.FixtureAuto && filepath.Ext(filepath.Base(filepath.ToSlash(capture.Dest))) == "" {
-			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.files[%d]", captureIndex), "auto fixture cannot infer an extensionless capture as file or directory")
-		}
 		var matches []int
 		for restoreIndex, restore := range mod.Restore {
 			if capture.Source == restore.Target && payloadDestination(restore.Source) == filepath.ToSlash(capture.Dest) {
@@ -81,13 +78,22 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 		}
 		consumedRestore[matches[0]] = struct{}{}
 		restore := mod.Restore[matches[0]]
+		kind := fixtureKindFile
+		// Auto fixtures use a deterministic synthetic shape only: a destination
+		// extension selects a representative file, while no extension selects a
+		// representative directory. This does not claim the production target's
+		// live filesystem type; type-sensitive cases require a hash-bound
+		// declarative fixture.
+		if scenario.Fixture.Type == validationmatrix.FixtureAuto && filepath.Ext(filepath.Base(filepath.ToSlash(capture.Dest))) == "" {
+			kind = fixtureKindDirectory
+		}
 		result.Entries = append(result.Entries, fixtureDefinition{
 			Coordinate: fmt.Sprintf("capture.files[%d]", captureIndex), Source: capture.Source,
 			Destination: filepath.ToSlash(capture.Dest), Target: restore.Target,
 			Optional:      capture.Optional || restore.Optional,
 			GlobalExclude: append([]string(nil), mod.Capture.ExcludeGlobs...),
 			TargetExclude: append([]string(nil), restore.Exclude...),
-			Kind:          fixtureKindFile,
+			Kind:          kind,
 		})
 	}
 	if len(consumedRestore) != len(mod.Restore) {

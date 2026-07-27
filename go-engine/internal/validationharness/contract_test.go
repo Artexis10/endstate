@@ -121,13 +121,17 @@ func TestCompileFixtureRejectsUnsupportedOperation(t *testing.T) {
 	})
 }
 
-func TestAutoFixtureRejectsExtensionlessCaptureShape(t *testing.T) {
+func TestAutoFixtureUsesDirectoryForExtensionlessCaptureDestination(t *testing.T) {
 	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, failure := compileFixtureDefinitions(mod, fixtureScenario()); failure == nil || failure.Code != CodeUnsupportedFixture {
-		t.Fatalf("extensionless auto fixture failure = %+v", failure)
+	definitions, failure := compileFixtureDefinitions(mod, fixtureScenario())
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(definitions.Entries) != 2 || definitions.Entries[0].Kind != fixtureKindFile || definitions.Entries[1].Kind != fixtureKindDirectory {
+		t.Fatalf("auto fixture kinds = %+v", definitions.Entries)
 	}
 }
 
@@ -441,9 +445,9 @@ func TestArtifactConfigPayloadSetRejectsUnexpectedMember(t *testing.T) {
 	runtime := fixtureScenarioRuntime(t)
 	entries := make(map[string][]byte)
 	for _, target := range runtime.Plan.Targets {
-		name := "configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
-		if target.Directory {
-			name += "/" + fixturePayloadName
+		name, ok := targetArtifactPayloadName(runtime.Module.ID, target)
+		if !ok {
+			t.Fatalf("target %s has no artifact payload", target.Coordinate)
 		}
 		entries[strings.ToLower(name)] = []byte(target.Captured)
 	}
@@ -473,7 +477,7 @@ func TestOptionalAbsentArtifactRequiresExactRequiredProjectionOnly(t *testing.T)
 		t.Fatal(err)
 	}
 	required := runtime.Plan.Targets[1]
-	root := "configs/" + strings.TrimPrefix(filepath.ToSlash(required.Destination), "apps/")
+	root := targetArtifactRoot(runtime.Module.ID, required)
 	entries := map[string][]byte{
 		"manifest.jsonc": manifestBytes,
 		strings.ToLower(root + "/" + fixturePayloadName):                                     []byte(required.Captured),
@@ -482,7 +486,10 @@ func TestOptionalAbsentArtifactRequiresExactRequiredProjectionOnly(t *testing.T)
 	if failure := validateOptionalAbsentArtifactEntries(runtime, entries); failure != nil {
 		t.Fatalf("exact required optional-absence projection failed: %+v", failure)
 	}
-	optionalName := "configs/" + strings.TrimPrefix(filepath.ToSlash(runtime.Plan.Targets[0].Destination), "apps/")
+	optionalName, ok := targetArtifactPayloadName(runtime.Module.ID, runtime.Plan.Targets[0])
+	if !ok {
+		t.Fatal("optional target has no artifact payload")
+	}
 	entries[optionalName] = []byte(runtime.Plan.Targets[0].Captured)
 	if failure := validateOptionalAbsentArtifactEntries(runtime, entries); failure == nil || failure.Code != CodeArtifactContract {
 		t.Fatalf("optional payload was accepted: %+v", failure)
@@ -510,7 +517,7 @@ func exactCapturedManifestForRuntime(t *testing.T, runtime *scenarioRuntime) man
 		})
 	}
 	for _, restore := range runtime.Module.Restore {
-		rewritten, ok := expectedCapturedRestoreSource(runtime.Plan, restore)
+		rewritten, ok := expectedCapturedRestoreSource(runtime.Plan, runtime.Module.ID, restore)
 		if !ok {
 			t.Fatalf("restore has no fixture projection: %+v", restore)
 		}
@@ -552,7 +559,7 @@ func TestCapturedProjectionRequiresExactRestoreAndVerifierSemantics(t *testing.T
 		var rewritten string
 		for _, target := range runtime.Plan.Targets {
 			if target.Authored == restore.Target {
-				rewritten = "./configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
+				rewritten = v1RestoreSource(runtime.Module.ID, target.Destination)
 			}
 		}
 		captured.Restore = append(captured.Restore, manifest.RestoreEntry{
@@ -770,7 +777,7 @@ func TestRebuildEvidenceRequiresExactIterationOutcomes(t *testing.T) {
 		}
 		for _, target := range runtime.Plan.Targets {
 			item := map[string]any{
-				"target": target.Authored, "source": "./configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/"),
+				"target": target.Authored, "source": v1RestoreSource(runtime.Module.ID, target.Destination),
 				"restoreType": "", "targetExistedBefore": true,
 			}
 			if iteration < 2 {
@@ -857,7 +864,7 @@ func TestRebuildStorageEvidenceBindsContainedBackupsAndJournal(t *testing.T) {
 		physical := filepath.Join(runtime.Root, "state", "backups", "apply-test", fmt.Sprintf("item-%d", index))
 		copyFixtureTreeForTest(t, target.Resolved, physical)
 		backupValues[strings.ToLower(target.Authored)] = semantic
-		source := "./configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
+		source := v1RestoreSource(runtime.Module.ID, target.Destination)
 		restoreItems = append(restoreItems, map[string]any{
 			"target": target.Authored, "source": source, "restoreType": "", "targetExistedBefore": true,
 			"status": "restored", "backupCreated": true, "backupPath": semantic,

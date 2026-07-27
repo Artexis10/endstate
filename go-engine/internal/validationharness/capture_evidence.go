@@ -6,7 +6,6 @@ package validationharness
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"strings"
 )
 
@@ -94,7 +93,7 @@ func validateCaptureContractModule(raw json.RawMessage, runtime *scenarioRuntime
 		FilesCaptured                     int
 	}
 	rawValue, _ := json.Marshal(values[0])
-	wantPath := "configs/" + strings.TrimPrefix(filepath.ToSlash(runtime.CapturePlan.Targets[0].Destination), "apps/")
+	wantPath := v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination)
 	if json.Unmarshal(rawValue, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != "mgba" || value.ID != runtime.Module.ID ||
 		value.Status != "captured" || value.FilesCaptured != 1 || !exactStrings(value.WingetRefs, []string{runtime.Inventory.Ref}) || len(value.ChocolateyRefs) != 0 || !exactStrings(value.Paths, []string{wantPath}) {
 		return fail(CodeEnvelopeContract, "capture", "configModules", "capture module result is vacuous, foreign, or inexact")

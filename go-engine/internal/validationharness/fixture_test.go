@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -72,6 +73,89 @@ func TestFixturePlanDeterministicFilesDirectoriesOptionalAndExclusion(t *testing
 	if _, err := os.Stat(filepath.Join(directory, filepath.Base(directory))); !os.IsNotExist(err) {
 		t.Fatalf("directory copy nested itself at %s", directory)
 	}
+}
+
+func TestProductionDolphinAutoFixtureUsesDirectoriesAndBindsNestedVerifier(t *testing.T) {
+	repo := productionLiveRepoRoot(t)
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := catalog.Modules["apps.dolphin-emulator"]
+	record := catalog.Records["apps.dolphin-emulator"]
+	if mod == nil || len(record.Synthetic.Scenarios) != 1 {
+		t.Fatalf("Dolphin catalog authority = module=%+v scenarios=%+v", mod, record.Synthetic.Scenarios)
+	}
+	scenario := record.Synthetic.Scenarios[0]
+	definitions, failure := compileFixtureDefinitionsAt(repo, mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(plan.Targets) != 8 {
+		t.Fatalf("Dolphin targets = %d, want 8", len(plan.Targets))
+	}
+	if failure := plan.MaterializeCaptured(); failure != nil {
+		t.Fatal(failure)
+	}
+	for _, target := range plan.Targets {
+		if !target.Directory {
+			t.Fatalf("Dolphin %s is not a deterministic directory fixture", target.Coordinate)
+		}
+		if target.Authored != `%APPDATA%\Dolphin Emulator\Config` {
+			continue
+		}
+		if !target.Directory || target.PayloadPath != filepath.Join(target.Resolved, "Dolphin.ini") {
+			t.Fatalf("Dolphin Config target = %+v, want nested verifier directory payload", target)
+		}
+		info, err := os.Stat(target.PayloadPath)
+		if err != nil || !info.Mode().IsRegular() {
+			t.Fatalf("Dolphin nested verifier payload = %v, %v; want regular file", info, err)
+		}
+		return
+	}
+	t.Fatal("Dolphin Config capture target is absent")
+}
+
+func TestProductionWaveLinkV1ArtifactFlattensNestedDestination(t *testing.T) {
+	repo := productionLiveRepoRoot(t)
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := catalog.Modules["apps.wave-link"]
+	record := catalog.Records["apps.wave-link"]
+	if mod == nil || len(record.Synthetic.Scenarios) != 1 {
+		t.Fatalf("Wave Link catalog authority = module=%+v scenarios=%+v", mod, record.Synthetic.Scenarios)
+	}
+	scenario := record.Synthetic.Scenarios[0]
+	definitions, failure := compileFixtureDefinitionsAt(repo, mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	for _, target := range plan.Targets {
+		if target.Destination != "apps/wave-link/WaveLink3/Backup" {
+			continue
+		}
+		if got, want := v1ArtifactPayloadPath(mod.ID, target.Destination), "configs/wave-link/Backup"; got != want {
+			t.Fatalf("flattened v1 payload root = %q, want %q", got, want)
+		}
+		if got, want := v1RestoreSource(mod.ID, target.Destination), "./configs/wave-link/Backup"; got != want {
+			t.Fatalf("rewritten v1 restore source = %q, want %q", got, want)
+		}
+		if got, ok := targetArtifactPayloadName(mod.ID, target); !ok || got != "configs/wave-link/Backup/"+fixturePayloadName {
+			t.Fatalf("Wave Link artifact member = %q, %t", got, ok)
+		}
+		return
+	}
+	t.Fatal("Wave Link Backup capture target is absent")
 }
 
 func TestFixtureComparisonDetectsContentMismatch(t *testing.T) {

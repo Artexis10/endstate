@@ -47,8 +47,8 @@ func inspectCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEv
 
 	counts := map[string]int{validationmatrix.AssertionProvenance: 1}
 	for _, target := range runtime.Plan.Targets {
-		root := targetArtifactRoot(target)
-		expected, ok := targetArtifactPayloadName(target)
+		root := targetArtifactRoot(runtime.Module.ID, target)
+		expected, ok := targetArtifactPayloadName(runtime.Module.ID, target)
 		if !ok {
 			return captureEvidence{}, fail(CodeIsolationFailure, "capture", target.Coordinate, "directory payload left fixture authority")
 		}
@@ -85,7 +85,7 @@ func inspectCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEv
 			}
 		}
 
-		rewritten := "./configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
+		rewritten := v1RestoreSource(runtime.Module.ID, target.Destination)
 		matched := 0
 		for _, restore := range captured.Restore {
 			if restore.FromModule == runtime.Module.ID && restore.Target == target.Authored && filepath.ToSlash(restore.Source) == rewritten {
@@ -184,8 +184,8 @@ func validateArtifactConfigPayloadSet(runtime *scenarioRuntime, entries map[stri
 	}
 	expected := make(map[string]struct{}, len(runtime.Plan.Targets))
 	for _, target := range runtime.Plan.Targets {
-		root := targetArtifactRoot(target)
-		name, ok := targetArtifactPayloadName(target)
+		root := targetArtifactRoot(runtime.Module.ID, target)
+		name, ok := targetArtifactPayloadName(runtime.Module.ID, target)
 		if !ok {
 			return fail(CodeIsolationFailure, "capture", target.Coordinate, "directory payload left fixture authority")
 		}
@@ -221,8 +221,8 @@ func validateOptionalAbsentArtifactEntries(runtime *scenarioRuntime, entries map
 		if target.Optional {
 			continue
 		}
-		root := targetArtifactRoot(target)
-		name, ok := targetArtifactPayloadName(target)
+		root := targetArtifactRoot(runtime.Module.ID, target)
+		name, ok := targetArtifactPayloadName(runtime.Module.ID, target)
 		if !ok {
 			return fail(CodeIsolationFailure, "capture", target.Coordinate, "directory payload left fixture authority")
 		}
@@ -267,12 +267,23 @@ func validateOptionalAbsentArtifactEntries(runtime *scenarioRuntime, entries map
 	return validateCapturedProjection(runtime, &captured)
 }
 
-func targetArtifactRoot(target FixtureTarget) string {
-	return "configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
+// v1ArtifactPayloadPath mirrors bundle.CollectConfigFilesWithValidation: schema-v1
+// captures flatten each authored destination to its base name beneath the module ID.
+func v1ArtifactPayloadPath(moduleID, destination string) string {
+	moduleID = strings.TrimPrefix(moduleID, "apps.")
+	return filepath.ToSlash(filepath.Join("configs", moduleID, filepath.Base(filepath.FromSlash(destination))))
 }
 
-func targetArtifactPayloadName(target FixtureTarget) (string, bool) {
-	root := targetArtifactRoot(target)
+func v1RestoreSource(moduleID, destination string) string {
+	return "./" + v1ArtifactPayloadPath(moduleID, destination)
+}
+
+func targetArtifactRoot(moduleID string, target FixtureTarget) string {
+	return v1ArtifactPayloadPath(moduleID, target.Destination)
+}
+
+func targetArtifactPayloadName(moduleID string, target FixtureTarget) (string, bool) {
+	root := targetArtifactRoot(moduleID, target)
 	if !target.Directory {
 		return root, true
 	}
@@ -316,7 +327,7 @@ func validateCapturedProjection(runtime *scenarioRuntime, captured *manifest.Man
 
 	usedRestores := make([]bool, len(captured.Restore))
 	for _, expected := range runtime.Module.Restore {
-		rewritten, ok := expectedCapturedRestoreSource(runtime.Plan, expected)
+		rewritten, ok := expectedCapturedRestoreSource(runtime.Plan, runtime.Module.ID, expected)
 		if !ok {
 			return fail(CodeArtifactContract, "capture", "manifest.restore", "production restore has no exact fixture projection")
 		}
@@ -337,13 +348,13 @@ func validateCapturedProjection(runtime *scenarioRuntime, captured *manifest.Man
 	return nil
 }
 
-func expectedCapturedRestoreSource(plan *FixturePlan, restore modules.RestoreDef) (string, bool) {
+func expectedCapturedRestoreSource(plan *FixturePlan, moduleID string, restore modules.RestoreDef) (string, bool) {
 	var rewritten string
 	for _, target := range plan.Targets {
 		if target.Authored != restore.Target || filepath.ToSlash(target.Destination) != payloadDestination(restore.Source) {
 			continue
 		}
-		candidate := "./configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
+		candidate := v1RestoreSource(moduleID, target.Destination)
 		if rewritten != "" {
 			return "", false
 		}

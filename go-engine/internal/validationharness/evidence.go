@@ -188,7 +188,7 @@ func validateRebuildEvidence(raw []byte, runtime *scenarioRuntime, iteration int
 
 	expected := make(map[string]string, len(runtime.Plan.Targets))
 	for _, target := range runtime.Plan.Targets {
-		expected[strings.ToLower(target.Authored)] = "./configs/" + strings.TrimPrefix(filepath.ToSlash(target.Destination), "apps/")
+		expected[strings.ToLower(target.Authored)] = v1RestoreSource(runtime.Module.ID, target.Destination)
 	}
 	for _, item := range data.RestoreItems {
 		source, ok := expected[strings.ToLower(item.Target)]
