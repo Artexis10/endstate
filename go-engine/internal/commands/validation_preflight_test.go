@@ -16,6 +16,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
@@ -120,6 +121,45 @@ func TestPreflightValidationProductionModuleAcceptsEstablishedCaptureProjection(
 			}
 		})
 	}
+}
+
+func TestWalkValidationRestoreRoutesRegistryImportTargetThroughRegistryPreflight(t *testing.T) {
+	mod := loadValidationProductionModule(t, "7zip")
+	if len(mod.Restore) != 1 || mod.Restore[0].Type != "registry-import" {
+		t.Fatalf("7-Zip restore = %+v, want one registry import", mod.Restore)
+	}
+
+	t.Run("tracks 7-Zip target as a whole registry key", func(t *testing.T) {
+		context, session := validationPreflightSessionFor(t, "7zip")
+		if err := walkValidationRestore(context, session, mod.Restore[0], "restore[0]", context.Root(), validationmode.HostPathPolicy{}); err != nil {
+			t.Fatalf("7-Zip registry import preflight: %v", err)
+		}
+		if len(session.registryProtection) != 1 {
+			t.Fatalf("registry protections = %v, want one", session.registryProtection)
+		}
+		for _, protection := range session.registryProtection {
+			if protection.Key != `HKCU\Software\7-Zip` || !protection.WholeKey || protection.ValueName != "" {
+				t.Fatalf("registry protection = %+v, want whole 7-Zip key", protection)
+			}
+		}
+		for _, coordinate := range session.registryCoordinate {
+			if coordinate != "restore[0].target" {
+				t.Fatalf("registry coordinate = %q, want restore[0].target", coordinate)
+			}
+		}
+	})
+
+	t.Run("rejects HKLM target", func(t *testing.T) {
+		context, session := validationPreflightSessionFor(t, "7zip")
+		hostile := mod.Restore[0]
+		hostile.Target = `HKLM\Software\7-Zip`
+		if err := walkValidationRestore(context, session, hostile, "restore[0]", context.Root(), validationmode.HostPathPolicy{}); !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+			t.Fatalf("hostile registry import preflight = %v, want unsafe registry", err)
+		}
+		if finding := session.IsolationError(); finding == nil || !strings.Contains(finding.Error(), "coordinate=restore[0].target") {
+			t.Fatalf("hostile registry finding = %v, want restore[0].target", finding)
+		}
+	})
 }
 
 func TestPreflightValidationProductionModuleAcceptsReviewedCaptureOnlyProvenance(t *testing.T) {
@@ -493,15 +533,23 @@ func TestPreflightValidationProductionModuleDerivesInstanceRootsAndChecksSupplie
 	if err := preflightValidationProductionModule(input); err != nil {
 		t.Fatalf("derived instance preflight: %v", err)
 	}
-	wantProtected := filepath.Join(originalAppData, "Synthetic-One", "settings.json")
+	wantProtected, err := safepath.CanonicalizePlatformRootAlias(filepath.Join(originalAppData, "Synthetic-One", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !guard.protectedPath(wantProtected) {
 		t.Fatalf("protected paths = %v, want %s", guard.paths, wantProtected)
+	}
+	newSession := func() *ValidationModeSession {
+		candidate := newValidationModeSession(context, newValidationIsolationRecorder(context.Descriptor()))
+		candidate.registryGuard = &countingRegistryIsolationGuard{}
+		return candidate
 	}
 
 	t.Run("arbitrary instance root", func(t *testing.T) {
 		outside := t.TempDir()
 		copy := input
-		copySession := newValidationModeSession(context, newValidationIsolationRecorder(context.Descriptor()))
+		copySession := newSession()
 		copy.Session = copySession
 		copy.Instances = []modules.ConfigInstance{{ID: instance.ID, ModuleID: mod.ID, DetectorID: "profiles", Root: outside, Evidence: modules.InstanceEvidence{Type: "path", Path: outside}}}
 		if err := preflightValidationProductionModule(copy); !errors.Is(err, validationmode.ErrUnsafePath) {
@@ -514,7 +562,7 @@ func TestPreflightValidationProductionModuleDerivesInstanceRootsAndChecksSupplie
 
 	t.Run("arbitrary instance identity", func(t *testing.T) {
 		copy := input
-		copySession := newValidationModeSession(context, newValidationIsolationRecorder(context.Descriptor()))
+		copySession := newSession()
 		copy.Session = copySession
 		arbitrary := instance
 		arbitrary.ID = "instance-arbitrary"
@@ -530,7 +578,7 @@ func TestPreflightValidationProductionModuleDerivesInstanceRootsAndChecksSupplie
 
 	t.Run("materialized outside sandbox", func(t *testing.T) {
 		copy := input
-		copySession := newValidationModeSession(context, newValidationIsolationRecorder(context.Descriptor()))
+		copySession := newSession()
 		copy.Session = copySession
 		copy.SandboxTargets = []validationProductionSandboxTarget{{Coordinate: "planning.materialized", Path: originalAppData}}
 		if err := preflightValidationProductionModule(copy); !errors.Is(err, validationmode.ErrUnsafePath) {
@@ -543,7 +591,7 @@ func TestPreflightValidationProductionModuleDerivesInstanceRootsAndChecksSupplie
 
 	t.Run("guard registration after seal poisons session", func(t *testing.T) {
 		copy := input
-		copySession := newValidationModeSession(context, newValidationIsolationRecorder(context.Descriptor()))
+		copySession := newSession()
 		copySession.sealIsolation()
 		copy.Session = copySession
 		if err := preflightValidationProductionModule(copy); !errors.Is(err, validationmode.ErrUnsafePath) {
@@ -591,9 +639,21 @@ func TestPreflightValidationProductionModuleUsesDiscoverInstancesVersionSemantic
 			if err := os.MkdirAll(filepath.Join(originalAppData, "PreSonus", tt.directory), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			discovered, err := modules.DiscoverInstances(mod, nil, modules.DiscoveryOptions{})
+			detector := validationInstanceDetector(mod, "versions")
+			if detector == nil {
+				t.Fatal("production detector missing")
+			}
+			_, pattern, err := validationDetectorPattern(context, detector.Glob)
 			if err != nil {
 				t.Fatal(err)
+			}
+			candidate, err := validationDiscoveredPathInstance(context, mod, detector, pattern, root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var discovered []modules.ConfigInstance
+			if candidate != nil {
+				discovered = []modules.ConfigInstance{*candidate}
 			}
 			if tt.wantDiscovered && len(discovered) != 1 {
 				t.Fatalf("discovered = %+v", discovered)
@@ -672,7 +732,10 @@ func TestPreflightValidationProductionModuleAcceptsTildeDetectorGlob(t *testing.
 	}); err != nil {
 		t.Fatalf("tilde detector preflight: %v", err)
 	}
-	wantProtected := filepath.Join(originalUserProfile, "Vendor", "Profile", "settings.json")
+	wantProtected, err := safepath.CanonicalizePlatformRootAlias(filepath.Join(originalUserProfile, "Vendor", "Profile", "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !guard.protectedPath(wantProtected) {
 		t.Fatalf("protected paths = %v, want %s", guard.paths, wantProtected)
 	}

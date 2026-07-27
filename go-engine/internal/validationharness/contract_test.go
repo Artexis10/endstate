@@ -640,6 +640,50 @@ func TestRunReturnsFixtureResolutionAsPersistedOperationalFailure(t *testing.T) 
 	}
 }
 
+func TestRunPreservesSelectedIdentityWhenFixtureCompilationFails(t *testing.T) {
+	repo, engine, resultPath := writeSelectionRepository(t)
+	mod, err := modules.ParseModuleJSON([]byte(fixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario := fixtureScenario()
+	scenario.Fixture = validationmatrix.Fixture{
+		Type: validationmatrix.FixtureDeclarative, Path: "fixtures/missing.jsonc", SHA256: strings.Repeat("0", 64),
+	}
+	record := validationmatrix.ValidationRecord{
+		SchemaVersion: 1, ModuleID: mod.ID, ModuleRevision: mod.Revision,
+		Synthetic: validationmatrix.SyntheticPolicy{Scenarios: []validationmatrix.Scenario{scenario}},
+		Live:      validationmatrix.LivePolicy{Mode: validationmatrix.LiveCandidate, ReasonCode: "test", Explanation: "test fixture"},
+	}
+	recordJSON, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	validationPath := filepath.Join(repo, "modules", "apps", "fixture", "validation.jsonc")
+	if err := os.WriteFile(validationPath, recordJSON, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := Run(context.Background(), Request{
+		EnginePath: engine, RepoRoot: repo, ModuleID: mod.ID, ScenarioID: scenario.ID, ResultPath: resultPath,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != ResultStatusFailed || result.Failure == nil || result.Failure.Code != CodeUnsupportedFixture ||
+		result.ModuleRevision != mod.Revision || result.Kind != scenario.Mode {
+		t.Fatalf("result = %+v", result)
+	}
+	data, err := os.ReadFile(resultPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var persisted Result
+	if err := json.Unmarshal(data, &persisted); err != nil || persisted.ModuleRevision != mod.Revision || persisted.Kind != scenario.Mode {
+		t.Fatalf("persisted result = %+v err=%v", persisted, err)
+	}
+}
+
 func TestCLIJourneyExecutorUsesValidationOwnedWorkingDirectory(t *testing.T) {
 	runtime := fixtureScenarioRuntime(t)
 	repository, err := os.MkdirTemp(filepath.Dir(runtime.Plan.context.Root()), "endstate-validation-repository-")

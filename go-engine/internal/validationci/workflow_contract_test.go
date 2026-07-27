@@ -17,7 +17,7 @@ func TestGoCIWorkflowKeepsVerifiedModuleMatrixContract(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(workflow)
+	text := strings.ReplaceAll(string(workflow), "\r\n", "\n")
 	for _, wanted := range []string{
 		"name: Go Tests", "permissions:\n  contents: read", "pull_request:", "persist-credentials: false",
 		"actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09", "actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16",

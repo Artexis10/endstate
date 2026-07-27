@@ -38,6 +38,9 @@ func Run(ctx context.Context, request Request) (Result, error) {
 	selected, failure := compileSelection(request, time.Now().UTC())
 	if failure != nil {
 		result := failedRequestResult(request, failure)
+		if selected != nil {
+			result = failedSelectionResult(selected, failure)
+		}
 		if validateResultPath(request.ResultPath) == nil {
 			if err := persistResult(request.ResultPath, result); err != nil {
 				return result, err
@@ -106,7 +109,11 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	if err != nil {
 		return nil, func() error { return nil }, nil, err
 	}
-	authorityRoot := filepath.Join(os.TempDir(), "endstate-validation-task-"+nonce)
+	temporaryRoot, err := safepath.CanonicalizePlatformRootAlias(filepath.Clean(os.TempDir()))
+	if err != nil {
+		return nil, func() error { return nil }, nil, err
+	}
+	authorityRoot := filepath.Join(temporaryRoot, "endstate-validation-task-"+nonce)
 	root := filepath.Join(authorityRoot, "endstate-validation-"+nonce)
 	guardRoot := filepath.Join(authorityRoot, "endstate-validation-guard-"+nonce)
 	childWorkingDir := filepath.Join(authorityRoot, "endstate-validation-cwd-"+nonce)

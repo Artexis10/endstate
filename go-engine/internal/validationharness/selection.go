@@ -62,35 +62,35 @@ func compileSelection(request Request, now time.Time) (*selection, *Failure) {
 	case validationmatrix.ScenarioConfigRoundtripV1:
 		fixture, failure := compileFixtureDefinitionsAt(request.RepoRoot, mod, scenario)
 		if failure != nil {
-			return nil, failure
+			return selected, failure
 		}
 		selected.fixture = fixture
 	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
 		fixture, failure := compileV2FixtureAt(request.RepoRoot, mod, scenario)
 		if failure != nil {
-			return nil, failure
+			return selected, failure
 		}
 		selected.v2Fixture = fixture
 	case validationmatrix.ScenarioInstallContract:
 		plan, failure := compileInstallContract(mod, scenario)
 		if failure != nil {
-			return nil, failure
+			return selected, failure
 		}
 		selected.installPlan = plan
 	case validationmatrix.ScenarioCaptureContract:
 		plan, failure := compileCaptureContract(mod, scenario)
 		if failure != nil {
-			return nil, failure
+			return selected, failure
 		}
 		selected.capturePlan = plan
 	case validationmatrix.ScenarioRestoreContract:
 		plan, failure := compileRestoreContractAt(request.RepoRoot, mod, scenario)
 		if failure != nil {
-			return nil, failure
+			return selected, failure
 		}
 		selected.restorePlan = plan
 	default:
-		return nil, fail(CodeUnsupportedFixture, "selection", "scenario.mode", "scenario mode is not implemented by this validation runtime")
+		return selected, fail(CodeUnsupportedFixture, "selection", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
 	return selected, nil
 }

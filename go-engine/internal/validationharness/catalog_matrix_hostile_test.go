@@ -7,8 +7,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -23,6 +23,8 @@ import (
 type catalogMatrixHelperContract struct {
 	Action      catalogplan.Action `json:"action"`
 	ExitNonzero bool               `json:"exitNonzero"`
+	Behavior    string             `json:"helperBehavior,omitempty"`
+	Modules     []string           `json:"modules,omitempty"`
 }
 
 func TestMain(m *testing.M) {
@@ -48,6 +50,17 @@ func runCatalogMatrixHelperProcess() {
 	if err := json.Unmarshal(data, &contract); err != nil {
 		os.Exit(2)
 	}
+	switch contract.Behavior {
+	case "nonzero":
+		_, _ = fmt.Fprintln(os.Stdout, `{"schemaVersion":"1.0"}`)
+		os.Exit(1)
+	case "timeout":
+		time.Sleep(time.Second)
+		os.Exit(0)
+	case "overflow":
+		_, _ = fmt.Fprint(os.Stdout, strings.Repeat("0", 64))
+		os.Exit(0)
+	}
 	if contract.Action.ModuleID == "" {
 		contract.Action = catalogplan.Action{
 			ModuleID: "apps.work", ModuleRevision: "revision", ModuleSchemaVersion: 1,
@@ -64,6 +77,25 @@ func runCatalogMatrixHelperProcess() {
 		MembershipCount: 1, ActionCount: 1, Actions: []catalogplan.Action{contract.Action},
 	}
 	runID := "catalog-matrix-helper"
+	seenModules := make(map[string]struct{}, len(contract.Modules))
+	for _, moduleID := range contract.Modules {
+		if _, duplicate := seenModules[moduleID]; !duplicate {
+			seenModules[moduleID] = struct{}{}
+			continue
+		}
+		if !strings.HasPrefix(moduleID, "apps.") {
+			moduleID = "apps." + moduleID
+		}
+		result.MembershipCount = len(contract.Modules)
+		result.ActionCount = 0
+		result.Actions = []catalogplan.Action{}
+		result.Failures = []catalogplan.Failure{{ModuleID: moduleID, Reason: "duplicate_membership"}}
+		envelope := catalogEnvelope{SchemaVersion: "1.0", CLIVersion: "test", Command: "catalog-plan", RunID: runID, TimestampUTC: time.Now().UTC().Format(time.RFC3339), Success: false, Data: mustMarshalCatalogMatrixHelper(result), Error: json.RawMessage(`{"code":"CATALOG_PLAN_INVALID","message":"bad"}`)}
+		if err := json.NewEncoder(os.Stdout).Encode(envelope); err != nil {
+			os.Exit(2)
+		}
+		os.Exit(1)
+	}
 	envelope := catalogEnvelope{SchemaVersion: "1.0", CLIVersion: "test", Command: "catalog-plan", RunID: runID, TimestampUTC: time.Now().UTC().Format(time.RFC3339), Success: true, Data: mustMarshalCatalogMatrixHelper(result), Error: json.RawMessage("null")}
 	if err := json.NewEncoder(os.Stdout).Encode(envelope); err != nil {
 		os.Exit(2)
@@ -88,23 +120,27 @@ func mustMarshalCatalogMatrixHelper(value any) json.RawMessage {
 
 func TestInvokeCatalogPlanProcessFailures(t *testing.T) {
 	repo := t.TempDir()
-	bundle := filepath.Join(repo, "work.jsonc")
-	if err := os.WriteFile(bundle, []byte("{}"), 0o600); err != nil {
+	engine, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {
-		name, body string
-		timeout    time.Duration
-		out        int
-		coordinate string
+		name, behavior string
+		timeout        time.Duration
+		out            int
+		coordinate     string
 	}{
-		{"nonzero", "echo {\"schemaVersion\":\"1.0\"}\r\nexit /b 1", time.Second, 1024, "envelope"},
-		{"timeout", "ping 127.0.0.1 -n 3 >nul", 10 * time.Millisecond, 1024, "timeout"},
-		{"overflow", "echo 012345678901234567890123456789012345678901234567890123456789", time.Second, 8, "output"},
+		{"nonzero", "nonzero", time.Second, 1024, "envelope"},
+		{"timeout", "timeout", 10 * time.Millisecond, 1024, "timeout"},
+		{"overflow", "overflow", time.Second, 8, "output"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			engine := filepath.Join(t.TempDir(), "child.cmd")
-			if err := os.WriteFile(engine, []byte("@echo off\r\n"+test.body+"\r\n"), 0o700); err != nil {
+			bundle := filepath.Join(repo, test.name+".jsonc")
+			data, err := json.Marshal(catalogMatrixHelperContract{Behavior: test.behavior})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(bundle, data, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			_, failure := invokeCatalogPlanWithLimits(context.Background(), engine, repo, bundle, test.timeout, test.out, test.out)

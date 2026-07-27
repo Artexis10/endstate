@@ -15,7 +15,7 @@ import (
 )
 
 func TestWriteGuardReportsDeterministicProtectedChanges(t *testing.T) {
-	base := t.TempDir()
+	base := canonicalTestPath(t, t.TempDir())
 	allowed := filepath.Join(base, "allowed")
 	protected := filepath.Join(base, "protected")
 	deleted := filepath.Join(protected, "a-deleted.txt")
@@ -77,7 +77,7 @@ func TestWriteGuardReportsDeterministicProtectedChanges(t *testing.T) {
 }
 
 func TestWriteGuardDetectsDirectoryTreeChange(t *testing.T) {
-	base := t.TempDir()
+	base := canonicalTestPath(t, t.TempDir())
 	allowed := filepath.Join(base, "allowed")
 	protected := filepath.Join(base, "protected")
 	if err := os.MkdirAll(filepath.Join(protected, "old"), 0o700); err != nil {
@@ -172,7 +172,7 @@ func TestWriteGuardProtectsIncrementallyAndCompactsDescendants(t *testing.T) {
 }
 
 func TestWriteGuardIncrementalProtectPreservesEarlierBaseline(t *testing.T) {
-	base := t.TempDir()
+	base := canonicalTestPath(t, t.TempDir())
 	allowed := filepath.Join(base, "allowed")
 	first := filepath.Join(base, "first")
 	second := filepath.Join(base, "second")
@@ -212,7 +212,7 @@ func TestWriteGuardIncrementalProtectPreservesEarlierBaseline(t *testing.T) {
 }
 
 func TestWriteGuardAncestorCompactionPreservesDescendantEvidence(t *testing.T) {
-	base := t.TempDir()
+	base := canonicalTestPath(t, t.TempDir())
 	allowed := filepath.Join(base, "allowed")
 	parent := filepath.Join(base, "protected")
 	child := filepath.Join(parent, "child")
@@ -255,7 +255,7 @@ func TestWriteGuardAncestorCompactionPreservesDescendantEvidence(t *testing.T) {
 }
 
 func TestWriteGuardFailedIncrementalProtectIsAtomic(t *testing.T) {
-	base := t.TempDir()
+	base := canonicalTestPath(t, t.TempDir())
 	allowed := filepath.Join(base, "allowed")
 	first := filepath.Join(base, "first")
 	second := filepath.Join(base, "second")

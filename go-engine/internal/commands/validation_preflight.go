@@ -745,6 +745,9 @@ func walkValidationRestore(context *validationmode.Context, session *ValidationM
 			return err
 		}
 	}
+	if restore.Type == "registry-import" && restore.Target != "" {
+		return preflightRegistry(context, session, coordinate+".target", restore.Target, "")
+	}
 	if restore.Key != "" {
 		return preflightRegistry(context, session, coordinate+".key", restore.Key, restore.ValueName)
 	}

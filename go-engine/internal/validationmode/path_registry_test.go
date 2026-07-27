@@ -147,7 +147,7 @@ func TestDisplayPathPreservesDynamicAndInstanceProvenance(t *testing.T) {
 
 func TestOriginalHostPathTransfersSuffixAndProtectsWildcardParent(t *testing.T) {
 	context := activeTestContext(t, "original-path")
-	original := filepath.Join(t.TempDir(), "host-appdata")
+	original := filepath.Join(canonicalTestPath(t, t.TempDir()), "host-appdata")
 	if err := os.MkdirAll(original, 0o700); err != nil {
 		t.Fatal(err)
 	}

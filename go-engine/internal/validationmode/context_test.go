@@ -13,6 +13,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 func TestLoadFromEnvironmentInactiveHasNoSideEffects(t *testing.T) {
@@ -357,6 +359,15 @@ func canonicalTempDir(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return filepath.Clean(value)
+}
+
+func canonicalTestPath(t *testing.T, value string) string {
+	t.Helper()
+	value, err := safepath.CanonicalizePlatformRootAlias(filepath.Clean(value))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }
 
 func makeValidationRoot(t *testing.T, nonce string) string {

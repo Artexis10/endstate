@@ -17,6 +17,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 func TestInspectLiveCaptureArtifactAcceptsProductionSchemaV1NotepadBundle(t *testing.T) {
@@ -288,8 +289,11 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 	if err != nil {
 		t.Fatal(err)
 	}
-	appData := t.TempDir()
-	t.Setenv("APPDATA", appData)
+	context := activeLiveArtifactValidationContext(t, definition)
+	appData, ok := context.VirtualRoot("APPDATA")
+	if !ok {
+		t.Fatal("validation APPDATA root is absent")
+	}
 	snapshots := make([]liveTargetSnapshot, 0, len(definition.Comparator.Mappings))
 	for _, mapping := range definition.Comparator.Mappings {
 		relative := strings.TrimPrefix(strings.ReplaceAll(mapping.CaptureTemplate, "%APPDATA%\\", ""), `\`)
@@ -303,13 +307,16 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 		}
 		snapshots = append(snapshots, liveTargetSnapshot{Identity: mapping.Identity, Mode: 0o600, Size: int64(len(payload)), SHA256: liveSHA256(payload), Bytes: payload})
 	}
-	manifestPath := filepath.Join(t.TempDir(), "captured.jsonc")
+	manifestPath := filepath.Join(context.Root(), "manifests", "captured.jsonc")
 	input := manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: liveArtifactManifestAppID(definition.WingetRef), Refs: map[string]string{"windows": definition.WingetRef}, Driver: "winget", Source: "winget"}}}
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(manifestPath, mustJSON(t, input), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	output := filepath.Join(t.TempDir(), "captured.zip")
-	result, err := bundle.CreateCaptureBundle(bundle.CaptureBundleRequest{ManifestPath: manifestPath, OutputPath: output, EndstateVersion: "test-version", Modules: []*modules.Module{module}})
+	output := filepath.Join(context.Root(), "manifests", "captured.zip")
+	result, err := bundle.CreateCaptureBundle(bundle.CaptureBundleRequest{ManifestPath: manifestPath, OutputPath: output, EndstateVersion: "test-version", Modules: []*modules.Module{module}, ValidationContext: context})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,6 +328,40 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 	mustJSONUnmarshal(t, entries["metadata.json"], &metadata)
 	claims := &liveCaptureArtifactClaims{OutputPath: output, EventPath: output, Receipt: liveReceiptArtifactPathClaim{Path: output}, ModuleRevision: definition.ModuleRevision, MachineName: metadata.MachineName, CapturedAt: metadata.CapturedAt, EndstateVersion: metadata.EndstateVersion, OS: runtime.GOOS, RestoreProjection: append([]modules.RestoreDef(nil), module.Restore...), VerifyProjection: append([]modules.VerifyDef(nil), module.Verify...)}
 	return definition, output, snapshots, claims
+}
+
+func activeLiveArtifactValidationContext(t *testing.T, definition LiveDefinition) *validationmode.Context {
+	t.Helper()
+	const nonce = "live-artifact"
+	root := filepath.Join(t.TempDir(), "endstate-validation-"+nonce)
+	if err := os.MkdirAll(filepath.Join(root, ".endstate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	descriptor := validationmode.Descriptor{
+		SchemaVersion: 1,
+		ScenarioID:    "live-artifact",
+		Nonce:         nonce,
+		ModuleID:      definition.ModuleID,
+		Inventory: validationmode.Inventory{
+			AppID: "notepad-plus-plus", Driver: "winget", Ref: definition.WingetRef,
+			DisplayName: "Notepad++", Version: "test", Source: "winget", InitialState: "present",
+		},
+	}
+	if err := os.WriteFile(filepath.Join(root, ".endstate", "validation-mode.json"), mustJSON(t, descriptor), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	context, restore, err := validationmode.ActivateFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := restore(); err != nil {
+			t.Errorf("restore validation environment: %v", err)
+		}
+	})
+	return context
 }
 
 func readLiveArtifactEntriesForTest(t *testing.T, path string) map[string][]byte {

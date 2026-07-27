@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -294,8 +295,8 @@ func TestV2TransactionExactlyBindsDesiredSourceAndMissingParentState(t *testing.
 			intent.Actions[0].SourceDigest = strings.Repeat("f", 64)
 		}},
 		{name: "missing parent", mutate: func(intent *v2TestJournalIntentDisk) {
-			target := filepath.ToSlash(intent.Actions[0].Target)
-			intent.Actions[0].MissingParents = []string{target[:strings.LastIndex(target, "/")]}
+			target := strings.ReplaceAll(intent.Actions[0].Target, `\`, "/")
+			intent.Actions[0].MissingParents = []string{path.Dir(target)}
 		}},
 	}
 	for _, test := range tests {

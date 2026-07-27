@@ -82,9 +82,8 @@ func TestRunCatalogMatrixRowPreservesDuplicateMembershipFailureEvidence(t *testi
 	if err := os.WriteFile(bundle, []byte(`{"version":1,"id":"work","name":"Work","modules":["foo","foo"]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	engine := filepath.Join(t.TempDir(), "catalog-plan.cmd")
-	stdout := `{"schemaVersion":"1.0","cliVersion":"test","command":"catalog-plan","runId":"catalog-plan-test","timestampUtc":"2026-07-26T11:00:00Z","success":false,"data":{"proof":"catalog","bundle":{"id":"work","name":"Work","path":"bundles/work.jsonc","hash":"abc","version":1},"membershipCount":2,"actionCount":0,"actions":[],"failures":[{"moduleId":"apps.foo","reason":"duplicate_membership"}]},"error":{"code":"CATALOG_PLAN_INVALID","message":"bad"}}`
-	if err := os.WriteFile(engine, []byte("@echo off\r\necho "+stdout+"\r\nexit /b 1\r\n"), 0o700); err != nil {
+	engine, err := os.Executable()
+	if err != nil {
 		t.Fatal(err)
 	}
 
