@@ -130,15 +130,18 @@ func validateOptionalCaptureManifest(runtime *scenarioRuntime, raw []byte) *Fail
 	var name, captured string
 	var apps []map[string]json.RawMessage
 	if json.Unmarshal(fields["version"], &version) != nil || version != 1 || json.Unmarshal(fields["name"], &name) != nil || name != "captured" ||
-		json.Unmarshal(fields["captured"], &captured) != nil || json.Unmarshal(fields["apps"], &apps) != nil || len(apps) != 1 || !exactRawFields(apps[0], "id", "refs") {
+		json.Unmarshal(fields["captured"], &captured) != nil || json.Unmarshal(fields["apps"], &apps) != nil || len(apps) != 1 || !exactRawFields(apps[0], "id", "refs", "displayName") {
 		return fail(CodeArtifactContract, "capture", "manifest", "optional-absence manifest identity is not exact")
 	}
 	if _, err := time.Parse(time.RFC3339, captured); err != nil {
 		return fail(CodeArtifactContract, "capture", "manifest", "optional-absence manifest timestamp is invalid")
 	}
-	var appID string
-	var refs map[string]string
-	if json.Unmarshal(apps[0]["id"], &appID) != nil || appID != runtime.Inventory.AppID || json.Unmarshal(apps[0]["refs"], &refs) != nil || len(refs) != 1 || refs["windows"] != runtime.Inventory.Ref {
+	var app struct {
+		ID, DisplayName string
+		Refs            map[string]string
+	}
+	appRaw, _ := json.Marshal(apps[0])
+	if json.Unmarshal(appRaw, &app) != nil || app.ID != runtime.Inventory.AppID || app.DisplayName != runtime.Inventory.DisplayName || len(app.Refs) != 1 || app.Refs["windows"] != runtime.Inventory.Ref {
 		return fail(CodeArtifactContract, "capture", "manifest", "optional-absence app identity differs from inventory")
 	}
 	return nil

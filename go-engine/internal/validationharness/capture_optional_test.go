@@ -112,6 +112,55 @@ func TestCaptureContractOptionalAbsentWarningsAreExact(t *testing.T) {
 	}
 }
 
+func TestOptionalCaptureManifestAppIsExact(t *testing.T) {
+	runtime, _ := captureContractArtifactFixture(t)
+	_, _, entries := captureContractOptionalFixture(t, runtime)
+	tests := []struct {
+		name   string
+		mutate func(map[string][]byte)
+	}{
+		{"missing app display name", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { delete(value["apps"].([]any)[0].(map[string]any), "displayName") })
+		}},
+		{"blank app display name", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { value["apps"].([]any)[0].(map[string]any)["displayName"] = "" })
+		}},
+		{"wrong app display name", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { value["apps"].([]any)[0].(map[string]any)["displayName"] = "Foreign" })
+		}},
+		{"underscored app display name", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) {
+				app := value["apps"].([]any)[0].(map[string]any)
+				delete(app, "displayName")
+				app["display_name"] = runtime.Inventory.DisplayName
+			})
+		}},
+		{"foreign app field", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { value["apps"].([]any)[0].(map[string]any)["future"] = true })
+		}},
+		{"duplicate app display name", func(values map[string][]byte) {
+			values["manifest.jsonc"] = []byte(strings.Replace(string(values["manifest.jsonc"]), `"displayName":"mGBA"`, `"displayName":"mGBA","displayName":"mGBA"`, 1))
+		}},
+		{"wrong app id", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { value["apps"].([]any)[0].(map[string]any)["id"] = "foreign" })
+		}},
+		{"wrong app ref", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) {
+				value["apps"].([]any)[0].(map[string]any)["refs"] = map[string]any{"windows": "Foreign.mGBA"}
+			})
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := cloneV2Entries(entries)
+			test.mutate(candidate)
+			if failure := validateOptionalCaptureManifest(runtime, candidate["manifest.jsonc"]); failure == nil {
+				t.Fatal("foreign optional-absence app projection passed")
+			}
+		})
+	}
+}
+
 func retargetOptionalCaptureEvidence(t *testing.T, raw []byte, events []map[string]any, artifactBase string) ([]byte, []map[string]any) {
 	t.Helper()
 	var value map[string]any
@@ -141,7 +190,7 @@ func captureContractOptionalFixture(t *testing.T, runtime *scenarioRuntime) ([]b
 	events[5]["path"] = "$ENDSTATE_ROOT/manifests/optional-absent.zip"
 	captured := manifest.Manifest{
 		Version: 1, Name: "captured", Captured: time.Now().UTC().Format(time.RFC3339),
-		Apps: []manifest.App{{ID: runtime.Inventory.AppID, Refs: map[string]string{"windows": runtime.Inventory.Ref}}},
+		Apps: []manifest.App{{ID: runtime.Inventory.AppID, DisplayName: runtime.Inventory.DisplayName, Refs: map[string]string{"windows": runtime.Inventory.Ref}}},
 	}
 	metadata := bundle.BundleMetadata{
 		SchemaVersion: "1.0", CapturedAt: time.Now().UTC().Format(time.RFC3339), MachineName: "validation-host", EndstateVersion: "test", OS: "windows",
