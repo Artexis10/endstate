@@ -304,5 +304,6 @@ func liveWindowsEngineRequest(t *testing.T, args []string, outputLimit int) Live
 	if err != nil {
 		t.Fatalf("liveWindowsFileSHA256() error = %v", err)
 	}
-	return newLiveEngineApply(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), executable, args, "", liveWindowsTestEnvironment(t), expected, outputLimit)
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	return newLiveEngineApply(admission, newTrustedLiveMutationPermit(admission, expected, args), executable, args, "", liveWindowsTestEnvironment(t), expected, outputLimit)
 }

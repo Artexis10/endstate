@@ -1,0 +1,102 @@
+// Copyright 2026 Substrate Systems OU
+// SPDX-License-Identifier: Apache-2.0
+
+package validationharness
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+)
+
+func TestCampaignCanonicalIdentityExcludesControllerCommitAndBindsPinnedFields(t *testing.T) {
+	t.Parallel()
+
+	campaign := liveTestCampaign()
+	identity, err := CanonicalLiveCampaignIdentity(campaign)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherController := campaign
+	otherController.ControllerCommit = strings.Repeat("c", 40)
+	if got, err := CanonicalLiveCampaignIdentity(otherController); err != nil || got != identity {
+		t.Fatalf("controller-only change = %q, %v; want stable %q", got, err, identity)
+	}
+	for _, mutate := range []func(*LiveCampaign){
+		func(value *LiveCampaign) { value.TestedCheckoutCommit = strings.Repeat("c", 40) },
+		func(value *LiveCampaign) { value.EngineSHA256 = strings.Repeat("d", 64) },
+		func(value *LiveCampaign) { value.ValidatorSHA256 = strings.Repeat("e", 64) },
+		func(value *LiveCampaign) { value.GoToolchain = "go1.24.3" },
+		func(value *LiveCampaign) { value.BuildPolicy = "-trimpath;-buildid=endstate-v2" },
+		func(value *LiveCampaign) { value.ModuleRevision = strings.Repeat("f", 64) },
+		func(value *LiveCampaign) { value.ComparatorSHA256 = strings.Repeat("a", 64) },
+		func(value *LiveCampaign) { value.TargetsSHA256 = strings.Repeat("b", 64) },
+		func(value *LiveCampaign) { value.ObserverSHA256 = strings.Repeat("c", 64) },
+		func(value *LiveCampaign) { value.WorkflowPolicySHA256 = strings.Repeat("d", 64) },
+		func(value *LiveCampaign) { value.PhaseNonce = strings.Repeat("e", 64) },
+	} {
+		changed := campaign
+		changed.PackageArguments = append([]string(nil), campaign.PackageArguments...)
+		mutate(&changed)
+		if got, err := CanonicalLiveCampaignIdentity(changed); err != nil || got == identity {
+			t.Fatalf("pinned field change = %q, %v; want identity reset from %q", got, err, identity)
+		}
+	}
+}
+
+func TestLiveCampaignRejectsUntrustedModesAndDrift(t *testing.T) {
+	t.Parallel()
+
+	for _, mutate := range []func(*LiveCampaign){
+		func(value *LiveCampaign) { value.Repository = "foreign/endstate" },
+		func(value *LiveCampaign) { value.WorkflowPath = ".github/workflows/foreign.yml" },
+		func(value *LiveCampaign) { value.Event = "push" },
+		func(value *LiveCampaign) { value.Ref = "refs/heads/foreign" },
+		func(value *LiveCampaign) { value.ControllerCommit = value.TestedCheckoutCommit },
+		func(value *LiveCampaign) { value.RunAttempt = 2 },
+		func(value *LiveCampaign) { value.TrustedActorClass = "Bot" },
+		func(value *LiveCampaign) { value.PackageRef = "Vendor.Foreign" },
+		func(value *LiveCampaign) { value.PackageArguments = []string{"install", "Vendor.Foreign"} },
+		func(value *LiveCampaign) { value.ExpiresAt = time.Time{} },
+	} {
+		candidate := liveTestCampaign()
+		mutate(&candidate)
+		if err := ValidateLiveCampaign(candidate); err == nil {
+			t.Fatalf("ValidateLiveCampaign accepted %#v", candidate)
+		}
+	}
+
+	baseline := liveTestCampaign()
+	baseline.Mode = LiveCampaignDiagnosticBaseline
+	baseline.Event = "workflow_dispatch"
+	baseline.RunID = 0
+	baseline.RunAttempt = 0
+	baseline.TestedCheckoutCommit = baseline.ControllerCommit
+	if err := ValidateLiveCampaign(baseline); err != nil {
+		t.Fatalf("baseline campaign rejected: %v", err)
+	}
+	proposal, err := baseline.ProposedPinnedCampaign()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposal.Mode != LiveCampaignScheduledQualification || proposal.Event != "schedule" || proposal.RunID != 0 || proposal.RunAttempt != 0 {
+		t.Fatalf("proposal = %#v", proposal)
+	}
+	if roundTrip, err := DecodeLiveCampaignJSON(mustLiveCampaignJSON(t, proposal)); err != nil || !reflect.DeepEqual(roundTrip, proposal) {
+		t.Fatalf("proposed campaign roundtrip = %#v, %v", roundTrip, err)
+	}
+}
+
+func liveTestCampaign() LiveCampaign {
+	return LiveCampaign{
+		SchemaVersion: LiveCampaignSchemaVersion, Mode: LiveCampaignScheduledQualification,
+		Repository: "Artexis10/endstate", WorkflowPath: ".github/workflows/hosted-live.yml", Event: "schedule", Ref: "refs/heads/main",
+		ControllerCommit: strings.Repeat("a", 40), TestedCheckoutCommit: strings.Repeat("b", 40), RunID: 1234, RunAttempt: 1, TrustedActorClass: "User",
+		EngineSHA256: strings.Repeat("c", 64), ValidatorSHA256: strings.Repeat("d", 64), GoToolchain: "go1.24.2", BuildPolicy: "-trimpath;-buildid=endstate-v1",
+		PackageDriver: "winget", PackageRef: "Notepad++.Notepad++", PackageArguments: []string{"install", "Notepad++.Notepad++", "--exact"},
+		ModuleID: "apps.notepad-plus-plus", ModuleRevision: strings.Repeat("e", 64), ValidationSourceSHA256: strings.Repeat("f", 64), SeedSHA256: strings.Repeat("a", 64),
+		ComparatorSHA256: strings.Repeat("b", 64), TargetsSHA256: strings.Repeat("c", 64), ObserverSHA256: strings.Repeat("d", 64), WorkflowPolicySHA256: strings.Repeat("e", 64), PhaseNonce: strings.Repeat("f", 64),
+		ExpiresAt: time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
+	}
+}

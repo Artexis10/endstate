@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -69,7 +70,38 @@ func liveExecutionError(code LiveExecutionFailureCode, cause error) *LiveExecuti
 // mutation permit.
 type trustedLiveMutationPermit struct{ capability *liveMutationCapability }
 
-type liveMutationCapability struct{ serial uint64 }
+type liveMutationCapability struct {
+	serial uint64
+
+	campaign                      [32]byte
+	operation                     liveOperation
+	sequence                      uint64
+	nonce                         [32]byte
+	issuedAt, expiresAt           time.Time
+	definition, engine, seed      [32]byte
+	packageRef                    [32]byte
+	comparator, targets, observer [32]byte
+	workflow                      [32]byte
+	packageArguments              []string
+	consumed                      atomic.Bool
+}
+
+func (capability *liveMutationCapability) validFor(request LiveProcessRequest, now time.Time) bool {
+	if capability == nil || capability.campaign == ([32]byte{}) || !capability.operation.mutation() || capability.operation != request.operation || capability.sequence != request.admission.sequence || capability.nonce != request.admission.nonce || capability.issuedAt.IsZero() || capability.expiresAt.IsZero() || capability.issuedAt.After(now) || !capability.expiresAt.After(now) || capability.definition == ([32]byte{}) || capability.engine == ([32]byte{}) || capability.seed == ([32]byte{}) || capability.packageRef == ([32]byte{}) || capability.comparator == ([32]byte{}) || capability.targets == ([32]byte{}) || capability.observer == ([32]byte{}) || capability.workflow == ([32]byte{}) || capability.consumed.Load() {
+		return false
+	}
+	if request.expected.definition != capability.definition || request.expected.engine != capability.engine || request.expected.seed != capability.seed || request.expected.packageRef != capability.packageRef {
+		return false
+	}
+	if request.operation != liveOperationWingetExactInstall {
+		return true
+	}
+	return len(request.args) == 3 && len(capability.packageArguments) == 3 && liveExactPackageArguments(request.args, request.args[1]) && request.args[1] != "" && strings.Join(request.args, "\x00") == strings.Join(capability.packageArguments, "\x00")
+}
+
+func (capability *liveMutationCapability) consume() bool {
+	return capability != nil && capability.consumed.CompareAndSwap(false, true)
+}
 
 // LiveProcessRequest is an internal execution request. It has no zero-value
 // behavior: probes are created only by a reviewed typed builder, and mutations
@@ -209,11 +241,11 @@ func validateLiveProcessRequest(request LiveProcessRequest) error {
 	if request.operation == liveOperationWingetExactList && !validLiveProbe(request) {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
-	if request.mutates() && request.permit.capability == nil {
-		return liveExecutionError(LiveExecutionMutationDenied, nil)
-	}
 	if !request.expected.valid(request.operation) {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	if request.mutates() && !request.permit.capability.validFor(request, time.Now().UTC()) {
+		return liveExecutionError(LiveExecutionMutationDenied, nil)
 	}
 	return nil
 }
@@ -237,6 +269,9 @@ func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecu
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, liveProcessContextError(err)
+	}
+	if request.mutates() && !request.permit.capability.consume() {
+		return nil, liveExecutionError(LiveExecutionMutationDenied, nil)
 	}
 	output, err := runLiveProcessPlatform(ctx, request)
 	if !output.launched {

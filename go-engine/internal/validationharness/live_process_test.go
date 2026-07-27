@@ -12,10 +12,15 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
-func newTrustedLiveMutationPermit() trustedLiveMutationPermit {
-	return trustedLiveMutationPermit{capability: &liveMutationCapability{serial: 1}}
+func newTrustedLiveMutationPermit(admission liveReceiptAdmission, expected liveReceiptExpectedIdentity, arguments []string) trustedLiveMutationPermit {
+	return trustedLiveMutationPermit{capability: &liveMutationCapability{
+		serial: 1, campaign: sha256.Sum256([]byte("campaign")), operation: admission.operation, sequence: admission.sequence, nonce: admission.nonce,
+		issuedAt: time.Now().UTC().Add(-time.Minute), expiresAt: time.Now().UTC().Add(time.Minute), definition: expected.definition, engine: expected.engine, seed: expected.seed, packageRef: expected.packageRef,
+		comparator: sha256.Sum256([]byte("comparator")), targets: sha256.Sum256([]byte("targets")), observer: sha256.Sum256([]byte("observer")), workflow: sha256.Sum256([]byte("workflow")), packageArguments: append([]string(nil), arguments...),
+	}}
 }
 
 func TestLiveProcessRejectsZeroValueRequest(t *testing.T) {
@@ -25,7 +30,7 @@ func TestLiveProcessRejectsZeroValueRequest(t *testing.T) {
 }
 
 func TestLiveProcessRejectsMutationWithoutTrustedPermit(t *testing.T) {
-	_, err := runLiveProcess(context.Background(), newLiveTypedMutation(liveTestAdmission(t, liveOperationWingetExactInstall), trustedLiveMutationPermit{}, liveOperationWingetExactInstall, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, "", nil, liveReceiptExpectedIdentity{}, 0))
+	_, err := runLiveProcess(context.Background(), newLiveTypedMutation(liveTestAdmission(t, liveOperationWingetExactInstall), trustedLiveMutationPermit{}, liveOperationWingetExactInstall, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, "", nil, liveTestExpectedIdentity(), 0))
 	if err == nil {
 		t.Fatal("runLiveProcess() error = nil, want mutation denial")
 	}
@@ -41,6 +46,15 @@ func TestLiveProcessRejectsMutationWithoutProofIdentity(t *testing.T) {
 	var executionErr *LiveExecutionError
 	if !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionInvalidRequest {
 		t.Fatalf("validateLiveProcessRequest() error = %T %v, want invalid request", err, err)
+	}
+}
+
+func TestLiveProcessRejectsMalformedBoundInstallWithoutPanicking(t *testing.T) {
+	admission := liveTestAdmission(t, liveOperationWingetExactInstall)
+	expected := liveTestExpectedIdentity()
+	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, expected, nil), liveOperationWingetExactInstall, liveTestExecutable(t), nil, "", nil, expected, 0)
+	if err := validateLiveProcessRequest(request); err == nil {
+		t.Fatal("validateLiveProcessRequest() accepted malformed install request")
 	}
 }
 
@@ -106,7 +120,8 @@ func TestLiveProcessWingetListProbeHasExactReviewedArguments(t *testing.T) {
 }
 
 func TestLiveProcessRejectsMissingProofIdentity(t *testing.T) {
-	request := newLiveTypedMutation(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, liveReceiptExpectedIdentity{}, []string{"apply"}), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)
 	if err := validateLiveProcessRequest(request); err == nil {
 		t.Fatal("validateLiveProcessRequest() accepted missing proof identities")
 	}
