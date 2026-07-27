@@ -167,7 +167,7 @@ func (h *lifecycleHarness) capture(only string, mod *modules.Module) (string, st
 	if err := os.MkdirAll(filepath.Dir(manifestOut), 0o700); err != nil {
 		h.t.Fatal(err)
 	}
-	zipPath := strings.TrimSuffix(manifestOut, filepath.Ext(manifestOut)) + ".zip"
+	zipPath := strings.TrimSuffix(manifestOut, filepath.Ext(manifestOut)) + manifest.BundleExt
 	capture := h.run("capture", "--out", manifestOut, "--only", only, "--json")
 	captureData := capture["data"].(map[string]interface{})
 	if captureData["outputFormat"] != "zip" || captureData["outputPath"] == "" {

@@ -414,7 +414,11 @@ func cleanupGeneratedRoot(root string) error {
 	if root == "" || !filepath.IsAbs(root) || !resultLeafPattern.MatchString(filepath.Base(root)) {
 		return fmt.Errorf("refuse cleanup of unowned root")
 	}
-	relative, err := filepath.Rel(filepath.Clean(os.TempDir()), root)
+	temporaryRoot, err := safepath.CanonicalizePlatformRootAlias(filepath.Clean(os.TempDir()))
+	if err != nil {
+		return fmt.Errorf("canonicalize temporary root: %w", err)
+	}
+	relative, err := filepath.Rel(temporaryRoot, root)
 	if err != nil || relative == "." || relative == ".." || filepath.IsAbs(relative) || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return fmt.Errorf("refuse cleanup outside temp")
 	}
@@ -441,7 +445,11 @@ func cleanupAuthorityRoot(root string) error {
 	if root == "" || !filepath.IsAbs(root) || !authorityLeafPattern.MatchString(filepath.Base(root)) {
 		return fmt.Errorf("refuse cleanup of unowned task authority")
 	}
-	relative, err := filepath.Rel(filepath.Clean(os.TempDir()), root)
+	temporaryRoot, err := safepath.CanonicalizePlatformRootAlias(filepath.Clean(os.TempDir()))
+	if err != nil {
+		return fmt.Errorf("canonicalize temporary root: %w", err)
+	}
+	relative, err := filepath.Rel(temporaryRoot, root)
 	if err != nil || filepath.Dir(relative) != "." || filepath.IsAbs(relative) {
 		return fmt.Errorf("refuse cleanup of nested task authority")
 	}
