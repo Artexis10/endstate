@@ -18,13 +18,6 @@ import (
 
 const liveGitHubAPIEndpoint = "https://api.github.com"
 
-// Task 2 owns these slots. They are intentionally not mutation operations in
-// this task, so no permit can be minted for them yet.
-const (
-	liveAuthorityWipeSequence    uint64 = 12
-	liveAuthorityCleanupSequence uint64 = 13
-)
-
 type liveWorkflowRun struct {
 	ID         uint64 `json:"id"`
 	RunAttempt int    `json:"run_attempt"`

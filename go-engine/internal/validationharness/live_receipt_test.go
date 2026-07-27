@@ -63,6 +63,85 @@ func TestLiveReceiptAdmissionAdvancesOnlyAfterSealing(t *testing.T) {
 	}
 }
 
+func TestLiveReceiptIssuerRejectsUncommittedMalformedSeal(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	admission, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(18))
+	if err != nil {
+		t.Fatalf("admit() error = %v", err)
+	}
+	if err := issuer.sealFn(&liveExecutionReceipt{issuerID: issuer.id, operation: admission.operation, sequence: admission.sequence, nonce: admission.nonce, admissionToken: admission.token}); err == nil {
+		t.Fatal("sealFn accepted an uncommitted malformed receipt")
+	}
+	admission.complete()
+	if _, err := issuer.admit(liveOperationEngineVerify, 1, liveReceiptTestNonce(19)); err != nil {
+		t.Fatalf("malformed seal advanced issuer sequence: %v", err)
+	}
+}
+
+func TestLiveReceiptIssuerRejectsMalformedApplySkipVerifyAttack(t *testing.T) {
+	session := &LiveAuthoritySession{
+		campaignID: sha256.Sum256([]byte("campaign")),
+		campaign:   LiveCampaign{PhaseNonce: "phase"},
+		definition: liveAuthorityDefinition{operations: map[uint64]LiveCampaignOperation{
+			1: {Sequence: 1, Operation: string(liveOperationWingetExactUninstall)},
+			2: {Sequence: 2, Operation: string(liveOperationDeclaredTargetWipe)},
+			3: {Sequence: 3, Operation: string(liveOperationEngineApply)},
+			4: {Sequence: 4, Operation: string(liveOperationEngineVerify)},
+		}},
+	}
+	issuer := session.NewReceiptIssuer()
+	if err := issuer.skipDeclaredPreflight(); err != nil {
+		t.Fatal(err)
+	}
+	apply, err := issuer.admit(liveOperationEngineApply, 3, session.NonceFor(liveOperationEngineApply, 3))
+	if err != nil {
+		t.Fatalf("admit apply: %v", err)
+	}
+	if err := issuer.sealFn(&liveExecutionReceipt{issuerID: issuer.id, operation: apply.operation, sequence: apply.sequence, nonce: apply.nonce, admissionToken: apply.token}); err == nil {
+		t.Fatal("sealFn accepted malformed apply evidence")
+	}
+	apply.complete()
+	if _, err := issuer.admit(liveOperationEngineVerify, 4, session.NonceFor(liveOperationEngineVerify, 4)); err == nil {
+		t.Fatal("malformed apply evidence advanced to verify")
+	}
+}
+
+func TestLiveReceiptIssuerSealsOnlyExactCommittedEvidenceOnce(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	admission, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(21))
+	if err != nil {
+		t.Fatalf("admit() error = %v", err)
+	}
+	if !issuer.commitLaunchFn(admission) {
+		t.Fatal("commit launch")
+	}
+	for _, mutate := range []func(*liveExecutionReceipt){
+		func(receipt *liveExecutionReceipt) { receipt.operation = liveOperationEngineVerify },
+		func(receipt *liveExecutionReceipt) { receipt.expected.definition[0]++ },
+		func(receipt *liveExecutionReceipt) { receipt.image.sha256 = [32]byte{} },
+		func(receipt *liveExecutionReceipt) { receipt.started = time.Time{} },
+		func(receipt *liveExecutionReceipt) { receipt.requestSHA256 = [32]byte{} },
+		func(receipt *liveExecutionReceipt) { receipt.resultSHA256 = [32]byte{} },
+	} {
+		receipt := liveUnsealedReceiptForTest(t, admission, nil, nil, "")
+		mutate(receipt)
+		if err := issuer.sealFn(receipt); err == nil {
+			t.Fatal("sealFn accepted mismatched committed evidence")
+		}
+	}
+	receipt := liveUnsealedReceiptForTest(t, admission, nil, nil, "")
+	if err := issuer.sealFn(receipt); err != nil {
+		t.Fatalf("seal exact committed evidence: %v", err)
+	}
+	if err := issuer.sealFn(receipt); err == nil {
+		t.Fatal("sealFn accepted a second seal")
+	}
+	admission.complete()
+	if err := issuer.sealFn(receipt); err == nil {
+		t.Fatal("sealFn accepted a released admission")
+	}
+}
+
 func TestLiveReceiptDecoderRejectsForgedOrMismatchedReceipt(t *testing.T) {
 	issuer := newLiveReceiptIssuer()
 	nonce := liveReceiptTestNonce(2)
@@ -228,6 +307,17 @@ func liveReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, st
 }
 
 func liveReceiptFailureForTest(t *testing.T, admission liveReceiptAdmission, stdout, stderr []byte, failure LiveExecutionFailureCode) *liveExecutionReceipt {
+	receipt := liveUnsealedReceiptForTest(t, admission, stdout, stderr, failure)
+	if !admission.issuer.commitLaunchFn(admission) {
+		t.Fatal("commit receipt launch")
+	}
+	if err := admission.issuer.sealFn(receipt); err != nil {
+		t.Fatalf("seal receipt: %v", err)
+	}
+	return receipt
+}
+
+func liveUnsealedReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, stderr []byte, failure LiveExecutionFailureCode) *liveExecutionReceipt {
 	t.Helper()
 	started := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	receipt := &liveExecutionReceipt{
@@ -245,6 +335,11 @@ func liveReceiptFailureForTest(t *testing.T, admission liveReceiptAdmission, std
 			engine:     sha256.Sum256([]byte("engine")),
 			seed:       sha256.Sum256([]byte("seed")),
 			packageRef: sha256.Sum256([]byte("package")),
+			comparator: sha256.Sum256([]byte("comparator")),
+			targets:    sha256.Sum256([]byte("targets")),
+			observer:   sha256.Sum256([]byte("observer")),
+			workflow:   sha256.Sum256([]byte("workflow")),
+			runner:     sha256.Sum256([]byte("runner")),
 		},
 		image:    liveReceiptImageIdentity{canonical: `C:\trusted\engine.exe`, volume: 1, indexHigh: 2, indexLow: 3, sha256: sha256.Sum256([]byte("image"))},
 		pid:      42,
@@ -260,9 +355,6 @@ func liveReceiptFailureForTest(t *testing.T, admission liveReceiptAdmission, std
 	receipt.stdoutSHA256 = sha256.Sum256(receipt.stdout)
 	receipt.stderrSHA256 = sha256.Sum256(receipt.stderr)
 	receipt.resultSHA256 = receipt.resultDigest()
-	if err := admission.issuer.sealFn(receipt); err != nil {
-		t.Fatalf("seal receipt: %v", err)
-	}
 	return receipt
 }
 

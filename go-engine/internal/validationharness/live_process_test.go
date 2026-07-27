@@ -96,6 +96,11 @@ func TestLiveMutationPermitFinalGateBindsImageAndExpiry(t *testing.T) {
 	if permit.capability.consumed.Load() {
 		t.Fatal("substituted image consumed permit")
 	}
+	tampered := request
+	tampered.admission.token[0]++
+	if permit.capability.finalize(tampered, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate accepted a substituted admission token")
+	}
 	permit = newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
 	permit.capability.expiresAt = time.Now().UTC().Add(-time.Second)
 	if permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
@@ -104,6 +109,36 @@ func TestLiveMutationPermitFinalGateBindsImageAndExpiry(t *testing.T) {
 	permit = newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
 	if !permit.capability.finalize(request, expected.engine, time.Now().UTC()) || permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
 		t.Fatal("final gate did not consume exactly once")
+	}
+}
+
+func TestLiveMutationPermitFinalGateRejectsReleasedAdmission(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, expected, 0)
+	admission.complete()
+	if permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate accepted an admission released before launch")
+	}
+}
+
+func TestLiveMutationPermitLaunchCommitDefersCompletionUntilSeal(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, expected, 0)
+	if !permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate rejected a reserved exact admission")
+	}
+	admission.complete()
+	receipt := liveUnsealedReceiptForTest(t, admission, nil, nil, "")
+	if err := admission.issuer.sealFn(receipt); err != nil {
+		t.Fatalf("launch-committed admission could not seal: %v", err)
+	}
+	admission.complete()
+	if _, err := admission.issuer.admit(liveOperationEngineVerify, 2, liveReceiptTestNonce(20)); err != nil {
+		t.Fatalf("sealed completion did not release admission: %v", err)
 	}
 }
 

@@ -46,16 +46,27 @@ func (operation liveOperation) valid() bool {
 func (operation liveOperation) mutation() bool { return operation != liveOperationWingetExactList }
 
 type liveReceiptIssuer struct {
-	id                uint64
-	authorityCampaign [32]byte
-	admitFn           func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
-	sealFn            func(*liveExecutionReceipt) error
-	consumeFn         func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
-	consumeBatchFn    func([]liveReceiptExpectation) bool
-	releaseFn         func(liveReceiptAdmission)
-	activeFn          func(liveReceiptAdmission) bool
-	skipPreflightFn   func() error
+	id                 uint64
+	authorityCampaign  [32]byte
+	admitFn            func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
+	sealFn             func(*liveExecutionReceipt) error
+	consumeFn          func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
+	consumeBatchFn     func([]liveReceiptExpectation) bool
+	releaseFn          func(liveReceiptAdmission)
+	activeFn           func(liveReceiptAdmission) bool
+	commitLaunchFn     func(liveReceiptAdmission) bool
+	abortLaunchFn      func(liveReceiptAdmission)
+	finalizeMutationFn func(liveReceiptAdmission, *liveMutationCapability, LiveProcessRequest, [32]byte, time.Time) bool
+	skipPreflightFn    func() error
 }
+
+type liveAdmissionState uint8
+
+const (
+	liveAdmissionReserved liveAdmissionState = iota + 1
+	liveAdmissionLaunchCommitted
+	liveAdmissionSealed
+)
 
 type liveDeclaredPreflight struct {
 	firstOperation, secondOperation liveOperation
@@ -82,6 +93,7 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	var mu sync.Mutex
 	var next uint64
 	var active liveReceiptAdmission
+	var state liveAdmissionState
 	nonces := make(map[[32]byte]struct{})
 	consumed := make(map[[32]byte]struct{})
 	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
@@ -98,20 +110,50 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 			return liveReceiptAdmission{}, errors.New("live receipt token unavailable")
 		}
 		admission := liveReceiptAdmission{issuer: issuer, operation: operation, sequence: sequence, nonce: nonce, token: token}
-		nonces[nonce], active = struct{}{}, admission
+		nonces[nonce], active, state = struct{}{}, admission, liveAdmissionReserved
 		return admission, nil
 	}
 	issuer.releaseFn = func(admission liveReceiptAdmission) {
 		mu.Lock()
 		defer mu.Unlock()
-		if active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
+		if (state == liveAdmissionReserved || state == liveAdmissionSealed) && active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
 			active = liveReceiptAdmission{}
+			state = 0
 		}
 	}
 	issuer.activeFn = func(admission liveReceiptAdmission) bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return active.issuer == issuer && active.operation == admission.operation && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token
+		return state == liveAdmissionReserved && active.issuer == issuer && active.operation == admission.operation && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token
+	}
+	issuer.commitLaunchFn = func(admission liveReceiptAdmission) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if state != liveAdmissionReserved || active.issuer != issuer || active.operation != admission.operation || active.sequence != admission.sequence || active.nonce != admission.nonce || active.token != admission.token {
+			return false
+		}
+		state = liveAdmissionLaunchCommitted
+		return true
+	}
+	issuer.abortLaunchFn = func(admission liveReceiptAdmission) {
+		mu.Lock()
+		defer mu.Unlock()
+		if state == liveAdmissionLaunchCommitted && active.issuer == issuer && active.operation == admission.operation && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
+			active = liveReceiptAdmission{}
+			state = 0
+		}
+	}
+	issuer.finalizeMutationFn = func(admission liveReceiptAdmission, capability *liveMutationCapability, request LiveProcessRequest, image [32]byte, now time.Time) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if state != liveAdmissionReserved || active.issuer != issuer || active.operation != admission.operation || active.sequence != admission.sequence || active.nonce != admission.nonce || active.token != admission.token || capability == nil || capability.consumed.Load() || !capability.matches(request, image, now) {
+			return false
+		}
+		if !capability.consumed.CompareAndSwap(false, true) {
+			return false
+		}
+		state = liveAdmissionLaunchCommitted
+		return true
 	}
 	if len(optional) == 1 {
 		preflight := optional[0]
@@ -134,12 +176,13 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	issuer.sealFn = func(receipt *liveExecutionReceipt) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if receipt == nil || active.issuer != issuer || receipt.issuerID != issuer.id || receipt.sequence != active.sequence || receipt.nonce != active.nonce || receipt.admissionToken != active.token {
+		if receipt == nil || state != liveAdmissionLaunchCommitted || active.issuer != issuer || receipt.issuerID != issuer.id || receipt.operation != active.operation || receipt.sequence != active.sequence || receipt.nonce != active.nonce || receipt.admissionToken != active.token || receipt.sealed || receipt.validateUnsealed() != nil {
 			return errors.New("live receipt seal rejected")
 		}
 		receipt.tag = liveReceiptMAC(key, receipt)
 		receipt.sealed = true
 		next = receipt.sequence
+		state = liveAdmissionSealed
 		return nil
 	}
 	issuer.consumeFn = func(receipt *liveExecutionReceipt, operation liveOperation, sequence uint64, nonce [32]byte) bool {
@@ -388,7 +431,14 @@ func liveReceiptWriteValues(buffer *bytes.Buffer, values []string) {
 }
 
 func (receipt *liveExecutionReceipt) validate() error {
-	if receipt == nil || receipt.issuerID == 0 || !receipt.operation.valid() || receipt.sequence == 0 || receipt.nonce == ([32]byte{}) || receipt.admissionToken == ([32]byte{}) || !receipt.sealed || receipt.requestSHA256 != receipt.requestDigest() || receipt.stdoutSHA256 != sha256.Sum256(receipt.stdout) || receipt.stderrSHA256 != sha256.Sum256(receipt.stderr) || receipt.resultSHA256 != receipt.resultDigest() {
+	if receipt == nil || !receipt.sealed || receipt.validateUnsealed() != nil {
+		return errors.New("invalid live execution receipt")
+	}
+	return nil
+}
+
+func (receipt *liveExecutionReceipt) validateUnsealed() error {
+	if receipt == nil || receipt.issuerID == 0 || !receipt.operation.valid() || receipt.sequence == 0 || receipt.nonce == ([32]byte{}) || receipt.admissionToken == ([32]byte{}) || !receipt.expected.valid(receipt.operation) || receipt.requestSHA256 != receipt.requestDigest() || receipt.stdoutSHA256 != sha256.Sum256(receipt.stdout) || receipt.stderrSHA256 != sha256.Sum256(receipt.stderr) || receipt.resultSHA256 != receipt.resultDigest() {
 		return errors.New("invalid live execution receipt")
 	}
 	if receipt.image.canonical == "" || receipt.image.volume == 0 || receipt.image.indexHigh == 0 && receipt.image.indexLow == 0 || receipt.image.sha256 == ([32]byte{}) || receipt.pid == 0 || receipt.created.IsZero() || receipt.started.IsZero() || receipt.finished.IsZero() || receipt.finished.Before(receipt.started) {

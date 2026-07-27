@@ -94,7 +94,14 @@ type liveMutationCapability struct {
 }
 
 func (capability *liveMutationCapability) validFor(request LiveProcessRequest, now time.Time) bool {
-	if capability == nil || capability.campaign == ([32]byte{}) || !capability.operation.mutation() || capability.operation != request.operation || capability.sequence != request.admission.sequence || capability.nonce != request.admission.nonce || capability.issuedAt.IsZero() || capability.expiresAt.IsZero() || capability.issuedAt.After(now) || !capability.expiresAt.After(now) || capability.definition == ([32]byte{}) || capability.engine == ([32]byte{}) || capability.seed == ([32]byte{}) || capability.packageRef == ([32]byte{}) || capability.comparator == ([32]byte{}) || capability.targets == ([32]byte{}) || capability.observer == ([32]byte{}) || capability.workflow == ([32]byte{}) || capability.consumed.Load() {
+	if capability == nil || capability.consumed.Load() || request.admission.issuer == nil || request.admission.issuer.activeFn == nil || !request.admission.issuer.activeFn(request.admission) {
+		return false
+	}
+	return capability.matches(request, capability.executableSHA256, now)
+}
+
+func (capability *liveMutationCapability) matches(request LiveProcessRequest, image [32]byte, now time.Time) bool {
+	if capability == nil || capability.campaign == ([32]byte{}) || !capability.operation.mutation() || capability.operation != request.operation || capability.sequence != request.admission.sequence || capability.nonce != request.admission.nonce || capability.issuedAt.IsZero() || capability.expiresAt.IsZero() || capability.issuedAt.After(now) || !capability.expiresAt.After(now) || capability.definition == ([32]byte{}) || capability.engine == ([32]byte{}) || capability.seed == ([32]byte{}) || capability.packageRef == ([32]byte{}) || capability.comparator == ([32]byte{}) || capability.targets == ([32]byte{}) || capability.observer == ([32]byte{}) || capability.workflow == ([32]byte{}) || capability.executableSHA256 != image {
 		return false
 	}
 	if request.admission.issuer == nil || request.admission.issuer.id != capability.issuerID || request.admission.issuer.authorityCampaign != capability.campaign || request.admission.token != capability.admissionToken || request.expected.definition != capability.definition || request.expected.engine != capability.engine || request.expected.seed != capability.seed || request.expected.packageRef != capability.packageRef || request.expected.comparator != capability.comparator || request.expected.targets != capability.targets || request.expected.observer != capability.observer || request.expected.workflow != capability.workflow || request.executable != capability.executable || request.dir != capability.directory || !sameLiveArguments(request.args, capability.arguments) || !sameLiveEnvironment(request.environment, capability.environment) {
@@ -129,7 +136,10 @@ func sameLiveEnvironment(left, right map[string]string) bool {
 }
 
 func (capability *liveMutationCapability) finalize(request LiveProcessRequest, image [32]byte, now time.Time) bool {
-	return capability != nil && capability.validFor(request, now) && capability.executableSHA256 == image && capability.consumed.CompareAndSwap(false, true)
+	if capability == nil || request.admission.issuer == nil || request.admission.issuer.finalizeMutationFn == nil {
+		return false
+	}
+	return request.admission.issuer.finalizeMutationFn(request.admission, capability, request, image, now)
 }
 
 // LiveProcessRequest is an internal execution request. It has no zero-value
@@ -300,12 +310,19 @@ func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecu
 		return nil, liveProcessContextError(err)
 	}
 	output, err := runLiveProcessPlatform(ctx, request, func(image liveReceiptImageIdentity) error {
-		if request.mutates() && !request.permit.capability.finalize(request, image.sha256, time.Now().UTC()) {
-			return liveExecutionError(LiveExecutionMutationDenied, nil)
+		if request.mutates() {
+			if !request.permit.capability.finalize(request, image.sha256, time.Now().UTC()) {
+				return liveExecutionError(LiveExecutionMutationDenied, nil)
+			}
+			return nil
+		}
+		if request.admission.issuer.commitLaunchFn == nil || !request.admission.issuer.commitLaunchFn(request.admission) {
+			return liveExecutionError(LiveExecutionContainment, nil)
 		}
 		return nil
 	})
 	if !output.launched {
+		request.admission.issuer.abortLaunchFn(request.admission)
 		return nil, err
 	}
 	if request.mutates() && request.permit.capability.executableSHA256 != output.image.sha256 {
