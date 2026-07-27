@@ -137,6 +137,7 @@ type LiveAuthoritySession struct {
 	now        time.Time
 	mu         sync.Mutex
 	minted     map[liveAuthorityPermitKey]struct{}
+	issuerID   uint64
 }
 
 type liveAuthorityDefinition struct {
@@ -182,7 +183,7 @@ func NewLiveAuthoritySession(ctx context.Context, client LiveWorkflowRunClient, 
 		operations[operation.Sequence] = operation
 	}
 	return &LiveAuthoritySession{campaignID: liveSHA256Bytes(identity), campaign: request.Campaign, now: request.Now, minted: make(map[liveAuthorityPermitKey]struct{}), definition: liveAuthorityDefinition{
-		definition: liveSHA256Bytes(request.DefinitionSHA256), engine: liveSHA256Bytes(request.EngineSHA256), seed: liveSHA256Bytes(request.Definition.SeedSHA256), packageRef: liveSHA256Bytes(request.Campaign.PackageRef),
+		definition: liveSHA256Bytes(request.DefinitionSHA256), engine: liveSHA256Bytes(request.EngineSHA256), seed: liveSHA256Bytes(request.Definition.SeedSHA256), packageRef: sha256.Sum256([]byte(request.Campaign.PackageRef)),
 		comparator: liveSHA256Bytes(request.Campaign.ComparatorSHA256), targets: liveSHA256Bytes(request.Campaign.TargetsSHA256), observer: liveSHA256Bytes(request.Campaign.ObserverSHA256), workflow: liveSHA256Bytes(request.Campaign.WorkflowPolicySHA256), packageArguments: append([]string(nil), request.Campaign.PackageArguments...), operations: operations,
 	}}, nil
 }
@@ -194,13 +195,26 @@ func (session *LiveAuthoritySession) NonceFor(operation liveOperation, sequence 
 	return liveAuthorityNonce(session.campaign.PhaseNonce, operation, sequence)
 }
 
-// SkipOptionalPreflight advances only a campaign-declared preflight uninstall.
-// The receipt issuer records the nonce, so apply may admit only as sequence 2.
+// NewReceiptIssuer enables skip only for a campaign-declared uninstall and
+// declared-target-wipe pair, so apply may admit only after both slots.
 func (session *LiveAuthoritySession) NewReceiptIssuer() *liveReceiptIssuer {
-	issuer := newLiveReceiptIssuer()
 	if session == nil {
-		return issuer
+		return newLiveReceiptIssuer()
 	}
+	var optional []liveDeclaredPreflight
+	if uninstall, ok := session.definition.operations[1]; ok {
+		if wipe, wipeOK := session.definition.operations[2]; wipeOK && uninstall.Operation == string(liveOperationWingetExactUninstall) && wipe.Operation == string(liveOperationDeclaredTargetWipe) {
+			optional = append(optional, liveDeclaredPreflight{
+				firstOperation: liveOperationWingetExactUninstall, firstSequence: 1, firstNonce: session.NonceFor(liveOperationWingetExactUninstall, 1),
+				secondOperation: liveOperationDeclaredTargetWipe, secondSequence: 2, secondNonce: session.NonceFor(liveOperationDeclaredTargetWipe, 2),
+			})
+		}
+	}
+	issuer := newLiveReceiptIssuer(optional...)
+	issuer.authorityCampaign = session.campaignID
+	session.mu.Lock()
+	session.issuerID = issuer.id
+	session.mu.Unlock()
 	baseAdmit := issuer.admitFn
 	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
 		entry, ok := session.definition.operations[sequence]
@@ -209,23 +223,12 @@ func (session *LiveAuthoritySession) NewReceiptIssuer() *liveReceiptIssuer {
 		}
 		return baseAdmit(operation, sequence, nonce)
 	}
-	issuer.skipPreflightFn = func() error {
-		entry, ok := session.definition.operations[1]
-		if !ok || entry.Operation != string(liveOperationWingetExactUninstall) {
-			return fmt.Errorf("optional preflight is not declared")
-		}
-		admission, err := issuer.admit(liveOperationWingetExactUninstall, 1, session.NonceFor(liveOperationWingetExactUninstall, 1))
-		if err != nil {
-			return err
-		}
-		admission.complete()
-		return nil
-	}
 	return issuer
 }
 
-func (session *LiveAuthoritySession) MintMutationPermit(operation liveOperation, sequence uint64, nonce [32]byte) (trustedLiveMutationPermit, error) {
-	if session == nil || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) {
+func (session *LiveAuthoritySession) MintMutationPermit(admission liveReceiptAdmission) (trustedLiveMutationPermit, error) {
+	operation, sequence, nonce := admission.operation, admission.sequence, admission.nonce
+	if session == nil || admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
 	}
 	key := liveAuthorityPermitKey{operation: operation, sequence: sequence}
@@ -239,12 +242,8 @@ func (session *LiveAuthoritySession) MintMutationPermit(operation liveOperation,
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation permit already minted")
 	}
 	session.minted[key] = struct{}{}
-	capability := &liveMutationCapability{campaign: session.campaignID, operation: operation, sequence: sequence, nonce: nonce, issuedAt: session.now, expiresAt: session.campaign.ExpiresAt, definition: session.definition.definition, engine: session.definition.engine, seed: session.definition.seed, packageRef: session.definition.packageRef, comparator: session.definition.comparator, targets: session.definition.targets, observer: session.definition.observer, workflow: session.definition.workflow, packageArguments: append([]string(nil), session.definition.packageArguments...), executable: invocation.Executable, executableSHA256: liveSHA256Bytes(invocation.ExecutableSHA256), arguments: append([]string(nil), invocation.Arguments...), directory: invocation.Directory, environment: cloneLiveEnvironment(invocation.Environment)}
+	capability := &liveMutationCapability{campaign: session.campaignID, operation: operation, sequence: sequence, nonce: nonce, issuerID: admission.issuer.id, admissionToken: admission.token, issuedAt: session.now, expiresAt: session.campaign.ExpiresAt, definition: session.definition.definition, engine: session.definition.engine, seed: session.definition.seed, packageRef: session.definition.packageRef, comparator: session.definition.comparator, targets: session.definition.targets, observer: session.definition.observer, workflow: session.definition.workflow, packageArguments: append([]string(nil), session.definition.packageArguments...), executable: invocation.Executable, executableSHA256: liveSHA256Bytes(invocation.ExecutableSHA256), arguments: append([]string(nil), invocation.Arguments...), directory: invocation.Directory, environment: cloneLiveEnvironment(invocation.Environment)}
 	return trustedLiveMutationPermit{capability: capability}, nil
-}
-
-func liveAuthorityOperationSequence(operation liveOperation, sequence uint64) bool {
-	return map[uint64]liveOperation{1: liveOperationWingetExactUninstall, 2: liveOperationEngineApply, 3: liveOperationEngineVerify, 4: liveOperationHashBoundSeed, 5: liveOperationEngineCapture, 6: liveOperationWingetExactUninstall, 7: liveOperationEngineRebuild, 8: liveOperationEngineRevert, 9: liveOperationEngineRebuild, 10: liveOperationEngineRebuild, 11: liveOperationWingetExactUninstall}[sequence] == operation
 }
 
 func liveAuthorityNonce(phaseNonce string, operation liveOperation, sequence uint64) [32]byte {

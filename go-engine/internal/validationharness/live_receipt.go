@@ -46,13 +46,21 @@ func (operation liveOperation) valid() bool {
 func (operation liveOperation) mutation() bool { return operation != liveOperationWingetExactList }
 
 type liveReceiptIssuer struct {
-	id              uint64
-	admitFn         func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
-	sealFn          func(*liveExecutionReceipt) error
-	consumeFn       func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
-	consumeBatchFn  func([]liveReceiptExpectation) bool
-	releaseFn       func(liveReceiptAdmission)
-	skipPreflightFn func() error
+	id                uint64
+	authorityCampaign [32]byte
+	admitFn           func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
+	sealFn            func(*liveExecutionReceipt) error
+	consumeFn         func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
+	consumeBatchFn    func([]liveReceiptExpectation) bool
+	releaseFn         func(liveReceiptAdmission)
+	activeFn          func(liveReceiptAdmission) bool
+	skipPreflightFn   func() error
+}
+
+type liveDeclaredPreflight struct {
+	firstOperation, secondOperation liveOperation
+	firstSequence, secondSequence   uint64
+	firstNonce, secondNonce         [32]byte
 }
 
 type liveReceiptAdmission struct {
@@ -66,7 +74,7 @@ type liveReceiptAdmission struct {
 var liveReceiptSerial atomic.Uint64
 var liveReceiptIssuers sync.Map
 
-func newLiveReceiptIssuer() *liveReceiptIssuer {
+func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer {
 	issuer := &liveReceiptIssuer{id: liveReceiptSerial.Add(1)}
 	liveReceiptIssuers.Store(issuer.id, issuer)
 	key := make([]byte, sha256.Size)
@@ -90,7 +98,7 @@ func newLiveReceiptIssuer() *liveReceiptIssuer {
 			return liveReceiptAdmission{}, errors.New("live receipt token unavailable")
 		}
 		admission := liveReceiptAdmission{issuer: issuer, operation: operation, sequence: sequence, nonce: nonce, token: token}
-		nonces[nonce], next, active = struct{}{}, sequence, admission
+		nonces[nonce], active = struct{}{}, admission
 		return admission, nil
 	}
 	issuer.releaseFn = func(admission liveReceiptAdmission) {
@@ -98,6 +106,29 @@ func newLiveReceiptIssuer() *liveReceiptIssuer {
 		defer mu.Unlock()
 		if active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
 			active = liveReceiptAdmission{}
+		}
+	}
+	issuer.activeFn = func(admission liveReceiptAdmission) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return active.issuer == issuer && active.operation == admission.operation && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token
+	}
+	if len(optional) == 1 {
+		preflight := optional[0]
+		issuer.skipPreflightFn = func() error {
+			mu.Lock()
+			defer mu.Unlock()
+			if active.issuer != nil || next != 0 || preflight.firstOperation != liveOperationWingetExactUninstall || preflight.firstSequence != 1 || preflight.secondOperation != liveOperationDeclaredTargetWipe || preflight.secondSequence != 2 || preflight.firstNonce == ([32]byte{}) || preflight.secondNonce == ([32]byte{}) {
+				return errors.New("live receipt optional pair rejected")
+			}
+			if _, exists := nonces[preflight.firstNonce]; exists {
+				return errors.New("live receipt nonce replay")
+			}
+			if _, exists := nonces[preflight.secondNonce]; exists {
+				return errors.New("live receipt nonce replay")
+			}
+			nonces[preflight.firstNonce], nonces[preflight.secondNonce], next = struct{}{}, struct{}{}, 2
+			return nil
 		}
 	}
 	issuer.sealFn = func(receipt *liveExecutionReceipt) error {
@@ -108,6 +139,7 @@ func newLiveReceiptIssuer() *liveReceiptIssuer {
 		}
 		receipt.tag = liveReceiptMAC(key, receipt)
 		receipt.sealed = true
+		next = receipt.sequence
 		return nil
 	}
 	issuer.consumeFn = func(receipt *liveExecutionReceipt, operation liveOperation, sequence uint64, nonce [32]byte) bool {

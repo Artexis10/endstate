@@ -42,15 +42,24 @@ func TestLiveReceiptIssuerRejectsZeroReplayAndOutOfOrderAdmissions(t *testing.T)
 	}
 }
 
-func TestLiveReceiptAdmissionCannotBeReusedAfterCompletion(t *testing.T) {
+func TestLiveReceiptAdmissionAdvancesOnlyAfterSealing(t *testing.T) {
 	issuer := newLiveReceiptIssuer()
 	admission, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(8))
 	if err != nil {
 		t.Fatalf("admit() error = %v", err)
 	}
 	admission.complete()
-	if _, err := issuer.admit(liveOperationEngineApply, 2, liveReceiptTestNonce(9)); err != nil {
-		t.Fatalf("completed admission did not release exact issuer state: %v", err)
+	if _, err := issuer.admit(liveOperationEngineApply, 2, liveReceiptTestNonce(9)); err == nil {
+		t.Fatal("unsealed admission advanced issuer sequence")
+	}
+	sealed, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(9))
+	if err != nil {
+		t.Fatalf("unsealed admission did not release exact issuer state: %v", err)
+	}
+	_ = liveReceiptForTest(t, sealed, nil, nil)
+	sealed.complete()
+	if _, err := issuer.admit(liveOperationEngineApply, 2, liveReceiptTestNonce(10)); err != nil {
+		t.Fatalf("sealed admission did not advance issuer sequence: %v", err)
 	}
 }
 
@@ -136,14 +145,16 @@ func TestLiveReceiptFailureIsSealedButNotDecodable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("admit() error = %v", err)
 	}
-	receipt := liveReceiptForTest(t, admission, []byte("partial"), nil)
-	receipt.failure = LiveExecutionCanceled
-	receipt.resultSHA256 = receipt.resultDigest()
+	receipt := liveReceiptFailureForTest(t, admission, []byte("partial"), nil, LiveExecutionCanceled)
 	if err := receipt.validate(); err != nil {
 		t.Fatalf("failure receipt validate() error = %v", err)
 	}
 	if _, _, err := liveReceiptDecoderHandoff(receipt, liveOperationEngineRebuild, 1, nonce); err == nil {
 		t.Fatal("liveReceiptDecoderHandoff() accepted a failure receipt")
+	}
+	admission.complete()
+	if _, err := issuer.admit(liveOperationEngineRebuild, 2, liveReceiptTestNonce(17)); err != nil {
+		t.Fatalf("sealed failure did not advance issuer sequence: %v", err)
 	}
 }
 
@@ -213,6 +224,10 @@ func TestLiveReceiptBatchConsumptionIsAtomicAndSingleUse(t *testing.T) {
 }
 
 func liveReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, stderr []byte) *liveExecutionReceipt {
+	return liveReceiptFailureForTest(t, admission, stdout, stderr, "")
+}
+
+func liveReceiptFailureForTest(t *testing.T, admission liveReceiptAdmission, stdout, stderr []byte, failure LiveExecutionFailureCode) *liveExecutionReceipt {
 	t.Helper()
 	started := time.Date(2026, 7, 26, 12, 0, 0, 0, time.UTC)
 	receipt := &liveExecutionReceipt{
@@ -237,6 +252,7 @@ func liveReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, st
 		started:  started,
 		finished: started.Add(time.Second),
 		exitCode: 0,
+		failure:  failure,
 		stdout:   append([]byte(nil), stdout...),
 		stderr:   append([]byte(nil), stderr...),
 	}

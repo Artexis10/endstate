@@ -16,8 +16,9 @@ import (
 )
 
 func newTrustedLiveMutationPermit(admission liveReceiptAdmission, expected liveReceiptExpectedIdentity, executable string, arguments []string, directory string, environment map[string]string) trustedLiveMutationPermit {
+	admission.issuer.authorityCampaign = sha256.Sum256([]byte("campaign"))
 	return trustedLiveMutationPermit{capability: &liveMutationCapability{
-		serial: 1, campaign: sha256.Sum256([]byte("campaign")), operation: admission.operation, sequence: admission.sequence, nonce: admission.nonce,
+		serial: 1, campaign: admission.issuer.authorityCampaign, operation: admission.operation, sequence: admission.sequence, nonce: admission.nonce, issuerID: admission.issuer.id, admissionToken: admission.token,
 		issuedAt: time.Now().UTC().Add(-time.Minute), expiresAt: time.Now().UTC().Add(time.Minute), definition: expected.definition, engine: expected.engine, seed: expected.seed, packageRef: expected.packageRef,
 		comparator: sha256.Sum256([]byte("comparator")), targets: sha256.Sum256([]byte("targets")), observer: sha256.Sum256([]byte("observer")), workflow: sha256.Sum256([]byte("workflow")), packageArguments: append([]string(nil), arguments...), executable: executable, executableSHA256: expected.engine, arguments: append([]string(nil), arguments...), directory: directory, environment: cloneLiveEnvironment(environment),
 	}}
@@ -182,7 +183,7 @@ func TestLiveProcessInvalidRequestReleasesAdmission(t *testing.T) {
 		t.Fatalf("admit() error = %v", err)
 	}
 	_, _ = runLiveProcess(context.Background(), LiveProcessRequest{operation: liveOperationWingetExactList, admission: admission})
-	if _, err := issuer.admit(liveOperationWingetExactList, 2, liveReceiptTestNonce(12)); err != nil {
+	if _, err := issuer.admit(liveOperationWingetExactList, 1, liveReceiptTestNonce(12)); err != nil {
 		t.Fatalf("invalid request retained admission: %v", err)
 	}
 }

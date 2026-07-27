@@ -82,6 +82,8 @@ type liveMutationCapability struct {
 	packageRef                    [32]byte
 	comparator, targets, observer [32]byte
 	workflow                      [32]byte
+	issuerID                      uint64
+	admissionToken                [32]byte
 	packageArguments              []string
 	executable                    string
 	executableSHA256              [32]byte
@@ -95,7 +97,7 @@ func (capability *liveMutationCapability) validFor(request LiveProcessRequest, n
 	if capability == nil || capability.campaign == ([32]byte{}) || !capability.operation.mutation() || capability.operation != request.operation || capability.sequence != request.admission.sequence || capability.nonce != request.admission.nonce || capability.issuedAt.IsZero() || capability.expiresAt.IsZero() || capability.issuedAt.After(now) || !capability.expiresAt.After(now) || capability.definition == ([32]byte{}) || capability.engine == ([32]byte{}) || capability.seed == ([32]byte{}) || capability.packageRef == ([32]byte{}) || capability.comparator == ([32]byte{}) || capability.targets == ([32]byte{}) || capability.observer == ([32]byte{}) || capability.workflow == ([32]byte{}) || capability.consumed.Load() {
 		return false
 	}
-	if request.expected.definition != capability.definition || request.expected.engine != capability.engine || request.expected.seed != capability.seed || request.expected.packageRef != capability.packageRef || request.expected.comparator != capability.comparator || request.expected.targets != capability.targets || request.expected.observer != capability.observer || request.expected.workflow != capability.workflow || request.executable != capability.executable || request.dir != capability.directory || !sameLiveArguments(request.args, capability.arguments) || !sameLiveEnvironment(request.environment, capability.environment) {
+	if request.admission.issuer == nil || request.admission.issuer.id != capability.issuerID || request.admission.issuer.authorityCampaign != capability.campaign || request.admission.token != capability.admissionToken || request.expected.definition != capability.definition || request.expected.engine != capability.engine || request.expected.seed != capability.seed || request.expected.packageRef != capability.packageRef || request.expected.comparator != capability.comparator || request.expected.targets != capability.targets || request.expected.observer != capability.observer || request.expected.workflow != capability.workflow || request.executable != capability.executable || request.dir != capability.directory || !sameLiveArguments(request.args, capability.arguments) || !sameLiveEnvironment(request.environment, capability.environment) {
 		return false
 	}
 	if request.executionClass() == LiveExecutionEngine && capability.executableSHA256 != request.expected.engine {

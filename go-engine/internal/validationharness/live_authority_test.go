@@ -152,15 +152,64 @@ func TestLiveAuthoritySessionMintsSingleBoundPermit(t *testing.T) {
 		t.Fatal(err)
 	}
 	nonce := session.NonceFor(liveOperationEngineApply, 3)
-	permit, err := session.MintMutationPermit(liveOperationEngineApply, 3, nonce)
+	issuer := session.NewReceiptIssuer()
+	if err := issuer.skipDeclaredPreflight(); err != nil {
+		t.Fatal(err)
+	}
+	admission, err := issuer.admit(liveOperationEngineApply, 3, nonce)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.MintMutationPermit(liveOperationEngineApply, 3, nonce); err == nil {
+	foreignIssuer := newLiveReceiptIssuer()
+	foreign, err := foreignIssuer.admit(liveOperationEngineApply, 1, nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.MintMutationPermit(foreign); err == nil {
+		t.Fatal("session minted a permit for a raw issuer admission")
+	}
+	tampered := admission
+	tampered.token[0]++
+	if _, err := session.MintMutationPermit(tampered); err == nil {
+		t.Fatal("session minted a permit with a substituted admission token")
+	}
+	otherSession := &LiveAuthoritySession{campaignID: session.campaignID, campaign: session.campaign, definition: session.definition, now: session.now, minted: make(map[liveAuthorityPermitKey]struct{}), issuerID: issuer.id}
+	otherSession.campaignID[0]++
+	if _, err := otherSession.MintMutationPermit(admission); err == nil {
+		t.Fatal("different authority session minted a permit")
+	}
+	admission.complete()
+	if _, err := session.MintMutationPermit(admission); err == nil {
+		t.Fatal("session minted a permit after admission release")
+	}
+	issuer = session.NewReceiptIssuer()
+	if err := issuer.skipDeclaredPreflight(); err != nil {
+		t.Fatal(err)
+	}
+	admission, err = issuer.admit(liveOperationEngineApply, 3, nonce)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permit, err := session.MintMutationPermit(admission)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.MintMutationPermit(admission); err == nil {
 		t.Fatal("session minted a second permit for one operation")
 	}
 	if permit.capability.consumed.Load() {
 		t.Fatal("minted permit was pre-consumed")
+	}
+	request := LiveProcessRequest{operation: admission.operation, admission: admission, expected: liveReceiptExpectedIdentity{
+		definition: permit.capability.definition, engine: permit.capability.engine, seed: permit.capability.seed, packageRef: permit.capability.packageRef,
+		comparator: permit.capability.comparator, targets: permit.capability.targets, observer: permit.capability.observer, workflow: permit.capability.workflow,
+	}, executable: permit.capability.executable, args: append([]string(nil), permit.capability.arguments...), dir: permit.capability.directory, environment: cloneLiveEnvironment(permit.capability.environment)}
+	if !permit.capability.validFor(request, session.now) {
+		t.Fatal("permit rejected its exact admission")
+	}
+	request.admission.token[0]++
+	if permit.capability.validFor(request, session.now) {
+		t.Fatal("permit accepted a substituted admission token")
 	}
 }
 
@@ -208,26 +257,6 @@ func liveTestBindEngineOperations(campaign *LiveCampaign) {
 		if liveCampaignEngineOperation(liveOperation(campaign.Operations[index].Operation)) {
 			campaign.Operations[index].ExecutableSHA256 = campaign.EngineSHA256
 		}
-	}
-}
-
-func TestLiveAuthorityOperationOrderHasNoPreinstall(t *testing.T) {
-	t.Parallel()
-
-	for sequence, operation := range map[uint64]liveOperation{
-		2: liveOperationEngineApply, 3: liveOperationEngineVerify, 4: liveOperationHashBoundSeed, 5: liveOperationEngineCapture,
-		6: liveOperationWingetExactUninstall, 7: liveOperationEngineRebuild, 8: liveOperationEngineRevert, 9: liveOperationEngineRebuild,
-		10: liveOperationEngineRebuild, 11: liveOperationWingetExactUninstall,
-	} {
-		if !liveAuthorityOperationSequence(operation, sequence) {
-			t.Fatalf("sequence %d does not allow %s", sequence, operation)
-		}
-	}
-	if liveAuthorityOperationSequence(liveOperationWingetExactInstall, 1) || liveAuthorityOperationSequence(liveOperationWingetExactInstall, 2) {
-		t.Fatal("authority permits a direct Winget preinstall")
-	}
-	if !liveAuthorityOperationSequence(liveOperationWingetExactUninstall, 1) {
-		t.Fatal("authority does not reserve optional preflight uninstall")
 	}
 }
 
