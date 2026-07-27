@@ -260,6 +260,26 @@ The system SHALL resolve every tracked bundle with the workflow-built engine on 
 
 The system SHALL validate every hosted-live-eligible module on a fresh standard GitHub-hosted Windows runner by allowing the production engine to install the declared package.
 
+#### Scenario: Hosted-live terminology is used
+
+- **WHEN** validation reports a hosted-live result
+- **THEN** it SHALL mean that a GitHub-hosted Windows VM ran the real production package and configuration lifecycle
+- **AND** it SHALL NOT mean hosted backup storage or synthetic package projection
+- **AND** GUI launch or click automation SHALL NOT be required for engine proof
+- **AND** the package identity/version, production configuration targets, and restored sentinel bytes SHALL be independently observable
+
+#### Scenario: Application is admitted as hosted-safe
+
+- **WHEN** a candidate is proposed for hosted-live mutation
+- **THEN** its exact production package reference SHALL support unattended install and removal
+- **AND** it SHALL require no account, paid license, interactive UI, reboot, hardware, kernel driver, or unsafe privilege
+- **AND** it SHALL have a stable independent package/version observer
+- **AND** every claimed configuration target SHALL support deterministic non-secret seeding and bounded cleanup over a closed declared observer boundary
+- **AND** that boundary SHALL enumerate expected package identities, executables and uninstall-registry keys, configuration filesystem/registry targets, allowed services, drivers, scheduled tasks, and pending-reboot indicators
+- **AND** before/after observation SHALL reject unexpected deltas inside that boundary
+- **AND** the full lifecycle SHALL fit a 45-minute standard-runner timeout
+- **AND** proof SHALL claim cleanup only over the declared boundary rather than the whole machine
+
 #### Scenario: Live install succeeds
 
 - **WHEN** a `hosted` live module runs from an absent-package state
@@ -294,6 +314,12 @@ The system SHALL validate every hosted-live-eligible module on a fresh standard 
 - **THEN** the result SHALL NOT claim `live-install` from rebuild or `live-config-roundtrip`
 - **AND** evidence SHALL identify the failed absence proof
 
+#### Scenario: Final cleanup fails
+
+- **WHEN** bounded final uninstall, target cleanup, declared-boundary absence/equality proof, or reboot-state verification fails
+- **THEN** the live scenario SHALL fail
+- **AND** the result SHALL NOT be published or counted as a live pass
+
 #### Scenario: Engine and independent observer disagree
 
 - **WHEN** the production verifier and independent package/settings observer disagree after install or rebuild
@@ -322,12 +348,14 @@ The system SHALL keep pull-request, scheduled, dispatch, and release validation 
 
 #### Scenario: Engine-affecting pull request runs
 
-- **WHEN** a pull request changes engine behavior, module loading, capture, restore, verification, config generations, package drivers, the validation harness, or its workflow
-- **THEN** the synthetic Notepad++ engine-contract canary SHALL run with a timeout of at most 25 minutes
+- **WHEN** a same-repository pull request changes engine behavior, module loading, capture, restore, verification, config generations, package drivers, the validation harness, or its workflow after the Notepad++ hosted-live lane is explicitly promoted
+- **THEN** the live Notepad++ canary SHALL run with a timeout of at most 25 minutes
+- **AND** its evidence SHALL be a required row consumed by the stable `Verified Module Matrix` aggregate
+- **AND** branch protection SHALL require only the stable aggregate rather than the conditional canary job name
 
 #### Scenario: Module pull request runs
 
-- **WHEN** a pull request changes one or more modules or validation records
+- **WHEN** a same-repository pull request changes one or more modules or validation records after hosted-live PR selection is promoted
 - **THEN** up to three changed modules whose merge-base live mode is `hosted` SHALL run their live jobs using merge-base-controlled package/seed/comparator policy
 - **AND** changed live jobs SHALL run in parallel rather than serially
 - **AND** any overflow SHALL be reported as deferred/stale and SHALL NOT be represented as current live proof
@@ -352,6 +380,37 @@ The system SHALL keep pull-request, scheduled, dispatch, and release validation 
 - **AND** every result SHALL remain bound to the engine hash it tested
 - **AND** a change to the engine binary/commit, module, validation sidecar, fixture, seed/comparator, package driver/source/ref, or proof mode SHALL immediately stale every mismatched live row until that module reruns
 - **AND** the final aggregator SHALL report the complete matrix and fail on required failures
+
+#### Scenario: Initial Notepad++ qualification runs
+
+- **WHEN** the hosted-live workflow is first enabled
+- **THEN** a dedicated workflow separate from the synthetic aggregate SHALL select only the exact `Notepad++.Notepad++` candidate on trusted `main`
+- **AND** it SHALL run through `schedule` and `workflow_dispatch` with one non-cancelling concurrency group and a 45-minute timeout
+- **AND** a protected campaign SHALL pin the exact checkout commit, engine binary hash, module/validation/seed/comparator identity, package policy, observer boundary, and workflow/policy digest
+- **AND** scheduled attempts SHALL keep testing that pinned campaign while unrelated commits move `main`
+- **AND** changing any pinned campaign field SHALL reset the qualifying streak
+- **AND** an external trusted authority SHALL validate the exact repository, workflow, event, ref, checkout commit, run, attempt, and trusted actor class before granting mutation eligibility
+- **AND** its single-use permit SHALL bind the engine binary hash; package driver, reference, and arguments; module/validation/seed hashes; comparator and target set; observer boundary; protected workflow/policy digest; phase nonce; and expiry
+- **AND** authoritative mutation inputs SHALL come from the protected campaign or merge-base allowlist rather than caller-supplied candidate metadata
+- **AND** no automatic retry SHALL run during qualification
+- **AND** compact sanitized evidence SHALL be at most 64 KiB and retained for 90 days
+- **AND** the first success SHALL remain diagnostic rather than becoming a merge gate
+
+#### Scenario: Notepad++ qualification is promoted
+
+- **WHEN** the same pinned Notepad++ campaign identity records ten consecutive scheduled first-attempt clean passes that each complete the entire job within 25 minutes
+- **THEN** a separate reviewed change MAY promote only Notepad++ from candidate to `hosted`
+- **AND** manual dispatches, workflow reruns, passes exceeding 25 minutes, and `PASS_AFTER_RETRY` results SHALL NOT advance or repair the qualifying streak
+- **AND** after promotion merges, a fresh trusted-main run of the promoted identity SHALL pass within 25 minutes before the live canary becomes a required aggregate row
+- **AND** fork pull requests SHALL remain synthetic-only and SHALL NOT receive live mutation eligibility
+
+#### Scenario: Another hosted-safe candidate is promoted
+
+- **WHEN** a hosted-safe candidate other than Notepad++ is proposed for hosted rotation or pull-request selection
+- **THEN** it SHALL complete its own pinned qualification campaign of ten consecutive scheduled first-attempt clean passes within its declared pull-request timeout
+- **AND** a separate reviewed change SHALL promote only that module
+- **AND** a fresh trusted-main run of its promoted identity SHALL pass before it enters hosted rotation or pull-request selection
+- **AND** Notepad++ qualification SHALL NOT authorize another module
 
 #### Scenario: Release live campaign runs
 
@@ -461,7 +520,7 @@ The system SHALL use public-repository standard hosted compute and minimize stor
 - **AND** checkout SHALL disable persisted credentials
 - **AND** installer subprocesses SHALL receive no GitHub token
 - **AND** no secrets or self-hosted runners SHALL be available
-- **AND** live package/seed/comparator policy SHALL come from the trusted merge base
+- **AND** no live installed-application job SHALL run and no mutation permit SHALL be available
 - **AND** `pull_request_target` SHALL NOT execute untrusted code
 - **AND** third-party Actions SHALL be pinned to immutable commit SHAs
 
