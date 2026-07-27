@@ -35,14 +35,6 @@
       "optional": true
     },
     {
-      // Milkdrop visualizer settings (lives under Plugins\, not the Winamp root)
-      "type": "copy",
-      "source": "./payload/apps/winamp/Plugins/milk2.ini",
-      "target": "%APPDATA%\\Winamp\\Plugins\\milk2.ini",
-      "backup": true,
-      "optional": true
-    },
-    {
       // Graphic EQ presets (preset banks)
       "type": "copy",
       "source": "./payload/apps/winamp/winamp.q1",
@@ -96,7 +88,6 @@
     "files": [
       { "source": "%APPDATA%\\Winamp\\winamp.ini", "dest": "apps/winamp/winamp.ini", "optional": true },
       { "source": "%APPDATA%\\Winamp\\studio.xnf", "dest": "apps/winamp/studio.xnf", "optional": true },
-      { "source": "%APPDATA%\\Winamp\\Plugins\\milk2.ini", "dest": "apps/winamp/Plugins/milk2.ini", "optional": true },
       { "source": "%APPDATA%\\Winamp\\winamp.q1", "dest": "apps/winamp/winamp.q1", "optional": true },
       { "source": "%APPDATA%\\Winamp\\winamp.q2", "dest": "apps/winamp/winamp.q2", "optional": true },
       { "source": "%APPDATA%\\Winamp\\winamp.bm", "dest": "apps/winamp/winamp.bm", "optional": true },
@@ -108,7 +99,7 @@
     ],
     "excludeGlobs": [
       // Media library database - large, machine-specific (absolute paths), regenerable on rescan
-      "**\\Plugins\\ml\\**",
+      "**\\ml\\**",
       "**\\main.dat",
       "**\\main.idx",
       // Recently-played history caches

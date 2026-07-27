@@ -75,6 +75,11 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 		if err != nil {
 			return nil, fail(CodeUnsupportedFixture, "fixture", definition.Coordinate, "target cannot be resolved through validation mode")
 		}
+		for _, existing := range plan.Targets {
+			if fixtureTargetRootsOverlap(existing.Resolved, resolved) {
+				return nil, fail(CodeUnsupportedFixture, "fixture", definition.Coordinate, "capture target overlaps another resolved fixture target")
+			}
+		}
 		directory := definition.Kind == fixtureKindDirectory
 		payloadPath := resolved
 		if directory {
@@ -100,6 +105,25 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 			}
 			captureByRelative := witnessPatterns(captureWitnesses, capturePatterns)
 			restoreByRelative := witnessPatterns(restoreWitnesses, definition.TargetExclude)
+			for _, relative := range restoreWitnesses {
+				key := strings.ToLower(filepath.ToSlash(relative))
+				for _, pattern := range globalPatterns {
+					matched, err := bundle.ConfigPathMatchesExcludeGlob(relative, pattern)
+					if err != nil || !matched {
+						continue
+					}
+					alreadyAssigned := false
+					for _, assigned := range captureByRelative[key] {
+						if strings.EqualFold(filepath.ToSlash(assigned), filepath.ToSlash(pattern)) {
+							alreadyAssigned = true
+							break
+						}
+					}
+					if !alreadyAssigned {
+						captureByRelative[key] = append(captureByRelative[key], pattern)
+					}
+				}
+			}
 			ordered := append(append([]string(nil), captureWitnesses...), restoreWitnesses...)
 			seen := map[string]struct{}{}
 			for _, relative := range ordered {
@@ -138,6 +162,17 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 		return nil, failure
 	}
 	return plan, nil
+}
+
+func fixtureTargetRootsOverlap(first, second string) bool {
+	first = strings.TrimSuffix(filepath.ToSlash(filepath.Clean(first)), "/")
+	second = strings.TrimSuffix(filepath.ToSlash(filepath.Clean(second)), "/")
+	if first == "" || second == "" {
+		return false
+	}
+	first = strings.ToLower(first)
+	second = strings.ToLower(second)
+	return first == second || strings.HasPrefix(first, second+"/") || strings.HasPrefix(second, first+"/")
 }
 
 func (plan *FixturePlan) bindNestedFileVerifierPayloads(mod *modules.Module, definitions fixtureDefinitions) *Failure {
@@ -247,7 +282,11 @@ func excludedFixtureRelatives(patterns []string) ([]string, bool) {
 			switch {
 			case strings.HasPrefix(stripped, "*."):
 				relative = "excluded" + strings.TrimPrefix(stripped, "*")
-			case !strings.ContainsAny(stripped, "*?["):
+			case strings.ContainsAny(stripped, "?["):
+				return nil, false
+			case strings.Contains(stripped, "*"):
+				relative = strings.ReplaceAll(stripped, "*", "fixture")
+			case stripped != "." && stripped != "..":
 				relative = stripped
 			}
 		}

@@ -5,6 +5,7 @@ package validationharness
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -98,6 +99,26 @@ func TestProductionDolphinAutoFixtureUsesDirectoriesAndBindsNestedVerifier(t *te
 	if len(plan.Targets) != 8 {
 		t.Fatalf("Dolphin targets = %d, want 8", len(plan.Targets))
 	}
+	globalOnlyOwners := 0
+	for _, target := range plan.Targets {
+		if len(target.CaptureExcluded) != 0 {
+			globalOnlyOwners++
+		}
+		if target.Authored != `%USERPROFILE%\Documents\Dolphin Emulator\Config` {
+			continue
+		}
+		if len(target.RestoreExcluded) != 0 || len(target.OverlappingExcluded) != 2 {
+			t.Fatalf("Dolphin legacy Config exclusions = capture:%+v restore:%+v overlap:%+v", target.CaptureExcluded, target.RestoreExcluded, target.OverlappingExcluded)
+		}
+		for _, witness := range target.OverlappingExcluded {
+			if len(witness.CapturePatterns) == 0 || len(witness.RestorePatterns) == 0 {
+				t.Fatalf("Dolphin legacy Config witness lacks global capture and restore roles: %+v", witness)
+			}
+		}
+	}
+	if globalOnlyOwners != 1 {
+		t.Fatalf("Dolphin global-only capture witness owners = %d, want 1", globalOnlyOwners)
+	}
 	if failure := plan.MaterializeCaptured(); failure != nil {
 		t.Fatal(failure)
 	}
@@ -118,6 +139,81 @@ func TestProductionDolphinAutoFixtureUsesDirectoriesAndBindsNestedVerifier(t *te
 		return
 	}
 	t.Fatal("Dolphin Config capture target is absent")
+}
+
+func TestProductionClinkAutoFixtureUsesOneDirectoryAndOverlappingExclusions(t *testing.T) {
+	repo := productionLiveRepoRoot(t)
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := catalog.Modules["apps.clink"]
+	record := catalog.Records["apps.clink"]
+	if mod == nil || len(record.Synthetic.Scenarios) != 1 {
+		t.Fatalf("Clink catalog authority = module=%+v scenarios=%+v", mod, record.Synthetic.Scenarios)
+	}
+	scenario := record.Synthetic.Scenarios[0]
+	definitions, failure := compileFixtureDefinitionsAt(repo, mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(definitions.Entries) != 1 || definitions.Entries[0].Destination != "apps/clink/profile" {
+		t.Fatalf("Clink capture destination = %+v, want existing profile lane", definitions.Entries)
+	}
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(plan.Targets) != 1 {
+		t.Fatalf("Clink targets = %+v, want one parent directory", plan.Targets)
+	}
+	target := plan.Targets[0]
+	if !target.Directory || target.Authored != `%LOCALAPPDATA%\clink` || target.PayloadPath != filepath.Join(target.Resolved, "clink_settings") {
+		t.Fatalf("Clink target = %+v", target)
+	}
+	if len(target.CaptureExcluded) != 0 || len(target.RestoreExcluded) != 0 || len(target.OverlappingExcluded) != 2 {
+		t.Fatalf("Clink exclusions = capture:%+v restore:%+v overlap:%+v", target.CaptureExcluded, target.RestoreExcluded, target.OverlappingExcluded)
+	}
+	for _, witness := range target.OverlappingExcluded {
+		if len(witness.CapturePatterns) == 0 || len(witness.RestorePatterns) == 0 {
+			t.Fatalf("Clink overlapping witness = %+v", witness)
+		}
+	}
+}
+
+func TestProductionWinampAutoFixtureHasNoRedundantMilkdropTargetOrOverlap(t *testing.T) {
+	repo := productionLiveRepoRoot(t)
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod := catalog.Modules["apps.winamp"]
+	record := catalog.Records["apps.winamp"]
+	if mod == nil || len(record.Synthetic.Scenarios) != 1 {
+		t.Fatalf("Winamp catalog authority = module=%+v scenarios=%+v", mod, record.Synthetic.Scenarios)
+	}
+	scenario := record.Synthetic.Scenarios[0]
+	definitions, failure := compileFixtureDefinitionsAt(repo, mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(plan.Targets) != 8 {
+		t.Fatalf("Winamp targets = %d, want 8", len(plan.Targets))
+	}
+	for index, target := range plan.Targets {
+		if target.Authored == `%APPDATA%\Winamp\Plugins\milk2.ini` {
+			t.Fatalf("Winamp target retains redundant Milkdrop = %+v", target)
+		}
+		for other := range plan.Targets[:index] {
+			if fixtureTargetRootsOverlap(target.Resolved, plan.Targets[other].Resolved) {
+				t.Fatalf("Winamp fixture target roots overlap: %q and %q", target.Resolved, plan.Targets[other].Resolved)
+			}
+		}
+	}
 }
 
 func TestProductionWaveLinkV1ArtifactFlattensNestedDestination(t *testing.T) {
@@ -237,6 +333,28 @@ func TestFixturePlanWitnessesWildcardDirectoryExcludeWithProductionMatcher(t *te
 	}
 }
 
+func TestExcludedFixtureRelativesWitnessesBasenameWildcardsWithProductionMatcher(t *testing.T) {
+	patterns := []string{"**/clink_history*", "**/met*.vmd"}
+	witnesses, ok := excludedFixtureRelatives(patterns)
+	if !ok || !exactStrings(witnesses, []string{"clink_historyfixture", "metfixture.vmd"}) {
+		t.Fatalf("basename wildcard witnesses = %v, %t", witnesses, ok)
+	}
+	for index, witness := range witnesses {
+		matched, err := bundle.ConfigPathMatchesExcludeGlob(witness, patterns[index])
+		if err != nil || !matched {
+			t.Fatalf("production matcher witness %q for %q = %t, %v", witness, patterns[index], matched, err)
+		}
+	}
+}
+
+func TestExcludedFixtureRelativesRejectsUnsafeOrUnreachablePatterns(t *testing.T) {
+	for _, pattern := range []string{"../history*", "**/profile-??.tmp", "**/broken[.tmp", "**/nested/path*.tmp"} {
+		if witnesses, ok := excludedFixtureRelatives([]string{pattern}); ok || witnesses != nil {
+			t.Fatalf("unsafe pattern %q witnesses = %v, %t", pattern, witnesses, ok)
+		}
+	}
+}
+
 func TestFixturePlanWitnessesWildcardGlobalDirectoryExcludeWithProductionMatcher(t *testing.T) {
 	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
 	if err != nil {
@@ -269,6 +387,30 @@ func TestFixturePlanWitnessesWildcardGlobalDirectoryExcludeWithProductionMatcher
 	}
 	if first.Targets[1].CaptureExcluded[0].Relative != second.Targets[1].CaptureExcluded[0].Relative {
 		t.Fatal("wildcard global directory witness is not deterministic")
+	}
+}
+
+func TestFixturePlanClassifiesConcreteRestoreWitnessMatchingGlobalCapturePattern(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	for index := range definitions.Entries {
+		definitions.Entries[index].GlobalExclude = []string{"**/*fixture*"}
+	}
+	definitions.Entries[1].TargetExclude = []string{"**/Logs/**"}
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	target := plan.Targets[1]
+	if len(target.CaptureExcluded) != 1 || len(target.RestoreExcluded) != 0 || len(target.OverlappingExcluded) != 1 {
+		t.Fatalf("concrete global/restore roles = capture:%+v restore:%+v overlap:%+v", target.CaptureExcluded, target.RestoreExcluded, target.OverlappingExcluded)
+	}
+	witness := target.OverlappingExcluded[0]
+	if !exactStrings(witness.CapturePatterns, []string{"**/*fixture*"}) || !exactStrings(witness.RestorePatterns, []string{"**/Logs/**"}) {
+		t.Fatalf("concrete global/restore witness = %+v", witness)
 	}
 }
 
@@ -343,6 +485,40 @@ func TestFixturePlanRejectsExcludeContractWithoutDirectoryWitnessTarget(t *testi
 	}
 	if _, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); failure == nil || failure.Code != CodeUnsupportedFixture {
 		t.Fatalf("missing directory witness failure = %+v", failure)
+	}
+}
+
+func TestFixturePlanRejectsOverlappingTargetRootsBeforeMaterialization(t *testing.T) {
+	for _, targets := range [][2]string{
+		{`%APPDATA%\Fixture\Profiles`, `%APPDATA%\fixture\profiles`},
+		{`%APPDATA%\Fixture/Profiles`, `%APPDATA%\fixture\Profiles\Nested`},
+	} {
+		mod, err := modules.ParseModuleJSON([]byte(fixtureTargetTopologyModuleJSON(targets[0], targets[1])))
+		if err != nil {
+			t.Fatal(err)
+		}
+		scenario := fixtureScenario()
+		definitions, failure := compileFixtureDefinitions(mod, scenario)
+		if failure != nil {
+			t.Fatal(failure)
+		}
+		plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+		if plan != nil || failure == nil || failure.Code != CodeUnsupportedFixture {
+			t.Fatalf("overlapping targets plan=%+v failure=%+v", plan, failure)
+		}
+	}
+
+	mod, err := modules.ParseModuleJSON([]byte(fixtureTargetTopologyModuleJSON(`%APPDATA%\Fixture\Profiles`, `%APPDATA%\Fixture\ProfilesBackup`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario := fixtureScenario()
+	definitions, failure := compileFixtureDefinitions(mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); failure != nil || len(plan.Targets) != 2 {
+		t.Fatalf("sibling target plan=%+v failure=%+v", plan, failure)
 	}
 }
 
@@ -522,3 +698,18 @@ const splitExcludeFixtureModuleJSON = `{
     {"source":"%APPDATA%\\Fixture\\profiles","dest":"apps/fixture/profiles"}
   ],"excludeGlobs":["**\\CaptureOnly\\**"]}
 }`
+
+func fixtureTargetTopologyModuleJSON(first, second string) string {
+	return fmt.Sprintf(`{
+  "id":"apps.fixture","displayName":"Fixture","sensitivity":"none",
+  "matches":{"winget":["Vendor.Fixture"]},
+  "restore":[
+    {"type":"copy","source":"./payload/apps/fixture/first","target":%q,"backup":true},
+    {"type":"copy","source":"./payload/apps/fixture/second","target":%q,"backup":true}
+  ],
+  "capture":{"files":[
+    {"source":%q,"dest":"apps/fixture/first"},
+    {"source":%q,"dest":"apps/fixture/second"}
+  ]}
+}`, first, second, first, second)
+}
