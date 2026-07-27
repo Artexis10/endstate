@@ -6,6 +6,7 @@ package validationharness
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -129,14 +130,14 @@ func compileV2FixturePlan(context *validationmode.Context, mod *modules.Module, 
 		}
 		capturePlan := V2FixtureTarget{
 			Coordinate: entry.Shape.CaptureCoordinate, Authored: entry.Capture.Source,
-			Destination: filepath.ToSlash(entry.Capture.Dest), Resolved: source,
+			Destination: catalogPath(entry.Capture.Dest), Resolved: source,
 			Directory:    entry.Shape.Kind == fixtureKindDirectory,
 			PreserveRoot: strings.Contains(entry.Capture.Source, "${instance.root}"),
 			Optional:     entry.Capture.Optional,
 		}
 		targetPlan := V2FixtureTarget{
 			Coordinate: entry.Shape.RestoreCoordinate, Authored: entry.Restore.Target,
-			Destination: filepath.ToSlash(entry.Restore.Source), Resolved: target,
+			Destination: catalogPath(entry.Restore.Source), Resolved: target,
 			Directory:    entry.Shape.Kind == fixtureKindDirectory,
 			PreserveRoot: strings.Contains(entry.Restore.Target, "${instance.root}"),
 			Optional:     entry.Capture.Optional || entry.Restore.Optional,
@@ -148,11 +149,11 @@ func compileV2FixturePlan(context *validationmode.Context, mod *modules.Module, 
 					return unsupported(entry.Shape.CaptureCoordinate, "fixture member content cannot satisfy its declared format")
 				}
 				capturePlan.Members = append(capturePlan.Members, V2FixtureFile{
-					Relative: filepath.ToSlash(member.Path), Path: filepath.Join(source, filepath.FromSlash(member.Path)),
+					Relative: catalogPath(member.Path), Path: filepath.Join(source, filepath.FromSlash(catalogPath(member.Path))),
 					Captured: captured, Mutated: mutated,
 				})
 				targetPlan.Members = append(targetPlan.Members, V2FixtureFile{
-					Relative: filepath.ToSlash(member.Path), Path: filepath.Join(target, filepath.FromSlash(member.Path)),
+					Relative: catalogPath(member.Path), Path: filepath.Join(target, filepath.FromSlash(catalogPath(member.Path))),
 					Captured: captured, Mutated: mutated,
 				})
 			}
@@ -207,8 +208,8 @@ func compileV2FixturePlan(context *validationmode.Context, mod *modules.Module, 
 
 func proveV2SingleFileExcludes(entry v2CompiledEntry) *Failure {
 	candidates := []string{
-		filepath.Base(entry.Capture.Source), filepath.Base(entry.Capture.Dest),
-		filepath.Base(entry.Restore.Source), filepath.Base(entry.Restore.Target),
+		path.Base(catalogPath(entry.Capture.Source)), path.Base(catalogPath(entry.Capture.Dest)),
+		path.Base(catalogPath(entry.Restore.Source)), path.Base(catalogPath(entry.Restore.Target)),
 	}
 	patterns := append(append(append([]string(nil), entry.CaptureOnly...), entry.RestoreOnly...), entry.Overlapping...)
 	for _, pattern := range patterns {
@@ -240,7 +241,7 @@ func discoverV2FixtureInstances(context *validationmode.Context, mod *modules.Mo
 		return instances, nil
 	}
 	alias := v2DetectorAlias(compiled.Detector.Glob)
-	if alias == "" || filepath.Base(compiled.Definition.InstanceLocator) != compiled.Definition.InstanceLocator || strings.ContainsAny(compiled.Definition.InstanceLocator, `\/`) {
+	if alias == "" || path.Base(catalogPath(compiled.Definition.InstanceLocator)) != compiled.Definition.InstanceLocator || strings.ContainsAny(compiled.Definition.InstanceLocator, `\/`) {
 		return bad("instanceLocator", "path fixture locator is not one stable basename")
 	}
 	pattern, err := context.ResolveHostPattern(compiled.Detector.Glob, validationmode.HostPathPolicy{})
@@ -260,7 +261,7 @@ func discoverV2FixtureInstances(context *validationmode.Context, mod *modules.Mo
 	if context.ValidateSandboxPath(anchor) != nil || !fixtureContained(anchor, root) {
 		return bad("instanceLocator", "path fixture root left the production detector anchor")
 	}
-	if matched, matchErr := filepath.Match(filepath.Base(pattern), filepath.Base(root)); matchErr != nil || !matched {
+	if matched, matchErr := path.Match(path.Base(catalogPath(pattern)), path.Base(catalogPath(root))); matchErr != nil || !matched {
 		return bad("instanceLocator", "path fixture locator does not match the production detector glob")
 	}
 	if compiled.Detector.VersionPattern != "" {
@@ -302,10 +303,10 @@ func compileV2ExcludeWitnesses(moduleID, scenarioID, root string, entry v2Compil
 	add := func(pattern string, capture bool) *Failure {
 		relative, ok := v2ExcludeWitness(pattern)
 		path := filepath.Join(root, filepath.FromSlash(relative))
-		if !ok || !safeArtifactName(filepath.ToSlash(relative)) || filepath.Clean(path) == filepath.Clean(root) || !fixtureContained(root, path) || !v2MatchesExclude(relative, pattern) {
+		if !ok || !safeArtifactName(catalogPath(relative)) || filepath.Clean(path) == filepath.Clean(root) || !fixtureContained(root, path) || !v2MatchesExclude(relative, pattern) {
 			return fail(CodeUnsupportedFixture, "fixture", "exclude", "production exclude has no deterministic witness")
 		}
-		key := strings.ToLower(filepath.ToSlash(relative))
+		key := strings.ToLower(catalogPath(relative))
 		role := byRelative[key]
 		if role == nil {
 			role = &roles{}
@@ -331,14 +332,14 @@ func compileV2ExcludeWitnesses(moduleID, scenarioID, root string, entry v2Compil
 	}
 	result := make([]V2ExcludedFixture, 0, len(order))
 	for index, relative := range order {
-		key := strings.ToLower(filepath.ToSlash(relative))
+		key := strings.ToLower(catalogPath(relative))
 		role := byRelative[key]
 		captured, mutated, err := v2FixtureContents(moduleID, scenarioID, fmt.Sprintf("exclude[%d]", index), v2FormatFile)
 		if err != nil {
 			return nil, fail(CodeUnsupportedFixture, "fixture", "exclude", "build exclude witness")
 		}
 		result = append(result, V2ExcludedFixture{
-			Relative: filepath.ToSlash(relative), Path: filepath.Join(root, filepath.FromSlash(relative)),
+			Relative: catalogPath(relative), Path: filepath.Join(root, filepath.FromSlash(catalogPath(relative))),
 			Captured: captured, Mutated: mutated,
 			CapturePatterns: append([]string(nil), role.capture...), RestorePatterns: append([]string(nil), role.restore...),
 		})
@@ -347,7 +348,7 @@ func compileV2ExcludeWitnesses(moduleID, scenarioID, root string, entry v2Compil
 }
 
 func v2ExcludeWitness(raw string) (string, bool) {
-	pattern := filepath.ToSlash(raw)
+	pattern := catalogPath(raw)
 	stripped := strings.TrimPrefix(pattern, "**/")
 	if strings.ContainsAny(stripped, "?[") || stripped == "" {
 		return "", false
@@ -370,8 +371,8 @@ func v2ExcludeWitness(raw string) (string, bool) {
 }
 
 func v2MatchesExclude(relative, rawPattern string) bool {
-	normalized := filepath.ToSlash(relative)
-	pattern := filepath.ToSlash(rawPattern)
+	normalized := catalogPath(relative)
+	pattern := catalogPath(rawPattern)
 	stripped := strings.TrimPrefix(pattern, "**/")
 	if strings.HasSuffix(stripped, "/**") {
 		directory := strings.TrimSuffix(stripped, "/**")
@@ -379,7 +380,7 @@ func v2MatchesExclude(relative, rawPattern string) bool {
 		return strings.Contains(strings.ToLower(bounded), "/"+strings.ToLower(directory)+"/")
 	}
 	for _, segment := range strings.Split(normalized, "/") {
-		if matched, _ := filepath.Match(stripped, segment); matched {
+		if matched, _ := path.Match(stripped, segment); matched {
 			return true
 		}
 	}

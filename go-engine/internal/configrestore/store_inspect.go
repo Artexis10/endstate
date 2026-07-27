@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 const (
@@ -346,6 +347,11 @@ func readInspectionBoundedFile(fs storeInspectionFS, path string) (inspectionRea
 func validateInspectionPathNoLinks(fs storeInspectionFS, path string) error {
 	if path == "" || !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return fmt.Errorf("inspection path is not clean and absolute")
+	}
+	var err error
+	path, err = safepath.CanonicalizePlatformRootAlias(path)
+	if err != nil {
+		return err
 	}
 	volume := filepath.VolumeName(path)
 	current := volume + string(filepath.Separator)

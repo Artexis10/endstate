@@ -768,6 +768,13 @@ func TestConfigPathMatchesExcludeGlobMatchesWildcardDirectorySegments(t *testing
 	}
 }
 
+func TestConfigPathMatchesExcludeGlobNormalizesMixedCatalogSeparators(t *testing.T) {
+	matched, err := ConfigPathMatchesExcludeGlob(`profiles\Cache/mixed\entry.json`, `**/Cache\**`)
+	if err != nil || !matched {
+		t.Fatalf("mixed-separator catalog glob match = %t, %v; want true, nil", matched, err)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // ExtractBundle - error cases
 // ---------------------------------------------------------------------------

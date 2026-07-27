@@ -101,14 +101,17 @@ jobs:
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: endstate-windows-binaries
-          path: go-engine
+          path: ${{ runner.temp }}/endstate-bin
       - name: Run synthetic shard
         shell: pwsh
         run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
+          $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
           $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
           New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
-          Push-Location go-engine
-          .\endstate-validation.exe shard --engine (Join-Path $PWD 'endstate.exe') --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --shards 8 --shard ${{ matrix.shard }} --result (Join-Path $resultRoot 'shard-${{ matrix.shard }}.json')
+          & $validator shard --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --shards 8 --shard ${{ matrix.shard }} --result (Join-Path $resultRoot 'shard-${{ matrix.shard }}.json')
           exit $LASTEXITCODE
       - name: Upload shard evidence
         if: always()
@@ -136,14 +139,17 @@ jobs:
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: endstate-windows-binaries
-          path: go-engine
+          path: ${{ runner.temp }}/endstate-bin
       - name: Run all-bundle-twice catalog matrix
         shell: pwsh
         run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
+          $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
           $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
           New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
-          Push-Location go-engine
-          .\endstate-validation.exe catalog --engine (Join-Path $PWD 'endstate.exe') --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --result (Join-Path $resultRoot 'catalog.json')
+          & $validator catalog --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --result (Join-Path $resultRoot 'catalog.json')
           exit $LASTEXITCODE
       - name: Upload catalog evidence
         if: always()
@@ -171,14 +177,17 @@ jobs:
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: endstate-windows-binaries
-          path: go-engine
+          path: ${{ runner.temp }}/endstate-bin
       - name: Run synthetic Notepad++ engine-contract canary
         shell: pwsh
         run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
+          $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
           $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
           New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
-          Push-Location go-engine
-          .\endstate-validation.exe canary --engine (Join-Path $PWD 'endstate.exe') --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --result (Join-Path $resultRoot 'canary.json')
+          & $validator canary --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --result (Join-Path $resultRoot 'canary.json')
           exit $LASTEXITCODE
       - name: Upload synthetic canary evidence
         if: always()
@@ -206,7 +215,7 @@ jobs:
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: endstate-windows-binaries
-          path: go-engine
+          path: ${{ runner.temp }}/endstate-bin
       - name: Download shard evidence
         # v5.0.0
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
@@ -229,10 +238,13 @@ jobs:
       - name: Aggregate compact evidence
         shell: pwsh
         run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate.exe'
+          $validator = Join-Path $env:RUNNER_TEMP 'endstate-bin\endstate-validation.exe'
           $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
           New-Item -ItemType Directory -Force -Path $resultRoot | Out-Null
-          Push-Location go-engine
-          .\endstate-validation.exe aggregate --engine (Join-Path $PWD 'endstate.exe') --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --input (Join-Path $env:RUNNER_TEMP 'validation-input') --result (Join-Path $resultRoot 'aggregate.json') | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'aggregate-output.json')
+          & $validator aggregate --engine $engine --repo $env:GITHUB_WORKSPACE --commit $env:GITHUB_SHA --input (Join-Path $env:RUNNER_TEMP 'validation-input') --result (Join-Path $resultRoot 'aggregate.json') | Tee-Object -FilePath (Join-Path $env:RUNNER_TEMP 'aggregate-output.json')
           exit $LASTEXITCODE
       - name: Write summary
         if: always()

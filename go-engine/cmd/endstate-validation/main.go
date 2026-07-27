@@ -58,6 +58,19 @@ func runShard(args []string, stdout io.Writer, runner scenarioRunner) int {
 	request.Run = validationci.ScenarioRunner(runner)
 	result, err := validationci.RunSyntheticShard(request)
 	if err != nil {
+		shardCount := request.ShardCount
+		if shardCount == 0 {
+			shardCount = validationci.ShardCount
+		}
+		result = validationci.ShardResult{
+			SchemaVersion: validationci.SchemaVersion,
+			Commit:        request.Commit,
+			ShardCount:    shardCount,
+			Shard:         request.Shard,
+			Status:        validationharness.ResultStatusFailed,
+			Rows:          []validationci.ShardRow{},
+			Failure:       safeValidationCICommandFailure(err),
+		}
 		return writeJSON(stdout, result, true)
 	}
 	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
@@ -76,6 +89,12 @@ func runCanary(args []string, stdout io.Writer, runner scenarioRunner) int {
 	}
 	result, err := validationci.RunCanary(request)
 	if err != nil {
+		result = validationci.CanaryResult{
+			SchemaVersion: validationci.SchemaVersion,
+			Commit:        request.Commit,
+			Status:        validationharness.ResultStatusFailed,
+			Failure:       safeValidationCICommandFailure(err),
+		}
 		return writeJSON(stdout, result, true)
 	}
 	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
@@ -94,6 +113,12 @@ func runCatalog(args []string, stdout io.Writer) int {
 	}
 	result, err := validationci.RunCatalog(request)
 	if err != nil {
+		result = validationci.CatalogResult{
+			SchemaVersion: validationci.SchemaVersion,
+			Commit:        request.Commit,
+			Status:        validationharness.ResultStatusFailed,
+			Failure:       safeValidationCICommandFailure(err),
+		}
 		return writeJSON(stdout, result, true)
 	}
 	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
@@ -113,9 +138,77 @@ func runAggregate(args []string, stdout io.Writer) int {
 	}
 	result, err := validationci.Aggregate(request)
 	if err != nil {
+		result = aggregateCommandFailure(request, result, err)
 		return writeJSON(stdout, result, true)
 	}
 	return writeJSON(stdout, result, result.Status != validationharness.ResultStatusPassed)
+}
+
+func aggregateCommandFailure(request validationci.AggregateRequest, result validationci.AggregateResult, err error) validationci.AggregateResult {
+	if result.SchemaVersion == validationci.SchemaVersion {
+		result.Status = validationharness.ResultStatusFailed
+		if result.Failure == "" {
+			result.Failure = safeValidationCICommandFailure(err)
+		}
+		return result
+	}
+	return validationci.AggregateResult{
+		SchemaVersion: validationci.SchemaVersion,
+		Commit:        request.Commit,
+		Status:        validationharness.ResultStatusFailed,
+		Failure:       safeValidationCICommandFailure(err),
+	}
+}
+
+// safeValidationCICommandFailure exposes only fixed, path-free classifications
+// emitted by validationci. Unexpected I/O details stay private to the runner.
+func safeValidationCICommandFailure(err error) string {
+	if err == nil {
+		return "validation CI command failed"
+	}
+	switch detail := err.Error(); detail {
+	case "invalid shard bounds",
+		"read engine identity",
+		"read repository identity",
+		"load production catalog",
+		"duplicate planned row",
+		"row result identity drift",
+		"impossible proof or status combination",
+		"engine changed during shard",
+		"repository changed during shard",
+		"duplicate planned canary",
+		"missing planned canary",
+		"impossible canary proof or status combination",
+		"engine changed during canary",
+		"repository changed during canary",
+		"catalog harness I/O failure",
+		"engine changed during catalog",
+		"repository changed during catalog",
+		"commit must be exact lowercase SHA-1",
+		"engine and repository must be canonical absolute paths",
+		"engine authority is unsafe",
+		"repository authority is unsafe",
+		"input directory is outside runner temp",
+		"input directory is unsafe",
+		"read input directory",
+		"evidence inventory is incomplete or has extra files",
+		"evidence inventory contains unsafe entry",
+		"evidence inventory has unexpected file",
+		"result path is unsafe",
+		"result directory is unsafe",
+		"missing or malformed shard evidence",
+		"foreign shard evidence",
+		"row proof identity drift",
+		"duplicate row evidence",
+		"failed row evidence",
+		"missing row evidence",
+		"missing or failed catalog evidence",
+		"catalog bundle count drift",
+		"missing or failed synthetic canary":
+		return detail
+	default:
+		return "validation CI command failed"
+	}
 }
 
 func writeCommandError(stdout io.Writer, detail string) int {

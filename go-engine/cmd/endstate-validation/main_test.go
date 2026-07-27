@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Artexis10/endstate/go-engine/internal/validationci"
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
@@ -100,6 +101,61 @@ func TestRunCLICommandsDispatchesCanaryFlags(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestRunCLICommandsClassifiesCatalogSetupFailure(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	commit := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	code := runCLICommands([]string{
+		"catalog",
+		"--engine", `C:\missing\endstate.exe`,
+		"--repo", `C:\missing\repo`,
+		"--commit", commit,
+		"--result", `C:\missing\endstate-validation-results\catalog.json`,
+	}, &stdout, &stderr, nil)
+	if code == 0 {
+		t.Fatalf("exit = 0, stdout=%s", stdout.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["schemaVersion"] != float64(1) || result["status"] != validationharness.ResultStatusFailed || result["failure"] == nil || result["failure"] == "" {
+		t.Fatalf("unclassified catalog failure = %s", stdout.String())
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("stderr = %q", stderr.String())
+	}
+}
+
+func TestValidationCICommandFailureRedactsUnknownPaths(t *testing.T) {
+	if got := safeValidationCICommandFailure(errors.New(`persist C:\runner\secret\result.json`)); got != "validation CI command failed" {
+		t.Fatalf("unsafe validation CI failure = %q", got)
+	}
+	if got := safeValidationCICommandFailure(errors.New("engine authority is unsafe")); got != "engine authority is unsafe" {
+		t.Fatalf("classified validation CI failure = %q", got)
+	}
+}
+
+func TestAggregateCommandFailurePreservesClassifiedEvidence(t *testing.T) {
+	request := validationci.AggregateRequest{Commit: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	classified := validationci.AggregateResult{
+		SchemaVersion: validationci.SchemaVersion,
+		Commit:        request.Commit,
+		Status:        validationharness.ResultStatusFailed,
+		Modules:       validationci.PassedEligible{Passed: 3, Eligible: 4},
+		Scenarios:     validationci.PassedEligible{Passed: 8, Eligible: 9},
+		Failure:       "foreign shard evidence",
+	}
+	got := aggregateCommandFailure(request, classified, errors.New("foreign shard evidence"))
+	if got.Modules != classified.Modules || got.Scenarios != classified.Scenarios || got.Failure != classified.Failure {
+		t.Fatalf("classified aggregate evidence was replaced: got=%+v want=%+v", got, classified)
+	}
+
+	got = aggregateCommandFailure(request, validationci.AggregateResult{}, errors.New(`open C:\runner\secret\aggregate.json`))
+	if got.SchemaVersion != validationci.SchemaVersion || got.Commit != request.Commit || got.Status != validationharness.ResultStatusFailed || got.Failure != "validation CI command failed" {
+		t.Fatalf("unclassified aggregate setup failure = %+v", got)
 	}
 }
 

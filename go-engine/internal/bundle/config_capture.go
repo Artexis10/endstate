@@ -673,6 +673,10 @@ func captureError(code, format string, args ...any) error {
 }
 
 func capturePathError(err error, format string, args ...any) error {
+	var isolation *CaptureIsolationError
+	if errors.As(err, &isolation) {
+		return err
+	}
 	detail := fmt.Sprintf(format, args...)
 	if errors.Is(err, errBundleLink) {
 		return captureError(ConfigCaptureLinkUnsupported, "%s: %v", detail, err)

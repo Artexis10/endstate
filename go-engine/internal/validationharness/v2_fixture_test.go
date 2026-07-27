@@ -95,6 +95,12 @@ func TestSchemaV2SingleFileExcludesMustBeProvablyInapplicable(t *testing.T) {
 	}
 }
 
+func TestV2MatchesExcludeNormalizesMixedCatalogSeparators(t *testing.T) {
+	if !v2MatchesExclude(`profiles\Cache/mixed\entry.json`, `**/Cache\**`) {
+		t.Fatal("mixed-separator catalog exclude did not match")
+	}
+}
+
 func TestSchemaV2TrackedDirectFixturesCompileFromProduction(t *testing.T) {
 	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {

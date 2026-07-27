@@ -135,6 +135,22 @@ func TestAutoFixtureUsesDirectoryForExtensionlessCaptureDestination(t *testing.T
 	}
 }
 
+func TestCompileFixtureDefinitionsNormalizesMixedCatalogSeparators(t *testing.T) {
+	raw := strings.ReplaceAll(fixtureModuleJSON, `./payload/apps/fixture/settings.json`, `.\\payload/apps\\fixture/settings.json`)
+	raw = strings.ReplaceAll(raw, `apps/fixture/settings.json`, `apps\\fixture/settings.json`)
+	mod, err := modules.ParseModuleJSON([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	definitions, failure := compileFixtureDefinitions(mod, fixtureScenario())
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(definitions.Entries) != 1 || definitions.Entries[0].Destination != "apps/fixture/settings.json" {
+		t.Fatalf("definitions = %+v, want normalized catalog destination", definitions)
+	}
+}
+
 func TestDeclarativeFixtureLoadsExactHashedCoordinateKinds(t *testing.T) {
 	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
 	if err != nil {

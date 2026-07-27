@@ -106,7 +106,7 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 			captureByRelative := witnessPatterns(captureWitnesses, capturePatterns)
 			restoreByRelative := witnessPatterns(restoreWitnesses, definition.TargetExclude)
 			for _, relative := range restoreWitnesses {
-				key := strings.ToLower(filepath.ToSlash(relative))
+				key := strings.ToLower(catalogPath(relative))
 				for _, pattern := range globalPatterns {
 					matched, err := bundle.ConfigPathMatchesExcludeGlob(relative, pattern)
 					if err != nil || !matched {
@@ -114,7 +114,7 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 					}
 					alreadyAssigned := false
 					for _, assigned := range captureByRelative[key] {
-						if strings.EqualFold(filepath.ToSlash(assigned), filepath.ToSlash(pattern)) {
+						if strings.EqualFold(catalogPath(assigned), catalogPath(pattern)) {
 							alreadyAssigned = true
 							break
 						}
@@ -127,7 +127,7 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 			ordered := append(append([]string(nil), captureWitnesses...), restoreWitnesses...)
 			seen := map[string]struct{}{}
 			for _, relative := range ordered {
-				key := strings.ToLower(filepath.ToSlash(relative))
+				key := strings.ToLower(catalogPath(relative))
 				if _, duplicate := seen[key]; duplicate {
 					continue
 				}
@@ -240,13 +240,13 @@ func targetPayloadRelativeForPath(target FixtureTarget, path string) (string, bo
 	if err != nil || relative == "." || filepath.IsAbs(relative) || !fixtureContained(target.Resolved, path) {
 		return "", false
 	}
-	return filepath.ToSlash(relative), true
+	return catalogPath(relative), true
 }
 
 func witnessPatterns(relatives, patterns []string) map[string][]string {
 	result := make(map[string][]string, len(relatives))
 	for index, relative := range relatives {
-		key := strings.ToLower(filepath.ToSlash(relative))
+		key := strings.ToLower(catalogPath(relative))
 		result[key] = append(result[key], patterns[index])
 	}
 	return result
@@ -261,7 +261,7 @@ func excludedFixtureRelatives(patterns []string) ([]string, bool) {
 	seen := map[string]string{}
 	var result []string
 	for _, raw := range patterns {
-		pattern := filepath.ToSlash(raw)
+		pattern := catalogPath(raw)
 		stripped := strings.TrimPrefix(pattern, "**/")
 		var relative string
 		if strings.HasSuffix(stripped, "/**") {
@@ -298,7 +298,7 @@ func excludedFixtureRelatives(patterns []string) ([]string, bool) {
 			return nil, false
 		}
 		key := strings.ToLower(relative)
-		normalizedPattern := strings.ToLower(filepath.ToSlash(raw))
+		normalizedPattern := strings.ToLower(catalogPath(raw))
 		if previous, exists := seen[key]; exists {
 			if previous != normalizedPattern {
 				return nil, false

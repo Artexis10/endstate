@@ -385,8 +385,12 @@ func isValidationDisplayPath(value string) bool {
 }
 
 func semanticFilesystemScratch(target, suffix, kind string) string {
-	clean := filepath.Clean(target)
-	return filepath.Join(filepath.Dir(clean), "."+filepath.Base(clean)+".endstate-revert-"+suffix+"-"+kind)
+	separator := strings.LastIndexAny(target, `\/`)
+	parent, base := "", target
+	if separator >= 0 {
+		parent, base = target[:separator+1], target[separator+1:]
+	}
+	return parent + "." + base + ".endstate-revert-" + suffix + "-" + kind
 }
 
 func replaceFoldMany(value string, replacements [][2]string) string {

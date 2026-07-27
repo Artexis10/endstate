@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -66,7 +67,7 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 	for captureIndex, capture := range mod.Capture.Files {
 		var matches []int
 		for restoreIndex, restore := range mod.Restore {
-			if capture.Source == restore.Target && payloadDestination(restore.Source) == filepath.ToSlash(capture.Dest) {
+			if capture.Source == restore.Target && payloadDestination(restore.Source) == catalogPath(capture.Dest) {
 				matches = append(matches, restoreIndex)
 			}
 		}
@@ -84,12 +85,12 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 		// representative directory. This does not claim the production target's
 		// live filesystem type; type-sensitive cases require a hash-bound
 		// declarative fixture.
-		if scenario.Fixture.Type == validationmatrix.FixtureAuto && filepath.Ext(filepath.Base(filepath.ToSlash(capture.Dest))) == "" {
+		if scenario.Fixture.Type == validationmatrix.FixtureAuto && path.Ext(path.Base(catalogPath(capture.Dest))) == "" {
 			kind = fixtureKindDirectory
 		}
 		result.Entries = append(result.Entries, fixtureDefinition{
 			Coordinate: fmt.Sprintf("capture.files[%d]", captureIndex), Source: capture.Source,
-			Destination: filepath.ToSlash(capture.Dest), Target: restore.Target,
+			Destination: catalogPath(capture.Dest), Target: restore.Target,
 			Optional:      capture.Optional || restore.Optional,
 			GlobalExclude: append([]string(nil), mod.Capture.ExcludeGlobs...),
 			TargetExclude: append([]string(nil), restore.Exclude...),
@@ -234,10 +235,14 @@ func rejectDuplicateJSONFields(raw []byte) error {
 }
 
 func payloadDestination(source string) string {
-	normalized := filepath.ToSlash(strings.TrimPrefix(source, "./"))
+	normalized := catalogPath(strings.TrimPrefix(source, "./"))
 	const marker = "payload/"
 	if index := strings.Index(strings.ToLower(normalized), marker); index >= 0 {
 		return normalized[index+len(marker):]
 	}
 	return normalized
+}
+
+func catalogPath(value string) string {
+	return strings.ReplaceAll(value, `\`, "/")
 }

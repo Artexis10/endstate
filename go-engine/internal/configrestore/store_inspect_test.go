@@ -709,6 +709,17 @@ func TestInspectStoreRejectsLinkedAncestorBeforeEmptyStoreSuccess(t *testing.T) 
 	}
 }
 
+func TestValidateInspectionPathNoLinksRejectsArbitraryLink(t *testing.T) {
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "linked")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := validateInspectionPathNoLinks(storeInspectionFilesystem, filepath.Join(link, "record.json")); err == nil {
+		t.Fatal("inspection path through arbitrary link was accepted")
+	}
+}
+
 func TestInspectStoreReturnsOneToOneActionAndBackupRecords(t *testing.T) {
 	stateDir := t.TempDir()
 	guard, err := BeginLive(context.Background(), stateDir, "apply-actions", nil)

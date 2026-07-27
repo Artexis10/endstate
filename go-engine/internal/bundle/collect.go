@@ -14,6 +14,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -84,7 +85,7 @@ func CollectConfigFilesWithValidation(module *modules.Module, stagingDir string,
 			}
 		}
 
-		destFileName := filepath.Base(fileEntry.Dest)
+		destFileName := path.Base(catalogPath(fileEntry.Dest))
 		relativePath := filepath.ToSlash(filepath.Join("configs", moduleDirName, destFileName))
 		destPath := filepath.Join(stagingDir, filepath.FromSlash(relativePath))
 		if context != nil {
@@ -211,7 +212,7 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 			}
 		}
 		// Dest is relative to the configs/<module>/ staging area.
-		destFileName := filepath.Base(keyEntry.Dest)
+		destFileName := path.Base(catalogPath(keyEntry.Dest))
 		relativePath := filepath.ToSlash(filepath.Join("configs", moduleDirName, destFileName))
 		destPath := filepath.Join(stagingDir, filepath.FromSlash(relativePath))
 		if context != nil {
@@ -436,7 +437,7 @@ func matchesExcludeGlobs(path string, excludeGlobs []string) bool {
 		return false
 	}
 
-	normalizedPath := filepath.ToSlash(path)
+	normalizedPath := catalogPath(path)
 
 	for _, glob := range excludeGlobs {
 		matched, err := ConfigPathMatchesExcludeGlob(normalizedPath, glob)
@@ -453,8 +454,8 @@ func matchesExcludeGlobs(path string, excludeGlobs []string) bool {
 // collector preserves authored compatibility by treating malformed patterns
 // as non-matches through matchesExcludeGlobs.
 func ConfigPathMatchesExcludeGlob(value, glob string) (bool, error) {
-	normalizedPath := filepath.ToSlash(value)
-	pattern := filepath.ToSlash(glob)
+	normalizedPath := catalogPath(value)
+	pattern := catalogPath(glob)
 	stripped := strings.TrimPrefix(pattern, "**/")
 	if strings.HasSuffix(stripped, "/**") {
 		directoryPattern := strings.Trim(strings.TrimSuffix(stripped, "/**"), "/")
@@ -463,7 +464,7 @@ func ConfigPathMatchesExcludeGlob(value, glob string) (bool, error) {
 		}
 		directorySegments := strings.Split(directoryPattern, "/")
 		for _, segment := range directorySegments {
-			if _, err := filepath.Match(segment, ""); err != nil {
+			if _, err := path.Match(segment, ""); err != nil {
 				return false, err
 			}
 		}
@@ -475,7 +476,7 @@ func ConfigPathMatchesExcludeGlob(value, glob string) (bool, error) {
 		for start := 0; start+len(directorySegments) <= len(pathSegments); start++ {
 			allMatched := true
 			for index, segment := range directorySegments {
-				matched, err := filepath.Match(segment, pathSegments[start+index])
+				matched, err := path.Match(segment, pathSegments[start+index])
 				if err != nil {
 					return false, err
 				}
@@ -491,7 +492,7 @@ func ConfigPathMatchesExcludeGlob(value, glob string) (bool, error) {
 		return false, nil
 	}
 	for _, segment := range strings.Split(normalizedPath, "/") {
-		matched, err := filepath.Match(stripped, segment)
+		matched, err := path.Match(stripped, segment)
 		if err != nil {
 			return false, err
 		}
@@ -542,7 +543,7 @@ const captureBloatBinaryMaxBytes = 10 * 1024 * 1024 // 10 MiB
 // so only dirs WITHIN a recursively-captured subtree are matched — never a
 // coincidentally-named ancestor of the source itself.
 func isBloatDirSegment(relPath string) bool {
-	for _, seg := range strings.Split(filepath.ToSlash(relPath), "/") {
+	for _, seg := range strings.Split(catalogPath(relPath), "/") {
 		if captureBloatDirs[strings.ToLower(seg)] {
 			return true
 		}
@@ -670,13 +671,13 @@ func expandPath(p string) string {
 // patterns. Patterns may be absolute (env- or ~-rooted) file/dir paths, single-
 // glob patterns (*, ?, []), or contain "**" wildcards. Matching is
 // case-insensitive (Windows paths are case-insensitive).
-func matchesSecrets(path string, patterns []string) bool {
+func matchesSecrets(filePath string, patterns []string) bool {
 	if len(patterns) == 0 {
 		return false
 	}
-	target := strings.ToLower(filepath.ToSlash(path))
+	target := strings.ToLower(catalogPath(filePath))
 	for _, raw := range patterns {
-		p := strings.ToLower(filepath.ToSlash(expandPath(raw)))
+		p := strings.ToLower(catalogPath(expandPath(raw)))
 		if p == "" {
 			continue
 		}
@@ -687,10 +688,10 @@ func matchesSecrets(path string, patterns []string) bool {
 				return true
 			}
 		case strings.ContainsAny(p, "*?["):
-			if m, _ := filepath.Match(p, target); m {
+			if m, _ := path.Match(p, target); m {
 				return true
 			}
-			if m, _ := filepath.Match(filepath.Base(p), filepath.Base(target)); m {
+			if m, _ := path.Match(path.Base(p), path.Base(target)); m {
 				return true
 			}
 		default:
@@ -701,6 +702,10 @@ func matchesSecrets(path string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+func catalogPath(value string) string {
+	return strings.ReplaceAll(value, `\`, "/")
 }
 
 func captureMatchesSecrets(path string, authored, resolved []string, validation bool) bool {

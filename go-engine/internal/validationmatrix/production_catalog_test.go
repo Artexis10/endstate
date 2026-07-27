@@ -4,6 +4,7 @@
 package validationmatrix
 
 import (
+	"os"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -11,6 +12,28 @@ import (
 	"testing"
 	"time"
 )
+
+func TestHashBoundTextAssetsArePinnedToLF(t *testing.T) {
+	t.Parallel()
+
+	data, err := os.ReadFile(filepath.Join(productionCatalogRepoRoot(t), ".gitattributes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := map[string]struct{}{}
+	for _, line := range strings.Split(string(data), "\n") {
+		lines[strings.TrimSpace(line)] = struct{}{}
+	}
+	for _, required := range []string{
+		"modules/apps/**/seed.ps1 text eol=lf",
+		"modules/apps/**/validation-fixtures/** text eol=lf",
+		"go-engine/internal/validationharness/testdata/restore-contract/** text eol=lf",
+	} {
+		if _, ok := lines[required]; !ok {
+			t.Errorf(".gitattributes missing %q", required)
+		}
+	}
+}
 
 func TestProductionCatalogValidationMetadataIsComplete(t *testing.T) {
 	t.Parallel()

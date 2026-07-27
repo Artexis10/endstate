@@ -40,7 +40,7 @@
     "scheduledTimeoutMinutes": 45,
     "runnerLabel": "windows-latest",
     "trust": {
-      "seedSha256": "ad9b225cbfaecd3a691b199716a0c3dd65b38861c302d729b2de2048dab699e8"
+      "seedSha256": "16d3e5b91068be222789be0270c15f30d6b3d03264c4210f46efcc57f955219b"
     }
   }
 }

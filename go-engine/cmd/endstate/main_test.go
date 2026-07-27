@@ -28,6 +28,23 @@ func cliValidationRoot(t *testing.T) string {
 	})
 }
 
+func TestHostedAuthorityEnvironmentIsClearedForTests(t *testing.T) {
+	for _, name := range []string{"GITHUB_WORKSPACE", "RUNNER_WORKSPACE"} {
+		if value, set := os.LookupEnv(name); set {
+			t.Fatalf("%s remained in the test process: %q", name, value)
+		}
+	}
+}
+
+func TestMain(m *testing.M) {
+	// Validation mode deliberately guards ambient hosted workspaces. Unit tests
+	// create their own disposable authority, so inherited runner workspaces are
+	// foreign host state rather than part of the fixture contract.
+	_ = os.Unsetenv("GITHUB_WORKSPACE")
+	_ = os.Unsetenv("RUNNER_WORKSPACE")
+	os.Exit(m.Run())
+}
+
 func cliValidationRootWithInventory(t *testing.T, inventory validationmode.Inventory) string {
 	t.Helper()
 	root, err := os.MkdirTemp(os.TempDir(), "endstate-validation-")

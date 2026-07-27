@@ -38,6 +38,20 @@ func TestCaptureIDIsStableScopedOpaqueAndPortable(t *testing.T) {
 	}
 }
 
+func TestCapturePathErrorPreservesValidationIsolation(t *testing.T) {
+	isolation := &CaptureIsolationError{
+		ModuleID:   "apps.example",
+		Coordinate: "payloadRoot",
+		TargetKind: "portable",
+		Authored:   "configs/example",
+		Cause:      errors.New("unsafe validation path"),
+	}
+
+	if got := capturePathError(isolation, "payload root"); got != isolation {
+		t.Fatalf("capturePathError() = %T %v, want original CaptureIsolationError", got, got)
+	}
+}
+
 func TestConfigPayloadRootUsesReadableDirectoryWithoutChangingCaptureIdentity(t *testing.T) {
 	captureID := CaptureID("apps.Power Toys", "preferences", "instance-a")
 	want := "configs/power-toys-" + shortCaptureHashSuffix(captureID)
