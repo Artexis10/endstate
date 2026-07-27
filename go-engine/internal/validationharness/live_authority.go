@@ -194,6 +194,15 @@ func (session *LiveAuthoritySession) NonceFor(operation liveOperation, sequence 
 	return liveAuthorityNonce(session.campaign.PhaseNonce, operation, sequence)
 }
 
+// SkipOptionalPreflight advances only a campaign-declared preflight uninstall.
+// The receipt issuer records the nonce, so apply may admit only as sequence 2.
+func (session *LiveAuthoritySession) SkipOptionalPreflight(issuer *liveReceiptIssuer) error {
+	if session == nil || session.definition.operations[1].Operation != string(liveOperationWingetExactUninstall) {
+		return fmt.Errorf("optional preflight is not declared")
+	}
+	return issuer.skipOptional(liveOperationWingetExactUninstall, 1, session.NonceFor(liveOperationWingetExactUninstall, 1))
+}
+
 func (session *LiveAuthoritySession) MintMutationPermit(operation liveOperation, sequence uint64, nonce [32]byte) (trustedLiveMutationPermit, error) {
 	if session == nil || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
