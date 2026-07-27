@@ -53,6 +53,29 @@ func TestCaptureContractArtifactRejectsForeignMembersFieldsPayloadAndAuthorityLe
 				value["verify"] = []any{map[string]any{"type": "file-exists", "path": `%APPDATA%\mGBA\foreign.ini`}}
 			})
 		}, "manifest.verify"},
+		{"missing app display name", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { delete(value["apps"].([]any)[0].(map[string]any), "displayName") })
+		}, "manifest.apps"},
+		{"empty app display name", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { value["apps"].([]any)[0].(map[string]any)["displayName"] = "" })
+		}, "manifest.apps"},
+		{"wrong app display name", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { value["apps"].([]any)[0].(map[string]any)["displayName"] = "Foreign" })
+		}, "manifest.apps"},
+		{"duplicate app display name", func(values map[string][]byte) {
+			values["manifest.jsonc"] = []byte(strings.Replace(string(values["manifest.jsonc"]), `"displayName":"mGBA"`, `"displayName":"mGBA","displayName":"mGBA"`, 1))
+		}, "manifest"},
+		{"foreign app field", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { value["apps"].([]any)[0].(map[string]any)["future"] = true })
+		}, "manifest.apps"},
+		{"wrong app id", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) { value["apps"].([]any)[0].(map[string]any)["id"] = "foreign" })
+		}, "manifest.apps"},
+		{"wrong app ref", func(values map[string][]byte) {
+			mutateCaptureManifest(t, values, func(value map[string]any) {
+				value["apps"].([]any)[0].(map[string]any)["refs"] = map[string]any{"windows": "Foreign.mGBA"}
+			})
+		}, "manifest.apps"},
 	}
 	for _, field := range []string{"restore", "legacyConfigLanes", "configCaptures"} {
 		field := field
@@ -97,7 +120,7 @@ func captureContractArtifactFixture(t *testing.T) (*scenarioRuntime, map[string]
 	runtime := &scenarioRuntime{Module: mod, Scenario: scenario, CapturePlan: plan, Root: plan.root, Inventory: plan.Inventory}
 	captured := manifest.Manifest{
 		Version: 1, Name: "captured", Captured: time.Now().UTC().Format(time.RFC3339),
-		Apps:          []manifest.App{{ID: plan.Inventory.AppID, Refs: map[string]string{"windows": plan.Inventory.Ref}}},
+		Apps:          []manifest.App{{ID: plan.Inventory.AppID, DisplayName: plan.Inventory.DisplayName, Refs: map[string]string{"windows": plan.Inventory.Ref}}},
 		Verify:        []manifest.VerifyEntry{{Type: "file-exists", Path: plan.Verifiers[0].Path}},
 		ConfigModules: []string{plan.ModuleID},
 	}

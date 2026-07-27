@@ -77,13 +77,16 @@ func validateCaptureContractManifest(runtime *scenarioRuntime, raw []byte) *Fail
 		return fail(CodeArtifactContract, "capture", "manifest", "capture contract manifest timestamp is invalid")
 	}
 	var apps []map[string]json.RawMessage
-	if json.Unmarshal(fields["apps"], &apps) != nil || len(apps) != 1 || !exactRawFields(apps[0], "id", "refs") {
+	if json.Unmarshal(fields["apps"], &apps) != nil || len(apps) != 1 || !exactRawFields(apps[0], "id", "refs", "displayName") {
 		return fail(CodeArtifactContract, "capture", "manifest.apps", "capture contract app projection is not an exact singleton")
 	}
-	var appID string
-	var refs map[string]string
-	if json.Unmarshal(apps[0]["id"], &appID) != nil || appID != runtime.Inventory.AppID || json.Unmarshal(apps[0]["refs"], &refs) != nil ||
-		len(refs) != 1 || refs["windows"] != runtime.Inventory.Ref {
+	var app struct {
+		ID, DisplayName string
+		Refs            map[string]string
+	}
+	appRaw, _ := json.Marshal(apps[0])
+	if json.Unmarshal(appRaw, &app) != nil || app.ID != runtime.Inventory.AppID || app.DisplayName != runtime.Inventory.DisplayName ||
+		len(app.Refs) != 1 || app.Refs["windows"] != runtime.Inventory.Ref {
 		return fail(CodeArtifactContract, "capture", "manifest.apps", "capture contract app identity differs from validation inventory")
 	}
 	var verifiers []map[string]json.RawMessage
