@@ -129,7 +129,7 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	issuer.commitLaunchFn = func(admission liveReceiptAdmission) bool {
 		mu.Lock()
 		defer mu.Unlock()
-		if state != liveAdmissionReserved || active.issuer != issuer || active.operation != admission.operation || active.sequence != admission.sequence || active.nonce != admission.nonce || active.token != admission.token {
+		if state != liveAdmissionReserved || admission.operation != liveOperationWingetExactList || active.issuer != issuer || active.operation != admission.operation || active.sequence != admission.sequence || active.nonce != admission.nonce || active.token != admission.token {
 			return false
 		}
 		state = liveAdmissionLaunchCommitted

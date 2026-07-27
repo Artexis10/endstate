@@ -194,6 +194,11 @@ func (session *LiveAuthoritySession) NewReceiptIssuer() *liveReceiptIssuer {
 	if session == nil {
 		return newLiveReceiptIssuer()
 	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.issuerID != 0 {
+		return nil
+	}
 	var optional []liveDeclaredPreflight
 	if uninstall, ok := session.definition.operations[1]; ok {
 		if wipe, wipeOK := session.definition.operations[2]; wipeOK && uninstall.Operation == string(liveOperationWingetExactUninstall) && wipe.Operation == string(liveOperationDeclaredTargetWipe) {
@@ -205,9 +210,7 @@ func (session *LiveAuthoritySession) NewReceiptIssuer() *liveReceiptIssuer {
 	}
 	issuer := newLiveReceiptIssuer(optional...)
 	issuer.authorityCampaign = session.campaignID
-	session.mu.Lock()
 	session.issuerID = issuer.id
-	session.mu.Unlock()
 	baseAdmit := issuer.admitFn
 	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
 		entry, ok := session.definition.operations[sequence]
@@ -221,7 +224,12 @@ func (session *LiveAuthoritySession) NewReceiptIssuer() *liveReceiptIssuer {
 
 func (session *LiveAuthoritySession) MintMutationPermit(admission liveReceiptAdmission) (trustedLiveMutationPermit, error) {
 	operation, sequence, nonce := admission.operation, admission.sequence, admission.nonce
-	if session == nil || admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) {
+	if session == nil {
+		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
 	}
 	key := liveAuthorityPermitKey{operation: operation, sequence: sequence}
@@ -229,8 +237,6 @@ func (session *LiveAuthoritySession) MintMutationPermit(admission liveReceiptAdm
 	if !exists || invocation.Operation != string(operation) || operation == liveOperationDeclaredTargetWipe || operation == liveOperationAttemptRootCleanup {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation invocation is absent")
 	}
-	session.mu.Lock()
-	defer session.mu.Unlock()
 	if _, exists := session.minted[key]; exists {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation permit already minted")
 	}

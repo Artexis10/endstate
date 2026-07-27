@@ -32,6 +32,15 @@ func TestLiveReceiptIssuerOptionalPreflightSkipIsAuthorityBoundAndAtomic(t *test
 		t.Fatal("skip accepted while admission was active")
 	}
 	active.complete()
+	session = &LiveAuthoritySession{
+		campaignID: sha256.Sum256([]byte("campaign")),
+		campaign:   LiveCampaign{PhaseNonce: "phase"},
+		definition: liveAuthorityDefinition{operations: map[uint64]LiveCampaignOperation{
+			1: {Sequence: 1, Operation: string(liveOperationWingetExactUninstall)},
+			2: {Sequence: 2, Operation: string(liveOperationDeclaredTargetWipe)},
+			3: {Sequence: 3, Operation: string(liveOperationEngineApply)},
+		}},
+	}
 	issuer = session.NewReceiptIssuer()
 	if err := issuer.skipDeclaredPreflight(); err != nil {
 		t.Fatalf("skip declared preflight: %v", err)

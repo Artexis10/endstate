@@ -106,15 +106,65 @@ func TestLiveReceiptIssuerRejectsMalformedApplySkipVerifyAttack(t *testing.T) {
 	}
 }
 
+func TestLiveReceiptIssuerRejectsDirectMutationLaunchCommitAttack(t *testing.T) {
+	session := &LiveAuthoritySession{
+		campaignID: sha256.Sum256([]byte("campaign")),
+		campaign:   LiveCampaign{PhaseNonce: "phase"},
+		definition: liveAuthorityDefinition{operations: map[uint64]LiveCampaignOperation{
+			1: {Sequence: 1, Operation: string(liveOperationWingetExactUninstall)},
+			2: {Sequence: 2, Operation: string(liveOperationDeclaredTargetWipe)},
+			3: {Sequence: 3, Operation: string(liveOperationEngineApply)},
+			4: {Sequence: 4, Operation: string(liveOperationEngineVerify)},
+		}},
+	}
+	issuer := session.NewReceiptIssuer()
+	if err := issuer.skipDeclaredPreflight(); err != nil {
+		t.Fatal(err)
+	}
+	apply, err := issuer.admit(liveOperationEngineApply, 3, session.NonceFor(liveOperationEngineApply, 3))
+	if err != nil {
+		t.Fatalf("admit apply: %v", err)
+	}
+	committed := issuer.commitLaunchFn(apply)
+	sealed := issuer.sealFn(liveUnsealedReceiptForTest(t, apply, nil, nil, "")) == nil
+	apply.complete()
+	_, advanced := issuer.admit(liveOperationEngineVerify, 4, session.NonceFor(liveOperationEngineVerify, 4))
+	if committed || sealed || advanced == nil {
+		t.Fatal("direct mutation launch commit advanced the campaign")
+	}
+}
+
+func TestLiveReceiptIssuerProbeLaunchCommitRejectsMutations(t *testing.T) {
+	for _, operation := range []liveOperation{liveOperationEngineApply, liveOperationEngineVerify, liveOperationEngineCapture, liveOperationEngineRebuild, liveOperationEngineRevert, liveOperationHashBoundSeed, liveOperationWingetExactInstall, liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationAttemptRootCleanup} {
+		issuer := newLiveReceiptIssuer()
+		admission, err := issuer.admit(operation, 1, liveReceiptTestNonce(byte(len(operation))))
+		if err != nil {
+			t.Fatalf("admit %s: %v", operation, err)
+		}
+		if issuer.commitLaunchFn(admission) {
+			t.Fatalf("probe launch commit accepted mutation %s", operation)
+		}
+	}
+	issuer := newLiveReceiptIssuer()
+	probe, err := issuer.admit(liveOperationWingetExactList, 1, liveReceiptTestNonce(24))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !issuer.commitLaunchFn(probe) {
+		t.Fatal("probe launch commit rejected winget list")
+	}
+	if err := issuer.sealFn(liveUnsealedReceiptForTest(t, probe, nil, nil, "")); err != nil {
+		t.Fatalf("probe receipt did not seal: %v", err)
+	}
+}
+
 func TestLiveReceiptIssuerSealsOnlyExactCommittedEvidenceOnce(t *testing.T) {
 	issuer := newLiveReceiptIssuer()
 	admission, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(21))
 	if err != nil {
 		t.Fatalf("admit() error = %v", err)
 	}
-	if !issuer.commitLaunchFn(admission) {
-		t.Fatal("commit launch")
-	}
+	liveTestCommitReceipt(t, admission, liveUnsealedReceiptForTest(t, admission, nil, nil, ""))
 	for _, mutate := range []func(*liveExecutionReceipt){
 		func(receipt *liveExecutionReceipt) { receipt.operation = liveOperationEngineVerify },
 		func(receipt *liveExecutionReceipt) { receipt.expected.definition[0]++ },
@@ -308,13 +358,39 @@ func liveReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, st
 
 func liveReceiptFailureForTest(t *testing.T, admission liveReceiptAdmission, stdout, stderr []byte, failure LiveExecutionFailureCode) *liveExecutionReceipt {
 	receipt := liveUnsealedReceiptForTest(t, admission, stdout, stderr, failure)
-	if !admission.issuer.commitLaunchFn(admission) {
-		t.Fatal("commit receipt launch")
-	}
+	liveTestCommitReceipt(t, admission, receipt)
 	if err := admission.issuer.sealFn(receipt); err != nil {
 		t.Fatalf("seal receipt: %v", err)
 	}
 	return receipt
+}
+
+// liveTestCommitReceipt is a test-only stand-in for the suspended-process
+// finalizer. Production mutations can reach launch-committed only there.
+func liveTestCommitReceipt(t *testing.T, admission liveReceiptAdmission, receipt *liveExecutionReceipt) {
+	t.Helper()
+	if admission.operation == liveOperationWingetExactList {
+		if !admission.issuer.commitLaunchFn(admission) {
+			t.Fatal("commit probe launch")
+		}
+		return
+	}
+	arguments := append([]string(nil), receipt.args...)
+	if admission.operation == liveOperationWingetExactUninstall {
+		arguments = []string{"uninstall", "apps.fixture", "--exact"}
+		receipt.args = append([]string(nil), arguments...)
+		receipt.requestSHA256 = receipt.requestDigest()
+	}
+	permit := newTrustedLiveMutationPermit(admission, receipt.expected, receipt.executable, arguments, receipt.directory, receipt.environment)
+	image := receipt.expected.engine
+	if admission.operation == liveOperationHashBoundSeed || admission.operation == liveOperationWingetExactInstall || admission.operation == liveOperationWingetExactUninstall {
+		permit.capability.executableSHA256 = receipt.expected.runner
+		image = receipt.expected.runner
+	}
+	request := newLiveTypedMutation(admission, permit, admission.operation, receipt.executable, arguments, receipt.directory, receipt.environment, receipt.expected, 0)
+	if !permit.capability.finalize(request, image, time.Now().UTC()) {
+		t.Fatal("commit mutation launch")
+	}
 }
 
 func liveUnsealedReceiptForTest(t *testing.T, admission liveReceiptAdmission, stdout, stderr []byte, failure LiveExecutionFailureCode) *liveExecutionReceipt {

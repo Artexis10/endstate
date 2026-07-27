@@ -6,6 +6,7 @@ package validationharness
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -178,18 +179,6 @@ func TestLiveAuthoritySessionMintsSingleBoundPermit(t *testing.T) {
 	if _, err := otherSession.MintMutationPermit(admission); err == nil {
 		t.Fatal("different authority session minted a permit")
 	}
-	admission.complete()
-	if _, err := session.MintMutationPermit(admission); err == nil {
-		t.Fatal("session minted a permit after admission release")
-	}
-	issuer = session.NewReceiptIssuer()
-	if err := issuer.skipDeclaredPreflight(); err != nil {
-		t.Fatal(err)
-	}
-	admission, err = issuer.admit(liveOperationEngineApply, 3, nonce)
-	if err != nil {
-		t.Fatal(err)
-	}
 	permit, err := session.MintMutationPermit(admission)
 	if err != nil {
 		t.Fatal(err)
@@ -210,6 +199,28 @@ func TestLiveAuthoritySessionMintsSingleBoundPermit(t *testing.T) {
 	request.admission.token[0]++
 	if permit.capability.validFor(request, session.now) {
 		t.Fatal("permit accepted a substituted admission token")
+	}
+}
+
+func TestLiveAuthoritySessionIssuesOnlyOneReceiptIssuer(t *testing.T) {
+	session := &LiveAuthoritySession{campaignID: sha256.Sum256([]byte("campaign")), campaign: LiveCampaign{PhaseNonce: "phase"}, definition: liveAuthorityDefinition{operations: map[uint64]LiveCampaignOperation{1: {Sequence: 1, Operation: string(liveOperationEngineApply)}}}}
+	first := session.NewReceiptIssuer()
+	if first == nil {
+		t.Fatal("first receipt issuer rejected")
+	}
+	if second := session.NewReceiptIssuer(); second != nil {
+		t.Fatal("session issued a second receipt issuer")
+	}
+}
+
+func TestLiveAuthoritySessionIssuesOneReceiptIssuerConcurrently(t *testing.T) {
+	session := &LiveAuthoritySession{campaignID: sha256.Sum256([]byte("campaign")), campaign: LiveCampaign{PhaseNonce: "phase"}, definition: liveAuthorityDefinition{operations: map[uint64]LiveCampaignOperation{1: {Sequence: 1, Operation: string(liveOperationEngineApply)}}}}
+	issuers := make(chan *liveReceiptIssuer, 2)
+	go func() { issuers <- session.NewReceiptIssuer() }()
+	go func() { issuers <- session.NewReceiptIssuer() }()
+	first, second := <-issuers, <-issuers
+	if (first == nil) == (second == nil) {
+		t.Fatal("concurrent issuer allocation did not produce exactly one issuer")
 	}
 }
 
