@@ -9,6 +9,11 @@ import (
 	"strings"
 )
 
+const (
+	mGBACaptureWarningCode    = "inventory_union_skipped"
+	mGBACaptureWarningMessage = "Installed-software inventory union skipped because a package-manager row lacks an authoritative ARP binding."
+)
+
 func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any, runtime *scenarioRuntime, artifactBase string) *Failure {
 	if runtime == nil || runtime.CapturePlan == nil || len(runtime.CapturePlan.Targets) != 1 {
 		return fail(CodeEnvelopeContract, "capture", "data", "capture contract runtime authority is absent")
@@ -17,8 +22,11 @@ func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any,
 	if rejectDuplicateJSONFields(raw) != nil || json.Unmarshal(raw, &data) != nil || !exactRawFields(data,
 		"appsIncluded", "configModules", "configModuleMap", "packageModuleMap", "outputPath", "outputFormat",
 		"configsIncluded", "configsSkipped", "configsCaptureErrors", "sanitized", "isExample", "counts",
-		"captureWarnings", "configCapture", "manifest") {
+		"captureWarnings", "warnings", "configCapture", "manifest") {
 		return fail(CodeEnvelopeContract, "capture", "data", "capture result has a malformed, duplicate, or foreign field shape")
+	}
+	if failure := validateMGBACaptureWarnings(data["warnings"]); failure != nil {
+		return failure
 	}
 	wantArtifact := "$ENDSTATE_ROOT/manifests/" + artifactBase
 	if failure := validateCaptureContractApp(data["appsIncluded"], runtime); failure != nil {
@@ -66,6 +74,19 @@ func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any,
 		return fail(CodeEnvelopeContract, "capture", "manifest", "capture manifest reference is not exact")
 	}
 	return validateCaptureContractEvents(events, runtime, wantArtifact)
+}
+
+func validateMGBACaptureWarnings(raw json.RawMessage) *Failure {
+	var warnings []map[string]json.RawMessage
+	if json.Unmarshal(raw, &warnings) != nil || len(warnings) != 1 || !exactRawFields(warnings[0], "code", "message") {
+		return fail(CodeEnvelopeContract, "capture", "warnings", "mGBA capture warnings are not an exact singleton")
+	}
+	var warning struct{ Code, Message string }
+	encoded, _ := json.Marshal(warnings[0])
+	if json.Unmarshal(encoded, &warning) != nil || warning.Code != mGBACaptureWarningCode || warning.Message != mGBACaptureWarningMessage {
+		return fail(CodeEnvelopeContract, "capture", "warnings", "mGBA capture warning differs from production")
+	}
+	return nil
 }
 
 func validateCaptureContractApp(raw json.RawMessage, runtime *scenarioRuntime) *Failure {

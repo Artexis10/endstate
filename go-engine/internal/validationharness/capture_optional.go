@@ -23,8 +23,11 @@ func validateCaptureContractOptionalAbsentOutcome(raw []byte, events []map[strin
 	if rejectDuplicateJSONFields(raw) != nil || json.Unmarshal(raw, &data) != nil || !exactRawFields(data,
 		"appsIncluded", "configModules", "configModuleMap", "packageModuleMap", "outputPath", "outputFormat",
 		"configsIncluded", "configsSkipped", "configsCaptureErrors", "sanitized", "isExample", "counts",
-		"captureWarnings", "configCapture", "manifest") {
+		"captureWarnings", "warnings", "configCapture", "manifest") {
 		return fail(CodeEnvelopeContract, "capture", "data", "optional-absence result has a malformed or foreign field shape")
+	}
+	if failure := validateMGBACaptureWarnings(data["warnings"]); failure != nil {
+		return failure
 	}
 	if failure := validateCaptureContractApp(data["appsIncluded"], runtime); failure != nil {
 		return failure

@@ -53,6 +53,65 @@ func TestCaptureContractAllOptionalAbsentIsExactAndCannotMintPositiveEvidence(t 
 	}
 }
 
+func TestCaptureContractOptionalAbsentWarningsAreExact(t *testing.T) {
+	runtime, _ := captureContractArtifactFixture(t)
+	raw, events, entries := captureContractOptionalFixture(t, runtime)
+	artifact := writeV2ArtifactZip(t, runtime.Root, "optional-absent.zip", entries)
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, []byte) []byte
+	}{
+		{"missing", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { delete(data, "warnings") })
+		}},
+		{"null", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = nil })
+		}},
+		{"empty", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{} })
+		}},
+		{"additional", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"] = []any{mgbaCaptureWarning(), mgbaCaptureWarning()}
+			})
+		}},
+		{"foreign scalar", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{"foreign"} })
+		}},
+		{"wrong code", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"].([]any)[0].(map[string]any)["code"] = "foreign"
+			})
+		}},
+		{"wrong message", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"].([]any)[0].(map[string]any)["message"] = "foreign"
+			})
+		}},
+		{"nested driver", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"].([]any)[0].(map[string]any)["driver"] = "winget"
+			})
+		}},
+		{"nested future", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"].([]any)[0].(map[string]any)["future"] = true
+			})
+		}},
+		{"duplicate nested field", func(t *testing.T, raw []byte) []byte {
+			return []byte(strings.Replace(string(raw), `"code":"inventory_union_skipped"`, `"code":"inventory_union_skipped","code":"inventory_union_skipped"`, 1))
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			failure := validateCaptureContractOptionalAbsentOutcome(test.mutate(t, raw), events, runtime, artifact)
+			if failure == nil || failure.Code != CodeEnvelopeContract {
+				t.Fatalf("failure = %+v", failure)
+			}
+		})
+	}
+}
+
 func retargetOptionalCaptureEvidence(t *testing.T, raw []byte, events []map[string]any, artifactBase string) ([]byte, []map[string]any) {
 	t.Helper()
 	var value map[string]any

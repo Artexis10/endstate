@@ -5,6 +5,7 @@ package validationharness
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -57,6 +58,64 @@ func TestCaptureContractEnvelopeAndEventsRejectVacuityForeignOwnershipAndInflati
 	}
 }
 
+func TestCaptureContractWarningsAreExact(t *testing.T) {
+	runtime, _ := captureContractArtifactFixture(t)
+	raw, events := captureContractEvidenceFixture(t, runtime)
+	tests := []struct {
+		name   string
+		mutate func(*testing.T, []byte) []byte
+	}{
+		{"missing", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { delete(data, "warnings") })
+		}},
+		{"null", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = nil })
+		}},
+		{"empty", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{} })
+		}},
+		{"additional", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"] = []any{mgbaCaptureWarning(), mgbaCaptureWarning()}
+			})
+		}},
+		{"foreign scalar", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{"foreign"} })
+		}},
+		{"wrong code", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"].([]any)[0].(map[string]any)["code"] = "foreign"
+			})
+		}},
+		{"wrong message", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"].([]any)[0].(map[string]any)["message"] = "foreign"
+			})
+		}},
+		{"nested driver", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"].([]any)[0].(map[string]any)["driver"] = "winget"
+			})
+		}},
+		{"nested future", func(t *testing.T, raw []byte) []byte {
+			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+				data["warnings"].([]any)[0].(map[string]any)["future"] = true
+			})
+		}},
+		{"duplicate nested field", func(t *testing.T, raw []byte) []byte {
+			return []byte(strings.Replace(string(raw), `"code":"inventory_union_skipped"`, `"code":"inventory_union_skipped","code":"inventory_union_skipped"`, 1))
+		}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			failure := validateCaptureContractCommandEvidence(test.mutate(t, raw), events, runtime, "captured.zip")
+			if failure == nil || failure.Code != CodeEnvelopeContract {
+				t.Fatalf("failure = %+v", failure)
+			}
+		})
+	}
+}
+
 func captureContractEvidenceFixture(t *testing.T, runtime *scenarioRuntime) ([]byte, []map[string]any) {
 	t.Helper()
 	data := map[string]any{
@@ -78,6 +137,7 @@ func captureContractEvidenceFixture(t *testing.T, runtime *scenarioRuntime) ([]b
 			"filteredRuntimes": float64(0), "included": float64(1), "totalFound": float64(1), "sensitiveExcludedCount": float64(0), "filteredStoreApps": float64(0), "skipped": float64(0),
 		},
 		"captureWarnings": []any{},
+		"warnings":        []any{mgbaCaptureWarning()},
 		"configCapture": map[string]any{"modules": []any{map[string]any{
 			"id": "apps.mgba", "displayName": "mGBA", "entries": float64(0), "files": []any{"apps/mgba/config.ini"},
 		}}},
@@ -93,6 +153,23 @@ func captureContractEvidenceFixture(t *testing.T, runtime *scenarioRuntime) ([]b
 		{"event": "summary", "phase": "capture", "total": json.Number("1"), "success": json.Number("1"), "skipped": json.Number("0"), "failed": json.Number("0")},
 	}
 	return mustV2JSON(t, data), events
+}
+
+func mgbaCaptureWarning() map[string]any {
+	return map[string]any{
+		"code":    "inventory_union_skipped",
+		"message": "Installed-software inventory union skipped because a package-manager row lacks an authoritative ARP binding.",
+	}
+}
+
+func mutateMGBACaptureWarnings(t *testing.T, raw []byte, mutate func(map[string]any)) []byte {
+	t.Helper()
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err != nil {
+		t.Fatal(err)
+	}
+	mutate(data)
+	return mustV2JSON(t, data)
 }
 
 func cloneCaptureEvents(values []map[string]any) []map[string]any {
