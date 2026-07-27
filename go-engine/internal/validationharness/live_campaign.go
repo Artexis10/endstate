@@ -98,13 +98,14 @@ func ValidateLiveCampaign(campaign LiveCampaign) error {
 }
 
 func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef, engineSHA256 string) bool {
-	if len(operations) < 10 || len(operations) > 11 {
+	if len(operations) != 13 && len(operations) != 15 {
 		return false
 	}
 	seen := make(map[uint64]struct{}, len(operations))
 	bySequence := make(map[uint64]liveOperation, len(operations))
 	for _, operation := range operations {
-		if !liveOperation(operation.Operation).valid() || !lowerSHA256(operation.ExecutableSHA256) || operation.Executable == "" || len(operation.Arguments) == 0 || len(operation.Arguments) > 64 || len(operation.Environment) > len(liveProcessEnvironmentAllowlist) {
+		internal := liveOperation(operation.Operation) == liveOperationDeclaredTargetWipe || liveOperation(operation.Operation) == liveOperationAttemptRootCleanup
+		if !liveOperation(operation.Operation).valid() || (!internal && (!lowerSHA256(operation.ExecutableSHA256) || operation.Executable == "" || len(operation.Arguments) == 0 || len(operation.Arguments) > 64 || len(operation.Environment) > len(liveProcessEnvironmentAllowlist))) || (internal && (operation.Executable != "" || operation.ExecutableSHA256 != "" || len(operation.Arguments) != 0 || operation.Directory != "" || len(operation.Environment) != 0)) {
 			return false
 		}
 		if _, duplicate := seen[operation.Sequence]; duplicate {
@@ -132,9 +133,12 @@ func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef,
 	preflight := bySequence[1] == liveOperationWingetExactUninstall
 	offset := uint64(0)
 	if preflight {
-		offset = 1
+		offset = 2
 	}
-	expected := []liveOperation{liveOperationEngineApply, liveOperationEngineVerify, liveOperationHashBoundSeed, liveOperationEngineCapture, liveOperationWingetExactUninstall, liveOperationEngineRebuild, liveOperationEngineRevert, liveOperationEngineRebuild, liveOperationEngineRebuild, liveOperationWingetExactUninstall}
+	expected := []liveOperation{liveOperationEngineApply, liveOperationEngineVerify, liveOperationHashBoundSeed, liveOperationEngineCapture, liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationEngineRebuild, liveOperationEngineRevert, liveOperationEngineRebuild, liveOperationEngineRebuild, liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationAttemptRootCleanup}
+	if preflight && bySequence[2] != liveOperationDeclaredTargetWipe {
+		return false
+	}
 	for index, operation := range expected {
 		if bySequence[uint64(index)+1+offset] != operation {
 			return false

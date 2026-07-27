@@ -230,7 +230,7 @@ func (session *LiveAuthoritySession) MintMutationPermit(operation liveOperation,
 	}
 	key := liveAuthorityPermitKey{operation: operation, sequence: sequence}
 	invocation, exists := session.definition.operations[sequence]
-	if !exists || invocation.Operation != string(operation) {
+	if !exists || invocation.Operation != string(operation) || operation == liveOperationDeclaredTargetWipe || operation == liveOperationAttemptRootCleanup {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation invocation is absent")
 	}
 	session.mu.Lock()

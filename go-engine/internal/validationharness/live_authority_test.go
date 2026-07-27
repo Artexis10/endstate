@@ -151,12 +151,12 @@ func TestLiveAuthoritySessionMintsSingleBoundPermit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	nonce := session.NonceFor(liveOperationEngineApply, 2)
-	permit, err := session.MintMutationPermit(liveOperationEngineApply, 2, nonce)
+	nonce := session.NonceFor(liveOperationEngineApply, 3)
+	permit, err := session.MintMutationPermit(liveOperationEngineApply, 3, nonce)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.MintMutationPermit(liveOperationEngineApply, 2, nonce); err == nil {
+	if _, err := session.MintMutationPermit(liveOperationEngineApply, 3, nonce); err == nil {
 		t.Fatal("session minted a second permit for one operation")
 	}
 	if permit.capability.consumed.Load() {

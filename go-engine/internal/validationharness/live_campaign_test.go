@@ -109,9 +109,12 @@ func liveTestCampaign() LiveCampaign {
 }
 
 func liveTestCampaignOperations() []LiveCampaignOperation {
-	operations := make([]LiveCampaignOperation, 0, 11)
-	for sequence, operation := range map[uint64]liveOperation{1: liveOperationWingetExactUninstall, 2: liveOperationEngineApply, 3: liveOperationEngineVerify, 4: liveOperationHashBoundSeed, 5: liveOperationEngineCapture, 6: liveOperationWingetExactUninstall, 7: liveOperationEngineRebuild, 8: liveOperationEngineRevert, 9: liveOperationEngineRebuild, 10: liveOperationEngineRebuild, 11: liveOperationWingetExactUninstall} {
+	operations := make([]LiveCampaignOperation, 0, 15)
+	for sequence, operation := range map[uint64]liveOperation{1: liveOperationWingetExactUninstall, 2: liveOperationDeclaredTargetWipe, 3: liveOperationEngineApply, 4: liveOperationEngineVerify, 5: liveOperationHashBoundSeed, 6: liveOperationEngineCapture, 7: liveOperationWingetExactUninstall, 8: liveOperationDeclaredTargetWipe, 9: liveOperationEngineRebuild, 10: liveOperationEngineRevert, 11: liveOperationEngineRebuild, 12: liveOperationEngineRebuild, 13: liveOperationWingetExactUninstall, 14: liveOperationDeclaredTargetWipe, 15: liveOperationAttemptRootCleanup} {
 		arguments := []string{string(operation)}
+		if operation == liveOperationDeclaredTargetWipe || operation == liveOperationAttemptRootCleanup {
+			arguments = nil
+		}
 		if operation == liveOperationWingetExactUninstall {
 			arguments = []string{"uninstall", "Notepad++.Notepad++", "--exact"}
 		}
@@ -119,7 +122,12 @@ func liveTestCampaignOperations() []LiveCampaignOperation {
 		if liveCampaignEngineOperation(operation) {
 			executableSHA256 = strings.Repeat("c", 64)
 		}
-		operations = append(operations, LiveCampaignOperation{Sequence: sequence, Operation: string(operation), Executable: `C:\reviewed\runner.exe`, ExecutableSHA256: executableSHA256, Arguments: arguments})
+		executable := `C:\reviewed\runner.exe`
+		if operation == liveOperationDeclaredTargetWipe || operation == liveOperationAttemptRootCleanup {
+			executable = ""
+			executableSHA256 = ""
+		}
+		operations = append(operations, LiveCampaignOperation{Sequence: sequence, Operation: string(operation), Executable: executable, ExecutableSHA256: executableSHA256, Arguments: arguments})
 	}
 	sort.Slice(operations, func(left, right int) bool { return operations[left].Sequence < operations[right].Sequence })
 	return operations

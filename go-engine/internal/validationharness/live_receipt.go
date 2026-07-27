@@ -30,11 +30,13 @@ const (
 	liveOperationHashBoundSeed        liveOperation = "hash-bound-seed"
 	liveOperationWingetExactInstall   liveOperation = "winget-exact-install"
 	liveOperationWingetExactUninstall liveOperation = "winget-exact-uninstall"
+	liveOperationDeclaredTargetWipe   liveOperation = "declared-target-wipe"
+	liveOperationAttemptRootCleanup   liveOperation = "attempt-root-cleanup"
 )
 
 func (operation liveOperation) valid() bool {
 	switch operation {
-	case liveOperationWingetExactList, liveOperationEngineApply, liveOperationEngineVerify, liveOperationEngineCapture, liveOperationEngineRebuild, liveOperationEngineRevert, liveOperationHashBoundSeed, liveOperationWingetExactInstall, liveOperationWingetExactUninstall:
+	case liveOperationWingetExactList, liveOperationEngineApply, liveOperationEngineVerify, liveOperationEngineCapture, liveOperationEngineRebuild, liveOperationEngineRevert, liveOperationHashBoundSeed, liveOperationWingetExactInstall, liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationAttemptRootCleanup:
 		return true
 	default:
 		return false
