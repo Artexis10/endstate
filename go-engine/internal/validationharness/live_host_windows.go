@@ -499,14 +499,16 @@ func windowsLiveServiceAndDriverNames() ([]string, []string, error) {
 func classifyWindowsLiveServiceType(kind uint64) (driver, service bool, err error) {
 	const (
 		driverMask      = 0x1 | 0x2 | 0x4 | 0x8
-		serviceMask     = 0x10 | 0x20
+		serviceMask     = 0x10 | 0x20 | 0x40 | 0x80 | 0x200
 		interactiveMask = 0x100
 		knownMask       = driverMask | serviceMask | interactiveMask
 	)
-	if kind == 0 || kind&^knownMask != 0 || kind&driverMask != 0 && kind&serviceMask != 0 || kind&serviceMask == serviceMask || kind&interactiveMask != 0 && kind&serviceMask == 0 {
+	driver = kind&driverMask != 0
+	service = kind&serviceMask != 0
+	if kind == 0 || kind&^knownMask != 0 || driver && (service || kind&driverMask&(kind&driverMask-1) != 0 || kind&interactiveMask != 0) || kind&0x30 == 0x30 || kind&interactiveMask != 0 && !service {
 		return false, false, fmt.Errorf("Windows service type is unsupported")
 	}
-	return kind&driverMask != 0, kind&serviceMask != 0, nil
+	return driver, service, nil
 }
 
 func windowsLiveRegistryTree(hive registry.Key, location string, access uint32) ([]string, error) {

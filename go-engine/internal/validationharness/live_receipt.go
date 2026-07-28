@@ -220,7 +220,7 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	issuer.consumeFn = func(receipt *liveExecutionReceipt, operation liveOperation, sequence uint64, nonce [32]byte) bool {
 		mu.Lock()
 		defer mu.Unlock()
-		if receipt == nil || receipt.issuerID != issuer.id || receipt.operation != operation || receipt.sequence != sequence || receipt.nonce != nonce || receipt.admissionToken == ([32]byte{}) || receipt.failure != "" || receipt.validate() != nil {
+		if cleanup || receipt == nil || receipt.issuerID != issuer.id || receipt.operation != operation || receipt.sequence != sequence || receipt.nonce != nonce || receipt.admissionToken == ([32]byte{}) || receipt.failure != "" || receipt.validate() != nil {
 			return false
 		}
 		want := liveReceiptMAC(key, receipt)
@@ -236,7 +236,7 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	issuer.consumeBatchFn = func(expectations []liveReceiptExpectation) bool {
 		mu.Lock()
 		defer mu.Unlock()
-		if len(expectations) == 0 {
+		if cleanup || len(expectations) == 0 {
 			return false
 		}
 		for _, expected := range expectations {

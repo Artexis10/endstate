@@ -111,6 +111,8 @@ type windowsLiveAttemptRoot struct {
 	object windowsLiveObjectIdentity
 }
 
+type windowsLiveAttemptRootCleanupReservation struct{ root windowsLiveAttemptRoot }
+
 var windowsLiveAttemptRoots sync.Map
 
 func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
@@ -159,13 +161,30 @@ func (root windowsLiveAttemptRoot) valid() bool {
 }
 
 func (root windowsLiveAttemptRoot) Cleanup() error {
-	if !root.valid() {
+	reservation := windowsLiveAttemptRootCleanupReservation{root: root}
+	if !windowsLiveAttemptRoots.CompareAndSwap(root.nonce, root, reservation) {
 		return fmt.Errorf("live attempt root is unsafe")
 	}
-	if err := removeWindowsLiveDirectory(root.path); err != nil {
+	reserved := true
+	defer func() {
+		if reserved {
+			windowsLiveAttemptRoots.CompareAndSwap(root.nonce, reservation, root)
+		}
+	}()
+	if windowsLiveCleanupBeforeAttemptRootOpen != nil {
+		windowsLiveCleanupBeforeAttemptRootOpen(root.path)
+	}
+	handle, err := openWindowsLiveCleanupHandle(root.path, true)
+	if err != nil {
+		return fmt.Errorf("cleanup live attempt root: %w", err)
+	}
+	ctx, cancel := defaultWindowsLiveCleanupContext()
+	defer cancel()
+	if err := removeWindowsLiveDirectoryHandleWithBudget(ctx, handle, root.path, windowsLiveCleanupBudget{maxDepth: maxWindowsLiveCleanupDepth, maxEntries: maxWindowsLiveCleanupEntries}, root.object); err != nil {
 		return fmt.Errorf("cleanup live attempt root: %w", err)
 	}
 	windowsLiveAttemptRoots.Delete(root.nonce)
+	reserved = false
 	return nil
 }
 

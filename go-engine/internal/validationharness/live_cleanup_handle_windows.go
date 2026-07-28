@@ -8,6 +8,7 @@ package validationharness
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,6 +22,10 @@ var windowsLiveRoamingAppData = windowsLiveKnownRoamingAppData
 var windowsLiveRunnerTemp = windowsLiveEnvironmentRunnerTemp
 var windowsLiveCleanupBeforeChildOpen func(string)
 var windowsLiveCleanupAfterChildOpen func(string)
+var windowsLiveCleanupBeforeAttemptRootOpen func(string)
+var windowsLiveCleanupReadDir = func(file *os.File, count int) ([]os.DirEntry, error) {
+	return file.ReadDir(count)
+}
 
 const (
 	maxWindowsLiveCleanupDepth   = 32
@@ -50,6 +55,10 @@ func windowsLiveObjectIdentityForPath(path string, directory bool) (windowsLiveO
 		return windowsLiveObjectIdentity{}, err
 	}
 	defer windows.CloseHandle(handle)
+	return windowsLiveObjectIdentityForHandle(handle)
+}
+
+func windowsLiveObjectIdentityForHandle(handle windows.Handle) (windowsLiveObjectIdentity, error) {
 	var information windows.ByHandleFileInformation
 	if err := windows.GetFileInformationByHandle(handle, &information); err != nil || information.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || information.FileIndexHigh == 0 && information.FileIndexLow == 0 {
 		return windowsLiveObjectIdentity{}, fmt.Errorf("live owned root is unsafe")
@@ -74,6 +83,27 @@ func removeWindowsLiveExactLeaf(ctx context.Context, path string, directory bool
 	return state.removeLeaf(ctx, filepath.Clean(path), directory)
 }
 
+func removeWindowsLiveDirectoryHandleWithBudget(ctx context.Context, handle windows.Handle, path string, budget windowsLiveCleanupBudget, want windowsLiveObjectIdentity) error {
+	if budget.maxDepth < 1 || budget.maxDepth > maxWindowsLiveCleanupDepth || budget.maxEntries < 1 || budget.maxEntries > maxWindowsLiveCleanupEntries {
+		return fmt.Errorf("live cleanup budget is invalid")
+	}
+	directoryFile := os.NewFile(uintptr(handle), path)
+	if directoryFile == nil {
+		windows.CloseHandle(handle)
+		return fmt.Errorf("live cleanup directory handle is unavailable")
+	}
+	defer directoryFile.Close()
+	if err := validateWindowsLiveCleanupHandle(handle, path, true); err != nil {
+		return err
+	}
+	identity, err := windowsLiveObjectIdentityForHandle(handle)
+	if err != nil || identity != want {
+		return fmt.Errorf("live owned root identity changed")
+	}
+	state := windowsLiveCleanupState{budget: budget}
+	return state.removeDirectoryHandle(ctx, handle, directoryFile, path, 0)
+}
+
 func (state *windowsLiveCleanupState) removeDirectory(ctx context.Context, path string, depth int) error {
 	if err := ctx.Err(); err != nil || depth > state.budget.maxDepth {
 		return fmt.Errorf("live cleanup budget exhausted")
@@ -91,31 +121,60 @@ func (state *windowsLiveCleanupState) removeDirectory(ctx context.Context, path 
 	if err := validateWindowsLiveCleanupHandle(handle, path, true); err != nil {
 		return err
 	}
-	entries, err := directoryFile.ReadDir(-1)
-	if err != nil {
-		return err
+	if windowsLiveCleanupAfterChildOpen != nil {
+		windowsLiveCleanupAfterChildOpen(path)
 	}
-	for _, entry := range entries {
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("live cleanup budget exhausted")
+	}
+	return state.removeDirectoryHandle(ctx, handle, directoryFile, path, depth)
+}
+
+func (state *windowsLiveCleanupState) removeDirectoryHandle(ctx context.Context, handle windows.Handle, directoryFile *os.File, path string, depth int) error {
+	for {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("live cleanup budget exhausted")
 		}
-		state.entries++
-		if state.entries > state.budget.maxEntries || entry.Name() == "" || len(entry.Name()) > 255 {
+		remaining := state.budget.maxEntries - state.entries
+		if remaining < 1 {
 			return fmt.Errorf("live cleanup budget exhausted")
 		}
-		child := filepath.Join(path, entry.Name())
-		if windowsLiveCleanupBeforeChildOpen != nil {
-			windowsLiveCleanupBeforeChildOpen(child)
+		chunk := 64
+		if remaining < chunk {
+			chunk = remaining
 		}
-		if entry.IsDir() {
-			if err := state.removeDirectory(ctx, child, depth+1); err != nil {
-				return err
-			}
-			continue
-		}
-		if err := state.removeLeaf(ctx, child, false); err != nil {
+		entries, err := windowsLiveCleanupReadDir(directoryFile, chunk)
+		if err != nil && err != io.EOF {
 			return err
 		}
+		for _, entry := range entries {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("live cleanup budget exhausted")
+			}
+			state.entries++
+			if state.entries > state.budget.maxEntries || entry.Name() == "" || len(entry.Name()) > 255 {
+				return fmt.Errorf("live cleanup budget exhausted")
+			}
+			child := filepath.Join(path, entry.Name())
+			if windowsLiveCleanupBeforeChildOpen != nil {
+				windowsLiveCleanupBeforeChildOpen(child)
+			}
+			if entry.IsDir() {
+				if err := state.removeDirectory(ctx, child, depth+1); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := state.removeLeaf(ctx, child, false); err != nil {
+				return err
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("live cleanup budget exhausted")
 	}
 	return deleteWindowsLiveCleanupHandle(handle)
 }
@@ -134,6 +193,9 @@ func (state *windowsLiveCleanupState) removeLeaf(ctx context.Context, path strin
 	}
 	if windowsLiveCleanupAfterChildOpen != nil {
 		windowsLiveCleanupAfterChildOpen(path)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("live cleanup budget exhausted")
 	}
 	return deleteWindowsLiveCleanupHandle(handle)
 }

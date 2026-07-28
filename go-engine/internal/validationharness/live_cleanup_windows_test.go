@@ -8,6 +8,7 @@ package validationharness
 import (
 	"context"
 	"crypto/sha256"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -104,6 +105,44 @@ func TestWindowsLiveAttemptRootRejectsRecreatedOwnedPath(t *testing.T) {
 	}
 	if attempt.valid() || attempt.Cleanup() == nil {
 		t.Fatal("attempt root accepted a recreated owned path")
+	}
+}
+
+func TestWindowsLiveAttemptRootCleanupRejectsSwapAfterOwnershipReservationAndRetriesSafely(t *testing.T) {
+	parent, outside := t.TempDir(), t.TempDir()
+	withWindowsLiveTestRunnerTemp(t, parent)
+	attempt, err := newWindowsLiveAttemptRoot(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(outside, "sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backup := attempt.path + ".saved"
+	original := windowsLiveCleanupBeforeAttemptRootOpen
+	windowsLiveCleanupBeforeAttemptRootOpen = func(path string) {
+		if path != attempt.path || os.Rename(path, backup) != nil {
+			return
+		}
+		_, _ = exec.Command("cmd", "/d", "/c", "mklink", "/J", path, outside).CombinedOutput()
+	}
+	t.Cleanup(func() { windowsLiveCleanupBeforeAttemptRootOpen = original })
+	if err := attempt.Cleanup(); err == nil {
+		t.Fatal("Cleanup() accepted a swapped attempt root")
+	}
+	if _, err := os.Lstat(sentinel); err != nil {
+		t.Fatalf("swapped cleanup deleted outside sentinel: %v", err)
+	}
+	windowsLiveCleanupBeforeAttemptRootOpen = original
+	if err := os.Remove(attempt.path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(backup, attempt.path); err != nil {
+		t.Fatal(err)
+	}
+	if err := attempt.Cleanup(); err != nil {
+		t.Fatalf("Cleanup() did not restore ownership after a failed attempt: %v", err)
 	}
 }
 
@@ -257,7 +296,40 @@ func TestWindowsLiveAuthorityCleanupTransitionAbandonsFailedAdmissionAndRunsOnly
 	if err := issuer.skipDeclaredPreflight(); err != nil {
 		t.Fatal(err)
 	}
-	failed, err := issuer.admit(liveOperationEngineApply, 3, session.NonceFor(liveOperationEngineApply, 3))
+	sealNormalReceipt := func(admission liveReceiptAdmission) *liveExecutionReceipt {
+		t.Helper()
+		permit, err := session.MintMutationPermit(admission)
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected := liveReceiptExpectedIdentity{definition: permit.capability.definition, engine: permit.capability.engine, seed: permit.capability.seed, packageRef: permit.capability.packageRef, comparator: permit.capability.comparator, targets: permit.capability.targets, observer: permit.capability.observer, workflow: permit.capability.workflow, runner: permit.capability.executableSHA256}
+		request := newLiveTypedMutation(admission, permit, admission.operation, permit.capability.executable, permit.capability.arguments, permit.capability.directory, permit.capability.environment, expected, 1)
+		if !permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+			t.Fatal("normal fixture could not commit its authority permit")
+		}
+		receipt := liveUnsealedReceiptForTest(t, admission, nil, nil, "")
+		receipt.executable, receipt.args, receipt.directory, receipt.environment, receipt.expected = request.executable, append([]string(nil), request.args...), request.dir, cloneLiveEnvironment(request.environment), expected
+		receipt.image.sha256 = expected.engine
+		receipt.requestSHA256 = receipt.requestDigest()
+		receipt.resultSHA256 = receipt.resultDigest()
+		if err := issuer.sealFn(receipt); err != nil {
+			t.Fatal(err)
+		}
+		return receipt
+	}
+	normalApply, err := issuer.admit(liveOperationEngineApply, 3, session.NonceFor(liveOperationEngineApply, 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalApplyReceipt := sealNormalReceipt(normalApply)
+	normalApply.complete()
+	normalCapture, err := issuer.admit(liveOperationEngineVerify, 4, session.NonceFor(liveOperationEngineVerify, 4))
+	if err != nil {
+		t.Fatal(err)
+	}
+	normalCaptureReceipt := sealNormalReceipt(normalCapture)
+	normalCapture.complete()
+	failed, err := issuer.admit(liveOperationHashBoundSeed, 5, session.NonceFor(liveOperationHashBoundSeed, 5))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -279,7 +351,13 @@ func TestWindowsLiveAuthorityCleanupTransitionAbandonsFailedAdmissionAndRunsOnly
 	if err := session.EnterCleanup(issuer); err != nil {
 		t.Fatalf("EnterCleanup() after failed prelaunch admission error = %v", err)
 	}
-	if _, err := issuer.admit(liveOperationEngineApply, 3, session.NonceFor(liveOperationEngineApply, 3)); err == nil {
+	if _, _, err := liveReceiptDecoderHandoff(normalApplyReceipt, liveOperationEngineApply, 3, normalApply.nonce); err == nil {
+		t.Fatal("cleanup transition left an earlier normal receipt publicly decodable")
+	}
+	if issuer.consumeBatchFn([]liveReceiptExpectation{{receipt: normalCaptureReceipt, operation: liveOperationEngineVerify, sequence: 4, nonce: normalCapture.nonce}}) {
+		t.Fatal("cleanup transition left an earlier normal receipt batch-consumable")
+	}
+	if _, err := issuer.admit(liveOperationEngineCapture, 6, session.NonceFor(liveOperationEngineCapture, 6)); err == nil {
 		t.Fatal("cleanup transition admitted a normal proof operation")
 	}
 	if err := session.EnterCleanup(issuer); err == nil {
@@ -465,6 +543,78 @@ func TestWindowsLiveHandleCleanupPreventsPostOpenChildReplacement(t *testing.T) 
 	}
 	if _, err := os.Lstat(sentinel); err != nil {
 		t.Fatalf("post-open replacement deleted outside sentinel: %v", err)
+	}
+}
+
+func TestWindowsLiveHandleCleanupReadsLargeFanoutInBoundedChunks(t *testing.T) {
+	root := t.TempDir()
+	for index := 0; index < maxWindowsLiveCleanupEntries+1; index++ {
+		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("entry-%04d", index)), []byte("inside"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original := windowsLiveCleanupReadDir
+	var chunks []int
+	windowsLiveCleanupReadDir = func(file *os.File, count int) ([]os.DirEntry, error) {
+		chunks = append(chunks, count)
+		return file.ReadDir(count)
+	}
+	t.Cleanup(func() { windowsLiveCleanupReadDir = original })
+	if err := removeWindowsLiveDirectoryWithBudget(context.Background(), root, windowsLiveCleanupBudget{maxDepth: 8, maxEntries: maxWindowsLiveCleanupEntries}); err == nil {
+		t.Fatal("handle cleanup accepted a fanout beyond its entry budget")
+	}
+	if len(chunks) == 0 {
+		t.Fatal("handle cleanup did not enumerate the fanout")
+	}
+	for _, count := range chunks {
+		if count < 1 || count > 64 {
+			t.Fatalf("handle cleanup requested an unbounded directory read of %d entries", count)
+		}
+	}
+	if _, err := os.Lstat(root); err != nil {
+		t.Fatalf("fanout budget failure removed root: %v", err)
+	}
+}
+
+func TestWindowsLiveHandleCleanupCancellationAfterOpenLeavesObjectsIntact(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		make func(string) string
+	}{
+		{name: "leaf", make: func(root string) string {
+			path := filepath.Join(root, "child.txt")
+			if err := os.WriteFile(path, []byte("inside"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}},
+		{name: "directory", make: func(root string) string {
+			path := filepath.Join(root, "child")
+			if err := os.Mkdir(path, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			return path
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			child := test.make(root)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			original := windowsLiveCleanupAfterChildOpen
+			windowsLiveCleanupAfterChildOpen = func(path string) {
+				if path == child {
+					cancel()
+				}
+			}
+			t.Cleanup(func() { windowsLiveCleanupAfterChildOpen = original })
+			if err := removeWindowsLiveDirectoryWithBudget(ctx, root, windowsLiveCleanupBudget{maxDepth: 8, maxEntries: 8}); err == nil {
+				t.Fatal("handle cleanup accepted cancellation after opening a child")
+			}
+			if _, err := os.Lstat(child); err != nil {
+				t.Fatalf("cancellation after child open removed %q: %v", child, err)
+			}
+		})
 	}
 }
 

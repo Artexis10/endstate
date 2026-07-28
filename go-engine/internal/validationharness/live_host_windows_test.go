@@ -73,6 +73,12 @@ func TestWindowsLiveServiceTypeClassificationIsCompleteAndFailClosed(t *testing.
 		{"recognizer", 0x8, true, false},
 		{"own process", 0x10, false, true},
 		{"shared process", 0x20, false, true},
+		{"user service instance", 0x40, false, true},
+		{"user service template", 0x80, false, true},
+		{"user service", 0x200, false, true},
+		{"user service instance template", 0x60, false, true},
+		{"user service instance template aggregate", 0xe0, false, true},
+		{"interactive user service", 0x210, false, true},
 		{"interactive own process", 0x110, false, true},
 	} {
 		driver, service, err := classifyWindowsLiveServiceType(test.kind)
@@ -80,7 +86,7 @@ func TestWindowsLiveServiceTypeClassificationIsCompleteAndFailClosed(t *testing.
 			t.Fatalf("%s: classifyWindowsLiveServiceType(%#x) = (%v, %v, %v)", test.name, test.kind, driver, service, err)
 		}
 	}
-	for _, kind := range []uint64{0, 0x40, 0x11, 0x30} {
+	for _, kind := range []uint64{0, 0x3, 0x11, 0x30, 0x101, 0x400} {
 		if _, _, err := classifyWindowsLiveServiceType(kind); err == nil {
 			t.Fatalf("classifyWindowsLiveServiceType(%#x) accepted an unknown or mixed type", kind)
 		}
