@@ -15,6 +15,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sys/windows"
+
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
@@ -25,7 +27,7 @@ func windowsLiveHostMutationBinding(definition LiveDefinition, appData string, a
 	}
 	binding := liveHostMutationBinding{appData: sha256.Sum256([]byte(filepath.Clean(root)))}
 	if attempt.path != "" {
-		if !attempt.valid() {
+		if !attempt.registered() {
 			return liveHostMutationBinding{}, fmt.Errorf("live attempt root is unsafe")
 		}
 		binding.attemptRoot = sha256.Sum256([]byte(attempt.path))
@@ -76,7 +78,12 @@ func runWindowsLiveAttemptRootCleanup(admission liveReceiptAdmission, permit tru
 	if err != nil {
 		return nil, err
 	}
-	return runWindowsLiveHostMutation(admission, permit, definition, binding, attempt.Cleanup)
+	cleanup, err := attempt.prepareCleanup()
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup.abort()
+	return runWindowsLiveHostMutation(admission, permit, definition, binding, cleanup.Cleanup)
 }
 
 func runWindowsLiveHostMutation(admission liveReceiptAdmission, permit trustedLiveHostMutationPermit, definition LiveDefinition, binding liveHostMutationBinding, mutate func() error) (*liveHostMutationReceipt, error) {
@@ -113,7 +120,15 @@ type windowsLiveAttemptRoot struct {
 
 type windowsLiveAttemptRootCleanupReservation struct{ root windowsLiveAttemptRoot }
 
+type windowsLiveAttemptRootCleanup struct {
+	root        windowsLiveAttemptRoot
+	reservation windowsLiveAttemptRootCleanupReservation
+	handle      windows.Handle
+	completed   bool
+}
+
 var windowsLiveAttemptRoots sync.Map
+var windowsLiveAttemptRootIdentityForPath = windowsLiveObjectIdentityForPath
 
 func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
 	trustedParent, err := windowsLiveRunnerTemp()
@@ -129,7 +144,7 @@ func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
 		_ = os.Remove(path)
 		return windowsLiveAttemptRoot{}, fmt.Errorf("live attempt ownership receipt is unavailable")
 	}
-	object, err := windowsLiveObjectIdentityForPath(root.path, true)
+	object, err := windowsLiveAttemptRootIdentityForPath(root.path, true)
 	if err != nil {
 		_ = os.Remove(path)
 		return windowsLiveAttemptRoot{}, fmt.Errorf("live attempt root identity is unavailable")
@@ -145,6 +160,14 @@ func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
 }
 
 func (root windowsLiveAttemptRoot) valid() bool {
+	if !root.registered() {
+		return false
+	}
+	object, err := windowsLiveAttemptRootIdentityForPath(root.path, true)
+	return err == nil && object == root.object
+}
+
+func (root windowsLiveAttemptRoot) registered() bool {
 	if root.parent == "" || root.path == "" || root.nonce == ([32]byte{}) || filepath.Dir(root.path) != root.parent || !strings.HasPrefix(filepath.Base(root.path), "endstate-hosted-live-") {
 		return false
 	}
@@ -156,18 +179,27 @@ func (root windowsLiveAttemptRoot) valid() bool {
 	if err := safepath.ValidateRoot(root.parent); err != nil {
 		return false
 	}
-	object, err := windowsLiveObjectIdentityForPath(root.path, true)
-	return err == nil && object == root.object
+	return true
 }
 
 func (root windowsLiveAttemptRoot) Cleanup() error {
+	cleanup, err := root.prepareCleanup()
+	if err != nil {
+		return err
+	}
+	defer cleanup.abort()
+	return cleanup.Cleanup()
+}
+
+func (root windowsLiveAttemptRoot) prepareCleanup() (*windowsLiveAttemptRootCleanup, error) {
 	reservation := windowsLiveAttemptRootCleanupReservation{root: root}
 	if !windowsLiveAttemptRoots.CompareAndSwap(root.nonce, root, reservation) {
-		return fmt.Errorf("live attempt root is unsafe")
+		return nil, fmt.Errorf("live attempt root is unsafe")
 	}
-	reserved := true
+	prepared := &windowsLiveAttemptRootCleanup{root: root, reservation: reservation, handle: windows.InvalidHandle}
+	ready := false
 	defer func() {
-		if reserved {
+		if !ready {
 			windowsLiveAttemptRoots.CompareAndSwap(root.nonce, reservation, root)
 		}
 	}()
@@ -176,16 +208,47 @@ func (root windowsLiveAttemptRoot) Cleanup() error {
 	}
 	handle, err := openWindowsLiveCleanupHandle(root.path, true)
 	if err != nil {
-		return fmt.Errorf("cleanup live attempt root: %w", err)
+		return nil, fmt.Errorf("cleanup live attempt root: %w", err)
 	}
+	if err := validateWindowsLiveCleanupHandle(handle, root.path, true); err != nil {
+		windows.CloseHandle(handle)
+		return nil, fmt.Errorf("cleanup live attempt root: %w", err)
+	}
+	identity, err := windowsLiveObjectIdentityForHandle(handle)
+	if err != nil || identity != root.object {
+		windows.CloseHandle(handle)
+		return nil, fmt.Errorf("cleanup live attempt root: live owned root identity changed")
+	}
+	prepared.handle = handle
+	ready = true
+	return prepared, nil
+}
+
+func (cleanup *windowsLiveAttemptRootCleanup) Cleanup() error {
+	if cleanup == nil || cleanup.handle == windows.InvalidHandle || cleanup.completed {
+		return fmt.Errorf("live attempt root is unsafe")
+	}
+	handle := cleanup.handle
+	cleanup.handle = windows.InvalidHandle
 	ctx, cancel := defaultWindowsLiveCleanupContext()
 	defer cancel()
-	if err := removeWindowsLiveDirectoryHandleWithBudget(ctx, handle, root.path, windowsLiveCleanupBudget{maxDepth: maxWindowsLiveCleanupDepth, maxEntries: maxWindowsLiveCleanupEntries}, root.object); err != nil {
+	if err := removeWindowsLiveDirectoryHandleWithBudget(ctx, handle, cleanup.root.path, windowsLiveCleanupBudget{maxDepth: maxWindowsLiveCleanupDepth, maxEntries: maxWindowsLiveCleanupEntries}, cleanup.root.object); err != nil {
 		return fmt.Errorf("cleanup live attempt root: %w", err)
 	}
-	windowsLiveAttemptRoots.Delete(root.nonce)
-	reserved = false
+	windowsLiveAttemptRoots.Delete(cleanup.root.nonce)
+	cleanup.completed = true
 	return nil
+}
+
+func (cleanup *windowsLiveAttemptRootCleanup) abort() {
+	if cleanup == nil || cleanup.completed {
+		return
+	}
+	if cleanup.handle != windows.InvalidHandle {
+		windows.CloseHandle(cleanup.handle)
+		cleanup.handle = windows.InvalidHandle
+	}
+	windowsLiveAttemptRoots.CompareAndSwap(cleanup.root.nonce, cleanup.reservation, cleanup.root)
 }
 
 func resolveWindowsLiveDeclaredTargets(definition LiveDefinition, appData string) ([]liveResolvedDeclaredTarget, error) {

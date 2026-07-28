@@ -108,6 +108,33 @@ func TestWindowsLiveAttemptRootRejectsRecreatedOwnedPath(t *testing.T) {
 	}
 }
 
+func TestWindowsLiveAttemptRootBindingDoesNotReopenOwnedRoot(t *testing.T) {
+	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appData, parent := t.TempDir(), t.TempDir()
+	withWindowsLiveTestAppData(t, appData)
+	withWindowsLiveTestRunnerTemp(t, parent)
+	attempt, err := newWindowsLiveAttemptRoot(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := windowsLiveAttemptRootIdentityForPath
+	var opens int
+	windowsLiveAttemptRootIdentityForPath = func(path string, directory bool) (windowsLiveObjectIdentity, error) {
+		opens++
+		return original(path, directory)
+	}
+	t.Cleanup(func() { windowsLiveAttemptRootIdentityForPath = original })
+	if _, err := windowsLiveHostMutationBinding(definition, appData, attempt); err != nil {
+		t.Fatal(err)
+	}
+	if opens != 0 {
+		t.Fatalf("attempt-root binding reopened the root %d times before held cleanup", opens)
+	}
+}
+
 func TestWindowsLiveAttemptRootCleanupRejectsSwapAfterOwnershipReservationAndRetriesSafely(t *testing.T) {
 	parent, outside := t.TempDir(), t.TempDir()
 	withWindowsLiveTestRunnerTemp(t, parent)
