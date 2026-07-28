@@ -61,6 +61,80 @@ jobs:
             return [System.Text.Encoding]::UTF8.GetByteCount($Value)
           }
 
+          function Stop-ProbeProcess {
+            param([System.Diagnostics.Process]$Process, [string]$Message)
+            if (-not $Process.HasExited) {
+              $Process.Kill($true)
+            }
+            Fail-Unsupported $Message
+          }
+
+          function Read-BoundedProcessOutput {
+            param([System.Diagnostics.Process]$Process, [int]$MaximumBytes = 16384)
+            $deadline = [System.DateTime]::UtcNow.AddSeconds(60)
+            $stdout = [PSCustomObject]@{
+              Name = 'stdout'
+              Reader = $Process.StandardOutput
+              Buffer = [char[]]::new(1024)
+              Builder = [System.Text.StringBuilder]::new()
+              Task = $null
+            }
+            $stderr = [PSCustomObject]@{
+              Name = 'stderr'
+              Reader = $Process.StandardError
+              Buffer = [char[]]::new(1024)
+              Builder = [System.Text.StringBuilder]::new()
+              Task = $null
+            }
+            $pending = @($stdout, $stderr)
+            foreach ($channel in $pending) {
+              $channel.Task = $channel.Reader.ReadAsync($channel.Buffer, 0, $channel.Buffer.Length)
+            }
+
+            $totalBytes = 0
+            while ($pending.Count -gt 0) {
+              $remainingMilliseconds = [int][System.Math]::Ceiling(($deadline - [System.DateTime]::UtcNow).TotalMilliseconds)
+              if ($remainingMilliseconds -le 0) {
+                Stop-ProbeProcess -Process $Process -Message 'winget.exe output capture timed out'
+              }
+              $tasks = [System.Threading.Tasks.Task[]]@($pending | ForEach-Object { $_.Task })
+              $delay = [System.Threading.Tasks.Task]::Delay($remainingMilliseconds)
+              $completed = [System.Threading.Tasks.Task]::WhenAny([System.Threading.Tasks.Task[]]($tasks + $delay)).GetAwaiter().GetResult()
+              if ([object]::ReferenceEquals($completed, $delay)) {
+                Stop-ProbeProcess -Process $Process -Message 'winget.exe output capture timed out'
+              }
+              $matches = @($pending | Where-Object { [object]::ReferenceEquals($_.Task, $completed) })
+              if ($matches.Count -ne 1) {
+                Stop-ProbeProcess -Process $Process -Message 'winget.exe output capture lost stream identity'
+              }
+              $channel = $matches[0]
+              $read = $completed.GetAwaiter().GetResult()
+              if ($read -eq 0) {
+                $pending = @($pending | Where-Object { -not [object]::ReferenceEquals($_, $channel) })
+                continue
+              }
+              $chunk = [string]::new($channel.Buffer, 0, $read)
+              $chunkBytes = Get-Utf8ByteCount $chunk
+              if (($totalBytes + $chunkBytes) -gt $MaximumBytes) {
+                Stop-ProbeProcess -Process $Process -Message "winget.exe output exceeds $MaximumBytes UTF-8 bytes"
+              }
+              $totalBytes += $chunkBytes
+              [void]$channel.Builder.Append($chunk)
+              $channel.Task = $channel.Reader.ReadAsync($channel.Buffer, 0, $channel.Buffer.Length)
+            }
+
+            if (-not $Process.HasExited) {
+              $remainingMilliseconds = [int][System.Math]::Ceiling(($deadline - [System.DateTime]::UtcNow).TotalMilliseconds)
+              if ($remainingMilliseconds -le 0 -or -not $Process.WaitForExit($remainingMilliseconds)) {
+                Stop-ProbeProcess -Process $Process -Message 'winget.exe process timed out'
+              }
+            }
+            return [PSCustomObject]@{
+              Output = ($stdout.Builder.ToString() + $stderr.Builder.ToString()).Trim()
+              ByteLength = $totalBytes
+            }
+          }
+
           function Invoke-ReadOnlyWinget {
             param([string]$Argument)
             $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -77,23 +151,13 @@ jobs:
             if (-not $process.Start()) {
               Fail-Unsupported "could not start direct winget.exe for $Argument"
             }
-            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-            $stderrTask = $process.StandardError.ReadToEndAsync()
-            if (-not $process.WaitForExit(60000)) {
-              $process.Kill($true)
-              Fail-Unsupported "winget.exe $Argument timed out"
-            }
-            $stdout = $stdoutTask.GetAwaiter().GetResult()
-            $stderr = $stderrTask.GetAwaiter().GetResult()
-            $output = ("$stdout`n$stderr").Trim()
-            if ((Get-Utf8ByteCount $output) -gt 16384) {
-              Fail-Unsupported "winget.exe $Argument output exceeds 16384 UTF-8 bytes"
-            }
+            $captured = Read-BoundedProcessOutput -Process $process
             $exitCode = [int32]$process.ExitCode
             return [PSCustomObject]@{
               ExitCodeDecimal = [int64]$exitCode
               ExitCodeHex = ('0x{0:X8}' -f ([System.BitConverter]::ToUInt32([System.BitConverter]::GetBytes($exitCode), 0)))
-              Output = Limit-Text $output
+              Output = Limit-Text $captured.Output
+              OutputByteLength = $captured.ByteLength
             }
           }
 
