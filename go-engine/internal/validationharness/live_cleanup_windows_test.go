@@ -8,9 +8,12 @@ package validationharness
 import (
 	"context"
 	"crypto/sha256"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -226,6 +229,168 @@ func TestWindowsLiveDeclaredTargetWipeRejectsWrongRootAndReplayWithoutMutation(t
 	}
 }
 
+func TestWindowsLiveAuthorityCleanupTransitionAbandonsFailedAdmissionAndRunsOnlyFinalSuffix(t *testing.T) {
+	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appData, parent := t.TempDir(), t.TempDir()
+	withWindowsLiveTestAppData(t, appData)
+	withWindowsLiveTestRunnerTemp(t, parent)
+	path := filepath.Join(appData, "Notepad++", "config.xml")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("seed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	attempt, err := newWindowsLiveAttemptRoot(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(attempt.path, "failed-attempt.txt"), []byte("private"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	session := liveWindowsCleanupAuthoritySession(t, definition)
+	issuer := session.NewReceiptIssuer()
+	if err := issuer.skipDeclaredPreflight(); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := issuer.admit(liveOperationEngineApply, 3, session.NonceFor(liveOperationEngineApply, 3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.issuer == nil {
+		t.Fatal("failed prelaunch admission was not reserved")
+	}
+	if err := session.EnterCleanup(newLiveReceiptIssuer()); err == nil {
+		t.Fatal("cleanup transition accepted a foreign issuer")
+	}
+	if err := liveWindowsCleanupAuthoritySession(t, definition).EnterCleanup(issuer); err == nil {
+		t.Fatal("cleanup transition accepted an issuer from another session")
+	}
+	malformed := liveWindowsCleanupAuthoritySession(t, definition)
+	malformed.definition.operations[15] = LiveCampaignOperation{Sequence: 15, Operation: string(liveOperationEngineApply)}
+	malformedIssuer := malformed.NewReceiptIssuer()
+	if err := malformed.EnterCleanup(malformedIssuer); err == nil {
+		t.Fatal("cleanup transition accepted a malformed final suffix")
+	}
+	if err := session.EnterCleanup(issuer); err != nil {
+		t.Fatalf("EnterCleanup() after failed prelaunch admission error = %v", err)
+	}
+	if _, err := issuer.admit(liveOperationEngineApply, 3, session.NonceFor(liveOperationEngineApply, 3)); err == nil {
+		t.Fatal("cleanup transition admitted a normal proof operation")
+	}
+	if err := session.EnterCleanup(issuer); err == nil {
+		t.Fatal("cleanup transition accepted a replay")
+	}
+
+	uninstall, err := issuer.admit(liveOperationWingetExactUninstall, 13, session.NonceFor(liveOperationWingetExactUninstall, 13))
+	if err != nil {
+		t.Fatalf("admit final uninstall: %v", err)
+	}
+	uninstallPermit, err := session.MintMutationPermit(uninstall)
+	if err != nil {
+		t.Fatalf("MintMutationPermit(final uninstall) error = %v", err)
+	}
+	expected := liveReceiptExpectedIdentity{definition: uninstallPermit.capability.definition, engine: uninstallPermit.capability.engine, seed: uninstallPermit.capability.seed, packageRef: uninstallPermit.capability.packageRef, comparator: uninstallPermit.capability.comparator, targets: uninstallPermit.capability.targets, observer: uninstallPermit.capability.observer, workflow: uninstallPermit.capability.workflow, runner: uninstallPermit.capability.executableSHA256}
+	uninstallRequest := newLiveTypedMutation(uninstall, uninstallPermit, liveOperationWingetExactUninstall, uninstallPermit.capability.executable, uninstallPermit.capability.arguments, "", nil, expected, 1)
+	if !uninstallPermit.capability.finalize(uninstallRequest, expected.runner, time.Now().UTC()) {
+		t.Fatal("final uninstall fixture could not commit its authority permit")
+	}
+	receipt := liveUnsealedReceiptForTest(t, uninstall, nil, nil, "")
+	receipt.executable, receipt.args, receipt.environment, receipt.expected = uninstallRequest.executable, append([]string(nil), uninstallRequest.args...), nil, expected
+	receipt.image.sha256 = expected.runner
+	receipt.requestSHA256 = receipt.requestDigest()
+	receipt.resultSHA256 = receipt.resultDigest()
+	if err := issuer.sealFn(receipt); err != nil {
+		t.Fatalf("seal final uninstall fixture: %v", err)
+	}
+	if !receipt.sealed || receipt.failure != "" {
+		t.Fatalf("final uninstall fixture = %+v", receipt)
+	}
+	uninstall.complete()
+
+	wipe, err := issuer.admit(liveOperationDeclaredTargetWipe, 14, session.NonceFor(liveOperationDeclaredTargetWipe, 14))
+	if err != nil {
+		t.Fatalf("admit final wipe: %v", err)
+	}
+	wipeBinding, err := windowsLiveHostMutationBinding(definition, appData, windowsLiveAttemptRoot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wipePermit, err := session.MintHostMutationPermit(wipe, wipeBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wipeReceipt, err := runWindowsLiveDeclaredTargetWipe(wipe, wipePermit, definition, appData)
+	if err != nil || wipeReceipt == nil || !wipeReceipt.sealed || !wipeReceipt.succeeded {
+		t.Fatalf("final declared-target wipe = %+v, %v", wipeReceipt, err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("final declared-target wipe left target: %v", err)
+	}
+
+	cleanup, err := issuer.admit(liveOperationAttemptRootCleanup, 15, session.NonceFor(liveOperationAttemptRootCleanup, 15))
+	if err != nil {
+		t.Fatalf("admit attempt-root cleanup: %v", err)
+	}
+	cleanupBinding, err := windowsLiveHostMutationBinding(definition, appData, attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupPermit, err := session.MintHostMutationPermit(cleanup, cleanupBinding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cleanupReceipt, err := runWindowsLiveAttemptRootCleanup(cleanup, cleanupPermit, definition, appData, attempt)
+	if err != nil || cleanupReceipt == nil || !cleanupReceipt.sealed || !cleanupReceipt.succeeded {
+		t.Fatalf("final attempt-root cleanup = %+v, %v", cleanupReceipt, err)
+	}
+	if _, err := os.Lstat(attempt.path); !os.IsNotExist(err) {
+		t.Fatalf("final attempt-root cleanup left root: %v", err)
+	}
+}
+
+func TestWindowsLiveAttemptRootCleanupFailureReturnsNoSuccessReceipt(t *testing.T) {
+	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	appData, parent := t.TempDir(), t.TempDir()
+	withWindowsLiveTestAppData(t, appData)
+	withWindowsLiveTestRunnerTemp(t, parent)
+	attempt, err := newWindowsLiveAttemptRoot(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := liveWindowsHostMutationSession(t, definition, 1, liveOperationAttemptRootCleanup)
+	issuer := session.NewReceiptIssuer()
+	admission, err := issuer.admit(liveOperationAttemptRootCleanup, 1, session.NonceFor(liveOperationAttemptRootCleanup, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding, err := windowsLiveHostMutationBinding(definition, appData, attempt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	permit, err := session.MintHostMutationPermit(admission, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(attempt.path); err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := runWindowsLiveAttemptRootCleanup(admission, permit, definition, appData, attempt)
+	if err == nil || receipt != nil {
+		t.Fatalf("failed attempt-root cleanup = %+v, %v, want no success receipt", receipt, err)
+	}
+	if _, err := issuer.admit(liveOperationAttemptRootCleanup, 2, session.NonceFor(liveOperationAttemptRootCleanup, 2)); err == nil {
+		t.Fatal("failed cleanup advanced the issuer sequence")
+	}
+}
+
 func TestWindowsLiveHandleCleanupRejectsBudgetExhaustionWithoutTraversal(t *testing.T) {
 	root := t.TempDir()
 	deep := root
@@ -314,6 +479,35 @@ func liveWindowsHostMutationSession(t *testing.T, definition LiveDefinition, seq
 	return &LiveAuthoritySession{campaignID: campaign, campaign: LiveCampaign{PhaseNonce: "windows-host-mutation", ExpiresAt: now.Add(time.Hour)}, now: now, minted: make(map[liveAuthorityPermitKey]struct{}), definition: liveAuthorityDefinition{
 		definition: liveSHA256Bytes(digest), targets: liveSHA256Bytes(liveSHA256Hex(definition.DeclaredTargets)), observer: liveSHA256Bytes(liveSHA256Hex(definition.Observer)), workflow: sha256.Sum256([]byte("workflow")), operations: map[uint64]LiveCampaignOperation{sequence: {Sequence: sequence, Operation: string(operation)}},
 	}}
+}
+
+func liveWindowsCleanupAuthoritySession(t *testing.T, definition LiveDefinition) *LiveAuthoritySession {
+	t.Helper()
+	campaign := liveTestCampaign()
+	now := time.Now().UTC()
+	campaign.ExpiresAt = now.Add(time.Hour)
+	campaign.ModuleRevision = definition.ModuleRevision
+	campaign.ValidationSourceSHA256 = definition.ValidationSourceSHA256
+	campaign.SeedSHA256 = definition.SeedSHA256
+	campaign.PackageRef = definition.WingetRef
+	campaign.PackageArguments = []string{"uninstall", "--id", campaign.PackageRef, "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
+	campaign.ComparatorSHA256 = liveSHA256Hex(definition.Comparator)
+	campaign.TargetsSHA256 = liveSHA256Hex(definition.DeclaredTargets)
+	campaign.ObserverSHA256 = liveSHA256Hex(definition.Observer)
+	campaign.EngineSHA256 = strings.Repeat("1", 64)
+	campaign.ValidatorSHA256 = strings.Repeat("2", 64)
+	liveTestBindEngineOperations(&campaign)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		_, _ = writer.Write(mustLiveWorkflowRunJSON(t, campaign))
+	}))
+	t.Cleanup(server.Close)
+	session, err := NewLiveAuthoritySession(context.Background(), newLiveWorkflowRunClient(server.Client(), server.URL), LiveAuthoritySessionRequest{
+		Campaign: campaign, Definition: definition, DefinitionSHA256: canonicalLiveDefinitionSHA256(t, definition), EngineSHA256: campaign.EngineSHA256, ValidatorSHA256: campaign.ValidatorSHA256, ControllerCheckoutCommit: campaign.ControllerCommit, TestedCheckoutCommit: campaign.TestedCheckoutCommit, Now: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session
 }
 
 func withWindowsLiveTestAppData(t *testing.T, root string) {

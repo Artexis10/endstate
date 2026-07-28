@@ -153,7 +153,13 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	issuer.enterCleanupFn = func(start uint64, operations []liveOperation) error {
 		mu.Lock()
 		defer mu.Unlock()
-		if cleanup || active.issuer != nil || start == 0 || next >= start || len(operations) != 3 || operations[0] != liveOperationWingetExactUninstall || operations[1] != liveOperationDeclaredTargetWipe || operations[2] != liveOperationAttemptRootCleanup {
+		if cleanup || state == liveAdmissionLaunchCommitted || start == 0 || next >= start || len(operations) != 3 || operations[0] != liveOperationWingetExactUninstall || operations[1] != liveOperationDeclaredTargetWipe || operations[2] != liveOperationAttemptRootCleanup {
+			return errors.New("live cleanup transition rejected")
+		}
+		if state == liveAdmissionReserved {
+			active = liveReceiptAdmission{}
+			state = 0
+		} else if active.issuer != nil {
 			return errors.New("live cleanup transition rejected")
 		}
 		cleanup, cleanupStart, cleanupOperations, next = true, start, append([]liveOperation(nil), operations...), start-1
