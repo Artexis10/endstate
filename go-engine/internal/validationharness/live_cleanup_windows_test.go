@@ -274,6 +274,35 @@ func TestWindowsLiveHandleCleanupRejectsChildJunctionSwap(t *testing.T) {
 	}
 }
 
+func TestWindowsLiveHandleCleanupPreventsPostOpenChildReplacement(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	child, backup := filepath.Join(root, "child.txt"), filepath.Join(root, "backup.txt")
+	if err := os.WriteFile(child, []byte("inside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(outside, "sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := windowsLiveCleanupAfterChildOpen
+	var replacementErr error
+	windowsLiveCleanupAfterChildOpen = func(path string) {
+		if path == child {
+			replacementErr = os.Rename(child, backup)
+		}
+	}
+	t.Cleanup(func() { windowsLiveCleanupAfterChildOpen = original })
+	if err := removeWindowsLiveDirectoryWithBudget(context.Background(), root, windowsLiveCleanupBudget{maxDepth: 8, maxEntries: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if replacementErr == nil {
+		t.Fatal("exclusive child handle allowed replacement")
+	}
+	if _, err := os.Lstat(sentinel); err != nil {
+		t.Fatalf("post-open replacement deleted outside sentinel: %v", err)
+	}
+}
+
 func liveWindowsHostMutationSession(t *testing.T, definition LiveDefinition, sequence uint64, operation liveOperation) *LiveAuthoritySession {
 	t.Helper()
 	digest, err := CanonicalLiveDefinitionSHA256(definition)

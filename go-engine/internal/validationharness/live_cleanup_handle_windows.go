@@ -20,6 +20,7 @@ import (
 var windowsLiveRoamingAppData = windowsLiveKnownRoamingAppData
 var windowsLiveRunnerTemp = windowsLiveEnvironmentRunnerTemp
 var windowsLiveCleanupBeforeChildOpen func(string)
+var windowsLiveCleanupAfterChildOpen func(string)
 
 const (
 	maxWindowsLiveCleanupDepth   = 32
@@ -130,6 +131,9 @@ func (state *windowsLiveCleanupState) removeLeaf(ctx context.Context, path strin
 	defer windows.CloseHandle(handle)
 	if err := validateWindowsLiveCleanupHandle(handle, path, directory); err != nil {
 		return err
+	}
+	if windowsLiveCleanupAfterChildOpen != nil {
+		windowsLiveCleanupAfterChildOpen(path)
 	}
 	return deleteWindowsLiveCleanupHandle(handle)
 }
