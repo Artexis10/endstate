@@ -42,7 +42,7 @@ func TestHostedLiveRunnerProbeWorkflowContract(t *testing.T) {
 		"name: Hosted Live Runner Probe", "runs-on: windows-11-arm", "timeout-minutes: 5", "Set-StrictMode -Version Latest", "$ErrorActionPreference = 'Stop'", "WINGET_CAPABILITY_UNSUPPORTED:", "exit 1", "$env:ImageOS", "$env:ImageVersion", "OSArchitecture", "ProcessArchitecture",
 		"Get-AppxPackage -Name Microsoft.DesktopAppInstaller -PackageTypeFilter Main", "IsFramework -eq $false", "IsResourcePackage -eq $false", "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe", "PublisherId -ne '8wekyb3d8bbwe'", "^Microsoft\\.DesktopAppInstaller_\\d+\\.\\d+\\.\\d+\\.\\d+_arm64__8wekyb3d8bbwe$", "$package.ResourceId",
 		"Program Files\\WindowsApps", "Assert-NoReparsePath", "Get-FileHash -LiteralPath $canonicalWingetPath -Algorithm SHA256", "Get-AuthenticodeSignature -LiteralPath $canonicalWingetPath", "Status -ne 'Valid'", "SignerCertificate", "winget.exe",
-		"Read-BoundedProcessOutput", "ReadAsync", "Task]::WhenAny", "Task]::Delay", "ExitCodeDecimal", "ExitCodeHex", "[System.BitConverter]::ToUInt32", "--version", "--info", "ConvertTo-Json -Depth 5 -Compress", "Write-Output",
+		"Read-BoundedProcessOutput", "ReadAsync", "Task]::WhenAny", "Task]::Delay", "\"$stdoutOutput`n$stderrOutput\"", "ExitCodeDecimal", "ExitCodeHex", "[System.BitConverter]::ToUInt32", "--version", "--info", "ConvertTo-Json -Depth 5 -Compress", "Write-Output",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Errorf("workflow missing %q", wanted)

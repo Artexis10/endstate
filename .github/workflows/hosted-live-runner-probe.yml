@@ -129,8 +129,10 @@ jobs:
                 Stop-ProbeProcess -Process $Process -Message 'winget.exe process timed out'
               }
             }
+            $stdoutOutput = $stdout.Builder.ToString()
+            $stderrOutput = $stderr.Builder.ToString()
             return [PSCustomObject]@{
-              Output = ($stdout.Builder.ToString() + $stderr.Builder.ToString()).Trim()
+              Output = ("$stdoutOutput`n$stderrOutput").Trim()
               ByteLength = $totalBytes
             }
           }
