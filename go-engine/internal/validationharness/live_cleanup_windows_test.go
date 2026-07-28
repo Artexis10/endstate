@@ -86,6 +86,24 @@ func TestWindowsLiveAttemptRootCleanupIsBoundedAndPropagatesFailure(t *testing.T
 	}
 }
 
+func TestWindowsLiveAttemptRootRejectsRecreatedOwnedPath(t *testing.T) {
+	parent := t.TempDir()
+	withWindowsLiveTestRunnerTemp(t, parent)
+	attempt, err := newWindowsLiveAttemptRoot(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(attempt.path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(attempt.path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if attempt.valid() || attempt.Cleanup() == nil {
+		t.Fatal("attempt root accepted a recreated owned path")
+	}
+}
+
 func TestWindowsLiveDeclaredTargetWipeRequiresBoundHostPermitAndSealsReceipt(t *testing.T) {
 	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
 	if err != nil {

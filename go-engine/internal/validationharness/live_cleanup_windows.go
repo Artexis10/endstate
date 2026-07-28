@@ -108,6 +108,7 @@ type windowsLiveAttemptRoot struct {
 	parent string
 	path   string
 	nonce  [32]byte
+	object windowsLiveObjectIdentity
 }
 
 var windowsLiveAttemptRoots sync.Map
@@ -126,6 +127,12 @@ func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
 		_ = os.Remove(path)
 		return windowsLiveAttemptRoot{}, fmt.Errorf("live attempt ownership receipt is unavailable")
 	}
+	object, err := windowsLiveObjectIdentityForPath(root.path, true)
+	if err != nil {
+		_ = os.Remove(path)
+		return windowsLiveAttemptRoot{}, fmt.Errorf("live attempt root identity is unavailable")
+	}
+	root.object = object
 	windowsLiveAttemptRoots.Store(root.nonce, root)
 	if !root.valid() {
 		windowsLiveAttemptRoots.Delete(root.nonce)
@@ -141,14 +148,14 @@ func (root windowsLiveAttemptRoot) valid() bool {
 	}
 	value, exists := windowsLiveAttemptRoots.Load(root.nonce)
 	owned, ok := value.(windowsLiveAttemptRoot)
-	if !exists || !ok || owned.parent != root.parent || owned.path != root.path || owned.nonce != root.nonce {
+	if !exists || !ok || owned.parent != root.parent || owned.path != root.path || owned.nonce != root.nonce || owned.object != root.object {
 		return false
 	}
 	if err := safepath.ValidateRoot(root.parent); err != nil {
 		return false
 	}
-	info, err := os.Lstat(root.path)
-	return err == nil && info.IsDir() && !safepath.IsLinkOrReparse(info)
+	object, err := windowsLiveObjectIdentityForPath(root.path, true)
+	return err == nil && object == root.object
 }
 
 func (root windowsLiveAttemptRoot) Cleanup() error {

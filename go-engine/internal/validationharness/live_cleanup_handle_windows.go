@@ -37,6 +37,28 @@ type windowsLiveCleanupState struct {
 
 type windowsLiveFileDispositionInfo struct{ deleteFile uint32 }
 
+type windowsLiveObjectIdentity struct {
+	volume, indexHigh, indexLow uint32
+	canonical                   string
+}
+
+func windowsLiveObjectIdentityForPath(path string, directory bool) (windowsLiveObjectIdentity, error) {
+	handle, err := openWindowsLiveCleanupHandle(path, directory)
+	if err != nil {
+		return windowsLiveObjectIdentity{}, err
+	}
+	defer windows.CloseHandle(handle)
+	var information windows.ByHandleFileInformation
+	if err := windows.GetFileInformationByHandle(handle, &information); err != nil || information.FileAttributes&windows.FILE_ATTRIBUTE_REPARSE_POINT != 0 || information.FileIndexHigh == 0 && information.FileIndexLow == 0 {
+		return windowsLiveObjectIdentity{}, fmt.Errorf("live owned root is unsafe")
+	}
+	canonical, err := windowsLiveFinalHandlePath(handle)
+	if err != nil {
+		return windowsLiveObjectIdentity{}, err
+	}
+	return windowsLiveObjectIdentity{volume: information.VolumeSerialNumber, indexHigh: information.FileIndexHigh, indexLow: information.FileIndexLow, canonical: canonical}, nil
+}
+
 func removeWindowsLiveDirectoryWithBudget(ctx context.Context, path string, budget windowsLiveCleanupBudget) error {
 	if budget.maxDepth < 1 || budget.maxDepth > maxWindowsLiveCleanupDepth || budget.maxEntries < 1 || budget.maxEntries > maxWindowsLiveCleanupEntries {
 		return fmt.Errorf("live cleanup budget is invalid")
