@@ -18,13 +18,25 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/verifier"
 )
 
-func TestValidationRunVerifyUsesMappedVerifierAndKeepsResultSemantic(t *testing.T) {
-	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+func commandFixtureWithSingleTestVerifier(t *testing.T, fixture *commandPreflightTestFixture, testVerifier modules.VerifyDef) {
+	t.Helper()
 	originalModule := fixture.catalog["apps.notepad-plus-plus"]
+	if originalModule == nil {
+		t.Fatal("notepad-plus-plus production module missing from fixture catalog")
+	}
+	if len(originalModule.Verify) != 0 {
+		t.Fatalf("notepad-plus-plus production verify declarations = %d, want 0", len(originalModule.Verify))
+	}
+
 	moduleCopy := *originalModule
-	moduleCopy.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `%USERPROFILE%\.logseq\preferences.json`}}
+	moduleCopy.Verify = append([]modules.VerifyDef(nil), originalModule.Verify...)
+	moduleCopy.Verify = append(moduleCopy.Verify, testVerifier)
+	if len(moduleCopy.Verify) != 1 {
+		t.Fatalf("test verifier declarations = %d, want 1", len(moduleCopy.Verify))
+	}
 	activeModule := repinValidationModule(t, &moduleCopy)
 	fixture.catalog = map[string]*modules.Module{activeModule.ID: activeModule}
+
 	mf := manifestForValidationModule(activeModule)
 	descriptor := fixture.context.Descriptor()
 	mf.Apps = []manifest.App{{
@@ -38,6 +50,12 @@ func TestValidationRunVerifyUsesMappedVerifierAndKeepsResultSemantic(t *testing.
 	if err := os.WriteFile(fixture.manifestPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestValidationRunVerifyUsesMappedVerifierAndKeepsResultSemantic(t *testing.T) {
+	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	testVerifier := modules.VerifyDef{Type: "file-exists", Path: `%USERPROFILE%\.logseq\preferences.json`}
+	commandFixtureWithSingleTestVerifier(t, &fixture, testVerifier)
 	originalLoad := loadModuleCatalogFn
 	loadModuleCatalogFn = func(string) (map[string]*modules.Module, error) { return fixture.catalog, nil }
 	t.Cleanup(func() { loadModuleCatalogFn = originalLoad })
@@ -80,10 +98,17 @@ func TestValidationRunVerifyUsesMappedVerifierAndKeepsResultSemantic(t *testing.
 
 func TestValidationRunVerifyRecordsVerifierIsolationWithoutPublicCodeMapping(t *testing.T) {
 	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	testVerifier := modules.VerifyDef{Type: "file-exists", Path: `%APPDATA%\Vendor\settings.json`}
+	commandFixtureWithSingleTestVerifier(t, &fixture, testVerifier)
 	originalLoad := loadModuleCatalogFn
 	originalRun := runVerifierFn
 	loadModuleCatalogFn = func(string) (map[string]*modules.Module, error) { return fixture.catalog, nil }
-	runVerifierFn = func([]manifest.VerifyEntry, *validationmode.Context) ([]verifier.VerifyResult, error) {
+	called := false
+	runVerifierFn = func(entries []manifest.VerifyEntry, _ *validationmode.Context) ([]verifier.VerifyResult, error) {
+		called = true
+		if len(entries) != 1 || entries[0].Type != testVerifier.Type || entries[0].Path != testVerifier.Path {
+			t.Fatalf("verifier entries = %#v, want exactly %#v", entries, testVerifier)
+		}
 		return []verifier.VerifyResult{{Type: "file-exists", Path: `%APPDATA%\Vendor\settings.json`, Message: "File check rejected"}},
 			errors.Join(errors.New("wrapped verifier failure"), validationmode.ErrUnsafePath)
 	}
@@ -93,6 +118,9 @@ func TestValidationRunVerifyRecordsVerifierIsolationWithoutPublicCodeMapping(t *
 	})
 
 	_, commandErr := RunVerify(VerifyFlags{Manifest: fixture.manifestPath})
+	if !called {
+		t.Fatal("test verifier was not called")
+	}
 	if commandErr == nil || commandErr.Code != envelope.ErrInternalError {
 		t.Fatalf("command error = %+v, want generic internal isolation failure", commandErr)
 	}
@@ -137,6 +165,8 @@ func TestValidationManualVerifyPathUsesMappedStateAndRejectsOutsideBeforeStat(t 
 
 func TestValidationRebuildReusesSessionAcrossNestedApplyAndFailedVerifierAssertion(t *testing.T) {
 	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	testVerifier := modules.VerifyDef{Type: "file-exists", Path: `%APPDATA%\Vendor\missing.json`}
+	commandFixtureWithSingleTestVerifier(t, &fixture, testVerifier)
 	originalLoad := loadModuleCatalogFn
 	loadModuleCatalogFn = func(string) (map[string]*modules.Module, error) { return fixture.catalog, nil }
 	t.Cleanup(func() { loadModuleCatalogFn = originalLoad })
@@ -147,8 +177,20 @@ func TestValidationRebuildReusesSessionAcrossNestedApplyAndFailedVerifierAsserti
 	}
 	result := raw.(*RebuildResult)
 	verifyResult, ok := result.Verify.(*VerifyResult)
-	if !ok || verifyResult.Summary.Fail != 1 || verifyResult.Summary.Pass != 1 {
+	if !ok || verifyResult.Summary.Total != 2 || verifyResult.Summary.Pass != 1 || verifyResult.Summary.Fail != 1 || verifyResult.Summary.Skipped != 0 {
 		t.Fatalf("nested verifier result = %#v", result.Verify)
+	}
+	var appPass, fileExistsFail bool
+	for _, item := range verifyResult.Results {
+		switch {
+		case item.Type == "app" && item.Status == "pass":
+			appPass = true
+		case item.Type == "file-exists" && item.Status == "fail" && strings.Contains(item.Message, testVerifier.Path):
+			fileExistsFail = true
+		}
+	}
+	if !appPass || !fileExistsFail {
+		t.Fatalf("nested verifier semantics = %#v, want app pass and missing file-exists fail", verifyResult.Results)
 	}
 	if isolationErr := fixture.session.IsolationError(); isolationErr != nil {
 		t.Fatalf("ordinary nested assertion poisoned session: %v", isolationErr)

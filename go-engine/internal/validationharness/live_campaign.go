@@ -17,6 +17,10 @@ import (
 const (
 	LiveCampaignSchemaVersion = 1
 	maxLiveAuthorityBodyBytes = 64 * 1024
+	liveTemplateEndstateRoot  = "$ENDSTATE_ROOT"
+	liveTemplateCheckoutRoot  = "$CHECKOUT_ROOT"
+	liveTemplateWinget        = "$WINGET"
+	liveTemplatePowerShell    = "$POWERSHELL"
 )
 
 type LiveCampaignMode string
@@ -79,7 +83,7 @@ func ValidateLiveCampaign(campaign LiveCampaign) error {
 	if !liveExactPackageArguments(campaign.PackageArguments, campaign.PackageRef) {
 		return fmt.Errorf("live campaign package arguments are invalid")
 	}
-	if !validLiveCampaignOperations(campaign.Operations, campaign.PackageRef, campaign.EngineSHA256) {
+	if !validLiveCampaignOperations(campaign.Operations, campaign.PackageRef, campaign.EngineSHA256, campaign.ValidatorSHA256) {
 		return fmt.Errorf("live campaign operation plan is invalid")
 	}
 	switch campaign.Mode {
@@ -97,7 +101,7 @@ func ValidateLiveCampaign(campaign LiveCampaign) error {
 	return nil
 }
 
-func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef, engineSHA256 string) bool {
+func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef, engineSHA256, validatorSHA256 string) bool {
 	if len(operations) != 13 && len(operations) != 15 {
 		return false
 	}
@@ -105,7 +109,7 @@ func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef,
 	bySequence := make(map[uint64]liveOperation, len(operations))
 	for _, operation := range operations {
 		internal := liveOperation(operation.Operation) == liveOperationDeclaredTargetWipe || liveOperation(operation.Operation) == liveOperationAttemptRootCleanup
-		if !liveOperation(operation.Operation).valid() || (!internal && (!lowerSHA256(operation.ExecutableSHA256) || operation.Executable == "" || len(operation.Arguments) == 0 || len(operation.Arguments) > 64 || len(operation.Environment) > len(liveProcessEnvironmentAllowlist))) || (internal && (operation.Executable != "" || operation.ExecutableSHA256 != "" || len(operation.Arguments) != 0 || operation.Directory != "" || len(operation.Environment) != 0)) {
+		if !liveOperation(operation.Operation).valid() || (!internal && (!lowerSHA256(operation.ExecutableSHA256) && operation.ExecutableSHA256 != liveTemplateWinget && operation.ExecutableSHA256 != liveTemplatePowerShell || operation.Executable == "" || len(operation.Arguments) == 0 || len(operation.Arguments) > 64 || len(operation.Environment) > len(liveProcessEnvironmentAllowlist))) || (internal && (operation.Executable != "" || operation.ExecutableSHA256 != "" || len(operation.Arguments) != 0 || operation.Directory != "" || len(operation.Environment) != 0)) {
 			return false
 		}
 		if _, duplicate := seen[operation.Sequence]; duplicate {
@@ -123,10 +127,7 @@ func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef,
 				return false
 			}
 		}
-		if liveOperation(operation.Operation) == liveOperationWingetExactUninstall && !liveExactWingetUninstallArguments(operation.Arguments, packageRef) {
-			return false
-		}
-		if liveCampaignEngineOperation(liveOperation(operation.Operation)) && operation.ExecutableSHA256 != engineSHA256 {
+		if !validLiveCampaignOperationTemplate(operation, packageRef, engineSHA256, validatorSHA256) {
 			return false
 		}
 	}
@@ -145,6 +146,45 @@ func validLiveCampaignOperations(operations []LiveCampaignOperation, packageRef,
 		}
 	}
 	return len(operations) == len(expected)+int(offset)
+}
+
+func validLiveCampaignOperationTemplate(operation LiveCampaignOperation, packageRef, engineSHA256, validatorSHA256 string) bool {
+	kind := liveOperation(operation.Operation)
+	if kind == liveOperationDeclaredTargetWipe || kind == liveOperationAttemptRootCleanup {
+		return operation.Executable == "" && operation.ExecutableSHA256 == "" && len(operation.Arguments) == 0 && operation.Directory == "" && len(operation.Environment) == 0
+	}
+	if kind == liveOperationWingetExactUninstall {
+		return operation.Executable == liveTemplateWinget && operation.ExecutableSHA256 == liveTemplateWinget && liveExactWingetUninstallArguments(operation.Arguments, packageRef) && operation.Directory == "" && len(operation.Environment) == 0
+	}
+	if kind == liveOperationHashBoundSeed {
+		return operation.Executable == liveTemplatePowerShell && operation.ExecutableSHA256 == liveTemplatePowerShell && sameLiveArguments(operation.Arguments, []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", liveTemplateEndstateRoot + `\seed\seed.ps1`}) && operation.Directory == liveTemplateEndstateRoot+`\seed` && len(operation.Environment) == 0
+	}
+	digest := engineSHA256
+	if kind == liveOperationHashBoundSeed {
+		digest = validatorSHA256
+	}
+	executable, arguments, sha256 := liveTemplateOperation(kind, digest)
+	return executable != "" && operation.Executable == executable && operation.ExecutableSHA256 == sha256 && sameLiveArguments(operation.Arguments, arguments) && operation.Directory == liveTemplateCheckoutRoot+`\go-engine` && sameLiveEnvironment(operation.Environment, map[string]string{"ENDSTATE_ROOT": liveTemplateEndstateRoot})
+}
+
+func liveTemplateOperation(operation liveOperation, engineSHA256 string) (string, []string, string) {
+	engine := liveTemplateCheckoutRoot + `\go-engine\endstate.exe`
+	switch operation {
+	case liveOperationEngineApply:
+		return engine, []string{"apply", "--manifest", liveTemplateEndstateRoot + `\manifests\install.jsonc`, "--events", "jsonl", "--json"}, engineSHA256
+	case liveOperationEngineVerify:
+		return engine, []string{"verify", "--manifest", liveTemplateEndstateRoot + `\manifests\install.jsonc`, "--events", "jsonl", "--json"}, engineSHA256
+	case liveOperationEngineCapture:
+		return engine, []string{"capture", "--only", "notepad++-notepad++,apps.notepad-plus-plus", "--out", liveTemplateEndstateRoot + `\capture.zip`, "--events", "jsonl", "--json"}, engineSHA256
+	case liveOperationEngineRebuild:
+		return engine, []string{"rebuild", "--from", liveTemplateEndstateRoot + `\capture.zip`, "--confirm", "--events", "jsonl", "--json"}, engineSHA256
+	case liveOperationEngineRevert:
+		return engine, []string{"revert", "--events", "jsonl", "--json"}, engineSHA256
+	case liveOperationHashBoundSeed:
+		return liveTemplatePowerShell, []string{"-NoLogo", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", liveTemplateEndstateRoot + `\seed\seed.ps1`}, liveTemplatePowerShell
+	default:
+		return "", nil, ""
+	}
 }
 
 func liveCampaignEngineOperation(operation liveOperation) bool {

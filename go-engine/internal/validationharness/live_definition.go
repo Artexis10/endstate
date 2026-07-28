@@ -85,6 +85,7 @@ type LiveDefinition struct {
 	DeclaredTargets         []LiveDeclaredTarget        `json:"declaredTargets"`
 	NonAuthorizing          bool                        `json:"nonAuthorizing"`
 	MutationAuthorized      bool                        `json:"mutationAuthorized"`
+	production              *modules.Module
 }
 
 // ExactBytesComparator describes the stable mappings a later runner may
@@ -212,18 +213,36 @@ func compileLiveDefinitionAt(repoRoot string, record validationmatrix.Validation
 	if policy.Trust == nil {
 		return LiveDefinition{}, fmt.Errorf("live definition seed trust is absent")
 	}
+	projection, err := modules.ParseModuleJSON(module.CanonicalSnapshot())
+	if err != nil || projection.ID != module.ID || projection.Revision != module.Revision {
+		return LiveDefinition{}, fmt.Errorf("live definition production module projection is invalid")
+	}
+	if len(projection.Verify) != 0 {
+		return LiveDefinition{}, fmt.Errorf("live definition production module verifier is unsupported")
+	}
 	definition := LiveDefinition{
 		SchemaVersion: LiveDefinitionSchemaVersion, ModuleID: record.ModuleID, ModuleRevision: module.Revision,
 		ValidationSourceSHA256: hex.EncodeToString(digest[:]), Policy: policy, WingetRef: policy.Ref,
 		Observer:           LiveObserverDefinition{WingetRef: policy.Ref, UninstallDisplayName: append([]string(nil), module.Matches.UninstallDisplayName...), ExecutableNames: append([]string(nil), module.Matches.Exe...)},
 		SeedRepositoryPath: policy.Seed, SeedSHA256: policy.Trust.SeedSHA256, RunnerLabel: policy.RunnerLabel,
 		PRTimeoutMinutes: policy.PRTimeoutMinutes, ScheduledTimeoutMinutes: policy.ScheduledTimeoutMinutes,
-		Comparator: comparator, DeclaredTargets: targets, NonAuthorizing: true, MutationAuthorized: false,
+		Comparator: comparator, DeclaredTargets: targets, NonAuthorizing: true, MutationAuthorized: false, production: projection,
 	}
 	if err := validateLiveDefinition(definition); err != nil {
 		return LiveDefinition{}, err
 	}
 	return definition, nil
+}
+
+func (definition LiveDefinition) productionModule() (*modules.Module, bool) {
+	if definition.production == nil || definition.production.ID != definition.ModuleID || definition.production.Revision != definition.ModuleRevision {
+		return nil, false
+	}
+	module, err := modules.ParseModuleJSON(definition.production.CanonicalSnapshot())
+	if err != nil || module.ID != definition.ModuleID || module.Revision != definition.ModuleRevision {
+		return nil, false
+	}
+	return module, true
 }
 
 func deriveLiveDeclaredTargets(module *modules.Module, definitions fixtureDefinitions) ([]LiveDeclaredTarget, error) {
@@ -625,6 +644,9 @@ func validateLiveDefinition(definition LiveDefinition) error {
 	}
 	if definition.Observer.WingetRef != definition.WingetRef || validateLiveObserverDefinition(definition.Observer) != nil {
 		return fmt.Errorf("live definition observer is invalid")
+	}
+	if definition.production != nil && len(definition.production.Verify) != 0 {
+		return fmt.Errorf("live definition production module verifier is unsupported")
 	}
 	if policy.PRTimeoutMinutes < 1 || policy.PRTimeoutMinutes > 25 || policy.ScheduledTimeoutMinutes < 1 || policy.ScheduledTimeoutMinutes > 45 || len(definition.Comparator.Mappings) == 0 || len(definition.Comparator.Mappings) > maxLiveMappings || definition.Comparator.MinimumExistingMappings < 1 || definition.Comparator.MinimumExistingMappings > len(definition.Comparator.Mappings) {
 		return fmt.Errorf("live definition comparator bounds are invalid")

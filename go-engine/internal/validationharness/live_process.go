@@ -269,6 +269,17 @@ func newLiveTrustedAppXWingetMutation(admission liveReceiptAdmission, permit tru
 	}
 }
 
+// newLiveTrustedEngineMutation copies the reviewed invocation exclusively from
+// the authority capability; hosted adapters never accept engine command fields.
+func newLiveTrustedEngineMutation(admission liveReceiptAdmission, permit trustedLiveMutationPermit, operation liveOperation, outputLimit int) LiveProcessRequest {
+	capability := permit.capability
+	if capability == nil {
+		return LiveProcessRequest{operation: operation, admission: admission, permit: permit, outputLimit: outputLimit}
+	}
+	expected := liveReceiptExpectedIdentity{definition: capability.definition, engine: capability.engine, seed: capability.seed, packageRef: capability.packageRef, comparator: capability.comparator, targets: capability.targets, observer: capability.observer, workflow: capability.workflow, runner: capability.executableSHA256}
+	return LiveProcessRequest{executable: capability.executable, args: append([]string(nil), capability.arguments...), dir: capability.directory, environment: cloneLiveEnvironment(capability.environment), outputLimit: outputLimit, operation: operation, admission: admission, expected: expected, permit: permit}
+}
+
 func newLiveEngineApply(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
 	return newLiveTypedMutation(admission, permit, liveOperationEngineApply, executable, args, dir, environment, expected, outputLimit)
 }
@@ -450,7 +461,7 @@ func liveProcessEnvironment(overrides map[string]string) ([]string, error) {
 }
 
 var liveProcessEnvironmentAllowlist = map[string]struct{}{
-	"APPDATA": {}, "COMSPEC": {}, "LOCALAPPDATA": {}, "PATH": {}, "PATHEXT": {},
+	"APPDATA": {}, "COMSPEC": {}, "ENDSTATE_ROOT": {}, "LOCALAPPDATA": {}, "PATH": {}, "PATHEXT": {},
 	"SYSTEMROOT": {}, "TEMP": {}, "TMP": {}, "USERPROFILE": {}, "WINDIR": {},
 }
 

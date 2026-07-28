@@ -9,12 +9,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/commands"
 	"github.com/Artexis10/endstate/go-engine/internal/events"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/planner"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 )
@@ -33,17 +35,22 @@ type liveCommandOutput struct {
 }
 
 type liveJourneyOutputs struct {
-	ScenarioID         string
-	InitialApply       liveCommandOutput
-	Verify             liveCommandOutput
-	Capture            liveCommandOutput
-	RestoreRebuild     liveCommandOutput
-	Revert             liveCommandOutput
-	RestoreJournalID   string
-	RecoveryRebuild    liveCommandOutput
-	PackageAfterRevert PackageObservation
-	ConvergenceRebuild liveCommandOutput
+	ScenarioID            string
+	InitialApply          liveCommandOutput
+	Verify                liveCommandOutput
+	Capture               liveCommandOutput
+	RestoreRebuild        liveCommandOutput
+	Revert                liveCommandOutput
+	RecoveryRebuild       liveCommandOutput
+	PackageAfterRevert    PackageObservation
+	ConvergenceRebuild    liveCommandOutput
+	runtimeRestoreTargets map[string]string
 }
+
+// liveRuntimeRestoreAuthority binds the six production restore identities to
+// their already-resolved host targets. It is private runner state: nil keeps
+// the validation-mode semantic wire contract intact.
+type liveRuntimeRestoreAuthority struct{ targets map[string]string }
 
 // liveJourneyProjection is deliberately summary-only: host paths, setting
 // content, journal names, raw command output, and credentials stay internal.
@@ -56,6 +63,20 @@ type liveJourneyProjection struct {
 	// ConvergenceEnvelopeObserved is only an envelope claim. A later state
 	// cross-binding must establish whether it involved no persistent mutation.
 	ConvergenceEnvelopeObserved bool
+}
+
+type liveJourneyProof struct {
+	restoreRebuild, recoveryRebuild, convergenceRebuild liveRebuildProof
+	revert                                              commands.RevertData
+	revertJournal                                       string
+}
+
+type liveRebuildProof struct {
+	envelopeRunID string
+	applyRunID    string
+	bundle        commands.RebuildBundleInfo
+	resolution    planner.ConfigResolution
+	restoreItems  []restore.RestoreResult
 }
 
 type liveEnvelope struct {
@@ -87,42 +108,55 @@ type liveRebuildWire struct {
 }
 
 func decodeLiveJourney(definition LiveDefinition, inputs liveJourneyOutputs) (liveJourneyProjection, *Failure) {
+	projection, _, failure := decodeLiveJourneyWithProof(definition, inputs)
+	return projection, failure
+}
+
+func decodeLiveJourneyWithProof(definition LiveDefinition, inputs liveJourneyOutputs) (liveJourneyProjection, liveJourneyProof, *Failure) {
 	if !validLiveModuleID(definition.ModuleID) || !validLiveObserverValue(definition.WingetRef) || len(definition.Comparator.Mappings) == 0 || len(definition.Comparator.Mappings) > maxLiveMappings || inputs.ScenarioID != liveConfigRoundtripScenarioID {
-		return liveJourneyProjection{}, fail(CodeEnvelopeContract, "live", "identity", "live journey identity is invalid")
+		return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "live", "identity", "live journey identity is invalid")
 	}
 	expectedMappings, ok := liveExpectedMappings(definition.Comparator.Mappings)
 	if !ok {
-		return liveJourneyProjection{}, fail(CodeEnvelopeContract, "live", "mappings", "live comparison mappings are invalid")
+		return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "live", "mappings", "live comparison mappings are invalid")
+	}
+	runtimeRestore, ok := newLiveRuntimeRestoreAuthority(definition, inputs.runtimeRestoreTargets)
+	if !ok {
+		return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "live", "restore", "live runtime restore authority is invalid")
 	}
 	if failure := validateLiveApply(inputs.InitialApply, definition, false); failure != nil {
-		return liveJourneyProjection{}, failure
+		return liveJourneyProjection{}, liveJourneyProof{}, failure
 	}
 	if failure := validateLiveVerify(inputs.Verify, definition, len(expectedMappings)); failure != nil {
-		return liveJourneyProjection{}, failure
+		return liveJourneyProjection{}, liveJourneyProof{}, failure
 	}
 	capturedMappings, failure := validateLiveCapture(inputs.Capture, definition, expectedMappings)
 	if failure != nil {
-		return liveJourneyProjection{}, failure
+		return liveJourneyProjection{}, liveJourneyProof{}, failure
 	}
-	if failure := validateLiveRebuild(inputs.RestoreRebuild, definition, capturedMappings, true, false); failure != nil {
-		return liveJourneyProjection{}, failure
+	restoreRebuild, failure := validateLiveRebuild(inputs.RestoreRebuild, definition, capturedMappings, true, false, runtimeRestore)
+	if failure != nil {
+		return liveJourneyProjection{}, liveJourneyProof{}, failure
 	}
-	if failure := validateLiveRevert(inputs.Revert, definition, capturedMappings, inputs.RestoreJournalID, "revert"); failure != nil {
-		return liveJourneyProjection{}, failure
+	revert, failure := validateLiveRevert(inputs.Revert, definition, capturedMappings, "revert", runtimeRestore)
+	if failure != nil {
+		return liveJourneyProjection{}, liveJourneyProof{}, failure
 	}
-	if failure := validateLiveRebuild(inputs.RecoveryRebuild, definition, capturedMappings, false, false); failure != nil {
-		return liveJourneyProjection{}, failure
+	recoveryRebuild, failure := validateLiveRebuild(inputs.RecoveryRebuild, definition, capturedMappings, false, false, runtimeRestore)
+	if failure != nil {
+		return liveJourneyProjection{}, liveJourneyProof{}, failure
 	}
 	if inputs.PackageAfterRevert.Ref != definition.WingetRef || inputs.PackageAfterRevert.Status != "present" || !validLiveObserverValue(inputs.PackageAfterRevert.Version) && inputs.PackageAfterRevert.Version != "" {
-		return liveJourneyProjection{}, fail(CodeEnvelopeContract, "revert", "package", "configuration revert lacks a present package observation")
+		return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "revert", "package", "configuration revert lacks a present package observation")
 	}
-	if failure := validateLiveRebuild(inputs.ConvergenceRebuild, definition, capturedMappings, false, true); failure != nil {
-		return liveJourneyProjection{}, failure
+	convergenceRebuild, failure := validateLiveRebuild(inputs.ConvergenceRebuild, definition, capturedMappings, false, true, runtimeRestore)
+	if failure != nil {
+		return liveJourneyProjection{}, liveJourneyProof{}, failure
 	}
 	return liveJourneyProjection{
 		ModuleID: definition.ModuleID, Ref: definition.WingetRef, CapturedMappings: len(capturedMappings), RestoredMappings: len(capturedMappings),
 		PackagePresentAfterRevert: true, ConvergenceEnvelopeObserved: true,
-	}, nil
+	}, liveJourneyProof{restoreRebuild: restoreRebuild, revert: revert, revertJournal: revert.JournalUsed, recoveryRebuild: recoveryRebuild, convergenceRebuild: convergenceRebuild}, nil
 }
 
 func validateLiveApply(output liveCommandOutput, definition LiveDefinition, converged bool) *Failure {
@@ -209,12 +243,13 @@ func validateLiveVerifyData(raw json.RawMessage, definition LiveDefinition, _ in
 	if err != nil || len(results) != summary.Total {
 		return liveDecodeFailure("verify", "results")
 	}
-	item, err := liveObjectAllowed(results[0], []string{"type", "status"}, []string{"type", "status", "reason", "message"})
+	app, err := liveObjectAllowed(results[0], []string{"type", "id", "ref", "driver", "status"}, []string{"type", "id", "ref", "driver", "name", "status", "version"})
 	if err != nil {
 		return liveDecodeFailure("verify", "results")
 	}
-	var kind, status, reason string
-	if liveString(item["type"], &kind) != nil || liveString(item["status"], &status) != nil || liveOptionalMapString(item, "reason", &reason) != nil || kind != "command-exists" || status != "pass" || reason != "" {
+	var kind, id, ref, driver, status, name, version string
+	if liveString(app["type"], &kind) != nil || liveString(app["id"], &id) != nil || liveString(app["ref"], &ref) != nil || liveString(app["driver"], &driver) != nil || liveString(app["status"], &status) != nil ||
+		liveOptionalMapString(app, "name", &name) != nil || liveOptionalMapString(app, "version", &version) != nil || kind != "app" || id != liveManifestAppID(definition.WingetRef) || ref != definition.WingetRef || !strings.EqualFold(driver, "winget") || status != "pass" {
 		return liveDecodeFailure("verify", "results")
 	}
 	return nil
@@ -255,7 +290,7 @@ func validateLiveCapture(output liveCommandOutput, definition LiveDefinition, ex
 	}
 	var moduleID, moduleAppID, status string
 	var captured int
-	capturedMappings, ok := liveSubsetStrings(module["paths"], expected)
+	capturedMappings, ok := liveCapturedMappings(module["paths"], expected)
 	if liveString(module["id"], &moduleID) != nil || liveString(module["appId"], &moduleAppID) != nil || liveString(module["status"], &status) != nil || json.Unmarshal(module["filesCaptured"], &captured) != nil || moduleID != definition.ModuleID || moduleAppID != liveAppID(definition.ModuleID) || status != "captured" || captured != len(capturedMappings) || captured < definition.Comparator.MinimumExistingMappings || captured == 0 || !ok || !liveExactStrings(module["wingetRefs"], []string{definition.WingetRef}) {
 		return nil, liveDecodeFailure("capture", "modules")
 	}
@@ -269,101 +304,159 @@ func validateLiveCapture(output liveCommandOutput, definition LiveDefinition, ex
 	return capturedMappings, nil
 }
 
-func validateLiveRebuild(output liveCommandOutput, definition LiveDefinition, expected map[string]struct{}, requireInstall, converged bool) *Failure {
+func validateLiveRebuild(output liveCommandOutput, definition LiveDefinition, expected map[string]struct{}, requireInstall, converged bool, runtimeRestore *liveRuntimeRestoreAuthority) (liveRebuildProof, *Failure) {
 	envelope, failure := decodeLiveEnvelope(output.Stdout, "rebuild")
 	if failure != nil {
-		return failure
+		return liveRebuildProof{}, failure
 	}
-	if failure := decodeLiveEvents(output.Stderr, "rebuild", envelope.RunID); failure != nil {
-		return failure
+	records, failure := decodeLiveEventRecords(output.Stderr, "rebuild", envelope.RunID)
+	if failure != nil || len(records) == 0 {
+		return liveRebuildProof{}, liveDecodeFailure("rebuild", "events")
 	}
 	data, err := liveObjectAllowed(envelope.Data, []string{"from", "dryRun", "restore", "apply", "configResolutionSummary", "configResolutions", "restoreItems", "verify"}, []string{"from", "bundle", "dryRun", "restore", "apply", "configResolutionSummary", "configResolutions", "restoreItems", "verify"})
 	if err != nil {
-		return liveDecodeFailure("rebuild", "data")
+		return liveRebuildProof{}, liveDecodeFailure("rebuild", "data")
 	}
 	var wire liveRebuildWire
+	var official commands.RebuildResult
 	var officialApply commands.ApplyResult
 	var officialVerify commands.VerifyResult
-	if json.Unmarshal(envelope.Data, &wire) != nil || json.Unmarshal(wire.Apply, &officialApply) != nil || json.Unmarshal(wire.Verify, &officialVerify) != nil {
-		return liveDecodeFailure("rebuild", "data")
+	if json.Unmarshal(envelope.Data, &wire) != nil || json.Unmarshal(envelope.Data, &official) != nil || json.Unmarshal(wire.Apply, &officialApply) != nil || json.Unmarshal(wire.Verify, &officialVerify) != nil || official.Bundle == nil {
+		return liveRebuildProof{}, liveDecodeFailure("rebuild", "data")
+	}
+	if !validateLiveRebuildBundle(data, official.Bundle) {
+		return liveRebuildProof{}, liveDecodeFailure("rebuild", "bundle")
 	}
 	nested, err := liveObjectAllowed(wire.Apply, []string{"dryRun", "manifest", "summary", "actions", "configResolutions", "configResolutionSummary", "restoreItems"}, []string{"dryRun", "manifest", "summary", "actions", "configModuleMap", "packageModuleMap", "warnings", "restoreModulesAvailable", "pruned", "configResolutions", "configResolutionSummary", "restoreItems"})
 	if err != nil || officialApply.ConfigResultFields == nil || !reflect.DeepEqual(commands.ConfigResultFields{
 		ConfigResolutions: wire.ConfigResolutions, ConfigResolutionSummary: wire.ConfigResolutionSummary, RestoreItems: wire.RestoreItems,
 	}, *officialApply.ConfigResultFields) {
-		return liveDecodeFailure("rebuild", "config")
+		return liveRebuildProof{}, liveDecodeFailure("rebuild", "config")
 	}
 	var dryRun bool
 	var restore string
 	if json.Unmarshal(data["dryRun"], &dryRun) != nil || dryRun || liveString(data["restore"], &restore) != nil || restore != "enabled" {
-		return liveDecodeFailure("rebuild", "restore")
+		return liveRebuildProof{}, liveDecodeFailure("rebuild", "restore")
 	}
 	if failure := validateLiveApplyData(data["apply"], definition, !requireInstall, false); failure != nil {
-		return failure
+		return liveRebuildProof{}, failure
 	}
-	if !validateLiveConfigFields(data, definition, expected, converged) || !validateLiveConfigFields(nested, definition, expected, converged) {
-		return liveDecodeFailure("rebuild", "config")
+	if !validateLiveConfigFields(data, definition, expected, converged, runtimeRestore) || !validateLiveConfigFields(nested, definition, expected, converged, runtimeRestore) {
+		return liveRebuildProof{}, liveDecodeFailure("rebuild", "config")
 	}
 	if failure := validateLiveVerifyData(data["verify"], definition, len(expected)); failure != nil {
-		return failure
+		return liveRebuildProof{}, failure
 	}
-	return nil
+	return liveRebuildProof{envelopeRunID: envelope.RunID, applyRunID: records[0].runID, bundle: *official.Bundle, resolution: cloneLiveConfigResolution(wire.ConfigResolutions[0]), restoreItems: cloneLiveRestoreItems(wire.RestoreItems)}, nil
 }
 
-func validateLiveRevert(output liveCommandOutput, definition LiveDefinition, expected map[string]struct{}, journalID, phase string) *Failure {
+func validateLiveRevert(output liveCommandOutput, definition LiveDefinition, expected map[string]struct{}, phase string, runtimeRestore *liveRuntimeRestoreAuthority) (commands.RevertData, *Failure) {
 	envelope, failure := decodeLiveEnvelope(output.Stdout, "revert")
 	if failure != nil {
-		return failure
+		return commands.RevertData{}, failure
 	}
 	if failure := decodeLiveEvents(output.Stderr, "revert", envelope.RunID); failure != nil {
-		return failure
+		return commands.RevertData{}, failure
 	}
 	data, err := liveObject(envelope.Data, "journalUsed", "results")
 	if err != nil {
-		return liveDecodeFailure(phase, "data")
+		return commands.RevertData{}, liveDecodeFailure(phase, "data")
 	}
 	var official commands.RevertData
 	if json.Unmarshal(envelope.Data, &official) != nil {
-		return liveDecodeFailure(phase, "data")
+		return commands.RevertData{}, liveDecodeFailure(phase, "data")
 	}
 	var journal string
-	if liveString(data["journalUsed"], &journal) != nil || journal == "" || journal != journalID {
-		return liveDecodeFailure(phase, "journal")
+	if liveString(data["journalUsed"], &journal) != nil || journal == "" || !filepath.IsAbs(journal) || filepath.Clean(journal) != journal || official.JournalUsed != journal {
+		return commands.RevertData{}, liveDecodeFailure(phase, "journal")
 	}
 	inventory, ok := liveRestoreInventory(definition)
 	if !ok || !liveActiveRestoreSubset(expected, inventory) {
-		return liveDecodeFailure(phase, "results")
+		return commands.RevertData{}, liveDecodeFailure(phase, "results")
 	}
 	expectedTargets := liveActiveRestoreTargets(expected, inventory)
+	if runtimeRestore != nil {
+		expectedTargets = liveActiveRuntimeRestoreTargets(expected, inventory, runtimeRestore)
+		if len(expectedTargets) != len(expected) {
+			return commands.RevertData{}, liveDecodeFailure(phase, "results")
+		}
+	}
 	results, err := liveArray(data["results"])
 	if err != nil || len(results) != len(expectedTargets) {
-		return liveDecodeFailure(phase, "results")
+		return commands.RevertData{}, liveDecodeFailure(phase, "results")
 	}
 	seen := make(map[string]struct{}, len(results))
 	for _, raw := range results {
 		item, err := liveObjectAllowed(raw, []string{"target", "action"}, []string{"target", "action", "backupUsed"})
 		if err != nil {
-			return liveDecodeFailure(phase, "results")
+			return commands.RevertData{}, liveDecodeFailure(phase, "results")
 		}
 		var target, action string
 		if liveString(item["target"], &target) != nil || liveString(item["action"], &action) != nil || action != "deleted" || item["backupUsed"] != nil {
-			return liveDecodeFailure(phase, "results")
+			return commands.RevertData{}, liveDecodeFailure(phase, "results")
 		}
 		if _, ok := expectedTargets[target]; !ok {
-			return liveDecodeFailure(phase, "results")
+			return commands.RevertData{}, liveDecodeFailure(phase, "results")
 		}
 		if _, duplicate := seen[target]; duplicate {
-			return liveDecodeFailure(phase, "results")
+			return commands.RevertData{}, liveDecodeFailure(phase, "results")
 		}
 		seen[target] = struct{}{}
 	}
 	if !liveSameStringSet(seen, expectedTargets) {
-		return liveDecodeFailure(phase, "results")
+		return commands.RevertData{}, liveDecodeFailure(phase, "results")
 	}
-	return nil
+	return cloneLiveRevertData(official), nil
 }
 
-func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDefinition, expected map[string]struct{}, converged bool) bool {
+func validateLiveRebuildBundle(data map[string]json.RawMessage, official *commands.RebuildBundleInfo) bool {
+	raw, ok := data["bundle"]
+	if !ok || official == nil {
+		return false
+	}
+	fields, err := liveObject(raw, "extracted", "schemaVersion", "capturedAt", "machineName", "endstateVersion", "configModulesIncluded")
+	if err != nil {
+		return false
+	}
+	var bundle commands.RebuildBundleInfo
+	if json.Unmarshal(raw, &bundle) != nil || !reflect.DeepEqual(bundle, *official) || !bundle.Extracted || liveString(fields["schemaVersion"], &bundle.SchemaVersion) != nil || liveString(fields["machineName"], &bundle.MachineName) != nil || liveString(fields["endstateVersion"], &bundle.EndstateVersion) != nil {
+		return false
+	}
+	if _, err := time.Parse(time.RFC3339, bundle.CapturedAt); err != nil {
+		return false
+	}
+	if !liveExactStrings(fields["configModulesIncluded"], []string{"notepad-plus-plus"}) {
+		return false
+	}
+	return true
+}
+
+func cloneLiveConfigResolution(value planner.ConfigResolution) planner.ConfigResolution {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return planner.ConfigResolution{}
+	}
+	var copy planner.ConfigResolution
+	if json.Unmarshal(raw, &copy) != nil {
+		return planner.ConfigResolution{}
+	}
+	return copy
+}
+
+func cloneLiveRestoreItems(values []restore.RestoreResult) []restore.RestoreResult {
+	copy := append([]restore.RestoreResult(nil), values...)
+	for index := range copy {
+		copy[index].Warnings = append([]string(nil), values[index].Warnings...)
+	}
+	return copy
+}
+
+func cloneLiveRevertData(value commands.RevertData) commands.RevertData {
+	value.Results = append([]restore.RevertResult(nil), value.Results...)
+	return value
+}
+
+func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDefinition, expected map[string]struct{}, converged bool, runtimeRestore *liveRuntimeRestoreAuthority) bool {
 	if _, err := liveObject(data["configResolutionSummary"], "total", "direct", "migrate", "incompatible", "unknown", "legacyUnverified", "selected", "skipped", "failed"); err != nil {
 		return false
 	}
@@ -393,18 +486,40 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 	if err != nil || len(items) != len(inventory) {
 		return false
 	}
+	var runtimeOrder []string
+	if runtimeRestore != nil {
+		runtimeOrder, ok = liveRuntimeRestoreOrder(definition, inventory)
+		if !ok {
+			return false
+		}
+	}
 	seen := make(map[string]struct{}, len(items))
-	for _, raw := range items {
+	extractionRoot := ""
+	for index, raw := range items {
 		item, err := liveObjectAllowed(raw, []string{"id", "source", "target", "status", "backupCreated", "targetExistedBefore"}, []string{"id", "source", "target", "status", "backupPath", "backupCreated", "targetExistedBefore", "restoreType", "warnings", "error", "captureId", "configSetId", "targetInstanceId", "sourceGeneration", "targetGeneration"})
 		if err != nil {
 			return false
 		}
-		var id, source, target, itemStatus, restoreType string
+		var id, source, target, itemStatus, restoreType, backupPath string
 		var backup, existed bool
 		if liveString(item["id"], &id) != nil || liveString(item["source"], &source) != nil || liveString(item["target"], &target) != nil || liveString(item["status"], &itemStatus) != nil || json.Unmarshal(item["backupCreated"], &backup) != nil || json.Unmarshal(item["targetExistedBefore"], &existed) != nil || id == "" {
 			return false
 		}
+		if rawBackupPath, exists := item["backupPath"]; exists && liveOptionalString(rawBackupPath, &backupPath) != nil {
+			return false
+		}
+		semanticSource := source
 		expectedItem, found := inventory[source]
+		wantTarget := expectedItem.target
+		if runtimeRestore != nil {
+			var root string
+			semanticSource, expectedItem, root, found = liveRuntimeRestoreSource(inventory, source)
+			wantTarget = runtimeRestore.targets[expectedItem.identity]
+			if !found || wantTarget == "" || runtimeOrder[index] != semanticSource || (extractionRoot != "" && !strings.EqualFold(extractionRoot, root)) {
+				return false
+			}
+			extractionRoot = root
+		}
 		_, active := expected[expectedItem.identity]
 		wantStatus := "skipped_missing_source"
 		wantExisted := false
@@ -415,16 +530,19 @@ func validateLiveConfigFields(data map[string]json.RawMessage, definition LiveDe
 				wantExisted = true
 			}
 		}
-		if !found || target != expectedItem.target || itemStatus != wantStatus || backup || existed != wantExisted {
+		if !found || target != wantTarget || itemStatus != wantStatus || backup || backupPath != "" || existed != wantExisted {
 			return false
 		}
 		if rawType, ok := item["restoreType"]; ok && (liveString(rawType, &restoreType) != nil || restoreType != "copy") {
 			return false
 		}
-		if _, duplicate := seen[source]; duplicate {
+		if _, duplicate := seen[semanticSource]; duplicate {
 			return false
 		}
-		seen[source] = struct{}{}
+		seen[semanticSource] = struct{}{}
+	}
+	if runtimeRestore != nil {
+		return extractionRoot != "" && liveSameStringSet(seen, liveRestoreSourceSet(inventory))
 	}
 	return liveSameStringSet(seen, liveRestoreSourceSet(inventory))
 }
@@ -448,8 +566,13 @@ func decodeLiveEnvelope(stdout []byte, command string) (liveEnvelope, *Failure) 
 }
 
 func decodeLiveEvents(stderr []byte, command, runID string) *Failure {
+	_, failure := decodeLiveEventRecords(stderr, command, runID)
+	return failure
+}
+
+func decodeLiveEventRecords(stderr []byte, command, runID string) ([]liveEventRecord, *Failure) {
 	if len(stderr) == 0 || len(stderr) > maxLiveDecodeOutputBytes || !bytes.HasSuffix(stderr, []byte("\n")) {
-		return liveDecodeFailure(command, "events")
+		return nil, liveDecodeFailure(command, "events")
 	}
 	scanner := bufio.NewScanner(bytes.NewReader(stderr))
 	scanner.Buffer(make([]byte, 1024), 64*1024)
@@ -459,24 +582,107 @@ func decodeLiveEvents(stderr []byte, command, runID string) *Failure {
 		line := scanner.Bytes()
 		count++
 		if count > maxLiveDecodeEvents || len(line) == 0 || rejectDuplicateJSONKeys(line) != nil {
-			return liveDecodeFailure(command, "events")
+			return nil, liveDecodeFailure(command, "events")
 		}
 		record, ok := decodeLiveEvent(line)
 		if !ok {
-			return liveDecodeFailure(command, "events")
+			return nil, liveDecodeFailure(command, "events")
 		}
 		records = append(records, record)
 	}
 	if scanner.Err() != nil || !liveEventTopology(records, command, runID) {
-		return liveDecodeFailure(command, "events")
+		return nil, liveDecodeFailure(command, "events")
 	}
-	return nil
+	return records, nil
+}
+
+// projectLiveCaptureClaims derives the transient path-bearing artifact claims
+// from the existing official capture envelope/event wire and sealed receipt.
+// It does not consume the receipt; final proof still consumes it atomically.
+func projectLiveCaptureClaims(issuer *liveReceiptIssuer, definition LiveDefinition, module *modules.Module, receipt *liveExecutionReceipt, sequence uint64, nonce [32]byte, hostname, osName string) (liveCaptureArtifactClaims, *Failure) {
+	if module == nil || module.ID != definition.ModuleID || module.Revision != definition.ModuleRevision || !validLiveObserverValue(hostname) || !validLiveObserverValue(osName) {
+		return liveCaptureArtifactClaims{}, fail(CodeArtifactContract, "capture", "claims", "capture projection identity is invalid")
+	}
+	receipt, ok := projectLiveCaptureReceipt(issuer, receipt, sequence, nonce)
+	if !ok {
+		return liveCaptureArtifactClaims{}, fail(CodeEnvelopeContract, "capture", "receipt", "capture receipt projection is unavailable")
+	}
+	envelope, failure := decodeLiveEnvelope(receipt.stdout, "capture")
+	if failure != nil {
+		return liveCaptureArtifactClaims{}, failure
+	}
+	var captured commands.CaptureResult
+	if json.Unmarshal(envelope.Data, &captured) != nil || captured.OutputPath == "" || captured.Manifest.Path == "" || !sameLiveArtifactPath(captured.OutputPath, captured.Manifest.Path) {
+		return liveCaptureArtifactClaims{}, liveDecodeFailure("capture", "data")
+	}
+	expectedMappings, mappingsOK := liveExpectedMappings(definition.Comparator.Mappings)
+	_, captureFailure := validateLiveCapture(liveCommandOutput{Stdout: receipt.stdout, Stderr: receipt.stderr}, definition, expectedMappings)
+	if !mappingsOK || captureFailure != nil {
+		return liveCaptureArtifactClaims{}, liveDecodeFailure("capture", "data")
+	}
+	records, failure := decodeLiveEventRecords(receipt.stderr, "capture", envelope.RunID)
+	if failure != nil {
+		return liveCaptureArtifactClaims{}, failure
+	}
+	var artifact *events.ArtifactEvent
+	for _, record := range records {
+		if record.artifact == nil {
+			continue
+		}
+		if artifact != nil {
+			return liveCaptureArtifactClaims{}, fail(CodeArtifactContract, "capture", "event", "capture emitted more than one artifact event")
+		}
+		artifact = record.artifact
+	}
+	out, ok := liveCaptureOutputArgument(receipt.args)
+	if !ok || artifact == nil || !sameLiveArtifactPathClaims(captured.OutputPath, liveCaptureArtifactClaims{OutputPath: captured.OutputPath, EventPath: artifact.Path, Receipt: liveReceiptArtifactPathClaim{Path: out}}) {
+		return liveCaptureArtifactClaims{}, fail(CodeArtifactContract, "capture", "artifact", "capture output claims disagree")
+	}
+	if !liveCaptureTimestampWithinReceipt(envelope.TimestampUTC, receipt.created, receipt.finished) {
+		return liveCaptureArtifactClaims{}, fail(CodeArtifactContract, "capture", "timestamp", "capture envelope timestamp is outside the sealed receipt")
+	}
+	return liveCaptureArtifactClaims{OutputPath: captured.OutputPath, EventPath: artifact.Path, Receipt: liveReceiptArtifactPathClaim{Path: out}, ModuleRevision: module.Revision, MachineName: hostname, ReceiptCreated: receipt.created, ReceiptFinished: receipt.finished, EndstateVersion: envelope.CLIVersion, OS: osName, RestoreProjection: cloneLiveRestoreProjection(module.Restore), VerifyProjection: append([]modules.VerifyDef(nil), module.Verify...)}, nil
+}
+
+func liveCaptureTimestampWithinReceipt(raw string, created, finished time.Time) bool {
+	timestamp, err := time.Parse(time.RFC3339, raw)
+	if err != nil || finished.Before(created) {
+		return false
+	}
+	if strings.Contains(raw, ".") {
+		return !timestamp.Before(created) && !timestamp.After(finished)
+	}
+	return !finished.Before(timestamp) && created.Before(timestamp.Add(time.Second))
+}
+
+func cloneLiveRestoreProjection(source []modules.RestoreDef) []modules.RestoreDef {
+	result := append([]modules.RestoreDef(nil), source...)
+	for index := range result {
+		result[index].Exclude = append([]string(nil), source[index].Exclude...)
+	}
+	return result
+}
+
+func liveCaptureOutputArgument(args []string) (string, bool) {
+	var output string
+	for index := 0; index < len(args); index++ {
+		if args[index] != "--out" {
+			continue
+		}
+		if index+1 >= len(args) || output != "" {
+			return "", false
+		}
+		output = args[index+1]
+	}
+	_, ok := canonicalLiveArtifactPath(output)
+	return output, ok
 }
 
 type liveEventRecord struct {
-	runID string
-	event string
-	phase string
+	runID    string
+	event    string
+	phase    string
+	artifact *events.ArtifactEvent
 }
 
 func decodeLiveEvent(raw []byte) (liveEventRecord, bool) {
@@ -538,6 +744,9 @@ func decodeLiveEvent(raw []byte) (liveEventRecord, bool) {
 		var official events.ArtifactEvent
 		if json.Unmarshal(raw, &official) != nil {
 			return liveEventRecord{}, false
+		}
+		if official.Phase == "capture" && official.Kind == "manifest" && official.Path != "" {
+			record.artifact = &official
 		}
 	case "error":
 		if !liveEventKeys(fields, append(base, "scope", "message"), append(base, "scope", "message", "id")) || liveString(fields["scope"], new(string)) != nil || liveOptionalString(fields["message"], new(string)) != nil {
@@ -814,31 +1023,66 @@ func liveExpectedMappings(mappings []ComparatorMapping) (map[string]struct{}, bo
 	}
 	return values, true
 }
-func liveSubsetStrings(raw json.RawMessage, allowed map[string]struct{}) (map[string]struct{}, bool) {
+func liveCapturedMappings(raw json.RawMessage, expected map[string]struct{}) (map[string]struct{}, bool) {
 	values, err := liveArray(raw)
 	if err != nil || len(values) == 0 {
 		return nil, false
 	}
-	observed := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		var identity string
-		if liveString(value, &identity) != nil {
+	productionPaths := make(map[string]string, len(expected))
+	for identity := range expected {
+		if !strings.HasPrefix(identity, "apps/") || !validLiveIdentity(identity) {
 			return nil, false
 		}
-		if _, ok := allowed[identity]; !ok {
+		path := "configs/" + strings.TrimPrefix(identity, "apps/")
+		if _, duplicate := productionPaths[path]; duplicate {
 			return nil, false
 		}
-		if _, duplicate := observed[identity]; duplicate {
-			return nil, false
-		}
-		observed[identity] = struct{}{}
+		productionPaths[path] = identity
 	}
-	return observed, true
+	captured := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		var path string
+		if liveString(value, &path) != nil {
+			return nil, false
+		}
+		identity, ok := productionPaths[path]
+		if !ok {
+			return nil, false
+		}
+		if _, duplicate := captured[identity]; duplicate {
+			return nil, false
+		}
+		captured[identity] = struct{}{}
+	}
+	return captured, true
 }
 
 type liveRestoreItemExpectation struct {
 	identity string
 	target   string
+}
+
+func newLiveRuntimeRestoreAuthority(definition LiveDefinition, targets map[string]string) (*liveRuntimeRestoreAuthority, bool) {
+	if targets == nil {
+		return nil, true
+	}
+	inventory, ok := liveRestoreInventory(definition)
+	if !ok || len(inventory) != 6 || len(targets) != len(inventory) {
+		return nil, false
+	}
+	copy := make(map[string]string, len(targets))
+	for _, item := range inventory {
+		target, exists := targets[item.identity]
+		if !exists || !liveCanonicalWindowsPath(target) {
+			return nil, false
+		}
+		copy[item.identity] = target
+	}
+	return &liveRuntimeRestoreAuthority{targets: copy}, true
+}
+
+func liveCanonicalWindowsPath(value string) bool {
+	return filepath.IsAbs(value) && filepath.Clean(value) == value && cleanLiveWindowsPath(value)
 }
 
 func liveRestoreInventory(definition LiveDefinition) (map[string]liveRestoreItemExpectation, bool) {
@@ -867,6 +1111,49 @@ func liveRestoreInventory(definition LiveDefinition) (map[string]liveRestoreItem
 	return inventory, len(inventory) > 0
 }
 
+func liveRuntimeRestoreOrder(definition LiveDefinition, inventory map[string]liveRestoreItemExpectation) ([]string, bool) {
+	if definition.production == nil || len(definition.production.Restore) != len(inventory) {
+		return nil, false
+	}
+	order := make([]string, 0, len(inventory))
+	seen := make(map[string]struct{}, len(inventory))
+	for _, restore := range definition.production.Restore {
+		identity, err := liveRestoreIdentity(restore.Source)
+		if err != nil {
+			return nil, false
+		}
+		for source, item := range inventory {
+			if item.identity == identity {
+				if _, duplicate := seen[source]; duplicate {
+					return nil, false
+				}
+				seen[source] = struct{}{}
+				order = append(order, source)
+				break
+			}
+		}
+	}
+	return order, len(order) == len(inventory) && liveSameStringSet(seen, liveRestoreSourceSet(inventory))
+}
+
+func liveRuntimeRestoreSource(inventory map[string]liveRestoreItemExpectation, source string) (string, liveRestoreItemExpectation, string, bool) {
+	if !liveCanonicalWindowsPath(source) {
+		return "", liveRestoreItemExpectation{}, "", false
+	}
+	for semantic, item := range inventory {
+		suffix := `\` + strings.ReplaceAll(semantic, "/", `\`)
+		if len(source) <= len(suffix) || !strings.EqualFold(source[len(source)-len(suffix):], suffix) {
+			continue
+		}
+		root := source[:len(source)-len(suffix)]
+		if !liveCanonicalWindowsPath(root) {
+			return "", liveRestoreItemExpectation{}, "", false
+		}
+		return semantic, item, root, true
+	}
+	return "", liveRestoreItemExpectation{}, "", false
+}
+
 func liveActiveRestoreSubset(active map[string]struct{}, inventory map[string]liveRestoreItemExpectation) bool {
 	available := make(map[string]struct{}, len(inventory))
 	for _, item := range inventory {
@@ -892,6 +1179,23 @@ func liveActiveRestoreTargets(active map[string]struct{}, inventory map[string]l
 	for _, item := range inventory {
 		if _, ok := active[item.identity]; ok {
 			values[item.target] = struct{}{}
+		}
+	}
+	return values
+}
+
+func liveActiveRuntimeRestoreTargets(active map[string]struct{}, inventory map[string]liveRestoreItemExpectation, authority *liveRuntimeRestoreAuthority) map[string]struct{} {
+	values := make(map[string]struct{}, len(active))
+	if authority == nil {
+		return values
+	}
+	for _, item := range inventory {
+		if _, ok := active[item.identity]; ok {
+			target, exists := authority.targets[item.identity]
+			if !exists {
+				return map[string]struct{}{}
+			}
+			values[target] = struct{}{}
 		}
 	}
 	return values

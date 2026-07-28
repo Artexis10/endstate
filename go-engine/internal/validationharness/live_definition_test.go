@@ -6,6 +6,7 @@ package validationharness
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +26,7 @@ func TestCompileLiveDefinitionProductionNotepadPlusPlusIsDiagnosticOnly(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if definition.SchemaVersion != LiveDefinitionSchemaVersion || definition.ModuleID != "apps.notepad-plus-plus" || definition.ModuleRevision != "45e498e66bf7a84e4cf63a64207a2e8c6bf93e34d6aee1a4c1a8ee2cb5e727c9" {
+	if definition.SchemaVersion != LiveDefinitionSchemaVersion || definition.ModuleID != "apps.notepad-plus-plus" || definition.ModuleRevision != "057f436a0de9b404768fa900064eb6cf974c76db6ea602640b9c89e013073119" {
 		t.Fatalf("definition identity = %+v", definition)
 	}
 	if definition.Policy.Mode != "candidate" || definition.WingetRef != "Notepad++.Notepad++" || definition.MutationAuthorized {
@@ -64,6 +65,57 @@ func TestCompileLiveDefinitionProductionNotepadPlusPlusIsDiagnosticOnly(t *testi
 	digest := sha256.Sum256(data)
 	if definition.ValidationSourceSHA256 != hex.EncodeToString(digest[:]) || definition.NonAuthorizing != true {
 		t.Fatalf("definition binding = %+v", definition)
+	}
+}
+
+func TestLiveDefinitionProductionModuleProjectionIsPrivateAndDefensive(t *testing.T) {
+	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest, err := CanonicalLiveDefinitionSHA256(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, ok := definition.productionModule()
+	if !ok || module.ID != definition.ModuleID || module.Revision != definition.ModuleRevision || len(module.Restore) == 0 || len(module.Verify) != 0 {
+		t.Fatalf("production module = %#v, %v", module, ok)
+	}
+	module.Restore[0].Target = "mutated"
+	again, ok := definition.productionModule()
+	if !ok || again.Restore[0].Target == "mutated" {
+		t.Fatal("production module projection was mutable")
+	}
+	raw, err := json.Marshal(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var roundTrip LiveDefinition
+	if err := json.Unmarshal(raw, &roundTrip); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := roundTrip.productionModule(); ok {
+		t.Fatal("JSON roundtrip retained production module projection")
+	}
+	after, err := CanonicalLiveDefinitionSHA256(roundTrip)
+	if err != nil || digest != after {
+		t.Fatalf("canonical digest changed = %q, %q, %v", digest, after, err)
+	}
+}
+
+func TestValidateLiveDefinitionRejectsUnexpectedProductionVerifier(t *testing.T) {
+	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	module, ok := definition.productionModule()
+	if !ok {
+		t.Fatal("production module projection is unavailable")
+	}
+	module.Verify = []modules.VerifyDef{{Type: "command-exists", Command: "notepad++"}}
+	definition.production = module
+	if err := validateLiveDefinition(definition); err == nil {
+		t.Fatal("validateLiveDefinition() accepted a production verifier")
 	}
 }
 

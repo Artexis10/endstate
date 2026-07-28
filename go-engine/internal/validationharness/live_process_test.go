@@ -243,6 +243,20 @@ func TestLiveProcessWingetInstallBuilderUsesOnlyFixedInvocation(t *testing.T) {
 	}
 }
 
+func TestLiveTrustedEngineMutationCopiesPermitInvocationAndRejectsMutation(t *testing.T) {
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	expected := liveTestExpectedIdentity()
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, `C:\reviewed`, map[string]string{"PATH": `C:\Windows\System32`})
+	request := newLiveTrustedEngineMutation(admission, permit, liveOperationEngineApply, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("trusted engine request rejected: %v", err)
+	}
+	request.args = []string{"apply", "--foreign"}
+	if err := validateLiveProcessRequest(request); err == nil {
+		t.Fatal("trusted engine request accepted substituted arguments")
+	}
+}
+
 func TestLiveProcessRejectsMissingProofIdentity(t *testing.T) {
 	admission := liveTestAdmission(t, liveOperationEngineApply)
 	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, liveReceiptExpectedIdentity{}, liveTestExecutable(t), []string{"apply"}, "", nil), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)

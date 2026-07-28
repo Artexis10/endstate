@@ -812,6 +812,10 @@ func opaqueInspectionIdentity(value string) string {
 	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
+// InspectionIdentity returns the opaque identity used by read-only store
+// inspection for a journal action's source or target.
+func InspectionIdentity(value string) string { return opaqueInspectionIdentity(value) }
+
 func inspectLegacyMembers(
 	fs storeInspectionFS,
 	membersDirectory, revertsDirectory string,

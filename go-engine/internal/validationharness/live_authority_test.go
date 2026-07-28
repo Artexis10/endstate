@@ -152,6 +152,7 @@ func TestLiveAuthoritySessionMintsSingleBoundPermit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	liveTestMarkRuntimeBound(t, session)
 	nonce := session.NonceFor(liveOperationEngineApply, 3)
 	issuer := session.NewReceiptIssuer()
 	if err := issuer.skipDeclaredPreflight(); err != nil {
@@ -200,6 +201,27 @@ func TestLiveAuthoritySessionMintsSingleBoundPermit(t *testing.T) {
 	if permit.capability.validFor(request, session.now) {
 		t.Fatal("permit accepted a substituted admission token")
 	}
+}
+
+func liveTestMarkRuntimeBound(t *testing.T, session *LiveAuthoritySession) {
+	t.Helper()
+	if session == nil || !session.runtimeBindingRequired || session.runtimeBound || len(session.definition.templates) == 0 {
+		t.Fatal("live authority session lacks runtime templates")
+	}
+	operations := make(map[uint64]LiveCampaignOperation, len(session.definition.templates))
+	for sequence, template := range session.definition.templates {
+		template.Arguments = append([]string(nil), template.Arguments...)
+		template.Environment = cloneLiveEnvironment(template.Environment)
+		switch liveOperation(template.Operation) {
+		case liveOperationWingetExactUninstall:
+			template.Executable, template.ExecutableSHA256 = `C:\reviewed\winget.exe`, strings.Repeat("3", 64)
+		case liveOperationHashBoundSeed:
+			template.Executable, template.ExecutableSHA256 = `C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe`, strings.Repeat("4", 64)
+		}
+		operations[sequence] = template
+	}
+	session.definition.operations = operations
+	session.runtimeBound = true
 }
 
 func TestLiveAuthoritySessionIssuesOnlyOneReceiptIssuer(t *testing.T) {

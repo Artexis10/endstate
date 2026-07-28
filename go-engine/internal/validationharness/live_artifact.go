@@ -55,7 +55,8 @@ type liveCaptureArtifactClaims struct {
 	Receipt           liveReceiptArtifactPathClaim
 	ModuleRevision    string
 	MachineName       string
-	CapturedAt        string
+	ReceiptCreated    time.Time
+	ReceiptFinished   time.Time
 	EndstateVersion   string
 	OS                string
 	RestoreProjection []modules.RestoreDef
@@ -74,11 +75,8 @@ func inspectLiveCaptureArtifact(definition LiveDefinition, snapshots []liveTarge
 	if err := validateLiveDefinition(definition); err != nil {
 		return liveArtifactEvidence{}, fail(CodeArtifactContract, "capture", "definition", "live artifact definition is invalid")
 	}
-	if claims.ModuleRevision != definition.ModuleRevision || claims.MachineName == "" || claims.CapturedAt == "" || claims.EndstateVersion == "" || claims.OS == "" {
+	if claims.ModuleRevision != definition.ModuleRevision || claims.MachineName == "" || claims.ReceiptCreated.IsZero() || claims.ReceiptFinished.IsZero() || claims.ReceiptFinished.Before(claims.ReceiptCreated) || claims.EndstateVersion == "" || claims.OS == "" {
 		return liveArtifactEvidence{}, fail(CodeArtifactContract, "capture", "claims", "capture decoder claims are incomplete or stale")
-	}
-	if _, err := time.Parse(time.RFC3339, claims.CapturedAt); err != nil {
-		return liveArtifactEvidence{}, fail(CodeArtifactContract, "capture", "claims", "capture decoder timestamp is invalid")
 	}
 	if failure := validateLiveArtifactProjection(definition, claims); failure != nil {
 		return liveArtifactEvidence{}, failure
@@ -172,14 +170,10 @@ func sameLiveArtifactPathClaims(artifactPath string, claims liveCaptureArtifactC
 }
 
 func canonicalLiveArtifactPath(value string) (string, bool) {
-	if value == "" {
+	if value == "" || !filepath.IsAbs(value) || filepath.Clean(value) != value {
 		return "", false
 	}
-	abs, err := filepath.Abs(value)
-	if err != nil {
-		return "", false
-	}
-	return filepath.Clean(abs), true
+	return value, true
 }
 
 func sameLiveArtifactPath(left, right string) bool {
@@ -227,7 +221,7 @@ func liveSnapshotSet(definition LiveDefinition, snapshots []liveTargetSnapshot) 
 }
 
 func validateLiveArtifactProjection(definition LiveDefinition, claims liveCaptureArtifactClaims) *Failure {
-	if definition.ModuleID != "apps.notepad-plus-plus" || len(claims.RestoreProjection) != len(definition.Comparator.Mappings)+1 || len(claims.VerifyProjection) != 1 {
+	if definition.ModuleID != "apps.notepad-plus-plus" || len(claims.RestoreProjection) != len(definition.Comparator.Mappings)+1 || len(claims.VerifyProjection) != 0 {
 		return fail(CodeArtifactContract, "capture", "claims", "production schema-v1 projection is incomplete")
 	}
 	remaining := make(map[string]modules.RestoreDef, len(claims.RestoreProjection))
@@ -251,10 +245,6 @@ func validateLiveArtifactProjection(definition LiveDefinition, claims liveCaptur
 	directory, ok := remaining["apps/notepad-plus-plus/userDefineLangs"]
 	if !ok || directory.Target != `%APPDATA%\Notepad++\userDefineLangs` || len(remaining) != 1 {
 		return fail(CodeArtifactContract, "capture", "claims", "Notepad++ directory restore projection differs from production")
-	}
-	verify := claims.VerifyProjection[0]
-	if verify.Type != "command-exists" || verify.Command != "notepad++" || verify.Path != "" || verify.ValueName != "" || verify.ValueType != "" || verify.Data != "" {
-		return fail(CodeArtifactContract, "capture", "claims", "Notepad++ verifier projection differs from production")
 	}
 	return nil
 }
@@ -333,7 +323,11 @@ func validateLiveArtifactManifest(raw []byte, definition LiveDefinition, claims 
 	if err != nil {
 		return fail(CodeArtifactContract, "capture", "manifest", "capture manifest is malformed")
 	}
-	if !liveExactKeySet(fields, "version", "apps", "configModules", "restore", "verify") {
+	expectedKeys := []string{"version", "apps", "configModules", "restore"}
+	if len(claims.VerifyProjection) != 0 {
+		expectedKeys = append(expectedKeys, "verify")
+	}
+	if !liveExactKeySet(fields, expectedKeys...) {
 		return fail(CodeArtifactContract, "capture", "manifest", "capture manifest has a non-production schema-v1 shape")
 	}
 	var captured manifest.Manifest
@@ -392,24 +386,26 @@ func validateLiveArtifactManifest(raw []byte, definition LiveDefinition, claims 
 		}
 		used[matched] = true
 	}
-	rawVerifies, err := liveArray(fields["verify"])
-	if err != nil || len(rawVerifies) != len(claims.VerifyProjection) {
-		return fail(CodeArtifactContract, "capture", "manifest.verify", "capture verifier shape differs from production")
-	}
-	for _, rawVerify := range rawVerifies {
-		if _, err := liveObject(rawVerify, "type", "command"); err != nil {
+	if len(claims.VerifyProjection) != 0 {
+		rawVerifies, err := liveArray(fields["verify"])
+		if err != nil || len(rawVerifies) != len(claims.VerifyProjection) {
 			return fail(CodeArtifactContract, "capture", "manifest.verify", "capture verifier shape differs from production")
 		}
-	}
-	for _, expected := range claims.VerifyProjection {
-		matched := 0
-		for _, actual := range captured.Verify {
-			if exactVerifyProjection(actual, expected) {
-				matched++
+		for _, rawVerify := range rawVerifies {
+			if _, err := liveObject(rawVerify, "type", "command"); err != nil {
+				return fail(CodeArtifactContract, "capture", "manifest.verify", "capture verifier shape differs from production")
 			}
 		}
-		if matched != 1 {
-			return fail(CodeArtifactContract, "capture", "manifest.verify", "capture verifier projection differs from the production definition")
+		for _, expected := range claims.VerifyProjection {
+			matched := 0
+			for _, actual := range captured.Verify {
+				if exactVerifyProjection(actual, expected) {
+					matched++
+				}
+			}
+			if matched != 1 {
+				return fail(CodeArtifactContract, "capture", "manifest.verify", "capture verifier projection differs from the production definition")
+			}
 		}
 	}
 	return nil
@@ -424,7 +420,11 @@ func validateLiveArtifactMetadata(raw []byte, definition LiveDefinition, claims 
 		return fail(CodeArtifactContract, "capture", "metadata", "capture metadata has a non-production schema-v1 shape")
 	}
 	var metadata bundle.BundleMetadata
-	if liveNull(fields["configModulesSkipped"]) || liveNull(fields["captureWarnings"]) || json.Unmarshal(raw, &metadata) != nil || metadata.SchemaVersion != "1.0" || metadata.CapturedAt != claims.CapturedAt || metadata.MachineName != claims.MachineName || metadata.EndstateVersion != claims.EndstateVersion || metadata.OS != claims.OS || metadata.Share || metadata.Name != "" || metadata.Redaction != nil || metadata.ManifestVersion != 0 || len(metadata.ConfigCapturesIncluded) != 0 || !exactStrings(metadata.ConfigModulesIncluded, []string{strings.TrimPrefix(definition.ModuleID, "apps.")}) || len(metadata.ConfigModulesSkipped) != 0 || len(metadata.CaptureWarnings) != 0 {
+	if liveNull(fields["configModulesSkipped"]) || liveNull(fields["captureWarnings"]) || json.Unmarshal(raw, &metadata) != nil {
+		return fail(CodeArtifactContract, "capture", "metadata", "capture metadata differs from the schema-v1 capture claims")
+	}
+	metadataTime, metadataTimeErr := time.Parse(time.RFC3339, metadata.CapturedAt)
+	if metadata.SchemaVersion != "1.0" || metadataTimeErr != nil || metadataTime.Before(claims.ReceiptCreated) || metadataTime.After(claims.ReceiptFinished) || metadata.MachineName != claims.MachineName || metadata.EndstateVersion != claims.EndstateVersion || metadata.OS != claims.OS || metadata.Share || metadata.Name != "" || metadata.Redaction != nil || metadata.ManifestVersion != 0 || len(metadata.ConfigCapturesIncluded) != 0 || !exactStrings(metadata.ConfigModulesIncluded, []string{strings.TrimPrefix(definition.ModuleID, "apps.")}) || len(metadata.ConfigModulesSkipped) != 0 || len(metadata.CaptureWarnings) != 0 {
 		return fail(CodeArtifactContract, "capture", "metadata", "capture metadata differs from the schema-v1 capture claims")
 	}
 	return nil

@@ -820,6 +820,7 @@ func liveWindowsCleanupAuthoritySession(t *testing.T, definition LiveDefinition)
 	if err != nil {
 		t.Fatal(err)
 	}
+	liveTestMarkRuntimeBound(t, session)
 	return session
 }
 

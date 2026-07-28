@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -28,6 +29,29 @@ func TestInspectLiveCaptureArtifactAcceptsProductionSchemaV1NotepadBundle(t *tes
 	}
 	if evidence.SHA256 == "" || evidence.Size == 0 || evidence.Mode == 0 {
 		t.Fatalf("path-free artifact evidence = %+v", evidence)
+	}
+}
+
+func TestInspectLiveCaptureArtifactAcceptsAbsentProductionVerifier(t *testing.T) {
+	definition, path, snapshots, claims := productionLiveArtifactFixture(t)
+	entries := readLiveArtifactEntriesForTest(t, path)
+	var captured map[string]any
+	mustJSONUnmarshal(t, entries["manifest.jsonc"], &captured)
+	delete(captured, "verify")
+	entries["manifest.jsonc"] = mustJSON(t, captured)
+	claims.VerifyProjection = nil
+	path = writeLiveArtifactZip(t, filepath.Dir(path), "without-verifier.zip", entries, func(writer *zip.Writer) {
+		for _, name := range []string{"configs/", "configs/notepad-plus-plus/"} {
+			header := &zip.FileHeader{Name: name}
+			header.SetMode(os.ModeDir | 0o666)
+			if _, err := writer.CreateHeader(header); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	claims.OutputPath, claims.EventPath, claims.Receipt.Path = path, path, path
+	if _, failure := inspectLiveCaptureArtifact(definition, snapshots, *claims, path); failure != nil {
+		t.Fatalf("inspectLiveCaptureArtifact() rejected absent production verifier: %+v", failure)
 	}
 }
 
@@ -87,7 +111,7 @@ func TestInspectLiveCaptureArtifactRejectsHostileSchemaV1Bundles(t *testing.T) {
 		{"verify", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
 			var value map[string]any
 			mustJSONUnmarshal(t, entries["manifest.jsonc"], &value)
-			value["verify"].([]any)[0].(map[string]any)["command"] = "foreign"
+			value["verify"] = []any{map[string]any{"type": "command-exists", "command": "foreign"}}
 			entries["manifest.jsonc"] = mustJSON(t, value)
 		}},
 		{"manual app", func(entries map[string][]byte, _ *liveCaptureArtifactClaims) {
@@ -326,7 +350,11 @@ func productionLiveArtifactFixture(t *testing.T) (LiveDefinition, string, []live
 	entries := readLiveArtifactEntriesForTest(t, output)
 	var metadata bundle.BundleMetadata
 	mustJSONUnmarshal(t, entries["metadata.json"], &metadata)
-	claims := &liveCaptureArtifactClaims{OutputPath: output, EventPath: output, Receipt: liveReceiptArtifactPathClaim{Path: output}, ModuleRevision: definition.ModuleRevision, MachineName: metadata.MachineName, CapturedAt: metadata.CapturedAt, EndstateVersion: metadata.EndstateVersion, OS: runtime.GOOS, RestoreProjection: append([]modules.RestoreDef(nil), module.Restore...), VerifyProjection: append([]modules.VerifyDef(nil), module.Verify...)}
+	capturedAt, err := time.Parse(time.RFC3339, metadata.CapturedAt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := &liveCaptureArtifactClaims{OutputPath: output, EventPath: output, Receipt: liveReceiptArtifactPathClaim{Path: output}, ModuleRevision: definition.ModuleRevision, MachineName: metadata.MachineName, ReceiptCreated: capturedAt.Add(-time.Second), ReceiptFinished: capturedAt.Add(time.Second), EndstateVersion: metadata.EndstateVersion, OS: runtime.GOOS, RestoreProjection: append([]modules.RestoreDef(nil), module.Restore...), VerifyProjection: append([]modules.VerifyDef(nil), module.Verify...)}
 	return definition, output, snapshots, claims
 }
 

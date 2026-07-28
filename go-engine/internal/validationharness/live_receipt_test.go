@@ -6,6 +6,7 @@ package validationharness
 import (
 	"crypto/sha256"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -65,6 +66,23 @@ func TestLiveReceiptAdmissionAdvancesOnlyAfterSealing(t *testing.T) {
 	sealed.complete()
 	if _, err := issuer.admit(liveOperationEngineApply, 2, liveReceiptTestNonce(10)); err != nil {
 		t.Fatalf("sealed admission did not advance issuer sequence: %v", err)
+	}
+}
+
+func TestLiveCaptureReceiptProjectionAuthenticatesWithoutConsuming(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	admission, err := issuer.admit(liveOperationEngineCapture, 1, liveReceiptTestNonce(71))
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt := liveReceiptForTest(t, admission, []byte("capture"), []byte("events"))
+	admission.complete()
+	projected, ok := projectLiveCaptureReceipt(issuer, receipt, 1, admission.nonce)
+	if !ok || projected == receipt || string(projected.stdout) != string(receipt.stdout) {
+		t.Fatal("projectLiveCaptureReceipt() did not return a detached authenticated capture receipt")
+	}
+	if !issuer.consumeBatchFn([]liveReceiptExpectation{{receipt: receipt, operation: liveOperationEngineCapture, sequence: 1, nonce: admission.nonce}}) {
+		t.Fatal("non-consuming projection consumed the final receipt")
 	}
 }
 
@@ -354,6 +372,248 @@ func TestLiveReceiptBatchConsumptionIsAtomicAndSingleUse(t *testing.T) {
 	}
 	if issuer.consumeBatchFn([]liveReceiptExpectation{{receipt: thirdReceipt, operation: liveOperationEngineRebuild, sequence: 3, nonce: liveReceiptTestNonce(16)}}) {
 		t.Fatal("consumeBatchFn() accepted wrong nonce")
+	}
+}
+
+func TestLiveReceiptCleanupAdmissionsAdvanceAfterFailedCleanupWork(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	cleanup := []liveOperation{liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationAttemptRootCleanup}
+	if err := issuer.enterCleanupFn(3, cleanup); err != nil {
+		t.Fatalf("enterCleanupFn() error = %v", err)
+	}
+	if _, err := issuer.admit(liveOperationEngineApply, 3, liveReceiptTestNonce(30)); err == nil {
+		t.Fatal("cleanup admitted a proof operation")
+	}
+	if _, err := issuer.admit(liveOperationDeclaredTargetWipe, 4, liveReceiptTestNonce(31)); err == nil {
+		t.Fatal("cleanup admitted an out-of-order slot")
+	}
+	first, err := issuer.admit(liveOperationWingetExactUninstall, 3, liveReceiptTestNonce(32))
+	if err != nil {
+		t.Fatalf("admit final uninstall: %v", err)
+	}
+	first.complete()
+	retry, err := issuer.admit(liveOperationWingetExactUninstall, 3, liveReceiptTestNonce(33))
+	if err != nil {
+		t.Fatalf("retry final uninstall after prelaunch failure: %v", err)
+	}
+	_ = liveReceiptForTest(t, retry, nil, nil)
+	retry.complete()
+	second, err := issuer.admit(liveOperationDeclaredTargetWipe, 4, liveReceiptTestNonce(34))
+	if err != nil {
+		t.Fatalf("admit final wipe after failed uninstall: %v", err)
+	}
+	if err := issuer.sealHostMutationFn(&liveHostMutationReceipt{issuerID: issuer.id, operation: second.operation, sequence: second.sequence, nonce: second.nonce, admissionToken: second.token}); err == nil {
+		t.Fatal("sealHostMutationFn() accepted malformed cleanup receipt")
+	}
+	second.complete()
+	if _, err := issuer.admit(liveOperationEngineRebuild, 5, liveReceiptTestNonce(35)); err == nil {
+		t.Fatal("cleanup admitted a proof operation after a failed cleanup seal")
+	}
+	wipeRetry, err := issuer.admit(liveOperationDeclaredTargetWipe, 4, liveReceiptTestNonce(36))
+	if err != nil {
+		t.Fatalf("retry final wipe after failed seal: %v", err)
+	}
+	wipeRetry.complete()
+}
+
+func TestLiveReceiptMarkedCleanupPrelaunchFailureAdvancesOnlyOneFinalSlot(t *testing.T) {
+	operations := []liveOperation{liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationAttemptRootCleanup}
+	for failedIndex, failedOperation := range operations {
+		t.Run(string(failedOperation), func(t *testing.T) {
+			issuer := newLiveReceiptIssuer()
+			if err := issuer.enterCleanupFn(3, operations); err != nil {
+				t.Fatal(err)
+			}
+			for index := 0; index < failedIndex; index++ {
+				admission, err := issuer.admit(operations[index], uint64(3+index), liveReceiptTestNonce(byte(110+index)))
+				if err != nil {
+					t.Fatal(err)
+				}
+				_ = liveReceiptForTest(t, admission, nil, nil)
+				admission.complete()
+			}
+			failed, err := issuer.admit(failedOperation, uint64(3+failedIndex), liveReceiptTestNonce(byte(120+failedIndex)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !issuer.markCleanupPrelaunchFailureFn(failed) {
+				t.Fatal("cleanup marker rejected the active final-suffix admission")
+			}
+			failed.complete()
+			if _, err := issuer.admit(failedOperation, uint64(3+failedIndex), failed.nonce); err == nil {
+				t.Fatal("marked prelaunch failure admitted its retired nonce")
+			}
+			if failedIndex+1 == len(operations) {
+				if _, err := issuer.admit(liveOperationAttemptRootCleanup, 6, liveReceiptTestNonce(127)); err == nil {
+					t.Fatal("marked final cleanup failure admitted another slot")
+				}
+				return
+			}
+			nextSequence, nextOperation := uint64(4+failedIndex), operations[failedIndex+1]
+			if _, err := issuer.admit(failedOperation, uint64(3+failedIndex), liveReceiptTestNonce(byte(130+failedIndex))); err == nil {
+				t.Fatal("marked prelaunch failure retried its cleanup slot")
+			}
+			if _, err := issuer.admit(nextOperation, nextSequence+1, liveReceiptTestNonce(byte(140+failedIndex))); err == nil {
+				t.Fatal("marked prelaunch failure skipped more than one cleanup slot")
+			}
+			next, err := issuer.admit(nextOperation, nextSequence, liveReceiptTestNonce(byte(150+failedIndex)))
+			if err != nil {
+				t.Fatalf("marked prelaunch failure did not admit the next cleanup slot: %v", err)
+			}
+			next.complete()
+		})
+	}
+}
+
+func TestLiveReceiptCleanupPrelaunchMarkerRejectsForeignStaleAndOutOfOrderAdmissions(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	if err := issuer.enterCleanupFn(3, []liveOperation{liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationAttemptRootCleanup}); err != nil {
+		t.Fatal(err)
+	}
+	admission, err := issuer.admit(liveOperationWingetExactUninstall, 3, liveReceiptTestNonce(160))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index, forged := range []liveReceiptAdmission{
+		{issuer: newLiveReceiptIssuer(), operation: admission.operation, sequence: admission.sequence, nonce: admission.nonce, token: admission.token},
+		{issuer: issuer, operation: liveOperationDeclaredTargetWipe, sequence: admission.sequence, nonce: admission.nonce, token: admission.token},
+		{issuer: issuer, operation: admission.operation, sequence: admission.sequence + 1, nonce: admission.nonce, token: admission.token},
+		{issuer: issuer, operation: admission.operation, sequence: admission.sequence, nonce: admission.nonce, token: [32]byte{}},
+	} {
+		if issuer.markCleanupPrelaunchFailureFn(forged) {
+			t.Fatalf("cleanup marker accepted a foreign or out-of-order admission %d", index)
+		}
+	}
+	if !issuer.markCleanupPrelaunchFailureFn(admission) {
+		t.Fatal("cleanup marker rejected the active admission")
+	}
+	admission.complete()
+	if issuer.markCleanupPrelaunchFailureFn(admission) {
+		t.Fatal("cleanup marker accepted a stale/replayed admission")
+	}
+}
+
+func TestDecodeLiveJourneyReceiptsDerivesRevertJournalFromAuthenticatedOutput(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	definition, set := liveJourneyReceiptSetForTest(t, issuer, `C:\trusted\restore\journal.json`)
+	projection, proof, failure := decodeLiveJourneyReceiptProof(issuer, definition, set)
+	if failure != nil {
+		t.Fatalf("decodeLiveJourneyReceipts() failure = %+v", failure)
+	}
+	if proof.revertJournal != `C:\trusted\restore\journal.json` || proof.revert.JournalUsed != proof.revertJournal || proof.restoreRebuild.envelopeRunID != "rebuild-restore" || proof.restoreRebuild.applyRunID != "apply-rebuild-restore" || !proof.restoreRebuild.bundle.Extracted || len(proof.restoreRebuild.restoreItems) == 0 || projection.ModuleID != definition.ModuleID {
+		t.Fatalf("journey proof = %+v", proof)
+	}
+	for _, arg := range set.Revert.receipt.args {
+		if arg == "--journal" || strings.HasPrefix(arg, "--journal=") {
+			t.Fatalf("production revert invocation unexpectedly selects a journal: %q", set.Revert.receipt.args)
+		}
+	}
+	set.RestoreRebuild.receipt.stdout[0] = 'X'
+	if proof.restoreRebuild.envelopeRunID != "rebuild-restore" || len(proof.restoreRebuild.restoreItems) == 0 {
+		t.Fatal("journey proof aliases mutable receipt output")
+	}
+	if _, failure := decodeLiveJourneyReceipts(issuer, definition, set); failure == nil {
+		t.Fatal("decodeLiveJourneyReceipts() accepted replayed receipt batch")
+	}
+}
+
+func TestDecodeLiveJourneyReceiptsRejectsCallerSelectedJournalArguments(t *testing.T) {
+	journal := `C:\trusted\restore\journal.json`
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{"missing", []string{"revert"}},
+		{"duplicate", []string{"revert", "--journal", journal, "--journal", `C:\trusted\restore\other.json`}},
+		{"relative", []string{"revert", "--journal", `restore\journal.json`}},
+		{"equals form", []string{"revert", "--journal=" + journal}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			issuer := newLiveReceiptIssuer()
+			definition, set := liveJourneyReceiptSetForTestWithRevert(t, issuer, journal, test.args)
+			projection, failure := decodeLiveJourneyReceipts(issuer, definition, set)
+			if test.name == "missing" {
+				if failure != nil || projection.ModuleID != definition.ModuleID {
+					t.Fatalf("decodeLiveJourneyReceipts() rejected production revert arguments: %+v", failure)
+				}
+				return
+			}
+			if failure == nil {
+				t.Fatal("decodeLiveJourneyReceipts() accepted a caller-selected revert journal")
+			}
+		})
+	}
+}
+
+func TestDecodeLiveJourneyReceiptsRejectsUntrustedOrNonCanonicalOutputJournal(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	definition, set := liveJourneyReceiptSetForTestWithRevert(t, issuer, `relative\journal.json`, []string{"revert"})
+	if _, failure := decodeLiveJourneyReceipts(issuer, definition, set); failure == nil {
+		t.Fatal("decodeLiveJourneyReceipts() accepted a noncanonical output journal")
+	}
+}
+
+func TestDecodeLiveJourneyReceiptsRejectsInvalidRuntimeRestoreAuthorityBeforeProofConsumption(t *testing.T) {
+	issuer := newLiveReceiptIssuer()
+	definition, set := liveJourneyReceiptSetForTest(t, issuer, `C:\trusted\restore\journal.json`)
+	set.runtimeRestoreTargets = map[string]string{"apps/notepad-plus-plus/config.xml": `C:\Users\runner\AppData\Roaming\Notepad++\config.xml`}
+	if _, failure := decodeLiveJourneyReceipts(issuer, definition, set); failure == nil {
+		t.Fatal("decodeLiveJourneyReceipts() accepted an incomplete runtime restore authority")
+	}
+	set.runtimeRestoreTargets = nil
+	if _, failure := decodeLiveJourneyReceipts(issuer, definition, set); failure != nil {
+		t.Fatalf("invalid runtime restore authority consumed authenticated proof: %+v", failure)
+	}
+}
+
+func liveJourneyReceiptSetForTest(t *testing.T, issuer *liveReceiptIssuer, journal string) (LiveDefinition, liveJourneyReceiptSet) {
+	return liveJourneyReceiptSetForTestWithRevert(t, issuer, journal, []string{"revert", "--json", "--events", "jsonl"})
+}
+
+func liveJourneyReceiptSetForTestWithRevert(t *testing.T, issuer *liveReceiptIssuer, journal string, revertArgs []string) (LiveDefinition, liveJourneyReceiptSet) {
+	t.Helper()
+	definition := productionLiveDecoderDefinition(t)
+	outputs := []struct {
+		operation liveOperation
+		output    liveCommandOutput
+	}{
+		{liveOperationEngineApply, liveCommandOutput{Stdout: liveTestEnvelope("apply", "apply-initial", liveApplyData("installed")), Stderr: liveEvents("apply", "apply-initial")}},
+		{liveOperationEngineVerify, liveCommandOutput{Stdout: liveTestEnvelope("verify", "verify-initial", liveVerifyData()), Stderr: liveEvents("verify", "verify-initial")}},
+		{liveOperationEngineCapture, liveCommandOutput{Stdout: liveTestEnvelope("capture", "capture-initial", liveCaptureData()), Stderr: liveEvents("capture", "capture-initial")}},
+		{liveOperationEngineRebuild, liveCommandOutput{Stdout: liveTestEnvelope("rebuild", "rebuild-restore", liveRebuildData("installed", "restored")), Stderr: liveEvents("rebuild", "rebuild-restore")}},
+		{liveOperationEngineRevert, liveCommandOutput{Stdout: liveTestEnvelope("revert", "revert-config", strings.Replace(liveRevertData(), `C:\\trusted\\restore\\journal.json`, strings.ReplaceAll(journal, `\`, `\\`), 1)), Stderr: liveEvents("revert", "revert-config")}},
+		{liveOperationEngineRebuild, liveCommandOutput{Stdout: liveTestEnvelope("rebuild", "rebuild-recovery", liveRebuildData("present", "restored")), Stderr: liveEvents("rebuild", "rebuild-recovery")}},
+		{liveOperationEngineRebuild, liveCommandOutput{Stdout: liveTestEnvelope("rebuild", "rebuild-converged", liveRebuildData("present", "skipped_up_to_date")), Stderr: liveEvents("rebuild", "rebuild-converged")}},
+	}
+	expectations := make([]liveReceiptExpectation, len(outputs))
+	for index, phase := range outputs {
+		sequence := uint64(index + 1)
+		admission, err := issuer.admit(phase.operation, sequence, liveReceiptTestNonce(byte(80+index)))
+		if err != nil {
+			t.Fatalf("admit %s: %v", phase.operation, err)
+		}
+		receipt := liveUnsealedReceiptForTest(t, admission, phase.output.Stdout, phase.output.Stderr, "")
+		if phase.operation == liveOperationEngineRevert {
+			receipt.args = append([]string(nil), revertArgs...)
+			receipt.requestSHA256 = receipt.requestDigest()
+		}
+		liveTestCommitReceipt(t, admission, receipt)
+		if err := issuer.sealFn(receipt); err != nil {
+			t.Fatalf("seal %s: %v", phase.operation, err)
+		}
+		admission.complete()
+		expectations[index] = liveReceiptExpectation{receipt: receipt, operation: phase.operation, sequence: sequence, nonce: admission.nonce}
+	}
+	return definition, liveJourneyReceiptSet{
+		ScenarioID:         liveConfigRoundtripScenarioID,
+		InitialApply:       expectations[0],
+		Verify:             expectations[1],
+		Capture:            expectations[2],
+		RestoreRebuild:     expectations[3],
+		Revert:             expectations[4],
+		RecoveryRebuild:    expectations[5],
+		ConvergenceRebuild: expectations[6],
+		PackageAfterRevert: PackageObservation{Ref: definition.WingetRef, Version: "8.7.1", Status: "present"},
 	}
 }
 

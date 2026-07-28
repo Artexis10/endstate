@@ -124,14 +124,16 @@ type LiveAuthoritySessionRequest struct {
 }
 
 type LiveAuthoritySession struct {
-	campaignID [32]byte
-	campaign   LiveCampaign
-	definition liveAuthorityDefinition
-	now        time.Time
-	mu         sync.Mutex
-	minted     map[liveAuthorityPermitKey]struct{}
-	issuerID   uint64
-	cleanup    bool
+	campaignID             [32]byte
+	campaign               LiveCampaign
+	definition             liveAuthorityDefinition
+	now                    time.Time
+	mu                     sync.Mutex
+	minted                 map[liveAuthorityPermitKey]struct{}
+	issuerID               uint64
+	cleanup                bool
+	runtimeBindingRequired bool
+	runtimeBound           bool
 }
 
 // EnterCleanup permanently aborts proof progression and admits only the
@@ -162,10 +164,10 @@ func (session *LiveAuthoritySession) EnterCleanup(issuer *liveReceiptIssuer) err
 }
 
 type liveAuthorityDefinition struct {
-	definition, engine, seed, packageRef    [32]byte
-	comparator, targets, observer, workflow [32]byte
-	packageArguments                        []string
-	operations                              map[uint64]LiveCampaignOperation
+	definition, engine, seed, packageRef               [32]byte
+	validator, comparator, targets, observer, workflow [32]byte
+	packageArguments                                   []string
+	templates, operations                              map[uint64]LiveCampaignOperation
 }
 
 type liveAuthorityPermitKey struct {
@@ -206,8 +208,8 @@ func NewLiveAuthoritySession(ctx context.Context, client LiveWorkflowRunClient, 
 	}
 	return &LiveAuthoritySession{campaignID: liveSHA256Bytes(identity), campaign: request.Campaign, now: request.Now, minted: make(map[liveAuthorityPermitKey]struct{}), definition: liveAuthorityDefinition{
 		definition: liveSHA256Bytes(request.DefinitionSHA256), engine: liveSHA256Bytes(request.EngineSHA256), seed: liveSHA256Bytes(request.Definition.SeedSHA256), packageRef: sha256.Sum256([]byte(request.Campaign.PackageRef)),
-		comparator: liveSHA256Bytes(request.Campaign.ComparatorSHA256), targets: liveSHA256Bytes(request.Campaign.TargetsSHA256), observer: liveSHA256Bytes(request.Campaign.ObserverSHA256), workflow: liveSHA256Bytes(request.Campaign.WorkflowPolicySHA256), packageArguments: append([]string(nil), request.Campaign.PackageArguments...), operations: operations,
-	}}, nil
+		validator: liveSHA256Bytes(request.ValidatorSHA256), comparator: liveSHA256Bytes(request.Campaign.ComparatorSHA256), targets: liveSHA256Bytes(request.Campaign.TargetsSHA256), observer: liveSHA256Bytes(request.Campaign.ObserverSHA256), workflow: liveSHA256Bytes(request.Campaign.WorkflowPolicySHA256), packageArguments: append([]string(nil), request.Campaign.PackageArguments...), templates: operations,
+	}, runtimeBindingRequired: true}, nil
 }
 
 func (session *LiveAuthoritySession) NonceFor(operation liveOperation, sequence uint64) [32]byte {
@@ -225,7 +227,7 @@ func (session *LiveAuthoritySession) NewReceiptIssuer() *liveReceiptIssuer {
 	}
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if session.issuerID != 0 {
+	if session.issuerID != 0 || session.runtimeBindingRequired && !session.runtimeBound {
 		return nil
 	}
 	var optional []liveDeclaredPreflight
@@ -258,7 +260,7 @@ func (session *LiveAuthoritySession) MintMutationPermit(admission liveReceiptAdm
 	}
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) || session.cleanup && operation != liveOperationWingetExactUninstall {
+	if admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || session.runtimeBindingRequired && !session.runtimeBound || nonce != session.NonceFor(operation, sequence) || session.cleanup && operation != liveOperationWingetExactUninstall {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
 	}
 	key := liveAuthorityPermitKey{operation: operation, sequence: sequence, admissionToken: admission.token}
@@ -284,7 +286,7 @@ func (session *LiveAuthoritySession) MintHostMutationPermit(admission liveReceip
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	operation, sequence := admission.operation, admission.sequence
-	if (operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup) || operation == liveOperationDeclaredTargetWipe && binding.attemptRoot != ([32]byte{}) || operation == liveOperationAttemptRootCleanup && binding.attemptRoot == ([32]byte{}) || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || admission.nonce != session.NonceFor(operation, sequence) || !session.campaign.ExpiresAt.After(session.now) || session.cleanup && operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup {
+	if (operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup) || operation == liveOperationDeclaredTargetWipe && binding.attemptRoot != ([32]byte{}) || operation == liveOperationAttemptRootCleanup && binding.attemptRoot == ([32]byte{}) || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || session.runtimeBindingRequired && !session.runtimeBound || admission.nonce != session.NonceFor(operation, sequence) || !session.campaign.ExpiresAt.After(session.now) || session.cleanup && operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup {
 		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation operation is not predeclared")
 	}
 	invocation, exists := session.definition.operations[sequence]

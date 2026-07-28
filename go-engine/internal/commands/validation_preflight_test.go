@@ -866,18 +866,12 @@ func TestPreflightValidationProductionModuleRejectsNonExactProvenance(t *testing
 		{name: "wrong restore module", mutate: func(_ *modules.Module, input *validationProductionModulePreflight) {
 			input.Manifest.Restore[0].FromModule = "apps.extra"
 		}, wantCoordinate: "restore[0].fromModule"},
-		{name: "missing verify", mutate: func(_ *modules.Module, input *validationProductionModulePreflight) {
-			input.Manifest.Verify = nil
-		}, wantCoordinate: "verify"},
-		{name: "duplicate verify", mutate: func(_ *modules.Module, input *validationProductionModulePreflight) {
-			input.Manifest.Verify = append(input.Manifest.Verify, input.Manifest.Verify[0])
-		}, wantCoordinate: "verify[1]"},
 		{name: "arbitrary verify", mutate: func(_ *modules.Module, input *validationProductionModulePreflight) {
 			input.Manifest.Verify = append(input.Manifest.Verify, manifest.VerifyEntry{
 				Type: "registry-value-equals", Path: `HKCU\Software\Arbitrary`,
 				ValueName: "token", Data: "registry-value-secret",
 			})
-		}, wantCoordinate: "verify[1]"},
+		}, wantCoordinate: "verify[0]"},
 	}
 
 	for _, tt := range tests {

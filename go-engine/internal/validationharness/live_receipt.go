@@ -46,21 +46,23 @@ func (operation liveOperation) valid() bool {
 func (operation liveOperation) mutation() bool { return operation != liveOperationWingetExactList }
 
 type liveReceiptIssuer struct {
-	id                     uint64
-	authorityCampaign      [32]byte
-	admitFn                func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
-	sealFn                 func(*liveExecutionReceipt) error
-	consumeFn              func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
-	consumeBatchFn         func([]liveReceiptExpectation) bool
-	releaseFn              func(liveReceiptAdmission)
-	activeFn               func(liveReceiptAdmission) bool
-	commitLaunchFn         func(liveReceiptAdmission) bool
-	abortLaunchFn          func(liveReceiptAdmission)
-	finalizeMutationFn     func(liveReceiptAdmission, *liveMutationCapability, LiveProcessRequest, [32]byte, time.Time) bool
-	finalizeHostMutationFn func(liveReceiptAdmission, *liveHostMutationCapability, liveHostMutationBinding, time.Time) bool
-	sealHostMutationFn     func(*liveHostMutationReceipt) error
-	skipPreflightFn        func() error
-	enterCleanupFn         func(uint64, []liveOperation) error
+	id                            uint64
+	authorityCampaign             [32]byte
+	admitFn                       func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
+	sealFn                        func(*liveExecutionReceipt) error
+	consumeFn                     func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
+	consumeBatchFn                func([]liveReceiptExpectation) bool
+	projectFn                     func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
+	releaseFn                     func(liveReceiptAdmission)
+	activeFn                      func(liveReceiptAdmission) bool
+	commitLaunchFn                func(liveReceiptAdmission) bool
+	abortLaunchFn                 func(liveReceiptAdmission)
+	finalizeMutationFn            func(liveReceiptAdmission, *liveMutationCapability, LiveProcessRequest, [32]byte, time.Time) bool
+	finalizeHostMutationFn        func(liveReceiptAdmission, *liveHostMutationCapability, liveHostMutationBinding, time.Time) bool
+	sealHostMutationFn            func(*liveHostMutationReceipt) error
+	skipPreflightFn               func() error
+	enterCleanupFn                func(uint64, []liveOperation) error
+	markCleanupPrelaunchFailureFn func(liveReceiptAdmission) bool
 }
 
 type liveAdmissionState uint8
@@ -101,8 +103,10 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	var cleanup bool
 	var cleanupStart uint64
 	var cleanupOperations []liveOperation
+	var cleanupPrelaunchFailure liveReceiptAdmission
 	nonces := make(map[[32]byte]struct{})
 	consumed := make(map[[32]byte]struct{})
+	projected := make(map[[32]byte]struct{})
 	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
 		mu.Lock()
 		defer mu.Unlock()
@@ -124,10 +128,16 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 		mu.Lock()
 		defer mu.Unlock()
 		if state == liveAdmissionReserved && active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
-			delete(nonces, admission.nonce)
+			if cleanupPrelaunchFailure.issuer == issuer && cleanupPrelaunchFailure.sequence == admission.sequence && cleanupPrelaunchFailure.nonce == admission.nonce && cleanupPrelaunchFailure.token == admission.token {
+				next = admission.sequence
+				cleanupPrelaunchFailure = liveReceiptAdmission{}
+			} else {
+				delete(nonces, admission.nonce)
+			}
 			active = liveReceiptAdmission{}
 			state = 0
 		} else if state == liveAdmissionSealed && active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
+			cleanupPrelaunchFailure = liveReceiptAdmission{}
 			active = liveReceiptAdmission{}
 			state = 0
 		}
@@ -168,6 +178,15 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 		}
 		cleanup, cleanupStart, cleanupOperations, next = true, start, append([]liveOperation(nil), operations...), start-1
 		return nil
+	}
+	issuer.markCleanupPrelaunchFailureFn = func(admission liveReceiptAdmission) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if !cleanup || admission.issuer != issuer || cleanupPrelaunchFailure.issuer != nil || state != liveAdmissionReserved || active.issuer != issuer || active.operation != admission.operation || active.sequence != admission.sequence || active.nonce != admission.nonce || active.token != admission.token || admission.sequence < cleanupStart || admission.sequence-cleanupStart >= uint64(len(cleanupOperations)) || admission.operation != cleanupOperations[admission.sequence-cleanupStart] {
+			return false
+		}
+		cleanupPrelaunchFailure = admission
+		return true
 	}
 	issuer.finalizeMutationFn = func(admission liveReceiptAdmission, capability *liveMutationCapability, request LiveProcessRequest, image [32]byte, now time.Time) bool {
 		mu.Lock()
@@ -235,6 +254,25 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 			return false
 		}
 		consumed[receipt.admissionToken] = struct{}{}
+		return true
+	}
+	issuer.projectFn = func(receipt *liveExecutionReceipt, operation liveOperation, sequence uint64, nonce [32]byte) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if cleanup || receipt == nil || receipt.issuerID != issuer.id || receipt.operation != operation || receipt.sequence != sequence || receipt.nonce != nonce || receipt.failure != "" || receipt.validate() != nil {
+			return false
+		}
+		if _, exists := consumed[receipt.admissionToken]; exists {
+			return false
+		}
+		if _, exists := projected[receipt.admissionToken]; exists {
+			return false
+		}
+		want := liveReceiptMAC(key, receipt)
+		if !hmac.Equal(receipt.tag[:], want[:]) {
+			return false
+		}
+		projected[receipt.admissionToken] = struct{}{}
 		return true
 	}
 	issuer.consumeBatchFn = func(expectations []liveReceiptExpectation) bool {
@@ -331,29 +369,67 @@ type liveReceiptExpectation struct {
 type liveJourneyReceiptSet struct {
 	ScenarioID                                                                                 string
 	InitialApply, Verify, Capture, RestoreRebuild, Revert, RecoveryRebuild, ConvergenceRebuild liveReceiptExpectation
-	RestoreJournalID                                                                           string
 	PackageAfterRevert                                                                         PackageObservation
+	runtimeRestoreTargets                                                                      map[string]string
 }
 
 // decodeLiveJourneyReceipts is the proof-only handoff for engine evidence. It
 // consumes every authenticated phase atomically, decodes inside this package,
 // and exposes only the projection returned by the official decoder.
 func decodeLiveJourneyReceipts(issuer *liveReceiptIssuer, definition LiveDefinition, set liveJourneyReceiptSet) (liveJourneyProjection, *Failure) {
+	projection, _, failure := decodeLiveJourneyReceiptProof(issuer, definition, set)
+	return projection, failure
+}
+
+func decodeLiveJourneyReceiptProof(issuer *liveReceiptIssuer, definition LiveDefinition, set liveJourneyReceiptSet) (liveJourneyProjection, liveJourneyProof, *Failure) {
 	if issuer == nil || issuer.consumeBatchFn == nil {
-		return liveJourneyProjection{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt issuer is unavailable")
+		return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt issuer is unavailable")
+	}
+	if _, ok := newLiveRuntimeRestoreAuthority(definition, set.runtimeRestoreTargets); !ok {
+		return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "live", "restore", "live runtime restore authority is invalid")
 	}
 	expected := []liveReceiptExpectation{set.InitialApply, set.Verify, set.Capture, set.RestoreRebuild, set.Revert, set.RecoveryRebuild, set.ConvergenceRebuild}
-	for _, expectation := range expected {
-		if expectation.operation != liveOperationEngineApply && expectation.operation != liveOperationEngineVerify && expectation.operation != liveOperationEngineCapture && expectation.operation != liveOperationEngineRebuild && expectation.operation != liveOperationEngineRevert {
-			return liveJourneyProjection{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt operation is invalid")
+	operations := []liveOperation{liveOperationEngineApply, liveOperationEngineVerify, liveOperationEngineCapture, liveOperationEngineRebuild, liveOperationEngineRevert, liveOperationEngineRebuild, liveOperationEngineRebuild}
+	for index, expectation := range expected {
+		if expectation.operation != operations[index] {
+			return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt operation is invalid")
 		}
 	}
 	if !issuer.consumeBatchFn(expected) {
-		return liveJourneyProjection{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt handoff rejected")
+		return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "live", "receipt", "live receipt handoff rejected")
 	}
-	inputs := liveJourneyOutputs{ScenarioID: set.ScenarioID, RestoreJournalID: set.RestoreJournalID, PackageAfterRevert: set.PackageAfterRevert,
+	if !liveProductionRevertArguments(set.Revert.receipt) {
+		return liveJourneyProjection{}, liveJourneyProof{}, fail(CodeEnvelopeContract, "revert", "arguments", "sealed revert receipt selects a journal")
+	}
+	inputs := liveJourneyOutputs{ScenarioID: set.ScenarioID, PackageAfterRevert: set.PackageAfterRevert, runtimeRestoreTargets: set.runtimeRestoreTargets,
 		InitialApply: liveCommandOutput{Stdout: set.InitialApply.receipt.stdout, Stderr: set.InitialApply.receipt.stderr}, Verify: liveCommandOutput{Stdout: set.Verify.receipt.stdout, Stderr: set.Verify.receipt.stderr}, Capture: liveCommandOutput{Stdout: set.Capture.receipt.stdout, Stderr: set.Capture.receipt.stderr}, RestoreRebuild: liveCommandOutput{Stdout: set.RestoreRebuild.receipt.stdout, Stderr: set.RestoreRebuild.receipt.stderr}, Revert: liveCommandOutput{Stdout: set.Revert.receipt.stdout, Stderr: set.Revert.receipt.stderr}, RecoveryRebuild: liveCommandOutput{Stdout: set.RecoveryRebuild.receipt.stdout, Stderr: set.RecoveryRebuild.receipt.stderr}, ConvergenceRebuild: liveCommandOutput{Stdout: set.ConvergenceRebuild.receipt.stdout, Stderr: set.ConvergenceRebuild.receipt.stderr}}
-	return decodeLiveJourney(definition, inputs)
+	return decodeLiveJourneyWithProof(definition, inputs)
+}
+
+func liveProductionRevertArguments(receipt *liveExecutionReceipt) bool {
+	if receipt == nil || receipt.operation != liveOperationEngineRevert {
+		return false
+	}
+	for _, arg := range receipt.args {
+		if arg == "--journal" || len(arg) > len("--journal=") && arg[:len("--journal=")] == "--journal=" {
+			return false
+		}
+	}
+	return true
+}
+
+// projectLiveCaptureReceipt is a private, non-consuming authenticated handoff
+// used only to inspect the capture artifact before the final batch handoff.
+func projectLiveCaptureReceipt(issuer *liveReceiptIssuer, receipt *liveExecutionReceipt, sequence uint64, nonce [32]byte) (*liveExecutionReceipt, bool) {
+	if issuer == nil || issuer.projectFn == nil || !issuer.projectFn(receipt, liveOperationEngineCapture, sequence, nonce) {
+		return nil, false
+	}
+	copy := *receipt
+	copy.args = append([]string(nil), receipt.args...)
+	copy.environment = cloneLiveEnvironment(receipt.environment)
+	copy.stdout = append([]byte(nil), receipt.stdout...)
+	copy.stderr = append([]byte(nil), receipt.stderr...)
+	return &copy, true
 }
 
 func (identity liveReceiptExpectedIdentity) valid(operation liveOperation) bool {

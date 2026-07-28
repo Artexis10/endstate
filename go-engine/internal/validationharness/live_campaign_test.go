@@ -119,6 +119,33 @@ func TestLiveCampaignRequiresExactUnattendedWingetUninstall(t *testing.T) {
 	}
 }
 
+func TestValidateLiveCampaignRequiresClosedRuntimeTemplates(t *testing.T) {
+	campaign := liveTestCampaign()
+	if err := ValidateLiveCampaign(campaign); err != nil {
+		t.Fatalf("ValidateLiveCampaign(valid templates) error = %v", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*LiveCampaign)
+	}{
+		{"literal executable", func(value *LiveCampaign) { value.Operations[2].Executable = `C:\\runner\\endstate.exe` }},
+		{"duplicate root token", func(value *LiveCampaign) {
+			value.Operations[2].Arguments = append(value.Operations[2].Arguments, "$ENDSTATE_ROOT")
+		}},
+		{"root token in executable", func(value *LiveCampaign) { value.Operations[2].Executable = "$ENDSTATE_ROOT\\endstate.exe" }},
+		{"winget token outside executable", func(value *LiveCampaign) { value.Operations[2].Arguments[0] = "$WINGET" }},
+		{"checkout traversal", func(value *LiveCampaign) { value.Operations[2].Executable = "$CHECKOUT_ROOT\\..\\endstate.exe" }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := liveTestCampaign()
+			test.mutate(&candidate)
+			if err := ValidateLiveCampaign(candidate); err == nil {
+				t.Fatal("ValidateLiveCampaign accepted an unclosed runtime template")
+			}
+		})
+	}
+}
+
 func liveTestCampaign() LiveCampaign {
 	return LiveCampaign{
 		SchemaVersion: LiveCampaignSchemaVersion, Mode: LiveCampaignScheduledQualification,
@@ -135,23 +162,21 @@ func liveTestCampaign() LiveCampaign {
 func liveTestCampaignOperations() []LiveCampaignOperation {
 	operations := make([]LiveCampaignOperation, 0, 15)
 	for sequence, operation := range map[uint64]liveOperation{1: liveOperationWingetExactUninstall, 2: liveOperationDeclaredTargetWipe, 3: liveOperationEngineApply, 4: liveOperationEngineVerify, 5: liveOperationHashBoundSeed, 6: liveOperationEngineCapture, 7: liveOperationWingetExactUninstall, 8: liveOperationDeclaredTargetWipe, 9: liveOperationEngineRebuild, 10: liveOperationEngineRevert, 11: liveOperationEngineRebuild, 12: liveOperationEngineRebuild, 13: liveOperationWingetExactUninstall, 14: liveOperationDeclaredTargetWipe, 15: liveOperationAttemptRootCleanup} {
-		arguments := []string{string(operation)}
-		if operation == liveOperationDeclaredTargetWipe || operation == liveOperationAttemptRootCleanup {
-			arguments = nil
-		}
+		entry := LiveCampaignOperation{Sequence: sequence, Operation: string(operation)}
 		if operation == liveOperationWingetExactUninstall {
-			arguments = []string{"uninstall", "--id", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
+			entry.Executable, entry.ExecutableSHA256 = liveTemplateWinget, liveTemplateWinget
+			entry.Arguments = []string{"uninstall", "--id", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
+		} else if operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup {
+			digest := strings.Repeat("c", 64)
+			entry.Executable, entry.Arguments, entry.ExecutableSHA256 = liveTemplateOperation(operation, digest)
+			if operation == liveOperationHashBoundSeed {
+				entry.Directory = liveTemplateEndstateRoot + `\seed`
+			} else {
+				entry.Directory = liveTemplateCheckoutRoot + `\go-engine`
+				entry.Environment = map[string]string{"ENDSTATE_ROOT": liveTemplateEndstateRoot}
+			}
 		}
-		executableSHA256 := strings.Repeat("a", 64)
-		if liveCampaignEngineOperation(operation) {
-			executableSHA256 = strings.Repeat("c", 64)
-		}
-		executable := `C:\reviewed\runner.exe`
-		if operation == liveOperationDeclaredTargetWipe || operation == liveOperationAttemptRootCleanup {
-			executable = ""
-			executableSHA256 = ""
-		}
-		operations = append(operations, LiveCampaignOperation{Sequence: sequence, Operation: string(operation), Executable: executable, ExecutableSHA256: executableSHA256, Arguments: arguments})
+		operations = append(operations, entry)
 	}
 	sort.Slice(operations, func(left, right int) bool { return operations[left].Sequence < operations[right].Sequence })
 	return operations
