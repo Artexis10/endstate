@@ -19,6 +19,7 @@ import (
 
 var windowsLiveRoamingAppData = windowsLiveKnownRoamingAppData
 var windowsLiveRunnerTemp = windowsLiveEnvironmentRunnerTemp
+var windowsLiveCleanupBeforeChildOpen func(string)
 
 const (
 	maxWindowsLiveCleanupDepth   = 32
@@ -102,6 +103,9 @@ func (state *windowsLiveCleanupState) removeDirectory(ctx context.Context, path 
 			return fmt.Errorf("live cleanup budget exhausted")
 		}
 		child := filepath.Join(path, entry.Name())
+		if windowsLiveCleanupBeforeChildOpen != nil {
+			windowsLiveCleanupBeforeChildOpen(child)
+		}
 		if entry.IsDir() {
 			if err := state.removeDirectory(ctx, child, depth+1); err != nil {
 				return err

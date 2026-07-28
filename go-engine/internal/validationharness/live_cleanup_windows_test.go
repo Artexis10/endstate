@@ -248,6 +248,32 @@ func TestWindowsLiveHandleCleanupRejectsBudgetExhaustionWithoutTraversal(t *test
 	}
 }
 
+func TestWindowsLiveHandleCleanupRejectsChildJunctionSwap(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	child := filepath.Join(root, "child")
+	if err := os.Mkdir(child, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	sentinel := filepath.Join(outside, "sentinel.txt")
+	if err := os.WriteFile(sentinel, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	original := windowsLiveCleanupBeforeChildOpen
+	windowsLiveCleanupBeforeChildOpen = func(path string) {
+		if path != child || os.Remove(path) != nil {
+			return
+		}
+		_, _ = exec.Command("cmd", "/d", "/c", "mklink", "/J", path, outside).CombinedOutput()
+	}
+	t.Cleanup(func() { windowsLiveCleanupBeforeChildOpen = original })
+	if err := removeWindowsLiveDirectoryWithBudget(context.Background(), root, windowsLiveCleanupBudget{maxDepth: 8, maxEntries: 8}); err == nil {
+		t.Fatal("handle cleanup accepted a child junction swap")
+	}
+	if _, err := os.Lstat(sentinel); err != nil {
+		t.Fatalf("junction swap deleted outside sentinel: %v", err)
+	}
+}
+
 func liveWindowsHostMutationSession(t *testing.T, definition LiveDefinition, sequence uint64, operation liveOperation) *LiveAuthoritySession {
 	t.Helper()
 	digest, err := CanonicalLiveDefinitionSHA256(definition)
