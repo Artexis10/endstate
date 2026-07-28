@@ -42,6 +42,18 @@ func TestCompileLiveDefinitionProductionNotepadPlusPlusIsDiagnosticOnly(t *testi
 			t.Fatalf("directory mapping was included: %+v", mapping)
 		}
 	}
+	if len(definition.DeclaredTargets) != 6 {
+		t.Fatalf("declared targets = %+v, want six", definition.DeclaredTargets)
+	}
+	for _, target := range definition.DeclaredTargets {
+		if target.Identity == "apps/notepad-plus-plus/userDefineLangs" {
+			if target.Kind != LiveDeclaredTargetDirectory || target.Template != `%APPDATA%\Notepad++\userDefineLangs` {
+				t.Fatalf("directory target = %+v", target)
+			}
+			return
+		}
+	}
+	t.Fatal("declared targets omitted userDefineLangs")
 	if definition.Comparator.Mappings[0].Identity != "apps/notepad-plus-plus/config.xml" || definition.Comparator.Mappings[0].CaptureTemplate != "%APPDATA%\\Notepad++\\config.xml" || definition.Comparator.Mappings[0].RestoreTemplate != "%APPDATA%\\Notepad++\\config.xml" {
 		t.Fatalf("first comparator mapping = %+v", definition.Comparator.Mappings[0])
 	}
@@ -52,6 +64,18 @@ func TestCompileLiveDefinitionProductionNotepadPlusPlusIsDiagnosticOnly(t *testi
 	digest := sha256.Sum256(data)
 	if definition.ValidationSourceSHA256 != hex.EncodeToString(digest[:]) || definition.NonAuthorizing != true {
 		t.Fatalf("definition binding = %+v", definition)
+	}
+}
+
+func TestValidateLiveDefinitionRejectsUnsafeDeclaredTargets(t *testing.T) {
+	definition, err := CompileLiveDefinition(productionLiveRepoRoot(t), "apps.notepad-plus-plus")
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition.DeclaredTargets = append([]LiveDeclaredTarget(nil), definition.DeclaredTargets...)
+	definition.DeclaredTargets[1].Template = `%APPDATA%\Notepad++\config.xml\child`
+	if err := ValidateLiveRequest(LiveRequest{SchemaVersion: LiveDefinitionSchemaVersion, MaxAttempts: 1, Definition: definition}); err == nil {
+		t.Fatal("definition accepted an overlapping declared target")
 	}
 }
 
@@ -355,6 +379,13 @@ func TestValidateLiveResultForDefinitionRejectsStalePolicyAndMappings(t *testing
 	changedMappings := definition
 	changedMappings.Comparator.Mappings = append([]ComparatorMapping(nil), definition.Comparator.Mappings...)
 	changedMappings.Comparator.Mappings[0].Identity = "apps/notepad-plus-plus/changed-config.xml"
+	changedMappings.DeclaredTargets = append([]LiveDeclaredTarget(nil), definition.DeclaredTargets...)
+	for index := range changedMappings.DeclaredTargets {
+		if changedMappings.DeclaredTargets[index].Identity == definition.Comparator.Mappings[0].Identity {
+			changedMappings.DeclaredTargets[index].Identity = "apps/notepad-plus-plus/changed-config.xml"
+			break
+		}
+	}
 	result.DefinitionSHA256 = canonicalLiveDefinitionSHA256(t, changedMappings)
 	if err := ValidateLiveResultForDefinition(result, changedMappings); err == nil {
 		t.Fatal("result accepted with stale comparator identities")

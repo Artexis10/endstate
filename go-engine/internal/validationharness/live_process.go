@@ -70,6 +70,37 @@ func liveExecutionError(code LiveExecutionFailureCode, cause error) *LiveExecuti
 // mutation permit.
 type trustedLiveMutationPermit struct{ capability *liveMutationCapability }
 
+// trustedLiveHostMutationPermit is the internal authority capability for the
+// two non-process campaign mutations. Its binding is opaque digests, never a
+// caller-selected cleanup path.
+type trustedLiveHostMutationPermit struct{ capability *liveHostMutationCapability }
+
+type liveHostMutationBinding struct {
+	appData, attemptRoot [32]byte
+}
+
+type liveHostMutationCapability struct {
+	campaign                      [32]byte
+	operation                     liveOperation
+	sequence                      uint64
+	nonce                         [32]byte
+	issuedAt, expiresAt           time.Time
+	definition, targets, observer [32]byte
+	workflow                      [32]byte
+	issuerID                      uint64
+	admissionToken                [32]byte
+	binding                       liveHostMutationBinding
+	consumed                      atomic.Bool
+}
+
+func (capability *liveHostMutationCapability) validFor(admission liveReceiptAdmission, binding liveHostMutationBinding, now time.Time) bool {
+	return capability.matches(admission, binding, now) && admission.issuer != nil && admission.issuer.activeFn != nil && admission.issuer.activeFn(admission)
+}
+
+func (capability *liveHostMutationCapability) matches(admission liveReceiptAdmission, binding liveHostMutationBinding, now time.Time) bool {
+	return capability != nil && admission.issuer != nil && !capability.consumed.Load() && (capability.operation == liveOperationDeclaredTargetWipe || capability.operation == liveOperationAttemptRootCleanup) && capability.operation == admission.operation && (capability.operation != liveOperationDeclaredTargetWipe || binding.attemptRoot == ([32]byte{})) && (capability.operation != liveOperationAttemptRootCleanup || binding.attemptRoot != ([32]byte{})) && capability.campaign != ([32]byte{}) && capability.sequence == admission.sequence && capability.nonce == admission.nonce && capability.issuerID == admission.issuer.id && capability.admissionToken == admission.token && capability.binding == binding && capability.issuedAt.Before(now.Add(time.Nanosecond)) && capability.expiresAt.After(now) && capability.definition != ([32]byte{}) && capability.targets != ([32]byte{}) && capability.observer != ([32]byte{}) && capability.workflow != ([32]byte{}) && admission.issuer.authorityCampaign == capability.campaign
+}
+
 type liveMutationCapability struct {
 	serial uint64
 
@@ -112,6 +143,9 @@ func (capability *liveMutationCapability) matches(request LiveProcessRequest, im
 	}
 	if request.executionClass() != LiveExecutionEngine && capability.executableSHA256 != request.expected.runner {
 		return false
+	}
+	if request.operation == liveOperationWingetExactInstall {
+		return liveExactWingetInstallArguments(request.args) && sameLiveArguments(request.args, capability.arguments)
 	}
 	if request.operation != liveOperationWingetExactUninstall {
 		return true
@@ -205,6 +239,36 @@ func newLiveTrustedAppXWingetListProbe(admission liveReceiptAdmission, binding l
 	return request
 }
 
+// newLiveTrustedAppXWingetExactUninstall has no package, executable, argument,
+// directory, or environment parameters. The authority-bound permit supplies
+// the complete reviewed invocation; the resolver supplies only the held AppX
+// executable binding.
+func newLiveTrustedAppXWingetExactUninstall(admission liveReceiptAdmission, permit trustedLiveMutationPermit, binding liveTrustedAppXBinding, outputLimit int) LiveProcessRequest {
+	return newLiveTrustedAppXWingetMutation(admission, permit, binding, liveOperationWingetExactUninstall, outputLimit)
+}
+
+// newLiveTrustedAppXWingetExactInstall is intentionally unreachable from the
+// current 13/15-slot campaign plans. It exists only as the equally constrained
+// typed primitive should a later reviewed plan admit this exact operation.
+func newLiveTrustedAppXWingetExactInstall(admission liveReceiptAdmission, permit trustedLiveMutationPermit, binding liveTrustedAppXBinding, outputLimit int) LiveProcessRequest {
+	return newLiveTrustedAppXWingetMutation(admission, permit, binding, liveOperationWingetExactInstall, outputLimit)
+}
+
+func newLiveTrustedAppXWingetMutation(admission liveReceiptAdmission, permit trustedLiveMutationPermit, binding liveTrustedAppXBinding, operation liveOperation, outputLimit int) LiveProcessRequest {
+	capability := permit.capability
+	if capability == nil {
+		return LiveProcessRequest{operation: operation, admission: admission, permit: permit, outputLimit: outputLimit}
+	}
+	expected := liveReceiptExpectedIdentity{
+		definition: capability.definition, engine: capability.engine, seed: capability.seed, packageRef: capability.packageRef,
+		comparator: capability.comparator, targets: capability.targets, observer: capability.observer, workflow: capability.workflow, runner: capability.executableSHA256,
+	}
+	return LiveProcessRequest{
+		executable: filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName), args: append([]string(nil), capability.arguments...), dir: capability.directory,
+		environment: cloneLiveEnvironment(capability.environment), outputLimit: outputLimit, operation: operation, admission: admission, expected: expected, permit: permit, appx: &binding,
+	}
+}
+
 func newLiveEngineApply(admission liveReceiptAdmission, permit trustedLiveMutationPermit, executable string, args []string, dir string, environment map[string]string, expected liveReceiptExpectedIdentity, outputLimit int) LiveProcessRequest {
 	return newLiveTypedMutation(admission, permit, liveOperationEngineApply, executable, args, dir, environment, expected, outputLimit)
 }
@@ -286,6 +350,12 @@ func validateLiveProcessRequest(request LiveProcessRequest) error {
 	if request.mutates() && !request.permit.capability.validFor(request, time.Now().UTC()) {
 		return liveExecutionError(LiveExecutionMutationDenied, nil)
 	}
+	if (request.operation == liveOperationWingetExactInstall || request.operation == liveOperationWingetExactUninstall) && (request.appx == nil || !request.appx.metadata.receipt.valid || request.executable != filepath.Join(request.appx.metadata.packageRoot, request.appx.metadata.executableName)) {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
+	if request.operation == liveOperationWingetExactInstall && !liveExactWingetInstallArguments(request.args) {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
 	return nil
 }
 
@@ -299,6 +369,10 @@ func liveWingetListProbeReference(args []string) (string, bool) {
 		return "", false
 	}
 	return args[2], args[3] == "--exact" && args[4] == "--source" && args[5] == "winget" && args[6] == "--accept-source-agreements" && args[7] == "--disable-interactivity"
+}
+
+func liveExactWingetInstallArguments(args []string) bool {
+	return len(args) == 8 && args[0] == "install" && args[1] == "Notepad++.Notepad++" && args[2] == "--exact" && args[3] == "--source" && args[4] == "winget" && args[5] == "--accept-package-agreements" && args[6] == "--accept-source-agreements" && args[7] == "--disable-interactivity"
 }
 
 func runLiveProcess(ctx context.Context, request LiveProcessRequest) (*liveExecutionReceipt, error) {

@@ -162,7 +162,7 @@ func NewLiveAuthoritySession(ctx context.Context, client LiveWorkflowRunClient, 
 	if err != nil || definitionDigest != request.DefinitionSHA256 || request.Definition.ModuleID != request.Campaign.ModuleID || request.Definition.ModuleRevision != request.Campaign.ModuleRevision || request.Definition.ValidationSourceSHA256 != request.Campaign.ValidationSourceSHA256 || request.Definition.SeedSHA256 != request.Campaign.SeedSHA256 || request.Definition.WingetRef != request.Campaign.PackageRef || request.EngineSHA256 != request.Campaign.EngineSHA256 || request.ValidatorSHA256 != request.Campaign.ValidatorSHA256 {
 		return nil, fmt.Errorf("live authority source or binary binding differs from campaign")
 	}
-	if liveSHA256Hex(request.Definition.Comparator) != request.Campaign.ComparatorSHA256 || liveSHA256Hex(request.Definition.Comparator.Mappings) != request.Campaign.TargetsSHA256 || liveSHA256Hex(request.Definition.Observer) != request.Campaign.ObserverSHA256 {
+	if liveSHA256Hex(request.Definition.Comparator) != request.Campaign.ComparatorSHA256 || liveSHA256Hex(request.Definition.DeclaredTargets) != request.Campaign.TargetsSHA256 || liveSHA256Hex(request.Definition.Observer) != request.Campaign.ObserverSHA256 {
 		return nil, fmt.Errorf("live authority comparator or observer binding differs from campaign")
 	}
 	identity, err := CanonicalLiveCampaignIdentity(request.Campaign)
@@ -243,6 +243,31 @@ func (session *LiveAuthoritySession) MintMutationPermit(admission liveReceiptAdm
 	session.minted[key] = struct{}{}
 	capability := &liveMutationCapability{campaign: session.campaignID, operation: operation, sequence: sequence, nonce: nonce, issuerID: admission.issuer.id, admissionToken: admission.token, issuedAt: session.now, expiresAt: session.campaign.ExpiresAt, definition: session.definition.definition, engine: session.definition.engine, seed: session.definition.seed, packageRef: session.definition.packageRef, comparator: session.definition.comparator, targets: session.definition.targets, observer: session.definition.observer, workflow: session.definition.workflow, packageArguments: append([]string(nil), session.definition.packageArguments...), executable: invocation.Executable, executableSHA256: liveSHA256Bytes(invocation.ExecutableSHA256), arguments: append([]string(nil), invocation.Arguments...), directory: invocation.Directory, environment: cloneLiveEnvironment(invocation.Environment)}
 	return trustedLiveMutationPermit{capability: capability}, nil
+}
+
+// MintHostMutationPermit is deliberately limited to the campaign's two
+// internal mutation slots. It cannot mint a subprocess capability or advance
+// an issuer; the Windows primitive must still finalise and seal this admission.
+func (session *LiveAuthoritySession) MintHostMutationPermit(admission liveReceiptAdmission, binding liveHostMutationBinding) (trustedLiveHostMutationPermit, error) {
+	if session == nil || binding.appData == ([32]byte{}) || admission.issuer == nil {
+		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation operation is not predeclared")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	operation, sequence := admission.operation, admission.sequence
+	if (operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup) || operation == liveOperationDeclaredTargetWipe && binding.attemptRoot != ([32]byte{}) || operation == liveOperationAttemptRootCleanup && binding.attemptRoot == ([32]byte{}) || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || admission.nonce != session.NonceFor(operation, sequence) || !session.campaign.ExpiresAt.After(session.now) {
+		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation operation is not predeclared")
+	}
+	invocation, exists := session.definition.operations[sequence]
+	key := liveAuthorityPermitKey{operation: operation, sequence: sequence}
+	if !exists || invocation.Operation != string(operation) || invocation.Executable != "" || invocation.ExecutableSHA256 != "" || len(invocation.Arguments) != 0 || invocation.Directory != "" || len(invocation.Environment) != 0 {
+		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation invocation is absent")
+	}
+	if _, exists := session.minted[key]; exists {
+		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation permit already minted")
+	}
+	session.minted[key] = struct{}{}
+	return trustedLiveHostMutationPermit{capability: &liveHostMutationCapability{campaign: session.campaignID, operation: operation, sequence: sequence, nonce: admission.nonce, issuedAt: session.now, expiresAt: session.campaign.ExpiresAt, definition: session.definition.definition, targets: session.definition.targets, observer: session.definition.observer, workflow: session.definition.workflow, issuerID: admission.issuer.id, admissionToken: admission.token, binding: binding}}, nil
 }
 
 func liveAuthorityNonce(phaseNonce string, operation liveOperation, sequence uint64) [32]byte {

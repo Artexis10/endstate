@@ -203,6 +203,46 @@ func TestLiveProcessWingetListProbeHasExactReviewedArguments(t *testing.T) {
 	}
 }
 
+func TestLiveProcessWingetUninstallBuilderUsesOnlyBoundInvocation(t *testing.T) {
+	admission := liveTestAdmission(t, liveOperationWingetExactUninstall)
+	expected := liveTestExpectedIdentity()
+	binding := liveTrustedAppXBinding{metadata: liveAppXPackageMetadata{packageRoot: `C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.2.3.4_x64__8wekyb3d8bbwe`, executableName: "winget.exe", receipt: liveTrustedAppXReceipt{valid: true}}}
+	executable := filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName)
+	permit := newTrustedLiveMutationPermit(admission, expected, executable, []string{"uninstall", "Notepad++.Notepad++", "--exact"}, "", nil)
+	request := newLiveTrustedAppXWingetExactUninstall(admission, permit, binding, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("bound uninstall request rejected: %v", err)
+	}
+	for _, mutate := range []func(*LiveProcessRequest){
+		func(value *LiveProcessRequest) { value.args[1] = "Vendor.Foreign" },
+		func(value *LiveProcessRequest) { value.executable = `C:\\shadow\\winget.exe` },
+	} {
+		candidate := request
+		candidate.args = append([]string(nil), request.args...)
+		mutate(&candidate)
+		if err := validateLiveProcessRequest(candidate); err == nil {
+			t.Fatal("bound uninstall builder accepted a caller substitution")
+		}
+	}
+}
+
+func TestLiveProcessWingetInstallBuilderUsesOnlyFixedInvocation(t *testing.T) {
+	admission := liveTestAdmission(t, liveOperationWingetExactInstall)
+	expected := liveTestExpectedIdentity()
+	binding := liveTrustedAppXBinding{metadata: liveAppXPackageMetadata{packageRoot: `C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.2.3.4_x64__8wekyb3d8bbwe`, executableName: "winget.exe", receipt: liveTrustedAppXReceipt{valid: true}}}
+	executable := filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName)
+	arguments := []string{"install", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"}
+	permit := newTrustedLiveMutationPermit(admission, expected, executable, arguments, "", nil)
+	request := newLiveTrustedAppXWingetExactInstall(admission, permit, binding, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("bound install request rejected: %v", err)
+	}
+	request.args[1] = "Vendor.Foreign"
+	if err := validateLiveProcessRequest(request); err == nil {
+		t.Fatal("bound install builder accepted a foreign package")
+	}
+}
+
 func TestLiveProcessRejectsMissingProofIdentity(t *testing.T) {
 	admission := liveTestAdmission(t, liveOperationEngineApply)
 	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, liveReceiptExpectedIdentity{}, liveTestExecutable(t), []string{"apply"}, "", nil), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)

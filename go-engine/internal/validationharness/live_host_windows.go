@@ -13,9 +13,63 @@ import (
 	"os"
 	"strings"
 	"syscall"
+	"unsafe"
 
 	"golang.org/x/sys/windows/registry"
+
+	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
+
+var (
+	liveVersionDLL              = syscall.NewLazyDLL("version.dll")
+	liveGetFileVersionInfoSizeW = liveVersionDLL.NewProc("GetFileVersionInfoSizeW")
+	liveGetFileVersionInfoW     = liveVersionDLL.NewProc("GetFileVersionInfoW")
+	liveVerQueryValueW          = liveVersionDLL.NewProc("VerQueryValueW")
+)
+
+type windowsLiveVersionSource struct{}
+
+type liveVSFixedFileInfo struct {
+	Signature, StructVersion, FileVersionMS, FileVersionLS uint32
+	ProductVersionMS, ProductVersionLS, FileFlagsMask      uint32
+	FileFlags, FileOS, FileType, FileSubtype               uint32
+	FileDateMS, FileDateLS                                 uint32
+}
+
+func (windowsLiveVersionSource) FileVersion(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("Windows file version path is empty")
+	}
+	encoded, err := syscall.UTF16PtrFromString(path)
+	if err != nil {
+		return "", fmt.Errorf("Windows file version path is invalid")
+	}
+	var ignored uint32
+	size, _, callErr := liveGetFileVersionInfoSizeW.Call(uintptr(unsafe.Pointer(encoded)), uintptr(unsafe.Pointer(&ignored)))
+	if size == 0 || callErr != syscall.Errno(0) || size > maxLiveObserverOutputBytes {
+		return "", fmt.Errorf("Windows file version resource is unavailable")
+	}
+	buffer := make([]byte, size)
+	ok, _, callErr := liveGetFileVersionInfoW.Call(uintptr(unsafe.Pointer(encoded)), 0, size, uintptr(unsafe.Pointer(&buffer[0])))
+	if ok == 0 || callErr != syscall.Errno(0) {
+		return "", fmt.Errorf("Windows file version resource cannot be read")
+	}
+	root, err := syscall.UTF16PtrFromString(`\`)
+	if err != nil {
+		return "", fmt.Errorf("Windows file version query is invalid")
+	}
+	var value unsafe.Pointer
+	var length uint32
+	ok, _, callErr = liveVerQueryValueW.Call(uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(root)), uintptr(unsafe.Pointer(&value)), uintptr(unsafe.Pointer(&length)))
+	if ok == 0 || callErr != syscall.Errno(0) || value == nil || length < uint32(unsafe.Sizeof(liveVSFixedFileInfo{})) {
+		return "", fmt.Errorf("Windows file fixed version is unavailable")
+	}
+	fixed := (*liveVSFixedFileInfo)(value)
+	if fixed.Signature != 0xFEEF04BD {
+		return "", fmt.Errorf("Windows file fixed version is invalid")
+	}
+	return fmt.Sprintf("%d.%d.%d.%d", fixed.FileVersionMS>>16, fixed.FileVersionMS&0xffff, fixed.FileVersionLS>>16, fixed.FileVersionLS&0xffff), nil
+}
 
 const (
 	liveUninstallKey       = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
@@ -39,7 +93,7 @@ type LiveVersionSource interface {
 // registry, process, and file observation.
 func NewWindowsLiveObserver(versions LiveVersionSource) (LiveObserver, error) {
 	if versions == nil {
-		return LiveObserver{}, fmt.Errorf("live observer requires a file version source")
+		versions = windowsLiveVersionSource{}
 	}
 	resolver, err := newWindowsLiveWingetResolver()
 	if err != nil {
@@ -292,4 +346,194 @@ func (files windowsLiveFiles) Stat(path string) (LiveFileInfo, error) {
 
 func (files windowsLiveFiles) FileVersion(path string) (string, error) {
 	return files.versions.FileVersion(path)
+}
+
+func runWindowsLiveWingetExactUninstall(ctx context.Context, admission liveReceiptAdmission, permit trustedLiveMutationPermit, outputLimit int) (*liveExecutionReceipt, error) {
+	return runWindowsLiveWingetMutation(ctx, admission, permit, liveOperationWingetExactUninstall, outputLimit)
+}
+
+func runWindowsLiveWingetExactInstall(ctx context.Context, admission liveReceiptAdmission, permit trustedLiveMutationPermit, outputLimit int) (*liveExecutionReceipt, error) {
+	return runWindowsLiveWingetMutation(ctx, admission, permit, liveOperationWingetExactInstall, outputLimit)
+}
+
+func runWindowsLiveWingetMutation(ctx context.Context, admission liveReceiptAdmission, permit trustedLiveMutationPermit, operation liveOperation, outputLimit int) (*liveExecutionReceipt, error) {
+	resolver, err := newWindowsLiveWingetResolver()
+	if err != nil {
+		return nil, fmt.Errorf("trusted winget resolver unavailable")
+	}
+	target, err := resolver.ResolveLiveWinget(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("trusted winget target unavailable")
+	}
+	switch operation {
+	case liveOperationWingetExactUninstall:
+		return runLiveProcess(ctx, newLiveTrustedAppXWingetExactUninstall(admission, permit, target.binding, outputLimit))
+	case liveOperationWingetExactInstall:
+		return runLiveProcess(ctx, newLiveTrustedAppXWingetExactInstall(admission, permit, target.binding, outputLimit))
+	default:
+		return nil, fmt.Errorf("trusted winget operation is invalid")
+	}
+}
+
+type windowsLiveBoundaryReader struct {
+	observer LiveObserver
+	appData  string
+}
+
+func (reader windowsLiveBoundaryReader) Observe(ctx context.Context, definition LiveObserverDefinition) LiveObservation {
+	return reader.observer.Observe(ctx, definition)
+}
+
+func (reader windowsLiveBoundaryReader) Target(_ context.Context, target LiveDeclaredTarget) (liveBoundaryTargetState, error) {
+	if err := safepath.ValidateRoot(reader.appData); err != nil {
+		return liveBoundaryTargetState{}, err
+	}
+	relative, ok := liveAppDataTargetRelative(target.Template)
+	if !ok {
+		return liveBoundaryTargetState{}, fmt.Errorf("live declared target is outside APPDATA")
+	}
+	path, err := safepath.Resolve(reader.appData, relative)
+	if err != nil {
+		return liveBoundaryTargetState{}, err
+	}
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return liveBoundaryTargetState{kind: target.Kind}, nil
+	}
+	if err != nil || safepath.IsLinkOrReparse(info) || target.Kind == LiveDeclaredTargetFile && !info.Mode().IsRegular() || target.Kind == LiveDeclaredTargetDirectory && !info.IsDir() {
+		return liveBoundaryTargetState{}, fmt.Errorf("live declared target is unsafe")
+	}
+	return liveBoundaryTargetState{present: true, kind: target.Kind}, nil
+}
+
+func (windowsLiveBoundaryReader) Services(context.Context) ([]string, error) {
+	services, _, err := windowsLiveServiceAndDriverNames()
+	return services, err
+}
+
+func (windowsLiveBoundaryReader) Drivers(context.Context) ([]string, error) {
+	_, drivers, err := windowsLiveServiceAndDriverNames()
+	return drivers, err
+}
+
+func (windowsLiveBoundaryReader) Tasks(context.Context) ([]string, error) {
+	return windowsLiveRegistryTree(registry.LOCAL_MACHINE, `SOFTWARE\Microsoft\Windows NT\CurrentVersion\Schedule\TaskCache\Tree`, registry.READ|registry.WOW64_64KEY)
+}
+
+func (windowsLiveBoundaryReader) PendingReboot(context.Context) ([]string, error) {
+	var indicators []string
+	for _, location := range []string{
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\Component Based Servicing\RebootPending`,
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsUpdate\Auto Update\RebootRequired`,
+	} {
+		key, err := registry.OpenKey(registry.LOCAL_MACHINE, location, registry.READ|registry.WOW64_64KEY)
+		if err == registry.ErrNotExist {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		key.Close()
+		indicators = append(indicators, location)
+	}
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, liveMachineEnvironment, registry.READ|registry.WOW64_64KEY)
+	if err != nil {
+		return nil, err
+	}
+	_, _, err = key.GetStringsValue("PendingFileRenameOperations")
+	key.Close()
+	if err != registry.ErrNotExist {
+		if err != nil {
+			return nil, err
+		}
+		indicators = append(indicators, liveMachineEnvironment+`\PendingFileRenameOperations`)
+	}
+	return indicators, nil
+}
+
+func windowsLiveServiceAndDriverNames() ([]string, []string, error) {
+	root, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services`, registry.READ|registry.WOW64_64KEY)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer root.Close()
+	info, err := root.Stat()
+	if err != nil || info.SubKeyCount > maxLiveObserverRecords {
+		return nil, nil, fmt.Errorf("Windows service boundary is invalid")
+	}
+	names, err := root.ReadSubKeyNames(int(info.SubKeyCount))
+	if err != nil && err != io.EOF {
+		return nil, nil, err
+	}
+	var services, drivers []string
+	for _, name := range names {
+		if !validLiveObserverValue(name) {
+			return nil, nil, fmt.Errorf("Windows service name is unsafe")
+		}
+		key, err := registry.OpenKey(root, name, registry.READ|registry.WOW64_64KEY)
+		if err != nil {
+			return nil, nil, err
+		}
+		kind, _, kindErr := key.GetIntegerValue("Type")
+		key.Close()
+		if kindErr == registry.ErrNotExist {
+			continue
+		}
+		if kindErr != nil {
+			return nil, nil, kindErr
+		}
+		if kind&0x3 != 0 {
+			drivers = append(drivers, name)
+		} else if kind&0x30 != 0 {
+			services = append(services, name)
+		}
+	}
+	return services, drivers, nil
+}
+
+func windowsLiveRegistryTree(hive registry.Key, location string, access uint32) ([]string, error) {
+	root, err := registry.OpenKey(hive, location, access)
+	if err == registry.ErrNotExist {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	var result []string
+	var walk func(registry.Key, string) error
+	walk = func(parent registry.Key, prefix string) error {
+		info, err := parent.Stat()
+		if err != nil || len(result)+int(info.SubKeyCount) > maxLiveObserverRecords {
+			return fmt.Errorf("Windows task boundary exceeds bound")
+		}
+		names, err := parent.ReadSubKeyNames(int(info.SubKeyCount))
+		if err != nil && err != io.EOF {
+			return err
+		}
+		for _, name := range names {
+			if !validLiveObserverValue(name) {
+				return fmt.Errorf("Windows task name is unsafe")
+			}
+			identity := name
+			if prefix != "" {
+				identity = prefix + `\` + name
+			}
+			child, err := registry.OpenKey(parent, name, access)
+			if err != nil {
+				return err
+			}
+			result = append(result, identity)
+			err = walk(child, identity)
+			child.Close()
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	if err := walk(root, ""); err != nil {
+		return nil, err
+	}
+	return result, nil
 }

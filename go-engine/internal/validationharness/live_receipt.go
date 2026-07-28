@@ -46,18 +46,20 @@ func (operation liveOperation) valid() bool {
 func (operation liveOperation) mutation() bool { return operation != liveOperationWingetExactList }
 
 type liveReceiptIssuer struct {
-	id                 uint64
-	authorityCampaign  [32]byte
-	admitFn            func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
-	sealFn             func(*liveExecutionReceipt) error
-	consumeFn          func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
-	consumeBatchFn     func([]liveReceiptExpectation) bool
-	releaseFn          func(liveReceiptAdmission)
-	activeFn           func(liveReceiptAdmission) bool
-	commitLaunchFn     func(liveReceiptAdmission) bool
-	abortLaunchFn      func(liveReceiptAdmission)
-	finalizeMutationFn func(liveReceiptAdmission, *liveMutationCapability, LiveProcessRequest, [32]byte, time.Time) bool
-	skipPreflightFn    func() error
+	id                     uint64
+	authorityCampaign      [32]byte
+	admitFn                func(liveOperation, uint64, [32]byte) (liveReceiptAdmission, error)
+	sealFn                 func(*liveExecutionReceipt) error
+	consumeFn              func(*liveExecutionReceipt, liveOperation, uint64, [32]byte) bool
+	consumeBatchFn         func([]liveReceiptExpectation) bool
+	releaseFn              func(liveReceiptAdmission)
+	activeFn               func(liveReceiptAdmission) bool
+	commitLaunchFn         func(liveReceiptAdmission) bool
+	abortLaunchFn          func(liveReceiptAdmission)
+	finalizeMutationFn     func(liveReceiptAdmission, *liveMutationCapability, LiveProcessRequest, [32]byte, time.Time) bool
+	finalizeHostMutationFn func(liveReceiptAdmission, *liveHostMutationCapability, liveHostMutationBinding, time.Time) bool
+	sealHostMutationFn     func(*liveHostMutationReceipt) error
+	skipPreflightFn        func() error
 }
 
 type liveAdmissionState uint8
@@ -94,6 +96,7 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	var next uint64
 	var active liveReceiptAdmission
 	var state liveAdmissionState
+	var hostBinding liveHostMutationBinding
 	nonces := make(map[[32]byte]struct{})
 	consumed := make(map[[32]byte]struct{})
 	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
@@ -152,6 +155,16 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 		if !capability.consumed.CompareAndSwap(false, true) {
 			return false
 		}
+		state = liveAdmissionLaunchCommitted
+		return true
+	}
+	issuer.finalizeHostMutationFn = func(admission liveReceiptAdmission, capability *liveHostMutationCapability, binding liveHostMutationBinding, now time.Time) bool {
+		mu.Lock()
+		defer mu.Unlock()
+		if state != liveAdmissionReserved || active.issuer != issuer || active.operation != admission.operation || active.sequence != admission.sequence || active.nonce != admission.nonce || active.token != admission.token || capability == nil || !capability.matches(admission, binding, now) || !capability.consumed.CompareAndSwap(false, true) {
+			return false
+		}
+		hostBinding = binding
 		state = liveAdmissionLaunchCommitted
 		return true
 	}
@@ -224,6 +237,18 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 			consumed[expected.receipt.admissionToken] = struct{}{}
 		}
 		return true
+	}
+	issuer.sealHostMutationFn = func(receipt *liveHostMutationReceipt) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if receipt == nil || state != liveAdmissionLaunchCommitted || active.issuer != issuer || receipt.issuerID != issuer.id || receipt.operation != active.operation || receipt.sequence != active.sequence || receipt.nonce != active.nonce || receipt.admissionToken != active.token || receipt.binding != hostBinding || receipt.sealed || receipt.validateUnsealed() != nil {
+			return errors.New("live host receipt seal rejected")
+		}
+		receipt.tag = liveHostReceiptMAC(key, receipt)
+		receipt.sealed = true
+		next = receipt.sequence
+		state = liveAdmissionSealed
+		return nil
 	}
 	return issuer
 }
@@ -358,6 +383,49 @@ type liveExecutionReceipt struct {
 	resultSHA256 [32]byte
 	tag          [32]byte
 	sealed       bool
+}
+
+type liveHostMutationReceipt struct {
+	issuerID, sequence uint64
+	operation          liveOperation
+	nonce              [32]byte
+	admissionToken     [32]byte
+	binding            liveHostMutationBinding
+	succeeded          bool
+	sealed             bool
+	tag                [32]byte
+}
+
+func (receipt *liveHostMutationReceipt) validateUnsealed() error {
+	if receipt == nil || (receipt.operation != liveOperationDeclaredTargetWipe && receipt.operation != liveOperationAttemptRootCleanup) || receipt.issuerID == 0 || receipt.sequence == 0 || receipt.nonce == ([32]byte{}) || receipt.admissionToken == ([32]byte{}) || receipt.binding.appData == ([32]byte{}) {
+		return errors.New("invalid live host mutation receipt")
+	}
+	if receipt.operation == liveOperationDeclaredTargetWipe && receipt.binding.attemptRoot != ([32]byte{}) || receipt.operation == liveOperationAttemptRootCleanup && receipt.binding.attemptRoot == ([32]byte{}) {
+		return errors.New("invalid live host mutation receipt")
+	}
+	return nil
+}
+
+func liveHostReceiptMAC(key []byte, receipt *liveHostMutationReceipt) [32]byte {
+	mac := hmac.New(sha256.New, key)
+	var header bytes.Buffer
+	liveReceiptWriteString(&header, string(receipt.operation))
+	var word [8]byte
+	binary.BigEndian.PutUint64(word[:], receipt.issuerID)
+	header.Write(word[:])
+	binary.BigEndian.PutUint64(word[:], receipt.sequence)
+	header.Write(word[:])
+	mac.Write(header.Bytes())
+	mac.Write(receipt.nonce[:])
+	mac.Write(receipt.admissionToken[:])
+	mac.Write(receipt.binding.appData[:])
+	mac.Write(receipt.binding.attemptRoot[:])
+	if receipt.succeeded {
+		mac.Write([]byte{1})
+	}
+	var tag [32]byte
+	copy(tag[:], mac.Sum(nil))
+	return tag
 }
 
 func (receipt *liveExecutionReceipt) requestDigest() [32]byte {

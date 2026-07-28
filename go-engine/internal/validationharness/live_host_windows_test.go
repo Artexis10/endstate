@@ -8,8 +8,20 @@ package validationharness
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 )
+
+func TestWindowsLiveVersionSourceReadsPEFixedFileVersion(t *testing.T) {
+	path := os.Getenv("ComSpec")
+	if path == "" {
+		t.Fatal("ComSpec is unavailable")
+	}
+	version, err := (windowsLiveVersionSource{}).FileVersion(path)
+	if err != nil || version == "" {
+		t.Fatalf("FileVersion() = %q, %v", version, err)
+	}
+}
 
 func TestNewWindowsLiveObserverFailsClosedWhenTrustedResolverIsUnavailable(t *testing.T) {
 	original := newWindowsLiveWingetResolver
