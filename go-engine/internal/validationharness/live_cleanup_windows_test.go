@@ -64,6 +64,7 @@ func TestResolveWindowsLiveDeclaredTargetsRejectsReparseParent(t *testing.T) {
 
 func TestWindowsLiveAttemptRootCleanupIsBoundedAndPropagatesFailure(t *testing.T) {
 	parent := t.TempDir()
+	withWindowsLiveTestRunnerTemp(t, parent)
 	attempt, err := newWindowsLiveAttemptRoot(parent)
 	if err != nil {
 		t.Fatal(err)
@@ -79,6 +80,9 @@ func TestWindowsLiveAttemptRootCleanupIsBoundedAndPropagatesFailure(t *testing.T
 	}
 	if err := (windowsLiveAttemptRoot{parent: parent, path: filepath.Join(parent, "foreign")}).Cleanup(); err == nil {
 		t.Fatal("Cleanup() accepted a foreign attempt root")
+	}
+	if _, err := newWindowsLiveAttemptRoot(t.TempDir()); err == nil {
+		t.Fatal("newWindowsLiveAttemptRoot() accepted a caller-selected parent")
 	}
 }
 
@@ -245,6 +249,13 @@ func withWindowsLiveTestAppData(t *testing.T, root string) {
 	windowsLiveRoamingAppData = func() (string, error) { return root, nil }
 	t.Cleanup(func() { windowsLiveRoamingAppData = original })
 	t.Setenv("APPDATA", root)
+}
+
+func withWindowsLiveTestRunnerTemp(t *testing.T, root string) {
+	t.Helper()
+	original := windowsLiveRunnerTemp
+	windowsLiveRunnerTemp = func() (string, error) { return root, nil }
+	t.Cleanup(func() { windowsLiveRunnerTemp = original })
 }
 
 func TestResolveWindowsLiveDeclaredTargetsRejectsForeignAndOverlappingTemplates(t *testing.T) {

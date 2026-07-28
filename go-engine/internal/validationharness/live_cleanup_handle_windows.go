@@ -18,6 +18,7 @@ import (
 )
 
 var windowsLiveRoamingAppData = windowsLiveKnownRoamingAppData
+var windowsLiveRunnerTemp = windowsLiveEnvironmentRunnerTemp
 
 const (
 	maxWindowsLiveCleanupDepth   = 32
@@ -181,4 +182,12 @@ func defaultWindowsLiveCleanupContext() (context.Context, context.CancelFunc) {
 
 func windowsLiveKnownRoamingAppData() (string, error) {
 	return windows.KnownFolderPath(windows.FOLDERID_RoamingAppData, 0)
+}
+
+func windowsLiveEnvironmentRunnerTemp() (string, error) {
+	root := os.Getenv("RUNNER_TEMP")
+	if root == "" {
+		return "", fmt.Errorf("RUNNER_TEMP is unavailable")
+	}
+	return root, nil
 }

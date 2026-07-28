@@ -113,10 +113,11 @@ type windowsLiveAttemptRoot struct {
 var windowsLiveAttemptRoots sync.Map
 
 func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
-	if err := safepath.ValidateRoot(parent); err != nil {
+	trustedParent, err := windowsLiveRunnerTemp()
+	if err != nil || parent == "" || !strings.EqualFold(filepath.Clean(parent), filepath.Clean(trustedParent)) || safepath.ValidateRoot(parent) != nil {
 		return windowsLiveAttemptRoot{}, fmt.Errorf("live attempt parent is unsafe")
 	}
-	path, err := os.MkdirTemp(parent, "endstate-hosted-live-")
+	path, err := os.MkdirTemp(trustedParent, "endstate-hosted-live-")
 	if err != nil {
 		return windowsLiveAttemptRoot{}, err
 	}
