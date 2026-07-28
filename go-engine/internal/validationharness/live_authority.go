@@ -169,8 +169,9 @@ type liveAuthorityDefinition struct {
 }
 
 type liveAuthorityPermitKey struct {
-	operation liveOperation
-	sequence  uint64
+	operation      liveOperation
+	sequence       uint64
+	admissionToken [32]byte
 }
 
 func NewLiveAuthoritySession(ctx context.Context, client LiveWorkflowRunClient, request LiveAuthoritySessionRequest) (*LiveAuthoritySession, error) {
@@ -260,7 +261,7 @@ func (session *LiveAuthoritySession) MintMutationPermit(admission liveReceiptAdm
 	if admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) || session.cleanup && operation != liveOperationWingetExactUninstall {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
 	}
-	key := liveAuthorityPermitKey{operation: operation, sequence: sequence}
+	key := liveAuthorityPermitKey{operation: operation, sequence: sequence, admissionToken: admission.token}
 	invocation, exists := session.definition.operations[sequence]
 	if !exists || invocation.Operation != string(operation) || operation == liveOperationDeclaredTargetWipe || operation == liveOperationAttemptRootCleanup {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation invocation is absent")
@@ -287,7 +288,7 @@ func (session *LiveAuthoritySession) MintHostMutationPermit(admission liveReceip
 		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation operation is not predeclared")
 	}
 	invocation, exists := session.definition.operations[sequence]
-	key := liveAuthorityPermitKey{operation: operation, sequence: sequence}
+	key := liveAuthorityPermitKey{operation: operation, sequence: sequence, admissionToken: admission.token}
 	if !exists || invocation.Operation != string(operation) || invocation.Executable != "" || invocation.ExecutableSHA256 != "" || len(invocation.Arguments) != 0 || invocation.Directory != "" || len(invocation.Environment) != 0 {
 		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation invocation is absent")
 	}

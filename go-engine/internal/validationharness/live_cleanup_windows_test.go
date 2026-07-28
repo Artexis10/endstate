@@ -395,16 +395,42 @@ func TestWindowsLiveAuthorityCleanupTransitionAbandonsFailedAdmissionAndRunsOnly
 	if err != nil {
 		t.Fatalf("admit final uninstall: %v", err)
 	}
+	failedUninstallPermit, err := session.MintMutationPermit(failedUninstall)
+	if err != nil {
+		t.Fatalf("MintMutationPermit(failed final uninstall) error = %v", err)
+	}
+	failedExpected := liveReceiptExpectedIdentity{definition: failedUninstallPermit.capability.definition, engine: failedUninstallPermit.capability.engine, seed: failedUninstallPermit.capability.seed, packageRef: failedUninstallPermit.capability.packageRef, comparator: failedUninstallPermit.capability.comparator, targets: failedUninstallPermit.capability.targets, observer: failedUninstallPermit.capability.observer, workflow: failedUninstallPermit.capability.workflow, runner: failedUninstallPermit.capability.executableSHA256}
+	failedRequest := newLiveTypedMutation(failedUninstall, failedUninstallPermit, liveOperationWingetExactUninstall, failedUninstallPermit.capability.executable, failedUninstallPermit.capability.arguments, "", nil, failedExpected, 1)
 	originalResolver := newWindowsLiveWingetResolver
 	newWindowsLiveWingetResolver = func() (liveTrustedWingetResolver, error) { return nil, fmt.Errorf("resolver unavailable") }
-	if receipt, err := runWindowsLiveWingetExactUninstall(context.Background(), failedUninstall, trustedLiveMutationPermit{}, maxLiveObserverOutputBytes); err == nil || receipt != nil {
+	if receipt, err := runWindowsLiveWingetExactUninstall(context.Background(), failedUninstall, failedUninstallPermit, maxLiveObserverOutputBytes); err == nil || receipt != nil {
 		t.Fatalf("failed final uninstall = %+v, %v, want no receipt", receipt, err)
 	}
 	newWindowsLiveWingetResolver = originalResolver
 	t.Cleanup(func() { newWindowsLiveWingetResolver = originalResolver })
+	if failedUninstallPermit.capability.finalize(failedRequest, failedExpected.runner, time.Now().UTC()) {
+		t.Fatal("resolver failure left the released uninstall permit usable")
+	}
+	if _, err := session.MintMutationPermit(failedUninstall); err == nil {
+		t.Fatal("resolver failure accepted the released admission token")
+	}
+	if _, err := issuer.admit(liveOperationEngineVerify, 14, session.NonceFor(liveOperationEngineVerify, 14)); err == nil {
+		t.Fatal("ordinary proof skipped the failed cleanup slot")
+	}
 	uninstall, err := issuer.admit(liveOperationWingetExactUninstall, 13, session.NonceFor(liveOperationWingetExactUninstall, 13))
 	if err != nil {
 		t.Fatalf("resolver failure left final uninstall admission unavailable: %v", err)
+	}
+	if uninstall.token == failedUninstall.token {
+		t.Fatal("resolver failure reused the released admission token")
+	}
+	if _, err := issuer.admit(liveOperationWingetExactUninstall, 13, session.NonceFor(liveOperationWingetExactUninstall, 13)); err == nil {
+		t.Fatal("resolver failure admitted a nonce replay while the replacement admission is active")
+	}
+	replayedToken := uninstall
+	replayedToken.token = failedUninstall.token
+	if _, err := session.MintMutationPermit(replayedToken); err == nil {
+		t.Fatal("replacement admission accepted the released admission token")
 	}
 	uninstallPermit, err := session.MintMutationPermit(uninstall)
 	if err != nil {
@@ -432,16 +458,44 @@ func TestWindowsLiveAuthorityCleanupTransitionAbandonsFailedAdmissionAndRunsOnly
 	if err != nil {
 		t.Fatalf("admit final wipe: %v", err)
 	}
+	failedWipeBinding, err := windowsLiveHostMutationBinding(definition, appData, windowsLiveAttemptRoot{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	failedWipePermit, err := session.MintHostMutationPermit(failedWipe, failedWipeBinding)
+	if err != nil {
+		t.Fatalf("MintHostMutationPermit(failed final wipe) error = %v", err)
+	}
 	originalAppData := windowsLiveRoamingAppData
 	windowsLiveRoamingAppData = func() (string, error) { return "", fmt.Errorf("APPDATA unavailable") }
-	if receipt, err := runWindowsLiveDeclaredTargetWipe(failedWipe, trustedLiveHostMutationPermit{}, definition, appData); err == nil || receipt != nil {
+	if receipt, err := runWindowsLiveDeclaredTargetWipe(failedWipe, failedWipePermit, definition, appData); err == nil || receipt != nil {
 		t.Fatalf("failed final wipe = %+v, %v, want no receipt", receipt, err)
 	}
 	windowsLiveRoamingAppData = originalAppData
 	t.Cleanup(func() { windowsLiveRoamingAppData = originalAppData })
+	if failedWipePermit.capability.validFor(failedWipe, failedWipeBinding, time.Now().UTC()) {
+		t.Fatal("known-folder failure left the released wipe permit usable")
+	}
+	if _, err := session.MintHostMutationPermit(failedWipe, failedWipeBinding); err == nil {
+		t.Fatal("known-folder failure accepted the released wipe admission token")
+	}
+	if _, err := issuer.admit(liveOperationAttemptRootCleanup, 15, session.NonceFor(liveOperationAttemptRootCleanup, 15)); err == nil {
+		t.Fatal("known-folder failure skipped the failed cleanup slot")
+	}
 	wipe, err := issuer.admit(liveOperationDeclaredTargetWipe, 14, session.NonceFor(liveOperationDeclaredTargetWipe, 14))
 	if err != nil {
 		t.Fatalf("known-folder failure left final wipe admission unavailable: %v", err)
+	}
+	if wipe.token == failedWipe.token {
+		t.Fatal("known-folder failure reused the released wipe admission token")
+	}
+	if _, err := issuer.admit(liveOperationDeclaredTargetWipe, 14, session.NonceFor(liveOperationDeclaredTargetWipe, 14)); err == nil {
+		t.Fatal("known-folder failure admitted a nonce replay while the replacement admission is active")
+	}
+	replayedWipeToken := wipe
+	replayedWipeToken.token = failedWipe.token
+	if _, err := session.MintHostMutationPermit(replayedWipeToken, failedWipeBinding); err == nil {
+		t.Fatal("replacement wipe admission accepted the released admission token")
 	}
 	wipeBinding, err := windowsLiveHostMutationBinding(definition, appData, windowsLiveAttemptRoot{})
 	if err != nil {
@@ -506,20 +560,56 @@ func TestWindowsLiveAttemptRootCleanupFailureReturnsNoSuccessReceipt(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Remove(attempt.path); err != nil {
-		t.Fatal(err)
+	backup := attempt.path + "-before-open"
+	originalBeforeOpen := windowsLiveCleanupBeforeAttemptRootOpen
+	windowsLiveCleanupBeforeAttemptRootOpen = func(path string) {
+		if path == attempt.path {
+			_ = os.Rename(path, backup)
+		}
 	}
 	receipt, err := runWindowsLiveAttemptRootCleanup(admission, permit, definition, appData, attempt)
 	if err == nil || receipt != nil {
 		t.Fatalf("failed attempt-root cleanup = %+v, %v, want no success receipt", receipt, err)
 	}
+	windowsLiveCleanupBeforeAttemptRootOpen = originalBeforeOpen
+	t.Cleanup(func() { windowsLiveCleanupBeforeAttemptRootOpen = originalBeforeOpen })
+	if err := os.Rename(backup, attempt.path); err != nil {
+		t.Fatal(err)
+	}
+	if permit.capability.validFor(admission, binding, time.Now().UTC()) {
+		t.Fatal("prepare failure left the released cleanup permit usable")
+	}
+	if _, err := session.MintHostMutationPermit(admission, binding); err == nil {
+		t.Fatal("prepare failure accepted the released cleanup admission token")
+	}
 	retry, err := issuer.admit(liveOperationAttemptRootCleanup, 1, session.NonceFor(liveOperationAttemptRootCleanup, 1))
 	if err != nil {
 		t.Fatalf("prepare failure left cleanup admission active: %v", err)
 	}
-	retry.complete()
+	if retry.token == admission.token {
+		t.Fatal("prepare failure reused the released cleanup admission token")
+	}
+	if _, err := issuer.admit(liveOperationAttemptRootCleanup, 1, session.NonceFor(liveOperationAttemptRootCleanup, 1)); err == nil {
+		t.Fatal("prepare failure admitted a nonce replay while the replacement admission is active")
+	}
+	replayedCleanupToken := retry
+	replayedCleanupToken.token = admission.token
+	if _, err := session.MintHostMutationPermit(replayedCleanupToken, binding); err == nil {
+		t.Fatal("replacement cleanup admission accepted the released admission token")
+	}
+	retryPermit, err := session.MintHostMutationPermit(retry, binding)
+	if err != nil {
+		t.Fatalf("MintHostMutationPermit(retry cleanup) error = %v", err)
+	}
+	retryReceipt, err := runWindowsLiveAttemptRootCleanup(retry, retryPermit, definition, appData, attempt)
+	if err != nil || retryReceipt == nil || !retryReceipt.sealed || !retryReceipt.succeeded {
+		t.Fatalf("retry cleanup = %+v, %v", retryReceipt, err)
+	}
+	if _, err := os.Lstat(attempt.path); !os.IsNotExist(err) {
+		t.Fatalf("retry cleanup left attempt root: %v", err)
+	}
 	if _, err := issuer.admit(liveOperationAttemptRootCleanup, 2, session.NonceFor(liveOperationAttemptRootCleanup, 2)); err == nil {
-		t.Fatal("failed cleanup advanced the issuer sequence")
+		t.Fatal("retry cleanup admitted a later undeclared suffix")
 	}
 }
 
