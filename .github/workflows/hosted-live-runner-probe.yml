@@ -1,0 +1,200 @@
+name: Hosted Live Runner Probe
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  runner-probe:
+    runs-on: windows-11-arm
+    timeout-minutes: 5
+    steps:
+      - name: Probe Winget capability
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $true
+
+          function Limit-Text {
+            param([AllowNull()][string]$Value, [int]$Maximum = 4096)
+            if ($null -eq $Value) {
+              return ''
+            }
+            if ($Value.Length -gt $Maximum) {
+              return $Value.Substring(0, $Maximum)
+            }
+            return $Value
+          }
+
+          function Fail-Unsupported {
+            param([string]$Message)
+            throw [System.InvalidOperationException]::new($Message)
+          }
+
+          function Get-CanonicalPath {
+            param([string]$Path)
+            return (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
+          }
+
+          function Assert-NoReparsePath {
+            param([string]$Path)
+            $fullPath = [System.IO.Path]::GetFullPath($Path)
+            $root = [System.IO.Path]::GetPathRoot($fullPath)
+            $current = $root
+            $relative = [System.IO.Path]::GetRelativePath($root, $fullPath)
+            foreach ($component in $relative -split '[\\/]') {
+              if ([string]::IsNullOrWhiteSpace($component) -or $component -eq '.') {
+                continue
+              }
+              $current = Join-Path $current $component
+              $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+              if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                Fail-Unsupported "reparse-backed path component: $current"
+              }
+            }
+          }
+
+          function Get-Utf8ByteCount {
+            param([string]$Value)
+            return [System.Text.Encoding]::UTF8.GetByteCount($Value)
+          }
+
+          function Invoke-ReadOnlyWinget {
+            param([string]$Argument)
+            $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
+            $startInfo.FileName = $canonicalWingetPath
+            $startInfo.UseShellExecute = $false
+            $startInfo.RedirectStandardOutput = $true
+            $startInfo.RedirectStandardError = $true
+            $startInfo.StandardOutputEncoding = [System.Text.UTF8Encoding]::new($false, $true)
+            $startInfo.StandardErrorEncoding = [System.Text.UTF8Encoding]::new($false, $true)
+            [void]$startInfo.ArgumentList.Add($Argument)
+
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo = $startInfo
+            if (-not $process.Start()) {
+              Fail-Unsupported "could not start direct winget.exe for $Argument"
+            }
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(60000)) {
+              $process.Kill($true)
+              Fail-Unsupported "winget.exe $Argument timed out"
+            }
+            $stdout = $stdoutTask.GetAwaiter().GetResult()
+            $stderr = $stderrTask.GetAwaiter().GetResult()
+            $output = ("$stdout`n$stderr").Trim()
+            if ((Get-Utf8ByteCount $output) -gt 16384) {
+              Fail-Unsupported "winget.exe $Argument output exceeds 16384 UTF-8 bytes"
+            }
+            $exitCode = [int32]$process.ExitCode
+            return [PSCustomObject]@{
+              ExitCodeDecimal = [int64]$exitCode
+              ExitCodeHex = ('0x{0:X8}' -f ([System.BitConverter]::ToUInt32([System.BitConverter]::GetBytes($exitCode), 0)))
+              Output = Limit-Text $output
+            }
+          }
+
+          try {
+            $osArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString()
+            $processArchitecture = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
+            if ($osArchitecture -ne 'Arm64') {
+              Fail-Unsupported "OS architecture is $osArchitecture, want Arm64"
+            }
+
+            $packages = @(Get-AppxPackage -Name Microsoft.DesktopAppInstaller -PackageTypeFilter Main | Where-Object {
+              $_.IsFramework -eq $false -and $_.IsResourcePackage -eq $false
+            })
+            if ($packages.Count -ne 1) {
+              Fail-Unsupported "direct current-user Desktop App Installer package count is $($packages.Count), want 1"
+            }
+            $package = $packages[0]
+            if ($package.Name -ne 'Microsoft.DesktopAppInstaller' -or
+                $package.PackageFamilyName -ne 'Microsoft.DesktopAppInstaller_8wekyb3d8bbwe' -or
+                $package.PublisherId -ne '8wekyb3d8bbwe' -or
+                $package.Architecture.ToString() -ne 'Arm64' -or
+                -not [string]::IsNullOrEmpty($package.ResourceId) -or
+                $package.PackageFullName -notmatch '^Microsoft\.DesktopAppInstaller_\d+\.\d+\.\d+\.\d+_arm64__8wekyb3d8bbwe$') {
+              Fail-Unsupported 'Desktop App Installer identity is not the required ARM64 direct package'
+            }
+
+            $systemDrive = [System.IO.Path]::GetPathRoot([System.IO.Path]::GetFullPath($env:SystemDrive))
+            $windowsAppsRoot = Join-Path $systemDrive 'Program Files\WindowsApps'
+            Assert-NoReparsePath -Path $windowsAppsRoot
+            $canonicalWindowsAppsRoot = Get-CanonicalPath -Path $windowsAppsRoot
+            $expectedInstallRoot = Join-Path $canonicalWindowsAppsRoot $package.PackageFullName
+            Assert-NoReparsePath -Path $expectedInstallRoot
+            $canonicalExpectedInstallRoot = Get-CanonicalPath -Path $expectedInstallRoot
+            $canonicalInstallRoot = Get-CanonicalPath -Path $package.InstallLocation
+            if ($canonicalInstallRoot -cne $canonicalExpectedInstallRoot) {
+              Fail-Unsupported "package install root is not the exact direct WindowsApps child: $canonicalInstallRoot"
+            }
+
+            $wingetPath = Join-Path $canonicalInstallRoot 'winget.exe'
+            if (-not (Test-Path -LiteralPath $wingetPath -PathType Leaf)) {
+              Fail-Unsupported "direct package winget.exe is missing: $wingetPath"
+            }
+            Assert-NoReparsePath -Path $wingetPath
+            $wingetItem = Get-Item -LiteralPath $wingetPath -Force -ErrorAction Stop
+            if ($wingetItem.PSIsContainer -or (($wingetItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+              Fail-Unsupported "direct package winget.exe is not a regular non-reparse file: $wingetPath"
+            }
+            $canonicalWingetPath = Get-CanonicalPath -Path $wingetPath
+            $canonicalExpectedWingetPath = Get-CanonicalPath -Path (Join-Path $canonicalExpectedInstallRoot 'winget.exe')
+            if ($canonicalWingetPath -cne $canonicalExpectedWingetPath) {
+              Fail-Unsupported "winget.exe canonical path is substituted: $canonicalWingetPath"
+            }
+
+            $hash = Get-FileHash -LiteralPath $canonicalWingetPath -Algorithm SHA256
+            $signature = Get-AuthenticodeSignature -LiteralPath $canonicalWingetPath
+            if ($signature.Status -ne 'Valid' -or $null -eq $signature.SignerCertificate) {
+              Fail-Unsupported "winget.exe Authenticode status is $($signature.Status)"
+            }
+
+            $version = Invoke-ReadOnlyWinget -Argument '--version'
+            if ($version.ExitCodeDecimal -ne 0 -or [string]::IsNullOrWhiteSpace($version.Output) -or
+                $version.Output -notmatch '^v?\d+\.\d+\.\d+(?:\.\d+)?(?:[-+][0-9A-Za-z.-]+)?$') {
+              Fail-Unsupported "winget.exe --version was unusable (exit $($version.ExitCodeDecimal))"
+            }
+            $info = Invoke-ReadOnlyWinget -Argument '--info'
+            if ($info.ExitCodeDecimal -ne 0 -or [string]::IsNullOrWhiteSpace($info.Output)) {
+              Fail-Unsupported "winget.exe --info was unusable (exit $($info.ExitCodeDecimal))"
+            }
+
+            $facts = [ordered]@{
+              runner = [ordered]@{
+                imageOs = Limit-Text $env:ImageOS
+                imageVersion = Limit-Text $env:ImageVersion
+                osArchitecture = $osArchitecture
+                processArchitecture = $processArchitecture
+              }
+              package = [ordered]@{
+                name = $package.Name
+                family = $package.PackageFamilyName
+                fullName = $package.PackageFullName
+                publisherId = $package.PublisherId
+                version = $package.Version.ToString()
+                architecture = $package.Architecture.ToString()
+                installLocation = $canonicalInstallRoot
+              }
+              winget = [ordered]@{
+                path = $canonicalWingetPath
+                byteLength = [int64]$wingetItem.Length
+                sha256 = $hash.Hash
+                authenticode = [ordered]@{
+                  status = $signature.Status.ToString()
+                  subject = Limit-Text $signature.SignerCertificate.Subject 512
+                  thumbprint = Limit-Text $signature.SignerCertificate.Thumbprint 128
+                }
+                version = $version
+                info = $info
+              }
+            }
+            Write-Output ($facts | ConvertTo-Json -Depth 5 -Compress)
+          }
+          catch {
+            Write-Output ('WINGET_CAPABILITY_UNSUPPORTED: ' + (Limit-Text $_.Exception.Message 512))
+            exit 1
+          }
