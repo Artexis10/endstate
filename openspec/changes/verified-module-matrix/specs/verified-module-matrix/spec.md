@@ -508,6 +508,27 @@ The system SHALL distinguish product/assertion failures from recognized transien
 - **WHEN** a required scenario is skipped, absent, cancelled, neutral, timed out, or marked `continue-on-error`
 - **THEN** the aggregate SHALL fail
 
+### Requirement: Hosted-Live Runner Capability Is Measured Before Mutation
+
+The system SHALL fail closed on the hosted Windows runner prerequisite before adding any workflow with live mutation authority.
+
+#### Scenario: Pull request measures the ARM64 runner capability
+
+- **WHEN** any pull request, including a stacked pull request, is opened, reopened, or synchronized
+- **THEN** a standalone unfiltered `pull_request` workflow SHALL run exactly one `windows-11-arm` capability job
+- **AND** the workflow SHALL have no repository permissions, checkout, third-party Action, token or secret input, installation, package registration/repair/update, mutation, artifact/cache, dispatch, push, `pull_request_target`, or schedule
+- **AND** it SHALL record the ARM64 runner identity; exactly one direct current-user `Microsoft.DesktopAppInstaller_8wekyb3d8bbwe` package's name, family, full name, publisher, version, architecture, and exact `Program Files\WindowsApps` install root; and the direct package `winget.exe` canonical path, size, SHA-256, Authenticode status, and signer
+- **AND** it SHALL invoke only that canonical executable for bounded read-only `--version` and `--info` checks
+- **AND** missing, ambiguous, wrong-architecture, path-substituted, reparse-backed, untrusted, unusable, malformed, or oversized capability SHALL fail the check explicitly
+- **AND** a successful check SHALL remain prerequisite evidence only and SHALL NOT authorize mutation, hosted/public proof, promotion, or qualification history
+
+#### Scenario: Trusted Winget is unavailable on the probed runner
+
+- **WHEN** the capability probe fails because trusted Winget is absent or unusable
+- **THEN** no hosted-live mutation workflow SHALL be added as part of the probe change
+- **AND** any later App Installer bootstrap SHALL require a separate review, an immutable official artifact, and a pinned SHA-256
+- **AND** a moving `aka.ms` URL SHALL NOT be used as bootstrap authority
+
 ### Requirement: Cost, Artifact, and Trust Boundaries
 
 The system SHALL use public-repository standard hosted compute and minimize stored artifacts without weakening proof or exposing untrusted code to privileged infrastructure.

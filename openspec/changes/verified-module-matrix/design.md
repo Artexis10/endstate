@@ -196,6 +196,14 @@ A pull request cannot authorize the installer or seed that its own untrusted cod
 
 Actions are pinned to immutable commit SHAs, checkout uses `persist-credentials: false`, installer subprocesses receive no GitHub token, and live workflows use `pull_request` rather than `pull_request_target`. This does not make untrusted code trusted; it prevents the validation metadata from expanding the external code executed with the hosted Windows runner's elevated account.
 
+### Runner capability probe
+
+Before any hosted-live workflow receives checkout, token, installation, seed, cleanup, or scheduling authority, a separate `.github/workflows/hosted-live-runner-probe.yml` measures the runner prerequisite on every pull request. The probe uses one standard `windows-11-arm` job and an unfiltered `pull_request` trigger so stacked pull requests exercise the same image. It declares no permissions, calls no Action, checks out no repository content, uploads nothing, and exposes no dispatch, push, `pull_request_target`, or schedule trigger.
+
+The single inline PowerShell step is observation-only. It requires an ARM64 runner; exactly one current-user, non-framework, non-resource `Microsoft.DesktopAppInstaller_8wekyb3d8bbwe` package with an ARM64 full-name identity; an install root that is the package-named direct child of the system `Program Files\WindowsApps` directory; and a regular non-reparse `winget.exe` at the exact package root. It records the package name, family, full name, publisher ID, version, architecture, install root, canonical executable path, executable size and SHA-256, and Authenticode signer/status. Trust requires a valid Authenticode result. The executable is invoked directly, never through `PATH` or an App Execution Alias, for bounded `--version` and `--info` checks only; both must exit zero with well-formed non-empty output. Source queries are excluded because they may initialize or update source state.
+
+Missing, ambiguous, wrong-architecture, path-substituted, reparse-backed, unsigned/untrusted, unusable, or oversized results fail explicitly as unsupported capability. The probe never installs, registers, repairs, or updates App Installer. A green probe is prerequisite evidence only: it cannot mint a live mutation permit, hosted/public proof, promotion, or a qualification streak. If it fails, hosted-live mutation work stops until a separately reviewed bootstrap design pins an immutable official App Installer artifact and SHA-256; moving `aka.ms` URLs are never an authority.
+
 ### Task 9 pre-proof evidence boundary
 
 The independent observer is approved only as an observation component. It is neither an execution authority nor hosted proof. The remaining Task 9 evidence layer is deliberately fail-closed and must be complete before any candidate can be selected for mutation by a later trusted hosted authority.
