@@ -294,6 +294,17 @@ The system SHALL validate every hosted-live-eligible module on a fresh standard 
 - **WHEN** a workflow installs the target package before invoking the engine apply path
 - **THEN** the result SHALL NOT claim `live-install`
 
+#### Scenario: Hosted engine invokes Winget
+
+- **WHEN** hosted authority invokes a production engine operation that can install, detect, enumerate, detail, or export through Winget
+- **THEN** the trusted parent SHALL bind both a private versioned hosted-strict marker and a private versioned capability containing the exact canonical App Installer `winget.exe` path and expected SHA-256 into that engine operation's sealed environment and receipt
+- **AND** the trusted parent SHALL reject every hosted engine request that omits either value, including total omission of both values
+- **AND** every production Winget spawn SHALL use one shared strict launcher that opens and hashes that exact non-reparse executable, invokes only its absolute path while replacement remains denied, and never resolves through `PATH` or an App Execution Alias
+- **AND** a missing, partial, relative, non-canonical, reparse-backed, malformed, or digest-mismatched hosted capability, or a marker/capability mismatch, SHALL fail before Winget starts without an ambient fallback
+- **AND** the marker and capability SHALL have no public CLI, manifest, module, or candidate-metadata ingress
+- **AND** ordinary non-hosted commands SHALL retain their existing ambient Winget behavior when the hosted-strict marker is absent
+- **AND** a capability without the hosted-strict marker SHALL fail rather than select an alternate execution mode
+
 #### Scenario: Live config roundtrip succeeds
 
 - **WHEN** a hosted module declares live configuration coverage
@@ -381,20 +392,29 @@ The system SHALL keep pull-request, scheduled, dispatch, and release validation 
 - **AND** a change to the engine binary/commit, module, validation sidecar, fixture, seed/comparator, package driver/source/ref, or proof mode SHALL immediately stale every mismatched live row until that module reruns
 - **AND** the final aggregator SHALL report the complete matrix and fail on required failures
 
-#### Scenario: Initial Notepad++ qualification runs
+#### Scenario: Initial Notepad++ manual baseline runs
 
 - **WHEN** the hosted-live workflow is first enabled
 - **THEN** a dedicated workflow separate from the synthetic aggregate SHALL select only the exact `Notepad++.Notepad++` candidate on trusted `main`
-- **AND** it SHALL run through `schedule` and `workflow_dispatch` with one non-cancelling concurrency group and a 45-minute timeout
-- **AND** a protected campaign SHALL pin the exact checkout commit, engine binary hash, module/validation/seed/comparator identity, package policy, observer boundary, and workflow/policy digest
-- **AND** scheduled attempts SHALL keep testing that pinned campaign while unrelated commits move `main`
-- **AND** changing any pinned campaign field SHALL reset the qualifying streak
+- **AND** it SHALL expose only `workflow_dispatch`, use exact `windows-11-arm` execution, one non-cancelling concurrency group, and a 45-minute timeout
+- **AND** it SHALL have no schedule, pull-request, push, or `pull_request_target` trigger until an actual protected-main manual run succeeds and is inspected
+- **AND** the engine and validator SHALL be native ARM64 binaries built from the exact clean tested checkout
+- **AND** authority and evidence SHALL bind the actual workflow digest, runner label, runner/process architecture, repository, ref, tested commit, run, and attempt rather than caller assertions
 - **AND** an external trusted authority SHALL validate the exact repository, workflow, event, ref, checkout commit, run, attempt, and trusted actor class before granting mutation eligibility
 - **AND** its single-use permit SHALL bind the engine binary hash; package driver, reference, and arguments; module/validation/seed hashes; comparator and target set; observer boundary; protected workflow/policy digest; phase nonce; and expiry
 - **AND** authoritative mutation inputs SHALL come from the protected campaign or merge-base allowlist rather than caller-supplied candidate metadata
 - **AND** no automatic retry SHALL run during qualification
 - **AND** compact sanitized evidence SHALL be at most 64 KiB and retained for 90 days
 - **AND** the first success SHALL remain diagnostic rather than becoming a merge gate
+
+#### Scenario: Scheduled Notepad++ qualification starts
+
+- **WHEN** an actual protected-main manual baseline succeeds and a separate reviewed controller change pins its exact successful identity
+- **THEN** that later change MAY add `schedule` alongside `workflow_dispatch`
+- **AND** the protected campaign SHALL pin the exact checkout commit, engine binary hash, module/validation/seed/comparator identity, package policy, observer boundary, and workflow/policy digest
+- **AND** scheduled attempts SHALL keep testing that pinned campaign while unrelated commits move `main`
+- **AND** changing any pinned campaign field SHALL reset the qualifying streak
+- **AND** no manual baseline, pull-request probe, workflow rerun, or pre-schedule result SHALL count toward qualification
 
 #### Scenario: Notepad++ qualification is promoted
 
@@ -528,6 +548,12 @@ The system SHALL fail closed on the hosted Windows runner prerequisite before ad
 - **THEN** no hosted-live mutation workflow SHALL be added as part of the probe change
 - **AND** any later App Installer bootstrap SHALL require a separate review, an immutable official artifact, and a pinned SHA-256
 - **AND** a moving `aka.ms` URL SHALL NOT be used as bootstrap authority
+
+#### Scenario: Trusted Winget passes on the actual stacked pull request
+
+- **WHEN** the exact stacked-PR probe succeeds on `windows-11-arm` with one trusted ARM64 Desktop App Installer package and zero-exit bounded direct `--version` and `--info` checks
+- **THEN** the runner prerequisite SHALL be satisfied for further ARM64 implementation without an App Installer bootstrap
+- **AND** the result SHALL remain capability evidence only and SHALL NOT authorize mutation, claim hosted-live application proof, or advance qualification
 
 ### Requirement: Cost, Artifact, and Trust Boundaries
 
