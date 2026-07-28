@@ -6,6 +6,7 @@ package validationci
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,38 +14,23 @@ import (
 	"runtime"
 	"strings"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
 func TestHostedLiveRunnerProbeWorkflowContract(t *testing.T) {
-	_, file, _, _ := runtime.Caller(0)
-	workflow, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", ".github", "workflows", "hosted-live-runner-probe.yml"))
+	workflow := readRunnerProbeWorkflow(t)
+	script, err := extractRunnerProbeScript(workflow)
 	if err != nil {
 		t.Fatal(err)
 	}
+	requirePowerShellAST(t, script)
 
-	var document yaml.Node
-	if err := yaml.Unmarshal(workflow, &document); err != nil {
-		t.Fatal(err)
-	}
-	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {
-		t.Fatal("workflow must contain one top-level mapping")
-	}
-	root := document.Content[0]
-	requirePullRequestOnly(t, mappingValue(root, "on"))
-	requireEmptyPermissions(t, mappingValue(root, "permissions"))
-	run := requireSingleProbeStep(t, mappingValue(root, "jobs"))
-	requirePowerShellAST(t, run)
-
-	text := strings.ReplaceAll(string(workflow), "\r\n", "\n")
 	for _, wanted := range []string{
 		"name: Hosted Live Runner Probe", "runs-on: windows-11-arm", "timeout-minutes: 5", "Set-StrictMode -Version Latest", "$ErrorActionPreference = 'Stop'", "WINGET_CAPABILITY_UNSUPPORTED:", "exit 1", "$env:ImageOS", "$env:ImageVersion", "OSArchitecture", "ProcessArchitecture",
 		"Get-AppxPackage -Name Microsoft.DesktopAppInstaller -PackageTypeFilter Main", "IsFramework -eq $false", "IsResourcePackage -eq $false", "Microsoft.DesktopAppInstaller_8wekyb3d8bbwe", "PublisherId -ne '8wekyb3d8bbwe'", "^Microsoft\\.DesktopAppInstaller_\\d+\\.\\d+\\.\\d+\\.\\d+_arm64__8wekyb3d8bbwe$", "$package.ResourceId",
 		"Program Files\\WindowsApps", "Assert-NoReparsePath", "Get-FileHash -LiteralPath $canonicalWingetPath -Algorithm SHA256", "Get-AuthenticodeSignature -LiteralPath $canonicalWingetPath", "Status -ne 'Valid'", "SignerCertificate", "winget.exe",
 		"Read-BoundedProcessOutput", "ReadAsync", "Task]::WhenAny", "Task]::Delay", "\"$stdoutOutput`n$stderrOutput\"", "ExitCodeDecimal", "ExitCodeHex", "[System.BitConverter]::ToUInt32", "--version", "--info", "ConvertTo-Json -Depth 5 -Compress", "Write-Output",
 	} {
-		if !strings.Contains(text, wanted) {
+		if !strings.Contains(workflow, wanted) {
 			t.Errorf("workflow missing %q", wanted)
 		}
 	}
@@ -53,73 +39,116 @@ func TestHostedLiveRunnerProbeWorkflowContract(t *testing.T) {
 		"-AllUsers", "Get-Command winget", "$env:PATH", "App Execution Alias", "winget list", "winget search", "winget source", "winget install", "winget uninstall", "winget upgrade", "winget download", "winget export", "winget import", "winget configure", "winget settings",
 		"Add-AppxPackage", "Remove-AppxPackage", "Repair-WinGetPackageManager", "Invoke-WebRequest", "Start-BitsTransfer", "curl ", "wget ", "Start-Process", "Out-File", "Set-Content", "Add-Content", "GITHUB_STEP_SUMMARY", "upload-artifact", "download-artifact", "New-Item", "Remove-Item", "ReadToEndAsync",
 	} {
-		if strings.Contains(text, forbidden) {
+		if strings.Contains(workflow, forbidden) {
 			t.Errorf("workflow contains forbidden %q", forbidden)
 		}
 	}
 }
 
-func requirePullRequestOnly(t *testing.T, node *yaml.Node) {
-	t.Helper()
-	if node == nil || node.Kind != yaml.MappingNode || len(node.Content) != 2 || node.Content[0].Value != "pull_request" {
-		t.Fatal("workflow must have exactly one pull_request trigger")
+func TestExtractRunnerProbeScriptRejectsStructuralEscapes(t *testing.T) {
+	workflow := readRunnerProbeWorkflow(t)
+	tests := []struct {
+		name   string
+		mutate func(string) string
+	}{
+		{
+			name: "filtered pull request",
+			mutate: func(text string) string {
+				return strings.Replace(text, "  pull_request:\n", "  pull_request:\n    branches: [main]\n", 1)
+			},
+		},
+		{
+			name: "nonempty permissions",
+			mutate: func(text string) string {
+				return strings.Replace(text, "permissions: {}", "permissions: {contents: read}", 1)
+			},
+		},
+		{
+			name: "folded run script",
+			mutate: func(text string) string {
+				return strings.Replace(text, "        run: |", "        run: >", 1)
+			},
+		},
+		{
+			name: "job permissions override",
+			mutate: func(text string) string {
+				return text + "    permissions: {contents: write}\n"
+			},
+		},
+		{
+			name: "second step",
+			mutate: func(text string) string {
+				return text + "      - name: Extra\n        shell: pwsh\n        run: |\n          Write-Output extra\n"
+			},
+		},
+		{
+			name: "second job",
+			mutate: func(text string) string {
+				return text + "  extra:\n    runs-on: windows-11-arm\n"
+			},
+		},
 	}
-	trigger := node.Content[1]
-	if !((trigger.Kind == yaml.ScalarNode && trigger.Tag == "!!null") || (trigger.Kind == yaml.MappingNode && len(trigger.Content) == 0)) {
-		t.Fatal("pull_request trigger must be unfiltered")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := extractRunnerProbeScript(tt.mutate(workflow)); err == nil {
+				t.Fatal("extractRunnerProbeScript() error = nil, want structural rejection")
+			}
+		})
 	}
 }
 
-func requireEmptyPermissions(t *testing.T, node *yaml.Node) {
-	t.Helper()
-	if node == nil || node.Kind != yaml.MappingNode || len(node.Content) != 0 {
-		t.Fatal("workflow must declare top-level permissions: {}")
+func TestHostedLiveRunnerProbeDoesNotAddYAMLDependency(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	goMod, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "go.mod"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(goMod), "gopkg.in/yaml.v3") {
+		t.Fatal("runner probe contract must not add gopkg.in/yaml.v3")
 	}
 }
 
-func requireSingleProbeStep(t *testing.T, jobs *yaml.Node) string {
+func readRunnerProbeWorkflow(t *testing.T) string {
 	t.Helper()
-	if jobs == nil || jobs.Kind != yaml.MappingNode || len(jobs.Content) != 2 {
-		t.Fatal("workflow must have exactly one job")
+	_, file, _, _ := runtime.Caller(0)
+	workflow, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", ".github", "workflows", "hosted-live-runner-probe.yml"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	job := jobs.Content[1]
-	if job.Kind != yaml.MappingNode || mappingValue(job, "permissions") != nil {
-		t.Fatal("workflow job must not override permissions")
-	}
-	if value := mappingValue(job, "runs-on"); value == nil || value.Value != "windows-11-arm" {
-		t.Fatal("workflow job must run on windows-11-arm")
-	}
-	if value := mappingValue(job, "timeout-minutes"); value == nil || value.Value != "5" {
-		t.Fatal("workflow job must have the five-minute timeout")
-	}
-	steps := mappingValue(job, "steps")
-	if steps == nil || steps.Kind != yaml.SequenceNode || len(steps.Content) != 1 || steps.Content[0].Kind != yaml.MappingNode {
-		t.Fatal("workflow job must have exactly one step")
-	}
-	step := steps.Content[0]
-	if mappingValue(step, "uses") != nil {
-		t.Fatal("workflow step must not use an action")
-	}
-	if shell := mappingValue(step, "shell"); shell == nil || shell.Value != "pwsh" {
-		t.Fatal("workflow step must use pwsh")
-	}
-	run := mappingValue(step, "run")
-	if run == nil || run.Kind != yaml.ScalarNode || run.Style&yaml.LiteralStyle == 0 || strings.TrimSpace(run.Value) == "" {
-		t.Fatal("workflow step must have one inline literal PowerShell script")
-	}
-	return run.Value
+	return strings.ReplaceAll(string(workflow), "\r\n", "\n")
 }
 
-func mappingValue(node *yaml.Node, key string) *yaml.Node {
-	if node == nil || node.Kind != yaml.MappingNode {
-		return nil
+func extractRunnerProbeScript(workflow string) (string, error) {
+	lines := strings.Split(workflow, "\n")
+	header := []string{
+		"name: Hosted Live Runner Probe", "", "on:", "  pull_request:", "", "permissions: {}", "", "jobs:", "  runner-probe:",
+		"    runs-on: windows-11-arm", "    timeout-minutes: 5", "    steps:", "      - name: Probe Winget capability", "        shell: pwsh", "        run: |",
 	}
-	for i := 0; i < len(node.Content); i += 2 {
-		if node.Content[i].Value == key {
-			return node.Content[i+1]
+	if len(lines) < len(header)+1 {
+		return "", fmt.Errorf("workflow is shorter than the required runner probe shape")
+	}
+	for i, want := range header {
+		if lines[i] != want {
+			return "", fmt.Errorf("workflow line %d = %q, want %q", i+1, lines[i], want)
 		}
 	}
-	return nil
+
+	var script strings.Builder
+	for _, line := range lines[len(header):] {
+		if line == "" {
+			script.WriteByte('\n')
+			continue
+		}
+		if !strings.HasPrefix(line, "          ") {
+			return "", fmt.Errorf("workflow contains nonblank content outside the literal run script: %q", line)
+		}
+		script.WriteString(strings.TrimPrefix(line, "          "))
+		script.WriteByte('\n')
+	}
+	if strings.TrimSpace(script.String()) == "" {
+		return "", fmt.Errorf("workflow literal run script is empty")
+	}
+	return script.String(), nil
 }
 
 func requirePowerShellAST(t *testing.T, script string) {
