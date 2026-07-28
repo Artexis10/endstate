@@ -123,7 +123,11 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	issuer.releaseFn = func(admission liveReceiptAdmission) {
 		mu.Lock()
 		defer mu.Unlock()
-		if (state == liveAdmissionReserved || state == liveAdmissionSealed) && active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
+		if state == liveAdmissionReserved && active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
+			delete(nonces, admission.nonce)
+			active = liveReceiptAdmission{}
+			state = 0
+		} else if state == liveAdmissionSealed && active.issuer == issuer && active.sequence == admission.sequence && active.nonce == admission.nonce && active.token == admission.token {
 			active = liveReceiptAdmission{}
 			state = 0
 		}

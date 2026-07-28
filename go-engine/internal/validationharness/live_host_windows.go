@@ -358,6 +358,7 @@ func runWindowsLiveWingetExactInstall(ctx context.Context, admission liveReceipt
 }
 
 func runWindowsLiveWingetMutation(ctx context.Context, admission liveReceiptAdmission, permit trustedLiveMutationPermit, operation liveOperation, outputLimit int) (*liveExecutionReceipt, error) {
+	defer admission.complete()
 	resolver, err := newWindowsLiveWingetResolver()
 	if err != nil {
 		return nil, fmt.Errorf("trusted winget resolver unavailable")

@@ -52,6 +52,11 @@ func TestLiveReceiptAdmissionAdvancesOnlyAfterSealing(t *testing.T) {
 	if _, err := issuer.admit(liveOperationEngineApply, 2, liveReceiptTestNonce(9)); err == nil {
 		t.Fatal("unsealed admission advanced issuer sequence")
 	}
+	retry, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(8))
+	if err != nil {
+		t.Fatalf("unsealed admission did not release its exact retry slot: %v", err)
+	}
+	retry.complete()
 	sealed, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(9))
 	if err != nil {
 		t.Fatalf("unsealed admission did not release exact issuer state: %v", err)

@@ -47,6 +47,7 @@ func validatedWindowsLiveAppData(supplied string) (string, error) {
 }
 
 func runWindowsLiveDeclaredTargetWipe(admission liveReceiptAdmission, permit trustedLiveHostMutationPermit, definition LiveDefinition, appData string) (*liveHostMutationReceipt, error) {
+	defer admission.complete()
 	appData, err := validatedWindowsLiveAppData(appData)
 	if err != nil {
 		return nil, err
@@ -70,6 +71,7 @@ func runWindowsLiveDeclaredTargetWipe(admission liveReceiptAdmission, permit tru
 }
 
 func runWindowsLiveAttemptRootCleanup(admission liveReceiptAdmission, permit trustedLiveHostMutationPermit, definition LiveDefinition, appData string, attempt windowsLiveAttemptRoot) (*liveHostMutationReceipt, error) {
+	defer admission.complete()
 	appData, err := validatedWindowsLiveAppData(appData)
 	if err != nil {
 		return nil, err

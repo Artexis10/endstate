@@ -137,6 +137,15 @@ func (state *windowsLiveCleanupState) removeDirectoryHandle(ctx context.Context,
 		}
 		remaining := state.budget.maxEntries - state.entries
 		if remaining < 1 {
+			// Probe once for EOF without processing another entry. A tree that
+			// exceeds the budget may have had its permitted prefix removed.
+			entries, err := windowsLiveCleanupReadDir(directoryFile, 1)
+			if err != nil && err != io.EOF {
+				return err
+			}
+			if len(entries) == 0 && err == io.EOF {
+				break
+			}
 			return fmt.Errorf("live cleanup budget exhausted")
 		}
 		chunk := 64

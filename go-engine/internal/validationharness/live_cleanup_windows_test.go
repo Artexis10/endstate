@@ -391,9 +391,20 @@ func TestWindowsLiveAuthorityCleanupTransitionAbandonsFailedAdmissionAndRunsOnly
 		t.Fatal("cleanup transition accepted a replay")
 	}
 
-	uninstall, err := issuer.admit(liveOperationWingetExactUninstall, 13, session.NonceFor(liveOperationWingetExactUninstall, 13))
+	failedUninstall, err := issuer.admit(liveOperationWingetExactUninstall, 13, session.NonceFor(liveOperationWingetExactUninstall, 13))
 	if err != nil {
 		t.Fatalf("admit final uninstall: %v", err)
+	}
+	originalResolver := newWindowsLiveWingetResolver
+	newWindowsLiveWingetResolver = func() (liveTrustedWingetResolver, error) { return nil, fmt.Errorf("resolver unavailable") }
+	if receipt, err := runWindowsLiveWingetExactUninstall(context.Background(), failedUninstall, trustedLiveMutationPermit{}, maxLiveObserverOutputBytes); err == nil || receipt != nil {
+		t.Fatalf("failed final uninstall = %+v, %v, want no receipt", receipt, err)
+	}
+	newWindowsLiveWingetResolver = originalResolver
+	t.Cleanup(func() { newWindowsLiveWingetResolver = originalResolver })
+	uninstall, err := issuer.admit(liveOperationWingetExactUninstall, 13, session.NonceFor(liveOperationWingetExactUninstall, 13))
+	if err != nil {
+		t.Fatalf("resolver failure left final uninstall admission unavailable: %v", err)
 	}
 	uninstallPermit, err := session.MintMutationPermit(uninstall)
 	if err != nil {
@@ -417,9 +428,20 @@ func TestWindowsLiveAuthorityCleanupTransitionAbandonsFailedAdmissionAndRunsOnly
 	}
 	uninstall.complete()
 
-	wipe, err := issuer.admit(liveOperationDeclaredTargetWipe, 14, session.NonceFor(liveOperationDeclaredTargetWipe, 14))
+	failedWipe, err := issuer.admit(liveOperationDeclaredTargetWipe, 14, session.NonceFor(liveOperationDeclaredTargetWipe, 14))
 	if err != nil {
 		t.Fatalf("admit final wipe: %v", err)
+	}
+	originalAppData := windowsLiveRoamingAppData
+	windowsLiveRoamingAppData = func() (string, error) { return "", fmt.Errorf("APPDATA unavailable") }
+	if receipt, err := runWindowsLiveDeclaredTargetWipe(failedWipe, trustedLiveHostMutationPermit{}, definition, appData); err == nil || receipt != nil {
+		t.Fatalf("failed final wipe = %+v, %v, want no receipt", receipt, err)
+	}
+	windowsLiveRoamingAppData = originalAppData
+	t.Cleanup(func() { windowsLiveRoamingAppData = originalAppData })
+	wipe, err := issuer.admit(liveOperationDeclaredTargetWipe, 14, session.NonceFor(liveOperationDeclaredTargetWipe, 14))
+	if err != nil {
+		t.Fatalf("known-folder failure left final wipe admission unavailable: %v", err)
 	}
 	wipeBinding, err := windowsLiveHostMutationBinding(definition, appData, windowsLiveAttemptRoot{})
 	if err != nil {
@@ -491,6 +513,11 @@ func TestWindowsLiveAttemptRootCleanupFailureReturnsNoSuccessReceipt(t *testing.
 	if err == nil || receipt != nil {
 		t.Fatalf("failed attempt-root cleanup = %+v, %v, want no success receipt", receipt, err)
 	}
+	retry, err := issuer.admit(liveOperationAttemptRootCleanup, 1, session.NonceFor(liveOperationAttemptRootCleanup, 1))
+	if err != nil {
+		t.Fatalf("prepare failure left cleanup admission active: %v", err)
+	}
+	retry.complete()
 	if _, err := issuer.admit(liveOperationAttemptRootCleanup, 2, session.NonceFor(liveOperationAttemptRootCleanup, 2)); err == nil {
 		t.Fatal("failed cleanup advanced the issuer sequence")
 	}
@@ -574,32 +601,51 @@ func TestWindowsLiveHandleCleanupPreventsPostOpenChildReplacement(t *testing.T) 
 }
 
 func TestWindowsLiveHandleCleanupReadsLargeFanoutInBoundedChunks(t *testing.T) {
-	root := t.TempDir()
-	for index := 0; index < maxWindowsLiveCleanupEntries+1; index++ {
-		if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("entry-%04d", index)), []byte("inside"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	original := windowsLiveCleanupReadDir
-	var chunks []int
-	windowsLiveCleanupReadDir = func(file *os.File, count int) ([]os.DirEntry, error) {
-		chunks = append(chunks, count)
-		return file.ReadDir(count)
-	}
-	t.Cleanup(func() { windowsLiveCleanupReadDir = original })
-	if err := removeWindowsLiveDirectoryWithBudget(context.Background(), root, windowsLiveCleanupBudget{maxDepth: 8, maxEntries: maxWindowsLiveCleanupEntries}); err == nil {
-		t.Fatal("handle cleanup accepted a fanout beyond its entry budget")
-	}
-	if len(chunks) == 0 {
-		t.Fatal("handle cleanup did not enumerate the fanout")
-	}
-	for _, count := range chunks {
-		if count < 1 || count > 64 {
-			t.Fatalf("handle cleanup requested an unbounded directory read of %d entries", count)
-		}
-	}
-	if _, err := os.Lstat(root); err != nil {
-		t.Fatalf("fanout budget failure removed root: %v", err)
+	for _, test := range []struct {
+		name      string
+		entries   int
+		wantError bool
+	}{
+		{name: "exact entry budget", entries: maxWindowsLiveCleanupEntries},
+		{name: "one entry over budget", entries: maxWindowsLiveCleanupEntries + 1, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			for index := 0; index < test.entries; index++ {
+				if err := os.WriteFile(filepath.Join(root, fmt.Sprintf("entry-%04d", index)), []byte("inside"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			original := windowsLiveCleanupReadDir
+			var chunks []int
+			windowsLiveCleanupReadDir = func(file *os.File, count int) ([]os.DirEntry, error) {
+				chunks = append(chunks, count)
+				return file.ReadDir(count)
+			}
+			t.Cleanup(func() { windowsLiveCleanupReadDir = original })
+			err := removeWindowsLiveDirectoryWithBudget(context.Background(), root, windowsLiveCleanupBudget{maxDepth: 8, maxEntries: maxWindowsLiveCleanupEntries})
+			if (err != nil) != test.wantError {
+				t.Fatalf("removeWindowsLiveDirectoryWithBudget() error = %v, wantError %v", err, test.wantError)
+			}
+			if len(chunks) == 0 {
+				t.Fatal("handle cleanup did not enumerate the fanout")
+			}
+			for _, count := range chunks {
+				if count < 1 || count > 64 {
+					t.Fatalf("handle cleanup requested an unbounded directory read of %d entries", count)
+				}
+			}
+			if test.wantError {
+				if _, err := os.Lstat(root); err != nil {
+					t.Fatalf("fanout budget failure removed root: %v", err)
+				}
+				if _, err := os.Lstat(filepath.Join(root, fmt.Sprintf("entry-%04d", test.entries-1))); err != nil {
+					t.Fatalf("fanout budget failure processed the over-budget entry: %v", err)
+				}
+			} else if _, err := os.Lstat(root); !os.IsNotExist(err) {
+				t.Fatalf("exact fanout cleanup left root: %v", err)
+			}
+		})
 	}
 }
 
