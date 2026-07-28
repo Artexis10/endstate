@@ -6,6 +6,7 @@
 package validationharness
 
 import (
+	"context"
 	"crypto/sha256"
 	"os"
 	"os/exec"
@@ -20,6 +21,7 @@ func TestResolveWindowsLiveDeclaredTargetsAndWipeExactLeaves(t *testing.T) {
 		t.Fatal(err)
 	}
 	appData := t.TempDir()
+	withWindowsLiveTestAppData(t, appData)
 	config := filepath.Join(appData, "Notepad++", "config.xml")
 	directory := filepath.Join(appData, "Notepad++", "userDefineLangs")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
@@ -86,6 +88,7 @@ func TestWindowsLiveDeclaredTargetWipeRequiresBoundHostPermitAndSealsReceipt(t *
 		t.Fatal(err)
 	}
 	appData := t.TempDir()
+	withWindowsLiveTestAppData(t, appData)
 	path := filepath.Join(appData, "Notepad++", "config.xml")
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
@@ -135,6 +138,7 @@ func TestWindowsLiveDeclaredTargetWipeRejectsWrongRootAndReplayWithoutMutation(t
 		t.Fatal(err)
 	}
 	appData, foreignAppData := t.TempDir(), t.TempDir()
+	withWindowsLiveTestAppData(t, appData)
 	path := filepath.Join(appData, "Notepad++", "config.xml")
 	foreignPath := filepath.Join(foreignAppData, "Notepad++", "config.xml")
 	for _, candidate := range []string{path, foreignPath} {
@@ -200,6 +204,28 @@ func TestWindowsLiveDeclaredTargetWipeRejectsWrongRootAndReplayWithoutMutation(t
 	}
 }
 
+func TestWindowsLiveHandleCleanupRejectsBudgetExhaustionWithoutTraversal(t *testing.T) {
+	root := t.TempDir()
+	deep := root
+	for range 4 {
+		deep = filepath.Join(deep, "nested")
+		if err := os.Mkdir(deep, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := removeWindowsLiveDirectoryWithBudget(context.Background(), root, windowsLiveCleanupBudget{maxDepth: 2, maxEntries: 32}); err == nil {
+		t.Fatal("handle cleanup accepted a depth-exhausting tree")
+	}
+	if _, err := os.Lstat(root); err != nil {
+		t.Fatalf("budget failure removed root: %v", err)
+	}
+	deadline, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := removeWindowsLiveDirectoryWithBudget(deadline, root, windowsLiveCleanupBudget{maxDepth: 32, maxEntries: 32}); err == nil {
+		t.Fatal("handle cleanup accepted an expired context")
+	}
+}
+
 func liveWindowsHostMutationSession(t *testing.T, definition LiveDefinition, sequence uint64, operation liveOperation) *LiveAuthoritySession {
 	t.Helper()
 	digest, err := CanonicalLiveDefinitionSHA256(definition)
@@ -211,6 +237,14 @@ func liveWindowsHostMutationSession(t *testing.T, definition LiveDefinition, seq
 	return &LiveAuthoritySession{campaignID: campaign, campaign: LiveCampaign{PhaseNonce: "windows-host-mutation", ExpiresAt: now.Add(time.Hour)}, now: now, minted: make(map[liveAuthorityPermitKey]struct{}), definition: liveAuthorityDefinition{
 		definition: liveSHA256Bytes(digest), targets: liveSHA256Bytes(liveSHA256Hex(definition.DeclaredTargets)), observer: liveSHA256Bytes(liveSHA256Hex(definition.Observer)), workflow: sha256.Sum256([]byte("workflow")), operations: map[uint64]LiveCampaignOperation{sequence: {Sequence: sequence, Operation: string(operation)}},
 	}}
+}
+
+func withWindowsLiveTestAppData(t *testing.T, root string) {
+	t.Helper()
+	original := windowsLiveRoamingAppData
+	windowsLiveRoamingAppData = func() (string, error) { return root, nil }
+	t.Cleanup(func() { windowsLiveRoamingAppData = original })
+	t.Setenv("APPDATA", root)
 }
 
 func TestResolveWindowsLiveDeclaredTargetsRejectsForeignAndOverlappingTemplates(t *testing.T) {

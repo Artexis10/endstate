@@ -60,3 +60,29 @@ func TestWindowsLiveProcessRejectsBareOrUntrustedWingetResolution(t *testing.T) 
 		t.Fatal("windowsLiveProcess accepted a caller-provided executable path")
 	}
 }
+
+func TestWindowsLiveServiceTypeClassificationIsCompleteAndFailClosed(t *testing.T) {
+	for _, test := range []struct {
+		name                    string
+		kind                    uint64
+		wantDriver, wantService bool
+	}{
+		{"kernel driver", 0x1, true, false},
+		{"file system driver", 0x2, true, false},
+		{"adapter", 0x4, true, false},
+		{"recognizer", 0x8, true, false},
+		{"own process", 0x10, false, true},
+		{"shared process", 0x20, false, true},
+		{"interactive own process", 0x110, false, true},
+	} {
+		driver, service, err := classifyWindowsLiveServiceType(test.kind)
+		if err != nil || driver != test.wantDriver || service != test.wantService {
+			t.Fatalf("%s: classifyWindowsLiveServiceType(%#x) = (%v, %v, %v)", test.name, test.kind, driver, service, err)
+		}
+	}
+	for _, kind := range []uint64{0, 0x40, 0x11, 0x30} {
+		if _, _, err := classifyWindowsLiveServiceType(kind); err == nil {
+			t.Fatalf("classifyWindowsLiveServiceType(%#x) accepted an unknown or mixed type", kind)
+		}
+	}
+}

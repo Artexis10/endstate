@@ -95,13 +95,37 @@ func TestLiveCampaignRejectsUntrustedModesAndDrift(t *testing.T) {
 	}
 }
 
+func TestLiveCampaignRequiresExactUnattendedWingetUninstall(t *testing.T) {
+	campaign := liveTestCampaign()
+	campaign.PackageArguments = []string{"uninstall", "--id", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
+	for index := range campaign.Operations {
+		if campaign.Operations[index].Operation == string(liveOperationWingetExactUninstall) {
+			campaign.Operations[index].Arguments = append([]string(nil), campaign.PackageArguments...)
+		}
+	}
+	if err := ValidateLiveCampaign(campaign); err != nil {
+		t.Fatalf("ValidateLiveCampaign() error = %v", err)
+	}
+	for _, arguments := range [][]string{
+		{"uninstall", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"},
+		{"uninstall", "--id", "Notepad++.Notepad++", "--source", "winget", "--exact", "--accept-source-agreements", "--disable-interactivity"},
+		{"uninstall", "--id", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements"},
+	} {
+		candidate := campaign
+		candidate.PackageArguments = arguments
+		if err := ValidateLiveCampaign(candidate); err == nil {
+			t.Fatalf("ValidateLiveCampaign accepted %#v", arguments)
+		}
+	}
+}
+
 func liveTestCampaign() LiveCampaign {
 	return LiveCampaign{
 		SchemaVersion: LiveCampaignSchemaVersion, Mode: LiveCampaignScheduledQualification,
 		Repository: "Artexis10/endstate", WorkflowPath: ".github/workflows/hosted-live.yml", Event: "schedule", Ref: "refs/heads/main",
 		ControllerCommit: strings.Repeat("a", 40), TestedCheckoutCommit: strings.Repeat("b", 40), RunID: 1234, RunAttempt: 1, TrustedActorClass: "User",
 		EngineSHA256: strings.Repeat("c", 64), ValidatorSHA256: strings.Repeat("d", 64), GoToolchain: "go1.24.2", BuildPolicy: "-trimpath;-buildid=endstate-v1",
-		PackageDriver: "winget", PackageRef: "Notepad++.Notepad++", PackageArguments: []string{"uninstall", "Notepad++.Notepad++", "--exact"}, Operations: liveTestCampaignOperations(),
+		PackageDriver: "winget", PackageRef: "Notepad++.Notepad++", PackageArguments: []string{"uninstall", "--id", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}, Operations: liveTestCampaignOperations(),
 		ModuleID: "apps.notepad-plus-plus", ModuleRevision: strings.Repeat("e", 64), ValidationSourceSHA256: strings.Repeat("f", 64), SeedSHA256: strings.Repeat("a", 64),
 		ComparatorSHA256: strings.Repeat("b", 64), TargetsSHA256: strings.Repeat("c", 64), ObserverSHA256: strings.Repeat("d", 64), WorkflowPolicySHA256: strings.Repeat("e", 64), PhaseNonce: strings.Repeat("f", 64),
 		ExpiresAt: time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC),
@@ -116,7 +140,7 @@ func liveTestCampaignOperations() []LiveCampaignOperation {
 			arguments = nil
 		}
 		if operation == liveOperationWingetExactUninstall {
-			arguments = []string{"uninstall", "Notepad++.Notepad++", "--exact"}
+			arguments = []string{"uninstall", "--id", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
 		}
 		executableSHA256 := strings.Repeat("a", 64)
 		if liveCampaignEngineOperation(operation) {

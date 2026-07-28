@@ -208,7 +208,7 @@ func TestLiveProcessWingetUninstallBuilderUsesOnlyBoundInvocation(t *testing.T) 
 	expected := liveTestExpectedIdentity()
 	binding := liveTrustedAppXBinding{metadata: liveAppXPackageMetadata{packageRoot: `C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.2.3.4_x64__8wekyb3d8bbwe`, executableName: "winget.exe", receipt: liveTrustedAppXReceipt{valid: true}}}
 	executable := filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName)
-	permit := newTrustedLiveMutationPermit(admission, expected, executable, []string{"uninstall", "Notepad++.Notepad++", "--exact"}, "", nil)
+	permit := newTrustedLiveMutationPermit(admission, expected, executable, []string{"uninstall", "--id", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}, "", nil)
 	request := newLiveTrustedAppXWingetExactUninstall(admission, permit, binding, 0)
 	if err := validateLiveProcessRequest(request); err != nil {
 		t.Fatalf("bound uninstall request rejected: %v", err)

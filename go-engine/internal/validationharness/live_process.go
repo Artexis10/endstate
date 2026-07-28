@@ -150,7 +150,7 @@ func (capability *liveMutationCapability) matches(request LiveProcessRequest, im
 	if request.operation != liveOperationWingetExactUninstall {
 		return true
 	}
-	return len(request.args) == 3 && len(capability.packageArguments) == 3 && liveExactWingetUninstallArguments(request.args, request.args[1]) && request.args[1] != "" && strings.Join(request.args, "\x00") == strings.Join(capability.packageArguments, "\x00")
+	return len(request.args) == 8 && len(capability.packageArguments) == 8 && liveExactWingetUninstallArguments(request.args, request.args[2]) && request.args[2] != "" && strings.Join(request.args, "\x00") == strings.Join(capability.packageArguments, "\x00")
 }
 
 func sameLiveArguments(left, right []string) bool {

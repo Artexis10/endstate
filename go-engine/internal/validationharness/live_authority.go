@@ -131,6 +131,34 @@ type LiveAuthoritySession struct {
 	mu         sync.Mutex
 	minted     map[liveAuthorityPermitKey]struct{}
 	issuerID   uint64
+	cleanup    bool
+}
+
+// EnterCleanup permanently aborts proof progression and admits only the
+// campaign's final uninstall, declared wipe, and owned attempt-root cleanup.
+func (session *LiveAuthoritySession) EnterCleanup(issuer *liveReceiptIssuer) error {
+	if session == nil || issuer == nil || issuer.enterCleanupFn == nil {
+		return fmt.Errorf("live cleanup transition is unavailable")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.cleanup || issuer.id != session.issuerID || issuer.authorityCampaign != session.campaignID {
+		return fmt.Errorf("live cleanup transition is unavailable")
+	}
+	var last uint64
+	for sequence := range session.definition.operations {
+		if sequence > last {
+			last = sequence
+		}
+	}
+	if last < 3 || session.definition.operations[last-2].Operation != string(liveOperationWingetExactUninstall) || session.definition.operations[last-1].Operation != string(liveOperationDeclaredTargetWipe) || session.definition.operations[last].Operation != string(liveOperationAttemptRootCleanup) {
+		return fmt.Errorf("live cleanup transition is absent from campaign")
+	}
+	if err := issuer.enterCleanupFn(last-2, []liveOperation{liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationAttemptRootCleanup}); err != nil {
+		return err
+	}
+	session.cleanup = true
+	return nil
 }
 
 type liveAuthorityDefinition struct {
@@ -229,7 +257,7 @@ func (session *LiveAuthoritySession) MintMutationPermit(admission liveReceiptAdm
 	}
 	session.mu.Lock()
 	defer session.mu.Unlock()
-	if admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) {
+	if admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || nonce != session.NonceFor(operation, sequence) || session.cleanup && operation != liveOperationWingetExactUninstall {
 		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
 	}
 	key := liveAuthorityPermitKey{operation: operation, sequence: sequence}
@@ -255,7 +283,7 @@ func (session *LiveAuthoritySession) MintHostMutationPermit(admission liveReceip
 	session.mu.Lock()
 	defer session.mu.Unlock()
 	operation, sequence := admission.operation, admission.sequence
-	if (operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup) || operation == liveOperationDeclaredTargetWipe && binding.attemptRoot != ([32]byte{}) || operation == liveOperationAttemptRootCleanup && binding.attemptRoot == ([32]byte{}) || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || admission.nonce != session.NonceFor(operation, sequence) || !session.campaign.ExpiresAt.After(session.now) {
+	if (operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup) || operation == liveOperationDeclaredTargetWipe && binding.attemptRoot != ([32]byte{}) || operation == liveOperationAttemptRootCleanup && binding.attemptRoot == ([32]byte{}) || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || admission.nonce != session.NonceFor(operation, sequence) || !session.campaign.ExpiresAt.After(session.now) || session.cleanup && operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup {
 		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation operation is not predeclared")
 	}
 	invocation, exists := session.definition.operations[sequence]

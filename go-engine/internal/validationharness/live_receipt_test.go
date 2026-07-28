@@ -377,7 +377,7 @@ func liveTestCommitReceipt(t *testing.T, admission liveReceiptAdmission, receipt
 	}
 	arguments := append([]string(nil), receipt.args...)
 	if admission.operation == liveOperationWingetExactUninstall {
-		arguments = []string{"uninstall", "apps.fixture", "--exact"}
+		arguments = []string{"uninstall", "--id", "apps.fixture", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
 		receipt.args = append([]string(nil), arguments...)
 		receipt.requestSHA256 = receipt.requestDigest()
 	}

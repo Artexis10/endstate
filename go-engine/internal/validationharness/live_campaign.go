@@ -157,7 +157,7 @@ func liveCampaignEngineOperation(operation liveOperation) bool {
 }
 
 func liveExactWingetUninstallArguments(arguments []string, ref string) bool {
-	return len(arguments) == 3 && arguments[0] == "uninstall" && arguments[1] == ref && arguments[2] == "--exact"
+	return len(arguments) == 8 && arguments[0] == "uninstall" && arguments[1] == "--id" && arguments[2] == ref && arguments[3] == "--exact" && arguments[4] == "--source" && arguments[5] == "winget" && arguments[6] == "--accept-source-agreements" && arguments[7] == "--disable-interactivity"
 }
 
 func liveCampaignHashes(campaign LiveCampaign) bool {

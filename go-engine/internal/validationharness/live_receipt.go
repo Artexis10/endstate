@@ -60,6 +60,7 @@ type liveReceiptIssuer struct {
 	finalizeHostMutationFn func(liveReceiptAdmission, *liveHostMutationCapability, liveHostMutationBinding, time.Time) bool
 	sealHostMutationFn     func(*liveHostMutationReceipt) error
 	skipPreflightFn        func() error
+	enterCleanupFn         func(uint64, []liveOperation) error
 }
 
 type liveAdmissionState uint8
@@ -97,12 +98,15 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 	var active liveReceiptAdmission
 	var state liveAdmissionState
 	var hostBinding liveHostMutationBinding
+	var cleanup bool
+	var cleanupStart uint64
+	var cleanupOperations []liveOperation
 	nonces := make(map[[32]byte]struct{})
 	consumed := make(map[[32]byte]struct{})
 	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
 		mu.Lock()
 		defer mu.Unlock()
-		if !operation.valid() || sequence == 0 || nonce == ([32]byte{}) || active.issuer != nil || sequence != next+1 {
+		if !operation.valid() || sequence == 0 || nonce == ([32]byte{}) || active.issuer != nil || sequence != next+1 || cleanup && (sequence < cleanupStart || sequence-cleanupStart >= uint64(len(cleanupOperations)) || operation != cleanupOperations[sequence-cleanupStart]) {
 			return liveReceiptAdmission{}, errors.New("live receipt admission rejected")
 		}
 		if _, exists := nonces[nonce]; exists {
@@ -145,6 +149,15 @@ func newLiveReceiptIssuer(optional ...liveDeclaredPreflight) *liveReceiptIssuer 
 			active = liveReceiptAdmission{}
 			state = 0
 		}
+	}
+	issuer.enterCleanupFn = func(start uint64, operations []liveOperation) error {
+		mu.Lock()
+		defer mu.Unlock()
+		if cleanup || active.issuer != nil || start == 0 || next >= start || len(operations) != 3 || operations[0] != liveOperationWingetExactUninstall || operations[1] != liveOperationDeclaredTargetWipe || operations[2] != liveOperationAttemptRootCleanup {
+			return errors.New("live cleanup transition rejected")
+		}
+		cleanup, cleanupStart, cleanupOperations, next = true, start, append([]liveOperation(nil), operations...), start-1
+		return nil
 	}
 	issuer.finalizeMutationFn = func(admission liveReceiptAdmission, capability *liveMutationCapability, request LiveProcessRequest, image [32]byte, now time.Time) bool {
 		mu.Lock()

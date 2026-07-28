@@ -6,21 +6,24 @@
 package validationharness
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
 
 func windowsLiveHostMutationBinding(definition LiveDefinition, appData string, attempt windowsLiveAttemptRoot) (liveHostMutationBinding, error) {
-	if err := validateLiveDefinition(definition); err != nil || safepath.ValidateRoot(appData) != nil {
+	root, err := validatedWindowsLiveAppData(appData)
+	if err != nil || validateLiveDefinition(definition) != nil {
 		return liveHostMutationBinding{}, fmt.Errorf("live host mutation binding is unsafe")
 	}
-	binding := liveHostMutationBinding{appData: sha256.Sum256([]byte(filepath.Clean(appData)))}
+	binding := liveHostMutationBinding{appData: sha256.Sum256([]byte(filepath.Clean(root)))}
 	if attempt.path != "" {
 		if !attempt.valid() {
 			return liveHostMutationBinding{}, fmt.Errorf("live attempt root is unsafe")
@@ -30,7 +33,22 @@ func windowsLiveHostMutationBinding(definition LiveDefinition, appData string, a
 	return binding, nil
 }
 
+func validatedWindowsLiveAppData(supplied string) (string, error) {
+	root, err := windowsLiveRoamingAppData()
+	if err != nil || safepath.ValidateRoot(root) != nil || supplied == "" || !strings.EqualFold(filepath.Clean(root), filepath.Clean(supplied)) {
+		return "", fmt.Errorf("live APPDATA root is unsafe")
+	}
+	if environment := os.Getenv("APPDATA"); environment != "" && !strings.EqualFold(filepath.Clean(root), filepath.Clean(environment)) {
+		return "", fmt.Errorf("live APPDATA environment differs from known folder")
+	}
+	return filepath.Clean(root), nil
+}
+
 func runWindowsLiveDeclaredTargetWipe(admission liveReceiptAdmission, permit trustedLiveHostMutationPermit, definition LiveDefinition, appData string) (*liveHostMutationReceipt, error) {
+	appData, err := validatedWindowsLiveAppData(appData)
+	if err != nil {
+		return nil, err
+	}
 	binding, err := windowsLiveHostMutationBinding(definition, appData, windowsLiveAttemptRoot{})
 	if err != nil {
 		return nil, err
@@ -50,6 +68,10 @@ func runWindowsLiveDeclaredTargetWipe(admission liveReceiptAdmission, permit tru
 }
 
 func runWindowsLiveAttemptRootCleanup(admission liveReceiptAdmission, permit trustedLiveHostMutationPermit, definition LiveDefinition, appData string, attempt windowsLiveAttemptRoot) (*liveHostMutationReceipt, error) {
+	appData, err := validatedWindowsLiveAppData(appData)
+	if err != nil {
+		return nil, err
+	}
 	binding, err := windowsLiveHostMutationBinding(definition, appData, attempt)
 	if err != nil {
 		return nil, err
@@ -85,7 +107,10 @@ type liveResolvedDeclaredTarget struct {
 type windowsLiveAttemptRoot struct {
 	parent string
 	path   string
+	nonce  [32]byte
 }
+
+var windowsLiveAttemptRoots sync.Map
 
 func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
 	if err := safepath.ValidateRoot(parent); err != nil {
@@ -96,7 +121,13 @@ func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
 		return windowsLiveAttemptRoot{}, err
 	}
 	root := windowsLiveAttemptRoot{parent: filepath.Clean(parent), path: filepath.Clean(path)}
+	if _, err := rand.Read(root.nonce[:]); err != nil || root.nonce == ([32]byte{}) {
+		_ = os.Remove(path)
+		return windowsLiveAttemptRoot{}, fmt.Errorf("live attempt ownership receipt is unavailable")
+	}
+	windowsLiveAttemptRoots.Store(root.nonce, root)
 	if !root.valid() {
+		windowsLiveAttemptRoots.Delete(root.nonce)
 		_ = os.Remove(path)
 		return windowsLiveAttemptRoot{}, fmt.Errorf("live attempt root is unsafe")
 	}
@@ -104,7 +135,12 @@ func newWindowsLiveAttemptRoot(parent string) (windowsLiveAttemptRoot, error) {
 }
 
 func (root windowsLiveAttemptRoot) valid() bool {
-	if root.parent == "" || root.path == "" || filepath.Dir(root.path) != root.parent || !strings.HasPrefix(filepath.Base(root.path), "endstate-hosted-live-") {
+	if root.parent == "" || root.path == "" || root.nonce == ([32]byte{}) || filepath.Dir(root.path) != root.parent || !strings.HasPrefix(filepath.Base(root.path), "endstate-hosted-live-") {
+		return false
+	}
+	value, exists := windowsLiveAttemptRoots.Load(root.nonce)
+	owned, ok := value.(windowsLiveAttemptRoot)
+	if !exists || !ok || owned.parent != root.parent || owned.path != root.path || owned.nonce != root.nonce {
 		return false
 	}
 	if err := safepath.ValidateRoot(root.parent); err != nil {
@@ -121,6 +157,7 @@ func (root windowsLiveAttemptRoot) Cleanup() error {
 	if err := removeWindowsLiveDirectory(root.path); err != nil {
 		return fmt.Errorf("cleanup live attempt root: %w", err)
 	}
+	windowsLiveAttemptRoots.Delete(root.nonce)
 	return nil
 }
 
@@ -200,7 +237,9 @@ func wipeWindowsLiveDeclaredTarget(target liveResolvedDeclaredTarget) error {
 		if !info.Mode().IsRegular() {
 			return fmt.Errorf("declared file target is not regular")
 		}
-		return os.Remove(target.path)
+		ctx, cancel := defaultWindowsLiveCleanupContext()
+		defer cancel()
+		return removeWindowsLiveExactLeaf(ctx, target.path, false)
 	case LiveDeclaredTargetDirectory:
 		if !info.IsDir() {
 			return fmt.Errorf("declared directory target is not a directory")
@@ -212,28 +251,7 @@ func wipeWindowsLiveDeclaredTarget(target liveResolvedDeclaredTarget) error {
 }
 
 func removeWindowsLiveDirectory(path string) error {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		return err
-	}
-	for _, entry := range entries {
-		child := filepath.Join(path, entry.Name())
-		info, err := os.Lstat(child)
-		if err != nil || safepath.IsLinkOrReparse(info) {
-			return fmt.Errorf("directory member is unsafe")
-		}
-		if info.IsDir() {
-			if err := removeWindowsLiveDirectory(child); err != nil {
-				return err
-			}
-			continue
-		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("directory member is not regular")
-		}
-		if err := os.Remove(child); err != nil {
-			return err
-		}
-	}
-	return os.Remove(path)
+	ctx, cancel := defaultWindowsLiveCleanupContext()
+	defer cancel()
+	return removeWindowsLiveDirectoryWithBudget(ctx, path, windowsLiveCleanupBudget{maxDepth: maxWindowsLiveCleanupDepth, maxEntries: maxWindowsLiveCleanupEntries})
 }

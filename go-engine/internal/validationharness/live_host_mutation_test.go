@@ -78,6 +78,34 @@ func TestLiveHostMutationReceiptSealerBindsFinalizedTarget(t *testing.T) {
 	}
 }
 
+func TestLiveAuthorityEnterCleanupAdmitsOnlyDeclaredFinalSuffix(t *testing.T) {
+	now := time.Now().UTC()
+	session := liveHostMutationSession(now, liveOperationEngineApply, 1)
+	session.definition.operations = map[uint64]LiveCampaignOperation{
+		1:  {Sequence: 1, Operation: string(liveOperationEngineApply)},
+		2:  {Sequence: 2, Operation: string(liveOperationEngineVerify)},
+		11: {Sequence: 11, Operation: string(liveOperationWingetExactUninstall)},
+		12: {Sequence: 12, Operation: string(liveOperationDeclaredTargetWipe)},
+		13: {Sequence: 13, Operation: string(liveOperationAttemptRootCleanup)},
+	}
+	issuer := session.NewReceiptIssuer()
+	if _, err := issuer.admit(liveOperationWingetExactUninstall, 11, session.NonceFor(liveOperationWingetExactUninstall, 11)); err == nil {
+		t.Fatal("final cleanup suffix admitted without cleanup transition")
+	}
+	if err := session.EnterCleanup(issuer); err != nil {
+		t.Fatalf("EnterCleanup() error = %v", err)
+	}
+	if _, err := issuer.admit(liveOperationEngineApply, 1, session.NonceFor(liveOperationEngineApply, 1)); err == nil {
+		t.Fatal("cleanup transition admitted a normal proof phase")
+	}
+	if _, err := issuer.admit(liveOperationWingetExactUninstall, 11, session.NonceFor(liveOperationWingetExactUninstall, 11)); err != nil {
+		t.Fatalf("final cleanup uninstall was not admitted: %v", err)
+	}
+	if err := session.EnterCleanup(issuer); err == nil {
+		t.Fatal("cleanup transition was replayed")
+	}
+}
+
 func liveHostMutationSession(now time.Time, operation liveOperation, sequence uint64) *LiveAuthoritySession {
 	value := sha256.Sum256([]byte("host-mutation"))
 	return &LiveAuthoritySession{

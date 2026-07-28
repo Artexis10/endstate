@@ -138,7 +138,7 @@ func TestLiveAuthoritySessionMintsSingleBoundPermit(t *testing.T) {
 	campaign.ComparatorSHA256 = liveSHA256Hex(definition.Comparator)
 	campaign.TargetsSHA256 = liveSHA256Hex(definition.DeclaredTargets)
 	campaign.ObserverSHA256 = liveSHA256Hex(definition.Observer)
-	campaign.PackageArguments = []string{"uninstall", campaign.PackageRef, "--exact"}
+	campaign.PackageArguments = []string{"uninstall", "--id", campaign.PackageRef, "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
 	campaign.EngineSHA256 = strings.Repeat("1", 64)
 	campaign.ValidatorSHA256 = strings.Repeat("2", 64)
 	liveTestBindEngineOperations(&campaign)
@@ -237,7 +237,7 @@ func TestLiveAuthoritySessionRejectsPolicyAndBinaryDrift(t *testing.T) {
 	campaign.ValidationSourceSHA256 = definition.ValidationSourceSHA256
 	campaign.SeedSHA256 = definition.SeedSHA256
 	campaign.PackageRef = definition.WingetRef
-	campaign.PackageArguments = []string{"uninstall", campaign.PackageRef, "--exact"}
+	campaign.PackageArguments = []string{"uninstall", "--id", campaign.PackageRef, "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}
 	campaign.ComparatorSHA256 = liveSHA256Hex(definition.Comparator)
 	campaign.TargetsSHA256 = liveSHA256Hex(definition.DeclaredTargets)
 	campaign.ObserverSHA256 = liveSHA256Hex(definition.Observer)

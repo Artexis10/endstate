@@ -74,6 +74,7 @@ func (windowsLiveVersionSource) FileVersion(path string) (string, error) {
 const (
 	liveUninstallKey       = `SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall`
 	liveMachineEnvironment = `SYSTEM\CurrentControlSet\Control\Session Manager\Environment`
+	liveSessionManagerKey  = `SYSTEM\CurrentControlSet\Control\Session Manager`
 	liveUserEnvironment    = `Environment`
 
 	// WinGet's reviewed no-package HRESULT, returned as signed process status.
@@ -436,7 +437,7 @@ func (windowsLiveBoundaryReader) PendingReboot(context.Context) ([]string, error
 		key.Close()
 		indicators = append(indicators, location)
 	}
-	key, err := registry.OpenKey(registry.LOCAL_MACHINE, liveMachineEnvironment, registry.READ|registry.WOW64_64KEY)
+	key, err := registry.OpenKey(registry.LOCAL_MACHINE, liveSessionManagerKey, registry.READ|registry.WOW64_64KEY)
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +447,7 @@ func (windowsLiveBoundaryReader) PendingReboot(context.Context) ([]string, error
 		if err != nil {
 			return nil, err
 		}
-		indicators = append(indicators, liveMachineEnvironment+`\PendingFileRenameOperations`)
+		indicators = append(indicators, liveSessionManagerKey+`\PendingFileRenameOperations`)
 	}
 	return indicators, nil
 }
@@ -482,13 +483,30 @@ func windowsLiveServiceAndDriverNames() ([]string, []string, error) {
 		if kindErr != nil {
 			return nil, nil, kindErr
 		}
-		if kind&0x3 != 0 {
+		driver, service, classifyErr := classifyWindowsLiveServiceType(kind)
+		if classifyErr != nil {
+			return nil, nil, classifyErr
+		}
+		if driver {
 			drivers = append(drivers, name)
-		} else if kind&0x30 != 0 {
+		} else if service {
 			services = append(services, name)
 		}
 	}
 	return services, drivers, nil
+}
+
+func classifyWindowsLiveServiceType(kind uint64) (driver, service bool, err error) {
+	const (
+		driverMask      = 0x1 | 0x2 | 0x4 | 0x8
+		serviceMask     = 0x10 | 0x20
+		interactiveMask = 0x100
+		knownMask       = driverMask | serviceMask | interactiveMask
+	)
+	if kind == 0 || kind&^knownMask != 0 || kind&driverMask != 0 && kind&serviceMask != 0 || kind&serviceMask == serviceMask || kind&interactiveMask != 0 && kind&serviceMask == 0 {
+		return false, false, fmt.Errorf("Windows service type is unsupported")
+	}
+	return kind&driverMask != 0, kind&serviceMask != 0, nil
 }
 
 func windowsLiveRegistryTree(hive registry.Key, location string, access uint32) ([]string, error) {
