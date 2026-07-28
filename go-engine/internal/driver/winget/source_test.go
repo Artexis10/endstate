@@ -4,6 +4,7 @@
 package winget
 
 import (
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -33,6 +34,26 @@ func TestSourceScopedWingetCommands(t *testing.T) {
 				t.Fatalf("argv = %q, want %s scoped to msstore", joined, tc.verb)
 			}
 		})
+	}
+}
+
+func TestInstallSourceUsesExactWingetArguments(t *testing.T) {
+	var got []string
+	d := &WingetDriver{ExecCommand: func(name string, args ...string) *exec.Cmd {
+		got = append([]string{name}, args...)
+		return fakeUninstallCmd(0, "", "", nil)(name, args...)
+	}}
+
+	if _, err := d.InstallSource("9NBLGGH4NNS1", "msstore"); err != nil {
+		t.Fatalf("InstallSource error = %v", err)
+	}
+
+	want := []string{
+		"winget", "install", "--id", "9NBLGGH4NNS1", "--source", "msstore",
+		"--accept-source-agreements", "--accept-package-agreements", "-e", "--silent",
+	}
+	if diff := strings.Join(got, "\x00"); diff != strings.Join(want, "\x00") {
+		t.Fatalf("winget argv = %#v, want %#v", got, want)
 	}
 }
 

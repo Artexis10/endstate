@@ -320,7 +320,7 @@ func liveWindowsProbeExecutable(t *testing.T) string {
 func liveWindowsTestEnvironment(t *testing.T) map[string]string {
 	t.Helper()
 	systemRoot := os.Getenv("SystemRoot")
-	return map[string]string{"COMSPEC": liveWindowsProbeExecutable(t), "PATH": filepath.Join(systemRoot, "System32"), "SYSTEMROOT": systemRoot}
+	return liveTestHostedWingetEnvironment(t, map[string]string{"COMSPEC": liveWindowsProbeExecutable(t), "PATH": filepath.Join(systemRoot, "System32"), "SYSTEMROOT": systemRoot})
 }
 
 func liveWindowsEngineRequest(t *testing.T, args []string, outputLimit int) LiveProcessRequest {

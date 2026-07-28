@@ -7,8 +7,12 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
 
 // sampleWingetOutput is a realistic winget list output used across tests.
@@ -19,6 +23,34 @@ Git                              Git.Git                           2.43.0       
 Google Chrome                    Google.Chrome                     120.0.6099.130 winget
 `
 
+func TestSnapshotWingetHelperProcess(t *testing.T) {
+	if os.Getenv("GO_WANT_SNAPSHOT_WINGET_HELPER") != "1" {
+		return
+	}
+	os.Exit(0)
+}
+
+func writeSnapshotWingetShim(t *testing.T) string {
+	t.Helper()
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable() error = %v", err)
+	}
+	data, err := os.ReadFile(self)
+	if err != nil {
+		t.Fatalf("os.ReadFile(%q) error = %v", self, err)
+	}
+	name := "winget"
+	if runtime.GOOS == "windows" {
+		name += ".exe"
+	}
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, data, 0755); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v", path, err)
+	}
+	return path
+}
+
 // withFakeExec temporarily replaces ExecCommand with a function that returns
 // the given output and error. The original is restored when the returned
 // cleanup function is called.
@@ -28,6 +60,25 @@ func withFakeExec(output []byte, err error) func() {
 		return output, err
 	}
 	return func() { ExecCommand = orig }
+}
+
+func TestDefaultExecCommands_StrictAuthorityRejectsBeforePathFallback(t *testing.T) {
+	shim := writeSnapshotWingetShim(t)
+	t.Setenv("PATH", filepath.Dir(shim)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("GO_WANT_SNAPSHOT_WINGET_HELPER", "1")
+	t.Setenv(wingetauthority.StrictEnvironment, wingetauthority.StrictValue)
+	t.Setenv(wingetauthority.AuthorityEnvironment, "malformed-private-capability")
+
+	if _, err := defaultExecCommand("winget", "list"); err == nil {
+		t.Fatal("defaultExecCommand error = nil, want strict authority failure")
+	} else if strings.Contains(err.Error(), "malformed-private-capability") {
+		t.Fatalf("defaultExecCommand leaked private authority value in error: %v", err)
+	}
+	if err := defaultExecCommandWithFile(t.TempDir()+"\\snapshot.json", "winget", "export"); err == nil {
+		t.Fatal("defaultExecCommandWithFile error = nil, want strict authority failure")
+	} else if strings.Contains(err.Error(), "malformed-private-capability") {
+		t.Fatalf("defaultExecCommandWithFile leaked private authority value in error: %v", err)
+	}
 }
 
 // TestTakeSnapshotSource_UsesNonInteractiveFlags guards the winget list call

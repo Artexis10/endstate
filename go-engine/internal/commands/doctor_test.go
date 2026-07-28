@@ -5,10 +5,46 @@ package commands
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
+
+func writeDoctorWingetShim(t *testing.T) string {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		path := filepath.Join(t.TempDir(), "winget.cmd")
+		if err := os.WriteFile(path, []byte("@echo off\r\necho v1.9.0\r\n"), 0755); err != nil {
+			t.Fatalf("os.WriteFile(%q) error = %v", path, err)
+		}
+		return path
+	}
+	path := filepath.Join(t.TempDir(), "winget")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nprintf 'v1.9.0\\n'\n"), 0755); err != nil {
+		t.Fatalf("os.WriteFile(%q) error = %v", path, err)
+	}
+	return path
+}
+
+func TestCheckWinget_StrictAuthorityRejectsHostilePath(t *testing.T) {
+	shim := writeDoctorWingetShim(t)
+	t.Setenv("PATH", filepath.Dir(shim)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(wingetauthority.StrictEnvironment, wingetauthority.StrictValue)
+	t.Setenv(wingetauthority.AuthorityEnvironment, "malformed-private-capability")
+
+	checks := checkWinget()
+	if len(checks) != 1 || checks[0].Name != "winget" || checks[0].Status != "fail" || checks[0].Message != "winget not found" {
+		t.Fatalf("checkWinget() = %#v, want public strict-authority failure", checks)
+	}
+	if strings.Contains(checks[0].Message, "malformed-private-capability") {
+		t.Fatalf("checkWinget leaked private authority value: %#v", checks)
+	}
+}
 
 func TestRunDoctor_ReturnsChecks(t *testing.T) {
 	result, err := RunDoctor(DoctorFlags{})
@@ -98,20 +134,9 @@ func TestDoctorCheck_StateDir(t *testing.T) {
 	}
 }
 
-func TestCheckWinget_WithMockSuccess(t *testing.T) {
-	// Save and restore the original ExecCommandContext
-	orig := ExecCommandContext
-	defer func() { ExecCommandContext = orig }()
-
-	// Mock ExecCommandContext to simulate winget --version returning "v1.9.0"
-	ExecCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		// Simulate winget --version output with a host-appropriate shell so the
-		// doctor's parsing logic is exercised on Windows AND Linux/macOS CI.
-		if runtime.GOOS == "windows" {
-			return exec.CommandContext(ctx, "cmd", "/C", "echo v1.9.0")
-		}
-		return exec.CommandContext(ctx, "sh", "-c", "echo v1.9.0")
-	}
+func TestCheckWinget_WithAmbientPathSuccess(t *testing.T) {
+	shim := writeDoctorWingetShim(t)
+	t.Setenv("PATH", filepath.Dir(shim)+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	checks := checkWinget()
 	if len(checks) != 2 {
@@ -139,14 +164,31 @@ func TestCheckWinget_WithMockSuccess(t *testing.T) {
 	}
 }
 
-func TestCheckWinget_WithMockFailure(t *testing.T) {
-	orig := ExecCommandContext
-	defer func() { ExecCommandContext = orig }()
-
-	// Mock ExecCommandContext to simulate winget not found
+func TestCheckWinget_UsesExecCommandContextSeam(t *testing.T) {
+	original := ExecCommandContext
+	t.Cleanup(func() { ExecCommandContext = original })
+	called := false
 	ExecCommandContext = func(ctx context.Context, name string, args ...string) *exec.Cmd {
-		return exec.CommandContext(ctx, "nonexistent-binary-that-does-not-exist-12345")
+		if name == "winget" {
+			called = true
+		}
+		if runtime.GOOS == "windows" {
+			return exec.CommandContext(ctx, "cmd", "/C", "echo v1.9.0")
+		}
+		return exec.CommandContext(ctx, "sh", "-c", "printf 'v1.9.0\\n'")
 	}
+
+	checks := checkWinget()
+	if !called {
+		t.Fatal("checkWinget() bypassed ExecCommandContext")
+	}
+	if len(checks) != 2 || checks[0].Status != "pass" || checks[1].Status != "pass" {
+		t.Fatalf("checkWinget() = %#v, want injected success", checks)
+	}
+}
+
+func TestCheckWinget_WithMissingAmbientPath(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
 
 	checks := checkWinget()
 	if len(checks) != 1 {

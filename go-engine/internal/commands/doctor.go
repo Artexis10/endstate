@@ -13,6 +13,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/config"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
 
 // DoctorFlags holds the parsed CLI flags for the doctor command.
@@ -90,8 +91,16 @@ func checkWinget() []DoctorCheck {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	cmd := ExecCommandContext(ctx, "winget", "--version")
-	output, err := cmd.Output()
+	var output []byte
+	cmd, release, err := wingetauthority.CommandWith(func(name string, args ...string) *exec.Cmd {
+		return ExecCommandContext(ctx, name, args...)
+	}, "--version")
+	if err == nil {
+		defer release()
+		var outputErr error
+		output, outputErr = cmd.Output()
+		err = outputErr
+	}
 	if err != nil {
 		return []DoctorCheck{
 			{

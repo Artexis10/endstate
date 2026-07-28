@@ -12,12 +12,14 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
 
 type liveTrustedPowerShellBinding struct {
@@ -36,6 +38,11 @@ func bindWindowsLiveOperationTemplate(template LiveCampaignOperation, attemptRoo
 
 func bindWindowsLiveOperationTemplateUnchecked(template LiveCampaignOperation, attemptRoot, checkoutRoot string, winget liveTrustedAppXBinding, powershell liveTrustedPowerShellBinding, environment map[string]string) (LiveCampaignOperation, error) {
 	bound := LiveCampaignOperation{Sequence: template.Sequence, Operation: template.Operation, Environment: cloneLiveEnvironment(environment)}
+	for name := range bound.Environment {
+		if strings.EqualFold(name, wingetauthority.StrictEnvironment) || strings.EqualFold(name, wingetauthority.AuthorityEnvironment) {
+			delete(bound.Environment, name)
+		}
+	}
 	kind := liveOperation(template.Operation)
 	if kind == liveOperationDeclaredTargetWipe || kind == liveOperationAttemptRootCleanup {
 		return bound, nil
@@ -64,7 +71,20 @@ func bindWindowsLiveOperationTemplateUnchecked(template LiveCampaignOperation, a
 	if template.Environment["ENDSTATE_ROOT"] != liveTemplateEndstateRoot || len(template.Environment) != 1 {
 		return LiveCampaignOperation{}, fmt.Errorf("live operation root authority is invalid")
 	}
+	if bound.Environment == nil {
+		bound.Environment = make(map[string]string)
+	}
 	bound.Environment["ENDSTATE_ROOT"] = attemptRoot
+	trustedWinget, err := newLiveTrustedAppXBinding(winget.metadata)
+	if err != nil || !trustedWinget.metadata.receipt.valid {
+		return LiveCampaignOperation{}, fmt.Errorf("trusted winget binding is invalid")
+	}
+	authority, err := wingetauthority.Encode(filepath.Join(trustedWinget.metadata.packageRoot, trustedWinget.metadata.executableName), trustedWinget.metadata.receipt.sha256)
+	if err != nil {
+		return LiveCampaignOperation{}, fmt.Errorf("trusted winget binding is invalid")
+	}
+	bound.Environment[wingetauthority.StrictEnvironment] = wingetauthority.StrictValue
+	bound.Environment[wingetauthority.AuthorityEnvironment] = authority
 	bound.ExecutableSHA256 = template.ExecutableSHA256
 	switch kind {
 	case liveOperationEngineApply:
@@ -243,6 +263,9 @@ func trustedWindowsLiveRuntimeEnvironment(attemptRoot string) (map[string]string
 	}
 	environment := make(map[string]string)
 	for key := range liveProcessEnvironmentAllowlist {
+		if key == wingetauthority.StrictEnvironment || key == wingetauthority.AuthorityEnvironment {
+			continue
+		}
 		if value := os.Getenv(key); value != "" {
 			if !validLiveProcessEnvironmentValue(value) {
 				return nil, fmt.Errorf("live runtime environment is invalid")

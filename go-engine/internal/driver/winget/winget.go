@@ -16,6 +16,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
 
 // alreadyInstalledExitCode is the winget exit code that means the package is
@@ -117,11 +118,17 @@ type WingetDriver struct {
 	ExecCommand func(name string, args ...string) *exec.Cmd
 }
 
-// New returns a WingetDriver backed by the real exec.Command.
+// New returns a WingetDriver backed by the shared Winget authority launcher.
 func New() *WingetDriver {
-	return &WingetDriver{
-		ExecCommand: exec.Command,
+	return &WingetDriver{}
+}
+
+func (w *WingetDriver) command(args ...string) (*exec.Cmd, func(), error) {
+	builder := exec.Command
+	if w.ExecCommand != nil {
+		builder = w.ExecCommand
 	}
+	return wingetauthority.CommandWith(builder, args...)
 }
 
 // Name satisfies driver.Driver and returns the stable driver identifier.
@@ -175,7 +182,11 @@ func (w *WingetDriver) install(ref, version string, force bool, source string) (
 	if force {
 		args = append(args, "--force")
 	}
-	cmd := w.ExecCommand("winget", args...)
+	cmd, release, err := w.command(args...)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

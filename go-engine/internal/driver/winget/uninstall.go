@@ -54,8 +54,7 @@ func (w *WingetDriver) Uninstall(ref string) (*driver.UninstallResult, error) {
 
 func (w *WingetDriver) UninstallSource(ref, source string) (*driver.UninstallResult, error) {
 	source = packagesource.ResolveWinget(ref, source)
-	cmd := w.ExecCommand(
-		"winget",
+	cmd, release, err := w.command(
 		"uninstall",
 		"--id", ref,
 		"--source", source,
@@ -63,6 +62,10 @@ func (w *WingetDriver) UninstallSource(ref, source string) (*driver.UninstallRes
 		"--silent",
 		"--accept-source-agreements",
 	)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

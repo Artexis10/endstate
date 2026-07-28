@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
 
 const (
@@ -352,6 +354,9 @@ func validateLiveProcessRequest(request LiveProcessRequest) error {
 	if _, err := liveProcessEnvironment(request.environment); err != nil {
 		return err
 	}
+	if request.executionClass() == LiveExecutionEngine && wingetauthority.RequireHosted(request.environment) != nil {
+		return liveExecutionError(LiveExecutionInvalidRequest, nil)
+	}
 	if request.operation == liveOperationWingetExactList && !validLiveProbe(request) {
 		return liveExecutionError(LiveExecutionInvalidRequest, nil)
 	}
@@ -462,7 +467,7 @@ func liveProcessEnvironment(overrides map[string]string) ([]string, error) {
 
 var liveProcessEnvironmentAllowlist = map[string]struct{}{
 	"APPDATA": {}, "COMSPEC": {}, "ENDSTATE_ROOT": {}, "LOCALAPPDATA": {}, "PATH": {}, "PATHEXT": {},
-	"SYSTEMROOT": {}, "TEMP": {}, "TMP": {}, "USERPROFILE": {}, "WINDIR": {},
+	"SYSTEMROOT": {}, "TEMP": {}, "TMP": {}, "USERPROFILE": {}, "WINDIR": {}, wingetauthority.StrictEnvironment: {}, wingetauthority.AuthorityEnvironment: {},
 }
 
 func validLiveProcessValue(value string) bool {
