@@ -222,7 +222,7 @@ func runV1Attempt(ctx context.Context, request V1LaneRequest, run V1ProcessRunne
 		return finishV1Infrastructure(attempt, started, "sidecar_mode")
 	}
 	attempt.VerifiedMode = mode
-	admission, status, failure, proof, infrastructure := runV1ExternalDetector(ctx, run, filepath.Join(repository, "go-engine"), engine, validator, repository, candidate, environment)
+	admission, status, failure, proof, infrastructure := runV1ExternalDetector(ctx, run, directory, filepath.Join(repository, "go-engine"), engine, validator, repository, candidate, environment)
 	if infrastructure != "" {
 		return finishV1Infrastructure(attempt, started, infrastructure)
 	}
@@ -295,8 +295,12 @@ func v1LoadedModuleRevision(repository string, target V1Target) (string, error) 
 	return modules.ComputeModuleRevision(raw)
 }
 
-func runV1ExternalDetector(ctx context.Context, run V1ProcessRunner, directory, engine, validator, repository string, candidate V1Candidate, environment []string) (string, string, *V1Failure, string, string) {
-	resultPath := filepath.Join(directory, "profile", "temp", "validation-result", "result.json")
+func runV1ExternalDetector(ctx context.Context, run V1ProcessRunner, attemptRoot, directory, engine, validator, repository string, candidate V1Candidate, environment []string) (string, string, *V1Failure, string, string) {
+	tempRoot := v1EnvironmentValue(environment, "TEMP")
+	if tempRoot != filepath.Join(attemptRoot, "profile", "temp") || !v1StrictDescendant(attemptRoot, tempRoot) || !v1SafeExistingAncestors(tempRoot) {
+		return "", "", nil, "", "detector_result_root"
+	}
+	resultPath := filepath.Join(tempRoot, "validation-result", "result.json")
 	if err := os.Mkdir(filepath.Dir(resultPath), 0o700); err != nil {
 		return "", "", nil, "", "detector_result_root"
 	}
@@ -321,7 +325,7 @@ func runV1ExternalDetector(ctx context.Context, run V1ProcessRunner, directory, 
 		return "", "", nil, "", "detector_evidence"
 	}
 	persistedTyped, err := DecodeV1ExternalResult(persisted, candidate, revision, mode)
-	if err != nil || !bytes.Equal(bytes.TrimSpace([]byte(result.Value)), bytes.TrimSpace(persisted)) || !reflect.DeepEqual(typed, persistedTyped) {
+	if err != nil || !bytes.Equal([]byte(result.Value), persisted) || !reflect.DeepEqual(typed, persistedTyped) {
 		return "", "", nil, "", "detector_evidence"
 	}
 	admission, failure, err := v1ModuleDetectorResult(candidate, typed)
@@ -372,11 +376,15 @@ func validV1ExternalResult(result validationharness.Result, candidate V1Candidat
 	if result.Status == validationharness.ResultStatusPassed {
 		return result.Failure == nil && len(result.ProofLevels) > 0 && len(result.AssertionCounts) > 0 && len(result.PhaseTimings) > 0
 	}
-	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || result.Failure.Detail != "" || len(result.Failure.ProofLevels) != 0 {
+	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || !validV1FailureDetail(result.Failure.Detail) || len(result.Failure.ProofLevels) != 0 || len(result.AssertionCounts) == 0 || len(result.PhaseTimings) == 0 {
 		return false
 	}
 	failure := v1FailureFromLegacy(&Failure{Code: result.Failure.Code, Phase: result.Failure.Phase, Coordinate: result.Failure.Coordinate})
 	return failure != nil && validV1Failure(*failure)
+}
+
+func validV1FailureDetail(detail string) bool {
+	return len(detail) <= 512 && !strings.ContainsAny(detail, "\r\n\\")
 }
 
 func v1ModuleDetectorResult(candidate V1Candidate, result validationharness.Result) (string, *V1Failure, error) {

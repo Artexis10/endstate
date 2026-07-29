@@ -76,7 +76,7 @@ func validV1PatchContent(request V1PatchRequest, raw string) bool {
 			continue
 		}
 		added := strings.ToLower(line[1:])
-		if strings.Contains(added, "//go:build") || strings.Contains(added, "// +build") || strings.Contains(added, "endstate_testmode") || strings.Contains(added, "endstate_validation") {
+		if strings.Contains(added, "//go:build") || strings.Contains(added, "// +build") || strings.Contains(added, "endstate_testmode") || strings.Contains(added, "endstate_validation") || strings.Contains(added, "validationmode") || strings.Contains(added, "testmodeenvironment") || strings.Contains(added, "validationcontext") || strings.Contains(added, "legacyvalidationboundary") || strings.Contains(added, "withvalidation") {
 			return false
 		}
 		if request.CandidateID != "" && strings.Contains(line, request.CandidateID) || request.ModuleID != "" && strings.Contains(line, request.ModuleID) || request.ScenarioID != "" && strings.Contains(line, request.ScenarioID) || request.DetectorID != "" && strings.Contains(line, request.DetectorID) {

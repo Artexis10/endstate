@@ -189,6 +189,8 @@ func ValidateV1Repository(root, manifestPath string) (V1Manifest, error) {
 type v1ReviewRecord struct {
 	CandidateID            string    `json:"candidateId"`
 	PatchSHA256            string    `json:"patchSha256"`
+	OperatorFingerprint    string    `json:"operatorFingerprint"`
+	InvariantFingerprint   string    `json:"invariantFingerprint"`
 	Target                 V1Target  `json:"target"`
 	ProductionFile         string    `json:"productionFile"`
 	Lifecycle              string    `json:"lifecycle"`
@@ -203,7 +205,15 @@ type v1ReviewRecord struct {
 }
 
 func validateV1ReviewRecord(root string, candidate V1Candidate) error {
-	path := filepath.Join(root, filepath.FromSlash(V1CorpusRoot), "reviews", candidate.ID+".json")
+	reviews := filepath.Join(root, filepath.FromSlash(V1CorpusRoot), "reviews")
+	path := filepath.Join(reviews, candidate.ID+".json")
+	if !v1StrictDescendant(root, reviews) || !v1SafeExistingAncestors(reviews) {
+		return errors.New("v1 review record root is unsafe")
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("v1 review record is missing")
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return errors.New("v1 review record is missing")
@@ -216,7 +226,7 @@ func validateV1ReviewRecord(root string, candidate V1Candidate) error {
 	if err := decodeV1(raw, &record); err != nil {
 		return errors.New("v1 review record is malformed")
 	}
-	if record.CandidateID != candidate.ID || record.PatchSHA256 != candidate.PatchSHA256 || record.Target != candidate.Target || record.ProductionFile != candidate.ProductionFile || record.Lifecycle != candidate.Lifecycle || record.Expected != candidate.Expected || !record.Realistic || !record.NonEquivalent || !record.Disjoint || !record.PatchScope || !record.FailureIdentity || !record.ProductionReachability || !record.Ordering {
+	if record.CandidateID != candidate.ID || record.PatchSHA256 != candidate.PatchSHA256 || record.OperatorFingerprint != candidate.OperatorFingerprint || record.InvariantFingerprint != candidate.InvariantFingerprint || record.Target != candidate.Target || record.ProductionFile != candidate.ProductionFile || record.Lifecycle != candidate.Lifecycle || record.Expected != candidate.Expected || !record.Realistic || !record.NonEquivalent || !record.Disjoint || !record.PatchScope || !record.FailureIdentity || !record.ProductionReachability || !record.Ordering {
 		return errors.New("v1 review record differs")
 	}
 	return nil
@@ -279,7 +289,7 @@ func V1ComparatorContractSHA256() string {
 }
 
 func V1DetectorContractSHA256() string {
-	return v1Digest("go build -buildvcs=false -o endstate ./cmd/endstate\ngo build -buildvcs=false -o endstate-validation ./cmd/endstate-validation\nendstate-validation --engine endstate --repo repository --module module --scenario scenario\n")
+	return v1Digest("go build -buildvcs=false -o endstate ./cmd/endstate\ngo build -buildvcs=false -o endstate-validation ./cmd/endstate-validation\nendstate-validation --engine endstate --repo repository --module module --scenario scenario --result validation-owned/result.json\n")
 }
 
 func v1Digest(value string) string {
