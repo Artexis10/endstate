@@ -21,7 +21,8 @@ var (
 	v1EvidenceInventory    = []string{"windows-comparator.json", "ubuntu-comparator.json", "macos-comparator.json", "windows-baseline.json", "windows-detector.json"}
 )
 
-// V1AuthorityValidator validates the four immutable authorities before any
+// V1AuthorityValidator validates the three durable corpus authorities and the
+// hydrated dispatch authority before any
 // candidate checkout or detector execution. Git operations are injected so the
 // contract remains hermetic under unit test.
 type V1AuthorityValidator struct {
@@ -116,22 +117,27 @@ func LoadV1Manifest(root, path string) (V1Manifest, error) {
 
 // ValidateV1Repository verifies the closed authority and command contracts
 // before an attempt root can be created.
-func ValidateV1Repository(root, manifestPath string) (V1Manifest, error) {
+func ValidateV1Repository(root, manifestPath, dispatchCommit string) (V1Manifest, error) {
 	canonicalRoot, err := canonicalV1Root(root)
 	if err != nil {
 		return V1Manifest{}, err
+	}
+	if !v1SHA1Pattern.MatchString(dispatchCommit) {
+		return V1Manifest{}, errors.New("invalid v1 dispatch commit")
 	}
 	manifest, err := LoadV1Manifest(canonicalRoot, manifestPath)
 	if err != nil {
 		return V1Manifest{}, err
 	}
+	dispatch, err := ensureCleanV1Dispatch(canonicalRoot, dispatchCommit)
+	if err != nil {
+		return V1Manifest{}, err
+	}
+	manifest.Authorities.Dispatch = dispatch
 	if err := ensureV1AuthorityObjects(canonicalRoot, manifest.Authorities); err != nil {
 		return V1Manifest{}, err
 	}
 	if err := prepareV1AuthorityGraph(canonicalRoot); err != nil {
-		return V1Manifest{}, err
-	}
-	if err := ensureCleanV1Dispatch(canonicalRoot, manifest.Authorities.Dispatch); err != nil {
 		return V1Manifest{}, err
 	}
 	if manifest.ComparatorContractSHA256 != V1ComparatorContractSHA256() || manifest.DetectorContractSHA256 != V1DetectorContractSHA256() {
@@ -234,7 +240,7 @@ func validateV1ReviewRecord(root string, candidate V1Candidate) error {
 }
 
 func ensureV1AuthorityObjects(root string, authorities V1Authorities) error {
-	for _, reference := range []V1Reference{authorities.Evaluated, authorities.Freeze, authorities.Corpus, authorities.Dispatch} {
+	for _, reference := range []V1Reference{authorities.Evaluated, authorities.Freeze, authorities.Corpus} {
 		if _, err := runV1Git(root, "cat-file", "-e", reference.Commit+"^{commit}"); err == nil {
 			continue
 		}
@@ -258,27 +264,31 @@ func prepareV1AuthorityGraph(root string) error {
 	return nil
 }
 
-func ensureCleanV1Dispatch(root string, dispatch V1Reference) error {
+func ensureCleanV1Dispatch(root, expectedCommit string) (V1Reference, error) {
 	head, err := runV1Git(root, "rev-parse", "HEAD^{commit}")
-	if err != nil || head != dispatch.Commit {
-		return errors.New("dispatch checkout differs")
+	if err != nil || head != expectedCommit {
+		return V1Reference{}, errors.New("dispatch checkout differs")
 	}
-	tree, err := runV1Git(root, "write-tree")
-	if err != nil || tree != dispatch.Tree {
-		return errors.New("dispatch index differs")
+	tree, err := runV1Git(root, "rev-parse", "HEAD^{tree}")
+	if err != nil {
+		return V1Reference{}, errors.New("dispatch tree differs")
+	}
+	indexed, err := runV1Git(root, "write-tree")
+	if err != nil || indexed != tree {
+		return V1Reference{}, errors.New("dispatch index differs")
 	}
 	for _, arguments := range [][]string{{"diff", "--quiet"}, {"diff", "--cached", "--quiet"}} {
 		command := exec.Command("git", append([]string{"-C", root}, arguments...)...)
 		command.Env = V1ChildEnvironment(os.Environ())
 		if err := command.Run(); err != nil {
-			return errors.New("dispatch worktree differs")
+			return V1Reference{}, errors.New("dispatch worktree differs")
 		}
 	}
 	foreign, err := runV1Git(root, "ls-files", "--others", "--exclude-standard")
 	if err != nil || foreign != "" {
-		return errors.New("dispatch worktree has foreign bytes")
+		return V1Reference{}, errors.New("dispatch worktree has foreign bytes")
 	}
-	return nil
+	return V1Reference{Commit: head, Tree: tree}, nil
 }
 
 func v1PatchRequest(candidate V1Candidate) validationaudit.V1PatchRequest {
@@ -350,7 +360,10 @@ func runV1Git(root string, args ...string) (string, error) {
 
 // AggregateV1Evidence accepts exactly the five controller-owned lane records.
 // It never examines process output or workflow state.
-func AggregateV1Evidence(manifest V1Manifest, root string) (V1Aggregate, error) {
+func AggregateV1Evidence(manifest V1Manifest, dispatchCommit, root string) (V1Aggregate, error) {
+	if !validV1Manifest(manifest) || manifest.Authorities.Dispatch.Commit != dispatchCommit {
+		return V1Aggregate{}, ErrV1EvidenceInventory
+	}
 	canonicalRoot, err := canonicalV1Root(root)
 	if err != nil {
 		return V1Aggregate{}, ErrV1EvidenceInventory

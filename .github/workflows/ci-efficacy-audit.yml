@@ -33,7 +33,7 @@ jobs:
         run: |
           cd audit/go-engine
           go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          "$RUNNER_TEMP/endstate-validation-pilot" validate-v1 --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json"
+          "$RUNNER_TEMP/endstate-validation-pilot" validate-v1 --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$GITHUB_SHA"
 
   windows:
     needs: prepare
@@ -63,9 +63,9 @@ jobs:
           Push-Location audit/go-engine
           go build -buildvcs=false -o "$env:RUNNER_TEMP/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
           Pop-Location
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane windows-go --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role baseline --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role detector --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$env:GITHUB_SHA" --role comparator --lane windows-go --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$env:GITHUB_SHA" --role baseline --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$env:GITHUB_SHA" --role detector --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -98,7 +98,7 @@ jobs:
         run: |
           cd audit/go-engine
           go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane ubuntu-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family linux --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --go-cache "$GOCACHE" --go-mod-cache "$GOMODCACHE" --result-root "$RUNNER_TEMP/v1-owned/results"
+          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$GITHUB_SHA" --role comparator --lane ubuntu-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family linux --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --go-cache "$GOCACHE" --go-mod-cache "$GOMODCACHE" --result-root "$RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -131,7 +131,7 @@ jobs:
         run: |
           cd audit/go-engine
           go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane macos-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family darwin --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --go-cache "$GOCACHE" --go-mod-cache "$GOMODCACHE" --result-root "$RUNNER_TEMP/v1-owned/results"
+          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$GITHUB_SHA" --role comparator --lane macos-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family darwin --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --go-cache "$GOCACHE" --go-mod-cache "$GOMODCACHE" --result-root "$RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -171,7 +171,7 @@ jobs:
       - name: Aggregate fixed typed inventory
         run: |
           mkdir -p "$RUNNER_TEMP/v1-aggregate"
-          "$RUNNER_TEMP/endstate-validation-pilot" aggregate-v1 --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --evidence-root "$GITHUB_WORKSPACE/evidence" --output "$RUNNER_TEMP/v1-aggregate/aggregate.json"
+          "$RUNNER_TEMP/endstate-validation-pilot" aggregate-v1 --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$GITHUB_SHA" --evidence-root "$GITHUB_WORKSPACE/evidence" --output "$RUNNER_TEMP/v1-aggregate/aggregate.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

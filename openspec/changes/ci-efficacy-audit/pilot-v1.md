@@ -145,12 +145,16 @@ it. Detector/harness source cannot change, but shared product dependencies are
 co-built with the mutant exactly as they are in PR #205. The unmodified
 baselines use the same two-binary construction from the evaluated tree.
 
-The experiment binds four distinct authorities: the evaluated PR #205 commit
-and tree; the detector/controller/workflow freeze commit; the later patch-
-corpus commit; and the dispatch commit. The corpus/dispatch commit must be a
-descendant of the freeze and its repository diff may touch only the registered
-v1 corpus root; production files change only inside disposable evaluated-tree
-checkouts when an exact corpus patch is applied. The controller mechanically
+The persisted experiment binds three distinct authorities: the evaluated PR #205
+commit and tree; the detector/controller/workflow freeze commit; and the later
+patch-corpus commit. The corpus commit must be a descendant of the freeze and
+its repository diff may touch only the registered v1 corpus root. Each
+controller invocation separately receives the trusted exact GitHub run SHA,
+verifies a clean checkout at that SHA, derives its commit/tree as the runtime
+dispatch authority, and records that hydrated authority in every attempt and
+aggregate comparison. A persisted manifest field for dispatch is invalid.
+Production files change only inside disposable evaluated-tree checkouts when an
+exact corpus patch is applied. The controller mechanically
 verifies that detector, controller, workflow, and command-contract bytes are
 identical to the freeze before any attempt runs. Audit tests added after PR
 #205 are never part of the evaluated Go checkout.

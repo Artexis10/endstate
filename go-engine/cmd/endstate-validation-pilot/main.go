@@ -96,13 +96,14 @@ func runV0(args []string) int {
 func runValidateV1(args []string) int {
 	flags := flag.NewFlagSet("endstate-validation-pilot validate-v1", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	var root, manifest string
+	var root, manifest, dispatchCommit string
 	flags.StringVar(&root, "root", "", "absolute dispatch repository root")
 	flags.StringVar(&manifest, "manifest", "", "absolute v1 manifest path")
-	if flags.Parse(args) != nil || flags.NArg() != 0 || root == "" || manifest == "" {
+	flags.StringVar(&dispatchCommit, "dispatch-commit", "", "trusted exact GitHub dispatch commit")
+	if flags.Parse(args) != nil || flags.NArg() != 0 || root == "" || manifest == "" || dispatchCommit == "" {
 		return 2
 	}
-	if _, err := validationpilot.ValidateV1Repository(root, manifest); err != nil {
+	if _, err := validationpilot.ValidateV1Repository(root, manifest, dispatchCommit); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -112,9 +113,10 @@ func runValidateV1(args []string) int {
 func runV1Lane(args []string) int {
 	flags := flag.NewFlagSet("endstate-validation-pilot run-v1-lane", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	var root, manifest, role, lane, runnerRoot, runnerFamily, runnerImageOS, runnerImageVersion, goCache, goModCache, resultRoot string
+	var root, manifest, dispatchCommit, role, lane, runnerRoot, runnerFamily, runnerImageOS, runnerImageVersion, goCache, goModCache, resultRoot string
 	flags.StringVar(&root, "root", "", "absolute dispatch repository root")
 	flags.StringVar(&manifest, "manifest", "", "absolute v1 manifest path")
+	flags.StringVar(&dispatchCommit, "dispatch-commit", "", "trusted exact GitHub dispatch commit")
 	flags.StringVar(&role, "role", "", "fixed v1 role")
 	flags.StringVar(&lane, "lane", "", "fixed v1 lane")
 	flags.StringVar(&runnerRoot, "runner-root", "", "absolute runner-owned root")
@@ -124,7 +126,7 @@ func runV1Lane(args []string) int {
 	flags.StringVar(&goCache, "go-cache", "", "shared job GOCACHE")
 	flags.StringVar(&goModCache, "go-mod-cache", "", "shared job GOMODCACHE")
 	flags.StringVar(&resultRoot, "result-root", "", "fresh runner-owned result root")
-	if flags.Parse(args) != nil || flags.NArg() != 0 || root == "" || manifest == "" || role == "" || lane == "" || runnerRoot == "" || runnerFamily == "" || runnerImageOS == "" || runnerImageVersion == "" || goCache == "" || goModCache == "" || resultRoot == "" {
+	if flags.Parse(args) != nil || flags.NArg() != 0 || root == "" || manifest == "" || dispatchCommit == "" || role == "" || lane == "" || runnerRoot == "" || runnerFamily == "" || runnerImageOS == "" || runnerImageVersion == "" || goCache == "" || goModCache == "" || resultRoot == "" {
 		return 2
 	}
 	runner, err := validationpilot.HostedV1Runner(runnerFamily, runnerImageOS, runnerImageVersion)
@@ -132,12 +134,12 @@ func runV1Lane(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	v1Manifest, err := validationpilot.ValidateV1Repository(root, manifest)
+	v1Manifest, err := validationpilot.ValidateV1Repository(root, manifest, dispatchCommit)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := validationpilot.RunV1Lane(context.Background(), validationpilot.V1LaneRequest{Root: root, RunnerRoot: runnerRoot, GoCache: goCache, GoModCache: goModCache, Manifest: v1Manifest, Role: role, Lane: lane, Runner: runner, ResultRoot: resultRoot}); err != nil {
+	if err := validationpilot.RunV1Lane(context.Background(), validationpilot.V1LaneRequest{Root: root, RunnerRoot: runnerRoot, GoCache: goCache, GoModCache: goModCache, Manifest: v1Manifest, DispatchCommit: dispatchCommit, Role: role, Lane: lane, Runner: runner, ResultRoot: resultRoot}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
@@ -147,20 +149,21 @@ func runV1Lane(args []string) int {
 func runAggregateV1(args []string) int {
 	flags := flag.NewFlagSet("endstate-validation-pilot aggregate-v1", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	var manifestPath, evidenceRoot, output string
+	var manifestPath, dispatchCommit, evidenceRoot, output string
 	flags.StringVar(&manifestPath, "manifest", "", "absolute v1 manifest path")
+	flags.StringVar(&dispatchCommit, "dispatch-commit", "", "trusted exact GitHub dispatch commit")
 	flags.StringVar(&evidenceRoot, "evidence-root", "", "absolute fixed evidence root")
 	flags.StringVar(&output, "output", "", "absolute aggregate output path")
-	if flags.Parse(args) != nil || flags.NArg() != 0 || manifestPath == "" || evidenceRoot == "" || output == "" {
+	if flags.Parse(args) != nil || flags.NArg() != 0 || manifestPath == "" || dispatchCommit == "" || evidenceRoot == "" || output == "" {
 		return 2
 	}
 	root := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(manifestPath))))
-	manifest, err := validationpilot.LoadV1Manifest(root, manifestPath)
+	manifest, err := validationpilot.ValidateV1Repository(root, manifestPath, dispatchCommit)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	aggregate, aggregateErr := validationpilot.AggregateV1Evidence(manifest, evidenceRoot)
+	aggregate, aggregateErr := validationpilot.AggregateV1Evidence(manifest, dispatchCommit, evidenceRoot)
 	if aggregateErr != nil {
 		aggregate = inconclusiveV1Aggregate(manifest)
 	}

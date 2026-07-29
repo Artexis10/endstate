@@ -40,7 +40,7 @@ func TestAggregateV1RejectsForeignEvidenceInventory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "foreign.json"), []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := AggregateV1Evidence(manifest, root); !errors.Is(err, ErrV1EvidenceInventory) {
+	if _, err := AggregateV1Evidence(manifest, manifest.Authorities.Dispatch.Commit, root); !errors.Is(err, ErrV1EvidenceInventory) {
 		t.Fatalf("AggregateV1Evidence() error = %v, want foreign inventory rejection", err)
 	}
 }

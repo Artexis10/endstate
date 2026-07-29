@@ -71,6 +71,14 @@ type V1Authorities struct {
 	Dispatch  V1Reference `json:"dispatch"`
 }
 
+// V1CorpusAuthorities are the durable reviewed authorities. Dispatch is a
+// per-run authority and is hydrated only after the controller verifies HEAD.
+type V1CorpusAuthorities struct {
+	Evaluated V1Reference `json:"evaluated"`
+	Freeze    V1Reference `json:"freeze"`
+	Corpus    V1Reference `json:"corpus"`
+}
+
 // V1Fingerprint prevents a held-out candidate from reusing v0's operator or invariant.
 type V1Fingerprint struct {
 	OperatorFingerprint  string `json:"operatorFingerprint"`
@@ -195,18 +203,36 @@ type V1Aggregate struct {
 }
 
 func DecodeV1Manifest(raw []byte) (V1Manifest, error) {
-	var manifest V1Manifest
-	if err := decodeV1(raw, &manifest); err != nil || !validV1Manifest(manifest) {
+	var persisted v1PersistedManifest
+	if err := decodeV1(raw, &persisted); err != nil {
+		return V1Manifest{}, errors.New("invalid v1 manifest")
+	}
+	manifest := persisted.runtime()
+	if !validV1CorpusManifest(manifest) {
 		return V1Manifest{}, errors.New("invalid v1 manifest")
 	}
 	return manifest, nil
 }
 
 func EncodeV1Manifest(manifest V1Manifest) ([]byte, string, error) {
-	if !validV1Manifest(manifest) {
+	if !validV1CorpusManifest(manifest) && !validV1Manifest(manifest) {
 		return nil, "", errors.New("invalid v1 manifest")
 	}
-	return encodeV1(manifest)
+	return encodeV1(v1PersistedManifest{SchemaVersion: manifest.SchemaVersion, Authorities: V1CorpusAuthorities{Evaluated: manifest.Authorities.Evaluated, Freeze: manifest.Authorities.Freeze, Corpus: manifest.Authorities.Corpus}, Toolchain: manifest.Toolchain, ComparatorContractSHA256: manifest.ComparatorContractSHA256, DetectorContractSHA256: manifest.DetectorContractSHA256, Calibration: manifest.Calibration, Candidates: manifest.Candidates})
+}
+
+type v1PersistedManifest struct {
+	SchemaVersion            int                 `json:"schemaVersion"`
+	Authorities              V1CorpusAuthorities `json:"authorities"`
+	Toolchain                string              `json:"toolchain"`
+	ComparatorContractSHA256 string              `json:"comparatorContractSha256"`
+	DetectorContractSHA256   string              `json:"detectorContractSha256"`
+	Calibration              []V1Fingerprint     `json:"calibration"`
+	Candidates               []V1Candidate       `json:"candidates"`
+}
+
+func (manifest v1PersistedManifest) runtime() V1Manifest {
+	return V1Manifest{SchemaVersion: manifest.SchemaVersion, Authorities: V1Authorities{Evaluated: manifest.Authorities.Evaluated, Freeze: manifest.Authorities.Freeze, Corpus: manifest.Authorities.Corpus}, Toolchain: manifest.Toolchain, ComparatorContractSHA256: manifest.ComparatorContractSHA256, DetectorContractSHA256: manifest.DetectorContractSHA256, Calibration: manifest.Calibration, Candidates: manifest.Candidates}
 }
 
 func DecodeV1Evidence(raw []byte) (V1Evidence, error) {
@@ -489,7 +515,15 @@ func v1GuardValue(value string) bool {
 }
 
 func validV1Manifest(manifest V1Manifest) bool {
-	if manifest.SchemaVersion != V1SchemaVersion || !validV1Authorities(manifest.Authorities) || !v1ToolchainPattern.MatchString(manifest.Toolchain) || !sha256Pattern.MatchString(manifest.ComparatorContractSHA256) || !sha256Pattern.MatchString(manifest.DetectorContractSHA256) || len(manifest.Candidates) != 3 {
+	return validV1Authorities(manifest.Authorities) && validV1ManifestContents(manifest)
+}
+
+func validV1CorpusManifest(manifest V1Manifest) bool {
+	return validV1CorpusAuthorities(manifest.Authorities) && validV1ManifestContents(manifest)
+}
+
+func validV1ManifestContents(manifest V1Manifest) bool {
+	if manifest.SchemaVersion != V1SchemaVersion || !v1ToolchainPattern.MatchString(manifest.Toolchain) || !sha256Pattern.MatchString(manifest.ComparatorContractSHA256) || !sha256Pattern.MatchString(manifest.DetectorContractSHA256) || len(manifest.Candidates) != 3 {
 		return false
 	}
 	operators, invariants, ids, patches, trees := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -572,6 +606,10 @@ func validV1Aggregate(aggregate V1Aggregate) bool {
 
 func validV1Authorities(authorities V1Authorities) bool {
 	return validV1Reference(authorities.Evaluated) && validV1Reference(authorities.Freeze) && validV1Reference(authorities.Corpus) && validV1Reference(authorities.Dispatch) && authorities.Evaluated.Commit != authorities.Freeze.Commit && authorities.Evaluated.Commit != authorities.Corpus.Commit && authorities.Evaluated.Commit != authorities.Dispatch.Commit && authorities.Freeze.Commit != authorities.Corpus.Commit && authorities.Freeze.Commit != authorities.Dispatch.Commit && authorities.Corpus.Commit != authorities.Dispatch.Commit
+}
+
+func validV1CorpusAuthorities(authorities V1Authorities) bool {
+	return validV1Reference(authorities.Evaluated) && validV1Reference(authorities.Freeze) && validV1Reference(authorities.Corpus) && authorities.Dispatch == (V1Reference{}) && authorities.Evaluated.Commit != authorities.Freeze.Commit && authorities.Evaluated.Commit != authorities.Corpus.Commit && authorities.Freeze.Commit != authorities.Corpus.Commit
 }
 func validV1Reference(reference V1Reference) bool {
 	return v1SHA1Pattern.MatchString(reference.Commit) && v1SHA1Pattern.MatchString(reference.Tree)

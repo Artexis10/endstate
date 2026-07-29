@@ -34,16 +34,17 @@ const (
 )
 
 type V1LaneRequest struct {
-	Root       string
-	RunnerRoot string
-	GoCache    string
-	GoModCache string
-	Manifest   V1Manifest
-	Role       string
-	Lane       string
-	Runner     V1Runner
-	ResultRoot string
-	Run        V1ProcessRunner
+	Root           string
+	RunnerRoot     string
+	GoCache        string
+	GoModCache     string
+	Manifest       V1Manifest
+	DispatchCommit string
+	Role           string
+	Lane           string
+	Runner         V1Runner
+	ResultRoot     string
+	Run            V1ProcessRunner
 }
 
 type V1ProcessRunner func(context.Context, string, V1ChildCommand) V1ChildResult
@@ -54,9 +55,14 @@ func RunV1Lane(ctx context.Context, request V1LaneRequest) error {
 	if err := validateV1LaneRequest(request); err != nil {
 		return err
 	}
-	if _, err := ValidateV1Repository(request.Root, filepath.Join(request.Root, filepath.FromSlash(V1CorpusRoot), "manifest.json")); err != nil {
+	manifest, err := ValidateV1Repository(request.Root, filepath.Join(request.Root, filepath.FromSlash(V1CorpusRoot), "manifest.json"), request.DispatchCommit)
+	if err != nil {
 		return err
 	}
+	if !reflect.DeepEqual(request.Manifest, manifest) {
+		return errors.New("v1 caller manifest differs")
+	}
+	request.Manifest = manifest
 	if err := prepareV1RunnerRoot(request.RunnerRoot); err != nil {
 		return err
 	}
@@ -81,7 +87,7 @@ func RunV1Lane(ctx context.Context, request V1LaneRequest) error {
 }
 
 func validateV1LaneRequest(request V1LaneRequest) error {
-	if !validV1Manifest(request.Manifest) || !validV1Runner(request.Runner) || request.GoCache == "" || request.GoModCache == "" || !filepath.IsAbs(request.RunnerRoot) || filepath.Clean(request.RunnerRoot) != request.RunnerRoot || !filepath.IsAbs(request.ResultRoot) || filepath.Clean(request.ResultRoot) != request.ResultRoot {
+	if !validV1Manifest(request.Manifest) || !v1SHA1Pattern.MatchString(request.DispatchCommit) || request.Manifest.Authorities.Dispatch.Commit != request.DispatchCommit || !validV1Runner(request.Runner) || request.GoCache == "" || request.GoModCache == "" || !filepath.IsAbs(request.RunnerRoot) || filepath.Clean(request.RunnerRoot) != request.RunnerRoot || !filepath.IsAbs(request.ResultRoot) || filepath.Clean(request.ResultRoot) != request.ResultRoot {
 		return errors.New("invalid v1 lane request")
 	}
 	switch request.Role {
