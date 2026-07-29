@@ -96,6 +96,16 @@ type V1Runner struct {
 	Image  string `json:"image"`
 }
 
+// V1BaselineProofIdentity binds a green unmodified detector result to its
+// source authority and exact target. Engine bytes are diagnostic only.
+type V1BaselineProofIdentity struct {
+	SourceTree             string   `json:"sourceTree"`
+	RepositorySHA256       string   `json:"repositorySha256"`
+	Target                 V1Target `json:"target"`
+	Proof                  string   `json:"proof"`
+	DiagnosticEngineSHA256 string   `json:"diagnosticEngineSha256,omitempty"`
+}
+
 // V1Candidate is one preregistered held-out production mutation.
 type V1Candidate struct {
 	ID                   string    `json:"id"`
@@ -123,26 +133,27 @@ type V1Manifest struct {
 // V1Attempt preserves only typed, bounded v1 proof data. The engine digest is
 // diagnostic and deliberately excluded from repeatability identity.
 type V1Attempt struct {
-	CandidateID              string        `json:"candidateId"`
-	DetectorID               string        `json:"detectorId"`
-	Target                   V1Target      `json:"target"`
-	Kind                     string        `json:"kind"`
-	Lane                     string        `json:"lane,omitempty"`
-	Repetition               int           `json:"repetition"`
-	Authorities              V1Authorities `json:"authorities"`
-	PatchSHA256              string        `json:"patchSha256"`
-	MutatedTree              string        `json:"mutatedTree"`
-	Toolchain                string        `json:"toolchain"`
-	Runner                   V1Runner      `json:"runner"`
-	StartedAt                string        `json:"startedAt"`
-	EndedAt                  string        `json:"endedAt"`
-	DurationMillis           int64         `json:"durationMillis"`
-	ComparatorContractSHA256 string        `json:"comparatorContractSha256,omitempty"`
-	DetectorContractSHA256   string        `json:"detectorContractSha256,omitempty"`
-	Admission                string        `json:"admission,omitempty"`
-	Status                   string        `json:"status"`
-	Failure                  *V1Failure    `json:"failure,omitempty"`
-	DiagnosticEngineSHA256   string        `json:"diagnosticEngineSha256,omitempty"`
+	CandidateID              string                  `json:"candidateId"`
+	DetectorID               string                  `json:"detectorId"`
+	Target                   V1Target                `json:"target"`
+	Kind                     string                  `json:"kind"`
+	Lane                     string                  `json:"lane,omitempty"`
+	Repetition               int                     `json:"repetition"`
+	Authorities              V1Authorities           `json:"authorities"`
+	PatchSHA256              string                  `json:"patchSha256"`
+	MutatedTree              string                  `json:"mutatedTree"`
+	Toolchain                string                  `json:"toolchain"`
+	Runner                   V1Runner                `json:"runner"`
+	StartedAt                string                  `json:"startedAt"`
+	EndedAt                  string                  `json:"endedAt"`
+	DurationMillis           int64                   `json:"durationMillis"`
+	BaselineProof            V1BaselineProofIdentity `json:"baselineProof,omitempty"`
+	ComparatorContractSHA256 string                  `json:"comparatorContractSha256,omitempty"`
+	DetectorContractSHA256   string                  `json:"detectorContractSha256,omitempty"`
+	Admission                string                  `json:"admission,omitempty"`
+	Status                   string                  `json:"status"`
+	Failure                  *V1Failure              `json:"failure,omitempty"`
+	DiagnosticEngineSHA256   string                  `json:"diagnosticEngineSha256,omitempty"`
 }
 
 // V1Evidence is the complete typed proof inventory.
@@ -307,7 +318,7 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	if baselineOne.Status == V1StatusInfrastructure || baselineTwo.Status == V1StatusInfrastructure {
 		return ClassificationInfrastructureFailure, nil
 	}
-	if !sameV1Authorities(baselineOne.Authorities, manifest.Authorities) || !sameV1Authorities(baselineTwo.Authorities, manifest.Authorities) || !sameV1AttemptIdentity(baselineOne, baselineTwo) {
+	if !sameV1Authorities(baselineOne.Authorities, manifest.Authorities) || !sameV1Authorities(baselineTwo.Authorities, manifest.Authorities) || !sameV1AttemptIdentity(baselineOne, baselineTwo) || !sameV1BaselineProofIdentity(baselineOne.BaselineProof, baselineTwo.BaselineProof) {
 		return ClassificationFlake, nil
 	}
 	if baselineOne.Status != V1StatusPassed || baselineTwo.Status != V1StatusPassed {
@@ -336,7 +347,7 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	if first.Status == V1StatusInfrastructure || second.Status == V1StatusInfrastructure {
 		return ClassificationInfrastructureFailure, nil
 	}
-	if !sameV1Authorities(first.Authorities, manifest.Authorities) || !sameV1Authorities(second.Authorities, manifest.Authorities) || !sameV1AttemptIdentity(first, second) {
+	if !sameV1Authorities(first.Authorities, manifest.Authorities) || !sameV1Authorities(second.Authorities, manifest.Authorities) || !sameV1AttemptIdentity(first, second) || baselineOne.Runner != first.Runner || baselineTwo.Runner != second.Runner {
 		return ClassificationFlake, nil
 	}
 	if first.Status != second.Status || !sameV1Failure(first.Failure, second.Failure) {
@@ -364,12 +375,15 @@ func sameV1Authorities(first, second V1Authorities) bool { return first == secon
 func sameV1Failure(first, second *V1Failure) bool {
 	return (first == nil && second == nil) || (first != nil && second != nil && *first == *second)
 }
+func sameV1BaselineProofIdentity(first, second V1BaselineProofIdentity) bool {
+	return first.SourceTree == second.SourceTree && first.RepositorySHA256 == second.RepositorySHA256 && first.Target == second.Target && first.Proof == second.Proof
+}
 func shallowV1Failure(failure *V1Failure) bool {
 	if failure == nil || failure.Scope != V1FailureScopeDomain {
 		return true
 	}
 	for _, value := range []string{failure.Class, failure.Phase, failure.Coordinate} {
-		for _, guard := range []string{"schema", "revision", "selection", "admission", "envelope", "aggregate"} {
+		for _, guard := range []string{"schema", "revision", "selection", "admission", "envelope", "aggregate", "parse", "decode"} {
 			if strings.Contains(value, guard) {
 				return true
 			}
@@ -476,16 +490,16 @@ func validV1Candidate(candidate V1Candidate) bool {
 	return validV1Value(candidate.ID) && (candidate.Family == "catalog" || candidate.Family == "module") && sha256Pattern.MatchString(candidate.PatchSHA256) && v1SHA1Pattern.MatchString(candidate.MutatedTree) && validV1Fingerprint(V1Fingerprint{candidate.OperatorFingerprint, candidate.InvariantFingerprint}) && validV1Value(candidate.DetectorID) && validV1Target(candidate.Family, candidate.Target) && validV1Failure(candidate.Expected) && !shallowV1Failure(&candidate.Expected)
 }
 func validV1Attempt(attempt V1Attempt) bool {
-	if !validV1Value(attempt.CandidateID) || !validV1Value(attempt.DetectorID) || !(validV1Target("module", attempt.Target) || validV1Target("catalog", attempt.Target)) || !validV1Authorities(attempt.Authorities) || !v1ToolchainPattern.MatchString(attempt.Toolchain) || !validV1Runner(attempt.Runner) || !validV1Timing(attempt) || !validV1Status(attempt.Status) || attempt.DiagnosticEngineSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticEngineSHA256) || attempt.Failure != nil && !validV1Failure(*attempt.Failure) {
+	if !validV1Value(attempt.CandidateID) || !validV1Value(attempt.DetectorID) || !(validV1Target("module", attempt.Target) || validV1Target("catalog", attempt.Target)) || !validV1Authorities(attempt.Authorities) || !v1ToolchainPattern.MatchString(attempt.Toolchain) || !validV1Runner(attempt.Runner) || !validV1Timing(attempt) || !validV1LaneRunner(attempt.Lane, attempt.Runner) || !validV1Status(attempt.Status) || attempt.DiagnosticEngineSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticEngineSHA256) || attempt.Failure != nil && !validV1Failure(*attempt.Failure) {
 		return false
 	}
 	switch attempt.Kind {
 	case V1KindBaseline:
-		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && attempt.PatchSHA256 == "" && attempt.MutatedTree == "" && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && attempt.Admission == V1AdmissionAdmitted && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusInfrastructure) && attempt.Failure == nil
+		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && attempt.PatchSHA256 == "" && attempt.MutatedTree == "" && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && attempt.Admission == V1AdmissionAdmitted && validV1BaselineProof(attempt.BaselineProof) && attempt.BaselineProof.Target == attempt.Target && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
 	case V1KindComparator:
-		return (attempt.Lane == V1LaneWindowsGo || attempt.Lane == V1LaneUbuntuGo || attempt.Lane == V1LaneMacOSGo) && attempt.Repetition == 1 && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.ComparatorContractSHA256) && attempt.DetectorContractSHA256 == "" && attempt.Admission == "" && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
+		return (attempt.Lane == V1LaneWindowsGo || attempt.Lane == V1LaneUbuntuGo || attempt.Lane == V1LaneMacOSGo) && attempt.Repetition == 1 && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.ComparatorContractSHA256) && attempt.DetectorContractSHA256 == "" && attempt.Admission == "" && attempt.BaselineProof == (V1BaselineProofIdentity{}) && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
 	case V1KindDetector:
-		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusRejected) == (attempt.Failure != nil))
+		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && attempt.BaselineProof == (V1BaselineProofIdentity{}) && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusRejected) == (attempt.Failure != nil))
 	default:
 		return false
 	}
@@ -504,6 +518,21 @@ func validV1Target(family string, target V1Target) bool {
 }
 func validV1Runner(runner V1Runner) bool {
 	return (runner.Family == "windows" || runner.Family == "linux" || runner.Family == "darwin") && validV1Value(runner.Image)
+}
+func validV1LaneRunner(lane string, runner V1Runner) bool {
+	switch lane {
+	case V1LaneWindowsGo, V1LaneWindowsDetector:
+		return runner.Family == "windows"
+	case V1LaneUbuntuGo:
+		return runner.Family == "linux"
+	case V1LaneMacOSGo:
+		return runner.Family == "darwin"
+	default:
+		return false
+	}
+}
+func validV1BaselineProof(proof V1BaselineProofIdentity) bool {
+	return v1SHA1Pattern.MatchString(proof.SourceTree) && sha256Pattern.MatchString(proof.RepositorySHA256) && (validV1Target("module", proof.Target) || validV1Target("catalog", proof.Target)) && validV1Value(proof.Proof) && (proof.DiagnosticEngineSHA256 == "" || sha256Pattern.MatchString(proof.DiagnosticEngineSHA256))
 }
 func validV1Timing(attempt V1Attempt) bool {
 	if attempt.DurationMillis < 0 || attempt.DurationMillis > 14_400_000 {
