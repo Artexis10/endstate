@@ -58,13 +58,14 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 		"windows-latest", "ubuntu-latest", "macos-latest", "Invoke-Native go @('vet','./...')", "Invoke-Native go @('test','./...')", "./integration-test.ps1",
 		"bundle-duplicate", "bundle-missing", "bundle-id-drift", "vlc-backup-off", "alacritty-source-drift", "obs-target-drift",
 		"$GITHUB_SHA", "$GITHUB_SHA:refs/audit/dispatch", "ab8065cd67ab3f4e9e876e07a25facf3100c28c7:refs/audit/legacy", "437c0ca4167c09bc9f2de515daa6d55d35257d4f:refs/audit/detector", "audit-kit", " detector --", " infrastructure --", "Get-FileHash $patchPath -Algorithm SHA256", "candidateId", "patchSha256", "windows-go", "windows-integration", "ubuntu-go", "macos-go", "LOCALAPPDATA", "Endstate\\bin", "try { Invoke-Native", "finally { Pop-Location }", "exit 0",
+		"Join-Path $env:RUNNER_TEMP 'endstate-validation-results'", "Join-Path $env:RUNNER_TEMP 'endstate.exe'", "Join-Path $env:RUNNER_TEMP \"endstate-$n.exe\"", "Join-Path $resultRoot \"catalog-$n.json\"", "Join-Path $resultRoot \"detector-$n.json\"",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Errorf("workflow missing %q", wanted)
 		}
 	}
 	for _, forbidden := range []string{
-		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "winget install", "choco install", "brew install", "apt-get install", "rm -rf", "Remove-Item", "setx", "with: {", "for ref in \"$GITHUB_SHA\"",
+		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "winget install", "choco install", "brew install", "apt-get install", "rm -rf", "Remove-Item", "setx", "with: {", "for ref in \"$GITHUB_SHA\"", "$env:RUNNER_TEMP/endstate",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("workflow contains forbidden %q", forbidden)

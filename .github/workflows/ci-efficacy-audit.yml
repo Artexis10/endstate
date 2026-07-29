@@ -51,20 +51,23 @@ jobs:
       - name: Run bound detector baseline twice
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
+          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
+          $engine = Join-Path $env:RUNNER_TEMP 'endstate.exe'
+          New-Item -ItemType Directory -Force $resultRoot | Out-Null
           Push-Location detector/go-engine
-          go build -o $env:RUNNER_TEMP/endstate.exe ./cmd/endstate
+          go build -o $engine ./cmd/endstate
           1..2 | ForEach-Object {
             $n = $_
-            & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output "$env:RUNNER_TEMP/endstate-validation-results/catalog-$n.json"; $null = $LASTEXITCODE
-            foreach ($module in @('apps.vlc','apps.alacritty','apps.obs-studio')) { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output "$env:RUNNER_TEMP/endstate-validation-results/$module-$n.json"; $null = $LASTEXITCODE }
+            $catalogOutput = Join-Path $resultRoot "catalog-$n.json"
+            & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine $engine --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output $catalogOutput; $null = $LASTEXITCODE
+            foreach ($module in @('apps.vlc','apps.alacritty','apps.obs-studio')) { $moduleOutput = Join-Path $resultRoot "$module-$n.json"; & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine $engine --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output $moduleOutput; $null = $LASTEXITCODE }
           }
           Pop-Location
       - name: Write bounded baseline evidence
         if: always()
         shell: pwsh
         run: |
-          $root = "$env:RUNNER_TEMP/endstate-validation-results"
+          $root = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
           $baseline = @()
           1..2 | ForEach-Object { $baseline += Get-Content "$root/catalog-$_.json" -Raw | ConvertFrom-Json; foreach ($module in @('apps.vlc','apps.alacritty','apps.obs-studio')) { $baseline += Get-Content "$root/$module-$_.json" -Raw | ConvertFrom-Json } }
           @{schemaVersion=1;baseline=$baseline} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$root/evidence.json"
@@ -102,10 +105,11 @@ jobs:
       - name: Run legacy contracts
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
+          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
+          New-Item -ItemType Directory -Force $resultRoot | Out-Null
           $legacyPatch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.legacy.sha256 }
           function Invoke-Native([string]$command, [string[]]$arguments) { & $command @arguments; if ($LASTEXITCODE -ne 0) { throw 'product failure' } }
-          function Save-Contract($name, [scriptblock]$run) { try { & $run; $status = 'passed' } catch { $status = if ($_.Exception.Message -like 'infrastructure:*') {'infrastructure-failure'} else {'failed'} }; @{contract=$name;ref='ab8065cd67ab3f4e9e876e07a25facf3100c28c7';candidateId='${{ matrix.id }}';patchSha256=$legacyPatch;status=$status;durationSeconds=0} | ConvertTo-Json -Compress | Set-Content "$env:RUNNER_TEMP/endstate-validation-results/$name.json" }
+          function Save-Contract($name, [scriptblock]$run) { try { & $run; $status = 'passed' } catch { $status = if ($_.Exception.Message -like 'infrastructure:*') {'infrastructure-failure'} else {'failed'} }; $output = Join-Path $resultRoot "$name.json"; @{contract=$name;ref='ab8065cd67ab3f4e9e876e07a25facf3100c28c7';candidateId='${{ matrix.id }}';patchSha256=$legacyPatch;status=$status;durationSeconds=0} | ConvertTo-Json -Compress | Set-Content $output }
           if ('${{ matrix.os }}' -eq 'windows-latest') {
             Save-Contract 'windows-go' { Push-Location legacy/go-engine; try { Invoke-Native go @('vet','./...'); Invoke-Native go @('test','./...') } finally { Pop-Location } }
             Save-Contract 'windows-integration' { if (-not (Test-Path "$env:ProgramFiles\Notepad++\notepad++.exe")) { throw 'infrastructure: Notepad++ is absent' }; $tempRoot = Join-Path $env:RUNNER_TEMP 'endstate-bootstrap'; New-Item -ItemType Directory -Force "$tempRoot\temp", "$tempRoot\tmp", "$tempRoot\local", "$tempRoot\roaming" | Out-Null; $env:TEMP = "$tempRoot\temp"; $env:TMP = "$tempRoot\tmp"; $env:LOCALAPPDATA = "$tempRoot\local"; $env:APPDATA = "$tempRoot\roaming"; $env:PATH = "$env:LOCALAPPDATA\Endstate\bin;$env:PATH"; Push-Location legacy/go-engine; try { Invoke-Native go @('build','-o','./endstate.exe','./cmd/endstate'); Invoke-Native pwsh @('-NoProfile','-File','./integration-test.ps1') } finally { Pop-Location } }
@@ -117,8 +121,9 @@ jobs:
         run: |
           $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }
           $module = @{ 'vlc-backup-off'='apps.vlc'; 'alacritty-source-drift'='apps.alacritty'; 'obs-target-drift'='apps.obs-studio' }['${{ matrix.id }}']
+          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
           1..2 | ForEach-Object {
-            $n = $_; $output = "$env:RUNNER_TEMP/endstate-validation-results/detector-$n.json"; $patchPath = "audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"; $pushed = $false
+            $n = $_; $output = Join-Path $resultRoot "detector-$n.json"; $engine = Join-Path $env:RUNNER_TEMP "endstate-$n.exe"; $patchPath = "audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"; $pushed = $false
             try {
               if ((Get-FileHash $patchPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $patch) { throw 'detector patch digest differs from manifest' }
               git -c credential.helper= -c http.extraheader= init "detector-$n"; if ($LASTEXITCODE -ne 0) { throw 'detector git init failed' }
@@ -126,8 +131,8 @@ jobs:
               git -C "detector-$n" checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f; if ($LASTEXITCODE -ne 0) { throw 'detector checkout failed' }
               git -C "detector-$n" apply --check "../$patchPath"; if ($LASTEXITCODE -ne 0) { throw 'detector patch check failed' }
               git -C "detector-$n" apply "../$patchPath"; if ($LASTEXITCODE -ne 0) { throw 'detector patch apply failed' }
-              Push-Location "detector-$n/go-engine"; $pushed = $true; go build -o "$env:RUNNER_TEMP/endstate-$n.exe" ./cmd/endstate; if ($LASTEXITCODE -ne 0) { throw 'detector engine build failed' }
-              if ('${{ matrix.id }}' -like 'bundle-*') { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine "$env:RUNNER_TEMP/endstate-$n.exe" --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output $output } else { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine "$env:RUNNER_TEMP/endstate-$n.exe" --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output $output }
+              Push-Location "detector-$n/go-engine"; $pushed = $true; go build -o $engine ./cmd/endstate; if ($LASTEXITCODE -ne 0) { throw 'detector engine build failed' }
+              if ('${{ matrix.id }}' -like 'bundle-*') { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine $engine --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output $output } else { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine $engine --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output $output }
               if (-not (Test-Path $output)) { throw 'detector harness did not produce evidence' }
               Pop-Location; $pushed = $false
             } catch {
@@ -140,7 +145,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $root = "$env:RUNNER_TEMP/endstate-validation-results"; $legacy = Get-ChildItem "$root" -Filter '*-go.json' | ForEach-Object { Get-Content $_ -Raw | ConvertFrom-Json }; if (Test-Path "$root/windows-integration.json") { $legacy += Get-Content "$root/windows-integration.json" -Raw | ConvertFrom-Json }; $detector = @(); if ('${{ matrix.os }}' -eq 'windows-latest') { $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }; 1..2 | ForEach-Object { $raw = Get-Content "$root/detector-$_.json" -Raw | ConvertFrom-Json; $raw | Add-Member -NotePropertyName candidateId -NotePropertyValue '${{ matrix.id }}'; $raw | Add-Member -NotePropertyName patchSha256 -NotePropertyValue $patch; $detector += $raw } }; @{schemaVersion=1;candidates=@(@{id='${{ matrix.id }}';legacy=@($legacy);detector=@($detector)})} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$root/evidence.json"
+          $root = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'; $legacy = Get-ChildItem "$root" -Filter '*-go.json' | ForEach-Object { Get-Content $_ -Raw | ConvertFrom-Json }; if (Test-Path "$root/windows-integration.json") { $legacy += Get-Content "$root/windows-integration.json" -Raw | ConvertFrom-Json }; $detector = @(); if ('${{ matrix.os }}' -eq 'windows-latest') { $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }; 1..2 | ForEach-Object { $raw = Get-Content "$root/detector-$_.json" -Raw | ConvertFrom-Json; $raw | Add-Member -NotePropertyName candidateId -NotePropertyValue '${{ matrix.id }}'; $raw | Add-Member -NotePropertyName patchSha256 -NotePropertyValue $patch; $detector += $raw } }; @{schemaVersion=1;candidates=@(@{id='${{ matrix.id }}';legacy=@($legacy);detector=@($detector)})} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$root/evidence.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
