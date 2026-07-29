@@ -9,6 +9,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -350,7 +352,7 @@ func inspectLifecycleBundle(t *testing.T, path string) ([]byte, map[string]strin
 		if err != nil {
 			t.Fatal(err)
 		}
-		entries[file.Name] = string(data)
+		entries[file.Name] = decodeLifecycleEntry(data)
 		if file.Name == "manifest.jsonc" {
 			manifestBytes = data
 		}
@@ -368,6 +370,24 @@ func bundleContainsValue(entries map[string]string, value string) bool {
 		}
 	}
 	return false
+}
+
+func decodeLifecycleEntry(data []byte) string {
+	if len(data) < 2 || data[0] != 0xff || data[1] != 0xfe || (len(data)-2)%2 != 0 {
+		return string(data)
+	}
+	words := make([]uint16, (len(data)-2)/2)
+	for index := range words {
+		words[index] = binary.LittleEndian.Uint16(data[2+index*2:])
+	}
+	return string(utf16.Decode(words))
+}
+
+func TestDecodeLifecycleEntryUTF16LE(t *testing.T) {
+	encoded := []byte{0xff, 0xfe, 'W', 0, 'i', 0, 'n', 0, 'd', 0, 'o', 0, 'w', 0, 's', 0}
+	if got := decodeLifecycleEntry(encoded); got != "Windows" {
+		t.Fatalf("decoded UTF-16LE registry export = %q, want Windows", got)
+	}
 }
 
 func writeLifecycleFile(t *testing.T, path, value string) {
