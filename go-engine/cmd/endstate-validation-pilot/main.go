@@ -16,44 +16,67 @@ import (
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		os.Exit(2)
+	os.Exit(run(os.Args[1:]))
+}
+
+func run(args []string) int {
+	if len(args) < 1 {
+		return 2
 	}
-	if os.Args[1] == "detector" {
-		os.Exit(runDetector(os.Args[2:]))
+	switch args[0] {
+	case "validate-v1":
+		return runValidateV1(args[1:])
+	case "run-v1-lane":
+		return runV1Lane(args[1:])
+	case "aggregate-v1":
+		return runAggregateV1(args[1:])
+	case "detector":
+		return runDetector(args[1:])
+	case "infrastructure":
+		return runInfrastructure(args[1:])
 	}
-	if os.Args[1] == "infrastructure" {
-		os.Exit(runInfrastructure(os.Args[2:]))
+	if len(args) < 2 {
+		return 2
 	}
-	if len(os.Args) < 3 {
-		os.Exit(2)
+	return runV0(args)
+}
+
+func runV0(args []string) int {
+	if len(args) < 2 {
+		return 2
 	}
-	root, err := filepath.Abs(os.Args[2])
+	if args[0] == "detector" {
+		return runDetector(args[1:])
+	}
+	if args[0] == "infrastructure" {
+		return runInfrastructure(args[1:])
+	}
+	root, err := filepath.Abs(args[1])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
 	manifest, err := validationpilot.LoadManifest(filepath.Join(root, "validation", "ci-efficacy", "pilot-v0", "manifest.json"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
-	switch os.Args[1] {
+	switch args[0] {
 	case "validate-corpus":
-		if len(os.Args) != 3 {
-			os.Exit(2)
+		if len(args) != 2 {
+			return 2
 		}
 		err = validationpilot.ValidateCorpus(root, manifest)
 	case "aggregate":
-		if len(os.Args) != 5 {
-			os.Exit(2)
+		if len(args) != 4 {
+			return 2
 		}
-		result, aggregateErr := validationpilot.AggregateArtifacts(manifest, os.Args[3])
+		result, aggregateErr := validationpilot.AggregateArtifacts(manifest, args[2])
 		if aggregateErr == nil {
 			data, marshalErr := json.Marshal(result)
 			if marshalErr != nil {
 				aggregateErr = marshalErr
-			} else if writeErr := os.WriteFile(os.Args[4], append(data, '\n'), 0o600); writeErr != nil {
+			} else if writeErr := os.WriteFile(args[3], append(data, '\n'), 0o600); writeErr != nil {
 				aggregateErr = writeErr
 			} else if result.Decision != validationpilot.DecisionMeaningfulSignal {
 				aggregateErr = fmt.Errorf("aggregate decision %s", result.Decision)
@@ -61,12 +84,99 @@ func main() {
 		}
 		err = aggregateErr
 	default:
-		os.Exit(2)
+		return 2
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
+}
+
+func runValidateV1(args []string) int {
+	flags := flag.NewFlagSet("endstate-validation-pilot validate-v1", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	var root, manifest string
+	flags.StringVar(&root, "root", "", "absolute dispatch repository root")
+	flags.StringVar(&manifest, "manifest", "", "absolute v1 manifest path")
+	if flags.Parse(args) != nil || flags.NArg() != 0 || root == "" || manifest == "" {
+		return 2
+	}
+	if _, err := validationpilot.ValidateV1Repository(root, manifest); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func runV1Lane(args []string) int {
+	flags := flag.NewFlagSet("endstate-validation-pilot run-v1-lane", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	var root, manifest, role, lane, runnerFamily, runnerImage, resultRoot string
+	flags.StringVar(&root, "root", "", "absolute dispatch repository root")
+	flags.StringVar(&manifest, "manifest", "", "absolute v1 manifest path")
+	flags.StringVar(&role, "role", "", "fixed v1 role")
+	flags.StringVar(&lane, "lane", "", "fixed v1 lane")
+	flags.StringVar(&runnerFamily, "runner-family", "", "runner family")
+	flags.StringVar(&runnerImage, "runner-image", "", "runner image")
+	flags.StringVar(&resultRoot, "result-root", "", "fresh runner-owned result root")
+	if flags.Parse(args) != nil || flags.NArg() != 0 || root == "" || manifest == "" || role == "" || lane == "" || runnerFamily == "" || runnerImage == "" || resultRoot == "" {
+		return 2
+	}
+	v1Manifest, err := validationpilot.ValidateV1Repository(root, manifest)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := validationpilot.RunV1Lane(context.Background(), validationpilot.V1LaneRequest{Root: root, Manifest: v1Manifest, Role: role, Lane: lane, Runner: validationpilot.V1Runner{Family: runnerFamily, Image: runnerImage}, ResultRoot: resultRoot}); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	return 0
+}
+
+func runAggregateV1(args []string) int {
+	flags := flag.NewFlagSet("endstate-validation-pilot aggregate-v1", flag.ContinueOnError)
+	flags.SetOutput(os.Stderr)
+	var manifestPath, evidenceRoot, output string
+	flags.StringVar(&manifestPath, "manifest", "", "absolute v1 manifest path")
+	flags.StringVar(&evidenceRoot, "evidence-root", "", "absolute fixed evidence root")
+	flags.StringVar(&output, "output", "", "absolute aggregate output path")
+	if flags.Parse(args) != nil || flags.NArg() != 0 || manifestPath == "" || evidenceRoot == "" || output == "" {
+		return 2
+	}
+	root := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(manifestPath))))
+	manifest, err := validationpilot.LoadV1Manifest(root, manifestPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	aggregate, aggregateErr := validationpilot.AggregateV1Evidence(manifest, evidenceRoot)
+	if aggregateErr != nil {
+		aggregate = inconclusiveV1Aggregate(manifest)
+	}
+	if writeErr := validationpilot.WriteV1AggregateNew(output, aggregate); writeErr != nil {
+		fmt.Fprintln(os.Stderr, writeErr)
+		return 1
+	}
+	if aggregateErr != nil || aggregate.Decision != validationpilot.DecisionMeaningfulSignal {
+		if aggregateErr != nil {
+			fmt.Fprintln(os.Stderr, aggregateErr)
+		} else {
+			fmt.Fprintln(os.Stderr, "aggregate decision "+aggregate.Decision)
+		}
+		return 1
+	}
+	return 0
+}
+
+func inconclusiveV1Aggregate(manifest validationpilot.V1Manifest) validationpilot.V1Aggregate {
+	aggregate := validationpilot.V1Aggregate{SchemaVersion: validationpilot.V1SchemaVersion, Decision: validationpilot.DecisionInconclusive}
+	for _, candidate := range manifest.Candidates {
+		aggregate.Rows = append(aggregate.Rows, validationpilot.V1AggregateRow{ID: candidate.ID, Classification: validationpilot.ClassificationInfrastructureFailure})
+		aggregate.InfrastructureFailures++
+	}
+	return aggregate
 }
 
 func runDetector(args []string) int {

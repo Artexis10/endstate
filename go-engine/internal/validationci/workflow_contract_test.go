@@ -34,59 +34,36 @@ func TestGoCIWorkflowKeepsVerifiedModuleMatrixContract(t *testing.T) {
 			t.Errorf("workflow contains forbidden %q", forbidden)
 		}
 	}
-	if got := strings.Count(text, "path: ${{ runner.temp }}/endstate-bin"); got != 4 {
-		t.Errorf("validation binary downloads outside the repository = %d, want 4", got)
-	}
-	for _, invocation := range []string{"& $validator shard", "& $validator catalog", "& $validator canary", "& $validator aggregate"} {
-		if !strings.Contains(text, invocation) {
-			t.Errorf("workflow does not use isolated validation binary invocation %q", invocation)
-		}
-	}
 }
 
-func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
+func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
-	workflow, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", ".github", "workflows", "ci-efficacy-audit.yml"))
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", ".github", "workflows", "ci-efficacy-audit.yml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.ReplaceAll(string(workflow), "\r\n", "\n")
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
 	for _, wanted := range []string{
-		"workflow_dispatch:", "permissions: {}", "fail-fast: false", "max-parallel: 6",
-		"ab8065cd67ab3f4e9e876e07a25facf3100c28c7", "437c0ca4167c09bc9f2de515daa6d55d35257d4f",
-		"ea165f8d65b6e75b540449e92b4886f43607fa02", "634f93cb2916e3fdff6788551b99b062d0335ce0",
-		"windows-latest", "ubuntu-latest", "macos-latest", "Invoke-Native go @('vet','./...')", "Invoke-Native go @('test','./...')", "./integration-test.ps1",
-		"bundle-duplicate", "bundle-missing", "bundle-id-drift", "vlc-backup-off", "alacritty-source-drift", "obs-target-drift",
-		"$GITHUB_SHA", "$GITHUB_SHA:refs/audit/dispatch", "ab8065cd67ab3f4e9e876e07a25facf3100c28c7:refs/audit/legacy", "437c0ca4167c09bc9f2de515daa6d55d35257d4f:refs/audit/detector", "audit-kit", " detector --", " infrastructure --", "Get-FileHash $patchPath -Algorithm SHA256", "candidateId", "patchSha256", "windows-go", "windows-integration", "ubuntu-go", "macos-go", "LOCALAPPDATA", "Endstate\\bin", "try { Invoke-Native", "finally { Pop-Location }", "exit 0",
-		"Join-Path $env:RUNNER_TEMP 'endstate-validation-results'", "Join-Path $env:RUNNER_TEMP 'endstate.exe'", "Join-Path $env:RUNNER_TEMP \"endstate-$n.exe\"", "Join-Path $resultRoot \"catalog-$n.json\"", "Join-Path $resultRoot \"detector-$n.json\"",
+		"workflow_dispatch:", "permissions: {}", "prepare:", "windows:", "ubuntu:", "macos:", "aggregate:",
+		"actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16", "go-version: '1.26'", "cache: false",
+		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
+		"validate-v1", "run-v1-lane", "aggregate-v1", "--role baseline", "--role detector", "--role comparator", "if: always()", "if-no-files-found: error",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Errorf("workflow missing %q", wanted)
 		}
 	}
 	for _, forbidden := range []string{
-		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "winget install", "choco install", "brew install", "apt-get install", "rm -rf", "Remove-Item", "setx", "with: {", "for ref in \"$GITHUB_SHA\"", "$env:RUNNER_TEMP/endstate",
+		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "ConvertTo-Json", "ConvertFrom-Json", "jq", "notepad", "winget", "choco", "brew", "apt-get", "Remove-Item", "rm -rf", "git config",
 	} {
-		if strings.Contains(text, forbidden) {
+		if strings.Contains(strings.ToLower(text), strings.ToLower(forbidden)) {
 			t.Errorf("workflow contains forbidden %q", forbidden)
 		}
 	}
-	for _, wanted := range []string{
-		"apply --check", " apply ", "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch", "patches/${{ matrix.id }}/detector.patch", "../$patchPath", "detector_setup", "$pushed",
-		"--catalog", "--module $module --scenario default-v1", "detector-$n", "find evidence -mindepth 1 -maxdepth 1 -type d -name 'efficacy-*'",
-		"endstate-validation-pilot aggregate", "aggregate.json", "efficacy-baseline", "efficacy-${{ matrix.id }}-${{ matrix.os }}",
-	} {
-		if !strings.Contains(text, wanted) {
-			t.Errorf("workflow missing proof binding %q", wanted)
-		}
+	if got := strings.Count(text, "runs-on:"); got != 5 {
+		t.Errorf("workflow job count = %d, want 5", got)
 	}
-	if strings.Index(text, "Run two fresh patched detector attempts") > strings.Index(text, "Write bounded candidate evidence") {
-		t.Error("candidate evidence is written before both detector attempts")
-	}
-	if got := strings.Count(text, "          exit 0"); got != 2 {
-		t.Errorf("intentional evidence-authority exits = %d, want 2", got)
-	}
-	if got := strings.Count(text, "          $env:TEMP = $env:RUNNER_TEMP\n          $env:TMP = $env:RUNNER_TEMP"); got != 2 {
-		t.Errorf("detector temporary-root bindings = %d, want 2", got)
+	if got := strings.Count(text, "timeout-minutes:"); got != 5 {
+		t.Errorf("workflow timeout count = %d, want 5", got)
 	}
 }

@@ -1,191 +1,156 @@
 name: CI efficacy audit
+
 on:
   workflow_dispatch:
+
 permissions: {}
+
+concurrency:
+  group: ci-efficacy-v1-${{ github.sha }}
+  cancel-in-progress: false
+
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
-      - name: Acquire every fixed authority anonymously
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache: false
+      - name: Acquire dispatch source anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
-          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git \
-            "$GITHUB_SHA:refs/audit/dispatch" \
-            ab8065cd67ab3f4e9e876e07a25facf3100c28c7:refs/audit/legacy \
-            437c0ca4167c09bc9f2de515daa6d55d35257d4f:refs/audit/detector
-          test "$(git -C audit rev-parse refs/audit/dispatch)" = "$GITHUB_SHA"
-          test "$(git -C audit rev-parse refs/audit/legacy)" = ab8065cd67ab3f4e9e876e07a25facf3100c28c7
-          test "$(git -C audit rev-parse refs/audit/detector)" = 437c0ca4167c09bc9f2de515daa6d55d35257d4f
-          git -C audit checkout --detach refs/audit/dispatch
+          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
+          git -C audit checkout --detach FETCH_HEAD
           test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Validate bound corpus and build aggregate runner
+      - name: Freeze v1 authority contract
         run: |
           cd audit/go-engine
-          go build -buildvcs=false -o "$GITHUB_WORKSPACE/audit/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          GOOS=windows GOARCH=amd64 go build -buildvcs=false -o "$GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
-          "$GITHUB_WORKSPACE/audit/endstate-validation-pilot" validate-corpus "$GITHUB_WORKSPACE/audit"
+          go build -buildvcs=false -o "$GITHUB_WORKSPACE/endstate-validation-pilot" ./cmd/endstate-validation-pilot
+          GOOS=windows GOARCH=amd64 go build -buildvcs=false -o "$GITHUB_WORKSPACE/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
+          "$GITHUB_WORKSPACE/endstate-validation-pilot" validate-v1 --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: audit-kit
-          path: audit
+          name: v1-kit
+          path: |
+            audit
+            endstate-validation-pilot
+            endstate-validation-pilot.exe
           retention-days: 7
           if-no-files-found: error
-  baseline:
+
+  windows:
     needs: prepare
     runs-on: windows-latest
+    timeout-minutes: 55
+    steps:
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache: false
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          name: v1-kit
+          path: kit
+      - name: Run serial Windows comparator and detector lanes
+        shell: pwsh
+        run: |
+          & "$env:GITHUB_WORKSPACE/kit/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/kit/audit" --manifest "$env:GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane windows-go --runner-family windows --runner-image windows-latest --result-root "$env:RUNNER_TEMP/v1-windows"
+          & "$env:GITHUB_WORKSPACE/kit/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/kit/audit" --manifest "$env:GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role baseline --lane windows-detector --runner-family windows --runner-image windows-latest --result-root "$env:RUNNER_TEMP/v1-windows"
+          & "$env:GITHUB_WORKSPACE/kit/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/kit/audit" --manifest "$env:GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role detector --lane windows-detector --runner-family windows --runner-image windows-latest --result-root "$env:RUNNER_TEMP/v1-windows"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: v1-windows
+          path: ${{ runner.temp }}/v1-windows
+          retention-days: 7
+          if-no-files-found: error
+
+  ubuntu:
+    needs: prepare
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
-          name: audit-kit
-          path: audit
-      - name: Acquire exact detector authority anonymously
-        shell: pwsh
-        run: |
-          git -c credential.helper= -c http.extraheader= init detector
-          git -C detector -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git 437c0ca4167c09bc9f2de515daa6d55d35257d4f
-          git -C detector checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f
-          if ((git -C detector rev-parse HEAD) -ne '437c0ca4167c09bc9f2de515daa6d55d35257d4f') { throw 'detector ref mismatch' }
-      - name: Run bound detector baseline twice
-        shell: pwsh
-        run: |
-          $env:TEMP = $env:RUNNER_TEMP
-          $env:TMP = $env:RUNNER_TEMP
-          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
-          $engine = Join-Path $env:RUNNER_TEMP 'endstate.exe'
-          New-Item -ItemType Directory -Force $resultRoot | Out-Null
-          Push-Location detector/go-engine
-          go build -o $engine ./cmd/endstate
-          1..2 | ForEach-Object {
-            $n = $_
-            $catalogOutput = Join-Path $resultRoot "catalog-$n.json"
-            & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine $engine --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output $catalogOutput; $null = $LASTEXITCODE
-            foreach ($module in @('apps.vlc','apps.alacritty','apps.obs-studio')) { $moduleOutput = Join-Path $resultRoot "$module-$n.json"; & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine $engine --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output $moduleOutput; $null = $LASTEXITCODE }
-          }
-          Pop-Location
-      - name: Write bounded baseline evidence
-        if: always()
-        shell: pwsh
-        run: |
-          $root = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
-          $baseline = @()
-          1..2 | ForEach-Object { $baseline += Get-Content "$root/catalog-$_.json" -Raw | ConvertFrom-Json; foreach ($module in @('apps.vlc','apps.alacritty','apps.obs-studio')) { $baseline += Get-Content "$root/$module-$_.json" -Raw | ConvertFrom-Json } }
-          @{schemaVersion=1;baseline=$baseline} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$root/evidence.json"
+          name: v1-kit
+          path: kit
+      - name: Run serial Ubuntu comparator lane
+        run: kit/endstate-validation-pilot run-v1-lane --root "$GITHUB_WORKSPACE/kit/audit" --manifest "$GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane ubuntu-go --runner-family linux --runner-image ubuntu-latest --result-root "$RUNNER_TEMP/v1-ubuntu"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: efficacy-baseline
-          path: ${{ runner.temp }}/endstate-validation-results
+          name: v1-ubuntu
+          path: ${{ runner.temp }}/v1-ubuntu
           retention-days: 7
           if-no-files-found: error
-  candidate:
+
+  macos:
     needs: prepare
-    strategy:
-      fail-fast: false
-      max-parallel: 6
-      matrix:
-        id: [bundle-duplicate, bundle-missing, bundle-id-drift, vlc-backup-off, alacritty-source-drift, obs-target-drift]
-        os: [windows-latest, ubuntu-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    runs-on: macos-latest
+    timeout-minutes: 30
     steps:
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
-          name: audit-kit
-          path: audit
-      - name: Acquire and mutate exact legacy authority anonymously
-        shell: bash
-        run: |
-          git -c credential.helper= -c http.extraheader= init legacy
-          git -C legacy -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git ab8065cd67ab3f4e9e876e07a25facf3100c28c7
-          git -C legacy checkout --detach ab8065cd67ab3f4e9e876e07a25facf3100c28c7
-          test "$(git -C legacy rev-parse HEAD)" = ab8065cd67ab3f4e9e876e07a25facf3100c28c7
-          git -C legacy apply --check "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch"
-          git -C legacy apply "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch"
-      - name: Run legacy contracts
-        shell: pwsh
-        run: |
-          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
-          New-Item -ItemType Directory -Force $resultRoot | Out-Null
-          $legacyPatch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.legacy.sha256 }
-          function Invoke-Native([string]$command, [string[]]$arguments) { & $command @arguments; if ($LASTEXITCODE -ne 0) { throw 'product failure' } }
-          function Save-Contract($name, [scriptblock]$run) { try { & $run; $status = 'passed' } catch { $status = if ($_.Exception.Message -like 'infrastructure:*') {'infrastructure-failure'} else {'failed'} }; $output = Join-Path $resultRoot "$name.json"; @{contract=$name;ref='ab8065cd67ab3f4e9e876e07a25facf3100c28c7';candidateId='${{ matrix.id }}';patchSha256=$legacyPatch;status=$status;durationSeconds=0} | ConvertTo-Json -Compress | Set-Content $output }
-          if ('${{ matrix.os }}' -eq 'windows-latest') {
-            Save-Contract 'windows-go' { Push-Location legacy/go-engine; try { Invoke-Native go @('vet','./...'); Invoke-Native go @('test','./...') } finally { Pop-Location } }
-            Save-Contract 'windows-integration' { if (-not (Test-Path "$env:ProgramFiles\Notepad++\notepad++.exe")) { throw 'infrastructure: Notepad++ is absent' }; $tempRoot = Join-Path $env:RUNNER_TEMP 'endstate-bootstrap'; New-Item -ItemType Directory -Force "$tempRoot\temp", "$tempRoot\tmp", "$tempRoot\local", "$tempRoot\roaming" | Out-Null; $env:TEMP = "$tempRoot\temp"; $env:TMP = "$tempRoot\tmp"; $env:LOCALAPPDATA = "$tempRoot\local"; $env:APPDATA = "$tempRoot\roaming"; $env:PATH = "$env:LOCALAPPDATA\Endstate\bin;$env:PATH"; Push-Location legacy/go-engine; try { Invoke-Native go @('build','-o','./endstate.exe','./cmd/endstate'); Invoke-Native pwsh @('-NoProfile','-File','./integration-test.ps1') } finally { Pop-Location } }
-          } elseif ('${{ matrix.os }}' -eq 'ubuntu-latest') { Save-Contract 'ubuntu-go' { Push-Location legacy/go-engine; try { Invoke-Native go @('vet','./...'); Invoke-Native go @('test','./...') } finally { Pop-Location } } } else { Save-Contract 'macos-go' { Push-Location legacy/go-engine; try { Invoke-Native go @('vet','./...'); Invoke-Native go @('test','./...') } finally { Pop-Location } } }
-          exit 0
-      - name: Run two fresh patched detector attempts
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $env:TEMP = $env:RUNNER_TEMP
-          $env:TMP = $env:RUNNER_TEMP
-          $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }
-          $module = @{ 'vlc-backup-off'='apps.vlc'; 'alacritty-source-drift'='apps.alacritty'; 'obs-target-drift'='apps.obs-studio' }['${{ matrix.id }}']
-          $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
-          1..2 | ForEach-Object {
-            $n = $_; $output = Join-Path $resultRoot "detector-$n.json"; $engine = Join-Path $env:RUNNER_TEMP "endstate-$n.exe"; $patchPath = "audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"; $pushed = $false
-            try {
-              if ((Get-FileHash $patchPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $patch) { throw 'detector patch digest differs from manifest' }
-              git -c credential.helper= -c http.extraheader= init "detector-$n"; if ($LASTEXITCODE -ne 0) { throw 'detector git init failed' }
-              git -C "detector-$n" -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git 437c0ca4167c09bc9f2de515daa6d55d35257d4f; if ($LASTEXITCODE -ne 0) { throw 'detector fetch failed' }
-              git -C "detector-$n" checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f; if ($LASTEXITCODE -ne 0) { throw 'detector checkout failed' }
-              git -C "detector-$n" apply --check "../$patchPath"; if ($LASTEXITCODE -ne 0) { throw 'detector patch check failed' }
-              git -C "detector-$n" apply "../$patchPath"; if ($LASTEXITCODE -ne 0) { throw 'detector patch apply failed' }
-              Push-Location "detector-$n/go-engine"; $pushed = $true; go build -o $engine ./cmd/endstate; if ($LASTEXITCODE -ne 0) { throw 'detector engine build failed' }
-              if ('${{ matrix.id }}' -like 'bundle-*') { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine $engine --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output $output } else { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine $engine --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output $output }
-              if (-not (Test-Path $output)) { throw 'detector harness did not produce evidence' }
-              Pop-Location; $pushed = $false
-            } catch {
-              if ($pushed) { Pop-Location }
-              if ('${{ matrix.id }}' -like 'bundle-*') { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" infrastructure --reason detector_setup --output $output } else { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" infrastructure --module $module --scenario default-v1 --reason detector_setup --output $output }
-            }
-          }
-          exit 0
-      - name: Write bounded candidate evidence
-        if: always()
-        shell: pwsh
-        run: |
-          $root = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'; $legacy = Get-ChildItem "$root" -Filter '*-go.json' | ForEach-Object { Get-Content $_ -Raw | ConvertFrom-Json }; if (Test-Path "$root/windows-integration.json") { $legacy += Get-Content "$root/windows-integration.json" -Raw | ConvertFrom-Json }; $detector = @(); if ('${{ matrix.os }}' -eq 'windows-latest') { $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }; 1..2 | ForEach-Object { $raw = Get-Content "$root/detector-$_.json" -Raw | ConvertFrom-Json; $raw | Add-Member -NotePropertyName candidateId -NotePropertyValue '${{ matrix.id }}'; $raw | Add-Member -NotePropertyName patchSha256 -NotePropertyValue $patch; $detector += $raw } }; @{schemaVersion=1;candidates=@(@{id='${{ matrix.id }}';legacy=@($legacy);detector=@($detector)})} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$root/evidence.json"
+          name: v1-kit
+          path: kit
+      - name: Run serial macOS comparator lane
+        run: kit/endstate-validation-pilot run-v1-lane --root "$GITHUB_WORKSPACE/kit/audit" --manifest "$GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane macos-go --runner-family darwin --runner-image macos-latest --result-root "$RUNNER_TEMP/v1-macos"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: efficacy-${{ matrix.id }}-${{ matrix.os }}
-          path: ${{ runner.temp }}/endstate-validation-results
+          name: v1-macos
+          path: ${{ runner.temp }}/v1-macos
           retention-days: 7
           if-no-files-found: error
+
   aggregate:
-    needs: [baseline, candidate]
+    needs: [windows, ubuntu, macos]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache: false
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
-          pattern: efficacy-*
-          path: evidence
-          merge-multiple: false
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          name: audit-kit
+          name: v1-kit
           path: kit
-      - name: Classify fixed evidence inventory
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: v1-windows
+          path: evidence
+          merge-multiple: true
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: v1-ubuntu
+          path: evidence
+          merge-multiple: true
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with:
+          pattern: v1-macos
+          path: evidence
+          merge-multiple: true
+      - name: Aggregate fixed typed inventory
         run: |
-          chmod +x kit/endstate-validation-pilot
-          test "$(find evidence -mindepth 1 -maxdepth 1 -type d -name 'efficacy-*' | wc -l)" -eq 19
-          kit/endstate-validation-pilot aggregate "$GITHUB_WORKSPACE/kit" "$GITHUB_WORKSPACE/evidence" "$GITHUB_WORKSPACE/aggregate.json"
-      - name: Summarize CI efficacy evidence
-        if: always()
-        run: |
-          echo '## CI efficacy audit' >> "$GITHUB_STEP_SUMMARY"
-          if test -f "$GITHUB_WORKSPACE/aggregate.json"; then cat "$GITHUB_WORKSPACE/aggregate.json" >> "$GITHUB_STEP_SUMMARY"; else echo 'No aggregate evidence was written.' >> "$GITHUB_STEP_SUMMARY"; fi
+          mkdir -p "$RUNNER_TEMP/v1-aggregate"
+          kit/endstate-validation-pilot aggregate-v1 --manifest "$GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --evidence-root "$GITHUB_WORKSPACE/evidence" --output "$RUNNER_TEMP/v1-aggregate/aggregate.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: efficacy-aggregate
-          path: aggregate.json
+          name: v1-aggregate
+          path: ${{ runner.temp }}/v1-aggregate
           retention-days: 7
           if-no-files-found: error
