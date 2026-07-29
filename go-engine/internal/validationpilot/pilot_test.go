@@ -231,3 +231,29 @@ func TestRunDetectorPreservesStructuredModuleFailure(t *testing.T) {
 		t.Fatalf("RunDetector() = %#v, want preserved structured failure", attempt)
 	}
 }
+
+func TestClassifyTreatsTwoStableDetectorPassesAsSurvivor(t *testing.T) {
+	manifest := fixedManifestForTest(t)
+	evidence := fixedEvidenceForTest(manifest)
+	for index := range evidence.Candidates[0].Detector {
+		evidence.Candidates[0].Detector[index].Status = "passed"
+		evidence.Candidates[0].Detector[index].Failure = nil
+	}
+	aggregate, err := Classify(manifest, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.Rows[0].Classification != ClassificationSurvivor {
+		t.Fatalf("Classify() = %#v, want survivor", aggregate.Rows[0])
+	}
+}
+
+func TestInfrastructureAttemptIsSchemaValidAndBound(t *testing.T) {
+	attempt := InfrastructureAttempt("apps.vlc", "default-v1", "detector setup failed")
+	if err := validateAttempt(attempt, DetectorRef, false); err != nil {
+		t.Fatalf("InfrastructureAttempt() invalid: %v", err)
+	}
+	if attempt.Status != "infrastructure-failure" || attempt.Failure == nil || attempt.Failure.Code != "isolation_failure" {
+		t.Fatalf("InfrastructureAttempt() = %#v", attempt)
+	}
+}

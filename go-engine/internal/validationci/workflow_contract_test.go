@@ -57,7 +57,7 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 		"ea165f8d65b6e75b540449e92b4886f43607fa02", "634f93cb2916e3fdff6788551b99b062d0335ce0",
 		"windows-latest", "ubuntu-latest", "macos-latest", "Invoke-Native go @('vet','./...')", "Invoke-Native go @('test','./...')", "./integration-test.ps1",
 		"bundle-duplicate", "bundle-missing", "bundle-id-drift", "vlc-backup-off", "alacritty-source-drift", "obs-target-drift",
-		"$GITHUB_SHA", "for ref in \"$GITHUB_SHA\"", "audit-kit", " detector --", "candidateId", "patchSha256", "windows-go", "windows-integration", "ubuntu-go", "macos-go", "LOCALAPPDATA", "Endstate\\bin",
+		"$GITHUB_SHA", "for ref in \"$GITHUB_SHA\"", "audit-kit", " detector --", " infrastructure --", "Get-FileHash $patchPath -Algorithm SHA256", "candidateId", "patchSha256", "windows-go", "windows-integration", "ubuntu-go", "macos-go", "LOCALAPPDATA", "Endstate\\bin", "exit 0",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Errorf("workflow missing %q", wanted)
@@ -71,7 +71,7 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 		}
 	}
 	for _, wanted := range []string{
-		"apply --check", " apply ", "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch", "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch",
+		"apply --check", " apply ", "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch", "patches/${{ matrix.id }}/detector.patch", "../$patchPath", "detector_setup", "$pushed",
 		"--catalog", "--module $module --scenario default-v1", "detector-$n", "find evidence -mindepth 1 -maxdepth 1 -type d -name 'efficacy-*'",
 		"endstate-validation-pilot aggregate", "aggregate.json", "efficacy-baseline", "efficacy-${{ matrix.id }}-${{ matrix.os }}",
 	} {

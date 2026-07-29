@@ -22,6 +22,9 @@ func main() {
 	if os.Args[1] == "detector" {
 		os.Exit(runDetector(os.Args[2:]))
 	}
+	if os.Args[1] == "infrastructure" {
+		os.Exit(runInfrastructure(os.Args[2:]))
+	}
 	if len(os.Args) < 3 {
 		os.Exit(2)
 	}
@@ -96,6 +99,28 @@ func runDetector(args []string) int {
 		return 1
 	}
 	if attempt.Status != "passed" {
+		return 1
+	}
+	return 0
+}
+
+func runInfrastructure(args []string) int {
+	flags := flag.NewFlagSet("endstate-validation-pilot infrastructure", flag.ContinueOnError)
+	var module, scenario, output, reason string
+	flags.StringVar(&module, "module", "", "module id")
+	flags.StringVar(&scenario, "scenario", "", "scenario id")
+	flags.StringVar(&output, "output", "", "structured result path")
+	flags.StringVar(&reason, "reason", "detector setup failed", "bounded infrastructure reason")
+	if flags.Parse(args) != nil || output == "" {
+		return 2
+	}
+	data, err := json.Marshal(validationpilot.InfrastructureAttempt(module, scenario, reason))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	if err := os.WriteFile(output, append(data, '\n'), 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
 	return 0

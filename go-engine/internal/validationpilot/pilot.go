@@ -531,7 +531,22 @@ func validLaneInventory(osName string, evidence CandidateEvidence) bool {
 	}
 	return false
 }
-func sameFailure(left, right *Failure) bool { return left != nil && right != nil && *left == *right }
+func sameFailure(left, right *Failure) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+// InfrastructureAttempt preserves a bounded detector setup failure for
+// aggregation when a fresh authority cannot be acquired or built.
+func InfrastructureAttempt(moduleID, scenarioID, detail string) Attempt {
+	return Attempt{
+		Status:   "infrastructure-failure",
+		Failure:  &Failure{Code: "isolation_failure", Phase: "setup", Coordinate: "detector", ChildReason: detail},
+		Identity: ProofIdentity{Commit: DetectorRef, EngineSHA256: strings.Repeat("0", 64), RepositoryHash: strings.Repeat("0", 64), ModuleID: moduleID, ScenarioID: scenarioID},
+	}
+}
 
 type DetectorRequest struct {
 	EnginePath string

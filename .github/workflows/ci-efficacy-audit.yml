@@ -112,11 +112,26 @@ jobs:
         shell: pwsh
         run: |
           $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }
+          $module = @{ 'vlc-backup-off'='apps.vlc'; 'alacritty-source-drift'='apps.alacritty'; 'obs-target-drift'='apps.obs-studio' }['${{ matrix.id }}']
           1..2 | ForEach-Object {
-            $n = $_; git -c credential.helper= -c http.extraheader= init "detector-$n"; git -C "detector-$n" -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git 437c0ca4167c09bc9f2de515daa6d55d35257d4f; git -C "detector-$n" checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f; git -C "detector-$n" apply --check "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"; git -C "detector-$n" apply "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"; Push-Location "detector-$n/go-engine"; go build -o "$env:RUNNER_TEMP/endstate-$n.exe" ./cmd/endstate
-            if ('${{ matrix.id }}' -like 'bundle-*') { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine "$env:RUNNER_TEMP/endstate-$n.exe" --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output "$env:RUNNER_TEMP/endstate-validation-results/detector-$n.json" } else { $module = @{ 'vlc-backup-off'='apps.vlc'; 'alacritty-source-drift'='apps.alacritty'; 'obs-target-drift'='apps.obs-studio' }['${{ matrix.id }}']; & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine "$env:RUNNER_TEMP/endstate-$n.exe" --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output "$env:RUNNER_TEMP/endstate-validation-results/detector-$n.json" }
-            $null = $LASTEXITCODE; Pop-Location
+            $n = $_; $output = "$env:RUNNER_TEMP/endstate-validation-results/detector-$n.json"; $patchPath = "audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"; $pushed = $false
+            try {
+              if ((Get-FileHash $patchPath -Algorithm SHA256).Hash.ToLowerInvariant() -ne $patch) { throw 'detector patch digest differs from manifest' }
+              git -c credential.helper= -c http.extraheader= init "detector-$n"; if ($LASTEXITCODE -ne 0) { throw 'detector git init failed' }
+              git -C "detector-$n" -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git 437c0ca4167c09bc9f2de515daa6d55d35257d4f; if ($LASTEXITCODE -ne 0) { throw 'detector fetch failed' }
+              git -C "detector-$n" checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f; if ($LASTEXITCODE -ne 0) { throw 'detector checkout failed' }
+              git -C "detector-$n" apply --check "../$patchPath"; if ($LASTEXITCODE -ne 0) { throw 'detector patch check failed' }
+              git -C "detector-$n" apply "../$patchPath"; if ($LASTEXITCODE -ne 0) { throw 'detector patch apply failed' }
+              Push-Location "detector-$n/go-engine"; $pushed = $true; go build -o "$env:RUNNER_TEMP/endstate-$n.exe" ./cmd/endstate; if ($LASTEXITCODE -ne 0) { throw 'detector engine build failed' }
+              if ('${{ matrix.id }}' -like 'bundle-*') { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine "$env:RUNNER_TEMP/endstate-$n.exe" --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output $output } else { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine "$env:RUNNER_TEMP/endstate-$n.exe" --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output $output }
+              if (-not (Test-Path $output)) { throw 'detector harness did not produce evidence' }
+              Pop-Location; $pushed = $false
+            } catch {
+              if ($pushed) { Pop-Location }
+              if ('${{ matrix.id }}' -like 'bundle-*') { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" infrastructure --reason detector_setup --output $output } else { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" infrastructure --module $module --scenario default-v1 --reason detector_setup --output $output }
+            }
           }
+          exit 0
       - name: Write bounded candidate evidence
         if: always()
         shell: pwsh
