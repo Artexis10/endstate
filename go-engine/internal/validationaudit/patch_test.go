@@ -85,6 +85,8 @@ func TestLoadCandidatePatchPreservesMultipleChangedPathOrder(t *testing.T) {
 func TestLoadCandidatePatchRejectsIneligibleScope(t *testing.T) {
 	tests := []string{
 		"go-engine/internal/planner/plan_test.go",
+		"go-engine/internal/.hidden/plan.go",
+		"go-engine/internal/planner/.hidden.go",
 		"go-engine/internal/validationaudit/patch.go",
 		"go-engine/internal/validationci/check.go",
 		"go-engine/internal/validationharness/check.go",
@@ -100,6 +102,17 @@ func TestLoadCandidatePatchRejectsIneligibleScope(t *testing.T) {
 		"validation/ci-efficacy/v1/candidates.json",
 		"scripts/check.go",
 		"go-engine/internal/planner/plan.txt",
+		"modules/apps/example/validation.jsonc",
+		"modules/apps/example/manifest.jsonc",
+		"modules/apps/.hidden/module.jsonc",
+		"modules/apps/example/.hidden/module.jsonc",
+		"bundles/.hidden.jsonc",
+		"bundles/local.jsonc",
+		"bundles/config.jsonc",
+		"bundles/state.jsonc",
+		"bundles/runtime.jsonc",
+		"bundles/manifests.jsonc",
+		"bundles/payload.jsonc",
 	}
 
 	for _, path := range tests {
@@ -107,6 +120,30 @@ func TestLoadCandidatePatchRejectsIneligibleScope(t *testing.T) {
 			root, candidate, _ := writeCandidatePatch(t, patchFor(path))
 			if _, err := LoadCandidatePatch(root, "v1", candidate); !errors.Is(err, ErrIneligiblePatch) {
 				t.Fatalf("LoadCandidatePatch() error = %v, want %v", err, ErrIneligiblePatch)
+			}
+		})
+	}
+}
+
+func TestLoadCandidatePatchRejectsAmbiguousPatchSyntax(t *testing.T) {
+	tests := []struct {
+		name  string
+		patch string
+	}{
+		{name: "double diff spacing", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), "diff --git", "diff  --git", 1)},
+		{name: "double path spacing", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), " --git a/", " --git  a/", 1)},
+		{name: "zero start with implicit count", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), "@@ -1 +1 @@", "@@ -0 +1 @@", 1)},
+		{name: "overlapping hunk ranges", patch: patchWithHunks("go-engine/internal/planner/plan.go", "@@ -2 +2 @@\n-old\n+new\n@@ -2 +2 @@\n-old\n+new\n")},
+		{name: "nonmonotonic hunk ranges", patch: patchWithHunks("go-engine/internal/planner/plan.go", "@@ -3 +3 @@\n-old\n+new\n@@ -1 +1 @@\n-old\n+new\n")},
+		{name: "repeated no newline marker", patch: patchFor("go-engine/internal/planner/plan.go") + "\\ No newline at end of file\n\\ No newline at end of file\n"},
+		{name: "no newline marker before content", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), "-old\n", "\\ No newline at end of file\n-old\n", 1)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root, candidate, _ := writeCandidatePatch(t, tt.patch)
+			if _, err := LoadCandidatePatch(root, "v1", candidate); !errors.Is(err, ErrInvalidPatch) {
+				t.Fatalf("LoadCandidatePatch() error = %v, want %v", err, ErrInvalidPatch)
 			}
 		})
 	}
@@ -291,6 +328,12 @@ func patchWithPaths(diffPath, oldPath, newPath string) string {
 		"@@ -1 +1 @@\n" +
 		"-old\n" +
 		"+new\n"
+}
+
+func patchWithHunks(path, hunks string) string {
+	return "diff --git a/" + path + " b/" + path + "\n" +
+		"--- a/" + path + "\n" +
+		"+++ b/" + path + "\n" + hunks
 }
 
 func patchPaths(patch string) []string {

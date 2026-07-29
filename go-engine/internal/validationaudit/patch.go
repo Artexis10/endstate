@@ -6,7 +6,7 @@ package validationaudit
 import (
 	"crypto/sha256"
 	"errors"
-	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -117,52 +117,6 @@ func validCorpusVersion(value string) bool {
 	return pathSegmentPattern.MatchString(value) && value != "." && value != ".." && !strings.HasSuffix(value, ".") && !strings.HasSuffix(value, " ") && !windowsReservedDeviceName(value)
 }
 
-func readSafePatch(root, declared, patchPath string) ([]byte, error) {
-	parentInfo, err := os.Lstat(root)
-	if err != nil || unsafePathInfo(root, parentInfo) {
-		return nil, ErrUnsafePatchPath
-	}
-	components := strings.Split(declared, "/")
-	current := root
-	var leafInfo os.FileInfo
-	for index, component := range components {
-		current = filepath.Join(current, component)
-		info, statErr := os.Lstat(current)
-		if statErr != nil || unsafePathInfo(current, info) || unsafePathTransition(parentInfo, info) {
-			return nil, ErrUnsafePatchPath
-		}
-		if index < len(components)-1 && !info.IsDir() {
-			return nil, ErrUnsafePatchPath
-		}
-		parentInfo = info
-		leafInfo = info
-	}
-	if current != patchPath || leafInfo == nil || !leafInfo.Mode().IsRegular() {
-		return nil, ErrUnsafePatchPath
-	}
-	file, err := os.Open(patchPath)
-	if err != nil {
-		return nil, ErrUnsafePatchPath
-	}
-	defer file.Close()
-	openedInfo, err := file.Stat()
-	if err != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(leafInfo, openedInfo) || openedInfo.Size() != leafInfo.Size() {
-		return nil, ErrUnsafePatchPath
-	}
-	if openedInfo.Size() <= 0 || openedInfo.Size() > MaxPatchSize {
-		return nil, ErrInvalidPatch
-	}
-	raw, err := io.ReadAll(io.LimitReader(file, MaxPatchSize+1))
-	if err != nil || len(raw) == 0 || len(raw) > MaxPatchSize || int64(len(raw)) != openedInfo.Size() {
-		return nil, ErrInvalidPatch
-	}
-	currentInfo, err := os.Lstat(patchPath)
-	if err != nil || unsafePathInfo(patchPath, currentInfo) || !currentInfo.Mode().IsRegular() || !os.SameFile(leafInfo, currentInfo) || currentInfo.Size() != openedInfo.Size() || !currentInfo.ModTime().Equal(openedInfo.ModTime()) {
-		return nil, ErrUnsafePatchPath
-	}
-	return raw, nil
-}
-
 func parsePatch(raw []byte) ([]string, error) {
 	if len(raw) == 0 || len(raw) > MaxPatchSize || !utf8.Valid(raw) || strings.IndexByte(string(raw), 0) >= 0 {
 		return nil, ErrInvalidPatch
@@ -228,16 +182,25 @@ func parseFilePatch(lines []string, start int) (string, int, error) {
 		return "", 0, ErrInvalidPatch
 	}
 	changed := false
+	oldStart, oldEnd := -1, -1
+	newStart, newEnd := -1, -1
 	for index < len(lines) {
 		if strings.HasPrefix(lines[index], "diff --git ") {
 			break
 		}
-		oldRemaining, newRemaining, hunkErr := parseHunkHeader(lines[index])
+		hunk, hunkErr := parseHunkHeader(lines[index])
 		if hunkErr != nil {
 			return "", 0, ErrInvalidPatch
 		}
+		if oldStart >= 0 && (hunk.oldStart < oldStart || hunk.oldStart < oldEnd || hunk.newStart < newStart || hunk.newStart < newEnd) {
+			return "", 0, ErrInvalidPatch
+		}
+		oldStart, oldEnd = hunk.oldStart, hunk.oldStart+hunk.oldCount
+		newStart, newEnd = hunk.newStart, hunk.newStart+hunk.newCount
+		oldRemaining, newRemaining := hunk.oldCount, hunk.newCount
 		index++
 		seenContent := false
+		lastWasContent := false
 		for index < len(lines) && !strings.HasPrefix(lines[index], "diff --git ") && !strings.HasPrefix(lines[index], "@@ ") {
 			line := lines[index]
 			switch {
@@ -245,15 +208,19 @@ func parseFilePatch(lines []string, start int) (string, int, error) {
 				oldRemaining--
 				newRemaining--
 				seenContent = true
+				lastWasContent = true
 			case strings.HasPrefix(line, "-"):
 				oldRemaining--
 				changed = true
 				seenContent = true
+				lastWasContent = true
 			case strings.HasPrefix(line, "+"):
 				newRemaining--
 				changed = true
 				seenContent = true
-			case line == "\\ No newline at end of file" && seenContent:
+				lastWasContent = true
+			case line == "\\ No newline at end of file" && lastWasContent:
+				lastWasContent = false
 			default:
 				return "", 0, ErrInvalidPatch
 			}
@@ -273,12 +240,15 @@ func parseFilePatch(lines []string, start int) (string, int, error) {
 }
 
 func parseDiffHeader(line string) (string, error) {
-	parts := strings.Fields(line)
-	if len(parts) != 4 || parts[0] != "diff" || parts[1] != "--git" || !strings.HasPrefix(parts[2], "a/") || !strings.HasPrefix(parts[3], "b/") {
+	if !strings.HasPrefix(line, "diff --git ") {
 		return "", ErrInvalidPatch
 	}
-	path := strings.TrimPrefix(parts[2], "a/")
-	if path != strings.TrimPrefix(parts[3], "b/") || !validPatchRepositoryPath(path) {
+	parts := strings.Split(strings.TrimPrefix(line, "diff --git "), " ")
+	if len(parts) != 2 || !strings.HasPrefix(parts[0], "a/") || !strings.HasPrefix(parts[1], "b/") {
+		return "", ErrInvalidPatch
+	}
+	path := strings.TrimPrefix(parts[0], "a/")
+	if path != strings.TrimPrefix(parts[1], "b/") || !validPatchRepositoryPath(path) {
 		return "", ErrInvalidPatch
 	}
 	return path, nil
@@ -307,35 +277,49 @@ func validPatchRepositoryPath(path string) bool {
 	return true
 }
 
-func parseHunkHeader(line string) (int, int, error) {
-	matches := hunkPattern.FindStringSubmatch(line)
-	if matches == nil {
-		return 0, 0, ErrInvalidPatch
-	}
-	oldCount, err := hunkCount(matches[2])
-	if err != nil {
-		return 0, 0, err
-	}
-	newCount, err := hunkCount(matches[4])
-	if err != nil {
-		return 0, 0, err
-	}
-	return oldCount, newCount, nil
+type patchHunk struct {
+	oldStart int
+	oldCount int
+	newStart int
+	newCount int
 }
 
-func hunkCount(value string) (int, error) {
-	if value == "" {
-		return 1, nil
+func parseHunkHeader(line string) (patchHunk, error) {
+	matches := hunkPattern.FindStringSubmatch(line)
+	if matches == nil {
+		return patchHunk{}, ErrInvalidPatch
 	}
-	count, err := strconv.Atoi(value)
+	oldStart, oldCount, err := hunkCoordinates(matches[1], matches[2])
 	if err != nil {
-		return 0, ErrInvalidPatch
+		return patchHunk{}, err
 	}
-	return count, nil
+	newStart, newCount, err := hunkCoordinates(matches[3], matches[4])
+	if err != nil {
+		return patchHunk{}, err
+	}
+	return patchHunk{oldStart: oldStart, oldCount: oldCount, newStart: newStart, newCount: newCount}, nil
+}
+
+func hunkCoordinates(startValue, countValue string) (int, int, error) {
+	start, err := strconv.Atoi(startValue)
+	if err != nil || start < 0 {
+		return 0, 0, ErrInvalidPatch
+	}
+	count := 1
+	if countValue != "" {
+		count, err = strconv.Atoi(countValue)
+		if err != nil || count < 0 {
+			return 0, 0, ErrInvalidPatch
+		}
+	}
+	if (start == 0 && count != 0) || (start != 0 && start > math.MaxInt-count) {
+		return 0, 0, ErrInvalidPatch
+	}
+	return start, count, nil
 }
 
 func eligiblePatchPath(path string) bool {
-	if strings.HasSuffix(path, "_test.go") || containsExcludedPathSegment(path) {
+	if strings.HasSuffix(path, "_test.go") || containsExcludedPathSegment(path) || containsHiddenPathSegment(path) {
 		return false
 	}
 	if strings.HasPrefix(path, "go-engine/") {
@@ -355,13 +339,42 @@ func eligiblePatchPath(path string) bool {
 		}
 		return true
 	}
-	return strings.HasSuffix(path, ".jsonc") && (strings.HasPrefix(path, "modules/apps/") || strings.HasPrefix(path, "bundles/"))
+	segments := strings.Split(path, "/")
+	if len(segments) == 4 && segments[0] == "modules" && segments[1] == "apps" && validModuleID(segments[2]) && segments[3] == "module.jsonc" {
+		return true
+	}
+	return len(segments) == 2 && segments[0] == "bundles" && validBundleFilename(segments[1])
+}
+
+func validModuleID(value string) bool {
+	return pathSegmentPattern.MatchString(value) && !strings.HasPrefix(value, ".") && !windowsReservedDeviceName(value)
+}
+
+func validBundleFilename(value string) bool {
+	if !strings.HasSuffix(value, ".jsonc") || strings.HasPrefix(value, ".") || !pathSegmentPattern.MatchString(value) {
+		return false
+	}
+	name := strings.TrimSuffix(value, ".jsonc")
+	switch name {
+	case "config", "local", "manifest", "manifests", "payload", "runtime", "state":
+		return false
+	}
+	return true
 }
 
 func containsExcludedPathSegment(path string) bool {
 	segments := strings.Split(strings.ToLower(path), "/")
 	for _, segment := range segments {
 		if segment == "testdata" || segment == "fixtures" || strings.Contains(segment, "expected") || strings.Contains(segment, "golden") {
+			return true
+		}
+	}
+	return false
+}
+
+func containsHiddenPathSegment(path string) bool {
+	for _, segment := range strings.Split(path, "/") {
+		if strings.HasPrefix(segment, ".") {
 			return true
 		}
 	}
