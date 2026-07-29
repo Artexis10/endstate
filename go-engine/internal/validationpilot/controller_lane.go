@@ -129,29 +129,33 @@ func runV1Attempt(ctx context.Context, request V1LaneRequest, run V1ProcessRunne
 		return finishV1Infrastructure(attempt, started, "attempt_root")
 	}
 	defer os.RemoveAll(directory)
+	environment, err := v1AttemptEnvironment(directory)
+	if err != nil {
+		return finishV1Infrastructure(attempt, started, "attempt_environment")
+	}
 	if request.Role != V1KindBaseline {
 		if _, err := validationaudit.LoadV1CandidatePatch(request.Root, v1PatchRequest(candidate)); err != nil {
 			return finishV1Infrastructure(attempt, started, "patch")
 		}
 	}
-	if result := acquireV1Reference(ctx, run, directory, request.Manifest.Authorities.Evaluated.Commit); result.Infrastructure != "" {
+	if result := acquireV1Reference(ctx, run, directory, request.Manifest.Authorities.Evaluated.Commit, environment); result.Infrastructure != "" {
 		return finishV1Infrastructure(attempt, started, result.Infrastructure)
 	}
 	repository := filepath.Join(directory, "repository")
 	if request.Role != V1KindBaseline {
 		patch := filepath.Join(request.Root, filepath.FromSlash(V1CorpusRoot), "patches", candidate.ID+".patch")
-		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", "--check", "--index", patch}, Env: V1ChildEnvironment(os.Environ())}); result.Infrastructure != "" || result.Rejected {
+		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", "--check", "--index", patch}, Env: environment}); result.Infrastructure != "" || result.Rejected {
 			return finishV1Infrastructure(attempt, started, "patch_apply")
 		}
-		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", "--index", patch}, Env: V1ChildEnvironment(os.Environ())}); result.Infrastructure != "" || result.Rejected {
+		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", "--index", patch}, Env: environment}); result.Infrastructure != "" || result.Rejected {
 			return finishV1Infrastructure(attempt, started, "patch_apply")
 		}
-		if tree, err := v1GitValue(ctx, run, repository, "write-tree"); err != nil || tree != candidate.MutatedTree {
+		if tree, err := v1GitValue(ctx, run, repository, environment, "write-tree"); err != nil || tree != candidate.MutatedTree {
 			return finishV1Infrastructure(attempt, started, "mutated_tree")
 		}
 	}
 	if request.Role == V1KindComparator {
-		result := RunV1Comparator(func(command V1ChildCommand) V1ChildResult { return run(ctx, filepath.Join(repository, "go-engine"), command) }, os.Environ())
+		result := RunV1Comparator(func(command V1ChildCommand) V1ChildResult { return run(ctx, filepath.Join(repository, "go-engine"), command) }, environment)
 		if result.Infrastructure != "" {
 			return finishV1Infrastructure(attempt, started, result.Infrastructure)
 		}
@@ -169,7 +173,7 @@ func runV1Attempt(ctx context.Context, request V1LaneRequest, run V1ProcessRunne
 	if runtime.GOOS == "windows" {
 		engine += ".exe"
 	}
-	build := run(ctx, filepath.Join(repository, "go-engine"), V1ChildCommand{Name: "go", Args: []string{"build", "-buildvcs=false", "-o", engine, "./cmd/endstate"}, Env: V1ChildEnvironment(os.Environ())})
+	build := run(ctx, filepath.Join(repository, "go-engine"), V1ChildCommand{Name: "go", Args: []string{"build", "-buildvcs=false", "-o", engine, "./cmd/endstate"}, Env: environment})
 	if build.Infrastructure != "" || build.Rejected {
 		return finishV1Infrastructure(attempt, started, "engine_build")
 	}
@@ -219,8 +223,7 @@ func v1FailureFromLegacy(failure *Failure) *V1Failure {
 	return &V1Failure{Class: failure.Code, Phase: failure.Phase, Coordinate: failure.Coordinate, ChildReason: failure.ChildReason, Scope: scope}
 }
 
-func acquireV1Reference(ctx context.Context, run V1ProcessRunner, directory, commit string) V1ChildResult {
-	env := V1ChildEnvironment(os.Environ())
+func acquireV1Reference(ctx context.Context, run V1ProcessRunner, directory, commit string, env []string) V1ChildResult {
 	for _, command := range []V1ChildCommand{
 		{Name: "git", Args: []string{"init", "repository"}, Env: env},
 		{Name: "git", Args: []string{"-C", "repository", "-c", "credential.helper=", "-c", "http.extraheader=", "fetch", "--depth=1", v1RepositoryURL, commit}, Env: env},
@@ -234,8 +237,8 @@ func acquireV1Reference(ctx context.Context, run V1ProcessRunner, directory, com
 	return V1ChildResult{}
 }
 
-func v1GitValue(ctx context.Context, run V1ProcessRunner, directory string, args ...string) (string, error) {
-	result := run(ctx, directory, V1ChildCommand{Name: "git", Args: args, Env: V1ChildEnvironment(os.Environ())})
+func v1GitValue(ctx context.Context, run V1ProcessRunner, directory string, env []string, args ...string) (string, error) {
+	result := run(ctx, directory, V1ChildCommand{Name: "git", Args: args, Env: env})
 	if result.Infrastructure != "" || result.Rejected {
 		return "", errors.New("git authority failed")
 	}
@@ -265,6 +268,25 @@ func prepareV1ResultRoot(root string) error {
 		return err
 	}
 	return nil
+}
+
+func v1AttemptEnvironment(root string) ([]string, error) {
+	profile := filepath.Join(root, "profile")
+	paths := []string{profile, filepath.Join(profile, "appdata"), filepath.Join(profile, "localappdata"), filepath.Join(profile, "temp")}
+	for _, path := range paths {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			return nil, err
+		}
+	}
+	environment := V1ChildEnvironment(os.Environ())
+	return append(environment,
+		"HOME="+profile,
+		"USERPROFILE="+profile,
+		"APPDATA="+filepath.Join(profile, "appdata"),
+		"LOCALAPPDATA="+filepath.Join(profile, "localappdata"),
+		"TEMP="+filepath.Join(profile, "temp"),
+		"TMP="+filepath.Join(profile, "temp"),
+	), nil
 }
 
 func writeV1EvidenceNew(path string, evidence V1Evidence) error {

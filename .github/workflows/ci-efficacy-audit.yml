@@ -14,52 +14,47 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
-        with:
-          go-version: '1.26'
-          cache-dependency-path: audit/go-engine/go.sum
-      - name: Acquire dispatch source anonymously
+      - name: Bootstrap exact dispatch source anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
           git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
           git -C audit checkout --detach FETCH_HEAD
           test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Freeze v1 authority contract
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
+        with:
+          go-version: '1.26'
+          cache-dependency-path: audit/go-engine/go.sum
+      - name: Build native controller and validate authority
         run: |
           cd audit/go-engine
-          go build -buildvcs=false -o "$GITHUB_WORKSPACE/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          GOOS=windows GOARCH=amd64 go build -buildvcs=false -o "$GITHUB_WORKSPACE/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
-          "$GITHUB_WORKSPACE/endstate-validation-pilot" validate-v1 --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: v1-kit
-          path: |
-            audit
-            endstate-validation-pilot
-            endstate-validation-pilot.exe
-          retention-days: 7
-          if-no-files-found: error
+          go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
+          "$RUNNER_TEMP/endstate-validation-pilot" validate-v1 --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json"
 
   windows:
     needs: prepare
     runs-on: windows-latest
     timeout-minutes: 55
     steps:
+      - name: Bootstrap exact dispatch source anonymously
+        shell: pwsh
+        run: |
+          git -c credential.helper= -c http.extraheader= init audit
+          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$env:GITHUB_SHA"
+          git -C audit checkout --detach FETCH_HEAD
+          if ((git -C audit rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'dispatch mismatch' }
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
           cache-dependency-path: audit/go-engine/go.sum
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          name: v1-kit
-          path: kit
-      - name: Run serial Windows comparator and detector lanes
+      - name: Build and run native Windows controller
         shell: pwsh
         run: |
-          & "$env:GITHUB_WORKSPACE/kit/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/kit/audit" --manifest "$env:GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane windows-go --runner-family windows --runner-image windows-latest --result-root "$env:RUNNER_TEMP/v1-windows"
-          & "$env:GITHUB_WORKSPACE/kit/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/kit/audit" --manifest "$env:GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role baseline --lane windows-detector --runner-family windows --runner-image windows-latest --result-root "$env:RUNNER_TEMP/v1-windows"
-          & "$env:GITHUB_WORKSPACE/kit/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/kit/audit" --manifest "$env:GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role detector --lane windows-detector --runner-family windows --runner-image windows-latest --result-root "$env:RUNNER_TEMP/v1-windows"
+          Push-Location audit/go-engine
+          go build -buildvcs=false -o "$env:RUNNER_TEMP/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
+          Pop-Location
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane windows-go --runner-family windows --runner-image "$env:ImageOS-$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-windows"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role baseline --lane windows-detector --runner-family windows --runner-image "$env:ImageOS-$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-windows"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role detector --lane windows-detector --runner-family windows --runner-image "$env:ImageOS-$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-windows"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -73,16 +68,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Bootstrap exact dispatch source anonymously
+        run: |
+          git -c credential.helper= -c http.extraheader= init audit
+          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
+          git -C audit checkout --detach FETCH_HEAD
+          test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
           cache-dependency-path: audit/go-engine/go.sum
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          name: v1-kit
-          path: kit
-      - name: Run serial Ubuntu comparator lane
-        run: kit/endstate-validation-pilot run-v1-lane --root "$GITHUB_WORKSPACE/kit/audit" --manifest "$GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane ubuntu-go --runner-family linux --runner-image ubuntu-latest --result-root "$RUNNER_TEMP/v1-ubuntu"
+      - name: Build and run native Ubuntu controller
+        run: |
+          cd audit/go-engine
+          go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
+          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane ubuntu-go --runner-family linux --runner-image "$ImageOS-$ImageVersion" --result-root "$RUNNER_TEMP/v1-ubuntu"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -96,16 +96,21 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 30
     steps:
+      - name: Bootstrap exact dispatch source anonymously
+        run: |
+          git -c credential.helper= -c http.extraheader= init audit
+          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
+          git -C audit checkout --detach FETCH_HEAD
+          test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
           cache-dependency-path: audit/go-engine/go.sum
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          name: v1-kit
-          path: kit
-      - name: Run serial macOS comparator lane
-        run: kit/endstate-validation-pilot run-v1-lane --root "$GITHUB_WORKSPACE/kit/audit" --manifest "$GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane macos-go --runner-family darwin --runner-image macos-latest --result-root "$RUNNER_TEMP/v1-macos"
+      - name: Build and run native macOS controller
+        run: |
+          cd audit/go-engine
+          go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
+          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane macos-go --runner-family darwin --runner-image "$ImageOS-$ImageVersion" --result-root "$RUNNER_TEMP/v1-macos"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -120,33 +125,27 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Bootstrap exact dispatch source anonymously
+        run: |
+          git -c credential.helper= -c http.extraheader= init audit
+          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
+          git -C audit checkout --detach FETCH_HEAD
+          test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
           cache-dependency-path: audit/go-engine/go.sum
+      - name: Build native controller
+        run: cd audit/go-engine && go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
-          name: v1-kit
-          path: kit
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          pattern: v1-windows
-          path: evidence
-          merge-multiple: true
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          pattern: v1-ubuntu
-          path: evidence
-          merge-multiple: true
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with:
-          pattern: v1-macos
+          pattern: v1-*
           path: evidence
           merge-multiple: true
       - name: Aggregate fixed typed inventory
         run: |
           mkdir -p "$RUNNER_TEMP/v1-aggregate"
-          kit/endstate-validation-pilot aggregate-v1 --manifest "$GITHUB_WORKSPACE/kit/audit/validation/ci-efficacy/pilot-v1/manifest.json" --evidence-root "$GITHUB_WORKSPACE/evidence" --output "$RUNNER_TEMP/v1-aggregate/aggregate.json"
+          "$RUNNER_TEMP/endstate-validation-pilot" aggregate-v1 --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --evidence-root "$GITHUB_WORKSPACE/evidence" --output "$RUNNER_TEMP/v1-aggregate/aggregate.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:

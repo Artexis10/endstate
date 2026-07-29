@@ -124,6 +124,12 @@ func ValidateV1Repository(root, manifestPath string) (V1Manifest, error) {
 	if err != nil {
 		return V1Manifest{}, err
 	}
+	if err := ensureV1AuthorityObjects(canonicalRoot, manifest.Authorities); err != nil {
+		return V1Manifest{}, err
+	}
+	if err := ensureCleanV1Dispatch(canonicalRoot, manifest.Authorities.Dispatch); err != nil {
+		return V1Manifest{}, err
+	}
 	if manifest.ComparatorContractSHA256 != V1ComparatorContractSHA256() || manifest.DetectorContractSHA256 != V1DetectorContractSHA256() {
 		return V1Manifest{}, errors.New("v1 command contract digest differs")
 	}
@@ -170,6 +176,43 @@ func ValidateV1Repository(root, manifestPath string) (V1Manifest, error) {
 	return manifest, nil
 }
 
+func ensureV1AuthorityObjects(root string, authorities V1Authorities) error {
+	for _, reference := range []V1Reference{authorities.Evaluated, authorities.Freeze, authorities.Corpus, authorities.Dispatch} {
+		if _, err := runV1Git(root, "cat-file", "-e", reference.Commit+"^{commit}"); err == nil {
+			continue
+		}
+		command := exec.Command("git", "-C", root, "-c", "credential.helper=", "-c", "http.extraheader=", "fetch", "--no-tags", "--filter=blob:none", v1RepositoryURL, reference.Commit)
+		command.Env = V1ChildEnvironment(os.Environ())
+		if err := command.Run(); err != nil {
+			return errors.New("unable to acquire v1 authority")
+		}
+	}
+	return nil
+}
+
+func ensureCleanV1Dispatch(root string, dispatch V1Reference) error {
+	head, err := runV1Git(root, "rev-parse", "HEAD^{commit}")
+	if err != nil || head != dispatch.Commit {
+		return errors.New("dispatch checkout differs")
+	}
+	tree, err := runV1Git(root, "write-tree")
+	if err != nil || tree != dispatch.Tree {
+		return errors.New("dispatch index differs")
+	}
+	for _, arguments := range [][]string{{"diff", "--quiet"}, {"diff", "--cached", "--quiet"}} {
+		command := exec.Command("git", append([]string{"-C", root}, arguments...)...)
+		command.Env = V1ChildEnvironment(os.Environ())
+		if err := command.Run(); err != nil {
+			return errors.New("dispatch worktree differs")
+		}
+	}
+	foreign, err := runV1Git(root, "ls-files", "--others", "--exclude-standard")
+	if err != nil || foreign != "" {
+		return errors.New("dispatch worktree has foreign bytes")
+	}
+	return nil
+}
+
 func v1PatchRequest(candidate V1Candidate) validationaudit.V1PatchRequest {
 	request := validationaudit.V1PatchRequest{CandidateID: candidate.ID, Family: candidate.Family, PatchSHA256: candidate.PatchSHA256}
 	if candidate.Family == "catalog" {
@@ -206,7 +249,7 @@ func fmtV1Digest(sum [sha256.Size]byte) string {
 // Go, and typed detector child processes. Credential and workflow authority
 // variables are categorically excluded.
 func V1ChildEnvironment(parent []string) []string {
-	allowed := map[string]bool{"PATH": true, "SystemRoot": true, "SYSTEMROOT": true, "TMP": true, "TEMP": true, "GOCACHE": true, "GOMODCACHE": true, "GOTELEMETRY": true}
+	allowed := map[string]bool{"PATH": true, "SystemRoot": true, "SYSTEMROOT": true, "TMP": true, "TEMP": true, "HOME": true, "USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true, "GOCACHE": true, "GOMODCACHE": true, "GOTELEMETRY": true}
 	child := make([]string, 0, len(allowed)+2)
 	for _, value := range parent {
 		name, _, found := strings.Cut(value, "=")
