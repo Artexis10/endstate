@@ -13,13 +13,18 @@ jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GOCACHE: ${{ runner.temp }}/v1-owned/go-build
+      GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod
     steps:
       - name: Bootstrap exact dispatch source anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
-          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
+          git -C audit -c credential.helper= -c http.extraheader= fetch https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
           git -C audit checkout --detach FETCH_HEAD
           test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Prepare shared Go cache roots
+        run: mkdir -p "$GOCACHE" "$GOMODCACHE"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
@@ -34,14 +39,20 @@ jobs:
     needs: prepare
     runs-on: windows-latest
     timeout-minutes: 55
+    env:
+      GOCACHE: ${{ runner.temp }}/v1-owned/go-build
+      GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod
     steps:
       - name: Bootstrap exact dispatch source anonymously
         shell: pwsh
         run: |
           git -c credential.helper= -c http.extraheader= init audit
-          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$env:GITHUB_SHA"
+          git -C audit -c credential.helper= -c http.extraheader= fetch https://github.com/Artexis10/endstate.git "$env:GITHUB_SHA"
           git -C audit checkout --detach FETCH_HEAD
           if ((git -C audit rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'dispatch mismatch' }
+      - name: Prepare shared Go cache roots
+        shell: pwsh
+        run: New-Item -ItemType Directory -Force $env:GOCACHE, $env:GOMODCACHE | Out-Null
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
@@ -52,9 +63,9 @@ jobs:
           Push-Location audit/go-engine
           go build -buildvcs=false -o "$env:RUNNER_TEMP/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
           Pop-Location
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane windows-go --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-owned/results"
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role baseline --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-owned/results"
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role detector --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane windows-go --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role baseline --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role detector --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -67,13 +78,18 @@ jobs:
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      GOCACHE: ${{ runner.temp }}/v1-owned/go-build
+      GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod
     steps:
       - name: Bootstrap exact dispatch source anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
-          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
+          git -C audit -c credential.helper= -c http.extraheader= fetch https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
           git -C audit checkout --detach FETCH_HEAD
           test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Prepare shared Go cache roots
+        run: mkdir -p "$GOCACHE" "$GOMODCACHE"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
@@ -82,7 +98,7 @@ jobs:
         run: |
           cd audit/go-engine
           go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane ubuntu-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family linux --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --result-root "$RUNNER_TEMP/v1-owned/results"
+          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane ubuntu-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family linux --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --go-cache "$GOCACHE" --go-mod-cache "$GOMODCACHE" --result-root "$RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -95,13 +111,18 @@ jobs:
     needs: prepare
     runs-on: macos-latest
     timeout-minutes: 30
+    env:
+      GOCACHE: ${{ runner.temp }}/v1-owned/go-build
+      GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod
     steps:
       - name: Bootstrap exact dispatch source anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
-          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
+          git -C audit -c credential.helper= -c http.extraheader= fetch https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
           git -C audit checkout --detach FETCH_HEAD
           test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Prepare shared Go cache roots
+        run: mkdir -p "$GOCACHE" "$GOMODCACHE"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
@@ -110,7 +131,7 @@ jobs:
         run: |
           cd audit/go-engine
           go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane macos-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family darwin --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --result-root "$RUNNER_TEMP/v1-owned/results"
+          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane macos-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family darwin --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --go-cache "$GOCACHE" --go-mod-cache "$GOMODCACHE" --result-root "$RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
@@ -124,13 +145,18 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GOCACHE: ${{ runner.temp }}/v1-owned/go-build
+      GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod
     steps:
       - name: Bootstrap exact dispatch source anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
-          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
+          git -C audit -c credential.helper= -c http.extraheader= fetch https://github.com/Artexis10/endstate.git "$GITHUB_SHA"
           git -C audit checkout --detach FETCH_HEAD
           test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Prepare shared Go cache roots
+        run: mkdir -p "$GOCACHE" "$GOMODCACHE"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'

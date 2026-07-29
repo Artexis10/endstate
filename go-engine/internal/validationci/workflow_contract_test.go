@@ -49,13 +49,14 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
 		"validate-v1", "run-v1-lane", "aggregate-v1", "--role baseline", "--role detector", "--role comparator", "if: always()", "if-no-files-found: error",
 		"--runner-root", "--runner-image-os", "--runner-image-version", "ImageOS", "ImageVersion",
+		"GOCACHE: ${{ runner.temp }}/v1-owned/go-build", "GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod", "--go-cache", "--go-mod-cache",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Errorf("workflow missing %q", wanted)
 		}
 	}
 	for _, forbidden := range []string{
-		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "ConvertTo-Json", "ConvertFrom-Json", "jq", "notepad", "winget", "choco", "brew", "apt-get", "Remove-Item", "rm -rf", "git config",
+		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "ConvertTo-Json", "ConvertFrom-Json", "jq", "notepad", "winget", "choco", "brew", "apt-get", "Remove-Item", "rm -rf", "git config", "--depth=1",
 	} {
 		if strings.Contains(strings.ToLower(text), strings.ToLower(forbidden)) {
 			t.Errorf("workflow contains forbidden %q", forbidden)
@@ -66,5 +67,15 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 	}
 	if got := strings.Count(text, "timeout-minutes:"); got != 5 {
 		t.Errorf("workflow timeout count = %d, want 5", got)
+	}
+	for wanted, count := range map[string]int{
+		"GOCACHE: ${{ runner.temp }}/v1-owned/go-build":  5,
+		"GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod": 5,
+		"--go-cache":     5,
+		"--go-mod-cache": 5,
+	} {
+		if got := strings.Count(text, wanted); got != count {
+			t.Errorf("workflow has %d occurrences of %q, want %d", got, wanted, count)
+		}
 	}
 }

@@ -112,7 +112,7 @@ func runValidateV1(args []string) int {
 func runV1Lane(args []string) int {
 	flags := flag.NewFlagSet("endstate-validation-pilot run-v1-lane", flag.ContinueOnError)
 	flags.SetOutput(os.Stderr)
-	var root, manifest, role, lane, runnerRoot, runnerFamily, runnerImageOS, runnerImageVersion, resultRoot string
+	var root, manifest, role, lane, runnerRoot, runnerFamily, runnerImageOS, runnerImageVersion, goCache, goModCache, resultRoot string
 	flags.StringVar(&root, "root", "", "absolute dispatch repository root")
 	flags.StringVar(&manifest, "manifest", "", "absolute v1 manifest path")
 	flags.StringVar(&role, "role", "", "fixed v1 role")
@@ -121,8 +121,10 @@ func runV1Lane(args []string) int {
 	flags.StringVar(&runnerFamily, "runner-family", "", "runner family")
 	flags.StringVar(&runnerImageOS, "runner-image-os", "", "hosted ImageOS metadata")
 	flags.StringVar(&runnerImageVersion, "runner-image-version", "", "hosted ImageVersion metadata")
+	flags.StringVar(&goCache, "go-cache", "", "shared job GOCACHE")
+	flags.StringVar(&goModCache, "go-mod-cache", "", "shared job GOMODCACHE")
 	flags.StringVar(&resultRoot, "result-root", "", "fresh runner-owned result root")
-	if flags.Parse(args) != nil || flags.NArg() != 0 || root == "" || manifest == "" || role == "" || lane == "" || runnerRoot == "" || runnerFamily == "" || runnerImageOS == "" || runnerImageVersion == "" || resultRoot == "" {
+	if flags.Parse(args) != nil || flags.NArg() != 0 || root == "" || manifest == "" || role == "" || lane == "" || runnerRoot == "" || runnerFamily == "" || runnerImageOS == "" || runnerImageVersion == "" || goCache == "" || goModCache == "" || resultRoot == "" {
 		return 2
 	}
 	runner, err := validationpilot.HostedV1Runner(runnerFamily, runnerImageOS, runnerImageVersion)
@@ -135,7 +137,7 @@ func runV1Lane(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	if err := validationpilot.RunV1Lane(context.Background(), validationpilot.V1LaneRequest{Root: root, RunnerRoot: runnerRoot, Manifest: v1Manifest, Role: role, Lane: lane, Runner: runner, ResultRoot: resultRoot}); err != nil {
+	if err := validationpilot.RunV1Lane(context.Background(), validationpilot.V1LaneRequest{Root: root, RunnerRoot: runnerRoot, GoCache: goCache, GoModCache: goModCache, Manifest: v1Manifest, Role: role, Lane: lane, Runner: runner, ResultRoot: resultRoot}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}

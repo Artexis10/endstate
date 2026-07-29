@@ -127,6 +127,9 @@ func ValidateV1Repository(root, manifestPath string) (V1Manifest, error) {
 	if err := ensureV1AuthorityObjects(canonicalRoot, manifest.Authorities); err != nil {
 		return V1Manifest{}, err
 	}
+	if err := prepareV1AuthorityGraph(canonicalRoot); err != nil {
+		return V1Manifest{}, err
+	}
 	if err := ensureCleanV1Dispatch(canonicalRoot, manifest.Authorities.Dispatch); err != nil {
 		return V1Manifest{}, err
 	}
@@ -186,6 +189,17 @@ func ensureV1AuthorityObjects(root string, authorities V1Authorities) error {
 		if err := command.Run(); err != nil {
 			return errors.New("unable to acquire v1 authority")
 		}
+	}
+	return nil
+}
+
+func prepareV1AuthorityGraph(root string) error {
+	shallow, err := runV1Git(root, "rev-parse", "--is-shallow-repository")
+	if err != nil || (shallow != "true" && shallow != "false") {
+		return errors.New("unable to inspect v1 authority graph")
+	}
+	if shallow == "true" {
+		return errors.New("v1 authority graph is shallow")
 	}
 	return nil
 }

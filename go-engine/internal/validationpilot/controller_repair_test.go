@@ -6,7 +6,9 @@ package validationpilot
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/catalogplan"
@@ -122,4 +124,69 @@ func TestV1RunnerRootRejectsEqualTraversalAndSymlinkResultRoots(t *testing.T) {
 	if err := prepareV1ResultRoot(runnerRoot, filepath.Join(link, "results")); err == nil {
 		t.Fatal("prepareV1ResultRoot() accepted a symlink escape")
 	}
+}
+
+func TestPrepareV1AuthorityGraphKeepsFullDispatchAncestry(t *testing.T) {
+	repository := t.TempDir()
+	runV1TestGit(t, repository, "init")
+	runV1TestGit(t, repository, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "freeze")
+	freeze := strings.TrimSpace(runV1TestGit(t, repository, "rev-parse", "HEAD"))
+	runV1TestGit(t, repository, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "dispatch")
+	dispatch := strings.TrimSpace(runV1TestGit(t, repository, "rev-parse", "HEAD"))
+	if err := prepareV1AuthorityGraph(repository); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command("git", "-C", repository, "merge-base", "--is-ancestor", freeze, dispatch).Run(); err != nil {
+		t.Fatalf("freeze is not recognized as dispatch ancestor: %v", err)
+	}
+}
+
+func TestPrepareV1AuthorityGraphRejectsShallowDispatch(t *testing.T) {
+	repository := t.TempDir()
+	runV1TestGit(t, repository, "init")
+	runV1TestGit(t, repository, "-c", "user.name=test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-m", "dispatch")
+	dispatch := strings.TrimSpace(runV1TestGit(t, repository, "rev-parse", "HEAD"))
+	if err := os.WriteFile(filepath.Join(repository, ".git", "shallow"), []byte(dispatch+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := prepareV1AuthorityGraph(repository); err == nil {
+		t.Fatal("prepareV1AuthorityGraph() accepted a shallow dispatch")
+	}
+}
+
+func TestV1AttemptEnvironmentPreservesSafeSharedJobCaches(t *testing.T) {
+	runnerRoot := t.TempDir()
+	attemptRoot := filepath.Join(runnerRoot, "attempt")
+	goCache := filepath.Join(runnerRoot, "go-build")
+	goModCache := filepath.Join(runnerRoot, "go-mod")
+	for _, path := range []string{attemptRoot, goCache, goModCache} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	environment, err := v1AttemptEnvironment(attemptRoot, runnerRoot, goCache, goModCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := v1EnvironmentValue(environment, "GOCACHE"); got != goCache {
+		t.Fatalf("GOCACHE = %q, want %q", got, goCache)
+	}
+	if got := v1EnvironmentValue(environment, "GOMODCACHE"); got != goModCache {
+		t.Fatalf("GOMODCACHE = %q, want %q", got, goModCache)
+	}
+	if _, err := v1AttemptEnvironment(attemptRoot, runnerRoot, filepath.Join(runnerRoot, "missing"), goModCache); err == nil {
+		t.Fatal("v1AttemptEnvironment() accepted a missing shared cache")
+	}
+	if _, err := v1AttemptEnvironment(attemptRoot, runnerRoot, t.TempDir(), goModCache); err == nil {
+		t.Fatal("v1AttemptEnvironment() accepted a cache outside the runner root")
+	}
+}
+
+func runV1TestGit(t *testing.T, directory string, arguments ...string) string {
+	t.Helper()
+	output, err := exec.Command("git", append([]string{"-C", directory}, arguments...)...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", arguments, err, output)
+	}
+	return string(output)
 }

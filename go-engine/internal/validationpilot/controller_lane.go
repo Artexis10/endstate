@@ -34,6 +34,8 @@ const (
 type V1LaneRequest struct {
 	Root       string
 	RunnerRoot string
+	GoCache    string
+	GoModCache string
 	Manifest   V1Manifest
 	Role       string
 	Lane       string
@@ -77,7 +79,7 @@ func RunV1Lane(ctx context.Context, request V1LaneRequest) error {
 }
 
 func validateV1LaneRequest(request V1LaneRequest) error {
-	if !validV1Manifest(request.Manifest) || !validV1Runner(request.Runner) || !filepath.IsAbs(request.RunnerRoot) || filepath.Clean(request.RunnerRoot) != request.RunnerRoot || !filepath.IsAbs(request.ResultRoot) || filepath.Clean(request.ResultRoot) != request.ResultRoot {
+	if !validV1Manifest(request.Manifest) || !validV1Runner(request.Runner) || request.GoCache == "" || request.GoModCache == "" || !filepath.IsAbs(request.RunnerRoot) || filepath.Clean(request.RunnerRoot) != request.RunnerRoot || !filepath.IsAbs(request.ResultRoot) || filepath.Clean(request.ResultRoot) != request.ResultRoot {
 		return errors.New("invalid v1 lane request")
 	}
 	switch request.Role {
@@ -137,7 +139,7 @@ func runV1Attempt(ctx context.Context, request V1LaneRequest, run V1ProcessRunne
 		return finishV1Infrastructure(attempt, started, "attempt_root")
 	}
 	defer removeV1Attempt(request.RunnerRoot, directory)
-	environment, err := v1AttemptEnvironment(directory)
+	environment, err := v1AttemptEnvironment(directory, request.RunnerRoot, request.GoCache, request.GoModCache)
 	if err != nil {
 		return finishV1Infrastructure(attempt, started, "attempt_environment")
 	}
@@ -552,16 +554,18 @@ func removeV1Attempt(runnerRoot, directory string) {
 	}
 }
 
-func v1AttemptEnvironment(root string) ([]string, error) {
+func v1AttemptEnvironment(root, runnerRoot, goCache, goModCache string) ([]string, error) {
+	if !v1SafeSharedCache(runnerRoot, goCache) || !v1SafeSharedCache(runnerRoot, goModCache) {
+		return nil, errors.New("unsafe shared Go cache")
+	}
 	profile := filepath.Join(root, "profile")
-	cache := filepath.Join(root, "cache")
-	paths := []string{profile, filepath.Join(profile, "appdata"), filepath.Join(profile, "localappdata"), filepath.Join(profile, "temp"), cache, filepath.Join(cache, "go-build"), filepath.Join(cache, "go-mod")}
+	paths := []string{profile, filepath.Join(profile, "appdata"), filepath.Join(profile, "localappdata"), filepath.Join(profile, "temp")}
 	for _, path := range paths {
 		if err := os.Mkdir(path, 0o700); err != nil {
 			return nil, err
 		}
 	}
-	environment := V1ChildEnvironment(os.Environ())
+	environment := v1WithoutGoCaches(V1ChildEnvironment(os.Environ()))
 	return append(environment,
 		"HOME="+profile,
 		"USERPROFILE="+profile,
@@ -569,9 +573,39 @@ func v1AttemptEnvironment(root string) ([]string, error) {
 		"LOCALAPPDATA="+filepath.Join(profile, "localappdata"),
 		"TEMP="+filepath.Join(profile, "temp"),
 		"TMP="+filepath.Join(profile, "temp"),
-		"GOCACHE="+filepath.Join(cache, "go-build"),
-		"GOMODCACHE="+filepath.Join(cache, "go-mod"),
+		"GOCACHE="+goCache,
+		"GOMODCACHE="+goModCache,
 	), nil
+}
+
+func v1SafeSharedCache(runnerRoot, cache string) bool {
+	if !v1StrictDescendant(runnerRoot, cache) || !v1SafeExistingAncestors(cache) {
+		return false
+	}
+	info, err := os.Lstat(cache)
+	return err == nil && info.IsDir() && !validationaudit.IsUnsafePath(cache)
+}
+
+func v1WithoutGoCaches(environment []string) []string {
+	filtered := make([]string, 0, len(environment))
+	for _, value := range environment {
+		name, _, found := strings.Cut(value, "=")
+		if found && (name == "GOCACHE" || name == "GOMODCACHE") {
+			continue
+		}
+		filtered = append(filtered, value)
+	}
+	return filtered
+}
+
+func v1EnvironmentValue(environment []string, name string) string {
+	for _, value := range environment {
+		key, value, found := strings.Cut(value, "=")
+		if found && key == name {
+			return value
+		}
+	}
+	return ""
 }
 
 func writeV1EvidenceNew(path string, evidence V1Evidence) error {
