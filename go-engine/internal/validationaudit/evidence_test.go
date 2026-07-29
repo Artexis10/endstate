@@ -253,6 +253,12 @@ func TestAttemptEvidenceRejectsTokenAndPathText(t *testing.T) {
 	}{
 		{"token candidate", func(e *AttemptEvidence) { e.CandidateID = "ghp_secret" }},
 		{"token runner", func(e *AttemptEvidence) { e.Runner.Image = "github_pat_secret" }},
+		{"aws access key", func(e *AttemptEvidence) { e.CandidateID = "AKIAIOSFODNN7EXAMPLE" }},
+		{"openai key", func(e *AttemptEvidence) { e.Runner.Image = "sk-proj-secret" }},
+		{"gitlab token", func(e *AttemptEvidence) { e.Toolchain.Go = "glpat-secret" }},
+		{"npm token", func(e *AttemptEvidence) { e.AttemptID = "npm_secret" }},
+		{"slack token", func(e *AttemptEvidence) { e.AuditVersion = "xoxb-secret" }},
+		{"bearer token", func(e *AttemptEvidence) { e.CorpusVersion = "bearer-secret" }},
 		{"drive relative failure", func(e *AttemptEvidence) {
 			e.ExitClass = ExitClassRejected
 			e.Failure = &StableFailure{Class: "contract", Phase: "validation", Coordinate: "C:secret"}
@@ -348,6 +354,24 @@ func TestPublishEvidenceRejectsLinkedRootAndIntermediate(t *testing.T) {
 	}
 	if _, err := PublishEvidence(intermediate, "attempt-01.json", evidence); !errors.Is(err, ErrUnsafeEvidencePath) {
 		t.Fatalf("PublishEvidence() linked intermediate error = %v, want %v", err, ErrUnsafeEvidencePath)
+	}
+}
+
+func TestPublishEvidenceRejectsRootReplacedBeforeOpen(t *testing.T) {
+	root := evidenceResultRoot(t)
+	outside := evidenceResultRoot(t)
+	previous := beforeEvidenceRootOpen
+	beforeEvidenceRootOpen = func() {
+		if err := os.Remove(root); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, root); err != nil {
+			t.Skipf("symbolic links unavailable: %v", err)
+		}
+	}
+	t.Cleanup(func() { beforeEvidenceRootOpen = previous })
+	if _, err := PublishEvidence(root, "attempt-01.json", validMutationEvidence(1)); !errors.Is(err, ErrUnsafeEvidencePath) {
+		t.Fatalf("PublishEvidence() replacement error = %v, want %v", err, ErrUnsafeEvidencePath)
 	}
 }
 

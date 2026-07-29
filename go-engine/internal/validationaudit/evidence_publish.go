@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+var beforeEvidenceRootOpen = func() {}
+
 // PublishEvidence creates one new evidence leaf below a pre-existing canonical
 // result root and verifies the exact persisted bytes before returning.
 func PublishEvidence(resultRoot, leaf string, evidence AttemptEvidence) (PublishedEvidence, error) {

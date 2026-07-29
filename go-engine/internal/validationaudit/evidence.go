@@ -277,7 +277,7 @@ func unsafeAuditText(value string) bool {
 	if strings.ContainsAny(value, `/\\`) || len(value) >= 2 && value[1] == ':' && ((value[0] >= 'a' && value[0] <= 'z') || (value[0] >= 'A' && value[0] <= 'Z')) {
 		return true
 	}
-	for _, prefix := range []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"} {
+	for _, prefix := range []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "akia", "asia", "sk-", "sk-proj-", "glpat-", "npm_", "pypi-", "xox", "bearer", "eyj"} {
 		if strings.HasPrefix(lower, prefix) {
 			return true
 		}

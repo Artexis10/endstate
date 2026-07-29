@@ -11,20 +11,20 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 )
 
 func publishEvidence(root, leaf string, raw []byte, digest string) (PublishedEvidence, error) {
-	canonicalRoot, ok := canonicalEvidenceRoot(root)
+	handles, canonicalRoot, ok := openWindowsEvidenceRoot(root)
 	if !ok {
 		return PublishedEvidence{}, ErrUnsafeEvidencePath
 	}
-	rootHandle, err := openWindowsSafePath(canonicalRoot, true)
-	if err != nil {
-		return PublishedEvidence{}, ErrUnsafeEvidencePath
-	}
-	defer rootHandle.Close()
-
+	defer func() {
+		for index := len(handles) - 1; index >= 0; index-- {
+			handles[index].Close()
+		}
+	}()
 	path := filepath.Join(canonicalRoot, leaf)
 	handle, err := syscall.CreateFile(
 		syscall.StringToUTF16Ptr(path),
@@ -46,27 +46,37 @@ func publishEvidence(root, leaf string, raw []byte, digest string) (PublishedEvi
 	return writeAndVerifyEvidence(file, raw, digest)
 }
 
-func canonicalEvidenceRoot(root string) (string, bool) {
+func openWindowsEvidenceRoot(root string) ([]*os.File, string, bool) {
 	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
-		return "", false
+		return nil, "", false
 	}
 	abs, err := filepath.Abs(root)
-	if err != nil {
-		return "", false
+	if err != nil || abs != root {
+		return nil, "", false
 	}
-	info, err := os.Lstat(abs)
-	if err != nil || !info.IsDir() || unsafePathInfo(abs, info) {
-		return "", false
+	volume := filepath.VolumeName(root)
+	if volume == "" {
+		return nil, "", false
 	}
-	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil || filepath.Clean(resolved) != resolved || resolved != root {
-		return "", false
+	anchor := volume + string(filepath.Separator)
+	beforeEvidenceRootOpen()
+	current := anchor
+	components := strings.FieldsFunc(strings.TrimPrefix(root, volume), func(value rune) bool { return value == '\\' || value == '/' })
+	handles := make([]*os.File, 0, len(components)+1)
+	for _, component := range append([]string{""}, components...) {
+		if component != "" {
+			current = filepath.Join(current, component)
+		}
+		file, openErr := openWindowsSafePath(current, true)
+		if openErr != nil {
+			for index := len(handles) - 1; index >= 0; index-- {
+				handles[index].Close()
+			}
+			return nil, "", false
+		}
+		handles = append(handles, file)
 	}
-	resolvedInfo, err := os.Lstat(resolved)
-	if err != nil || !resolvedInfo.IsDir() || unsafePathInfo(resolved, resolvedInfo) {
-		return "", false
-	}
-	return resolved, true
+	return handles, root, true
 }
 
 func writeAndVerifyEvidence(file *os.File, raw []byte, digest string) (PublishedEvidence, error) {
