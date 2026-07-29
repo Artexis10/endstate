@@ -10,11 +10,14 @@ jobs:
       - name: Acquire every fixed authority anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
-          for ref in "$GITHUB_SHA" ab8065cd67ab3f4e9e876e07a25facf3100c28c7 437c0ca4167c09bc9f2de515daa6d55d35257d4f; do
-            git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$ref"
-            test "$(git -C audit rev-parse FETCH_HEAD)" = "$ref"
-          done
-          git -C audit checkout --detach "$GITHUB_SHA"
+          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git \
+            "$GITHUB_SHA:refs/audit/dispatch" \
+            ab8065cd67ab3f4e9e876e07a25facf3100c28c7:refs/audit/legacy \
+            437c0ca4167c09bc9f2de515daa6d55d35257d4f:refs/audit/detector
+          test "$(git -C audit rev-parse refs/audit/dispatch)" = "$GITHUB_SHA"
+          test "$(git -C audit rev-parse refs/audit/legacy)" = ab8065cd67ab3f4e9e876e07a25facf3100c28c7
+          test "$(git -C audit rev-parse refs/audit/detector)" = 437c0ca4167c09bc9f2de515daa6d55d35257d4f
+          git -C audit checkout --detach refs/audit/dispatch
           test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
       - name: Validate bound corpus and build aggregate runner
         run: |
