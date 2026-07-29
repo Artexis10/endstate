@@ -34,7 +34,25 @@ var (
 	stableValuePattern   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,127}$`)
 	canonicalCategories  = []string{"module-data", "engine-lifecycle", "artifact-config", "critical-safety"}
 	categoryQuota        = []int{10, 8, 6, 6}
+	legacyLaneOrder      = []legacyLaneIdentity{
+		{ID: "windows-go", Runner: "windows-latest"},
+		{ID: "ubuntu-go", Runner: "ubuntu-latest"},
+		{ID: "macos-go", Runner: "macos-latest"},
+		{ID: "windows-integration", Runner: "windows-latest"},
+		{ID: "ubuntu-nix", Runner: "ubuntu-latest"},
+		{ID: "macos-nix", Runner: "macos-latest"},
+	}
+	windowsDeviceNames = map[string]struct{}{
+		"con": {}, "prn": {}, "aux": {}, "nul": {}, "clock$": {},
+		"com1": {}, "com2": {}, "com3": {}, "com4": {}, "com5": {}, "com6": {}, "com7": {}, "com8": {}, "com9": {},
+		"lpt1": {}, "lpt2": {}, "lpt3": {}, "lpt4": {}, "lpt5": {}, "lpt6": {}, "lpt7": {}, "lpt8": {}, "lpt9": {},
+	}
 )
+
+type legacyLaneIdentity struct {
+	ID     string
+	Runner string
+}
 
 // ReferenceIdentity binds a manifest to one exact Git commit and tree.
 type ReferenceIdentity struct {
@@ -46,6 +64,14 @@ type ReferenceIdentity struct {
 type DetectorContract struct {
 	ID             string `json:"id"`
 	ContractSHA256 string `json:"contractSha256"`
+}
+
+// LaneContract binds one legacy control lane to its fixed runner and command.
+type LaneContract struct {
+	ID             string `json:"id"`
+	Runner         string `json:"runner"`
+	CommandSHA256  string `json:"commandSha256"`
+	TimeoutSeconds int    `json:"timeoutSeconds"`
 }
 
 // ExpectedFailure fixes the stable failure that a candidate must produce.
@@ -80,6 +106,7 @@ type CandidateSet struct {
 	SchemaVersion int                `json:"schemaVersion"`
 	Reference     ReferenceIdentity  `json:"reference"`
 	Detectors     []DetectorContract `json:"detectors"`
+	LegacyLanes   *[]LaneContract    `json:"legacyLanes"`
 	Queues        []CandidateQueue   `json:"queues"`
 }
 
@@ -91,14 +118,15 @@ type QualificationIdentity struct {
 
 // FrozenItem is one denominator member selected before detector execution.
 type FrozenItem struct {
-	ID              string                `json:"id"`
-	Category        string                `json:"category"`
-	Reference       ReferenceIdentity     `json:"reference"`
-	PatchSHA256     string                `json:"patchSha256"`
-	Critical        bool                  `json:"critical"`
-	Detector        string                `json:"detector"`
-	ExpectedFailure ExpectedFailure       `json:"expectedFailure"`
-	Qualification   QualificationIdentity `json:"qualification"`
+	ID               string                `json:"id"`
+	Category         string                `json:"category"`
+	Reference        ReferenceIdentity     `json:"reference"`
+	PatchSHA256      string                `json:"patchSha256"`
+	Critical         bool                  `json:"critical"`
+	Detector         string                `json:"detector"`
+	ExpectedFailure  ExpectedFailure       `json:"expectedFailure"`
+	ViolatedBehavior string                `json:"violatedBehavior"`
+	Qualification    QualificationIdentity `json:"qualification"`
 }
 
 // FrozenManifest is the exact, quota-filled manifest used by detector execution.
@@ -118,7 +146,7 @@ func DecodeCandidateSet(raw []byte) (CandidateSet, error) {
 	if set.SchemaVersion != SchemaVersion {
 		return CandidateSet{}, ErrUnsupportedSchema
 	}
-	if !validReference(set.Reference) || !validDetectors(set.Detectors) || len(set.Queues) != len(canonicalCategories) {
+	if !validReference(set.Reference) || !validDetectors(set.Detectors) || set.LegacyLanes != nil && !validLegacyLanes(*set.LegacyLanes) || len(set.Queues) != len(canonicalCategories) {
 		return CandidateSet{}, ErrInvalidManifest
 	}
 	detectors := detectorIDs(set.Detectors)
@@ -273,6 +301,19 @@ func validDetectors(detectors []DetectorContract) bool {
 	return true
 }
 
+func validLegacyLanes(lanes []LaneContract) bool {
+	if len(lanes) != len(legacyLaneOrder) {
+		return false
+	}
+	for index, lane := range lanes {
+		expected := legacyLaneOrder[index]
+		if lane.ID != expected.ID || lane.Runner != expected.Runner || !sha256Pattern.MatchString(lane.CommandSHA256) || lane.TimeoutSeconds < 1 || lane.TimeoutSeconds > 14_400 {
+			return false
+		}
+	}
+	return true
+}
+
 func detectorIDs(detectors []DetectorContract) map[string]struct{} {
 	result := make(map[string]struct{}, len(detectors))
 	for _, detector := range detectors {
@@ -288,7 +329,7 @@ func validCandidate(candidate Candidate, category string, reference ReferenceIde
 
 func validFrozenItem(item FrozenItem, category string, reference ReferenceIdentity, detectors map[string]struct{}) bool {
 	_, knownDetector := detectors[item.Detector]
-	return item.Category == category && identifierPattern.MatchString(item.ID) && item.Reference == reference && sha256Pattern.MatchString(item.PatchSHA256) && item.Critical == (category == "critical-safety") && knownDetector && validExpectedFailure(item.ExpectedFailure) && identifierPattern.MatchString(item.Qualification.RunID) && sha256Pattern.MatchString(item.Qualification.EvidenceSHA256)
+	return item.Category == category && identifierPattern.MatchString(item.ID) && item.Reference == reference && sha256Pattern.MatchString(item.PatchSHA256) && item.Critical == (category == "critical-safety") && knownDetector && validExpectedFailure(item.ExpectedFailure) && validText(item.ViolatedBehavior) && identifierPattern.MatchString(item.Qualification.RunID) && sha256Pattern.MatchString(item.Qualification.EvidenceSHA256)
 }
 
 func validPaths(paths []string) bool {
@@ -309,11 +350,17 @@ func validRepositoryPath(path string) bool {
 		return false
 	}
 	for _, segment := range strings.Split(path, "/") {
-		if !pathSegmentPattern.MatchString(segment) || segment == "." || segment == ".." {
+		if !pathSegmentPattern.MatchString(segment) || segment == "." || segment == ".." || strings.HasSuffix(segment, ".") || strings.HasSuffix(segment, " ") || windowsReservedDeviceName(segment) {
 			return false
 		}
 	}
 	return true
+}
+
+func windowsReservedDeviceName(segment string) bool {
+	base := strings.ToLower(strings.SplitN(segment, ".", 2)[0])
+	_, reserved := windowsDeviceNames[base]
+	return reserved
 }
 
 func validText(value string) bool {
