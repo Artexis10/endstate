@@ -50,6 +50,16 @@ func TestBundleContainsValueDecodesUTF16LE(t *testing.T) {
 	if bundleContainsValue(entries, forbidden) {
 		t.Fatalf("forbidden value %q found", forbidden)
 	}
+	headerEnd := 2 + len(utf16.Encode([]rune(header)))*2
+	malformed := append([]byte{0xff, 0xfe}, encoded[2:headerEnd]...)
+	malformed = append(malformed, 0x00, 0xd8)
+	malformed = append(malformed, encoded[headerEnd:]...)
+	if bundleContainsValue(map[string]string{"malformed-surrogate.reg": string(malformed)}, header) {
+		t.Fatal("malformed UTF-16LE entry matched header")
+	}
+	if bundleContainsValue(map[string]string{"malformed-surrogate.reg": string(malformed)}, sentinel) {
+		t.Fatal("malformed UTF-16LE entry matched sentinel")
+	}
 	if bundleContainsValue(map[string]string{"malformed.reg": "\xff\xfeA"}, "A") {
 		t.Fatal("odd-length UTF-16LE entry matched")
 	}
@@ -400,6 +410,9 @@ func bundleContainsValue(entries map[string]string, value string) bool {
 			for index := 2; index < len(data); index += 2 {
 				codeUnits = append(codeUnits, binary.LittleEndian.Uint16([]byte(data[index:index+2])))
 			}
+			if !validUTF16(codeUnits) {
+				continue
+			}
 			data = string(utf16.Decode(codeUnits))
 		}
 		if strings.Contains(data, value) {
@@ -407,6 +420,22 @@ func bundleContainsValue(entries map[string]string, value string) bool {
 		}
 	}
 	return false
+}
+
+func validUTF16(words []uint16) bool {
+	for index := 0; index < len(words); index++ {
+		word := words[index]
+		switch {
+		case 0xd800 <= word && word <= 0xdbff:
+			if index+1 >= len(words) || words[index+1] < 0xdc00 || words[index+1] > 0xdfff {
+				return false
+			}
+			index++
+		case 0xdc00 <= word && word <= 0xdfff:
+			return false
+		}
+	}
+	return true
 }
 
 func writeLifecycleFile(t *testing.T, path, value string) {
