@@ -69,4 +69,13 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 			t.Errorf("workflow contains forbidden %q", forbidden)
 		}
 	}
+	for _, wanted := range []string{
+		"apply --check", " apply ", "patches/${{ matrix.id }}/legacy.patch", "patches/${{ matrix.id }}/detector.patch",
+		"catalog --engine", "--module apps.vlc --scenario default-v1", "--module apps.alacritty --scenario default-v1", "--module apps.obs-studio --scenario default-v1",
+		"detector-$_", "find evidence -mindepth 1 -maxdepth 1 -type d -name 'efficacy-*'",
+	} {
+		if !strings.Contains(text, wanted) {
+			t.Errorf("workflow missing proof binding %q", wanted)
+		}
+	}
 }

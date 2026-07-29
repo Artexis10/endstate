@@ -82,3 +82,19 @@ func TestClassifyEvidenceRejectsReorderedInventoryAndRequiresExactDetectorFailur
 		t.Fatalf("Classify(wrong) = %#v, want wrong kill and insufficient signal", aggregate)
 	}
 }
+
+func TestReadEvidenceRejectsUnknownFieldsAndNonFiniteTimings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evidence.json")
+	if err := os.WriteFile(path, []byte(`{"schemaVersion":1,"baseline":[{"status":"passed","durationSeconds":1}],"unknown":true}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadEvidence(path); err == nil || !strings.Contains(err.Error(), "unknown") {
+		t.Fatalf("ReadEvidence() error = %v, want unknown field rejection", err)
+	}
+	if err := os.WriteFile(path, []byte(`{"schemaVersion":1,"baseline":[{"status":"passed","durationSeconds":-1}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadEvidence(path); err == nil || !strings.Contains(err.Error(), "duration") {
+		t.Fatalf("ReadEvidence() error = %v, want duration rejection", err)
+	}
+}

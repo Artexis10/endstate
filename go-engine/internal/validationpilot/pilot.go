@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -116,11 +117,27 @@ func validatePatch(candidate Candidate, path, patch string) error {
 	return nil
 }
 
-type Attempt struct { Status string `json:"status"`; Failure Failure `json:"failure"` }
+type Attempt struct { Status string `json:"status"`; Failure Failure `json:"failure"`; DurationSeconds float64 `json:"durationSeconds"` }
 type CandidateEvidence struct { ID string `json:"id"`; Legacy []Attempt `json:"legacy"`; Detector []Attempt `json:"detector"` }
-type Evidence struct { Baseline []Attempt `json:"baseline"`; Candidates []CandidateEvidence `json:"candidates"` }
+type Evidence struct { SchemaVersion int `json:"schemaVersion"`; Baseline []Attempt `json:"baseline"`; Candidates []CandidateEvidence `json:"candidates"` }
 type AggregateRow struct { ID string `json:"id"`; Classification string `json:"classification"` }
 type Aggregate struct { Rows []AggregateRow `json:"rows"`; Decision string `json:"decision"` }
+
+func ReadEvidence(path string) (Evidence, error) {
+	data, err := os.ReadFile(path)
+	if err != nil { return Evidence{}, err }
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	var evidence Evidence
+	if err := decoder.Decode(&evidence); err != nil { return Evidence{}, fmt.Errorf("decode evidence: %w", err) }
+	if evidence.SchemaVersion != 1 { return Evidence{}, errors.New("evidence schema version is invalid") }
+	var extra any
+	if err := decoder.Decode(&extra); err != io.EOF { return Evidence{}, errors.New("evidence has multiple JSON values") }
+	for _, attempt := range evidence.Baseline {
+		if attempt.DurationSeconds < 0 { return Evidence{}, errors.New("evidence duration is negative") }
+	}
+	return evidence, nil
+}
 
 func Classify(manifest Manifest, evidence Evidence) (Aggregate, error) {
 	if len(evidence.Baseline) != 2 { return Aggregate{}, errors.New("baseline evidence is incomplete") }
