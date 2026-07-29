@@ -5,7 +5,7 @@ Endstate has extensive tests and a new verified-module validation pipeline, but 
 ## What Changes
 
 - Add a bounded CI-efficacy audit that applies independently reviewed, realistic broken patches only to disposable checkouts.
-- Before the full audit, run one final six-mutation held-out preflight against the exact cross-platform Go gate, using the prior six hosted outcomes only as calibration and typed Go evidence end to end.
+- Before the full audit, run one final three-mutation held-out product-code preflight against the exact cross-platform Go gate, using the prior six hosted outcomes only as calibration and typed Go evidence end to end; the corpus spans `capture-contract` and `config-roundtrip-v1` in a closed production-file registry. Exclude catalog-matrix and schema-v2 mutants because Windows Go tests already execute those detectors end to end.
 - Pre-screen at most 45 candidate mutations per corpus version through the complete legacy required merge gate, then fill the approved 10/8/6/6 category quotas from predeclared per-category survivor order before running any new validation detector.
 - Count a mutation as a new-only kill only when every legacy check passes and the predeclared new detector rejects it with the expected stable failure class.
 - Preserve already-covered mutations, correct kills, wrong kills, survivors, invalid/equivalent exclusions, and flakes as compact, schema-versioned evidence.

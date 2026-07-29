@@ -131,23 +131,65 @@ The audit result SHALL describe only the unique regression detection of the eval
 - **THEN** the public summary identifies the exact detector set, corpus, commit, run, thresholds, survivors, and excluded proof areas without upgrading any other validation claim
 
 ### Requirement: Held-out Go-gate preflight
-Before the full 30-mutation audit, the audit SHALL support one six-mutation v1 preflight that compares frozen PR #205 detectors with the contemporaneous Windows, Ubuntu, and macOS Go vet/test gate. The previous six hosted mutations SHALL be calibration-only, and the detector/audit implementation SHALL freeze before six new held-out production mutations are authored. Windows integration and target-application installation MUST be absent from the v1 comparator.
+Before the full 30-mutation audit, the audit SHALL support one three-mutation v1 preflight that compares frozen PR #205 verified-module detectors with the contemporaneous Windows, Ubuntu, and macOS Go vet/test gate. The previous six hosted mutations SHALL be calibration-only, and the detector/audit implementation SHALL freeze before three new held-out production-Go mutations are authored. Windows integration and target-application installation MUST be absent from the v1 comparator. Catalog-matrix and schema-v2 mutants MUST be excluded because the Windows Go comparator already executes those detectors end to end.
+
+The closed eligible file registry SHALL contain only: capture — `bundle/capture_bundle.go`, `bundle/collect.go`, `bundle/config_capture.go`, `bundle/create.go`, `bundle/module_snapshot.go`, `bundle/payload_manifest.go`; schema-v1 restore — `restore/append.go`, `restore/backup.go`, `restore/copy.go`, `restore/delete_glob.go`, `restore/merge_ini.go`, `restore/merge_json.go`, `restore/registry_import.go`, `restore/restore.go`, `restore/revert.go`, `restore/target_safety.go`. Every path is relative to `go-engine/internal/`; directory globs are forbidden.
 
 #### Scenario: Held-out corpus remains unopened
 - **WHEN** the v1 controller and detector contract have frozen
-- **THEN** an independently reviewed corpus of three catalog and three module safety/config mutations binds expected causal failures without executing a held-out mutation through the detector, and every mutation-operator and violated-invariant fingerprint is disjoint from v0
+- **THEN** an independently reviewed corpus of three product regressions spans `capture-contract` and `config-roundtrip-v1` with at least one candidate in each mode, binds expected causal failures without executing a held-out mutation through the detector, and keeps every mutation-operator and violated-invariant fingerprint disjoint from v0
+
+#### Scenario: Product-code mutation scope is enforced
+- **WHEN** a v1 patch is admitted
+- **THEN** it changes exactly one portable non-test production `.go` file in the closed registry, assigns the matching lifecycle, and declares one semantic fault
+
+#### Scenario: Product reachability and review are bound
+- **WHEN** a candidate is decoded
+- **THEN** its manifest binds the exact production file, lifecycle, fault description, normal product entrypoint, live-reachability explanation, and immutable independent-review record digest
+
+#### Scenario: Reviewer evaluates product causality
+- **WHEN** a candidate is proposed for freeze
+- **THEN** independent review establishes that the changed statement is reachable from both the normal non-validation CLI entrypoint and the selected synthetic scenario, is not validation-only adaptation, and does not alter detector result types, reason mapping, or evidence contracts
+
+#### Scenario: Lifecycle is bound to sidecar mode
+- **WHEN** a candidate is validated before execution
+- **THEN** a capture-registry file requires the loaded target scenario mode `capture-contract`, a schema-v1 restore-registry file requires `config-roundtrip-v1`, and aggregation uses that verified sidecar mode rather than the manifest label
+
+#### Scenario: Circular or shallow candidate is proposed
+- **WHEN** a v1 patch changes validation, matrix, audit, workflow, CLI validation, detector, harness, test, fixture, testdata, expectation, golden output, module/catalog data, generated output, binary content, any OS-suffixed or validation-boundary file, Go build constraints, more than one production file, or any path outside the closed registry; or an added line names a candidate, target, scenario, detector, or validation/test-mode authority
+- **THEN** the controller rejects it before comparator or detector execution
+
+#### Scenario: Comparator-covered target is proposed
+- **WHEN** a candidate targets Notepad++ `default-v1`, kubectl `install-v1`, mGBA `reviewed-capture-v1`, Windows Terminal `generation-preferences-g1-97631ba2d2e5`, ownCloud `generation-preferences-g1-1c4479cb88b9`, `generation-preferences-g2-899536c068d4`, or `migration-preferences-g1-to-g2`, or Studio One `generation-preferences-g1-61e9f6f3c254`
+- **THEN** the controller rejects it because Windows Go tests already execute that target end to end
 
 #### Scenario: Comparator reproduces the Go gate
 - **WHEN** a held-out mutation is qualified
 - **THEN** the exact patch runs against the evaluated PR #205 tree through `go vet ./...` and `go test ./...` on fixed Windows, Ubuntu, and macOS runner families using the same immutable setup action and one exact shared resolved Go patch version, while audit-only tests remain outside the evaluated checkout
+
+#### Scenario: Detector reproduces the PR construction boundary
+- **WHEN** an unmodified baseline or held-out detector attempt runs
+- **THEN** the controller builds `cmd/endstate` and `cmd/endstate-validation` from the same exact evaluated or mutated checkout, invokes the co-built validation CLI for the target, and validates its typed result without using the controller's linked validation harness as the product oracle
+
+#### Scenario: Mutant validator is replaced by a frozen oracle
+- **WHEN** a detector attempt builds only the engine or classifies an in-process frozen-harness result instead of the co-built validation binary
+- **THEN** the attempt is invalid infrastructure evidence and receives no efficacy credit
 
 #### Scenario: Proof machinery changes after freeze
 - **WHEN** the corpus/dispatch commit differs from the proof-machinery freeze outside the registered v1 corpus root or changes detector, controller, workflow, or command-contract bytes
 - **THEN** the controller refuses every comparator and detector attempt before product execution
 
 #### Scenario: Candidate fails before the claimed invariant
-- **WHEN** a candidate is not parseable, schema-valid, revision-consistent, admitted to its exact target, or fails only at a schema, revision, selection, admission, aggregate, envelope, or other shallow guard
+- **WHEN** a candidate does not compile, is not parseable, schema-valid, revision-consistent, admitted to its exact target, or fails only at a compile, schema, revision, selection, fixture, admission, aggregate, envelope, or other shallow guard
 - **THEN** it is ineligible for correct-kill credit even if that shallow failure was predeclared
+
+#### Scenario: Creditable domain failure is classified
+- **WHEN** an admitted detector attempt fails after setup
+- **THEN** correct-kill credit is possible only for `artifact_contract` in `capture` or `rebuild`; `content_mismatch` or `event_contract` in `capture`, `rebuild`, `verify`, or `revert`; or `revert_failure` in `revert`
+
+#### Scenario: Fixture or unknown failure is reported
+- **WHEN** an attempt reports `unsupported_fixture`, phase `fixture`, or any class/phase pair outside the closed credit table
+- **THEN** it is uncreditable regardless of preregistration and cannot be classified as a correct kill
 
 ### Requirement: Typed v1 evidence authority
 The v1 workflow SHALL delegate acquisition, patch application, bounded command execution, detector invocation, evidence publication, and aggregation to typed Go code. Workflow shell MUST NOT compose or classify JSON. Repetition authority SHALL bind the source commit/tree, mutated tree, patch, runner/toolchain, command contract, and detector contract; a binary digest MAY be diagnostic but MUST NOT define source-authority equality.
@@ -161,11 +203,11 @@ The v1 workflow SHALL delegate acquisition, patch application, bounded command e
 - **THEN** the detector portion is eligible for correct-kill classification even when diagnostic binary hashes differ
 
 ### Requirement: Mechanical v1 decision and versioning
-V1 SHALL report `meaningful-signal` only with six correct new-only kills, all three module mutations killed, both detector families represented, and zero survivors, wrong kills, flakes, or infrastructure failures. Incomplete or malformed evidence SHALL be inconclusive. The earliest created workflow run for the exact reviewed dispatch commit SHALL be authoritative. A second dispatch or any rerun invalidates that experiment version; repairing proof machinery requires a new experiment version and a new held-out corpus.
+V1 SHALL report `meaningful-signal` only with three correct new-only kills spanning both verified `capture-contract` and `config-roundtrip-v1` modes, and zero survivors, wrong kills, flakes, or infrastructure failures. A complete comparator rejection SHALL be `already-covered` and make v1 `insufficient-signal`; incomplete, malformed, or infrastructure evidence SHALL be inconclusive. The earliest created workflow run for the exact reviewed dispatch commit SHALL be authoritative. A second dispatch or any rerun invalidates that experiment version; repairing proof machinery requires a new experiment version and a new held-out corpus.
 
 #### Scenario: V1 proves bounded unique detection
 - **WHEN** all three Go comparator lanes pass every mutation and both detector repetitions reject every mutation for its exact expected reason
-- **THEN** v1 reports `meaningful-signal` for the evaluated detector families without a coverage percentage or broader readiness claim
+- **THEN** v1 reports `meaningful-signal` for the two evaluated module scenario modes without a coverage percentage or broader readiness claim
 
 #### Scenario: V1 machinery fails
 - **WHEN** the official dispatch has incomplete, malformed, flaky, wrong-reason, survivor, or infrastructure evidence

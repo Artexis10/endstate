@@ -138,36 +138,100 @@ The official pilot result binds one exact reviewed workflow commit and actual Gi
 
 The v0 six-mutation run is retained as calibration evidence, not rescored after
 its outcomes are known. V1 freezes the detector, typed audit machinery, and
-final operative workflow, then authors six new held-out mutations across
-catalog and module detector families. Held-out operators and violated
-invariants must be fingerprinted and disjoint from every v0 calibration case;
-changing only the affected bundle or application is not held-out evidence.
+final operative workflow, then authors three new held-out module-lifecycle
+product-code mutations across `capture-contract` and `config-roundtrip-v1`,
+with at least one in each authored scenario mode. Held-out operators and
+violated invariants must be fingerprinted and disjoint from every v0 calibration
+case; changing only the affected application or fault spelling is not held-out
+evidence.
 Its comparator is the contemporaneous Windows, Ubuntu, and macOS Go vet/test
 gate with the same pinned setup action and requested Go line. Notepad++
 integration is a separate proof lane and is not represented as missing or
 failed comparator evidence.
 
+Each candidate changes exactly one portable production `.go` file from the
+closed lifecycle/file registry in `pilot-v1.md`; directory globs are forbidden.
+The registry excludes validation-boundary and OS-suffixed files. Tests,
+fixtures, testdata,
+expected/golden output, modules, bundles, validation/matrix/audit/workflow code,
+CLI validation entry points, generated files, binaries, and paths outside that
+allowlist are forbidden. The manifest declares one semantic fault, family,
+operator fingerprint, violated invariant, target, and expected downstream
+causal failure. Ordinary Go vet/test on all three runner families screens the
+candidate before any detector result is opened.
+
+Only portable and Windows-specific production files used by the detector build
+are eligible. Added lines may not mention candidate, module, bundle, scenario,
+or detector identifiers, inspect validation/test-mode state, change build
+constraints, or add a validation-specific branch. The fault must be a context-
+independent deletion, substitution, or boundary change to existing product
+logic.
+
+The manifest also binds lifecycle, exact production file, fault description,
+normal product entrypoint, live-reachability explanation, and an immutable
+independent-review record digest. The controller enforces the closed
+path/lifecycle and record-shape rules. Independent review establishes that the
+changed statement is reachable both from a normal non-validation CLI path and
+the selected synthetic scenario, is not validation-only adaptation, and does
+not alter detector result types, reason mapping, or evidence contracts.
+
+A frozen target-exclusion registry rejects the eight production scenarios that
+Windows Go tests already run end to end: Notepad++ default, kubectl install,
+mGBA reviewed capture, Windows Terminal generation, ownCloud generation g1/g2
+and migration, and Studio One generation. These targets cannot be held out.
+
+Lifecycle claims bind to the loaded production sidecar, not candidate metadata:
+capture-registry files require `capture-contract`; schema-v1 restore-registry
+files require `config-roundtrip-v1`. Aggregation uses that verified mode and
+requires at least one candidate in each. Schema-v2 mutants are excluded because
+the Windows Go comparator already runs all five production generation scenarios
+and the sole production migration scenario end to end.
+
 Workflow shell does not assemble or classify evidence. One Go controller binds
-the evaluated PR tree, frozen proof-machinery commit, later data-only corpus
+the evaluated PR tree, frozen proof-machinery commit, later patch-corpus
 commit, dispatch commit, mutated tree, patch, one exact shared resolved
 toolchain, runner image, command contract, detector contract, repetitions, and
 structured outcomes. It rejects any post-freeze change outside the registered
 corpus root. An engine binary digest is diagnostic rather than repetition
 authority. Setup, tool, timeout, output, evidence, and artifact failures remain
-infrastructure and cannot receive kill credit. Candidates must pass parsing,
-schema, revision, and detector-admission guards before only a downstream domain
-failure can receive credit.
+infrastructure and cannot receive kill credit. Candidates must compile and pass
+parsing, schema, revision, and detector-admission guards before only a
+downstream domain failure can receive credit.
 
-V1 succeeds only at six correct new-only kills, including all three module
-cases and both detector families, with exact causal failure identity twice and
-zero survivors, wrong kills, flakes, or infrastructure failures. It is
+Detector attempts must mirror PR #205 rather than a frozen in-process oracle.
+The controller builds both `cmd/endstate` and `cmd/endstate-validation` from the
+same mutated evaluated checkout, invokes the co-built validation CLI for the
+exact target, and validates its typed result. Detector/harness source and the
+CLI command contract remain frozen, while any shared product dependency changed
+by the mutant is co-built into both binaries exactly as it is in the actual CI.
+Calling the controller's own linked `validationharness` for mutant outcomes is
+forbidden.
+
+Kill credit uses a closed class/phase table: `artifact_contract` in `capture`
+or `rebuild`; `content_mismatch` or `event_contract` in `capture`, `rebuild`,
+`verify`, or `revert`; and `revert_failure` in `revert`. `unsupported_fixture`,
+every `fixture` phase, and every class/phase pair outside that table are
+categorically uncreditable.
+
+Catalog-planner mutants are excluded because the Windows Go comparator already
+builds the mutated engine and runs the same full production catalog matrix as
+the proposed detector. Catalog CI can provide focused diagnostics but cannot
+demonstrate unique detection against this comparator. Schema-v2 mutants are
+also excluded because the comparator runs all six production generation and
+migration scenarios end to end.
+
+V1 succeeds only at three correct new-only kills spanning both
+`capture-contract` and `config-roundtrip-v1`, with exact causal failure identity
+twice and zero survivors, wrong kills, flakes, or infrastructure failures. It is
 dispatched once; the earliest run for the exact SHA is authoritative, and any
 second dispatch or rerun invalidates the version. A broken harness requires a
 new version and held-out corpus. A valid v1 result clears only the efficacy
 blocker; PR #205 still requires its green required checks, aggregate/shard
 wiring verification, independent review, and merge criteria. The 30-mutation
 audit remains a non-blocking post-merge measurement rather than a new merge
-delay.
+delay. A complete comparator rejection is classified `already-covered` and
+makes v1 `insufficient-signal`; only missing, malformed, or infrastructure
+evidence makes it inconclusive.
 
 ## Risks / Trade-offs
 
@@ -179,6 +243,7 @@ delay.
 - **[The audit implementation could manufacture evidence]** → Use strict typed evidence, immutable action pins, exact commit/tree/patch binding, independent code review, and an independent verifier that reproduces a sample and inspects the actual workflow run.
 - **[Cross-platform control results can differ legitimately]** → Bind runner OS and exact control command; any required lane failure means the candidate is already covered or unqualified, never a new-only kill.
 - **[A passing synthetic pilot could be overclaimed]** → The aggregate and documentation explicitly deny full-matrix, hosted-live, installer, GUI, and release-readiness claims.
+- **[A detector-specific mutant could make the result circular]** → Freeze the detector first, forbid all detector/harness/test changes, require a plausible product defect in one allowlisted production file, and have an independent reviewer approve realism and expected causality without opening detector results.
 
 ## Migration Plan
 
