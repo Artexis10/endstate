@@ -182,8 +182,8 @@ func parseFilePatch(lines []string, start int) (string, int, error) {
 		return "", 0, ErrInvalidPatch
 	}
 	changed := false
-	oldStart, oldEnd := -1, -1
-	newStart, newEnd := -1, -1
+	oldEnd, newEnd := -1, -1
+	oldEOF, newEOF := false, false
 	for index < len(lines) {
 		if strings.HasPrefix(lines[index], "diff --git ") {
 			break
@@ -192,35 +192,51 @@ func parseFilePatch(lines []string, start int) (string, int, error) {
 		if hunkErr != nil {
 			return "", 0, ErrInvalidPatch
 		}
-		if oldStart >= 0 && (hunk.oldStart < oldStart || hunk.oldStart < oldEnd || hunk.newStart < newStart || hunk.newStart < newEnd) {
+		oldBefore := hunk.beforeOld()
+		newBefore := hunk.beforeNew()
+		if oldEnd < 0 {
+			if oldBefore != newBefore {
+				return "", 0, ErrInvalidPatch
+			}
+		} else if oldBefore-oldEnd < 0 || newBefore-newEnd < 0 || oldBefore-oldEnd != newBefore-newEnd {
 			return "", 0, ErrInvalidPatch
 		}
-		oldStart, oldEnd = hunk.oldStart, hunk.oldStart+hunk.oldCount
-		newStart, newEnd = hunk.newStart, hunk.newStart+hunk.newCount
+		oldEnd, newEnd = oldBefore+hunk.oldCount, newBefore+hunk.newCount
 		oldRemaining, newRemaining := hunk.oldCount, hunk.newCount
 		index++
 		seenContent := false
-		lastWasContent := false
+		lastSides := 0
 		for index < len(lines) && !strings.HasPrefix(lines[index], "diff --git ") && !strings.HasPrefix(lines[index], "@@ ") {
 			line := lines[index]
 			switch {
 			case strings.HasPrefix(line, " "):
+				if oldEOF || newEOF {
+					return "", 0, ErrInvalidPatch
+				}
 				oldRemaining--
 				newRemaining--
 				seenContent = true
-				lastWasContent = true
+				lastSides = 3
 			case strings.HasPrefix(line, "-"):
+				if oldEOF {
+					return "", 0, ErrInvalidPatch
+				}
 				oldRemaining--
 				changed = true
 				seenContent = true
-				lastWasContent = true
+				lastSides = 1
 			case strings.HasPrefix(line, "+"):
+				if newEOF {
+					return "", 0, ErrInvalidPatch
+				}
 				newRemaining--
 				changed = true
 				seenContent = true
-				lastWasContent = true
-			case line == "\\ No newline at end of file" && lastWasContent:
-				lastWasContent = false
+				lastSides = 2
+			case line == "\\ No newline at end of file" && lastSides != 0:
+				oldEOF = oldEOF || lastSides&1 != 0
+				newEOF = newEOF || lastSides&2 != 0
+				lastSides = 0
 			default:
 				return "", 0, ErrInvalidPatch
 			}
@@ -282,6 +298,20 @@ type patchHunk struct {
 	oldCount int
 	newStart int
 	newCount int
+}
+
+func (hunk patchHunk) beforeOld() int {
+	if hunk.oldCount == 0 {
+		return hunk.oldStart
+	}
+	return hunk.oldStart - 1
+}
+
+func (hunk patchHunk) beforeNew() int {
+	if hunk.newCount == 0 {
+		return hunk.newStart
+	}
+	return hunk.newStart - 1
 }
 
 func parseHunkHeader(line string) (patchHunk, error) {
@@ -354,7 +384,7 @@ func validBundleFilename(value string) bool {
 	if !strings.HasSuffix(value, ".jsonc") || strings.HasPrefix(value, ".") || !pathSegmentPattern.MatchString(value) {
 		return false
 	}
-	name := strings.TrimSuffix(value, ".jsonc")
+	name := strings.ToLower(strings.TrimSuffix(value, ".jsonc"))
 	switch name {
 	case "config", "local", "manifest", "manifests", "payload", "runtime", "state":
 		return false

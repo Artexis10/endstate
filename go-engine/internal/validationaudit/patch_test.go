@@ -113,6 +113,9 @@ func TestLoadCandidatePatchRejectsIneligibleScope(t *testing.T) {
 		"bundles/runtime.jsonc",
 		"bundles/manifests.jsonc",
 		"bundles/payload.jsonc",
+		"bundles/CONFIG.jsonc",
+		"bundles/Local.jsonc",
+		"bundles/Runtime.jsonc",
 	}
 
 	for _, path := range tests {
@@ -133,10 +136,14 @@ func TestLoadCandidatePatchRejectsAmbiguousPatchSyntax(t *testing.T) {
 		{name: "double diff spacing", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), "diff --git", "diff  --git", 1)},
 		{name: "double path spacing", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), " --git a/", " --git  a/", 1)},
 		{name: "zero start with implicit count", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), "@@ -1 +1 @@", "@@ -0 +1 @@", 1)},
+		{name: "incoherent first hunk coordinates", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), "@@ -1 +1 @@", "@@ -1 +999 @@", 1)},
 		{name: "overlapping hunk ranges", patch: patchWithHunks("go-engine/internal/planner/plan.go", "@@ -2 +2 @@\n-old\n+new\n@@ -2 +2 @@\n-old\n+new\n")},
 		{name: "nonmonotonic hunk ranges", patch: patchWithHunks("go-engine/internal/planner/plan.go", "@@ -3 +3 @@\n-old\n+new\n@@ -1 +1 @@\n-old\n+new\n")},
+		{name: "mismatched hunk gaps", patch: patchWithHunks("go-engine/internal/planner/plan.go", "@@ -1 +1 @@\n-old\n+new\n@@ -3 +4 @@\n-old\n+new\n")},
 		{name: "repeated no newline marker", patch: patchFor("go-engine/internal/planner/plan.go") + "\\ No newline at end of file\n\\ No newline at end of file\n"},
 		{name: "no newline marker before content", patch: strings.Replace(patchFor("go-engine/internal/planner/plan.go"), "-old\n", "\\ No newline at end of file\n-old\n", 1)},
+		{name: "eof removed side consumed again", patch: patchWithHunks("go-engine/internal/planner/plan.go", "@@ -1,2 +1,2 @@\n-old\n\\ No newline at end of file\n-old-again\n+new\n+new-again\n")},
+		{name: "eof context side consumed again", patch: patchWithHunks("go-engine/internal/planner/plan.go", "@@ -1,2 +1,2 @@\n context\n\\ No newline at end of file\n-old\n+new\n")},
 	}
 
 	for _, tt := range tests {
@@ -146,6 +153,21 @@ func TestLoadCandidatePatchRejectsAmbiguousPatchSyntax(t *testing.T) {
 				t.Fatalf("LoadCandidatePatch() error = %v, want %v", err, ErrInvalidPatch)
 			}
 		})
+	}
+}
+
+func TestLoadCandidatePatchAcceptsCoherentZeroAndEOFHunks(t *testing.T) {
+	tests := []string{
+		patchWithHunks("go-engine/internal/planner/plan.go", "@@ -0,0 +1 @@\n+new\n"),
+		patchWithHunks("go-engine/internal/planner/plan.go", "@@ -1 +0,0 @@\n-old\n"),
+		patchWithHunks("go-engine/internal/planner/plan.go", "@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n"),
+	}
+
+	for _, patch := range tests {
+		root, candidate, _ := writeCandidatePatch(t, patch)
+		if _, err := LoadCandidatePatch(root, "v1", candidate); err != nil {
+			t.Fatalf("LoadCandidatePatch() error = %v", err)
+		}
 	}
 }
 
