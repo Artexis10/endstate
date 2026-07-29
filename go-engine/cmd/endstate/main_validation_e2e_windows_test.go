@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -62,6 +63,43 @@ func TestBundleContainsValueDecodesUTF16LE(t *testing.T) {
 	}
 	if bundleContainsValue(map[string]string{"malformed.reg": "\xff\xfeA"}, "A") {
 		t.Fatal("odd-length UTF-16LE entry matched")
+	}
+}
+
+func TestLifecycleRegistryImportRestoreEvidence(t *testing.T) {
+	restored := map[string]interface{}{
+		"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+		"restoreType": "registry-import", "status": "restored",
+	}
+	tests := []struct {
+		name                     string
+		rebuildItems, applyItems interface{}
+		wantErr                  bool
+	}{
+		{name: "restored", rebuildItems: []interface{}{restored}, applyItems: []interface{}{restored}},
+		{name: "failed", rebuildItems: []interface{}{map[string]interface{}{
+			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+			"restoreType": "registry-import", "status": "failed", "error": "import failed",
+		}}, applyItems: []interface{}{map[string]interface{}{
+			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+			"restoreType": "registry-import", "status": "failed", "error": "import failed",
+		}}, wantErr: true},
+		{name: "skipped", rebuildItems: []interface{}{map[string]interface{}{
+			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+			"restoreType": "registry-import", "status": "skipped_missing_source",
+		}}, applyItems: []interface{}{map[string]interface{}{
+			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+			"restoreType": "registry-import", "status": "skipped_missing_source",
+		}}, wantErr: true},
+		{name: "missing", rebuildItems: []interface{}{}, applyItems: []interface{}{}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := lifecycleRegistryImportRestoreEvidenceError(tt.rebuildItems, tt.applyItems); (err != nil) != tt.wantErr {
+				t.Fatalf("lifecycleRegistryImportRestoreEvidenceError() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
 	}
 }
 
@@ -530,6 +568,10 @@ func assertLifecycleNestedSuccess(t *testing.T, envelopeValue map[string]interfa
 	t.Helper()
 	data := envelopeValue["data"].(map[string]interface{})
 	apply := data["apply"].(map[string]interface{})
+	if err := lifecycleRegistryImportRestoreEvidenceError(data["restoreItems"], apply["restoreItems"]); err != nil {
+		t.Fatalf("registry import restore evidence invalid: %v\nrebuild restoreItems=%#v\napply restoreItems=%#v",
+			err, data["restoreItems"], apply["restoreItems"])
+	}
 	applySummary := apply["summary"].(map[string]interface{})
 	if applySummary["failed"].(float64) != 0 {
 		t.Fatalf("nested apply failed: %#v", apply)
@@ -539,6 +581,32 @@ func assertLifecycleNestedSuccess(t *testing.T, envelopeValue map[string]interfa
 	if verifySummary["fail"].(float64) != 0 || verifySummary["pass"].(float64) < 2 {
 		t.Fatalf("nested verify failed or vacuous: %#v", verify)
 	}
+}
+
+func lifecycleRegistryImportRestoreEvidenceError(rebuildItems, applyItems interface{}) error {
+	if !reflect.DeepEqual(rebuildItems, applyItems) {
+		return errors.New("rebuild and apply restore items differ")
+	}
+	items, ok := rebuildItems.([]interface{})
+	if !ok {
+		return errors.New("restore items are not an array")
+	}
+	matched := 0
+	for _, value := range items {
+		item, ok := value.(map[string]interface{})
+		if !ok || item["source"] != "./configs/7zip/7-Zip.reg" ||
+			item["target"] != `HKCU\Software\7-Zip` || item["restoreType"] != "registry-import" {
+			continue
+		}
+		matched++
+		if item["status"] != "restored" || (item["error"] != nil && item["error"] != "") {
+			return errors.New("registry import was not restored without error")
+		}
+	}
+	if matched != 1 {
+		return errors.New("expected exactly one registry import restore item")
+	}
+	return nil
 }
 
 func assertLifecycleVerifyFails(t *testing.T, envelopeValue map[string]interface{}) {
