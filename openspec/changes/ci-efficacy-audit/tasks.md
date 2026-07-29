@@ -6,8 +6,8 @@
 
 ## 2. Audit contracts and identities
 
-- [ ] 2.1 Add failing tests in `go-engine/internal/validationaudit` for strict candidate-queue and frozen-manifest decoding, including duplicate keys, unknown fields, size limits, exact lowercase commit/tree/digest identities, unique ordered IDs, the 45-candidate ceiling, and the 10/8/6/6 quotas.
-- [ ] 2.2 Implement the minimal schema-versioned candidate, detector, lane, qualification, and frozen-corpus types plus strict decoding needed to pass the manifest tests without adding a dependency.
+- [x] 2.1 Add failing tests in `go-engine/internal/validationaudit` for strict candidate-queue and frozen-manifest decoding, including duplicate keys, unknown fields, size limits, exact lowercase commit/tree/digest identities, unique ordered IDs, the 45-candidate ceiling, and the 10/8/6/6 quotas.
+- [x] 2.2 Implement the minimal schema-versioned candidate, detector, lane, qualification, and frozen-corpus types plus strict decoding needed to pass the manifest tests without adding a dependency.
 - [ ] 2.3 Add failing tests for patch eligibility and identity: only production Go or production module/catalog data may change; test, expectation, audit, workflow, symlink/reparse, traversal, absolute-path, binary, oversized, duplicate, and digest-mismatched patches must be rejected.
 - [ ] 2.4 Implement bounded patch inspection and SHA-256/tree binding, using exact repository-relative paths beneath one tracked audit corpus root and stable path-free rejection codes.
 - [ ] 2.5 Add failing tests for strict typed attempt evidence, including audit/corpus/commit/tree/patch/lane/runner/toolchain/command/repetition/timing identity, bounded stable result fields, and rejection of missing, foreign, duplicated, oversized, free-form-log, path, token, or environment data.
