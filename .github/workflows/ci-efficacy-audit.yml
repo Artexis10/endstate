@@ -7,28 +7,31 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Acquire audit runner anonymously
+      - name: Acquire every fixed authority anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
-          git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git $GITHUB_SHA
-          git -C audit checkout --detach $GITHUB_SHA
+          for ref in "$GITHUB_SHA" ab8065cd67ab3f4e9e876e07a25facf3100c28c7 437c0ca4167c09bc9f2de515daa6d55d35257d4f; do
+            git -C audit -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git "$ref"
+            test "$(git -C audit rev-parse FETCH_HEAD)" = "$ref"
+          done
+          git -C audit checkout --detach "$GITHUB_SHA"
           test "$(git -C audit rev-parse HEAD)" = "$GITHUB_SHA"
-      - name: Validate corpus and build runner
+      - name: Validate bound corpus and build aggregate runner
         run: |
-          go version | grep 'go1.26'
           cd audit/go-engine
-          go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          "$RUNNER_TEMP/endstate-validation-pilot" validate-corpus "$GITHUB_WORKSPACE/audit"
+          go build -buildvcs=false -o "$GITHUB_WORKSPACE/audit/endstate-validation-pilot" ./cmd/endstate-validation-pilot
+          GOOS=windows GOARCH=amd64 go build -buildvcs=false -o "$GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
+          "$GITHUB_WORKSPACE/audit/endstate-validation-pilot" validate-corpus "$GITHUB_WORKSPACE/audit"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
-        with: { name: efficacy-audit-kit, path: audit, retention-days: 7, if-no-files-found: error }
+        with: { name: audit-kit, path: audit, retention-days: 7, if-no-files-found: error }
   baseline:
     needs: prepare
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with: { name: efficacy-audit-kit, path: audit }
+        with: { name: audit-kit, path: audit }
       - name: Acquire exact detector authority anonymously
         shell: pwsh
         run: |
@@ -37,31 +40,28 @@ jobs:
           git -C detector checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f
           if ((git -C detector rev-parse HEAD) -ne '437c0ca4167c09bc9f2de515daa6d55d35257d4f') { throw 'detector ref mismatch' }
       - name: Run bound detector baseline twice
-        id: baseline_run
         shell: pwsh
         run: |
-          if (-not ((go version) -match 'go1\.26')) { throw 'Go 1.26 is required' }
           New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
           Push-Location detector/go-engine
           go build -o $env:RUNNER_TEMP/endstate.exe ./cmd/endstate
-          go build -o $env:RUNNER_TEMP/endstate-validation.exe ./cmd/endstate-validation
           1..2 | ForEach-Object {
-            & $env:RUNNER_TEMP/endstate-validation.exe catalog --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --result "$env:RUNNER_TEMP/endstate-validation-results/catalog-$_.json"
-            & $env:RUNNER_TEMP/endstate-validation.exe --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --module apps.vlc --scenario default-v1 --result "$env:RUNNER_TEMP/endstate-validation-results/vlc-$_.json"
-            & $env:RUNNER_TEMP/endstate-validation.exe --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --module apps.alacritty --scenario default-v1 --result "$env:RUNNER_TEMP/endstate-validation-results/alacritty-$_.json"
-            & $env:RUNNER_TEMP/endstate-validation.exe --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --module apps.obs-studio --scenario default-v1 --result "$env:RUNNER_TEMP/endstate-validation-results/obs-$_.json"
+            $n = $_
+            & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output "$env:RUNNER_TEMP/endstate-validation-results/catalog-$n.json"; $null = $LASTEXITCODE
+            foreach ($module in @('apps.vlc','apps.alacritty','apps.obs-studio')) { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output "$env:RUNNER_TEMP/endstate-validation-results/$module-$n.json"; $null = $LASTEXITCODE }
           }
           Pop-Location
       - name: Write bounded baseline evidence
         if: always()
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
-          $status = if ('${{ steps.baseline_run.outcome }}' -eq 'success') {'passed'} else {'failed'}
-          @{schemaVersion=1; baseline=@(@{status=$status;durationSeconds=0},@{status=$status;durationSeconds=0})} | ConvertTo-Json -Compress | Set-Content "$env:RUNNER_TEMP/endstate-validation-results/evidence.json"
+          $root = "$env:RUNNER_TEMP/endstate-validation-results"
+          $baseline = @()
+          1..2 | ForEach-Object { $baseline += Get-Content "$root/catalog-$_.json" -Raw | ConvertFrom-Json; foreach ($module in @('apps.vlc','apps.alacritty','apps.obs-studio')) { $baseline += Get-Content "$root/$module-$_.json" -Raw | ConvertFrom-Json } }
+          @{schemaVersion=1;baseline=$baseline} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$root/evidence.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
-        with: { name: efficacy-baseline, path: ${{ runner.temp }}/endstate-validation-results, retention-days: 7, if-no-files-found: warn }
+        with: { name: efficacy-baseline, path: ${{ runner.temp }}/endstate-validation-results, retention-days: 7, if-no-files-found: error }
   candidate:
     needs: prepare
     strategy:
@@ -74,60 +74,44 @@ jobs:
     timeout-minutes: 40
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with: { name: efficacy-audit-kit, path: audit }
+        with: { name: audit-kit, path: audit }
       - name: Acquire and mutate exact legacy authority anonymously
         shell: bash
         run: |
-          set -u
           git -c credential.helper= -c http.extraheader= init legacy
           git -C legacy -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git ab8065cd67ab3f4e9e876e07a25facf3100c28c7
           git -C legacy checkout --detach ab8065cd67ab3f4e9e876e07a25facf3100c28c7
           test "$(git -C legacy rev-parse HEAD)" = ab8065cd67ab3f4e9e876e07a25facf3100c28c7
           git -C legacy apply --check "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch"
           git -C legacy apply "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch"
-      - name: Run legacy merge-gate contract
-        id: legacy
+      - name: Run legacy contracts
         shell: pwsh
-        working-directory: legacy/go-engine
         run: |
-          go vet ./...
-          go test ./...
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
+          $legacyPatch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.legacy.sha256 }
+          function Save-Contract($name, [scriptblock]$run) { try { & $run; if ($LASTEXITCODE -ne 0) { throw 'product failure' }; $status = 'passed' } catch { $status = if ($_.Exception.Message -like 'infrastructure:*') {'infrastructure-failure'} else {'failed'} }; @{contract=$name;ref='ab8065cd67ab3f4e9e876e07a25facf3100c28c7';candidateId='${{ matrix.id }}';patchSha256=$legacyPatch;status=$status;durationSeconds=0} | ConvertTo-Json -Compress | Set-Content "$env:RUNNER_TEMP/endstate-validation-results/$name.json" }
           if ('${{ matrix.os }}' -eq 'windows-latest') {
-            if (-not (Test-Path "$env:ProgramFiles\Notepad++\notepad++.exe")) { throw 'infrastructure: Notepad++ is absent' }
-            go build -o $env:RUNNER_TEMP/endstate.exe ./cmd/endstate
-            & ../scripts/integration-test.ps1
+            Save-Contract 'windows-go' { Push-Location legacy/go-engine; go vet ./...; go test ./...; Pop-Location }
+            Save-Contract 'windows-integration' { if (-not (Test-Path "$env:ProgramFiles\Notepad++\notepad++.exe")) { throw 'infrastructure: Notepad++ is absent' }; $tempRoot = Join-Path $env:RUNNER_TEMP 'endstate-bootstrap'; New-Item -ItemType Directory -Force "$tempRoot\temp", "$tempRoot\tmp", "$tempRoot\local", "$tempRoot\roaming" | Out-Null; $env:TEMP = "$tempRoot\temp"; $env:TMP = "$tempRoot\tmp"; $env:LOCALAPPDATA = "$tempRoot\local"; $env:APPDATA = "$tempRoot\roaming"; $env:PATH = "$env:LOCALAPPDATA\Endstate\bin;$env:PATH"; Push-Location legacy/go-engine; go build -o ./endstate.exe ./cmd/endstate; pwsh -NoProfile -File ./integration-test.ps1; if ($LASTEXITCODE -ne 0) { throw 'product failure' }; Pop-Location }
+          } elseif ('${{ matrix.os }}' -eq 'ubuntu-latest') { Save-Contract 'ubuntu-go' { Push-Location legacy/go-engine; go vet ./...; go test ./...; Pop-Location } } else { Save-Contract 'macos-go' { Push-Location legacy/go-engine; go vet ./...; go test ./...; Pop-Location } }
+      - name: Run two fresh patched detector attempts
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }
+          1..2 | ForEach-Object {
+            $n = $_; git -c credential.helper= -c http.extraheader= init "detector-$n"; git -C "detector-$n" -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git 437c0ca4167c09bc9f2de515daa6d55d35257d4f; git -C "detector-$n" checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f; git -C "detector-$n" apply --check "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"; git -C "detector-$n" apply "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"; Push-Location "detector-$n/go-engine"; go build -o "$env:RUNNER_TEMP/endstate-$n.exe" ./cmd/endstate
+            if ('${{ matrix.id }}' -like 'bundle-*') { & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --catalog --engine "$env:RUNNER_TEMP/endstate-$n.exe" --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --output "$env:RUNNER_TEMP/endstate-validation-results/detector-$n.json" } else { $module = @{ 'vlc-backup-off'='apps.vlc'; 'alacritty-source-drift'='apps.alacritty'; 'obs-target-drift'='apps.obs-studio' }['${{ matrix.id }}']; & "$env:GITHUB_WORKSPACE/audit/endstate-validation-pilot.exe" detector --engine "$env:RUNNER_TEMP/endstate-$n.exe" --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --module $module --scenario default-v1 --output "$env:RUNNER_TEMP/endstate-validation-results/detector-$n.json" }
+            $null = $LASTEXITCODE; Pop-Location
           }
       - name: Write bounded candidate evidence
         if: always()
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
-          $legacy = @{status = if ('${{ steps.legacy.outcome }}' -eq 'success') {'passed'} else {'failed'}; durationSeconds = 0}
-          $detector = @()
-          if ('${{ matrix.os }}' -eq 'windows-latest') {
-            1..2 | ForEach-Object { $raw = Get-Content "$env:RUNNER_TEMP/endstate-validation-results/detector-$_.json" -Raw | ConvertFrom-Json; $detector += @{status=$raw.status; failure=$raw.failure; durationSeconds=0} }
-          }
-          @{schemaVersion=1; candidates=@(@{id='${{ matrix.id }}'; legacy=@($legacy); detector=@($detector)})} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$env:RUNNER_TEMP/endstate-validation-results/evidence.json"
-      - name: Run two fresh patched detector attempts
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
-          1..2 | ForEach-Object {
-            git -c credential.helper= -c http.extraheader= init "detector-$_"
-            git -C "detector-$_" -c credential.helper= -c http.extraheader= fetch --depth=1 https://github.com/Artexis10/endstate.git 437c0ca4167c09bc9f2de515daa6d55d35257d4f
-            git -C "detector-$_" checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f
-            git -C "detector-$_" apply --check "audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"
-            git -C "detector-$_" apply "audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/detector.patch"
-            Push-Location "detector-$_/go-engine"
-            go build -o $env:RUNNER_TEMP/endstate.exe ./cmd/endstate
-            go build -o $env:RUNNER_TEMP/endstate-validation.exe ./cmd/endstate-validation
-            if ('${{ matrix.id }}' -like 'bundle-*') { & $env:RUNNER_TEMP/endstate-validation.exe catalog --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --commit 437c0ca4167c09bc9f2de515daa6d55d35257d4f --result "$env:RUNNER_TEMP/endstate-validation-results/detector-$_.json" } else { $module = 'apps.' + ('${{ matrix.id }}' -replace '-(backup-off|source-drift|target-drift)$',''); & $env:RUNNER_TEMP/endstate-validation.exe --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --module $module --scenario default-v1 --result "$env:RUNNER_TEMP/endstate-validation-results/detector-$_.json" }
-            Pop-Location
-          }
+          $root = "$env:RUNNER_TEMP/endstate-validation-results"; $legacy = Get-ChildItem "$root" -Filter '*-go.json' | ForEach-Object { Get-Content $_ -Raw | ConvertFrom-Json }; if (Test-Path "$root/windows-integration.json") { $legacy += Get-Content "$root/windows-integration.json" -Raw | ConvertFrom-Json }; $detector = @(); if ('${{ matrix.os }}' -eq 'windows-latest') { $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }; 1..2 | ForEach-Object { $raw = Get-Content "$root/detector-$_.json" -Raw | ConvertFrom-Json; $raw | Add-Member -NotePropertyName candidateId -NotePropertyValue '${{ matrix.id }}'; $raw | Add-Member -NotePropertyName patchSha256 -NotePropertyValue $patch; $detector += $raw } }; @{schemaVersion=1;candidates=@(@{id='${{ matrix.id }}';legacy=@($legacy);detector=@($detector)})} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$root/evidence.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
-        with: { name: efficacy-${{ matrix.id }}-${{ matrix.os }}, path: ${{ runner.temp }}/endstate-validation-results, retention-days: 7, if-no-files-found: warn }
+        with: { name: efficacy-${{ matrix.id }}-${{ matrix.os }}, path: ${{ runner.temp }}/endstate-validation-results, retention-days: 7, if-no-files-found: error }
   aggregate:
     needs: [baseline, candidate]
     if: always()
@@ -137,15 +121,12 @@ jobs:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with: { pattern: efficacy-*, path: evidence, merge-multiple: false }
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
-        with: { name: efficacy-audit-kit, path: kit }
-      - name: Verify fixed evidence inventory
-        run: test "$(find evidence -mindepth 1 -maxdepth 1 -type d -name 'efficacy-*' | wc -l)" -eq 19
-      - name: Classify six fixed rows
+        with: { name: audit-kit, path: kit }
+      - name: Classify fixed evidence inventory
         run: |
-          kit/go-engine/endstate-validation-pilot aggregate "$GITHUB_WORKSPACE/kit" "$GITHUB_WORKSPACE/evidence" "$GITHUB_WORKSPACE/aggregate.json"
-          cat "$GITHUB_WORKSPACE/aggregate.json"
-          echo '## CI efficacy audit' >> "$GITHUB_STEP_SUMMARY"
-          cat "$GITHUB_WORKSPACE/aggregate.json" >> "$GITHUB_STEP_SUMMARY"
+          chmod +x kit/endstate-validation-pilot
+          test "$(find evidence -mindepth 1 -maxdepth 1 -type d -name 'efficacy-*' | wc -l)" -eq 19
+          kit/endstate-validation-pilot aggregate "$GITHUB_WORKSPACE/kit" "$GITHUB_WORKSPACE/evidence" "$GITHUB_WORKSPACE/aggregate.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
-        with: { name: efficacy-aggregate, path: aggregate.json, retention-days: 7, if-no-files-found: warn }
+        with: { name: efficacy-aggregate, path: aggregate.json, retention-days: 7, if-no-files-found: error }

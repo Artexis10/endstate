@@ -12,7 +12,7 @@ import (
 
 func fixedManifestForTest(t *testing.T) Manifest {
 	t.Helper()
-	return Manifest{Candidates: []Candidate{
+	manifest := Manifest{Candidates: []Candidate{
 		{ID: "bundle-duplicate", Family: "catalog", Expected: Failure{Code: "execution_failure", Phase: "catalog-plan", Coordinate: "success", ChildReason: "duplicate_membership"}},
 		{ID: "bundle-missing", Family: "catalog", Expected: Failure{Code: "execution_failure", Phase: "catalog-plan", Coordinate: "success", ChildReason: "missing_module"}},
 		{ID: "bundle-id-drift", Family: "catalog", Expected: Failure{Code: "envelope_contract", Phase: "catalog-plan", Coordinate: "envelope"}},
@@ -20,16 +20,33 @@ func fixedManifestForTest(t *testing.T) Manifest {
 		{ID: "alacritty-source-drift", Family: "module", ModuleID: "apps.alacritty", ScenarioID: "default-v1", Expected: Failure{Code: "unsupported_fixture", Phase: "fixture", Coordinate: "capture.files[0]"}},
 		{ID: "obs-target-drift", Family: "module", ModuleID: "apps.obs-studio", ScenarioID: "default-v1", Expected: Failure{Code: "unsupported_fixture", Phase: "fixture", Coordinate: "restore[1]"}},
 	}}
+	for index := range manifest.Candidates {
+		manifest.Candidates[index].Legacy.SHA256 = strings.Repeat("c", 64)
+		manifest.Candidates[index].Detector.SHA256 = strings.Repeat("d", 64)
+	}
+	return manifest
 }
 
 func fixedEvidenceForTest(manifest Manifest) Evidence {
-	evidence := Evidence{Baseline: []Attempt{{Status: "passed"}, {Status: "passed"}}}
+	identity := func(module, scenario, proof string) ProofIdentity {
+		return ProofIdentity{Commit: DetectorRef, EngineSHA256: strings.Repeat("a", 64), RepositoryHash: strings.Repeat("b", 64), ModuleID: module, ScenarioID: scenario, Proof: proof}
+	}
+	evidence := Evidence{Baseline: []Attempt{}}
+	for _, baseline := range []struct{ module, scenario, proof string }{{"", "", "catalog"}, {"apps.vlc", "default-v1", "config"}, {"apps.alacritty", "default-v1", "config"}, {"apps.obs-studio", "default-v1", "config"}} {
+		evidence.Baseline = append(evidence.Baseline, Attempt{Status: "passed", Identity: identity(baseline.module, baseline.scenario, baseline.proof)}, Attempt{Status: "passed", Identity: identity(baseline.module, baseline.scenario, baseline.proof)})
+	}
 	for _, candidate := range manifest.Candidates {
-		evidence.Candidates = append(evidence.Candidates, CandidateEvidence{ID: candidate.ID, Legacy: []Attempt{{Status: "passed"}, {Status: "passed"}, {Status: "passed"}}, Detector: []Attempt{{Status: "failed", Failure: candidate.Expected}, {Status: "failed", Failure: candidate.Expected}}})
+		legacy := []LegacyAttempt{}
+		for _, contract := range []string{"windows-go", "windows-integration", "ubuntu-go", "macos-go"} {
+			legacy = append(legacy, LegacyAttempt{Contract: contract, Ref: LegacyRef, CandidateID: candidate.ID, PatchSHA256: candidate.Legacy.SHA256, Status: "passed"})
+		}
+		failure := candidate.Expected
+		evidence.Candidates = append(evidence.Candidates, CandidateEvidence{ID: candidate.ID, Legacy: legacy, Detector: []Attempt{{Status: "failed", Failure: &failure, Identity: identity(candidate.ModuleID, candidate.ScenarioID, ""), CandidateID: candidate.ID, PatchSHA256: strings.Repeat("d", 64)}, {Status: "failed", Failure: &failure, Identity: identity(candidate.ModuleID, candidate.ScenarioID, ""), CandidateID: candidate.ID, PatchSHA256: strings.Repeat("d", 64)}}})
+		evidence.Candidates[len(evidence.Candidates)-1].Detector[0].PatchSHA256 = candidate.Detector.SHA256
+		evidence.Candidates[len(evidence.Candidates)-1].Detector[1].PatchSHA256 = candidate.Detector.SHA256
 	}
 	return evidence
 }
-
 
 func TestLoadManifestRejectsUnknownFieldsAndRequiresFixedCandidates(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pilot.json")
@@ -73,7 +90,10 @@ func TestClassifyEvidenceRejectsReorderedInventoryAndRequiresExactDetectorFailur
 	}
 
 	wrong := fixedEvidenceForTest(manifest)
-	wrong.Candidates[0].Detector[0].Failure.Coordinate = "wrong"
+	wrongFailure := *wrong.Candidates[0].Detector[0].Failure
+	wrongFailure.Coordinate = "wrong"
+	wrong.Candidates[0].Detector[0].Failure = &wrongFailure
+	wrong.Candidates[0].Detector[1].Failure = &wrongFailure
 	aggregate, err := Classify(manifest, wrong)
 	if err != nil {
 		t.Fatal(err)
@@ -94,8 +114,18 @@ func TestReadEvidenceRejectsUnknownFieldsAndNonFiniteTimings(t *testing.T) {
 	if err := os.WriteFile(path, []byte(`{"schemaVersion":1,"baseline":[{"status":"passed","durationSeconds":-1}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadEvidence(path); err == nil || !strings.Contains(err.Error(), "duration") {
-		t.Fatalf("ReadEvidence() error = %v, want duration rejection", err)
+	if _, err := ReadEvidence(path); err == nil {
+		t.Fatalf("ReadEvidence() error = %v, want malformed evidence rejection", err)
+	}
+}
+
+func TestReadEvidenceRequiresBoundedProofAndContractIdentities(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evidence.json")
+	if err := os.WriteFile(path, []byte(`{"schemaVersion":1,"baseline":[{"status":"passed","durationSeconds":1}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadEvidence(path); err == nil || !strings.Contains(err.Error(), "baseline") {
+		t.Fatalf("ReadEvidence() error = %v, want baseline identity rejection", err)
 	}
 }
 
@@ -104,5 +134,20 @@ func TestAggregateArtifactInventoryRequiresBaselineAndEighteenCandidateLanes(t *
 	dir := t.TempDir()
 	if _, err := AggregateArtifacts(manifest, dir); err == nil || !strings.Contains(err.Error(), "inventory") {
 		t.Fatalf("AggregateArtifacts() error = %v, want inventory rejection", err)
+	}
+}
+
+func TestClassifyTreatsDetectorDisagreementAndInfrastructureAsNonProof(t *testing.T) {
+	manifest := fixedManifestForTest(t)
+	evidence := fixedEvidenceForTest(manifest)
+	different := *evidence.Candidates[0].Detector[1].Failure
+	different.Coordinate = "different"
+	evidence.Candidates[0].Detector[1].Failure = &different
+	aggregate, err := Classify(manifest, evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.Rows[0].Classification != ClassificationFlake || aggregate.Decision != DecisionInsufficientSignal {
+		t.Fatalf("Classify(disagreement) = %#v, want flake and insufficient signal", aggregate)
 	}
 }
