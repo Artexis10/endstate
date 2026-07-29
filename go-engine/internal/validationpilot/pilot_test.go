@@ -98,3 +98,11 @@ func TestReadEvidenceRejectsUnknownFieldsAndNonFiniteTimings(t *testing.T) {
 		t.Fatalf("ReadEvidence() error = %v, want duration rejection", err)
 	}
 }
+
+func TestAggregateArtifactInventoryRequiresBaselineAndEighteenCandidateLanes(t *testing.T) {
+	manifest := fixedManifestForTest(t)
+	dir := t.TempDir()
+	if _, err := AggregateArtifacts(manifest, dir); err == nil || !strings.Contains(err.Error(), "inventory") {
+		t.Fatalf("AggregateArtifacts() error = %v, want inventory rejection", err)
+	}
+}

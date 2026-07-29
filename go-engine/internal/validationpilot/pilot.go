@@ -139,6 +139,38 @@ func ReadEvidence(path string) (Evidence, error) {
 	return evidence, nil
 }
 
+// AggregateArtifacts accepts only the fixed artifact inventory produced by the
+// manual preflight. Each candidate lane contributes one bounded evidence.json.
+func AggregateArtifacts(manifest Manifest, root string) (Aggregate, error) {
+	entries, err := os.ReadDir(root)
+	if err != nil { return Aggregate{}, err }
+	artifacts := map[string]string{}
+	for _, entry := range entries {
+		if !entry.IsDir() { return Aggregate{}, errors.New("evidence inventory contains a file") }
+		name := entry.Name()
+		if name == "efficacy-baseline" || strings.HasPrefix(name, "efficacy-") {
+			if _, duplicate := artifacts[name]; duplicate { return Aggregate{}, errors.New("evidence inventory contains duplicate") }
+			artifacts[name] = filepath.Join(root, name, "evidence.json")
+		} else { return Aggregate{}, errors.New("evidence inventory contains unknown artifact") }
+	}
+	if len(artifacts) != 19 || artifacts["efficacy-baseline"] == "" { return Aggregate{}, errors.New("evidence inventory is incomplete") }
+	evidence := Evidence{SchemaVersion: 1}
+	baseline, err := ReadEvidence(artifacts["efficacy-baseline"])
+	if err != nil { return Aggregate{}, err }
+	evidence.Baseline = baseline.Baseline
+	for _, candidate := range manifest.Candidates {
+		row := CandidateEvidence{ID: candidate.ID}
+		for _, osName := range []string{"windows-latest", "ubuntu-latest", "macos-latest"} {
+			lane, err := ReadEvidence(artifacts["efficacy-"+candidate.ID+"-"+osName])
+			if err != nil || len(lane.Candidates) != 1 || lane.Candidates[0].ID != candidate.ID { return Aggregate{}, errors.New("evidence inventory has invalid candidate lane") }
+			row.Legacy = append(row.Legacy, lane.Candidates[0].Legacy...)
+			row.Detector = append(row.Detector, lane.Candidates[0].Detector...)
+		}
+		evidence.Candidates = append(evidence.Candidates, row)
+	}
+	return Classify(manifest, evidence)
+}
+
 func Classify(manifest Manifest, evidence Evidence) (Aggregate, error) {
 	if len(evidence.Baseline) != 2 { return Aggregate{}, errors.New("baseline evidence is incomplete") }
 	for _, attempt := range evidence.Baseline { if attempt.Status != "passed" { return Aggregate{}, errors.New("baseline evidence is not green") } }

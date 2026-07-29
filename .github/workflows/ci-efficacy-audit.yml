@@ -37,6 +37,7 @@ jobs:
           git -C detector checkout --detach 437c0ca4167c09bc9f2de515daa6d55d35257d4f
           if ((git -C detector rev-parse HEAD) -ne '437c0ca4167c09bc9f2de515daa6d55d35257d4f') { throw 'detector ref mismatch' }
       - name: Run bound detector baseline twice
+        id: baseline_run
         shell: pwsh
         run: |
           if (-not ((go version) -match 'go1\.26')) { throw 'Go 1.26 is required' }
@@ -51,6 +52,13 @@ jobs:
             & $env:RUNNER_TEMP/endstate-validation.exe --engine $env:RUNNER_TEMP/endstate.exe --repo (Resolve-Path ..) --module apps.obs-studio --scenario default-v1 --result "$env:RUNNER_TEMP/endstate-validation-results/obs-$_.json"
           }
           Pop-Location
+      - name: Write bounded baseline evidence
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
+          $status = if ('${{ steps.baseline_run.outcome }}' -eq 'success') {'passed'} else {'failed'}
+          @{schemaVersion=1; baseline=@(@{status=$status;durationSeconds=0},@{status=$status;durationSeconds=0})} | ConvertTo-Json -Compress | Set-Content "$env:RUNNER_TEMP/endstate-validation-results/evidence.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with: { name: efficacy-baseline, path: ${{ runner.temp }}/endstate-validation-results, retention-days: 7, if-no-files-found: warn }
@@ -78,6 +86,7 @@ jobs:
           git -C legacy apply --check "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch"
           git -C legacy apply "../audit/validation/ci-efficacy/pilot-v0/patches/${{ matrix.id }}/legacy.patch"
       - name: Run legacy merge-gate contract
+        id: legacy
         shell: pwsh
         working-directory: legacy/go-engine
         run: |
@@ -88,6 +97,17 @@ jobs:
             go build -o $env:RUNNER_TEMP/endstate.exe ./cmd/endstate
             & ../scripts/integration-test.ps1
           }
+      - name: Write bounded candidate evidence
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "$env:RUNNER_TEMP/endstate-validation-results" | Out-Null
+          $legacy = @{status = if ('${{ steps.legacy.outcome }}' -eq 'success') {'passed'} else {'failed'}; durationSeconds = 0}
+          $detector = @()
+          if ('${{ matrix.os }}' -eq 'windows-latest') {
+            1..2 | ForEach-Object { $raw = Get-Content "$env:RUNNER_TEMP/endstate-validation-results/detector-$_.json" -Raw | ConvertFrom-Json; $detector += @{status=$raw.status; failure=$raw.failure; durationSeconds=0} }
+          }
+          @{schemaVersion=1; candidates=@(@{id='${{ matrix.id }}'; legacy=@($legacy); detector=@($detector)})} | ConvertTo-Json -Compress -Depth 8 | Set-Content "$env:RUNNER_TEMP/endstate-validation-results/evidence.json"
       - name: Run two fresh patched detector attempts
         if: matrix.os == 'windows-latest'
         shell: pwsh
@@ -116,9 +136,16 @@ jobs:
     steps:
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with: { pattern: efficacy-*, path: evidence, merge-multiple: false }
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
+        with: { name: efficacy-audit-kit, path: kit }
       - name: Verify fixed evidence inventory
         run: test "$(find evidence -mindepth 1 -maxdepth 1 -type d -name 'efficacy-*' | wc -l)" -eq 19
-      - name: Write six-row decision summary
+      - name: Classify six fixed rows
         run: |
+          kit/go-engine/endstate-validation-pilot aggregate "$GITHUB_WORKSPACE/kit" "$GITHUB_WORKSPACE/evidence" "$GITHUB_WORKSPACE/aggregate.json"
+          cat "$GITHUB_WORKSPACE/aggregate.json"
           echo '## CI efficacy audit' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Aggregate reads only the nineteen bounded evidence artifacts.' >> "$GITHUB_STEP_SUMMARY"
+          cat "$GITHUB_WORKSPACE/aggregate.json" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with: { name: efficacy-aggregate, path: aggregate.json, retention-days: 7, if-no-files-found: warn }

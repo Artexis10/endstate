@@ -73,6 +73,7 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 		"apply --check", " apply ", "patches/${{ matrix.id }}/legacy.patch", "patches/${{ matrix.id }}/detector.patch",
 		"catalog --engine", "--module apps.vlc --scenario default-v1", "--module apps.alacritty --scenario default-v1", "--module apps.obs-studio --scenario default-v1",
 		"detector-$_", "find evidence -mindepth 1 -maxdepth 1 -type d -name 'efficacy-*'",
+		"endstate-validation-pilot aggregate", "aggregate.json", "steps.legacy.outcome", "steps.baseline_run.outcome",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Errorf("workflow missing proof binding %q", wanted)
