@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/catalogplan"
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
 )
 
@@ -229,6 +230,19 @@ func TestRunDetectorPreservesStructuredModuleFailure(t *testing.T) {
 	}
 	if attempt.Status != "failed" || attempt.Failure == nil || attempt.Failure.Code != "unsupported_fixture" || attempt.Failure.Coordinate != "restore[0]" {
 		t.Fatalf("RunDetector() = %#v, want preserved structured failure", attempt)
+	}
+}
+
+func TestCatalogFailurePrefersFailedRowDomainFailureOverAggregateProofStripping(t *testing.T) {
+	result := validationharness.CatalogMatrixResult{
+		Rows: []validationharness.CatalogMatrixRow{{
+			Failures: []catalogplan.Failure{{ModuleID: "apps.foo", Reason: "duplicate_membership"}},
+		}},
+		Failure: &validationharness.Failure{Code: "assertion_contract", Phase: "aggregate", Coordinate: "rows"},
+	}
+	failure := catalogFailure(result)
+	if failure == nil || *failure != (Failure{Code: "execution_failure", Phase: "catalog-plan", Coordinate: "success", ChildReason: "duplicate_membership"}) {
+		t.Fatalf("catalogFailure() = %#v", failure)
 	}
 }
 

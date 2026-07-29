@@ -588,11 +588,11 @@ func RunDetector(ctx context.Context, request DetectorRequest) (Attempt, error) 
 }
 func catalogFailure(result validationharness.CatalogMatrixResult) *Failure {
 	for _, row := range result.Rows {
+		if len(row.Failures) > 0 {
+			return &Failure{Code: "execution_failure", Phase: "catalog-plan", Coordinate: "success", ChildReason: row.Failures[0].Reason}
+		}
 		if row.Failure != nil {
 			child := ""
-			if len(row.Failures) > 0 {
-				child = row.Failures[0].Reason
-			}
 			return &Failure{Code: row.Failure.Code, Phase: row.Failure.Phase, Coordinate: row.Failure.Coordinate, ChildReason: child}
 		}
 	}
