@@ -48,6 +48,7 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 		"actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16", "go-version: '1.26'", "cache-dependency-path: audit/go-engine/go.sum",
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
 		"validate-v1", "run-v1-lane", "aggregate-v1", "--role baseline", "--role detector", "--role comparator", "if: always()", "if-no-files-found: error",
+		"--runner-root", "--runner-image-os", "--runner-image-version", "ImageOS", "ImageVersion",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Errorf("workflow missing %q", wanted)

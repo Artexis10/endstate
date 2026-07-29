@@ -4,6 +4,7 @@
 package validationaudit
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -29,4 +30,11 @@ func validEvidenceLeaf(value string) bool {
 	}
 	name := strings.TrimSuffix(value, ".json")
 	return name != "" && identifierPattern.MatchString(name) && !strings.HasSuffix(name, ".") && !strings.HasSuffix(name, " ") && !windowsReservedDeviceName(name) && filepath.Base(value) == value
+}
+
+// IsUnsafePath reports links and platform-specific reparse points without
+// resolving them. Callers use it while walking an owned path boundary.
+func IsUnsafePath(path string) bool {
+	info, err := os.Lstat(path)
+	return err != nil || unsafePathInfo(path, info)
 }

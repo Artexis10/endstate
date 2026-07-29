@@ -52,14 +52,14 @@ jobs:
           Push-Location audit/go-engine
           go build -buildvcs=false -o "$env:RUNNER_TEMP/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
           Pop-Location
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane windows-go --runner-family windows --runner-image "$env:ImageOS-$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-windows"
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role baseline --lane windows-detector --runner-family windows --runner-image "$env:ImageOS-$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-windows"
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role detector --lane windows-detector --runner-family windows --runner-image "$env:ImageOS-$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-windows"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane windows-go --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role baseline --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role detector --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --result-root "$env:RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: v1-windows
-          path: ${{ runner.temp }}/v1-windows
+          path: ${{ runner.temp }}/v1-owned/results
           retention-days: 7
           if-no-files-found: error
 
@@ -82,12 +82,12 @@ jobs:
         run: |
           cd audit/go-engine
           go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane ubuntu-go --runner-family linux --runner-image "$ImageOS-$ImageVersion" --result-root "$RUNNER_TEMP/v1-ubuntu"
+          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane ubuntu-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family linux --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --result-root "$RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: v1-ubuntu
-          path: ${{ runner.temp }}/v1-ubuntu
+          path: ${{ runner.temp }}/v1-owned/results
           retention-days: 7
           if-no-files-found: error
 
@@ -110,12 +110,12 @@ jobs:
         run: |
           cd audit/go-engine
           go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot
-          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane macos-go --runner-family darwin --runner-image "$ImageOS-$ImageVersion" --result-root "$RUNNER_TEMP/v1-macos"
+          "$RUNNER_TEMP/endstate-validation-pilot" run-v1-lane --root "$GITHUB_WORKSPACE/audit" --manifest "$GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --role comparator --lane macos-go --runner-root "$RUNNER_TEMP/v1-owned" --runner-family darwin --runner-image-os "$ImageOS" --runner-image-version "$ImageVersion" --result-root "$RUNNER_TEMP/v1-owned/results"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: v1-macos
-          path: ${{ runner.temp }}/v1-macos
+          path: ${{ runner.temp }}/v1-owned/results
           retention-days: 7
           if-no-files-found: error
 

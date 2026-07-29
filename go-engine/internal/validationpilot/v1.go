@@ -92,8 +92,10 @@ type V1Target struct {
 
 // V1Runner identifies the hosted runner family and image used for an attempt.
 type V1Runner struct {
-	Family string `json:"family"`
-	Image  string `json:"image"`
+	Family       string `json:"family"`
+	Image        string `json:"image"`
+	ImageOS      string `json:"imageOs"`
+	ImageVersion string `json:"imageVersion"`
 }
 
 // V1BaselineProofIdentity binds a green unmodified detector result to its
@@ -142,6 +144,7 @@ type V1Attempt struct {
 	Authorities              V1Authorities           `json:"authorities"`
 	PatchSHA256              string                  `json:"patchSha256"`
 	MutatedTree              string                  `json:"mutatedTree"`
+	RepositorySHA256         string                  `json:"repositorySha256"`
 	Toolchain                string                  `json:"toolchain"`
 	Runner                   V1Runner                `json:"runner"`
 	StartedAt                string                  `json:"startedAt"`
@@ -312,11 +315,14 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	}
 	baselineOne, oneFound := baselines[1]
 	baselineTwo, twoFound := baselines[2]
-	if !oneFound || !twoFound || baselineOne.Lane != V1LaneWindowsDetector || baselineTwo.Lane != V1LaneWindowsDetector || baselineOne.Toolchain != manifest.Toolchain || baselineTwo.Toolchain != manifest.Toolchain || baselineOne.DetectorContractSHA256 != manifest.DetectorContractSHA256 || baselineTwo.DetectorContractSHA256 != manifest.DetectorContractSHA256 || baselineOne.BaselineProof.SourceTree != manifest.Authorities.Evaluated.Tree || baselineTwo.BaselineProof.SourceTree != manifest.Authorities.Evaluated.Tree {
+	if !oneFound || !twoFound || baselineOne.Lane != V1LaneWindowsDetector || baselineTwo.Lane != V1LaneWindowsDetector || baselineOne.Toolchain != manifest.Toolchain || baselineTwo.Toolchain != manifest.Toolchain || baselineOne.DetectorContractSHA256 != manifest.DetectorContractSHA256 || baselineTwo.DetectorContractSHA256 != manifest.DetectorContractSHA256 {
 		return "", errors.New("v1 baseline evidence is foreign or malformed")
 	}
 	if baselineOne.Status == V1StatusInfrastructure || baselineTwo.Status == V1StatusInfrastructure {
 		return ClassificationInfrastructureFailure, nil
+	}
+	if baselineOne.BaselineProof.SourceTree != manifest.Authorities.Evaluated.Tree || baselineTwo.BaselineProof.SourceTree != manifest.Authorities.Evaluated.Tree {
+		return "", errors.New("v1 baseline evidence is foreign or malformed")
 	}
 	if !sameV1Authorities(baselineOne.Authorities, manifest.Authorities) || !sameV1Authorities(baselineTwo.Authorities, manifest.Authorities) || !sameV1AttemptIdentity(baselineOne, baselineTwo) || !sameV1BaselineProofIdentity(baselineOne.BaselineProof, baselineTwo.BaselineProof) {
 		return ClassificationFlake, nil
@@ -332,7 +338,7 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 		if attempt.Status == V1StatusInfrastructure {
 			return ClassificationInfrastructureFailure, nil
 		}
-		if !sameV1Authorities(attempt.Authorities, manifest.Authorities) {
+		if !sameV1Authorities(attempt.Authorities, manifest.Authorities) || attempt.RepositorySHA256 != baselineOne.RepositorySHA256 {
 			return ClassificationFlake, nil
 		}
 		if attempt.Status != V1StatusPassed {
@@ -347,7 +353,7 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	if first.Status == V1StatusInfrastructure || second.Status == V1StatusInfrastructure {
 		return ClassificationInfrastructureFailure, nil
 	}
-	if !sameV1Authorities(first.Authorities, manifest.Authorities) || !sameV1Authorities(second.Authorities, manifest.Authorities) || !sameV1AttemptIdentity(first, second) || baselineOne.Runner != first.Runner || baselineTwo.Runner != second.Runner {
+	if !sameV1Authorities(first.Authorities, manifest.Authorities) || !sameV1Authorities(second.Authorities, manifest.Authorities) || !sameV1AttemptIdentity(first, second) || first.RepositorySHA256 != baselineOne.RepositorySHA256 || second.RepositorySHA256 != baselineTwo.RepositorySHA256 || baselineOne.Runner != first.Runner || baselineTwo.Runner != second.Runner {
 		return ClassificationFlake, nil
 	}
 	if first.Status != second.Status || !sameV1Failure(first.Failure, second.Failure) {
@@ -369,7 +375,7 @@ func matchesV1Candidate(attempt V1Attempt, candidate V1Candidate) bool {
 	return attempt.PatchSHA256 == candidate.PatchSHA256 && attempt.MutatedTree == candidate.MutatedTree
 }
 func sameV1AttemptIdentity(first, second V1Attempt) bool {
-	return first.CandidateID == second.CandidateID && first.DetectorID == second.DetectorID && first.Target == second.Target && first.Kind == second.Kind && first.Lane == second.Lane && first.Authorities == second.Authorities && first.PatchSHA256 == second.PatchSHA256 && first.MutatedTree == second.MutatedTree && first.Toolchain == second.Toolchain && first.Runner == second.Runner && first.ComparatorContractSHA256 == second.ComparatorContractSHA256 && first.DetectorContractSHA256 == second.DetectorContractSHA256 && first.Admission == second.Admission
+	return first.CandidateID == second.CandidateID && first.DetectorID == second.DetectorID && first.Target == second.Target && first.Kind == second.Kind && first.Lane == second.Lane && first.Authorities == second.Authorities && first.PatchSHA256 == second.PatchSHA256 && first.MutatedTree == second.MutatedTree && first.RepositorySHA256 == second.RepositorySHA256 && first.Toolchain == second.Toolchain && first.Runner == second.Runner && first.ComparatorContractSHA256 == second.ComparatorContractSHA256 && first.DetectorContractSHA256 == second.DetectorContractSHA256 && first.Admission == second.Admission
 }
 func sameV1Authorities(first, second V1Authorities) bool { return first == second }
 func sameV1Failure(first, second *V1Failure) bool {
@@ -382,11 +388,19 @@ func shallowV1Failure(failure *V1Failure) bool {
 	if failure == nil || failure.Scope != V1FailureScopeDomain {
 		return true
 	}
-	for _, value := range []string{failure.Class, failure.Phase, failure.Coordinate} {
-		for _, guard := range []string{"schema", "revision", "selection", "admission", "envelope", "aggregate", "parse", "decode"} {
-			if strings.Contains(value, guard) {
-				return true
-			}
+	for _, value := range []string{failure.Class, failure.Phase, failure.Coordinate, failure.ChildReason} {
+		if v1GuardValue(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func v1GuardValue(value string) bool {
+	value = strings.ToLower(value)
+	for _, guard := range []string{"guard", "setup", "isolation", "schema", "revision", "selection", "admission", "envelope", "aggregate", "parse", "decode"} {
+		if strings.Contains(value, guard) {
+			return true
 		}
 	}
 	return false
@@ -490,12 +504,12 @@ func validV1Candidate(candidate V1Candidate) bool {
 	return validV1Value(candidate.ID) && (candidate.Family == "catalog" || candidate.Family == "module") && sha256Pattern.MatchString(candidate.PatchSHA256) && v1SHA1Pattern.MatchString(candidate.MutatedTree) && validV1Fingerprint(V1Fingerprint{candidate.OperatorFingerprint, candidate.InvariantFingerprint}) && validV1Value(candidate.DetectorID) && validV1Target(candidate.Family, candidate.Target) && validV1Failure(candidate.Expected) && !shallowV1Failure(&candidate.Expected)
 }
 func validV1Attempt(attempt V1Attempt) bool {
-	if !validV1Value(attempt.CandidateID) || !validV1Value(attempt.DetectorID) || !(validV1Target("module", attempt.Target) || validV1Target("catalog", attempt.Target)) || !validV1Authorities(attempt.Authorities) || !v1ToolchainPattern.MatchString(attempt.Toolchain) || !validV1Runner(attempt.Runner) || !validV1Timing(attempt) || !validV1LaneRunner(attempt.Lane, attempt.Runner) || !validV1Status(attempt.Status) || attempt.DiagnosticEngineSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticEngineSHA256) || attempt.Failure != nil && !validV1Failure(*attempt.Failure) {
+	if !validV1Value(attempt.CandidateID) || !validV1Value(attempt.DetectorID) || !(validV1Target("module", attempt.Target) || validV1Target("catalog", attempt.Target)) || !validV1Authorities(attempt.Authorities) || (attempt.Status != V1StatusInfrastructure && !sha256Pattern.MatchString(attempt.RepositorySHA256)) || (attempt.Status == V1StatusInfrastructure && attempt.RepositorySHA256 != "" && !sha256Pattern.MatchString(attempt.RepositorySHA256)) || !v1ToolchainPattern.MatchString(attempt.Toolchain) || !validV1Runner(attempt.Runner) || !validV1Timing(attempt) || !validV1LaneRunner(attempt.Lane, attempt.Runner) || !validV1Status(attempt.Status) || attempt.DiagnosticEngineSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticEngineSHA256) || attempt.Failure != nil && !validV1Failure(*attempt.Failure) {
 		return false
 	}
 	switch attempt.Kind {
 	case V1KindBaseline:
-		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && attempt.PatchSHA256 == "" && attempt.MutatedTree == "" && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && attempt.Admission == V1AdmissionAdmitted && validV1BaselineProof(attempt.BaselineProof) && attempt.BaselineProof.Target == attempt.Target && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
+		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && attempt.PatchSHA256 == "" && attempt.MutatedTree == "" && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusInfrastructure && attempt.BaselineProof == (V1BaselineProofIdentity{})) || (validV1BaselineProof(attempt.BaselineProof) && attempt.BaselineProof.Target == attempt.Target)) && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
 	case V1KindComparator:
 		return (attempt.Lane == V1LaneWindowsGo || attempt.Lane == V1LaneUbuntuGo || attempt.Lane == V1LaneMacOSGo) && attempt.Repetition == 1 && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.ComparatorContractSHA256) && attempt.DetectorContractSHA256 == "" && attempt.Admission == "" && attempt.BaselineProof == (V1BaselineProofIdentity{}) && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
 	case V1KindDetector:
@@ -514,10 +528,11 @@ func validV1Target(family string, target V1Target) bool {
 	if family == "module" {
 		return validV1Value(target.ModuleID) && validV1Value(target.ScenarioID) && target.BundleID == "" && target.RowID == ""
 	}
-	return target.ModuleID == "" && target.ScenarioID == "" && validV1Value(target.BundleID) && validV1Value(target.RowID)
+	return target.ModuleID == "" && target.ScenarioID == "" && validV1Value(target.BundleID) && target.RowID == target.BundleID
 }
 func validV1Runner(runner V1Runner) bool {
-	return (runner.Family == "windows" || runner.Family == "linux" || runner.Family == "darwin") && validV1Value(runner.Image)
+	measured, err := v1HostedRunner(runner.Family, runner.ImageOS, runner.ImageVersion)
+	return err == nil && runner == measured
 }
 func validV1LaneRunner(lane string, runner V1Runner) bool {
 	switch lane {

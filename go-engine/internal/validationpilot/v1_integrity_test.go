@@ -64,6 +64,7 @@ func TestClassifyV1StableAdmittedDetectorPassIsSurvivor(t *testing.T) {
 
 func TestClassifyV1RunnerAndTimingIdentityAreRepeatabilityGoverning(t *testing.T) {
 	manifest, evidence := validV1Proof()
+	evidence.Attempts[6].Runner.ImageVersion = "2026"
 	evidence.Attempts[6].Runner.Image = "windows-2026"
 	aggregate, err := ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationFlake {
