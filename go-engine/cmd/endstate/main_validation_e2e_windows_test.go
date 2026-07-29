@@ -9,6 +9,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -18,6 +19,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -25,6 +27,33 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
+
+func TestBundleContainsValueDecodesUTF16LE(t *testing.T) {
+	const header = "Windows Registry Editor Version 5.00"
+	const sentinel = "captured-registry-sentinel"
+	const forbidden = "mapped-namespace-nonce"
+
+	encoded := []byte{0xff, 0xfe}
+	for _, codeUnit := range utf16.Encode([]rune(header + "\r\n" + sentinel)) {
+		var bytes [2]byte
+		binary.LittleEndian.PutUint16(bytes[:], codeUnit)
+		encoded = append(encoded, bytes[:]...)
+	}
+	entries := map[string]string{"7zip.reg": string(encoded)}
+
+	if !bundleContainsValue(entries, header) {
+		t.Fatalf("registry header not found")
+	}
+	if !bundleContainsValue(entries, sentinel) {
+		t.Fatalf("registry sentinel not found")
+	}
+	if bundleContainsValue(entries, forbidden) {
+		t.Fatalf("forbidden value %q found", forbidden)
+	}
+	if bundleContainsValue(map[string]string{"malformed.reg": "\xff\xfeA"}, "A") {
+		t.Fatal("odd-length UTF-16LE entry matched")
+	}
+}
 
 func TestBuiltExecutableValidationTrackedModuleLifecycles(t *testing.T) {
 	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -363,6 +392,16 @@ func inspectLifecycleBundle(t *testing.T, path string) ([]byte, map[string]strin
 
 func bundleContainsValue(entries map[string]string, value string) bool {
 	for _, data := range entries {
+		if len(data) >= 2 && data[0] == 0xff && data[1] == 0xfe {
+			if len(data)%2 != 0 {
+				continue
+			}
+			codeUnits := make([]uint16, 0, (len(data)-2)/2)
+			for index := 2; index < len(data); index += 2 {
+				codeUnits = append(codeUnits, binary.LittleEndian.Uint16([]byte(data[index:index+2])))
+			}
+			data = string(utf16.Decode(codeUnits))
+		}
 		if strings.Contains(data, value) {
 			return true
 		}
