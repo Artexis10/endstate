@@ -17,7 +17,7 @@ func canonicalUnixEvidenceRoot(root string) (string, bool) {
 		return "", false
 	}
 	resolved, err := filepath.EvalSymlinks(root)
-	if err != nil || filepath.Clean(resolved) != resolved {
+	if err != nil || filepath.Clean(resolved) != resolved || resolved != root {
 		return "", false
 	}
 	info, err := os.Lstat(resolved)

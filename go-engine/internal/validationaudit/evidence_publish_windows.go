@@ -59,7 +59,7 @@ func canonicalEvidenceRoot(root string) (string, bool) {
 		return "", false
 	}
 	resolved, err := filepath.EvalSymlinks(abs)
-	if err != nil || filepath.Clean(resolved) != resolved {
+	if err != nil || filepath.Clean(resolved) != resolved || resolved != root {
 		return "", false
 	}
 	resolvedInfo, err := os.Lstat(resolved)

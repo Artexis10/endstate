@@ -81,6 +81,59 @@ func TestAttemptEvidenceRejectsInvalidCombinations(t *testing.T) {
 	}
 }
 
+func TestDecodeAttemptEvidenceRejectsPresentForbiddenFields(t *testing.T) {
+	tests := []struct {
+		name  string
+		base  AttemptEvidence
+		field string
+	}{
+		{"control detector", validControlEvidence(), `"detector":null`},
+		{"baseline candidate", validBaselineEvidence(1), `"candidateId":null`},
+		{"baseline patch", validBaselineEvidence(1), `"patchSha256":""`},
+		{"baseline mutated tree", validBaselineEvidence(1), `"mutatedTree":""`},
+		{"baseline lane", validBaselineEvidence(1), `"lane":""`},
+		{"mutation lane", validMutationEvidence(1), `"lane":""`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, _, err := EncodeAttemptEvidence(tt.base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wire := strings.TrimSuffix(string(raw), "\n")
+			wire = strings.TrimSuffix(wire, "}") + "," + tt.field + "}\n"
+			if _, err := DecodeAttemptEvidence([]byte(wire)); !errors.Is(err, ErrInvalidEvidence) {
+				t.Fatalf("DecodeAttemptEvidence() error = %v, want %v", err, ErrInvalidEvidence)
+			}
+		})
+	}
+}
+
+func TestEncodeAttemptEvidenceOmitsForbiddenConditionalFields(t *testing.T) {
+	tests := []struct {
+		name      string
+		evidence  AttemptEvidence
+		forbidden []string
+	}{
+		{"control", validControlEvidence(), []string{`"detector"`}},
+		{"baseline", validBaselineEvidence(1), []string{`"candidateId"`, `"patchSha256"`, `"mutatedTree"`, `"lane"`}},
+		{"mutation", validMutationEvidence(1), []string{`"lane"`}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, _, err := EncodeAttemptEvidence(tt.evidence)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, field := range tt.forbidden {
+				if strings.Contains(string(raw), field) {
+					t.Fatalf("EncodeAttemptEvidence() emitted forbidden field %s: %s", field, raw)
+				}
+			}
+		})
+	}
+}
+
 func TestDecodeAttemptEvidenceIsStrictAndBounded(t *testing.T) {
 	evidence := validMutationEvidence(1)
 	evidence.ExitClass = ExitClassRejected
@@ -184,8 +237,48 @@ func TestAttemptEvidenceDurationUsesUTCInstants(t *testing.T) {
 	}
 }
 
+func TestAttemptEvidenceRejectsSubMillisecondDurations(t *testing.T) {
+	evidence := validMutationEvidence(1)
+	evidence.EndedAt = "2026-07-29T12:00:01.000000001Z"
+	evidence.DurationMillis = 1000
+	if _, _, err := EncodeAttemptEvidence(evidence); !errors.Is(err, ErrInvalidEvidence) {
+		t.Fatalf("EncodeAttemptEvidence() error = %v, want %v", err, ErrInvalidEvidence)
+	}
+}
+
+func TestAttemptEvidenceRejectsTokenAndPathText(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*AttemptEvidence)
+	}{
+		{"token candidate", func(e *AttemptEvidence) { e.CandidateID = "ghp_secret" }},
+		{"token runner", func(e *AttemptEvidence) { e.Runner.Image = "github_pat_secret" }},
+		{"drive relative failure", func(e *AttemptEvidence) {
+			e.ExitClass = ExitClassRejected
+			e.Failure = &StableFailure{Class: "contract", Phase: "validation", Coordinate: "C:secret"}
+		}},
+		{"unix failure path", func(e *AttemptEvidence) {
+			e.ExitClass = ExitClassRejected
+			e.Failure = &StableFailure{Class: "contract", Phase: "validation", Coordinate: "/secret"}
+		}},
+		{"unc failure path", func(e *AttemptEvidence) {
+			e.ExitClass = ExitClassRejected
+			e.Failure = &StableFailure{Class: "contract", Phase: "validation", Coordinate: `\\server\share`}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			evidence := validMutationEvidence(1)
+			tt.mutate(&evidence)
+			if _, _, err := EncodeAttemptEvidence(evidence); !errors.Is(err, ErrInvalidEvidence) {
+				t.Fatalf("EncodeAttemptEvidence() error = %v, want %v", err, ErrInvalidEvidence)
+			}
+		})
+	}
+}
+
 func TestPublishEvidenceCreatesAndVerifiesExactBytes(t *testing.T) {
-	root := t.TempDir()
+	root := evidenceResultRoot(t)
 	evidence := validMutationEvidence(1)
 	publication, err := PublishEvidence(root, "attempt-01.json", evidence)
 	if err != nil {
@@ -205,7 +298,7 @@ func TestPublishEvidenceCreatesAndVerifiesExactBytes(t *testing.T) {
 }
 
 func TestPublishEvidenceRefusesExistingLeafWithoutModification(t *testing.T) {
-	root := t.TempDir()
+	root := evidenceResultRoot(t)
 	evidence := validMutationEvidence(1)
 	if _, err := PublishEvidence(root, "attempt-01.json", evidence); err != nil {
 		t.Fatal(err)
@@ -224,7 +317,7 @@ func TestPublishEvidenceRefusesExistingLeafWithoutModification(t *testing.T) {
 }
 
 func TestPublishEvidenceRejectsUnsafeAuthorityAndNamesWithoutLeakingInputs(t *testing.T) {
-	root := t.TempDir()
+	root := evidenceResultRoot(t)
 	evidence := validMutationEvidence(1)
 	for _, leaf := range []string{"", ".attempt.json", "attempt.JSON", "attempt.txt", "attempt/01.json", "..json", "con.json", "attempt .json", "attempt..json", "attempt-01.json."} {
 		t.Run(leaf, func(t *testing.T) {
@@ -237,4 +330,32 @@ func TestPublishEvidenceRejectsUnsafeAuthorityAndNamesWithoutLeakingInputs(t *te
 	if _, err := PublishEvidence(filepath.Join(root, "missing"), "attempt-01.json", evidence); !errors.Is(err, ErrUnsafeEvidencePath) {
 		t.Fatalf("PublishEvidence() missing root error = %v, want %v", err, ErrUnsafeEvidencePath)
 	}
+}
+
+func TestPublishEvidenceRejectsLinkedRootAndIntermediate(t *testing.T) {
+	root := evidenceResultRoot(t)
+	evidence := validMutationEvidence(1)
+	linkedRoot := filepath.Join(t.TempDir(), "linked-root")
+	if err := os.Symlink(root, linkedRoot); err != nil {
+		t.Skipf("symbolic links unavailable: %v", err)
+	}
+	if _, err := PublishEvidence(linkedRoot, "attempt-01.json", evidence); !errors.Is(err, ErrUnsafeEvidencePath) {
+		t.Fatalf("PublishEvidence() linked root error = %v, want %v", err, ErrUnsafeEvidencePath)
+	}
+	intermediate := filepath.Join(root, "results")
+	if err := os.Symlink(t.TempDir(), intermediate); err != nil {
+		t.Skipf("symbolic links unavailable: %v", err)
+	}
+	if _, err := PublishEvidence(intermediate, "attempt-01.json", evidence); !errors.Is(err, ErrUnsafeEvidencePath) {
+		t.Fatalf("PublishEvidence() linked intermediate error = %v, want %v", err, ErrUnsafeEvidencePath)
+	}
+}
+
+func evidenceResultRoot(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return root
 }
