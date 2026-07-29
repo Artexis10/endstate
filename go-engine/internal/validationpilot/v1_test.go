@@ -17,12 +17,12 @@ func TestClassifyV1MeaningfulSignalRequiresCompleteSixCaseProof(t *testing.T) {
 
 func TestV1ProofTreatsDiagnosticEngineHashAsNonGoverningButAuthorityDriftAsFlake(t *testing.T) {
 	manifest, evidence := validV1Proof()
-	evidence.Attempts[3].DiagnosticEngineSHA256 = strings.Repeat("e", 64)
+	evidence.Attempts[5].DiagnosticEngineSHA256 = strings.Repeat("e", 64)
 	aggregate, err := ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Decision != DecisionMeaningfulSignal {
 		t.Fatalf("ClassifyV1(diagnostic drift) = %#v, %v", aggregate, err)
 	}
-	evidence.Attempts[3].Authorities.Freeze.Tree = strings.Repeat("f", 40)
+	evidence.Attempts[5].Authorities.Freeze.Tree = strings.Repeat("f", 40)
 	aggregate, err = ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationFlake {
 		t.Fatalf("ClassifyV1(authority drift) = %#v, %v", aggregate, err)
@@ -46,15 +46,15 @@ func TestClassifyV1RejectsMissingDuplicateAndForeignAttemptInventory(t *testing.
 
 func TestClassifyV1InfrastructureAndShallowFailuresCannotBeCorrectKills(t *testing.T) {
 	manifest, evidence := validV1Proof()
-	evidence.Attempts[3].Status = V1StatusInfrastructure
-	evidence.Attempts[3].Failure = nil
+	evidence.Attempts[5].Status = V1StatusInfrastructure
+	evidence.Attempts[5].Failure = nil
 	aggregate, err := ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationInfrastructureFailure {
 		t.Fatalf("ClassifyV1(infrastructure) = %#v, %v", aggregate, err)
 	}
 	manifest, evidence = validV1Proof()
-	evidence.Attempts[3].Failure = &V1Failure{Class: "assertion_contract", Phase: "aggregate", Coordinate: "rows"}
-	evidence.Attempts[4].Failure = evidence.Attempts[3].Failure
+	evidence.Attempts[5].Failure = &V1Failure{Class: "assertion_contract", Phase: "aggregate", Coordinate: "rows", Scope: V1FailureScopeGuard}
+	evidence.Attempts[6].Failure = evidence.Attempts[5].Failure
 	aggregate, err = ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationWrongKill {
 		t.Fatalf("ClassifyV1(shallow) = %#v, %v", aggregate, err)
@@ -63,8 +63,8 @@ func TestClassifyV1InfrastructureAndShallowFailuresCannotBeCorrectKills(t *testi
 
 func TestClassifyV1RequiresDeclaredChildReason(t *testing.T) {
 	manifest, evidence := validV1Proof()
-	evidence.Attempts[3].Failure.ChildReason = "wrong_reason"
-	evidence.Attempts[4].Failure.ChildReason = "wrong_reason"
+	evidence.Attempts[5].Failure.ChildReason = "wrong_reason"
+	evidence.Attempts[6].Failure.ChildReason = "wrong_reason"
 	aggregate, err := ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationWrongKill {
 		t.Fatalf("ClassifyV1(wrong child) = %#v, %v", aggregate, err)
@@ -120,23 +120,43 @@ func validV1Proof() (V1Manifest, V1Evidence) {
 		Toolchain:                "go1.26.1",
 		ComparatorContractSHA256: digest("1"),
 		DetectorContractSHA256:   digest("2"),
-		Calibration:              []V1Fingerprint{{OperatorFingerprint: "v0-operator", InvariantFingerprint: "v0-invariant"}},
+		Calibration:              append([]V1Fingerprint(nil), V1CalibrationFingerprints...),
 	}
+	patches := []string{"3", "4", "5", "6", "7", "8"}
+	trees := []string{"e", "f", "a", "b", "c", "d"}
 	for index := 0; index < 6; index++ {
 		family := "catalog"
+		target := V1Target{BundleID: "bundle-" + string(rune('a'+index)), RowID: "row-" + string(rune('a'+index))}
 		if index >= 3 {
 			family = "module"
+			target = V1Target{ModuleID: "apps.module-" + string(rune('a'+index)), ScenarioID: "scenario-" + string(rune('a'+index))}
 		}
-		manifest.Candidates = append(manifest.Candidates, V1Candidate{ID: "candidate-" + string(rune('a'+index)), Family: family, PatchSHA256: digest("3"), MutatedTree: strings.Repeat("e", 40), OperatorFingerprint: "operator-" + string(rune('a'+index)), InvariantFingerprint: "invariant-" + string(rune('a'+index)), Expected: V1Failure{Class: "execution_failure", Phase: "catalog-plan", Coordinate: "success", ChildReason: "domain_reason"}})
+		manifest.Candidates = append(manifest.Candidates, V1Candidate{ID: "candidate-" + string(rune('a'+index)), Family: family, PatchSHA256: digest(patches[index]), MutatedTree: strings.Repeat(trees[index], 40), OperatorFingerprint: "operator-" + string(rune('a'+index)), InvariantFingerprint: "invariant-" + string(rune('a'+index)), DetectorID: family + "-detector-" + string(rune('a'+index)), Target: target, Expected: V1Failure{Class: "execution_failure", Phase: "catalog-plan", Coordinate: "success", ChildReason: "domain_reason", Scope: V1FailureScopeDomain}})
+	}
+	timing := func() (string, string, int64) { return "2026-07-29T00:00:00Z", "2026-07-29T00:00:00.001Z", 1 }
+	runner := func(family, image string) V1Runner { return V1Runner{Family: family, Image: image} }
+	comparatorRunner := func(lane string) V1Runner {
+		switch lane {
+		case V1LaneWindowsGo:
+			return runner("windows", "windows-2025")
+		case V1LaneUbuntuGo:
+			return runner("linux", "ubuntu-2404")
+		default:
+			return runner("darwin", "macos-15")
+		}
 	}
 	evidence := V1Evidence{SchemaVersion: V1SchemaVersion}
 	for _, candidate := range manifest.Candidates {
+		started, ended, duration := timing()
+		for repetition := 1; repetition <= 2; repetition++ {
+			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, DetectorID: candidate.DetectorID, Target: candidate.Target, Kind: V1KindBaseline, Lane: V1LaneWindowsDetector, Repetition: repetition, Authorities: authorities, Toolchain: manifest.Toolchain, Runner: runner("windows", "windows-2025"), StartedAt: started, EndedAt: ended, DurationMillis: duration, DetectorContractSHA256: manifest.DetectorContractSHA256, Admission: V1AdmissionAdmitted, Status: V1StatusPassed})
+		}
 		for _, lane := range []string{V1LaneWindowsGo, V1LaneUbuntuGo, V1LaneMacOSGo} {
-			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, Kind: V1KindComparator, Lane: lane, Repetition: 1, Authorities: authorities, PatchSHA256: candidate.PatchSHA256, MutatedTree: candidate.MutatedTree, Toolchain: manifest.Toolchain, ComparatorContractSHA256: manifest.ComparatorContractSHA256, Status: V1StatusPassed})
+			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, DetectorID: candidate.DetectorID, Target: candidate.Target, Kind: V1KindComparator, Lane: lane, Repetition: 1, Authorities: authorities, PatchSHA256: candidate.PatchSHA256, MutatedTree: candidate.MutatedTree, Toolchain: manifest.Toolchain, Runner: comparatorRunner(lane), StartedAt: started, EndedAt: ended, DurationMillis: duration, ComparatorContractSHA256: manifest.ComparatorContractSHA256, Status: V1StatusPassed})
 		}
 		for repetition := 1; repetition <= 2; repetition++ {
 			failure := candidate.Expected
-			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, Kind: V1KindDetector, Repetition: repetition, Authorities: authorities, PatchSHA256: candidate.PatchSHA256, MutatedTree: candidate.MutatedTree, Toolchain: manifest.Toolchain, DetectorContractSHA256: manifest.DetectorContractSHA256, Admission: V1AdmissionAdmitted, Status: V1StatusRejected, Failure: &failure, DiagnosticEngineSHA256: digest("4")})
+			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, DetectorID: candidate.DetectorID, Target: candidate.Target, Kind: V1KindDetector, Lane: V1LaneWindowsDetector, Repetition: repetition, Authorities: authorities, PatchSHA256: candidate.PatchSHA256, MutatedTree: candidate.MutatedTree, Toolchain: manifest.Toolchain, Runner: runner("windows", "windows-2025"), StartedAt: started, EndedAt: ended, DurationMillis: duration, DetectorContractSHA256: manifest.DetectorContractSHA256, Admission: V1AdmissionAdmitted, Status: V1StatusRejected, Failure: &failure, DiagnosticEngineSHA256: digest("9")})
 		}
 	}
 	return manifest, evidence

@@ -12,6 +12,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"time"
 )
 
 const (
@@ -19,15 +20,19 @@ const (
 	V1MaxDocumentSize = 64 * 1024
 
 	V1KindComparator       = "comparator"
+	V1KindBaseline         = "baseline"
 	V1KindDetector         = "detector"
 	V1LaneWindowsGo        = "windows-go"
 	V1LaneUbuntuGo         = "ubuntu-go"
 	V1LaneMacOSGo          = "macos-go"
+	V1LaneWindowsDetector  = "windows-detector"
 	V1AdmissionAdmitted    = "admitted"
 	V1AdmissionRejected    = "rejected"
 	V1StatusPassed         = "passed"
 	V1StatusRejected       = "rejected"
 	V1StatusInfrastructure = "infrastructure"
+	V1FailureScopeDomain   = "domain"
+	V1FailureScopeGuard    = "guard"
 	DecisionInconclusive   = "inconclusive"
 )
 
@@ -36,6 +41,17 @@ var (
 	v1SHA1Pattern       = regexp.MustCompile(`^[a-f0-9]{40}$`)
 	v1IdentifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
 )
+
+// V1CalibrationFingerprints is the closed v0 registry. These cases remain
+// calibration-only and can never enter the held-out denominator.
+var V1CalibrationFingerprints = []V1Fingerprint{
+	{OperatorFingerprint: "bundle-duplicate", InvariantFingerprint: "bundle-membership-unique"},
+	{OperatorFingerprint: "bundle-missing", InvariantFingerprint: "bundle-membership-complete"},
+	{OperatorFingerprint: "bundle-id-drift", InvariantFingerprint: "bundle-identity-stable"},
+	{OperatorFingerprint: "backup-disabled", InvariantFingerprint: "restore-backup-required"},
+	{OperatorFingerprint: "capture-source-drift", InvariantFingerprint: "capture-source-stable"},
+	{OperatorFingerprint: "restore-target-drift", InvariantFingerprint: "restore-target-stable"},
+}
 
 // V1Reference identifies one reviewed commit and tree authority.
 type V1Reference struct {
@@ -63,6 +79,21 @@ type V1Failure struct {
 	Phase       string `json:"phase"`
 	Coordinate  string `json:"coordinate"`
 	ChildReason string `json:"childReason,omitempty"`
+	Scope       string `json:"scope"`
+}
+
+// V1Target binds a detector to its exact module scenario or catalog row.
+type V1Target struct {
+	ModuleID   string `json:"moduleId,omitempty"`
+	ScenarioID string `json:"scenarioId,omitempty"`
+	BundleID   string `json:"bundleId,omitempty"`
+	RowID      string `json:"rowId,omitempty"`
+}
+
+// V1Runner identifies the hosted runner family and image used for an attempt.
+type V1Runner struct {
+	Family string `json:"family"`
+	Image  string `json:"image"`
 }
 
 // V1Candidate is one preregistered held-out production mutation.
@@ -73,6 +104,8 @@ type V1Candidate struct {
 	MutatedTree          string    `json:"mutatedTree"`
 	OperatorFingerprint  string    `json:"operatorFingerprint"`
 	InvariantFingerprint string    `json:"invariantFingerprint"`
+	DetectorID           string    `json:"detectorId"`
+	Target               V1Target  `json:"target"`
 	Expected             V1Failure `json:"expected"`
 }
 
@@ -91,6 +124,8 @@ type V1Manifest struct {
 // diagnostic and deliberately excluded from repeatability identity.
 type V1Attempt struct {
 	CandidateID              string        `json:"candidateId"`
+	DetectorID               string        `json:"detectorId"`
+	Target                   V1Target      `json:"target"`
 	Kind                     string        `json:"kind"`
 	Lane                     string        `json:"lane,omitempty"`
 	Repetition               int           `json:"repetition"`
@@ -98,6 +133,10 @@ type V1Attempt struct {
 	PatchSHA256              string        `json:"patchSha256"`
 	MutatedTree              string        `json:"mutatedTree"`
 	Toolchain                string        `json:"toolchain"`
+	Runner                   V1Runner      `json:"runner"`
+	StartedAt                string        `json:"startedAt"`
+	EndedAt                  string        `json:"endedAt"`
+	DurationMillis           int64         `json:"durationMillis"`
 	ComparatorContractSHA256 string        `json:"comparatorContractSha256,omitempty"`
 	DetectorContractSHA256   string        `json:"detectorContractSha256,omitempty"`
 	Admission                string        `json:"admission,omitempty"`
@@ -224,19 +263,31 @@ func ClassifyV1(manifest V1Manifest, evidence V1Evidence) (V1Aggregate, error) {
 }
 
 func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []V1Attempt) (string, error) {
+	baselines := map[int]V1Attempt{}
 	comparators := map[string]V1Attempt{}
 	detectors := map[int]V1Attempt{}
 	for _, attempt := range attempts {
-		if !matchesV1Candidate(attempt, candidate) {
+		if attempt.DetectorID != candidate.DetectorID || attempt.Target != candidate.Target {
 			return "", errors.New("v1 evidence candidate identity differs")
 		}
 		switch attempt.Kind {
+		case V1KindBaseline:
+			if _, duplicate := baselines[attempt.Repetition]; duplicate {
+				return "", errors.New("v1 evidence duplicates a baseline attempt")
+			}
+			baselines[attempt.Repetition] = attempt
 		case V1KindComparator:
+			if !matchesV1Candidate(attempt, candidate) {
+				return "", errors.New("v1 evidence candidate identity differs")
+			}
 			if _, duplicate := comparators[attempt.Lane]; duplicate {
 				return "", errors.New("v1 evidence duplicates a comparator lane")
 			}
 			comparators[attempt.Lane] = attempt
 		case V1KindDetector:
+			if !matchesV1Candidate(attempt, candidate) {
+				return "", errors.New("v1 evidence candidate identity differs")
+			}
 			if _, duplicate := detectors[attempt.Repetition]; duplicate {
 				return "", errors.New("v1 evidence duplicates a detector attempt")
 			}
@@ -245,13 +296,30 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 			return "", errors.New("v1 evidence has an unknown attempt kind")
 		}
 	}
-	if len(comparators) != 3 || len(detectors) != 2 {
+	if len(baselines) != 2 || len(comparators) != 3 || len(detectors) != 2 {
 		return "", errors.New("v1 evidence inventory is incomplete")
+	}
+	baselineOne, oneFound := baselines[1]
+	baselineTwo, twoFound := baselines[2]
+	if !oneFound || !twoFound || baselineOne.Lane != V1LaneWindowsDetector || baselineTwo.Lane != V1LaneWindowsDetector || baselineOne.Toolchain != manifest.Toolchain || baselineTwo.Toolchain != manifest.Toolchain || baselineOne.DetectorContractSHA256 != manifest.DetectorContractSHA256 || baselineTwo.DetectorContractSHA256 != manifest.DetectorContractSHA256 {
+		return "", errors.New("v1 baseline evidence is foreign or malformed")
+	}
+	if baselineOne.Status == V1StatusInfrastructure || baselineTwo.Status == V1StatusInfrastructure {
+		return ClassificationInfrastructureFailure, nil
+	}
+	if !sameV1Authorities(baselineOne.Authorities, manifest.Authorities) || !sameV1Authorities(baselineTwo.Authorities, manifest.Authorities) || !sameV1AttemptIdentity(baselineOne, baselineTwo) {
+		return ClassificationFlake, nil
+	}
+	if baselineOne.Status != V1StatusPassed || baselineTwo.Status != V1StatusPassed {
+		return ClassificationWrongKill, nil
 	}
 	for _, lane := range []string{V1LaneWindowsGo, V1LaneUbuntuGo, V1LaneMacOSGo} {
 		attempt, found := comparators[lane]
-		if !found || attempt.Repetition != 1 || attempt.Toolchain != manifest.Toolchain || attempt.ComparatorContractSHA256 != manifest.ComparatorContractSHA256 || attempt.DetectorContractSHA256 != "" || attempt.Admission != "" || attempt.Status == V1StatusInfrastructure {
+		if !found || attempt.Repetition != 1 || attempt.Toolchain != manifest.Toolchain || attempt.ComparatorContractSHA256 != manifest.ComparatorContractSHA256 || attempt.DetectorContractSHA256 != "" || attempt.Admission != "" {
 			return "", errors.New("v1 comparator evidence is foreign or malformed")
+		}
+		if attempt.Status == V1StatusInfrastructure {
+			return ClassificationInfrastructureFailure, nil
 		}
 		if !sameV1Authorities(attempt.Authorities, manifest.Authorities) {
 			return ClassificationFlake, nil
@@ -262,7 +330,7 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	}
 	first, firstFound := detectors[1]
 	second, secondFound := detectors[2]
-	if !firstFound || !secondFound || first.Lane != "" || second.Lane != "" || first.Toolchain != manifest.Toolchain || second.Toolchain != manifest.Toolchain || first.DetectorContractSHA256 != manifest.DetectorContractSHA256 || second.DetectorContractSHA256 != manifest.DetectorContractSHA256 || first.ComparatorContractSHA256 != "" || second.ComparatorContractSHA256 != "" {
+	if !firstFound || !secondFound || first.Lane != V1LaneWindowsDetector || second.Lane != V1LaneWindowsDetector || first.Toolchain != manifest.Toolchain || second.Toolchain != manifest.Toolchain || first.DetectorContractSHA256 != manifest.DetectorContractSHA256 || second.DetectorContractSHA256 != manifest.DetectorContractSHA256 || first.ComparatorContractSHA256 != "" || second.ComparatorContractSHA256 != "" {
 		return "", errors.New("v1 detector evidence is foreign or malformed")
 	}
 	if first.Status == V1StatusInfrastructure || second.Status == V1StatusInfrastructure {
@@ -274,11 +342,11 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	if first.Status != second.Status || !sameV1Failure(first.Failure, second.Failure) {
 		return ClassificationFlake, nil
 	}
-	if first.Admission != V1AdmissionAdmitted || second.Admission != V1AdmissionAdmitted || shallowV1Failure(first.Failure) {
-		return ClassificationWrongKill, nil
-	}
 	if first.Status == V1StatusPassed {
 		return ClassificationSurvivor, nil
+	}
+	if first.Admission != V1AdmissionAdmitted || second.Admission != V1AdmissionAdmitted || shallowV1Failure(first.Failure) {
+		return ClassificationWrongKill, nil
 	}
 	if first.Status != V1StatusRejected || first.Failure == nil || *first.Failure != candidate.Expected {
 		return ClassificationWrongKill, nil
@@ -290,24 +358,38 @@ func matchesV1Candidate(attempt V1Attempt, candidate V1Candidate) bool {
 	return attempt.PatchSHA256 == candidate.PatchSHA256 && attempt.MutatedTree == candidate.MutatedTree
 }
 func sameV1AttemptIdentity(first, second V1Attempt) bool {
-	return first.CandidateID == second.CandidateID && first.Kind == second.Kind && first.Authorities == second.Authorities && first.PatchSHA256 == second.PatchSHA256 && first.MutatedTree == second.MutatedTree && first.Toolchain == second.Toolchain && first.ComparatorContractSHA256 == second.ComparatorContractSHA256 && first.DetectorContractSHA256 == second.DetectorContractSHA256 && first.Admission == second.Admission
+	return first.CandidateID == second.CandidateID && first.DetectorID == second.DetectorID && first.Target == second.Target && first.Kind == second.Kind && first.Lane == second.Lane && first.Authorities == second.Authorities && first.PatchSHA256 == second.PatchSHA256 && first.MutatedTree == second.MutatedTree && first.Toolchain == second.Toolchain && first.Runner == second.Runner && first.ComparatorContractSHA256 == second.ComparatorContractSHA256 && first.DetectorContractSHA256 == second.DetectorContractSHA256 && first.Admission == second.Admission
 }
 func sameV1Authorities(first, second V1Authorities) bool { return first == second }
 func sameV1Failure(first, second *V1Failure) bool {
 	return (first == nil && second == nil) || (first != nil && second != nil && *first == *second)
 }
 func shallowV1Failure(failure *V1Failure) bool {
-	return failure == nil || failure.Class == "envelope_contract" || failure.Class == "scenario_selection" || failure.Class == "assertion_contract" && failure.Phase == "aggregate"
+	if failure == nil || failure.Scope != V1FailureScopeDomain {
+		return true
+	}
+	for _, value := range []string{failure.Class, failure.Phase, failure.Coordinate} {
+		for _, guard := range []string{"schema", "revision", "selection", "admission", "envelope", "aggregate"} {
+			if strings.Contains(value, guard) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func validV1Manifest(manifest V1Manifest) bool {
 	if manifest.SchemaVersion != V1SchemaVersion || !validV1Authorities(manifest.Authorities) || !v1ToolchainPattern.MatchString(manifest.Toolchain) || !sha256Pattern.MatchString(manifest.ComparatorContractSHA256) || !sha256Pattern.MatchString(manifest.DetectorContractSHA256) || len(manifest.Candidates) != 6 {
 		return false
 	}
-	operators, invariants, ids := map[string]bool{}, map[string]bool{}, map[string]bool{}
+	operators, invariants, ids, patches, trees := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
+	moduleTargets, moduleDetectors := map[string]bool{}, map[string]bool{}
+	if len(manifest.Calibration) != len(V1CalibrationFingerprints) {
+		return false
+	}
 	calibrationOperators, calibrationInvariants := map[string]bool{}, map[string]bool{}
-	for _, fingerprint := range manifest.Calibration {
-		if !validV1Fingerprint(fingerprint) || calibrationOperators[fingerprint.OperatorFingerprint] || calibrationInvariants[fingerprint.InvariantFingerprint] {
+	for index, fingerprint := range manifest.Calibration {
+		if fingerprint != V1CalibrationFingerprints[index] || !validV1Fingerprint(fingerprint) || calibrationOperators[fingerprint.OperatorFingerprint] || calibrationInvariants[fingerprint.InvariantFingerprint] {
 			return false
 		}
 		calibrationOperators[fingerprint.OperatorFingerprint] = true
@@ -315,21 +397,30 @@ func validV1Manifest(manifest V1Manifest) bool {
 	}
 	modules, catalogs := 0, 0
 	for _, candidate := range manifest.Candidates {
-		if !validV1Candidate(candidate) || ids[candidate.ID] || operators[candidate.OperatorFingerprint] || invariants[candidate.InvariantFingerprint] || calibrationOperators[candidate.OperatorFingerprint] || calibrationInvariants[candidate.InvariantFingerprint] {
+		if !validV1Candidate(candidate) || ids[candidate.ID] || patches[candidate.PatchSHA256] || trees[candidate.MutatedTree] || operators[candidate.OperatorFingerprint] || invariants[candidate.InvariantFingerprint] || calibrationOperators[candidate.OperatorFingerprint] || calibrationInvariants[candidate.InvariantFingerprint] {
 			return false
 		}
-		ids[candidate.ID], operators[candidate.OperatorFingerprint], invariants[candidate.InvariantFingerprint] = true, true, true
+		ids[candidate.ID], patches[candidate.PatchSHA256], trees[candidate.MutatedTree], operators[candidate.OperatorFingerprint], invariants[candidate.InvariantFingerprint] = true, true, true, true, true
 		if candidate.Family == "module" {
 			modules++
+			if moduleDetectors[candidate.DetectorID] {
+				return false
+			}
+			moduleDetectors[candidate.DetectorID] = true
+			key := candidate.DetectorID + "\x00" + candidate.Target.ModuleID + "\x00" + candidate.Target.ScenarioID
+			if moduleTargets[key] {
+				return false
+			}
+			moduleTargets[key] = true
 		} else {
 			catalogs++
 		}
 	}
-	return modules == 3 && catalogs == 3
+	return modules == 3 && catalogs == 3 && len(moduleTargets) == 3 && len(moduleDetectors) == 3
 }
 
 func validV1Evidence(evidence V1Evidence) bool {
-	if evidence.SchemaVersion != V1SchemaVersion || len(evidence.Attempts) == 0 || len(evidence.Attempts) > 30 {
+	if evidence.SchemaVersion != V1SchemaVersion || len(evidence.Attempts) == 0 || len(evidence.Attempts) > 42 {
 		return false
 	}
 	for _, attempt := range evidence.Attempts {
@@ -382,17 +473,19 @@ func validV1Fingerprint(fingerprint V1Fingerprint) bool {
 	return validV1Value(fingerprint.OperatorFingerprint) && validV1Value(fingerprint.InvariantFingerprint)
 }
 func validV1Candidate(candidate V1Candidate) bool {
-	return validV1Value(candidate.ID) && (candidate.Family == "catalog" || candidate.Family == "module") && sha256Pattern.MatchString(candidate.PatchSHA256) && v1SHA1Pattern.MatchString(candidate.MutatedTree) && validV1Fingerprint(V1Fingerprint{candidate.OperatorFingerprint, candidate.InvariantFingerprint}) && validV1Failure(candidate.Expected)
+	return validV1Value(candidate.ID) && (candidate.Family == "catalog" || candidate.Family == "module") && sha256Pattern.MatchString(candidate.PatchSHA256) && v1SHA1Pattern.MatchString(candidate.MutatedTree) && validV1Fingerprint(V1Fingerprint{candidate.OperatorFingerprint, candidate.InvariantFingerprint}) && validV1Value(candidate.DetectorID) && validV1Target(candidate.Family, candidate.Target) && validV1Failure(candidate.Expected) && !shallowV1Failure(&candidate.Expected)
 }
 func validV1Attempt(attempt V1Attempt) bool {
-	if !validV1Value(attempt.CandidateID) || !validV1Authorities(attempt.Authorities) || !sha256Pattern.MatchString(attempt.PatchSHA256) || !v1SHA1Pattern.MatchString(attempt.MutatedTree) || !v1ToolchainPattern.MatchString(attempt.Toolchain) || !validV1Status(attempt.Status) || attempt.DiagnosticEngineSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticEngineSHA256) || attempt.Failure != nil && !validV1Failure(*attempt.Failure) {
+	if !validV1Value(attempt.CandidateID) || !validV1Value(attempt.DetectorID) || !(validV1Target("module", attempt.Target) || validV1Target("catalog", attempt.Target)) || !validV1Authorities(attempt.Authorities) || !v1ToolchainPattern.MatchString(attempt.Toolchain) || !validV1Runner(attempt.Runner) || !validV1Timing(attempt) || !validV1Status(attempt.Status) || attempt.DiagnosticEngineSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticEngineSHA256) || attempt.Failure != nil && !validV1Failure(*attempt.Failure) {
 		return false
 	}
 	switch attempt.Kind {
+	case V1KindBaseline:
+		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && attempt.PatchSHA256 == "" && attempt.MutatedTree == "" && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && attempt.Admission == V1AdmissionAdmitted && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusInfrastructure) && attempt.Failure == nil
 	case V1KindComparator:
-		return (attempt.Lane == V1LaneWindowsGo || attempt.Lane == V1LaneUbuntuGo || attempt.Lane == V1LaneMacOSGo) && attempt.Repetition == 1 && sha256Pattern.MatchString(attempt.ComparatorContractSHA256) && attempt.DetectorContractSHA256 == "" && attempt.Admission == "" && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
+		return (attempt.Lane == V1LaneWindowsGo || attempt.Lane == V1LaneUbuntuGo || attempt.Lane == V1LaneMacOSGo) && attempt.Repetition == 1 && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.ComparatorContractSHA256) && attempt.DetectorContractSHA256 == "" && attempt.Admission == "" && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
 	case V1KindDetector:
-		return attempt.Lane == "" && (attempt.Repetition == 1 || attempt.Repetition == 2) && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusRejected) == (attempt.Failure != nil))
+		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusRejected) == (attempt.Failure != nil))
 	default:
 		return false
 	}
@@ -401,7 +494,24 @@ func validV1Status(status string) bool {
 	return status == V1StatusPassed || status == V1StatusRejected || status == V1StatusInfrastructure
 }
 func validV1Failure(failure V1Failure) bool {
-	return validV1Value(failure.Class) && validV1Value(failure.Phase) && validV1Value(failure.Coordinate) && (failure.ChildReason == "" || validV1Value(failure.ChildReason))
+	return validV1Value(failure.Class) && validV1Value(failure.Phase) && validV1Value(failure.Coordinate) && (failure.ChildReason == "" || validV1Value(failure.ChildReason)) && (failure.Scope == V1FailureScopeDomain || failure.Scope == V1FailureScopeGuard)
+}
+func validV1Target(family string, target V1Target) bool {
+	if family == "module" {
+		return validV1Value(target.ModuleID) && validV1Value(target.ScenarioID) && target.BundleID == "" && target.RowID == ""
+	}
+	return target.ModuleID == "" && target.ScenarioID == "" && validV1Value(target.BundleID) && validV1Value(target.RowID)
+}
+func validV1Runner(runner V1Runner) bool {
+	return (runner.Family == "windows" || runner.Family == "linux" || runner.Family == "darwin") && validV1Value(runner.Image)
+}
+func validV1Timing(attempt V1Attempt) bool {
+	if attempt.DurationMillis < 0 || attempt.DurationMillis > 14_400_000 {
+		return false
+	}
+	started, first := time.Parse(time.RFC3339Nano, attempt.StartedAt)
+	ended, second := time.Parse(time.RFC3339Nano, attempt.EndedAt)
+	return first == nil && second == nil && started.Location() == time.UTC && ended.Location() == time.UTC && started.Format(time.RFC3339Nano) == attempt.StartedAt && ended.Format(time.RFC3339Nano) == attempt.EndedAt && !ended.Before(started) && ended.Sub(started) == time.Duration(attempt.DurationMillis)*time.Millisecond
 }
 func validV1Value(value string) bool {
 	return v1IdentifierPattern.MatchString(value) && !strings.ContainsAny(value, `/\\`)
