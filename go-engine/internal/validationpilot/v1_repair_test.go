@@ -58,6 +58,39 @@ func TestDecodeV1ExternalResultAcceptsCompletePassedAndFailedContracts(t *testin
 	}
 }
 
+func TestDecodeV1ExternalResultAcceptsEarlyCaptureArtifactFailureWithoutCounts(t *testing.T) {
+	candidate := validV1CandidateForRepair(t)
+	revision := strings.Repeat("a", 64)
+	result := validationharness.Result{
+		SchemaVersion:   validationharness.ResultSchemaVersion,
+		ModuleID:        candidate.Target.ModuleID,
+		ModuleRevision:  revision,
+		ScenarioID:      candidate.Target.ScenarioID,
+		Kind:            validationmatrix.ScenarioCaptureContract,
+		Status:          validationharness.ResultStatusFailed,
+		ProofLevels:     []validationmatrix.ProofLevel{},
+		AssertionCounts: map[string]int{},
+		Failure: &validationharness.Failure{
+			Code: validationharness.CodeArtifactContract, Phase: "capture", Coordinate: "artifact",
+			Detail: `capture artifact missing at C:\runner\temporary`,
+		},
+		PhaseTimings: map[string]time.Duration{"capture": time.Millisecond},
+	}
+	raw := mustV1ExternalJSON(t, result)
+	decoded, err := DecodeV1ExternalResult(raw, candidate, revision, V1ModeCapture)
+	if err != nil {
+		t.Fatalf("DecodeV1ExternalResult(real early artifact failure) = %v", err)
+	}
+	failure := v1FailureFromLegacy(&Failure{Code: decoded.Failure.Code, Phase: decoded.Failure.Phase, Coordinate: decoded.Failure.Coordinate})
+	if failure == nil || failure.ChildReason != "" {
+		t.Fatalf("failure published diagnostic detail: %#v", failure)
+	}
+	result.Failure.Detail = "capture artifact\x07"
+	if _, err := DecodeV1ExternalResult(mustV1ExternalJSON(t, result), candidate, revision, V1ModeCapture); err == nil {
+		t.Fatal("DecodeV1ExternalResult() accepted a control character in diagnostic detail")
+	}
+}
+
 func TestDecodeV1ExternalResultRejectsHostileCompleteShapes(t *testing.T) {
 	candidate := validV1CandidateForRepair(t)
 	revision := strings.Repeat("a", 64)

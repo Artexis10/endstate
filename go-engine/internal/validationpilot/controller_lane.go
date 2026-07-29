@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
@@ -379,7 +380,7 @@ func validV1ExternalResult(result validationharness.Result, candidate V1Candidat
 	if result.Status == validationharness.ResultStatusPassed {
 		return result.Failure == nil && len(result.ProofLevels) > 0 && len(result.AssertionCounts) > 0 && len(result.PhaseTimings) > 0
 	}
-	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || !validV1FailureDetail(result.Failure.Detail) || len(result.Failure.ProofLevels) != 0 || len(result.AssertionCounts) == 0 || len(result.PhaseTimings) == 0 {
+	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || !validV1FailureDetail(result.Failure.Detail) || len(result.Failure.ProofLevels) != 0 || len(result.PhaseTimings) == 0 {
 		return false
 	}
 	failure := v1FailureFromLegacy(&Failure{Code: result.Failure.Code, Phase: result.Failure.Phase, Coordinate: result.Failure.Coordinate})
@@ -387,7 +388,15 @@ func validV1ExternalResult(result validationharness.Result, candidate V1Candidat
 }
 
 func validV1FailureDetail(detail string) bool {
-	return detail != "" && len(detail) <= 512 && !strings.ContainsAny(detail, "\r\n\\")
+	if detail == "" || len(detail) > 512 {
+		return false
+	}
+	for _, value := range detail {
+		if unicode.IsControl(value) {
+			return false
+		}
+	}
+	return true
 }
 
 func v1ModuleDetectorResult(candidate V1Candidate, result validationharness.Result) (string, *V1Failure, error) {
