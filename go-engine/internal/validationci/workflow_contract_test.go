@@ -55,7 +55,7 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 		"workflow_dispatch:", "permissions: {}", "fail-fast: false", "max-parallel: 6",
 		"ab8065cd67ab3f4e9e876e07a25facf3100c28c7", "437c0ca4167c09bc9f2de515daa6d55d35257d4f",
 		"ea165f8d65b6e75b540449e92b4886f43607fa02", "634f93cb2916e3fdff6788551b99b062d0335ce0",
-		"windows-latest", "ubuntu-latest", "macos-latest", "go vet ./...", "go test ./...", "./integration-test.ps1",
+		"windows-latest", "ubuntu-latest", "macos-latest", "Invoke-Native go @('vet','./...')", "Invoke-Native go @('test','./...')", "./integration-test.ps1",
 		"bundle-duplicate", "bundle-missing", "bundle-id-drift", "vlc-backup-off", "alacritty-source-drift", "obs-target-drift",
 		"$GITHUB_SHA", "for ref in \"$GITHUB_SHA\"", "audit-kit", " detector --", "candidateId", "patchSha256", "windows-go", "windows-integration", "ubuntu-go", "macos-go", "LOCALAPPDATA", "Endstate\\bin",
 	} {
@@ -64,7 +64,7 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
-		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "winget install", "choco install", "brew install", "apt-get install", "rm -rf", "Remove-Item", "setx",
+		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "winget install", "choco install", "brew install", "apt-get install", "rm -rf", "Remove-Item", "setx", "with: {",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Errorf("workflow contains forbidden %q", forbidden)

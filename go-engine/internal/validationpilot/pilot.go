@@ -39,6 +39,11 @@ const (
 
 var sha256Pattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
+var (
+	runCatalogMatrix = validationharness.RunCatalogMatrix
+	runScenario      = validationharness.Run
+)
+
 type Failure struct {
 	Code        string `json:"code"`
 	Phase       string `json:"phase"`
@@ -456,6 +461,11 @@ func Classify(manifest Manifest, evidence Evidence) (Aggregate, error) {
 				return Aggregate{}, fmt.Errorf("candidate %q legacy contract identity differs", candidate.ID)
 			}
 		}
+		for _, attempt := range evidenceCandidate.Detector {
+			if attempt.CandidateID != candidate.ID || attempt.PatchSHA256 != candidate.Detector.SHA256 {
+				return Aggregate{}, fmt.Errorf("candidate %q detector patch identity differs", candidate.ID)
+			}
+		}
 		classification := ClassificationInfrastructureFailure
 		if baselineGreen {
 			classification = classifyCandidate(candidate, evidenceCandidate)
@@ -540,7 +550,7 @@ func RunDetector(ctx context.Context, request DetectorRequest) (Attempt, error) 
 	}
 	attempt := Attempt{Status: "failed", Identity: identity}
 	if request.Catalog {
-		result, err := validationharness.RunCatalogMatrix(ctx, validationharness.CatalogMatrixRequest{EnginePath: request.EnginePath, RepoRoot: request.RepoRoot, ResultPath: request.ResultPath})
+		result, err := runCatalogMatrix(ctx, validationharness.CatalogMatrixRequest{EnginePath: request.EnginePath, RepoRoot: request.RepoRoot, ResultPath: request.ResultPath})
 		if err != nil {
 			return Attempt{}, err
 		}
@@ -551,7 +561,7 @@ func RunDetector(ctx context.Context, request DetectorRequest) (Attempt, error) 
 		}
 		return attempt, nil
 	}
-	result, err := validationharness.Run(ctx, validationharness.Request{EnginePath: request.EnginePath, RepoRoot: request.RepoRoot, ModuleID: request.ModuleID, ScenarioID: request.ScenarioID, ResultPath: request.ResultPath})
+	result, err := runScenario(ctx, validationharness.Request{EnginePath: request.EnginePath, RepoRoot: request.RepoRoot, ModuleID: request.ModuleID, ScenarioID: request.ScenarioID, ResultPath: request.ResultPath})
 	if err != nil {
 		return Attempt{}, err
 	}

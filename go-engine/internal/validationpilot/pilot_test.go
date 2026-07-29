@@ -4,10 +4,14 @@
 package validationpilot
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
 )
 
 func fixedManifestForTest(t *testing.T) Manifest {
@@ -149,5 +153,81 @@ func TestClassifyTreatsDetectorDisagreementAndInfrastructureAsNonProof(t *testin
 	}
 	if aggregate.Rows[0].Classification != ClassificationFlake || aggregate.Decision != DecisionInsufficientSignal {
 		t.Fatalf("Classify(disagreement) = %#v, want flake and insufficient signal", aggregate)
+	}
+}
+
+func TestClassifyRequiresBothDetectorPatchIdentities(t *testing.T) {
+	manifest := fixedManifestForTest(t)
+	evidence := fixedEvidenceForTest(manifest)
+	evidence.Candidates[0].Detector[1].PatchSHA256 = strings.Repeat("e", 64)
+	if _, err := Classify(manifest, evidence); err == nil || !strings.Contains(err.Error(), "patch") {
+		t.Fatalf("Classify() error = %v, want detector patch identity rejection", err)
+	}
+}
+
+func TestAggregateArtifactsAcceptsCompleteGoodInventory(t *testing.T) {
+	manifest := fixedManifestForTest(t)
+	dir := t.TempDir()
+	writeEvidence := func(path string, evidence Evidence) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		data, err := json.Marshal(evidence)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all := fixedEvidenceForTest(manifest)
+	writeEvidence(filepath.Join(dir, "efficacy-baseline", "evidence.json"), Evidence{SchemaVersion: 1, Baseline: all.Baseline})
+	for _, candidate := range all.Candidates {
+		for _, lane := range []struct {
+			os        string
+			contracts []LegacyAttempt
+			detector  []Attempt
+		}{
+			{"windows-latest", candidate.Legacy[:2], candidate.Detector},
+			{"ubuntu-latest", candidate.Legacy[2:3], nil},
+			{"macos-latest", candidate.Legacy[3:4], nil},
+		} {
+			writeEvidence(filepath.Join(dir, "efficacy-"+candidate.ID+"-"+lane.os, "evidence.json"), Evidence{SchemaVersion: 1, Candidates: []CandidateEvidence{{ID: candidate.ID, Legacy: lane.contracts, Detector: lane.detector}}})
+		}
+	}
+	aggregate, err := AggregateArtifacts(manifest, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if aggregate.Decision != DecisionMeaningfulSignal || len(aggregate.Rows) != 6 {
+		t.Fatalf("AggregateArtifacts() = %#v, want six-row meaningful signal", aggregate)
+	}
+}
+
+func TestRunDetectorRejectsForeignCommitBeforeExecuting(t *testing.T) {
+	_, err := RunDetector(context.Background(), DetectorRequest{Commit: LegacyRef})
+	if err == nil || !strings.Contains(err.Error(), "fixed") {
+		t.Fatalf("RunDetector() error = %v, want fixed-commit rejection", err)
+	}
+}
+
+func TestRunDetectorPreservesStructuredModuleFailure(t *testing.T) {
+	engine := filepath.Join(t.TempDir(), "engine")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	repo := t.TempDir()
+	original := runScenario
+	runScenario = func(context.Context, validationharness.Request) (validationharness.Result, error) {
+		return validationharness.Result{Status: "failed", ModuleID: "apps.vlc", ScenarioID: "default-v1", Failure: &validationharness.Failure{Code: "unsupported_fixture", Phase: "fixture", Coordinate: "restore[0]"}}, nil
+	}
+	t.Cleanup(func() { runScenario = original })
+	attempt, err := RunDetector(context.Background(), DetectorRequest{Commit: DetectorRef, EnginePath: engine, RepoRoot: repo, ModuleID: "apps.vlc", ScenarioID: "default-v1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempt.Status != "failed" || attempt.Failure == nil || attempt.Failure.Code != "unsupported_fixture" || attempt.Failure.Coordinate != "restore[0]" {
+		t.Fatalf("RunDetector() = %#v, want preserved structured failure", attempt)
 	}
 }
