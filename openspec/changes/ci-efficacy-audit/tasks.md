@@ -2,7 +2,15 @@
 
 - [x] 1.1 In a separate main-based branch and linked worktree, add `.github/workflows/ci-efficacy-audit.yml` as an inert `workflow_dispatch`-only stub with no inputs, `permissions: {}`, no checkout, no repository-code execution, and one bounded static job.
 - [x] 1.2 Review the bootstrap workflow for forbidden triggers, permissions, credentials, moving action references, repository execution, and host mutation; validate the exact diff, commit it alone, push it, and open a focused bootstrap PR.
-- [ ] 1.3 Treat merge of the bootstrap PR as an external blocking gate: after a maintainer lands it on `main`, verify GitHub recognizes the workflow filename and can dispatch the inert default-branch job before spending audit runner time.
+- [x] 1.3 Treat merge of the bootstrap PR as an external blocking gate: after a maintainer lands it on `main`, verify GitHub recognizes the workflow filename and can dispatch the inert default-branch job before spending audit runner time.
+
+## 1A. Six-mutant efficacy preflight
+
+- [x] 1A.1 Record the fixed legacy and detector references, six reviewed product mutations, narrow moduleRevision-only sidecar exception, exact failure identities, hosted job bound, and non-statistical decision rule in `pilot-v0.md`.
+- [ ] 1A.2 Author and locally screen the six fixed patches; prove the production files begin byte-identical across both references and prove each detector baseline passes twice before push.
+- [ ] 1A.3 Add the minimal manual-only branch workflow and fixed pilot runner/evidence contract; test rejection of trigger, permission, credential, reference, patch, inventory, classification, and target-install drift.
+- [ ] 1A.4 Obtain independent corpus and workflow review, run focused tests, commit and push the exact reviewed branch, and dispatch it manually.
+- [ ] 1A.5 Inspect the actual run and all nineteen evidence artifacts, publish all six classifications and the mechanical `meaningful-signal` or `insufficient-signal` result, and make no broader coverage or hosted-live claim.
 
 ## 2. Audit contracts and identities
 
@@ -33,7 +41,7 @@
 
 ## 5. Restore the reference and prove detector eligibility
 
-- [ ] 5.1 Reproduce the required Windows Go failure, add a focused regression test for semantic inspection of UTF-16LE registry exports, and make the smallest test-helper-only fix in `go-engine/cmd/endstate/main_validation_e2e_windows_test.go` without changing product or validation eligibility.
+- [x] 5.1 Reproduce the required Windows Go failure, add a focused regression test for semantic inspection of UTF-16LE registry exports, and make the smallest test-helper-only fix in `go-engine/cmd/endstate/main_validation_e2e_windows_test.go` without changing product or validation eligibility.
 - [ ] 5.2 Run the affected Windows test and the complete Windows `go vet ./...` and `go test ./...` control locally or on a dedicated PR run; record the exact green commit before candidate qualification.
 - [ ] 5.3 Declare only currently working synthetic detectors with stable failure class/coordinate contracts, and run each twice on the unmodified exact reference; exclude any red, missing, or identity-unstable detector before corpus authoring continues.
 
