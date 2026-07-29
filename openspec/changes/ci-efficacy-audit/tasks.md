@@ -1,7 +1,7 @@
 ## 1. Default-branch dispatch bootstrap
 
-- [ ] 1.1 In a separate main-based branch and linked worktree, add `.github/workflows/ci-efficacy-audit.yml` as an inert `workflow_dispatch`-only stub with no inputs, `permissions: {}`, no checkout, no repository-code execution, and one bounded static job.
-- [ ] 1.2 Review the bootstrap workflow for forbidden triggers, permissions, credentials, moving action references, repository execution, and host mutation; validate the exact diff, commit it alone, push it, and open a focused bootstrap PR.
+- [x] 1.1 In a separate main-based branch and linked worktree, add `.github/workflows/ci-efficacy-audit.yml` as an inert `workflow_dispatch`-only stub with no inputs, `permissions: {}`, no checkout, no repository-code execution, and one bounded static job.
+- [x] 1.2 Review the bootstrap workflow for forbidden triggers, permissions, credentials, moving action references, repository execution, and host mutation; validate the exact diff, commit it alone, push it, and open a focused bootstrap PR.
 - [ ] 1.3 Treat merge of the bootstrap PR as an external blocking gate: after a maintainer lands it on `main`, verify GitHub recognizes the workflow filename and can dispatch the inert default-branch job before spending audit runner time.
 
 ## 2. Audit contracts and identities
