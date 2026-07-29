@@ -312,7 +312,7 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	}
 	baselineOne, oneFound := baselines[1]
 	baselineTwo, twoFound := baselines[2]
-	if !oneFound || !twoFound || baselineOne.Lane != V1LaneWindowsDetector || baselineTwo.Lane != V1LaneWindowsDetector || baselineOne.Toolchain != manifest.Toolchain || baselineTwo.Toolchain != manifest.Toolchain || baselineOne.DetectorContractSHA256 != manifest.DetectorContractSHA256 || baselineTwo.DetectorContractSHA256 != manifest.DetectorContractSHA256 {
+	if !oneFound || !twoFound || baselineOne.Lane != V1LaneWindowsDetector || baselineTwo.Lane != V1LaneWindowsDetector || baselineOne.Toolchain != manifest.Toolchain || baselineTwo.Toolchain != manifest.Toolchain || baselineOne.DetectorContractSHA256 != manifest.DetectorContractSHA256 || baselineTwo.DetectorContractSHA256 != manifest.DetectorContractSHA256 || baselineOne.BaselineProof.SourceTree != manifest.Authorities.Evaluated.Tree || baselineTwo.BaselineProof.SourceTree != manifest.Authorities.Evaluated.Tree {
 		return "", errors.New("v1 baseline evidence is foreign or malformed")
 	}
 	if baselineOne.Status == V1StatusInfrastructure || baselineTwo.Status == V1StatusInfrastructure {

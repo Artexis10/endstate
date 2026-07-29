@@ -14,6 +14,16 @@ func TestClassifyV1RequiresStableGreenBaselineProofIdentity(t *testing.T) {
 	}
 }
 
+func TestClassifyV1RejectsGreenBaselineProofFromForeignSourceTree(t *testing.T) {
+	manifest, evidence := validV1Proof()
+	for _, index := range []int{0, 1} {
+		evidence.Attempts[index].BaselineProof.SourceTree = "ffffffffffffffffffffffffffffffffffffffff"
+	}
+	if _, err := ClassifyV1(manifest, evidence); err == nil {
+		t.Fatal("ClassifyV1() accepted a pairwise-stable foreign baseline source tree")
+	}
+}
+
 func TestClassifyV1RepresentsRedBaselineWithoutKillCredit(t *testing.T) {
 	manifest, evidence := validV1Proof()
 	evidence.Attempts[0].Status = V1StatusRejected
