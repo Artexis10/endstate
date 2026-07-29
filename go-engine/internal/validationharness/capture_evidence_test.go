@@ -66,39 +66,39 @@ func TestCaptureContractWarningsAreExact(t *testing.T) {
 		mutate func(*testing.T, []byte) []byte
 	}{
 		{"missing", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { delete(data, "warnings") })
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) { delete(data, "warnings") })
 		}},
 		{"null", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = nil })
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) { data["warnings"] = nil })
 		}},
 		{"empty", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{} })
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{} })
 		}},
 		{"additional", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
-				data["warnings"] = []any{mgbaCaptureWarning(), mgbaCaptureWarning()}
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
+				data["warnings"] = []any{captureContractWarning(), captureContractWarning()}
 			})
 		}},
 		{"foreign scalar", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{"foreign"} })
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{"foreign"} })
 		}},
 		{"wrong code", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
 				data["warnings"].([]any)[0].(map[string]any)["code"] = "foreign"
 			})
 		}},
 		{"wrong message", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
 				data["warnings"].([]any)[0].(map[string]any)["message"] = "foreign"
 			})
 		}},
 		{"nested driver", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
 				data["warnings"].([]any)[0].(map[string]any)["driver"] = "winget"
 			})
 		}},
 		{"nested future", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
 				data["warnings"].([]any)[0].(map[string]any)["future"] = true
 			})
 		}},
@@ -118,17 +118,21 @@ func TestCaptureContractWarningsAreExact(t *testing.T) {
 
 func captureContractEvidenceFixture(t *testing.T, runtime *scenarioRuntime) ([]byte, []map[string]any) {
 	t.Helper()
+	moduleName := strings.TrimPrefix(runtime.Module.ID, "apps.")
+	target := runtime.CapturePlan.Targets[0]
+	payloadPath := v1ArtifactPayloadPath(runtime.Module.ID, target.Destination)
+	wingetRefs, chocolateyRefs := []any{runtime.Inventory.Ref}, []any{}
 	data := map[string]any{
-		"appsIncluded": []any{map[string]any{"source": "winget", "name": "mGBA", "id": "mgba-emu.mgba", "manifestId": "mgba-emu-mgba"}},
+		"appsIncluded": []any{map[string]any{"source": runtime.Inventory.Source, "name": runtime.Inventory.DisplayName, "id": runtime.Inventory.Ref, "manifestId": runtime.Inventory.AppID}},
 		"configModules": []any{map[string]any{
-			"displayName": "mGBA", "wingetRefs": []any{"mgba-emu.mgba"}, "chocolateyRefs": []any{}, "appId": "mgba", "id": "apps.mgba",
-			"paths": []any{"configs/mgba/config.ini"}, "filesCaptured": float64(1), "status": "captured",
+			"displayName": runtime.Module.DisplayName, "wingetRefs": wingetRefs, "chocolateyRefs": chocolateyRefs, "appId": runtime.Inventory.AppID, "id": runtime.Module.ID,
+			"paths": []any{payloadPath}, "filesCaptured": float64(1), "status": "captured",
 		}},
-		"configModuleMap":      map[string]any{"mgba-emu.mgba": "apps.mgba"},
-		"packageModuleMap":     map[string]any{"winget:mgba-emu.mgba": []any{"apps.mgba"}},
+		"configModuleMap":      map[string]any{runtime.Inventory.Ref: runtime.Module.ID},
+		"packageModuleMap":     map[string]any{runtime.Inventory.Driver + ":" + runtime.Inventory.Ref: []any{runtime.Module.ID}},
 		"outputPath":           "$ENDSTATE_ROOT/manifests/captured.zip",
 		"outputFormat":         "zip",
-		"configsIncluded":      []any{"mgba"},
+		"configsIncluded":      []any{moduleName},
 		"configsSkipped":       []any{},
 		"configsCaptureErrors": []any{},
 		"sanitized":            false,
@@ -137,16 +141,16 @@ func captureContractEvidenceFixture(t *testing.T, runtime *scenarioRuntime) ([]b
 			"filteredRuntimes": float64(0), "included": float64(1), "totalFound": float64(1), "sensitiveExcludedCount": float64(0), "filteredStoreApps": float64(0), "skipped": float64(0),
 		},
 		"captureWarnings": []any{},
-		"warnings":        []any{mgbaCaptureWarning()},
+		"warnings":        []any{captureContractWarning()},
 		"configCapture": map[string]any{"modules": []any{map[string]any{
-			"id": "apps.mgba", "displayName": "mGBA", "entries": float64(0), "files": []any{"apps/mgba/config.ini"},
+			"id": runtime.Module.ID, "displayName": runtime.Module.DisplayName, "entries": float64(0), "files": []any{target.Destination},
 		}}},
 		"manifest": map[string]any{"name": "captured", "path": "$ENDSTATE_ROOT/manifests/captured.zip"},
 	}
 	events := []map[string]any{
 		{"event": "phase", "phase": "capture"},
 		{"event": "progress", "phase": "capture", "stage": "inventory"},
-		{"event": "item", "id": "mgba-emu.mgba", "driver": "winget", "name": "mGBA", "status": "present", "reason": "detected", "message": "Detected mGBA"},
+		{"event": "item", "id": runtime.Inventory.Ref, "driver": runtime.Inventory.Driver, "name": runtime.Inventory.DisplayName, "status": "present", "reason": "detected", "message": "Detected " + runtime.Inventory.DisplayName},
 		{"event": "progress", "phase": "capture", "stage": "settings"},
 		{"event": "progress", "phase": "capture", "stage": "packaging"},
 		{"event": "artifact", "phase": "capture", "kind": "manifest", "path": "$ENDSTATE_ROOT/manifests/captured.zip"},
@@ -155,14 +159,14 @@ func captureContractEvidenceFixture(t *testing.T, runtime *scenarioRuntime) ([]b
 	return mustV2JSON(t, data), events
 }
 
-func mgbaCaptureWarning() map[string]any {
+func captureContractWarning() map[string]any {
 	return map[string]any{
 		"code":    "inventory_union_skipped",
 		"message": "Installed-software inventory union skipped because a package-manager row lacks an authoritative ARP binding.",
 	}
 }
 
-func mutateMGBACaptureWarnings(t *testing.T, raw []byte, mutate func(map[string]any)) []byte {
+func mutateCaptureContractWarnings(t *testing.T, raw []byte, mutate func(map[string]any)) []byte {
 	t.Helper()
 	var data map[string]any
 	if err := json.Unmarshal(raw, &data); err != nil {

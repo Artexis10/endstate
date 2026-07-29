@@ -27,7 +27,7 @@ func TestCaptureContractAllOptionalAbsentIsExactAndCannotMintPositiveEvidence(t 
 		t.Fatal("positive capture evidence passed as all-optional absence")
 	}
 	withPayload := cloneV2Entries(entries)
-	withPayload["configs/mgba/config.ini"] = append([]byte(nil), runtime.CapturePlan.Targets[0].Content...)
+	withPayload[v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination)] = append([]byte(nil), runtime.CapturePlan.Targets[0].Content...)
 	payloadArtifact := writeV2ArtifactZip(t, runtime.Root, "optional-with-payload.zip", withPayload)
 	payloadRaw, payloadEvents := retargetOptionalCaptureEvidence(t, raw, events, filepath.Base(payloadArtifact))
 	if failure := validateCaptureContractOptionalAbsentOutcome(payloadRaw, payloadEvents, runtime, payloadArtifact); failure == nil || failure.Coordinate != "artifact" {
@@ -62,39 +62,39 @@ func TestCaptureContractOptionalAbsentWarningsAreExact(t *testing.T) {
 		mutate func(*testing.T, []byte) []byte
 	}{
 		{"missing", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { delete(data, "warnings") })
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) { delete(data, "warnings") })
 		}},
 		{"null", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = nil })
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) { data["warnings"] = nil })
 		}},
 		{"empty", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{} })
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{} })
 		}},
 		{"additional", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
-				data["warnings"] = []any{mgbaCaptureWarning(), mgbaCaptureWarning()}
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
+				data["warnings"] = []any{captureContractWarning(), captureContractWarning()}
 			})
 		}},
 		{"foreign scalar", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{"foreign"} })
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) { data["warnings"] = []any{"foreign"} })
 		}},
 		{"wrong code", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
 				data["warnings"].([]any)[0].(map[string]any)["code"] = "foreign"
 			})
 		}},
 		{"wrong message", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
 				data["warnings"].([]any)[0].(map[string]any)["message"] = "foreign"
 			})
 		}},
 		{"nested driver", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
 				data["warnings"].([]any)[0].(map[string]any)["driver"] = "winget"
 			})
 		}},
 		{"nested future", func(t *testing.T, raw []byte) []byte {
-			return mutateMGBACaptureWarnings(t, raw, func(data map[string]any) {
+			return mutateCaptureContractWarnings(t, raw, func(data map[string]any) {
 				data["warnings"].([]any)[0].(map[string]any)["future"] = true
 			})
 		}},
@@ -184,7 +184,8 @@ func captureContractOptionalFixture(t *testing.T, runtime *scenarioRuntime) ([]b
 	}
 	module := data["configModules"].([]any)[0].(map[string]any)
 	module["paths"], module["filesCaptured"], module["status"] = []any{}, float64(0), "skipped"
-	data["configsIncluded"], data["configsSkipped"] = []any{}, []any{"mgba"}
+	moduleName := strings.TrimPrefix(runtime.Module.ID, "apps.")
+	data["configsIncluded"], data["configsSkipped"] = []any{}, []any{moduleName}
 	data["outputPath"] = "$ENDSTATE_ROOT/manifests/optional-absent.zip"
 	data["manifest"].(map[string]any)["path"] = "$ENDSTATE_ROOT/manifests/optional-absent.zip"
 	events[5]["path"] = "$ENDSTATE_ROOT/manifests/optional-absent.zip"
@@ -194,7 +195,7 @@ func captureContractOptionalFixture(t *testing.T, runtime *scenarioRuntime) ([]b
 	}
 	metadata := bundle.BundleMetadata{
 		SchemaVersion: "1.0", CapturedAt: time.Now().UTC().Format(time.RFC3339), MachineName: "validation-host", EndstateVersion: "test", OS: "windows",
-		ConfigModulesIncluded: []string{}, ConfigModulesSkipped: []string{"mgba"}, CaptureWarnings: []string{},
+		ConfigModulesIncluded: []string{}, ConfigModulesSkipped: []string{moduleName}, CaptureWarnings: []string{},
 	}
 	return mustV2JSON(t, data), events, map[string][]byte{"manifest.jsonc": mustV2JSON(t, captured), "metadata.json": mustV2JSON(t, metadata)}
 }

@@ -7,6 +7,7 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"os"
+	"path"
 	"strings"
 	"time"
 
@@ -30,14 +31,15 @@ func inspectCaptureContractArtifact(runtime *scenarioRuntime, zipPath string) (c
 		return captureContractEvidence{}, failure
 	}
 	if len(runtime.CapturePlan.Targets) != 1 || len(entries) != 3 {
-		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP is not the exact three-file mGBA artifact")
+		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP is not the exact three-file artifact")
 	}
-	expectedPayload := strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination))
-	if !captureContractArtifactNamesExact(zipPath, "configs/", "configs/mgba/", "manifest.jsonc", "metadata.json", expectedPayload) {
+	expectedPayload := v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination)
+	expectedPayloadKey := strings.ToLower(expectedPayload)
+	if !captureContractArtifactNamesExact(zipPath, "configs/", path.Dir(expectedPayload)+"/", "manifest.jsonc", "metadata.json", expectedPayload) {
 		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP member casing or portable names are not exact")
 	}
 	for name, data := range entries {
-		if name != "manifest.jsonc" && name != "metadata.json" && name != expectedPayload {
+		if name != "manifest.jsonc" && name != "metadata.json" && name != expectedPayloadKey {
 			return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP contains a foreign member")
 		}
 		if leaked(data, runtime.forbiddenOutputValues()...) {
@@ -45,9 +47,9 @@ func inspectCaptureContractArtifact(runtime *scenarioRuntime, zipPath string) (c
 		}
 	}
 	target := runtime.CapturePlan.Targets[0]
-	payload, exists := entries[expectedPayload]
+	payload, exists := entries[expectedPayloadKey]
 	if !exists || string(payload) != string(target.Content) {
-		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "capture contract ZIP lacks the exact deterministic mGBA payload")
+		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "capture contract ZIP lacks the exact deterministic payload")
 	}
 	if failure := validateCaptureContractManifest(runtime, entries["manifest.jsonc"]); failure != nil {
 		return captureContractEvidence{}, failure
@@ -112,7 +114,7 @@ func validateCaptureContractMetadata(runtime *scenarioRuntime, raw []byte) *Fail
 	}
 	var metadata bundle.BundleMetadata
 	if json.Unmarshal(raw, &metadata) != nil || metadata.SchemaVersion != "1.0" || metadata.ManifestVersion != 0 || metadata.OS != "windows" ||
-		metadata.MachineName == "" || metadata.EndstateVersion == "" || !exactStrings(metadata.ConfigModulesIncluded, []string{strings.TrimPrefix(runtime.Module.ID, "apps.")}) ||
+		metadata.MachineName == "" || metadata.EndstateVersion == "" || !exactStrings(metadata.ConfigModulesIncluded, []string{captureContractModuleName(runtime)}) ||
 		len(metadata.ConfigModulesSkipped) != 0 || len(metadata.CaptureWarnings) != 0 || len(metadata.ConfigCapturesIncluded) != 0 || metadata.Share || metadata.Redaction != nil {
 		return fail(CodeArtifactContract, "capture", "metadata", "capture contract metadata identity or provenance is not exact")
 	}
@@ -120,6 +122,10 @@ func validateCaptureContractMetadata(runtime *scenarioRuntime, raw []byte) *Fail
 		return fail(CodeArtifactContract, "capture", "metadata", "capture contract metadata timestamp is invalid")
 	}
 	return nil
+}
+
+func captureContractModuleName(runtime *scenarioRuntime) string {
+	return strings.TrimPrefix(runtime.Module.ID, "apps.")
 }
 
 func captureContractArtifactNamesExact(zipPath string, expected ...string) bool {
