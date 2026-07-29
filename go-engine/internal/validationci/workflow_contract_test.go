@@ -86,4 +86,7 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 	if got := strings.Count(text, "          exit 0"); got != 2 {
 		t.Errorf("intentional evidence-authority exits = %d, want 2", got)
 	}
+	if got := strings.Count(text, "          $env:TEMP = $env:RUNNER_TEMP\n          $env:TMP = $env:RUNNER_TEMP"); got != 2 {
+		t.Errorf("detector temporary-root bindings = %d, want 2", got)
+	}
 }

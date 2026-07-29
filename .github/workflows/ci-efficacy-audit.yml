@@ -51,6 +51,8 @@ jobs:
       - name: Run bound detector baseline twice
         shell: pwsh
         run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
           $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
           $engine = Join-Path $env:RUNNER_TEMP 'endstate.exe'
           New-Item -ItemType Directory -Force $resultRoot | Out-Null
@@ -119,6 +121,8 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: pwsh
         run: |
+          $env:TEMP = $env:RUNNER_TEMP
+          $env:TMP = $env:RUNNER_TEMP
           $patch = (Get-Content "audit/validation/ci-efficacy/pilot-v0/manifest.json" -Raw | ConvertFrom-Json).candidates | Where-Object { $_.id -eq '${{ matrix.id }}' } | ForEach-Object { $_.detector.sha256 }
           $module = @{ 'vlc-backup-off'='apps.vlc'; 'alacritty-source-drift'='apps.alacritty'; 'obs-target-drift'='apps.obs-studio' }['${{ matrix.id }}']
           $resultRoot = Join-Path $env:RUNNER_TEMP 'endstate-validation-results'
