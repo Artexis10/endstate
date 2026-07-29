@@ -107,6 +107,7 @@ jobs:
             Save-Contract 'windows-go' { Push-Location legacy/go-engine; try { Invoke-Native go @('vet','./...'); Invoke-Native go @('test','./...') } finally { Pop-Location } }
             Save-Contract 'windows-integration' { if (-not (Test-Path "$env:ProgramFiles\Notepad++\notepad++.exe")) { throw 'infrastructure: Notepad++ is absent' }; $tempRoot = Join-Path $env:RUNNER_TEMP 'endstate-bootstrap'; New-Item -ItemType Directory -Force "$tempRoot\temp", "$tempRoot\tmp", "$tempRoot\local", "$tempRoot\roaming" | Out-Null; $env:TEMP = "$tempRoot\temp"; $env:TMP = "$tempRoot\tmp"; $env:LOCALAPPDATA = "$tempRoot\local"; $env:APPDATA = "$tempRoot\roaming"; $env:PATH = "$env:LOCALAPPDATA\Endstate\bin;$env:PATH"; Push-Location legacy/go-engine; try { Invoke-Native go @('build','-o','./endstate.exe','./cmd/endstate'); Invoke-Native pwsh @('-NoProfile','-File','./integration-test.ps1') } finally { Pop-Location } }
           } elseif ('${{ matrix.os }}' -eq 'ubuntu-latest') { Save-Contract 'ubuntu-go' { Push-Location legacy/go-engine; try { Invoke-Native go @('vet','./...'); Invoke-Native go @('test','./...') } finally { Pop-Location } } } else { Save-Contract 'macos-go' { Push-Location legacy/go-engine; try { Invoke-Native go @('vet','./...'); Invoke-Native go @('test','./...') } finally { Pop-Location } } }
+          exit 0
       - name: Run two fresh patched detector attempts
         if: matrix.os == 'windows-latest'
         shell: pwsh

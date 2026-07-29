@@ -82,4 +82,7 @@ func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
 	if strings.Index(text, "Run two fresh patched detector attempts") > strings.Index(text, "Write bounded candidate evidence") {
 		t.Error("candidate evidence is written before both detector attempts")
 	}
+	if got := strings.Count(text, "          exit 0"); got != 2 {
+		t.Errorf("intentional evidence-authority exits = %d, want 2", got)
+	}
 }
