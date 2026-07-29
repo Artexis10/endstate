@@ -126,10 +126,10 @@ func validV1Proof() (V1Manifest, V1Evidence) {
 	trees := []string{"e", "f", "a"}
 	for index := 0; index < 3; index++ {
 		lifecycle, productionFile := V1LifecycleSchemaV1, "restore/copy.go"
-		failure := V1Failure{Class: "content_mismatch", Phase: "verify", Coordinate: "content", ChildReason: "domain_reason", Scope: V1FailureScopeDomain}
+		failure := V1Failure{Class: "content_mismatch", Phase: "verify", Coordinate: "content", Scope: V1FailureScopeDomain}
 		if index == 0 {
 			lifecycle, productionFile = V1LifecycleCapture, "bundle/capture_bundle.go"
-			failure = V1Failure{Class: "artifact_contract", Phase: "capture", Coordinate: "payload", ChildReason: "domain_reason", Scope: V1FailureScopeDomain}
+			failure = V1Failure{Class: "artifact_contract", Phase: "capture", Coordinate: "payload", Scope: V1FailureScopeDomain}
 		}
 		target := V1Target{ModuleID: "apps.module-" + string(rune('a'+index)), ScenarioID: "scenario-" + string(rune('a'+index))}
 		manifest.Candidates = append(manifest.Candidates, V1Candidate{ID: "candidate-" + string(rune('a'+index)), Family: "production-go", PatchSHA256: digest(patches[index]), MutatedTree: strings.Repeat(trees[index], 40), OperatorFingerprint: "operator-" + string(rune('a'+index)), InvariantFingerprint: "invariant-" + string(rune('a'+index)), DetectorID: "module-detector-" + string(rune('a'+index)), Target: target, Expected: failure, Lifecycle: lifecycle, ProductionFile: productionFile, FaultDescription: "drops required product behavior", NormalEntrypoint: "endstate capture", LiveReachability: "the normal product path reaches the changed statement", ReviewRecordSHA256: digest("9")})

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"sort"
 	"strings"
@@ -285,13 +286,42 @@ func v1LoadedSidecarMode(repository string, target V1Target) (string, error) {
 	return "", errors.New("sidecar scenario differs")
 }
 
+func v1LoadedModuleRevision(repository string, target V1Target) (string, error) {
+	slug := strings.TrimPrefix(target.ModuleID, "apps.")
+	raw, err := os.ReadFile(filepath.Join(repository, "modules", "apps", slug, "module.jsonc"))
+	if err != nil {
+		return "", err
+	}
+	return modules.ComputeModuleRevision(raw)
+}
+
 func runV1ExternalDetector(ctx context.Context, run V1ProcessRunner, directory, engine, validator, repository string, candidate V1Candidate, environment []string) (string, string, *V1Failure, string, string) {
-	result := run(ctx, directory, V1ChildCommand{Name: validator, Args: []string{"--engine", engine, "--repo", repository, "--module", candidate.Target.ModuleID, "--scenario", candidate.Target.ScenarioID}, Env: environment})
+	resultPath := filepath.Join(directory, "profile", "temp", "validation-result", "result.json")
+	if err := os.Mkdir(filepath.Dir(resultPath), 0o700); err != nil {
+		return "", "", nil, "", "detector_result_root"
+	}
+	result := run(ctx, directory, V1ChildCommand{Name: validator, Args: []string{"--engine", engine, "--repo", repository, "--module", candidate.Target.ModuleID, "--scenario", candidate.Target.ScenarioID, "--result", resultPath}, Env: environment})
 	if result.Infrastructure != "" {
 		return "", "", nil, "", "detector_launch"
 	}
-	var typed validationharness.Result
-	if json.Unmarshal([]byte(result.Value), &typed) != nil {
+	mode, err := v1LoadedSidecarMode(repository, candidate.Target)
+	if err != nil {
+		return "", "", nil, "", "detector_evidence"
+	}
+	revision, err := v1LoadedModuleRevision(repository, candidate.Target)
+	if err != nil {
+		return "", "", nil, "", "detector_evidence"
+	}
+	typed, err := DecodeV1ExternalResult([]byte(result.Value), candidate, revision, mode)
+	if err != nil {
+		return "", "", nil, "", "detector_evidence"
+	}
+	persisted, err := os.ReadFile(resultPath)
+	if err != nil || len(persisted) > V1MaxDocumentSize {
+		return "", "", nil, "", "detector_evidence"
+	}
+	persistedTyped, err := DecodeV1ExternalResult(persisted, candidate, revision, mode)
+	if err != nil || !bytes.Equal(bytes.TrimSpace([]byte(result.Value)), bytes.TrimSpace(persisted)) || !reflect.DeepEqual(typed, persistedTyped) {
 		return "", "", nil, "", "detector_evidence"
 	}
 	admission, failure, err := v1ModuleDetectorResult(candidate, typed)
@@ -308,6 +338,45 @@ func runV1ExternalDetector(ctx context.Context, run V1ProcessRunner, directory, 
 		return "", "", nil, "", "detector_evidence"
 	}
 	return admission, V1StatusRejected, failure, v1ModuleBaselineProof(typed, candidate.Target), ""
+}
+
+// DecodeV1ExternalResult accepts only the single, strict result contract
+// emitted by the co-built validation CLI.
+func DecodeV1ExternalResult(raw []byte, candidate V1Candidate, revision, mode string) (validationharness.Result, error) {
+	var result validationharness.Result
+	if err := decodeV1(raw, &result); err != nil || !validV1ExternalResult(result, candidate, revision, mode) {
+		return validationharness.Result{}, errors.New("invalid v1 external result")
+	}
+	return result, nil
+}
+
+func validV1ExternalResult(result validationharness.Result, candidate V1Candidate, revision, mode string) bool {
+	if result.SchemaVersion != validationharness.ResultSchemaVersion || result.ModuleID != candidate.Target.ModuleID || result.ModuleRevision != revision || result.ScenarioID != candidate.Target.ScenarioID || string(result.Kind) != mode || result.ProofLevels == nil || result.AssertionCounts == nil || result.PhaseTimings == nil || len(result.ProofLevels) > 16 || len(result.AssertionCounts) > 32 || len(result.PhaseTimings) > 32 {
+		return false
+	}
+	for _, level := range result.ProofLevels {
+		if !validV1Value(string(level)) {
+			return false
+		}
+	}
+	for key, value := range result.AssertionCounts {
+		if !validV1Value(key) || value < 0 || value > 1000000 {
+			return false
+		}
+	}
+	for key, value := range result.PhaseTimings {
+		if !validV1Value(key) || value < 0 || value > 10*time.Minute {
+			return false
+		}
+	}
+	if result.Status == validationharness.ResultStatusPassed {
+		return result.Failure == nil && len(result.ProofLevels) > 0 && len(result.AssertionCounts) > 0 && len(result.PhaseTimings) > 0
+	}
+	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || result.Failure.Detail != "" || len(result.Failure.ProofLevels) != 0 {
+		return false
+	}
+	failure := v1FailureFromLegacy(&Failure{Code: result.Failure.Code, Phase: result.Failure.Phase, Coordinate: result.Failure.Coordinate})
+	return failure != nil && validV1Failure(*failure)
 }
 
 func v1ModuleDetectorResult(candidate V1Candidate, result validationharness.Result) (string, *V1Failure, error) {

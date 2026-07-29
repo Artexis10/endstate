@@ -6,6 +6,7 @@ package validationaudit
 import (
 	"crypto/sha256"
 	"errors"
+	"strings"
 )
 
 var (
@@ -21,6 +22,8 @@ type V1PatchRequest struct {
 	ModuleID       string
 	BundleID       string
 	ProductionFile string
+	ScenarioID     string
+	DetectorID     string
 }
 
 type V1PatchIdentity struct {
@@ -62,9 +65,25 @@ func LoadV1CandidatePatch(repositoryRoot string, request V1PatchRequest) (V1Patc
 	return V1PatchIdentity{SHA256: digest, TouchedPaths: paths}, nil
 }
 
-func validV1PatchScope(request V1PatchRequest, paths []string, _ string) bool {
+func validV1PatchScope(request V1PatchRequest, paths []string, raw string) bool {
 	path := "go-engine/internal/" + request.ProductionFile
-	return request.Family == "production-go" && validV1ProductionFile(request.ProductionFile) && len(paths) == 1 && paths[0] == path
+	return request.Family == "production-go" && validV1ProductionFile(request.ProductionFile) && len(paths) == 1 && paths[0] == path && validV1PatchContent(request, raw)
+}
+
+func validV1PatchContent(request V1PatchRequest, raw string) bool {
+	for _, line := range strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n") {
+		if !strings.HasPrefix(line, "+") || strings.HasPrefix(line, "+++") {
+			continue
+		}
+		added := strings.ToLower(line[1:])
+		if strings.Contains(added, "//go:build") || strings.Contains(added, "// +build") || strings.Contains(added, "endstate_testmode") || strings.Contains(added, "endstate_validation") {
+			return false
+		}
+		if request.CandidateID != "" && strings.Contains(line, request.CandidateID) || request.ModuleID != "" && strings.Contains(line, request.ModuleID) || request.ScenarioID != "" && strings.Contains(line, request.ScenarioID) || request.DetectorID != "" && strings.Contains(line, request.DetectorID) {
+			return false
+		}
+	}
+	return true
 }
 
 func validV1ProductionFile(file string) bool {

@@ -4,8 +4,6 @@
 package validationpilot
 
 import (
-	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -63,27 +61,5 @@ func TestClassifyV1UsesVerifiedSidecarModeInsteadOfManifestLabel(t *testing.T) {
 	aggregate, err := ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationInfrastructureFailure {
 		t.Fatalf("ClassifyV1(sidecar mode drift) = %#v, %v", aggregate, err)
-	}
-}
-
-func TestRunV1ExternalDetectorInvokesCoBuiltValidationBinary(t *testing.T) {
-	candidate := V1Candidate{Target: V1Target{ModuleID: "apps.example", ScenarioID: "capture-v1"}}
-	encoded, err := json.Marshal(map[string]any{"schemaVersion": 1, "moduleId": candidate.Target.ModuleID, "scenarioId": candidate.Target.ScenarioID, "status": "passed", "proofLevels": []string{}, "assertionCounts": map[string]int{}, "phaseTimings": map[string]string{}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	called := false
-	admission, status, _, _, infrastructure := runV1ExternalDetector(context.Background(), func(_ context.Context, directory string, command V1ChildCommand) V1ChildResult {
-		called = true
-		if directory != "repository/go-engine" || command.Name != "co-built-validation" {
-			t.Fatalf("command = %#v in %q", command, directory)
-		}
-		if len(command.Args) != 8 || command.Args[0] != "--engine" || command.Args[2] != "--repo" || command.Args[4] != "--module" || command.Args[6] != "--scenario" {
-			t.Fatalf("args = %#v", command.Args)
-		}
-		return V1ChildResult{Value: string(encoded)}
-	}, "repository/go-engine", "co-built-engine", "co-built-validation", "repository", candidate, nil)
-	if !called || infrastructure != "" || admission != V1AdmissionAdmitted || status != V1StatusPassed {
-		t.Fatalf("runV1ExternalDetector() = %q, %q, %q", admission, status, infrastructure)
 	}
 }

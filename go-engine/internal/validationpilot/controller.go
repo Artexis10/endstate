@@ -179,8 +179,47 @@ func ValidateV1Repository(root, manifestPath string) (V1Manifest, error) {
 		if err != nil || mode != lifecycleV1Mode(candidate.Lifecycle) {
 			return V1Manifest{}, errors.New("v1 sidecar mode differs")
 		}
+		if err := validateV1ReviewRecord(canonicalRoot, candidate); err != nil {
+			return V1Manifest{}, err
+		}
 	}
 	return manifest, nil
+}
+
+type v1ReviewRecord struct {
+	CandidateID            string    `json:"candidateId"`
+	PatchSHA256            string    `json:"patchSha256"`
+	Target                 V1Target  `json:"target"`
+	ProductionFile         string    `json:"productionFile"`
+	Lifecycle              string    `json:"lifecycle"`
+	Expected               V1Failure `json:"expected"`
+	Realistic              bool      `json:"realistic"`
+	NonEquivalent          bool      `json:"nonEquivalent"`
+	Disjoint               bool      `json:"disjoint"`
+	PatchScope             bool      `json:"patchScope"`
+	FailureIdentity        bool      `json:"failureIdentity"`
+	ProductionReachability bool      `json:"productionReachability"`
+	Ordering               bool      `json:"ordering"`
+}
+
+func validateV1ReviewRecord(root string, candidate V1Candidate) error {
+	path := filepath.Join(root, filepath.FromSlash(V1CorpusRoot), "reviews", candidate.ID+".json")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return errors.New("v1 review record is missing")
+	}
+	sum := sha256.Sum256(raw)
+	if fmtV1Digest(sum) != candidate.ReviewRecordSHA256 {
+		return errors.New("v1 review record digest differs")
+	}
+	var record v1ReviewRecord
+	if err := decodeV1(raw, &record); err != nil {
+		return errors.New("v1 review record is malformed")
+	}
+	if record.CandidateID != candidate.ID || record.PatchSHA256 != candidate.PatchSHA256 || record.Target != candidate.Target || record.ProductionFile != candidate.ProductionFile || record.Lifecycle != candidate.Lifecycle || record.Expected != candidate.Expected || !record.Realistic || !record.NonEquivalent || !record.Disjoint || !record.PatchScope || !record.FailureIdentity || !record.ProductionReachability || !record.Ordering {
+		return errors.New("v1 review record differs")
+	}
+	return nil
 }
 
 func ensureV1AuthorityObjects(root string, authorities V1Authorities) error {
@@ -232,7 +271,7 @@ func ensureCleanV1Dispatch(root string, dispatch V1Reference) error {
 }
 
 func v1PatchRequest(candidate V1Candidate) validationaudit.V1PatchRequest {
-	return validationaudit.V1PatchRequest{CandidateID: candidate.ID, Family: candidate.Family, PatchSHA256: candidate.PatchSHA256, ProductionFile: candidate.ProductionFile}
+	return validationaudit.V1PatchRequest{CandidateID: candidate.ID, Family: candidate.Family, PatchSHA256: candidate.PatchSHA256, ProductionFile: candidate.ProductionFile, ModuleID: candidate.Target.ModuleID, ScenarioID: candidate.Target.ScenarioID, DetectorID: candidate.DetectorID}
 }
 
 func V1ComparatorContractSHA256() string {
