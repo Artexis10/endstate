@@ -11,6 +11,7 @@ import (
 	"io"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -364,7 +365,7 @@ func windowsReservedDeviceName(segment string) bool {
 }
 
 func validText(value string) bool {
-	return len(value) > 0 && len(value) <= 512 && value == strings.TrimSpace(value) && !strings.ContainsAny(value, "\r\n\t")
+	return len(value) > 0 && len(value) <= 512 && value == strings.TrimSpace(value) && !strings.ContainsFunc(value, unicode.IsControl)
 }
 
 func validExpectedFailure(expected ExpectedFailure) bool {
