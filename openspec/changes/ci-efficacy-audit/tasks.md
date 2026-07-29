@@ -10,8 +10,8 @@
 - [x] 2.2 Implement the minimal schema-versioned candidate, detector, lane, qualification, and frozen-corpus types plus strict decoding needed to pass the manifest tests without adding a dependency.
 - [x] 2.3 Add failing tests for patch eligibility and identity: only production Go or production module/catalog data may change; test, expectation, audit, workflow, symlink/reparse, traversal, absolute-path, binary, oversized, duplicate, and digest-mismatched patches must be rejected.
 - [x] 2.4 Implement bounded patch inspection and SHA-256/tree binding, using exact repository-relative paths beneath one tracked audit corpus root and stable path-free rejection codes.
-- [ ] 2.5 Add failing tests for strict typed attempt evidence, including audit/corpus/commit/tree/patch/lane/runner/toolchain/command/repetition/timing identity, bounded stable result fields, and rejection of missing, foreign, duplicated, oversized, free-form-log, path, token, or environment data.
-- [ ] 2.6 Implement the compact evidence types and strict readers/writers with atomic create-new publication and stable path-free error classes.
+- [x] 2.5 Add failing tests for strict typed attempt evidence, including audit/corpus/commit/tree/patch/lane/runner/toolchain/command/repetition/timing identity, bounded stable result fields, and rejection of missing, foreign, duplicated, oversized, free-form-log, path, token, or environment data.
+- [x] 2.6 Implement the compact evidence types and strict readers/writers with atomic create-new publication and stable path-free error classes.
 
 ## 3. Classification, freeze, and decision engine
 
