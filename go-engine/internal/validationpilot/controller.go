@@ -42,6 +42,7 @@ type V1ChildResult struct {
 	Infrastructure string
 	Rejected       bool
 	Value          string
+	RawValue       string
 }
 
 type V1ComparatorResult struct {

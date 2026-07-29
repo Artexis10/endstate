@@ -5,15 +5,231 @@ package validationpilot
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
+
+func TestRunV1ProcessPreservesRawOutputForExternalEvidence(t *testing.T) {
+	result := runV1Process(context.Background(), t.TempDir(), V1ChildCommand{Name: "cmd", Args: []string{"/c", "<nul set /p ={}& echo."}})
+	if result.Infrastructure != "" || result.Rejected || result.Value != "{}" || result.RawValue != "{}\r\n" {
+		t.Fatalf("runV1Process() = %#v, want separately preserved canonical bytes", result)
+	}
+}
+
+func TestRunV1ExternalDetectorRequiresExactPersistedCanonicalBytes(t *testing.T) {
+	repository := t.TempDir()
+	module := filepath.Join(repository, "modules", "apps", "aida64")
+	if err := os.MkdirAll(module, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, leaf := range []string{"module.jsonc", "validation.jsonc"} {
+		raw, err := os.ReadFile(filepath.Join("..", "..", "..", "modules", "apps", "aida64", leaf))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(module, leaf), raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	attemptRoot := t.TempDir()
+	tempRoot := filepath.Join(attemptRoot, "profile", "temp")
+	if err := os.MkdirAll(tempRoot, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	candidate := validV1CandidateForRepair(t)
+	candidate.Target = V1Target{ModuleID: "apps.aida64", ScenarioID: "reviewed-capture-v1"}
+	revision, err := v1LoadedModuleRevision(repository, candidate.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: candidate.Target.ModuleID, ModuleRevision: revision, ScenarioID: candidate.Target.ScenarioID, Kind: validationmatrix.ScenarioCaptureContract, Status: validationharness.ResultStatusPassed, ProofLevels: []validationmatrix.ProofLevel{validationmatrix.ProofCatalog}, AssertionCounts: map[string]int{"capture": 1}, PhaseTimings: map[string]time.Duration{"capture": time.Millisecond}}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, '\n')
+	var seen V1ChildCommand
+	run := func(_ context.Context, directory string, command V1ChildCommand) V1ChildResult {
+		seen = command
+		if directory != filepath.Join(repository, "go-engine") {
+			t.Fatalf("directory = %q", directory)
+		}
+		if err := os.WriteFile(command.Args[9], raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return V1ChildResult{Value: string(raw[:len(raw)-1]), RawValue: string(raw)}
+	}
+	admission, status, _, _, infrastructure := runV1ExternalDetector(context.Background(), run, attemptRoot, filepath.Join(repository, "go-engine"), filepath.Join(attemptRoot, "endstate"), filepath.Join(attemptRoot, "endstate-validation"), repository, candidate, []string{"TEMP=" + tempRoot})
+	if infrastructure != "" || admission != V1AdmissionAdmitted || status != V1StatusPassed {
+		t.Fatalf("runV1ExternalDetector() = %q, %q, %q", admission, status, infrastructure)
+	}
+	if len(seen.Args) != 10 || seen.Args[8] != "--result" || !filepath.IsAbs(seen.Args[9]) || !v1StrictDescendant(tempRoot, seen.Args[9]) || filepath.Dir(seen.Args[9]) != filepath.Join(tempRoot, "validation-result") {
+		t.Fatalf("detector command = %#v", seen)
+	}
+}
+
+func TestRunV1ExternalDetectorTreatsMissingOrDisagreeingResultFileAsInfrastructure(t *testing.T) {
+	for _, write := range []func(string, []byte) error{
+		func(_ string, _ []byte) error { return nil },
+		func(path string, raw []byte) error { return os.WriteFile(path, append(raw, ' '), 0o600) },
+	} {
+		repository, attemptRoot, candidate, raw := v1ExternalDetectorFixture(t)
+		run := func(_ context.Context, _ string, command V1ChildCommand) V1ChildResult {
+			if err := write(command.Args[9], raw); err != nil {
+				t.Fatal(err)
+			}
+			return V1ChildResult{Value: strings.TrimSpace(string(raw)), RawValue: string(raw)}
+		}
+		_, _, _, _, infrastructure := runV1ExternalDetector(context.Background(), run, attemptRoot, filepath.Join(repository, "go-engine"), filepath.Join(attemptRoot, "endstate"), filepath.Join(attemptRoot, "endstate-validation"), repository, candidate, []string{"TEMP=" + filepath.Join(attemptRoot, "profile", "temp")})
+		if infrastructure != "detector_evidence" {
+			t.Fatalf("runV1ExternalDetector() infrastructure = %q, want detector_evidence", infrastructure)
+		}
+	}
+}
+
+func v1ExternalDetectorFixture(t *testing.T) (string, string, V1Candidate, []byte) {
+	t.Helper()
+	repository := t.TempDir()
+	module := filepath.Join(repository, "modules", "apps", "aida64")
+	if err := os.MkdirAll(module, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for _, leaf := range []string{"module.jsonc", "validation.jsonc"} {
+		value, err := os.ReadFile(filepath.Join("..", "..", "..", "modules", "apps", "aida64", leaf))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(module, leaf), value, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	attemptRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(attemptRoot, "profile", "temp"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	candidate := validV1CandidateForRepair(t)
+	candidate.Target = V1Target{ModuleID: "apps.aida64", ScenarioID: "reviewed-capture-v1"}
+	revision, err := v1LoadedModuleRevision(repository, candidate.Target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: candidate.Target.ModuleID, ModuleRevision: revision, ScenarioID: candidate.Target.ScenarioID, Kind: validationmatrix.ScenarioCaptureContract, Status: validationharness.ResultStatusPassed, ProofLevels: []validationmatrix.ProofLevel{validationmatrix.ProofCatalog}, AssertionCounts: map[string]int{"capture": 1}, PhaseTimings: map[string]time.Duration{"capture": time.Millisecond}}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return repository, attemptRoot, candidate, append(raw, '\n')
+}
+
+func TestValidateV1ReviewRecordRejectsMissingTamperedAndForeignRecords(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := validV1CandidateForRepair(t)
+	if err := validateV1ReviewRecord(root, candidate); err == nil {
+		t.Fatal("validateV1ReviewRecord() accepted a missing record")
+	}
+	record := v1ReviewRecord{CandidateID: candidate.ID, PatchSHA256: candidate.PatchSHA256, OperatorFingerprint: candidate.OperatorFingerprint, InvariantFingerprint: candidate.InvariantFingerprint, Target: candidate.Target, ProductionFile: candidate.ProductionFile, Lifecycle: candidate.Lifecycle, Expected: candidate.Expected, Realistic: true, NonEquivalent: true, Disjoint: true, PatchScope: true, FailureIdentity: true, ProductionReachability: true, Ordering: true}
+	writeV1ReviewRecord(t, root, &candidate, record)
+	if err := validateV1ReviewRecord(root, candidate); err != nil {
+		t.Fatalf("validateV1ReviewRecord(valid) = %v", err)
+	}
+	path := filepath.Join(root, filepath.FromSlash(V1CorpusRoot), "reviews", candidate.ID+".json")
+	if err := os.WriteFile(path, []byte(`{"candidateId":"tampered"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateV1ReviewRecord(root, candidate); err == nil {
+		t.Fatal("validateV1ReviewRecord() accepted tampered bytes")
+	}
+	record.CandidateID = "foreign-candidate"
+	writeV1ReviewRecord(t, root, &candidate, record)
+	if err := validateV1ReviewRecord(root, candidate); err == nil {
+		t.Fatal("validateV1ReviewRecord() accepted a foreign identity")
+	}
+}
+
+func TestValidateV1ReviewRecordRejectsFingerprintNegativeAndMalformedRecords(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := validV1CandidateForRepair(t)
+	base := v1ReviewRecord{CandidateID: candidate.ID, PatchSHA256: candidate.PatchSHA256, OperatorFingerprint: candidate.OperatorFingerprint, InvariantFingerprint: candidate.InvariantFingerprint, Target: candidate.Target, ProductionFile: candidate.ProductionFile, Lifecycle: candidate.Lifecycle, Expected: candidate.Expected, Realistic: true, NonEquivalent: true, Disjoint: true, PatchScope: true, FailureIdentity: true, ProductionReachability: true, Ordering: true}
+	for _, mutate := range []func(*v1ReviewRecord){
+		func(record *v1ReviewRecord) { record.OperatorFingerprint = "foreign-operator" },
+		func(record *v1ReviewRecord) { record.InvariantFingerprint = "foreign-invariant" },
+		func(record *v1ReviewRecord) { record.Realistic = false },
+		func(record *v1ReviewRecord) { record.NonEquivalent = false },
+		func(record *v1ReviewRecord) { record.Disjoint = false },
+		func(record *v1ReviewRecord) { record.PatchScope = false },
+		func(record *v1ReviewRecord) { record.FailureIdentity = false },
+		func(record *v1ReviewRecord) { record.ProductionReachability = false },
+		func(record *v1ReviewRecord) { record.Ordering = false },
+	} {
+		record := base
+		mutate(&record)
+		writeV1ReviewRecord(t, root, &candidate, record)
+		if err := validateV1ReviewRecord(root, candidate); err == nil {
+			t.Fatal("validateV1ReviewRecord() accepted an invalid reviewed conclusion")
+		}
+	}
+	for _, raw := range [][]byte{
+		[]byte(`{"candidateId":"x","candidateId":"x"}`),
+		[]byte(`{"candidateId":"x","unknown":true}`),
+	} {
+		path := filepath.Join(root, filepath.FromSlash(V1CorpusRoot), "reviews", candidate.ID+".json")
+		if err := os.WriteFile(path, raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		candidate.ReviewRecordSHA256 = v1RepositoryDigest(raw)
+		if err := validateV1ReviewRecord(root, candidate); err == nil {
+			t.Fatal("validateV1ReviewRecord() accepted malformed strict JSON")
+		}
+	}
+}
+
+func TestValidateV1ReviewRecordRejectsReviewDirectoryLink(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	reviews := filepath.Join(root, filepath.FromSlash(V1CorpusRoot), "reviews")
+	if err := os.MkdirAll(filepath.Dir(reviews), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(t.TempDir(), reviews); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	if err := validateV1ReviewRecord(root, validV1CandidateForRepair(t)); err == nil {
+		t.Fatal("validateV1ReviewRecord() accepted a linked review directory")
+	}
+}
+
+func writeV1ReviewRecord(t *testing.T, root string, candidate *V1Candidate, record v1ReviewRecord) {
+	t.Helper()
+	raw, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, '\n')
+	candidate.ReviewRecordSHA256 = v1RepositoryDigest(raw)
+	path := filepath.Join(root, filepath.FromSlash(V1CorpusRoot), "reviews", candidate.ID+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestV1MeasuredToolchainRejectsMismatchedPatch(t *testing.T) {
 	toolchain, err := measureV1Toolchain(context.Background(), func(_ context.Context, _ string, command V1ChildCommand) V1ChildResult {

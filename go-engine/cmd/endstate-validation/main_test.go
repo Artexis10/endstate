@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -16,6 +18,59 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
+
+func TestRunCLIAcceptsControllerOwnedResultLeaf(t *testing.T) {
+	attempt, err := os.MkdirTemp(os.TempDir(), "endstate-validation-controller-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(attempt)
+	resultDirectory := filepath.Join(attempt, "profile", "temp", "validation-result")
+	if err := os.MkdirAll(resultDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(resultDirectory, "result.json")
+	var got validationharness.Request
+	runner := func(_ context.Context, request validationharness.Request) (validationharness.Result, error) {
+		got = request
+		return validationharness.Result{SchemaVersion: validationharness.ResultSchemaVersion, ModuleID: request.ModuleID, ScenarioID: request.ScenarioID, Status: validationharness.ResultStatusPassed, ProofLevels: []validationmatrix.ProofLevel{validationmatrix.ProofCatalog}, AssertionCounts: map[string]int{"proof": 1}, PhaseTimings: map[string]time.Duration{"proof": time.Millisecond}}, nil
+	}
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"--engine", filepath.Join(attempt, "endstate"), "--repo", attempt, "--module", "apps.aida64", "--scenario", "reviewed-capture-v1", "--result", resultPath}, &stdout, &stderr, runner); code != 0 {
+		t.Fatalf("exit = %d, stdout=%s", code, stdout.String())
+	}
+	if got.ResultPath != resultPath || !filepath.IsAbs(got.ResultPath) || filepath.Dir(got.ResultPath) != resultDirectory {
+		t.Fatalf("controller result request = %#v", got)
+	}
+}
+
+func TestRunCLIControllerResultLeafPassesHarnessPathBoundary(t *testing.T) {
+	attempt, err := os.MkdirTemp(os.TempDir(), "endstate-validation-controller-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(attempt)
+	resultDirectory := filepath.Join(attempt, "profile", "temp", "validation-result")
+	if err := os.MkdirAll(resultDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(attempt, "endstate")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	resultPath := filepath.Join(resultDirectory, "result.json")
+	var stdout, stderr bytes.Buffer
+	if code := runCLI([]string{"--engine", engine, "--repo", attempt, "--module", "apps.aida64", "--scenario", "reviewed-capture-v1", "--result", resultPath}, &stdout, &stderr, validationharness.Run); code == 0 {
+		t.Fatalf("exit = 0, stdout=%s", stdout.String())
+	}
+	persisted, err := os.ReadFile(resultPath)
+	if err != nil {
+		t.Fatalf("controller-shaped result leaf was not accepted and persisted: %v", err)
+	}
+	if !bytes.Equal(stdout.Bytes(), persisted) {
+		t.Fatalf("stdout and persisted result differ: stdout=%q persisted=%q", stdout.Bytes(), persisted)
+	}
+}
 
 func TestRunCLIEmitsOneResultAndUsesExactRequest(t *testing.T) {
 	args := []string{"--engine", `C:\build\endstate.exe`, "--repo", `C:\repo`, "--module", "apps.fixture", "--scenario", "default-v1", "--result", `C:\tmp\result.json`}

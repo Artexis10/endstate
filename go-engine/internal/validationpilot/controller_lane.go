@@ -316,7 +316,10 @@ func runV1ExternalDetector(ctx context.Context, run V1ProcessRunner, attemptRoot
 	if err != nil {
 		return "", "", nil, "", "detector_evidence"
 	}
-	typed, err := DecodeV1ExternalResult([]byte(result.Value), candidate, revision, mode)
+	if result.RawValue == "" {
+		return "", "", nil, "", "detector_evidence"
+	}
+	typed, err := DecodeV1ExternalResult([]byte(result.RawValue), candidate, revision, mode)
 	if err != nil {
 		return "", "", nil, "", "detector_evidence"
 	}
@@ -325,7 +328,7 @@ func runV1ExternalDetector(ctx context.Context, run V1ProcessRunner, attemptRoot
 		return "", "", nil, "", "detector_evidence"
 	}
 	persistedTyped, err := DecodeV1ExternalResult(persisted, candidate, revision, mode)
-	if err != nil || !bytes.Equal([]byte(result.Value), persisted) || !reflect.DeepEqual(typed, persistedTyped) {
+	if err != nil || !bytes.Equal([]byte(result.RawValue), persisted) || !reflect.DeepEqual(typed, persistedTyped) {
 		return "", "", nil, "", "detector_evidence"
 	}
 	admission, failure, err := v1ModuleDetectorResult(candidate, typed)
@@ -384,7 +387,7 @@ func validV1ExternalResult(result validationharness.Result, candidate V1Candidat
 }
 
 func validV1FailureDetail(detail string) bool {
-	return len(detail) <= 512 && !strings.ContainsAny(detail, "\r\n\\")
+	return detail != "" && len(detail) <= 512 && !strings.ContainsAny(detail, "\r\n\\")
 }
 
 func v1ModuleDetectorResult(candidate V1Candidate, result validationharness.Result) (string, *V1Failure, error) {
@@ -708,11 +711,11 @@ func runV1Process(ctx context.Context, directory string, command V1ChildCommand)
 	}
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
-			return V1ChildResult{Rejected: true, Value: strings.TrimSpace(output.String())}
+			return V1ChildResult{Rejected: true, Value: strings.TrimSpace(output.String()), RawValue: output.String()}
 		}
 		return V1ChildResult{Infrastructure: "launch"}
 	}
-	return V1ChildResult{Value: strings.TrimSpace(output.String())}
+	return V1ChildResult{Value: strings.TrimSpace(output.String()), RawValue: output.String()}
 }
 
 type v1LimitedOutput struct {

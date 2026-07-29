@@ -8,8 +8,61 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestLoadV1CandidatePatchRejectsObserverDependentAddedLines(t *testing.T) {
+	request := V1PatchRequest{CandidateID: "candidate-one", Family: "production-go", ProductionFile: "bundle/create.go", ModuleID: "apps.aida64", ScenarioID: "reviewed-capture-v1", DetectorID: "module-detector-one"}
+	for _, added := range []string{
+		"//go:build windows",
+		"// +build windows",
+		"if os.Getenv(\"ENDSTATE_TESTMODE\") != \"\" { return nil }",
+		"if os.Getenv(validationmode.TestModeEnvironment) != \"\" { return nil }",
+		"if opts.ValidationContext { return nil }",
+		"if legacyValidationBoundary { return nil }",
+		"if WithValidation(ctx) { return nil }",
+		"if name == \"candidate-one\" { return nil }",
+		"if module == \"apps.aida64\" { return nil }",
+		"if scenario == \"reviewed-capture-v1\" { return nil }",
+		"if detector == \"module-detector-one\" { return nil }",
+	} {
+		t.Run(added, func(t *testing.T) {
+			root, err := filepath.EvalSymlinks(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw := []byte("diff --git a/go-engine/internal/bundle/create.go b/go-engine/internal/bundle/create.go\nindex 1111111..2222222 100644\n--- a/go-engine/internal/bundle/create.go\n+++ b/go-engine/internal/bundle/create.go\n@@ -1 +1 @@\n-old\n+" + added + "\n")
+			request.PatchSHA256 = v1PatchDigest(raw)
+			writeV1Patch(t, root, request.CandidateID, raw)
+			if _, err := LoadV1CandidatePatch(root, request); !errors.Is(err, ErrInvalidV1PatchScope) {
+				t.Fatalf("LoadV1CandidatePatch(%q) = %v", added, err)
+			}
+		})
+	}
+}
+
+func TestLoadV1CandidatePatchAllowsOrdinaryProductionChange(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(strings.Join([]string{
+		"diff --git a/go-engine/internal/bundle/create.go b/go-engine/internal/bundle/create.go",
+		"index 1111111..2222222 100644",
+		"--- a/go-engine/internal/bundle/create.go",
+		"+++ b/go-engine/internal/bundle/create.go",
+		"@@ -1 +1 @@",
+		"-return createBundle(paths)",
+		"+return createBundle(normalizePaths(paths))",
+		"",
+	}, "\n"))
+	request := V1PatchRequest{CandidateID: "candidate-one", Family: "production-go", ProductionFile: "bundle/create.go", ModuleID: "apps.aida64", ScenarioID: "reviewed-capture-v1", DetectorID: "module-detector-one", PatchSHA256: v1PatchDigest(raw)}
+	writeV1Patch(t, root, request.CandidateID, raw)
+	if _, err := LoadV1CandidatePatch(root, request); err != nil {
+		t.Fatalf("LoadV1CandidatePatch() = %v", err)
+	}
+}
 
 func TestLoadV1CandidatePatchDerivesOnlyApprovedProductionGoPathAndScope(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
