@@ -134,6 +134,41 @@ After the bootstrap is on `main`, the reviewed audit branch replaces the inert j
 
 The official pilot result binds one exact reviewed workflow commit and actual GitHub Actions run. Local reproduction is additional evidence, not a substitute for the actual run.
 
+### 10. Use one held-out Go-only preflight before finalizing PR #205
+
+The v0 six-mutation run is retained as calibration evidence, not rescored after
+its outcomes are known. V1 freezes the detector, typed audit machinery, and
+final operative workflow, then authors six new held-out mutations across
+catalog and module detector families. Held-out operators and violated
+invariants must be fingerprinted and disjoint from every v0 calibration case;
+changing only the affected bundle or application is not held-out evidence.
+Its comparator is the contemporaneous Windows, Ubuntu, and macOS Go vet/test
+gate with the same pinned setup action and requested Go line. Notepad++
+integration is a separate proof lane and is not represented as missing or
+failed comparator evidence.
+
+Workflow shell does not assemble or classify evidence. One Go controller binds
+the evaluated PR tree, frozen proof-machinery commit, later data-only corpus
+commit, dispatch commit, mutated tree, patch, one exact shared resolved
+toolchain, runner image, command contract, detector contract, repetitions, and
+structured outcomes. It rejects any post-freeze change outside the registered
+corpus root. An engine binary digest is diagnostic rather than repetition
+authority. Setup, tool, timeout, output, evidence, and artifact failures remain
+infrastructure and cannot receive kill credit. Candidates must pass parsing,
+schema, revision, and detector-admission guards before only a downstream domain
+failure can receive credit.
+
+V1 succeeds only at six correct new-only kills, including all three module
+cases and both detector families, with exact causal failure identity twice and
+zero survivors, wrong kills, flakes, or infrastructure failures. It is
+dispatched once; the earliest run for the exact SHA is authoritative, and any
+second dispatch or rerun invalidates the version. A broken harness requires a
+new version and held-out corpus. A valid v1 result clears only the efficacy
+blocker; PR #205 still requires its green required checks, aggregate/shard
+wiring verification, independent review, and merge criteria. The 30-mutation
+audit remains a non-blocking post-merge measurement rather than a new merge
+delay.
+
 ## Risks / Trade-offs
 
 - **[Curated mutations can reflect reviewer bias]** → Freeze the taxonomy, declared ordering, rationale, patches, and expected detector classes before detector execution; use historical regressions where available and an independent reviewer for corpus realism.

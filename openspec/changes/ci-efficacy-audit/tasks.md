@@ -7,10 +7,20 @@
 ## 1A. Six-mutant efficacy preflight
 
 - [x] 1A.1 Record the fixed legacy and detector references, six reviewed product mutations, narrow moduleRevision-only sidecar exception, exact failure identities, hosted job bound, and non-statistical decision rule in `pilot-v0.md`.
-- [ ] 1A.2 Author and locally screen the six fixed patches; prove the production files begin byte-identical across both references and prove each detector baseline passes twice before push.
-- [ ] 1A.3 Add the minimal manual-only branch workflow and fixed pilot runner/evidence contract; test rejection of trigger, permission, credential, reference, patch, inventory, classification, and target-install drift.
-- [ ] 1A.4 Obtain independent corpus and workflow review, run focused tests, commit and push the exact reviewed branch, and dispatch it manually.
-- [ ] 1A.5 Inspect the actual run and all nineteen evidence artifacts, publish all six classifications and the mechanical `meaningful-signal` or `insufficient-signal` result, and make no broader coverage or hosted-live claim.
+- [x] 1A.2 Author and locally screen the six fixed patches; prove the production files begin byte-identical across both references and prove each detector baseline passes twice before push.
+- [x] 1A.3 Add the minimal manual-only branch workflow and fixed pilot runner/evidence contract; test rejection of trigger, permission, credential, reference, patch, inventory, classification, and target-install drift.
+- [x] 1A.4 Obtain independent corpus and workflow review, run focused tests, commit and push the exact reviewed branch, and dispatch it manually.
+- [x] 1A.5 Inspect the actual run and all nineteen evidence artifacts, publish all six classifications and the mechanical `meaningful-signal` or `insufficient-signal` result, and make no broader coverage or hosted-live claim. The terminal v0 result is formally inconclusive but directionally positive.
+
+## 1B. Held-out efficacy preflight v1
+
+- [x] 1B.1 Record the approved Go-only comparator, calibration/held-out boundary, typed evidence authority, fail-closed infrastructure semantics, exact decision rule, one-dispatch rule, and non-blocking 30-mutation boundary in `pilot-v1.md`.
+- [ ] 1B.2 Add RED tests over the v0 evidence shapes for causal failure extraction, typed lane assembly, source/toolchain repetition identity, infrastructure precedence, and strict aggregate inventory; implement the minimal v1 controller until they pass.
+- [ ] 1B.3 Replace the branch workflow with the typed v1 controller and three-OS Go comparator; bind one exact resolved Go patch version on every runner and prohibit integration, target installation, inline JSON composition, ambient authority, workflow inputs, and reruns. Independently review and freeze the final detector, controller, and operative workflow.
+- [ ] 1B.4 Author and independently review six operator- and invariant-disjoint held-out production mutations without executing them through a detector; allow only a data-only corpus commit after the proof-machinery freeze and mechanically verify the restricted diff.
+- [ ] 1B.5 Run focused and required local verification, obtain independent code/security review and independent verification, commit, push, and verify the exact remote SHA.
+- [ ] 1B.6 Record the exact hosted job/runner-minute ceiling, dispatch the reviewed v1 commit once, reject reruns or later dispatches, inspect the complete run history and every artifact, reproduce aggregation locally, and publish only the bounded result.
+- [ ] 1B.7 If v1 is valid and reports `meaningful-signal`, clear PR #205's efficacy blocker without waiting for the 30-mutation audit, then finish its remaining required-check, aggregate/shard, review, and merge criteria; otherwise preserve the result and version any repair with a new held-out corpus.
 
 ## 2. Audit contracts and identities
 

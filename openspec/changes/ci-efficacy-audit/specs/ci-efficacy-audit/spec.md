@@ -129,3 +129,52 @@ The audit result SHALL describe only the unique regression detection of the eval
 #### Scenario: Successful pilot is reported
 - **WHEN** the audit returns `proceed`
 - **THEN** the public summary identifies the exact detector set, corpus, commit, run, thresholds, survivors, and excluded proof areas without upgrading any other validation claim
+
+### Requirement: Held-out Go-gate preflight
+Before the full 30-mutation audit, the audit SHALL support one six-mutation v1 preflight that compares frozen PR #205 detectors with the contemporaneous Windows, Ubuntu, and macOS Go vet/test gate. The previous six hosted mutations SHALL be calibration-only, and the detector/audit implementation SHALL freeze before six new held-out production mutations are authored. Windows integration and target-application installation MUST be absent from the v1 comparator.
+
+#### Scenario: Held-out corpus remains unopened
+- **WHEN** the v1 controller and detector contract have frozen
+- **THEN** an independently reviewed corpus of three catalog and three module safety/config mutations binds expected causal failures without executing a held-out mutation through the detector, and every mutation-operator and violated-invariant fingerprint is disjoint from v0
+
+#### Scenario: Comparator reproduces the Go gate
+- **WHEN** a held-out mutation is qualified
+- **THEN** the exact patch runs against the evaluated PR #205 tree through `go vet ./...` and `go test ./...` on fixed Windows, Ubuntu, and macOS runner families using the same immutable setup action and one exact shared resolved Go patch version, while audit-only tests remain outside the evaluated checkout
+
+#### Scenario: Proof machinery changes after freeze
+- **WHEN** the corpus/dispatch commit differs from the proof-machinery freeze outside the registered v1 corpus root or changes detector, controller, workflow, or command-contract bytes
+- **THEN** the controller refuses every comparator and detector attempt before product execution
+
+#### Scenario: Candidate fails before the claimed invariant
+- **WHEN** a candidate is not parseable, schema-valid, revision-consistent, admitted to its exact target, or fails only at a schema, revision, selection, admission, aggregate, envelope, or other shallow guard
+- **THEN** it is ineligible for correct-kill credit even if that shallow failure was predeclared
+
+### Requirement: Typed v1 evidence authority
+The v1 workflow SHALL delegate acquisition, patch application, bounded command execution, detector invocation, evidence publication, and aggregation to typed Go code. Workflow shell MUST NOT compose or classify JSON. Repetition authority SHALL bind the source commit/tree, mutated tree, patch, runner/toolchain, command contract, and detector contract; a binary digest MAY be diagnostic but MUST NOT define source-authority equality.
+
+#### Scenario: Infrastructure cannot become a kill
+- **WHEN** acquisition, setup, tool discovery, process launch, timeout, cancellation, output, evidence, or artifact handling fails
+- **THEN** the attempt is infrastructure failure and receives no product-rejection or kill credit
+
+#### Scenario: Repeated causal rejection is creditable
+- **WHEN** both fresh detector attempts bind identical source authority and reject the mutation with the exact predeclared class, phase, coordinate, and optional reason
+- **THEN** the detector portion is eligible for correct-kill classification even when diagnostic binary hashes differ
+
+### Requirement: Mechanical v1 decision and versioning
+V1 SHALL report `meaningful-signal` only with six correct new-only kills, all three module mutations killed, both detector families represented, and zero survivors, wrong kills, flakes, or infrastructure failures. Incomplete or malformed evidence SHALL be inconclusive. The earliest created workflow run for the exact reviewed dispatch commit SHALL be authoritative. A second dispatch or any rerun invalidates that experiment version; repairing proof machinery requires a new experiment version and a new held-out corpus.
+
+#### Scenario: V1 proves bounded unique detection
+- **WHEN** all three Go comparator lanes pass every mutation and both detector repetitions reject every mutation for its exact expected reason
+- **THEN** v1 reports `meaningful-signal` for the evaluated detector families without a coverage percentage or broader readiness claim
+
+#### Scenario: V1 machinery fails
+- **WHEN** the official dispatch has incomplete, malformed, flaky, wrong-reason, survivor, or infrastructure evidence
+- **THEN** v1 cannot be repaired or rerun in place, and any new attempt uses a reviewed version and new held-out corpus
+
+#### Scenario: A later run looks better
+- **WHEN** the exact dispatch commit has another workflow run or an attempt greater than one
+- **THEN** the v1 version is invalid rather than selecting the later result, and the verifier reports the complete run history
+
+#### Scenario: V1 reports meaningful signal
+- **WHEN** v1 produces a valid `meaningful-signal` result
+- **THEN** it clears only PR #205's efficacy blocker while required checks, aggregate/shard wiring, independent review, and ordinary merge criteria remain mandatory
