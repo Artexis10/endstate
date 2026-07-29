@@ -6,6 +6,7 @@ package validationpilot
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -16,6 +17,8 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/validationaudit"
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
+	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
 
 const (
@@ -150,6 +153,9 @@ func runV1Attempt(ctx context.Context, request V1LaneRequest, run V1ProcessRunne
 		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", "--index", patch}, Env: environment}); result.Infrastructure != "" || result.Rejected {
 			return finishV1Infrastructure(attempt, started, "patch_apply")
 		}
+		if err := ensureV1MutatedModuleRevision(repository, candidate); err != nil {
+			return finishV1Infrastructure(attempt, started, "module_revision")
+		}
 		if tree, err := v1GitValue(ctx, run, repository, environment, "write-tree"); err != nil || tree != candidate.MutatedTree {
 			return finishV1Infrastructure(attempt, started, "mutated_tree")
 		}
@@ -183,6 +189,34 @@ func runV1Attempt(ctx context.Context, request V1LaneRequest, run V1ProcessRunne
 	}
 	attempt.Status, attempt.Failure = status, failure
 	return finishV1Attempt(attempt, started)
+}
+
+func ensureV1MutatedModuleRevision(repository string, candidate V1Candidate) error {
+	if candidate.Family != "module" {
+		return nil
+	}
+	slug := strings.TrimPrefix(candidate.Target.ModuleID, "apps.")
+	moduleBytes, err := os.ReadFile(filepath.Join(repository, "modules", "apps", slug, "module.jsonc"))
+	if err != nil {
+		return err
+	}
+	revision, err := modules.ComputeModuleRevision(moduleBytes)
+	if err != nil {
+		return err
+	}
+	sidecarBytes, err := os.ReadFile(filepath.Join(repository, "modules", "apps", slug, "validation.jsonc"))
+	if err != nil {
+		return err
+	}
+	var sidecar map[string]any
+	if err := json.Unmarshal(manifest.StripJsoncComments(sidecarBytes), &sidecar); err != nil {
+		return err
+	}
+	declared, _ := sidecar["moduleRevision"].(string)
+	if declared != revision {
+		return errors.New("module revision differs")
+	}
+	return nil
 }
 
 func runV1Detector(ctx context.Context, engine, repository string, candidate V1Candidate) (string, *V1Failure, string) {
