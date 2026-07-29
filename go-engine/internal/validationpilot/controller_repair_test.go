@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Artexis10/endstate/go-engine/internal/catalogplan"
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
@@ -73,26 +72,6 @@ func TestV1InfrastructureEvidenceAllowsNoUnmeasuredRepositoryIdentity(t *testing
 	evidence.Attempts[0].BaselineProof = V1BaselineProofIdentity{}
 	if _, _, err := EncodeV1Evidence(evidence); err != nil {
 		t.Fatalf("EncodeV1Evidence(infrastructure) = %v", err)
-	}
-}
-
-func TestV1CatalogFailureUsesOnlyExactTargetRow(t *testing.T) {
-	candidate := V1Candidate{Target: V1Target{BundleID: "bundle-b", RowID: "bundle-b"}}
-	result := validationharness.CatalogMatrixResult{Rows: []validationharness.CatalogMatrixRow{
-		{BundleID: "bundle-a", Status: validationharness.ResultStatusFailed, Failures: []catalogplan.Failure{{Reason: "foreign_failure"}}},
-		{BundleID: "bundle-b", Status: validationharness.ResultStatusFailed, Failures: []catalogplan.Failure{{Reason: "target_failure"}}},
-	}}
-	failure, err := v1CatalogFailure(candidate, result)
-	if err != nil || failure.ChildReason != "target_failure" {
-		t.Fatalf("v1CatalogFailure() = %#v, %v", failure, err)
-	}
-	for _, rows := range [][]validationharness.CatalogMatrixRow{
-		{{BundleID: "bundle-a"}},
-		{{BundleID: "bundle-b"}, {BundleID: "bundle-b"}},
-	} {
-		if _, err := v1CatalogFailure(candidate, validationharness.CatalogMatrixResult{Rows: rows}); err == nil {
-			t.Fatal("v1CatalogFailure() accepted a missing or duplicate target row")
-		}
 	}
 }
 

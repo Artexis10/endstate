@@ -122,16 +122,17 @@ func validV1Proof() (V1Manifest, V1Evidence) {
 		DetectorContractSHA256:   digest("2"),
 		Calibration:              append([]V1Fingerprint(nil), V1CalibrationFingerprints...),
 	}
-	patches := []string{"3", "4", "5", "6", "7", "8"}
-	trees := []string{"e", "f", "a", "b", "c", "d"}
-	for index := 0; index < 6; index++ {
-		family := "catalog"
-		target := V1Target{BundleID: "bundle-" + string(rune('a'+index)), RowID: "bundle-" + string(rune('a'+index))}
-		if index >= 3 {
-			family = "module"
-			target = V1Target{ModuleID: "apps.module-" + string(rune('a'+index)), ScenarioID: "scenario-" + string(rune('a'+index))}
+	patches := []string{"3", "4", "5"}
+	trees := []string{"e", "f", "a"}
+	for index := 0; index < 3; index++ {
+		lifecycle, productionFile := V1LifecycleSchemaV1, "restore/copy.go"
+		failure := V1Failure{Class: "content_mismatch", Phase: "verify", Coordinate: "content", ChildReason: "domain_reason", Scope: V1FailureScopeDomain}
+		if index == 0 {
+			lifecycle, productionFile = V1LifecycleCapture, "bundle/capture_bundle.go"
+			failure = V1Failure{Class: "artifact_contract", Phase: "capture", Coordinate: "payload", ChildReason: "domain_reason", Scope: V1FailureScopeDomain}
 		}
-		manifest.Candidates = append(manifest.Candidates, V1Candidate{ID: "candidate-" + string(rune('a'+index)), Family: family, PatchSHA256: digest(patches[index]), MutatedTree: strings.Repeat(trees[index], 40), OperatorFingerprint: "operator-" + string(rune('a'+index)), InvariantFingerprint: "invariant-" + string(rune('a'+index)), DetectorID: family + "-detector-" + string(rune('a'+index)), Target: target, Expected: V1Failure{Class: "execution_failure", Phase: "catalog-plan", Coordinate: "success", ChildReason: "domain_reason", Scope: V1FailureScopeDomain}})
+		target := V1Target{ModuleID: "apps.module-" + string(rune('a'+index)), ScenarioID: "scenario-" + string(rune('a'+index))}
+		manifest.Candidates = append(manifest.Candidates, V1Candidate{ID: "candidate-" + string(rune('a'+index)), Family: "production-go", PatchSHA256: digest(patches[index]), MutatedTree: strings.Repeat(trees[index], 40), OperatorFingerprint: "operator-" + string(rune('a'+index)), InvariantFingerprint: "invariant-" + string(rune('a'+index)), DetectorID: "module-detector-" + string(rune('a'+index)), Target: target, Expected: failure, Lifecycle: lifecycle, ProductionFile: productionFile, FaultDescription: "drops required product behavior", NormalEntrypoint: "endstate capture", LiveReachability: "the normal product path reaches the changed statement", ReviewRecordSHA256: digest("9")})
 	}
 	timing := func() (string, string, int64) { return "2026-07-29T00:00:00Z", "2026-07-29T00:00:00.001Z", 1 }
 	runner := func(family, imageOS, imageVersion string) V1Runner {
@@ -154,15 +155,16 @@ func validV1Proof() (V1Manifest, V1Evidence) {
 	evidence := V1Evidence{SchemaVersion: V1SchemaVersion}
 	for _, candidate := range manifest.Candidates {
 		started, ended, duration := timing()
+		mode := lifecycleV1Mode(candidate.Lifecycle)
 		for repetition := 1; repetition <= 2; repetition++ {
-			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, DetectorID: candidate.DetectorID, Target: candidate.Target, Kind: V1KindBaseline, Lane: V1LaneWindowsDetector, Repetition: repetition, Authorities: authorities, RepositorySHA256: digest("a"), Toolchain: manifest.Toolchain, Runner: runner("windows", "windows", "2025"), StartedAt: started, EndedAt: ended, DurationMillis: duration, BaselineProof: V1BaselineProofIdentity{SourceTree: authorities.Evaluated.Tree, RepositorySHA256: digest("a"), Target: candidate.Target, Proof: "proof-" + candidate.ID, DiagnosticEngineSHA256: digest("b")}, DetectorContractSHA256: manifest.DetectorContractSHA256, Admission: V1AdmissionAdmitted, Status: V1StatusPassed})
+			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, DetectorID: candidate.DetectorID, Target: candidate.Target, Kind: V1KindBaseline, Lane: V1LaneWindowsDetector, Repetition: repetition, Authorities: authorities, RepositorySHA256: digest("a"), Toolchain: manifest.Toolchain, Runner: runner("windows", "windows", "2025"), StartedAt: started, EndedAt: ended, DurationMillis: duration, BaselineProof: V1BaselineProofIdentity{SourceTree: authorities.Evaluated.Tree, RepositorySHA256: digest("a"), Target: candidate.Target, Proof: "proof-" + candidate.ID, DiagnosticEngineSHA256: digest("b")}, DetectorContractSHA256: manifest.DetectorContractSHA256, Admission: V1AdmissionAdmitted, Status: V1StatusPassed, VerifiedMode: mode})
 		}
 		for _, lane := range []string{V1LaneWindowsGo, V1LaneUbuntuGo, V1LaneMacOSGo} {
 			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, DetectorID: candidate.DetectorID, Target: candidate.Target, Kind: V1KindComparator, Lane: lane, Repetition: 1, Authorities: authorities, PatchSHA256: candidate.PatchSHA256, MutatedTree: candidate.MutatedTree, RepositorySHA256: digest("a"), Toolchain: manifest.Toolchain, Runner: comparatorRunner(lane), StartedAt: started, EndedAt: ended, DurationMillis: duration, ComparatorContractSHA256: manifest.ComparatorContractSHA256, Status: V1StatusPassed})
 		}
 		for repetition := 1; repetition <= 2; repetition++ {
 			failure := candidate.Expected
-			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, DetectorID: candidate.DetectorID, Target: candidate.Target, Kind: V1KindDetector, Lane: V1LaneWindowsDetector, Repetition: repetition, Authorities: authorities, PatchSHA256: candidate.PatchSHA256, MutatedTree: candidate.MutatedTree, RepositorySHA256: digest("a"), Toolchain: manifest.Toolchain, Runner: runner("windows", "windows", "2025"), StartedAt: started, EndedAt: ended, DurationMillis: duration, DetectorContractSHA256: manifest.DetectorContractSHA256, Admission: V1AdmissionAdmitted, Status: V1StatusRejected, Failure: &failure, DiagnosticEngineSHA256: digest("9")})
+			evidence.Attempts = append(evidence.Attempts, V1Attempt{CandidateID: candidate.ID, DetectorID: candidate.DetectorID, Target: candidate.Target, Kind: V1KindDetector, Lane: V1LaneWindowsDetector, Repetition: repetition, Authorities: authorities, PatchSHA256: candidate.PatchSHA256, MutatedTree: candidate.MutatedTree, RepositorySHA256: digest("a"), Toolchain: manifest.Toolchain, Runner: runner("windows", "windows", "2025"), StartedAt: started, EndedAt: ended, DurationMillis: duration, DetectorContractSHA256: manifest.DetectorContractSHA256, Admission: V1AdmissionAdmitted, Status: V1StatusRejected, Failure: &failure, DiagnosticEngineSHA256: digest("9"), VerifiedMode: mode})
 		}
 	}
 	return manifest, evidence

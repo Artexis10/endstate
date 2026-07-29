@@ -190,17 +190,38 @@ func runV1Attempt(ctx context.Context, request V1LaneRequest, run V1ProcessRunne
 		attempt.Status = V1StatusPassed
 		return finishV1Attempt(attempt, started)
 	}
-	// Detector invocation remains typed: the authoritative validation harness is
-	// driven by the controller after the exact engine build, never by shell JSON.
+	// Both production binaries are rebuilt from the evaluated tree; the controller
+	// decodes the validation CLI's bounded result and never invokes it in-process.
 	engine := filepath.Join(directory, "endstate")
+	validator := filepath.Join(directory, "endstate-validation")
 	if runtime.GOOS == "windows" {
 		engine += ".exe"
+		validator += ".exe"
 	}
 	build := run(ctx, filepath.Join(repository, "go-engine"), V1ChildCommand{Name: "go", Args: []string{"build", "-buildvcs=false", "-o", engine, "./cmd/endstate"}, Env: environment})
 	if build.Infrastructure != "" || build.Rejected {
 		return finishV1Infrastructure(attempt, started, "engine_build")
 	}
-	admission, status, failure, proof, infrastructure := runV1Detector(ctx, engine, repository, candidate)
+	build = run(ctx, filepath.Join(repository, "go-engine"), V1ChildCommand{Name: "go", Args: []string{"build", "-buildvcs=false", "-o", validator, "./cmd/endstate-validation"}, Env: environment})
+	if build.Infrastructure != "" || build.Rejected {
+		return finishV1Infrastructure(attempt, started, "validation_build")
+	}
+	if engineBytes, err := os.ReadFile(engine); err != nil {
+		return finishV1Infrastructure(attempt, started, "engine_hash")
+	} else {
+		attempt.DiagnosticEngineSHA256 = v1RepositoryDigest(engineBytes)
+	}
+	if validationBytes, err := os.ReadFile(validator); err != nil {
+		return finishV1Infrastructure(attempt, started, "validation_hash")
+	} else {
+		attempt.DiagnosticValidationSHA256 = v1RepositoryDigest(validationBytes)
+	}
+	mode, err := v1LoadedSidecarMode(repository, candidate.Target)
+	if err != nil || mode != lifecycleV1Mode(candidate.Lifecycle) {
+		return finishV1Infrastructure(attempt, started, "sidecar_mode")
+	}
+	attempt.VerifiedMode = mode
+	admission, status, failure, proof, infrastructure := runV1ExternalDetector(ctx, run, filepath.Join(repository, "go-engine"), engine, validator, repository, candidate, environment)
 	if infrastructure != "" {
 		return finishV1Infrastructure(attempt, started, infrastructure)
 	}
@@ -239,89 +260,54 @@ func ensureV1MutatedModuleRevision(repository string, candidate V1Candidate) err
 	return nil
 }
 
-var runV1CatalogMatrix = validationharness.RunCatalogMatrix
-var runV1Scenario = validationharness.Run
-
-func runV1Detector(ctx context.Context, engine, repository string, candidate V1Candidate) (string, string, *V1Failure, string, string) {
-	if candidate.Family == "catalog" {
-		result, err := runV1CatalogMatrix(ctx, validationharness.CatalogMatrixRequest{EnginePath: engine, RepoRoot: repository})
-		if err != nil {
-			return "", "", nil, "", "detector_launch"
-		}
-		admission, status, failure, proof, err := v1CatalogDetectorResult(candidate, result)
-		if err != nil {
-			return "", "", nil, "", "detector_evidence"
-		}
-		return admission, status, failure, proof, ""
-	}
-	result, err := runV1Scenario(ctx, validationharness.Request{EnginePath: engine, RepoRoot: repository, ModuleID: candidate.Target.ModuleID, ScenarioID: candidate.Target.ScenarioID})
+func v1LoadedSidecarMode(repository string, target V1Target) (string, error) {
+	slug := strings.TrimPrefix(target.ModuleID, "apps.")
+	raw, err := os.ReadFile(filepath.Join(repository, "modules", "apps", slug, "validation.jsonc"))
 	if err != nil {
+		return "", err
+	}
+	var sidecar struct {
+		Synthetic struct {
+			Scenarios []struct {
+				ID   string `json:"id"`
+				Mode string `json:"mode"`
+			} `json:"scenarios"`
+		} `json:"synthetic"`
+	}
+	if json.Unmarshal(manifest.StripJsoncComments(raw), &sidecar) != nil {
+		return "", errors.New("sidecar decode failed")
+	}
+	for _, scenario := range sidecar.Synthetic.Scenarios {
+		if scenario.ID == target.ScenarioID && validV1Mode(scenario.Mode) {
+			return scenario.Mode, nil
+		}
+	}
+	return "", errors.New("sidecar scenario differs")
+}
+
+func runV1ExternalDetector(ctx context.Context, run V1ProcessRunner, directory, engine, validator, repository string, candidate V1Candidate, environment []string) (string, string, *V1Failure, string, string) {
+	result := run(ctx, directory, V1ChildCommand{Name: validator, Args: []string{"--engine", engine, "--repo", repository, "--module", candidate.Target.ModuleID, "--scenario", candidate.Target.ScenarioID}, Env: environment})
+	if result.Infrastructure != "" {
 		return "", "", nil, "", "detector_launch"
 	}
-	admission, failure, err := v1ModuleDetectorResult(candidate, result)
+	var typed validationharness.Result
+	if json.Unmarshal([]byte(result.Value), &typed) != nil {
+		return "", "", nil, "", "detector_evidence"
+	}
+	admission, failure, err := v1ModuleDetectorResult(candidate, typed)
 	if err != nil {
 		return "", "", nil, "", "detector_evidence"
 	}
-	if result.Status == validationharness.ResultStatusPassed {
-		return admission, V1StatusPassed, nil, v1ModuleBaselineProof(result, candidate.Target), ""
-	}
-	return admission, V1StatusRejected, failure, v1ModuleBaselineProof(result, candidate.Target), ""
-}
-
-func v1CatalogDetectorResult(candidate V1Candidate, result validationharness.CatalogMatrixResult) (string, string, *V1Failure, string, error) {
-	failure, err := v1CatalogFailure(candidate, result)
-	if err != nil {
-		return "", "", nil, "", err
-	}
-	row, err := v1CatalogRow(candidate, result)
-	if err != nil {
-		return "", "", nil, "", err
-	}
-	proof := v1CatalogBaselineProof(row, candidate.Target)
-	if row.Status == validationharness.ResultStatusPassed {
-		return V1AdmissionAdmitted, V1StatusPassed, nil, proof, nil
-	}
-	if failure == nil {
-		return "", "", nil, "", errors.New("catalog target row has no typed failure")
-	}
-	if shallowV1Failure(failure) {
-		return V1AdmissionRejected, V1StatusRejected, failure, proof, nil
-	}
-	return V1AdmissionAdmitted, V1StatusRejected, failure, proof, nil
-}
-
-func v1CatalogFailure(candidate V1Candidate, result validationharness.CatalogMatrixResult) (*V1Failure, error) {
-	row, err := v1CatalogRow(candidate, result)
-	if err != nil {
-		return nil, err
-	}
-	if len(row.Failures) > 0 {
-		return v1FailureFromLegacy(&Failure{Code: validationharness.CodeExecutionFailure, Phase: "catalog-plan", Coordinate: "success", ChildReason: row.Failures[0].Reason}), nil
-	}
-	if row.Failure != nil {
-		return v1FailureFromLegacy(&Failure{Code: row.Failure.Code, Phase: row.Failure.Phase, Coordinate: row.Failure.Coordinate}), nil
-	}
-	return nil, nil
-}
-
-func v1CatalogRow(candidate V1Candidate, result validationharness.CatalogMatrixResult) (validationharness.CatalogMatrixRow, error) {
-	if candidate.Target.RowID != candidate.Target.BundleID {
-		return validationharness.CatalogMatrixRow{}, errors.New("catalog row identity differs")
-	}
-	var found *validationharness.CatalogMatrixRow
-	for index := range result.Rows {
-		if result.Rows[index].BundleID != candidate.Target.BundleID {
-			continue
+	if typed.Status == validationharness.ResultStatusPassed {
+		if result.Rejected {
+			return "", "", nil, "", "detector_evidence"
 		}
-		if found != nil {
-			return validationharness.CatalogMatrixRow{}, errors.New("catalog target row is ambiguous")
-		}
-		found = &result.Rows[index]
+		return admission, V1StatusPassed, nil, v1ModuleBaselineProof(typed, candidate.Target), ""
 	}
-	if found == nil {
-		return validationharness.CatalogMatrixRow{}, errors.New("catalog target row is missing")
+	if !result.Rejected {
+		return "", "", nil, "", "detector_evidence"
 	}
-	return *found, nil
+	return admission, V1StatusRejected, failure, v1ModuleBaselineProof(typed, candidate.Target), ""
 }
 
 func v1ModuleDetectorResult(candidate V1Candidate, result validationharness.Result) (string, *V1Failure, error) {
@@ -356,11 +342,6 @@ func v1FailureFromLegacy(failure *Failure) *V1Failure {
 
 func v1ModuleBaselineProof(result validationharness.Result, target V1Target) string {
 	return v1TypedProof(target, result.Status, result.ProofLevels, result.AssertionCounts, v1FailureFromLegacy(&Failure{Code: failureCode(result.Failure), Phase: failurePhase(result.Failure), Coordinate: failureCoordinate(result.Failure)}))
-}
-
-func v1CatalogBaselineProof(row validationharness.CatalogMatrixRow, target V1Target) string {
-	failure, _ := v1CatalogFailure(V1Candidate{Target: target}, validationharness.CatalogMatrixResult{Rows: []validationharness.CatalogMatrixRow{row}})
-	return v1TypedProof(target, row.Status, row.ProofLevels, row.AssertionCounts, failure)
 }
 
 func failureCode(failure *validationharness.Failure) string {
@@ -650,7 +631,7 @@ func runV1Process(ctx context.Context, directory string, command V1ChildCommand)
 	}
 	if err != nil {
 		if _, ok := err.(*exec.ExitError); ok {
-			return V1ChildResult{Rejected: true}
+			return V1ChildResult{Rejected: true, Value: strings.TrimSpace(output.String())}
 		}
 		return V1ChildResult{Infrastructure: "launch"}
 	}

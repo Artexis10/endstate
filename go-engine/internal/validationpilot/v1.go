@@ -33,6 +33,10 @@ const (
 	V1StatusInfrastructure = "infrastructure"
 	V1FailureScopeDomain   = "domain"
 	V1FailureScopeGuard    = "guard"
+	V1LifecycleCapture     = "capture"
+	V1LifecycleSchemaV1    = "schema-v1-restore"
+	V1ModeCapture          = "capture-contract"
+	V1ModeRoundtrip        = "config-roundtrip-v1"
 	DecisionInconclusive   = "inconclusive"
 )
 
@@ -82,7 +86,7 @@ type V1Failure struct {
 	Scope       string `json:"scope"`
 }
 
-// V1Target binds a detector to its exact module scenario or catalog row.
+// V1Target binds a detector to its exact production module scenario.
 type V1Target struct {
 	ModuleID   string `json:"moduleId,omitempty"`
 	ScenarioID string `json:"scenarioId,omitempty"`
@@ -119,9 +123,15 @@ type V1Candidate struct {
 	DetectorID           string    `json:"detectorId"`
 	Target               V1Target  `json:"target"`
 	Expected             V1Failure `json:"expected"`
+	Lifecycle            string    `json:"lifecycle"`
+	ProductionFile       string    `json:"productionFile"`
+	FaultDescription     string    `json:"faultDescription"`
+	NormalEntrypoint     string    `json:"normalEntrypoint"`
+	LiveReachability     string    `json:"liveReachability"`
+	ReviewRecordSHA256   string    `json:"reviewRecordSha256"`
 }
 
-// V1Manifest defines the closed six-item v1 preflight denominator.
+// V1Manifest defines the closed three-item v1 preflight denominator.
 type V1Manifest struct {
 	SchemaVersion            int             `json:"schemaVersion"`
 	Authorities              V1Authorities   `json:"authorities"`
@@ -135,28 +145,30 @@ type V1Manifest struct {
 // V1Attempt preserves only typed, bounded v1 proof data. The engine digest is
 // diagnostic and deliberately excluded from repeatability identity.
 type V1Attempt struct {
-	CandidateID              string                  `json:"candidateId"`
-	DetectorID               string                  `json:"detectorId"`
-	Target                   V1Target                `json:"target"`
-	Kind                     string                  `json:"kind"`
-	Lane                     string                  `json:"lane,omitempty"`
-	Repetition               int                     `json:"repetition"`
-	Authorities              V1Authorities           `json:"authorities"`
-	PatchSHA256              string                  `json:"patchSha256"`
-	MutatedTree              string                  `json:"mutatedTree"`
-	RepositorySHA256         string                  `json:"repositorySha256"`
-	Toolchain                string                  `json:"toolchain"`
-	Runner                   V1Runner                `json:"runner"`
-	StartedAt                string                  `json:"startedAt"`
-	EndedAt                  string                  `json:"endedAt"`
-	DurationMillis           int64                   `json:"durationMillis"`
-	BaselineProof            V1BaselineProofIdentity `json:"baselineProof,omitempty"`
-	ComparatorContractSHA256 string                  `json:"comparatorContractSha256,omitempty"`
-	DetectorContractSHA256   string                  `json:"detectorContractSha256,omitempty"`
-	Admission                string                  `json:"admission,omitempty"`
-	Status                   string                  `json:"status"`
-	Failure                  *V1Failure              `json:"failure,omitempty"`
-	DiagnosticEngineSHA256   string                  `json:"diagnosticEngineSha256,omitempty"`
+	CandidateID                string                  `json:"candidateId"`
+	DetectorID                 string                  `json:"detectorId"`
+	Target                     V1Target                `json:"target"`
+	Kind                       string                  `json:"kind"`
+	Lane                       string                  `json:"lane,omitempty"`
+	Repetition                 int                     `json:"repetition"`
+	Authorities                V1Authorities           `json:"authorities"`
+	PatchSHA256                string                  `json:"patchSha256"`
+	MutatedTree                string                  `json:"mutatedTree"`
+	RepositorySHA256           string                  `json:"repositorySha256"`
+	Toolchain                  string                  `json:"toolchain"`
+	Runner                     V1Runner                `json:"runner"`
+	StartedAt                  string                  `json:"startedAt"`
+	EndedAt                    string                  `json:"endedAt"`
+	DurationMillis             int64                   `json:"durationMillis"`
+	BaselineProof              V1BaselineProofIdentity `json:"baselineProof,omitempty"`
+	ComparatorContractSHA256   string                  `json:"comparatorContractSha256,omitempty"`
+	DetectorContractSHA256     string                  `json:"detectorContractSha256,omitempty"`
+	Admission                  string                  `json:"admission,omitempty"`
+	Status                     string                  `json:"status"`
+	Failure                    *V1Failure              `json:"failure,omitempty"`
+	DiagnosticEngineSHA256     string                  `json:"diagnosticEngineSha256,omitempty"`
+	DiagnosticValidationSHA256 string                  `json:"diagnosticValidationSha256,omitempty"`
+	VerifiedMode               string                  `json:"verifiedMode,omitempty"`
 }
 
 // V1Evidence is the complete typed proof inventory.
@@ -170,7 +182,7 @@ type V1AggregateRow struct {
 	Classification string `json:"classification"`
 }
 
-// V1Aggregate is the six-item v1 decision output.
+// V1Aggregate is the three-item v1 decision output.
 type V1Aggregate struct {
 	SchemaVersion          int              `json:"schemaVersion"`
 	Rows                   []V1AggregateRow `json:"rows"`
@@ -245,7 +257,7 @@ func ClassifyV1(manifest V1Manifest, evidence V1Evidence) (V1Aggregate, error) {
 		byCandidate[attempt.CandidateID] = append(byCandidate[attempt.CandidateID], attempt)
 	}
 	aggregate := V1Aggregate{SchemaVersion: V1SchemaVersion, Rows: make([]V1AggregateRow, 0, len(manifest.Candidates)), Decision: DecisionInsufficientSignal}
-	moduleKills, catalogKills := 0, 0
+	modes := map[string]bool{}
 	for _, candidate := range manifest.Candidates {
 		classification, err := classifyV1Candidate(manifest, candidate, byCandidate[candidate.ID])
 		if err != nil {
@@ -255,11 +267,7 @@ func ClassifyV1(manifest V1Manifest, evidence V1Evidence) (V1Aggregate, error) {
 		switch classification {
 		case ClassificationCorrectNewOnlyKill:
 			aggregate.CorrectKills++
-			if candidate.Family == "module" {
-				moduleKills++
-			} else {
-				catalogKills++
-			}
+			modes[verifiedV1Mode(attemptsForV1Candidate(byCandidate[candidate.ID]))] = true
 		case ClassificationWrongKill:
 			aggregate.WrongKills++
 		case ClassificationSurvivor:
@@ -270,7 +278,7 @@ func ClassifyV1(manifest V1Manifest, evidence V1Evidence) (V1Aggregate, error) {
 			aggregate.Flakes++
 		}
 	}
-	if aggregate.CorrectKills == 6 && moduleKills == 3 && catalogKills == 3 && aggregate.WrongKills == 0 && aggregate.Survivors == 0 && aggregate.InfrastructureFailures == 0 && aggregate.Flakes == 0 {
+	if aggregate.CorrectKills == 3 && modes[V1ModeCapture] && modes[V1ModeRoundtrip] && aggregate.WrongKills == 0 && aggregate.Survivors == 0 && aggregate.InfrastructureFailures == 0 && aggregate.Flakes == 0 {
 		aggregate.Decision = DecisionMeaningfulSignal
 	}
 	return aggregate, nil
@@ -318,6 +326,9 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	if !oneFound || !twoFound || baselineOne.Lane != V1LaneWindowsDetector || baselineTwo.Lane != V1LaneWindowsDetector || baselineOne.Toolchain != manifest.Toolchain || baselineTwo.Toolchain != manifest.Toolchain || baselineOne.DetectorContractSHA256 != manifest.DetectorContractSHA256 || baselineTwo.DetectorContractSHA256 != manifest.DetectorContractSHA256 {
 		return "", errors.New("v1 baseline evidence is foreign or malformed")
 	}
+	if baselineOne.VerifiedMode != lifecycleV1Mode(candidate.Lifecycle) || baselineTwo.VerifiedMode != lifecycleV1Mode(candidate.Lifecycle) {
+		return ClassificationInfrastructureFailure, nil
+	}
 	if baselineOne.Status == V1StatusInfrastructure || baselineTwo.Status == V1StatusInfrastructure {
 		return ClassificationInfrastructureFailure, nil
 	}
@@ -342,13 +353,16 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 			return ClassificationFlake, nil
 		}
 		if attempt.Status != V1StatusPassed {
-			return ClassificationWrongKill, nil
+			return ClassificationAlreadyCovered, nil
 		}
 	}
 	first, firstFound := detectors[1]
 	second, secondFound := detectors[2]
 	if !firstFound || !secondFound || first.Lane != V1LaneWindowsDetector || second.Lane != V1LaneWindowsDetector || first.Toolchain != manifest.Toolchain || second.Toolchain != manifest.Toolchain || first.DetectorContractSHA256 != manifest.DetectorContractSHA256 || second.DetectorContractSHA256 != manifest.DetectorContractSHA256 || first.ComparatorContractSHA256 != "" || second.ComparatorContractSHA256 != "" {
 		return "", errors.New("v1 detector evidence is foreign or malformed")
+	}
+	if first.VerifiedMode != lifecycleV1Mode(candidate.Lifecycle) || second.VerifiedMode != lifecycleV1Mode(candidate.Lifecycle) {
+		return ClassificationInfrastructureFailure, nil
 	}
 	if first.Status == V1StatusInfrastructure || second.Status == V1StatusInfrastructure {
 		return ClassificationInfrastructureFailure, nil
@@ -362,13 +376,81 @@ func classifyV1Candidate(manifest V1Manifest, candidate V1Candidate, attempts []
 	if first.Status == V1StatusPassed {
 		return ClassificationSurvivor, nil
 	}
-	if first.Admission != V1AdmissionAdmitted || second.Admission != V1AdmissionAdmitted || shallowV1Failure(first.Failure) {
+	if first.Admission != V1AdmissionAdmitted || second.Admission != V1AdmissionAdmitted || shallowV1Failure(first.Failure) || !creditableV1Failure(first.Failure) {
 		return ClassificationWrongKill, nil
 	}
 	if first.Status != V1StatusRejected || first.Failure == nil || *first.Failure != candidate.Expected {
 		return ClassificationWrongKill, nil
 	}
 	return ClassificationCorrectNewOnlyKill, nil
+}
+
+func attemptsForV1Candidate(attempts []V1Attempt) []V1Attempt { return attempts }
+
+func verifiedV1Mode(attempts []V1Attempt) string {
+	for _, attempt := range attempts {
+		if attempt.Kind == V1KindDetector {
+			return attempt.VerifiedMode
+		}
+	}
+	return ""
+}
+
+func creditableV1Failure(failure *V1Failure) bool {
+	if failure == nil || failure.Phase == "fixture" || failure.Class == "unsupported_fixture" {
+		return false
+	}
+	switch failure.Class {
+	case "artifact_contract":
+		return failure.Phase == "capture" || failure.Phase == "rebuild"
+	case "content_mismatch", "event_contract":
+		return failure.Phase == "capture" || failure.Phase == "rebuild" || failure.Phase == "verify" || failure.Phase == "revert"
+	case "revert_failure":
+		return failure.Phase == "revert"
+	}
+	return false
+}
+
+func lifecycleV1Mode(lifecycle string) string {
+	if lifecycle == V1LifecycleCapture {
+		return V1ModeCapture
+	}
+	if lifecycle == V1LifecycleSchemaV1 {
+		return V1ModeRoundtrip
+	}
+	return ""
+}
+
+func validV1Mode(mode string) bool { return mode == V1ModeCapture || mode == V1ModeRoundtrip }
+
+func validV1Text(value string) bool {
+	return len(value) > 0 && len(value) <= 256 && !strings.ContainsAny(value, "\r\n")
+}
+
+func validV1LifecycleFile(lifecycle, file string) bool {
+	files := map[string][]string{
+		V1LifecycleCapture:  {"bundle/capture_bundle.go", "bundle/collect.go", "bundle/config_capture.go", "bundle/create.go", "bundle/module_snapshot.go", "bundle/payload_manifest.go"},
+		V1LifecycleSchemaV1: {"restore/append.go", "restore/backup.go", "restore/copy.go", "restore/delete_glob.go", "restore/merge_ini.go", "restore/merge_json.go", "restore/registry_import.go", "restore/restore.go", "restore/revert.go", "restore/target_safety.go"},
+	}
+	for _, allowed := range files[lifecycle] {
+		if file == allowed {
+			return true
+		}
+	}
+	return false
+}
+
+func v1ComparatorCoveredTarget(target V1Target) bool {
+	return map[string]bool{
+		"apps.notepad-plus-plus/default-v1":                            true,
+		"apps.kubectl/install-v1":                                      true,
+		"apps.mgba/reviewed-capture-v1":                                true,
+		"apps.windows-terminal/generation-preferences-g1-97631ba2d2e5": true,
+		"apps.owncloud/generation-preferences-g1-1c4479cb88b9":         true,
+		"apps.owncloud/generation-preferences-g2-899536c068d4":         true,
+		"apps.owncloud/migration-preferences-g1-to-g2":                 true,
+		"apps.studio-one/generation-preferences-g1-61e9f6f3c254":       true,
+	}[target.ModuleID+"/"+target.ScenarioID]
 }
 
 func matchesV1Candidate(attempt V1Attempt, candidate V1Candidate) bool {
@@ -407,7 +489,7 @@ func v1GuardValue(value string) bool {
 }
 
 func validV1Manifest(manifest V1Manifest) bool {
-	if manifest.SchemaVersion != V1SchemaVersion || !validV1Authorities(manifest.Authorities) || !v1ToolchainPattern.MatchString(manifest.Toolchain) || !sha256Pattern.MatchString(manifest.ComparatorContractSHA256) || !sha256Pattern.MatchString(manifest.DetectorContractSHA256) || len(manifest.Candidates) != 6 {
+	if manifest.SchemaVersion != V1SchemaVersion || !validV1Authorities(manifest.Authorities) || !v1ToolchainPattern.MatchString(manifest.Toolchain) || !sha256Pattern.MatchString(manifest.ComparatorContractSHA256) || !sha256Pattern.MatchString(manifest.DetectorContractSHA256) || len(manifest.Candidates) != 3 {
 		return false
 	}
 	operators, invariants, ids, patches, trees := map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}
@@ -423,32 +505,28 @@ func validV1Manifest(manifest V1Manifest) bool {
 		calibrationOperators[fingerprint.OperatorFingerprint] = true
 		calibrationInvariants[fingerprint.InvariantFingerprint] = true
 	}
-	modules, catalogs := 0, 0
+	modes := map[string]bool{}
 	for _, candidate := range manifest.Candidates {
 		if !validV1Candidate(candidate) || ids[candidate.ID] || patches[candidate.PatchSHA256] || trees[candidate.MutatedTree] || operators[candidate.OperatorFingerprint] || invariants[candidate.InvariantFingerprint] || calibrationOperators[candidate.OperatorFingerprint] || calibrationInvariants[candidate.InvariantFingerprint] {
 			return false
 		}
 		ids[candidate.ID], patches[candidate.PatchSHA256], trees[candidate.MutatedTree], operators[candidate.OperatorFingerprint], invariants[candidate.InvariantFingerprint] = true, true, true, true, true
-		if candidate.Family == "module" {
-			modules++
-			if moduleDetectors[candidate.DetectorID] {
-				return false
-			}
-			moduleDetectors[candidate.DetectorID] = true
-			key := candidate.DetectorID + "\x00" + candidate.Target.ModuleID + "\x00" + candidate.Target.ScenarioID
-			if moduleTargets[key] {
-				return false
-			}
-			moduleTargets[key] = true
-		} else {
-			catalogs++
+		if moduleDetectors[candidate.DetectorID] {
+			return false
 		}
+		moduleDetectors[candidate.DetectorID] = true
+		key := candidate.DetectorID + "\x00" + candidate.Target.ModuleID + "\x00" + candidate.Target.ScenarioID
+		if moduleTargets[key] {
+			return false
+		}
+		moduleTargets[key] = true
+		modes[lifecycleV1Mode(candidate.Lifecycle)] = true
 	}
-	return modules == 3 && catalogs == 3 && len(moduleTargets) == 3 && len(moduleDetectors) == 3
+	return len(moduleTargets) == 3 && len(moduleDetectors) == 3 && modes[V1ModeCapture] && modes[V1ModeRoundtrip]
 }
 
 func validV1Evidence(evidence V1Evidence) bool {
-	if evidence.SchemaVersion != V1SchemaVersion || len(evidence.Attempts) == 0 || len(evidence.Attempts) > 42 {
+	if evidence.SchemaVersion != V1SchemaVersion || len(evidence.Attempts) == 0 || len(evidence.Attempts) > 21 {
 		return false
 	}
 	for _, attempt := range evidence.Attempts {
@@ -460,7 +538,7 @@ func validV1Evidence(evidence V1Evidence) bool {
 }
 
 func validV1Aggregate(aggregate V1Aggregate) bool {
-	if aggregate.SchemaVersion != V1SchemaVersion || len(aggregate.Rows) != 6 || (aggregate.Decision != DecisionMeaningfulSignal && aggregate.Decision != DecisionInsufficientSignal && aggregate.Decision != DecisionInconclusive) {
+	if aggregate.SchemaVersion != V1SchemaVersion || len(aggregate.Rows) != 3 || (aggregate.Decision != DecisionMeaningfulSignal && aggregate.Decision != DecisionInsufficientSignal && aggregate.Decision != DecisionInconclusive) {
 		return false
 	}
 	seen := map[string]bool{}
@@ -481,6 +559,7 @@ func validV1Aggregate(aggregate V1Aggregate) bool {
 			infrastructure++
 		case ClassificationFlake:
 			flakes++
+		case ClassificationAlreadyCovered:
 		default:
 			return false
 		}
@@ -488,7 +567,7 @@ func validV1Aggregate(aggregate V1Aggregate) bool {
 	if aggregate.CorrectKills != correct || aggregate.WrongKills != wrong || aggregate.Survivors != survivors || aggregate.InfrastructureFailures != infrastructure || aggregate.Flakes != flakes {
 		return false
 	}
-	return aggregate.Decision != DecisionMeaningfulSignal || correct == 6 && wrong == 0 && survivors == 0 && infrastructure == 0 && flakes == 0
+	return aggregate.Decision != DecisionMeaningfulSignal || correct == 3 && wrong == 0 && survivors == 0 && infrastructure == 0 && flakes == 0
 }
 
 func validV1Authorities(authorities V1Authorities) bool {
@@ -501,19 +580,19 @@ func validV1Fingerprint(fingerprint V1Fingerprint) bool {
 	return validV1Value(fingerprint.OperatorFingerprint) && validV1Value(fingerprint.InvariantFingerprint)
 }
 func validV1Candidate(candidate V1Candidate) bool {
-	return validV1Value(candidate.ID) && (candidate.Family == "catalog" || candidate.Family == "module") && sha256Pattern.MatchString(candidate.PatchSHA256) && v1SHA1Pattern.MatchString(candidate.MutatedTree) && validV1Fingerprint(V1Fingerprint{candidate.OperatorFingerprint, candidate.InvariantFingerprint}) && validV1Value(candidate.DetectorID) && validV1Target(candidate.Family, candidate.Target) && validV1Failure(candidate.Expected) && !shallowV1Failure(&candidate.Expected)
+	return validV1Value(candidate.ID) && candidate.Family == "production-go" && sha256Pattern.MatchString(candidate.PatchSHA256) && v1SHA1Pattern.MatchString(candidate.MutatedTree) && validV1Fingerprint(V1Fingerprint{candidate.OperatorFingerprint, candidate.InvariantFingerprint}) && validV1Value(candidate.DetectorID) && validV1Target("module", candidate.Target) && validV1Failure(candidate.Expected) && !shallowV1Failure(&candidate.Expected) && creditableV1Failure(&candidate.Expected) && validV1LifecycleFile(candidate.Lifecycle, candidate.ProductionFile) && validV1Text(candidate.FaultDescription) && validV1Text(candidate.NormalEntrypoint) && validV1Text(candidate.LiveReachability) && sha256Pattern.MatchString(candidate.ReviewRecordSHA256) && !v1ComparatorCoveredTarget(candidate.Target)
 }
 func validV1Attempt(attempt V1Attempt) bool {
-	if !validV1Value(attempt.CandidateID) || !validV1Value(attempt.DetectorID) || !(validV1Target("module", attempt.Target) || validV1Target("catalog", attempt.Target)) || !validV1Authorities(attempt.Authorities) || (attempt.Status != V1StatusInfrastructure && !sha256Pattern.MatchString(attempt.RepositorySHA256)) || (attempt.Status == V1StatusInfrastructure && attempt.RepositorySHA256 != "" && !sha256Pattern.MatchString(attempt.RepositorySHA256)) || !v1ToolchainPattern.MatchString(attempt.Toolchain) || !validV1Runner(attempt.Runner) || !validV1Timing(attempt) || !validV1LaneRunner(attempt.Lane, attempt.Runner) || !validV1Status(attempt.Status) || attempt.DiagnosticEngineSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticEngineSHA256) || attempt.Failure != nil && !validV1Failure(*attempt.Failure) {
+	if !validV1Value(attempt.CandidateID) || !validV1Value(attempt.DetectorID) || !validV1Target("module", attempt.Target) || !validV1Authorities(attempt.Authorities) || (attempt.Status != V1StatusInfrastructure && !sha256Pattern.MatchString(attempt.RepositorySHA256)) || (attempt.Status == V1StatusInfrastructure && attempt.RepositorySHA256 != "" && !sha256Pattern.MatchString(attempt.RepositorySHA256)) || !v1ToolchainPattern.MatchString(attempt.Toolchain) || !validV1Runner(attempt.Runner) || !validV1Timing(attempt) || !validV1LaneRunner(attempt.Lane, attempt.Runner) || !validV1Status(attempt.Status) || attempt.DiagnosticEngineSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticEngineSHA256) || attempt.DiagnosticValidationSHA256 != "" && !sha256Pattern.MatchString(attempt.DiagnosticValidationSHA256) || attempt.Failure != nil && !validV1Failure(*attempt.Failure) {
 		return false
 	}
 	switch attempt.Kind {
 	case V1KindBaseline:
-		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && attempt.PatchSHA256 == "" && attempt.MutatedTree == "" && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusInfrastructure && attempt.BaselineProof == (V1BaselineProofIdentity{})) || (validV1BaselineProof(attempt.BaselineProof) && attempt.BaselineProof.Target == attempt.Target)) && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
+		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && attempt.PatchSHA256 == "" && attempt.MutatedTree == "" && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusInfrastructure && attempt.BaselineProof == (V1BaselineProofIdentity{})) || (validV1BaselineProof(attempt.BaselineProof) && attempt.BaselineProof.Target == attempt.Target)) && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil) && (attempt.Status == V1StatusInfrastructure || validV1Mode(attempt.VerifiedMode))
 	case V1KindComparator:
 		return (attempt.Lane == V1LaneWindowsGo || attempt.Lane == V1LaneUbuntuGo || attempt.Lane == V1LaneMacOSGo) && attempt.Repetition == 1 && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.ComparatorContractSHA256) && attempt.DetectorContractSHA256 == "" && attempt.Admission == "" && attempt.BaselineProof == (V1BaselineProofIdentity{}) && (attempt.Status == V1StatusPassed || attempt.Status == V1StatusRejected || attempt.Status == V1StatusInfrastructure) && (attempt.Status == V1StatusRejected) == (attempt.Failure != nil)
 	case V1KindDetector:
-		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && attempt.BaselineProof == (V1BaselineProofIdentity{}) && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusRejected) == (attempt.Failure != nil))
+		return attempt.Lane == V1LaneWindowsDetector && (attempt.Repetition == 1 || attempt.Repetition == 2) && sha256Pattern.MatchString(attempt.PatchSHA256) && v1SHA1Pattern.MatchString(attempt.MutatedTree) && sha256Pattern.MatchString(attempt.DetectorContractSHA256) && attempt.ComparatorContractSHA256 == "" && attempt.BaselineProof == (V1BaselineProofIdentity{}) && (attempt.Admission == V1AdmissionAdmitted || attempt.Admission == V1AdmissionRejected) && ((attempt.Status == V1StatusRejected) == (attempt.Failure != nil)) && (attempt.Status == V1StatusInfrastructure || validV1Mode(attempt.VerifiedMode))
 	default:
 		return false
 	}
@@ -547,7 +626,7 @@ func validV1LaneRunner(lane string, runner V1Runner) bool {
 	}
 }
 func validV1BaselineProof(proof V1BaselineProofIdentity) bool {
-	return v1SHA1Pattern.MatchString(proof.SourceTree) && sha256Pattern.MatchString(proof.RepositorySHA256) && (validV1Target("module", proof.Target) || validV1Target("catalog", proof.Target)) && validV1Value(proof.Proof) && (proof.DiagnosticEngineSHA256 == "" || sha256Pattern.MatchString(proof.DiagnosticEngineSHA256))
+	return v1SHA1Pattern.MatchString(proof.SourceTree) && sha256Pattern.MatchString(proof.RepositorySHA256) && validV1Target("module", proof.Target) && validV1Value(proof.Proof) && (proof.DiagnosticEngineSHA256 == "" || sha256Pattern.MatchString(proof.DiagnosticEngineSHA256))
 }
 func validV1Timing(attempt V1Attempt) bool {
 	if attempt.DurationMillis < 0 || attempt.DurationMillis > 14_400_000 {

@@ -6,23 +6,21 @@ package validationaudit
 import (
 	"crypto/sha256"
 	"errors"
-	"regexp"
-	"strings"
 )
 
 var (
 	ErrInvalidV1PatchScope = errors.New("validation audit invalid v1 patch scope")
-	v1RevisionLine         = regexp.MustCompile(`^[+-]\s*"moduleRevision"\s*:\s*"[^"]+"\s*,?\s*$`)
 )
 
 // V1PatchRequest is the controller-derived patch authority. Patch paths are
 // never supplied by callers: the bounded candidate identifier fixes the leaf.
 type V1PatchRequest struct {
-	CandidateID string
-	Family      string
-	PatchSHA256 string
-	ModuleID    string
-	BundleID    string
+	CandidateID    string
+	Family         string
+	PatchSHA256    string
+	ModuleID       string
+	BundleID       string
+	ProductionFile string
 }
 
 type V1PatchIdentity struct {
@@ -64,44 +62,19 @@ func LoadV1CandidatePatch(repositoryRoot string, request V1PatchRequest) (V1Patc
 	return V1PatchIdentity{SHA256: digest, TouchedPaths: paths}, nil
 }
 
-func validV1PatchScope(request V1PatchRequest, paths []string, raw string) bool {
-	switch request.Family {
-	case "catalog":
-		return validAuditIdentifier(request.BundleID) && len(paths) == 1 && paths[0] == "bundles/"+request.BundleID+".jsonc"
-	case "module":
-		if !strings.HasPrefix(request.ModuleID, "apps.") {
-			return false
-		}
-		slug := strings.TrimPrefix(request.ModuleID, "apps.")
-		modulePath := "modules/apps/" + slug + "/module.jsonc"
-		sidecarPath := "modules/apps/" + slug + "/validation.jsonc"
-		if len(paths) == 1 {
-			return paths[0] == modulePath
-		}
-		return len(paths) == 2 && paths[0] == modulePath && paths[1] == sidecarPath && mechanicalV1RevisionSidecar(raw, sidecarPath)
-	default:
-		return false
-	}
+func validV1PatchScope(request V1PatchRequest, paths []string, _ string) bool {
+	path := "go-engine/internal/" + request.ProductionFile
+	return request.Family == "production-go" && validV1ProductionFile(request.ProductionFile) && len(paths) == 1 && paths[0] == path
 }
 
-func mechanicalV1RevisionSidecar(raw, sidecarPath string) bool {
-	lines := strings.Split(strings.ReplaceAll(raw, "\r\n", "\n"), "\n")
-	inSidecar, removed, added := false, false, false
-	for _, line := range lines {
-		if strings.HasPrefix(line, "diff --git ") {
-			inSidecar = strings.Contains(line, " a/"+sidecarPath+" b/"+sidecarPath)
-			continue
-		}
-		if !inSidecar || strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "---") || strings.HasPrefix(line, "@@") || strings.HasPrefix(line, "index ") {
-			continue
-		}
-		if strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
-			if !v1RevisionLine.MatchString(line) {
-				return false
-			}
-			removed = removed || strings.HasPrefix(line, "-")
-			added = added || strings.HasPrefix(line, "+")
+func validV1ProductionFile(file string) bool {
+	for _, allowed := range []string{
+		"bundle/capture_bundle.go", "bundle/collect.go", "bundle/config_capture.go", "bundle/create.go", "bundle/module_snapshot.go", "bundle/payload_manifest.go",
+		"restore/append.go", "restore/backup.go", "restore/copy.go", "restore/delete_glob.go", "restore/merge_ini.go", "restore/merge_json.go", "restore/registry_import.go", "restore/restore.go", "restore/revert.go", "restore/target_safety.go",
+	} {
+		if file == allowed {
+			return true
 		}
 	}
-	return removed && added
+	return false
 }

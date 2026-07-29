@@ -175,6 +175,10 @@ func ValidateV1Repository(root, manifestPath string) (V1Manifest, error) {
 		if _, err := validationaudit.LoadV1CandidatePatch(canonicalRoot, v1PatchRequest(candidate)); err != nil {
 			return V1Manifest{}, err
 		}
+		mode, err := v1LoadedSidecarMode(canonicalRoot, candidate.Target)
+		if err != nil || mode != lifecycleV1Mode(candidate.Lifecycle) {
+			return V1Manifest{}, errors.New("v1 sidecar mode differs")
+		}
 	}
 	return manifest, nil
 }
@@ -228,13 +232,7 @@ func ensureCleanV1Dispatch(root string, dispatch V1Reference) error {
 }
 
 func v1PatchRequest(candidate V1Candidate) validationaudit.V1PatchRequest {
-	request := validationaudit.V1PatchRequest{CandidateID: candidate.ID, Family: candidate.Family, PatchSHA256: candidate.PatchSHA256}
-	if candidate.Family == "catalog" {
-		request.BundleID = candidate.Target.BundleID
-	} else {
-		request.ModuleID = candidate.Target.ModuleID
-	}
-	return request
+	return validationaudit.V1PatchRequest{CandidateID: candidate.ID, Family: candidate.Family, PatchSHA256: candidate.PatchSHA256, ProductionFile: candidate.ProductionFile}
 }
 
 func V1ComparatorContractSHA256() string {
@@ -242,7 +240,7 @@ func V1ComparatorContractSHA256() string {
 }
 
 func V1DetectorContractSHA256() string {
-	return v1Digest("typed-v1-detector\n")
+	return v1Digest("go build -buildvcs=false -o endstate ./cmd/endstate\ngo build -buildvcs=false -o endstate-validation ./cmd/endstate-validation\nendstate-validation --engine endstate --repo repository --module module --scenario scenario\n")
 }
 
 func v1Digest(value string) string {

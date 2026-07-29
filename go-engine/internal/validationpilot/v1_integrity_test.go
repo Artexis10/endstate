@@ -31,7 +31,7 @@ func TestV1ManifestRejectsDuplicatePatchAndMutatedTree(t *testing.T) {
 
 func TestV1ManifestRequiresThreeDistinctModuleDetectors(t *testing.T) {
 	manifest, _ := validV1Proof()
-	manifest.Candidates[4].DetectorID = manifest.Candidates[3].DetectorID
+	manifest.Candidates[2].DetectorID = manifest.Candidates[1].DetectorID
 	if _, _, err := EncodeV1Manifest(manifest); err == nil {
 		t.Fatal("EncodeV1Manifest() accepted repeated module detector identity")
 	}

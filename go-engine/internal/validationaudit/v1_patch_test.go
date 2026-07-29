@@ -11,16 +11,19 @@ import (
 	"testing"
 )
 
-func TestLoadV1CandidatePatchDerivesOnlyApprovedPathAndScope(t *testing.T) {
+func TestLoadV1CandidatePatchDerivesOnlyApprovedProductionGoPathAndScope(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw := []byte("diff --git a/bundles/work.jsonc b/bundles/work.jsonc\nindex 1111111..2222222 100644\n--- a/bundles/work.jsonc\n+++ b/bundles/work.jsonc\n@@ -1 +1 @@\n-{}\n+{\"modules\":[]}\n")
-	writeV1Patch(t, root, "catalog-one", raw)
-	identity, err := LoadV1CandidatePatch(root, V1PatchRequest{CandidateID: "catalog-one", Family: "catalog", PatchSHA256: v1PatchDigest(raw), BundleID: "work"})
+	raw := []byte("diff --git a/go-engine/internal/bundle/create.go b/go-engine/internal/bundle/create.go\nindex 1111111..2222222 100644\n--- a/go-engine/internal/bundle/create.go\n+++ b/go-engine/internal/bundle/create.go\n@@ -1 +1 @@\n-a\n+b\n")
+	writeV1Patch(t, root, "production-one", raw)
+	identity, err := LoadV1CandidatePatch(root, V1PatchRequest{CandidateID: "production-one", Family: "production-go", ProductionFile: "bundle/create.go", PatchSHA256: v1PatchDigest(raw)})
 	if err != nil || identity.SHA256 != v1PatchDigest(raw) {
 		t.Fatalf("LoadV1CandidatePatch() = %#v, %v", identity, err)
+	}
+	if _, err := LoadV1CandidatePatch(root, V1PatchRequest{CandidateID: "production-one", Family: "catalog", ProductionFile: "bundle/create.go", PatchSHA256: v1PatchDigest(raw)}); !errors.Is(err, ErrInvalidV1PatchScope) {
+		t.Fatalf("LoadV1CandidatePatch() = %v, want catalog rejection", err)
 	}
 }
 
@@ -38,12 +41,12 @@ func TestLoadV1CandidatePatchRejectsWrongTargetExtraPathAndNonMechanicalSidecar(
 		{
 			name:    "forbidden extra path",
 			request: V1PatchRequest{CandidateID: "catalog-two", Family: "catalog", BundleID: "work"},
-			raw: []byte("diff --git a/bundles/work.jsonc b/bundles/work.jsonc\nindex 1111111..2222222 100644\n--- a/bundles/work.jsonc\n+++ b/bundles/work.jsonc\n@@ -1 +1 @@\n-{}\n+{\"modules\":[]}\ndiff --git a/.github/workflows/x.yml b/.github/workflows/x.yml\nindex 1111111..2222222 100644\n--- a/.github/workflows/x.yml\n+++ b/.github/workflows/x.yml\n@@ -1 +1 @@\n-a\n+b\n"),
+			raw:     []byte("diff --git a/bundles/work.jsonc b/bundles/work.jsonc\nindex 1111111..2222222 100644\n--- a/bundles/work.jsonc\n+++ b/bundles/work.jsonc\n@@ -1 +1 @@\n-{}\n+{\"modules\":[]}\ndiff --git a/.github/workflows/x.yml b/.github/workflows/x.yml\nindex 1111111..2222222 100644\n--- a/.github/workflows/x.yml\n+++ b/.github/workflows/x.yml\n@@ -1 +1 @@\n-a\n+b\n"),
 		},
 		{
 			name:    "non mechanical sidecar",
 			request: V1PatchRequest{CandidateID: "module-two", Family: "module", ModuleID: "apps.foo"},
-			raw: []byte("diff --git a/modules/apps/foo/module.jsonc b/modules/apps/foo/module.jsonc\nindex 1111111..2222222 100644\n--- a/modules/apps/foo/module.jsonc\n+++ b/modules/apps/foo/module.jsonc\n@@ -1 +1 @@\n-{}\n+{\"id\":\"apps.foo\"}\ndiff --git a/modules/apps/foo/validation.jsonc b/modules/apps/foo/validation.jsonc\nindex 1111111..2222222 100644\n--- a/modules/apps/foo/validation.jsonc\n+++ b/modules/apps/foo/validation.jsonc\n@@ -1 +1 @@\n-{\"moduleRevision\":\"old\"}\n+{\"moduleRevision\":\"new\",\"extra\":true}\n"),
+			raw:     []byte("diff --git a/modules/apps/foo/module.jsonc b/modules/apps/foo/module.jsonc\nindex 1111111..2222222 100644\n--- a/modules/apps/foo/module.jsonc\n+++ b/modules/apps/foo/module.jsonc\n@@ -1 +1 @@\n-{}\n+{\"id\":\"apps.foo\"}\ndiff --git a/modules/apps/foo/validation.jsonc b/modules/apps/foo/validation.jsonc\nindex 1111111..2222222 100644\n--- a/modules/apps/foo/validation.jsonc\n+++ b/modules/apps/foo/validation.jsonc\n@@ -1 +1 @@\n-{\"moduleRevision\":\"old\"}\n+{\"moduleRevision\":\"new\",\"extra\":true}\n"),
 		},
 	}
 	for _, tt := range tests {
@@ -58,6 +61,23 @@ func TestLoadV1CandidatePatchRejectsWrongTargetExtraPathAndNonMechanicalSidecar(
 				t.Fatalf("LoadV1CandidatePatch() error = %v, want scope rejection", err)
 			}
 		})
+	}
+}
+
+func TestLoadV1CandidatePatchAcceptsOnlyOneRegisteredProductionGoFile(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte("diff --git a/go-engine/internal/bundle/capture_bundle.go b/go-engine/internal/bundle/capture_bundle.go\nindex 1111111..2222222 100644\n--- a/go-engine/internal/bundle/capture_bundle.go\n+++ b/go-engine/internal/bundle/capture_bundle.go\n@@ -1 +1 @@\n-a\n+b\n")
+	request := V1PatchRequest{CandidateID: "production-one", Family: "production-go", ProductionFile: "bundle/capture_bundle.go", PatchSHA256: v1PatchDigest(raw)}
+	writeV1Patch(t, root, request.CandidateID, raw)
+	if _, err := LoadV1CandidatePatch(root, request); err != nil {
+		t.Fatalf("LoadV1CandidatePatch() = %v", err)
+	}
+	request.ProductionFile = "bundle/not-allowed.go"
+	if _, err := LoadV1CandidatePatch(root, request); !errors.Is(err, ErrInvalidV1PatchScope) {
+		t.Fatalf("LoadV1CandidatePatch() = %v, want scope rejection", err)
 	}
 }
 
