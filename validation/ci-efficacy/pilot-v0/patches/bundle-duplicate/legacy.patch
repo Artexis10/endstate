@@ -1,0 +1,7 @@
+--- a/bundles/gaming.jsonc
++++ b/bundles/gaming.jsonc
+@@ -7,3 +7,4 @@
+   "modules": [
+     "bizhawk",
++    "bizhawk",
+     "cemu",

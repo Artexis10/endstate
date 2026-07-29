@@ -1,0 +1,17 @@
+--- a/modules/apps/obs-studio/module.jsonc
++++ b/modules/apps/obs-studio/module.jsonc
+@@ -29,4 +29,4 @@
+       "type": "copy",
+       "source": "./payload/apps/obs-studio/basic/profiles",
+-      "target": "%APPDATA%\\obs-studio\\basic\\profiles",
++      "target": "%APPDATA%\\obs-studio\\basic\\profiles-drift",
+       "backup": true,
+--- a/modules/apps/obs-studio/validation.jsonc
++++ b/modules/apps/obs-studio/validation.jsonc
+@@ -1,5 +1,5 @@
+ {
+   "schemaVersion": 1,
+   "moduleId": "apps.obs-studio",
+-  "moduleRevision": "61e418fb812a00fb7c75fe0f2a30f4cfa1976ed24d0759834253bd43a7dc68ac",
++  "moduleRevision": "a0ba365e2b992105fd44b6715eb968ba57b9f3ab14c6ef54fe3f7cd141e400e6",
+   "synthetic": {

@@ -1,0 +1,8 @@
+--- a/modules/apps/obs-studio/module.jsonc
++++ b/modules/apps/obs-studio/module.jsonc
+@@ -29,4 +29,4 @@
+       "type": "copy",
+       "source": "./payload/apps/obs-studio/basic/profiles",
+-      "target": "%APPDATA%\\obs-studio\\basic\\profiles",
++      "target": "%APPDATA%\\obs-studio\\basic\\profiles-drift",
+       "backup": true,

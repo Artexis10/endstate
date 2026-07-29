@@ -1,0 +1,10 @@
+--- a/modules/apps/vlc/module.jsonc
++++ b/modules/apps/vlc/module.jsonc
+@@ -21,6 +21,6 @@
+       "type": "copy",
+       "source": "./payload/apps/vlc/vlcrc",
+       "target": "%APPDATA%\\vlc\\vlcrc",
+-      "backup": true,
++      "backup": false,
+       "optional": true
+     },

@@ -1,0 +1,19 @@
+--- a/modules/apps/vlc/module.jsonc
++++ b/modules/apps/vlc/module.jsonc
+@@ -21,6 +21,6 @@
+       "type": "copy",
+       "source": "./payload/apps/vlc/vlcrc",
+       "target": "%APPDATA%\\vlc\\vlcrc",
+-      "backup": true,
++      "backup": false,
+       "optional": true
+     },
+--- a/modules/apps/vlc/validation.jsonc
++++ b/modules/apps/vlc/validation.jsonc
+@@ -1,5 +1,5 @@
+ {
+   "schemaVersion": 1,
+   "moduleId": "apps.vlc",
+-  "moduleRevision": "46e921723cafeab59b1e88901653ac406352ee4f35a2cba509d301e6a4e51e75",
++  "moduleRevision": "088340844ef007655eeac8c7654cbc364b4069792d364261cedba9121646f432",
+   "synthetic": {

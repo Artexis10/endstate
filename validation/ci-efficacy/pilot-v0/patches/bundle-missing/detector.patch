@@ -1,0 +1,8 @@
+--- a/bundles/remote-access.jsonc
++++ b/bundles/remote-access.jsonc
+@@ -12,4 +12,4 @@
+     "royal-ts",
+     "rustdesk",
+-    "winbox"
++    "winboxx"
+   ]

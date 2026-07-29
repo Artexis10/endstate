@@ -1,0 +1,18 @@
+--- a/modules/apps/alacritty/module.jsonc
++++ b/modules/apps/alacritty/module.jsonc
+@@ -24,5 +24,5 @@
+       // Primary config: fonts, colors, keybindings, window, shell - all in one TOML
+       "type": "copy",
+-      "source": "./payload/apps/alacritty/alacritty.toml",
++      "source": "./payload/apps/alacritty/not-captured.toml",
+       "target": "%APPDATA%\\alacritty\\alacritty.toml",
+       "backup": true,
+--- a/modules/apps/alacritty/validation.jsonc
++++ b/modules/apps/alacritty/validation.jsonc
+@@ -1,5 +1,5 @@
+ {
+   "schemaVersion": 1,
+   "moduleId": "apps.alacritty",
+-  "moduleRevision": "5e9bdbedc2eefe6ac868fff3f562d368b3952546246f4fa69656f47a32066748",
++  "moduleRevision": "31b122cb121890f6f57cdc802f11b0ec2e5065306180b73ff80deeeb7c613791",
+   "synthetic": {

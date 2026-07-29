@@ -1,0 +1,8 @@
+--- a/bundles/communication.jsonc
++++ b/bundles/communication.jsonc
+@@ -3,4 +3,4 @@
+ {
+   "version": 1,
+-  "id": "communication",
++  "id": "communication-drift",
+   "name": "Communication & Email",

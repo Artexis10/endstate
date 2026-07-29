@@ -43,3 +43,30 @@ func TestGoCIWorkflowKeepsVerifiedModuleMatrixContract(t *testing.T) {
 		}
 	}
 }
+
+func TestEfficacyAuditWorkflowKeepsFixedHostedPreflightContract(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	workflow, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", ".github", "workflows", "ci-efficacy-audit.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(workflow), "\r\n", "\n")
+	for _, wanted := range []string{
+		"workflow_dispatch:", "permissions: {}", "fail-fast: false", "max-parallel: 6",
+		"ab8065cd67ab3f4e9e876e07a25facf3100c28c7", "437c0ca4167c09bc9f2de515daa6d55d35257d4f",
+		"ea165f8d65b6e75b540449e92b4886f43607fa02", "634f93cb2916e3fdff6788551b99b062d0335ce0",
+		"windows-latest", "ubuntu-latest", "macos-latest", "go vet ./...", "go test ./...", "integration-test.ps1",
+		"bundle-duplicate", "bundle-missing", "bundle-id-drift", "vlc-backup-off", "alacritty-source-drift", "obs-target-drift",
+	} {
+		if !strings.Contains(text, wanted) {
+			t.Errorf("workflow missing %q", wanted)
+		}
+	}
+	for _, forbidden := range []string{
+		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "winget install", "choco install", "brew install", "apt-get install", "rm -rf", "Remove-Item",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Errorf("workflow contains forbidden %q", forbidden)
+		}
+	}
+}
