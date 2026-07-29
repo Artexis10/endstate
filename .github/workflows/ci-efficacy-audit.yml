@@ -1,0 +1,13 @@
+name: CI Efficacy Audit
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  inert:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1
+    steps:
+      - run: echo "CI efficacy audit bootstrap is inert."
