@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
-          cache: false
+          cache-dependency-path: audit/go-engine/go.sum
       - name: Acquire dispatch source anonymously
         run: |
           git -c credential.helper= -c http.extraheader= init audit
@@ -49,7 +49,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
-          cache: false
+          cache-dependency-path: audit/go-engine/go.sum
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: v1-kit
@@ -76,7 +76,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
-          cache: false
+          cache-dependency-path: audit/go-engine/go.sum
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: v1-kit
@@ -99,7 +99,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
-          cache: false
+          cache-dependency-path: audit/go-engine/go.sum
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: v1-kit
@@ -123,7 +123,7 @@ jobs:
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
           go-version: '1.26'
-          cache: false
+          cache-dependency-path: audit/go-engine/go.sum
       - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0
         with:
           name: v1-kit

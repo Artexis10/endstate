@@ -140,10 +140,10 @@ func runV1Attempt(ctx context.Context, request V1LaneRequest, run V1ProcessRunne
 	repository := filepath.Join(directory, "repository")
 	if request.Role != V1KindBaseline {
 		patch := filepath.Join(request.Root, filepath.FromSlash(V1CorpusRoot), "patches", candidate.ID+".patch")
-		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", "--check", patch}, Env: V1ChildEnvironment(os.Environ())}); result.Infrastructure != "" || result.Rejected {
+		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", "--check", "--index", patch}, Env: V1ChildEnvironment(os.Environ())}); result.Infrastructure != "" || result.Rejected {
 			return finishV1Infrastructure(attempt, started, "patch_apply")
 		}
-		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", patch}, Env: V1ChildEnvironment(os.Environ())}); result.Infrastructure != "" || result.Rejected {
+		if result := run(ctx, repository, V1ChildCommand{Name: "git", Args: []string{"apply", "--index", patch}, Env: V1ChildEnvironment(os.Environ())}); result.Infrastructure != "" || result.Rejected {
 			return finishV1Infrastructure(attempt, started, "patch_apply")
 		}
 		if tree, err := v1GitValue(ctx, run, repository, "write-tree"); err != nil || tree != candidate.MutatedTree {
@@ -272,13 +272,26 @@ func writeV1EvidenceNew(path string, evidence V1Evidence) error {
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	parent := filepath.Dir(path)
+	temporary, err := os.CreateTemp(parent, ".evidence-*")
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	if _, err := file.Write(raw); err != nil || file.Sync() != nil {
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(raw); err != nil || temporary.Sync() != nil || temporary.Close() != nil {
 		return errors.New("v1 evidence publication failed")
+	}
+	if err := os.Link(temporaryName, path); err != nil {
+		return err
+	}
+	stored, err := os.ReadFile(path)
+	if err != nil || string(stored) != string(raw) {
+		return errors.New("v1 evidence publication differs")
 	}
 	return nil
 }
