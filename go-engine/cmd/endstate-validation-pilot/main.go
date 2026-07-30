@@ -15,6 +15,13 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/validationpilot"
 )
 
+var (
+	loadV0Manifest              = validationpilot.LoadManifest
+	validateV0DetectorAuthority = validationpilot.ValidateDetectorAuthority
+	validateV0Corpus            = validationpilot.ValidateCorpus
+	runV0Detector               = validationpilot.RunDetector
+)
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
@@ -56,7 +63,7 @@ func runV0(args []string) int {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	manifest, err := validationpilot.LoadManifest(filepath.Join(root, "validation", "ci-efficacy", "pilot-v0", "manifest.json"))
+	manifest, err := loadV0Manifest(filepath.Join(root, "validation", "ci-efficacy", "pilot-v0", "manifest.json"))
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -66,9 +73,9 @@ func runV0(args []string) int {
 		if len(args) != 2 {
 			return 2
 		}
-		err = validationpilot.ValidateDetectorAuthority(root, manifest)
+		err = validateV0DetectorAuthority(root, manifest)
 		if err == nil {
-			err = validationpilot.ValidateCorpus(root, manifest)
+			err = validateV0Corpus(root, manifest)
 		}
 	case "aggregate":
 		if len(args) != 4 {
@@ -209,7 +216,21 @@ func runDetector(args []string) int {
 		return 2
 	}
 	request.ResultPath = output
-	attempt, err := validationpilot.RunDetector(context.Background(), request)
+	root, err := filepath.Abs(request.RepoRoot)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	manifest, err := loadV0Manifest(filepath.Join(root, "validation", "ci-efficacy", "pilot-v0", "manifest.json"))
+	if err == nil {
+		err = validateV0DetectorAuthority(root, manifest)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	request.RepoRoot = root
+	attempt, err := runV0Detector(context.Background(), request)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
