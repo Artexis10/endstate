@@ -6,6 +6,7 @@ package validationpilot
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -121,6 +122,20 @@ func TestV1ChildEnvironmentPreservesWindowsComSpecAndUsesPlatformKeyMatching(t *
 	}
 	if got := v1EnvironmentValue([]string{"temp=attempt"}, "TEMP"); got != "" {
 		t.Fatalf("Unix TEMP lookup = %q, want empty", got)
+	}
+}
+
+func TestV1ChildEnvironmentRunsLiveWindowsCommand(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows-only live process contract")
+	}
+	_, file, _, _ := runtime.Caller(0)
+	command := exec.Command("go", "test", "-count=1", "./internal/validationharness", "-run", "^TestLiveProcessPermitRunsWindowsCommand$")
+	command.Dir = filepath.Join(filepath.Dir(file), "..", "..")
+	command.Env = V1ChildEnvironment(os.Environ())
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("live Windows command under V1ChildEnvironment: %v\n%s", err, output)
 	}
 }
 

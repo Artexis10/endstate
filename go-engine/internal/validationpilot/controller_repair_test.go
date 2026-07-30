@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -403,8 +404,7 @@ func TestV1AttemptEnvironmentReplacesTMPDIRAndPreservesItForNestedChild(t *testi
 	}
 }
 
-func TestV1AttemptEnvironmentOwnsEachProfileAndCacheKeyAndReachesDetector(t *testing.T) {
-	repository, _, candidate, raw := v1ExternalDetectorFixture(t)
+func TestV1AttemptEnvironmentOwnsEachProfileAndCacheKey(t *testing.T) {
 	runnerRoot := t.TempDir()
 	attemptRoot := filepath.Join(runnerRoot, "attempt")
 	goCache := filepath.Join(runnerRoot, "go-build")
@@ -428,6 +428,24 @@ func TestV1AttemptEnvironmentOwnsEachProfileAndCacheKeyAndReachesDetector(t *tes
 			t.Fatalf("%s occurrence count = %d, want 1", key, got)
 		}
 	}
+}
+
+func TestV1AttemptEnvironmentReachesDetectorWithOwnedTEMP(t *testing.T) {
+	repository, _, candidate, raw := v1ExternalDetectorFixture(t)
+	runnerRoot := t.TempDir()
+	attemptRoot := filepath.Join(runnerRoot, "attempt")
+	goCache := filepath.Join(runnerRoot, "go-build")
+	goModCache := filepath.Join(runnerRoot, "go-mod")
+	for _, path := range []string{attemptRoot, goCache, goModCache} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("TEMP", "inherited-temp")
+	environment, err := v1AttemptEnvironment(attemptRoot, runnerRoot, goCache, goModCache)
+	if err != nil {
+		t.Fatal(err)
+	}
 	reached := false
 	run := func(_ context.Context, _ string, command V1ChildCommand) V1ChildResult {
 		reached = true
@@ -446,11 +464,18 @@ func v1EnvironmentCount(environment []string, name string) int {
 	count := 0
 	for _, value := range environment {
 		key, _, found := strings.Cut(value, "=")
-		if found && v1EnvironmentKeyEqual(key, name) {
+		if found && v1TestEnvironmentKeyEqual(key, name) {
 			count++
 		}
 	}
 	return count
+}
+
+func v1TestEnvironmentKeyEqual(left, right string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 func runV1TestGit(t *testing.T, directory string, arguments ...string) string {

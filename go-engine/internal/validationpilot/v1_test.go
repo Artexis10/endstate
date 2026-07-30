@@ -89,7 +89,8 @@ func TestFinishV1InfrastructureRecordsItsBoundedCoordinate(t *testing.T) {
 	started := time.Now().UTC().Add(-time.Second).Truncate(time.Millisecond)
 	attempt.StartedAt = started.Format(time.RFC3339Nano)
 	finished := finishV1Infrastructure(attempt, started, "detector_result_root")
-	if finished.Status != V1StatusInfrastructure || finished.InfrastructureCoordinate != "detector_result_root" || !validV1Attempt(finished) {
+	raw, _, err := EncodeV1Evidence(V1Evidence{SchemaVersion: V1SchemaVersion, Attempts: []V1Attempt{finished}})
+	if err != nil || !strings.Contains(string(raw), `"infrastructureCoordinate":"detector_result_root"`) || !validV1Attempt(finished) {
 		t.Fatalf("finishV1Infrastructure() = %#v", finished)
 	}
 }
