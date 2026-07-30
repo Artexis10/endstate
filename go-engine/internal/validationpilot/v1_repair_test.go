@@ -139,6 +139,103 @@ func TestV1ManifestRejectsProductionCausalReason(t *testing.T) {
 	}
 }
 
+func TestValidV1FailureCoordinateGrammar(t *testing.T) {
+	for _, coordinate := range []string{
+		"capture.files[0]",
+		"manifest.configModules",
+		"capture.excludeGlobs[12]",
+		"configCaptures[0].sourceInstance.evidence",
+		"restore-item.status",
+		"PATH",
+	} {
+		failure := V1Failure{Class: "artifact_contract", Phase: "capture", Coordinate: coordinate, Scope: V1FailureScopeDomain}
+		if !validV1Failure(failure) {
+			t.Fatalf("validV1Failure(%q) = false", coordinate)
+		}
+	}
+	for _, coordinate := range []string{
+		"/abs/path", "C:\\path", "capture/files", "capture\\files", ".capture", "capture.", "capture..files",
+		"capture.files[]", "capture.files[-1]", "capture.files[01]", "capture.files[", "capture.files]", "capture.files[0",
+		"capture\nfiles", strings.Repeat("a", 65),
+	} {
+		failure := V1Failure{Class: "artifact_contract", Phase: "capture", Coordinate: coordinate, Scope: V1FailureScopeDomain}
+		if validV1Failure(failure) {
+			t.Fatalf("validV1Failure(%q) = true", coordinate)
+		}
+	}
+}
+
+func TestV1FailureCoordinateDoesNotRelaxOtherIdentifiers(t *testing.T) {
+	for _, invalid := range []V1Failure{
+		{Class: "artifactContract", Phase: "capture", Coordinate: "capture.files[0]", Scope: V1FailureScopeDomain},
+		{Class: "artifact_contract", Phase: "captureFiles[0]", Coordinate: "capture.files[0]", Scope: V1FailureScopeDomain},
+		{Class: "artifact_contract", Phase: "capture", Coordinate: "capture.files[0]", ChildReason: "childReason[0]", Scope: V1FailureScopeDomain},
+	} {
+		if validV1Failure(invalid) {
+			t.Fatalf("validV1Failure(%#v) = true", invalid)
+		}
+	}
+}
+
+func TestV1FailureCoordinatesRoundTripAndClassify(t *testing.T) {
+	manifest, evidence := validV1Proof()
+	coordinate := "configCaptures[0].sourceInstance.evidence"
+	manifest.Candidates[0].Expected.Coordinate = coordinate
+	for index := range evidence.Attempts {
+		if evidence.Attempts[index].CandidateID == manifest.Candidates[0].ID && evidence.Attempts[index].Failure != nil {
+			evidence.Attempts[index].Failure.Coordinate = coordinate
+		}
+	}
+	encodedManifest, _, err := EncodeV1Manifest(manifest)
+	if err != nil {
+		t.Fatalf("EncodeV1Manifest() = %v", err)
+	}
+	decodedManifest, err := DecodeV1Manifest(encodedManifest)
+	if err != nil || decodedManifest.Candidates[0].Expected.Coordinate != coordinate {
+		t.Fatalf("DecodeV1Manifest() = %#v, %v", decodedManifest, err)
+	}
+	encodedEvidence, _, err := EncodeV1Evidence(evidence)
+	if err != nil {
+		t.Fatalf("EncodeV1Evidence() = %v", err)
+	}
+	decodedEvidence, err := DecodeV1Evidence(encodedEvidence)
+	if err != nil || decodedEvidence.Attempts[5].Failure.Coordinate != coordinate {
+		t.Fatalf("DecodeV1Evidence() = %#v, %v", decodedEvidence, err)
+	}
+	aggregate, err := ClassifyV1(manifest, evidence)
+	if err != nil || aggregate.Rows[0].Classification != ClassificationCorrectNewOnlyKill {
+		t.Fatalf("ClassifyV1() = %#v, %v", aggregate, err)
+	}
+	failure := v1FailureFromLegacy(&Failure{Code: "artifact_contract", Phase: "capture", Coordinate: coordinate})
+	if failure == nil || failure.Coordinate != coordinate || shallowV1Failure(failure) {
+		t.Fatalf("v1FailureFromLegacy() = %#v", failure)
+	}
+}
+
+func TestDecodeV1ExternalResultPreservesHarnessCoordinate(t *testing.T) {
+	candidate := validV1CandidateForRepair(t)
+	revision := strings.Repeat("a", 64)
+	coordinate := "capture.files[0]"
+	result := validationharness.Result{
+		SchemaVersion:  validationharness.ResultSchemaVersion,
+		ModuleID:       candidate.Target.ModuleID,
+		ModuleRevision: revision,
+		ScenarioID:     candidate.Target.ScenarioID,
+		Kind:           validationmatrix.ScenarioCaptureContract,
+		Status:         validationharness.ResultStatusFailed,
+		ProofLevels:    []validationmatrix.ProofLevel{},
+		AssertionCounts: map[string]int{
+			"capture": 1,
+		},
+		Failure:      &validationharness.Failure{Code: validationharness.CodeArtifactContract, Phase: "capture", Coordinate: coordinate, Detail: "captured file differs"},
+		PhaseTimings: map[string]time.Duration{"capture": time.Millisecond},
+	}
+	decoded, err := DecodeV1ExternalResult(mustV1ExternalJSON(t, result), candidate, revision, V1ModeCapture)
+	if err != nil || decoded.Failure == nil || decoded.Failure.Coordinate != coordinate {
+		t.Fatalf("DecodeV1ExternalResult() = %#v, %v", decoded, err)
+	}
+}
+
 func validV1CandidateForRepair(t *testing.T) V1Candidate {
 	t.Helper()
 	manifest, _ := validV1Proof()

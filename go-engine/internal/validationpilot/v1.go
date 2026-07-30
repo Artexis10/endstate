@@ -44,6 +44,7 @@ var (
 	v1ToolchainPattern  = regexp.MustCompile(`^go1\.26\.[0-9]+$`)
 	v1SHA1Pattern       = regexp.MustCompile(`^[a-f0-9]{40}$`)
 	v1IdentifierPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,63}$`)
+	v1CoordinatePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]*(?:\[(?:0|[1-9][0-9]*)\])?(?:\.[A-Za-z][A-Za-z0-9_-]*(?:\[(?:0|[1-9][0-9]*)\])?)*$`)
 )
 
 // V1CalibrationFingerprints is the closed v0 registry. These cases remain
@@ -639,7 +640,11 @@ func validV1Status(status string) bool {
 	return status == V1StatusPassed || status == V1StatusRejected || status == V1StatusInfrastructure
 }
 func validV1Failure(failure V1Failure) bool {
-	return validV1Value(failure.Class) && validV1Value(failure.Phase) && validV1Value(failure.Coordinate) && (failure.ChildReason == "" || validV1Value(failure.ChildReason)) && (failure.Scope == V1FailureScopeDomain || failure.Scope == V1FailureScopeGuard)
+	return validV1Value(failure.Class) && validV1Value(failure.Phase) && validV1Coordinate(failure.Coordinate) && (failure.ChildReason == "" || validV1Value(failure.ChildReason)) && (failure.Scope == V1FailureScopeDomain || failure.Scope == V1FailureScopeGuard)
+}
+
+func validV1Coordinate(value string) bool {
+	return len(value) <= 64 && v1CoordinatePattern.MatchString(value)
 }
 func validV1Target(family string, target V1Target) bool {
 	if family == "module" {
