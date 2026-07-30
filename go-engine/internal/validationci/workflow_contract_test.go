@@ -50,7 +50,9 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
 		"validate-v1", "run-v1-lane", "aggregate-v1", "--dispatch-commit", "$GITHUB_SHA", "$env:GITHUB_SHA", "--role baseline", "--role detector", "--role comparator", "if: always()", "if-no-files-found: error",
 		"--runner-root", "--runner-image-os", "--runner-image-version", "ImageOS", "ImageVersion",
-		"GOCACHE: ${{ runner.temp }}/v1-owned/go-build", "GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod", "--go-cache", "--go-mod-cache",
+		"GOCACHE=$RUNNER_TEMP/v1-owned/go-build", "GOMODCACHE=$RUNNER_TEMP/v1-owned/go-mod", "mkdir -p \"$RUNNER_TEMP/v1-owned/go-build\" \"$RUNNER_TEMP/v1-owned/go-mod\"",
+		"GOCACHE=$env:RUNNER_TEMP/v1-owned/go-build", "GOMODCACHE=$env:RUNNER_TEMP/v1-owned/go-mod", "New-Item -ItemType Directory -Force \"$env:RUNNER_TEMP/v1-owned/go-build\", \"$env:RUNNER_TEMP/v1-owned/go-mod\" | Out-Null",
+		"--go-cache", "--go-mod-cache",
 	} {
 		if !strings.Contains(text, wanted) {
 			t.Errorf("workflow missing %q", wanted)
@@ -58,6 +60,7 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "ConvertTo-Json", "ConvertFrom-Json", "jq", "notepad", "winget", "choco", "brew", "apt-get", "Remove-Item", "rm -rf", "git config", "--depth=1",
+		"GOCACHE: ${{ runner.temp }}/v1-owned/go-build", "GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod",
 	} {
 		if strings.Contains(strings.ToLower(text), strings.ToLower(forbidden)) {
 			t.Errorf("workflow contains forbidden %q", forbidden)
@@ -70,8 +73,10 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 		t.Errorf("workflow timeout count = %d, want 5", got)
 	}
 	for wanted, count := range map[string]int{
-		"GOCACHE: ${{ runner.temp }}/v1-owned/go-build":  5,
-		"GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod": 5,
+		"GOCACHE=$RUNNER_TEMP/v1-owned/go-build":       4,
+		"GOMODCACHE=$RUNNER_TEMP/v1-owned/go-mod":      4,
+		"GOCACHE=$env:RUNNER_TEMP/v1-owned/go-build":   1,
+		"GOMODCACHE=$env:RUNNER_TEMP/v1-owned/go-mod":  1,
 		"--go-cache":     5,
 		"--go-mod-cache": 5,
 		"go-version: '1.26.5'": 5,
