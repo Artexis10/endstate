@@ -21,7 +21,7 @@ that the contemporaneous cross-platform Go gate accepts?
 
 The comparator is exactly `go vet ./...` followed by `go test ./...` on fixed
 Windows, Ubuntu, and macOS hosted runner families. Each lane uses the same
-immutable `actions/setup-go` revision and requested Go `1.26` line as the
+immutable `actions/setup-go` revision and exact Go `1.26.5` patch as the
 required Go workflow, preserves that workflow's setup-cache behavior, supplies
 no token input, and records the exact resolved toolchain and runner image.
 Windows Notepad++ integration is

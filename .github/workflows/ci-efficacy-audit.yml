@@ -27,7 +27,7 @@ jobs:
         run: mkdir -p "$GOCACHE" "$GOMODCACHE"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26'
+          go-version: '1.26.5'
           cache-dependency-path: audit/go-engine/go.sum
       - name: Build native controller and validate authority
         run: |
@@ -55,7 +55,7 @@ jobs:
         run: New-Item -ItemType Directory -Force $env:GOCACHE, $env:GOMODCACHE | Out-Null
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26'
+          go-version: '1.26.5'
           cache-dependency-path: audit/go-engine/go.sum
       - name: Build and run native Windows controller
         shell: pwsh
@@ -92,7 +92,7 @@ jobs:
         run: mkdir -p "$GOCACHE" "$GOMODCACHE"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26'
+          go-version: '1.26.5'
           cache-dependency-path: audit/go-engine/go.sum
       - name: Build and run native Ubuntu controller
         run: |
@@ -125,7 +125,7 @@ jobs:
         run: mkdir -p "$GOCACHE" "$GOMODCACHE"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26'
+          go-version: '1.26.5'
           cache-dependency-path: audit/go-engine/go.sum
       - name: Build and run native macOS controller
         run: |
@@ -159,7 +159,7 @@ jobs:
         run: mkdir -p "$GOCACHE" "$GOMODCACHE"
       - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16
         with:
-          go-version: '1.26'
+          go-version: '1.26.5'
           cache-dependency-path: audit/go-engine/go.sum
       - name: Build native controller
         run: cd audit/go-engine && go build -buildvcs=false -o "$RUNNER_TEMP/endstate-validation-pilot" ./cmd/endstate-validation-pilot

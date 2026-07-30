@@ -46,7 +46,7 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
 	for _, wanted := range []string{
 		"workflow_dispatch:", "permissions: {}", "prepare:", "windows:", "ubuntu:", "macos:", "aggregate:",
-		"actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16", "go-version: '1.26'", "cache-dependency-path: audit/go-engine/go.sum",
+		"actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16", "go-version: '1.26.5'", "cache-dependency-path: audit/go-engine/go.sum",
 		"actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02", "actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0",
 		"validate-v1", "run-v1-lane", "aggregate-v1", "--dispatch-commit", "$GITHUB_SHA", "$env:GITHUB_SHA", "--role baseline", "--role detector", "--role comparator", "if: always()", "if-no-files-found: error",
 		"--runner-root", "--runner-image-os", "--runner-image-version", "ImageOS", "ImageVersion",
@@ -74,10 +74,14 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 		"GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod": 5,
 		"--go-cache":     5,
 		"--go-mod-cache": 5,
+		"go-version: '1.26.5'": 5,
 	} {
 		if got := strings.Count(text, wanted); got != count {
 			t.Errorf("workflow has %d occurrences of %q, want %d", got, wanted, count)
 		}
+	}
+	if strings.Contains(text, "go-version: '1.26'") {
+		t.Error("workflow contains moving Go input \"go-version: '1.26'\"")
 	}
 }
 
