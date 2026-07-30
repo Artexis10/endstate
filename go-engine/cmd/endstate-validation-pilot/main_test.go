@@ -22,49 +22,38 @@ func TestV1CommandsRejectMissingRequiredFlags(t *testing.T) {
 	}
 }
 
-func TestDetectorRejectsAuthorityBeforeRunningOrWritingEvidence(t *testing.T) {
+func TestDetectorCommandsAreDecommissionedBeforeOutputHandling(t *testing.T) {
 	root := t.TempDir()
-	output := filepath.Join(root, "evidence.json")
-	steps := []string{}
 	ranDetector := false
 
-	originalLoad, originalAuthority, originalDetector := loadV0Manifest, validateV0DetectorAuthority, runV0Detector
+	originalDetector := runV0Detector
 	t.Cleanup(func() {
-		loadV0Manifest = originalLoad
-		validateV0DetectorAuthority = originalAuthority
 		runV0Detector = originalDetector
 	})
-	loadV0Manifest = func(path string) (validationpilot.Manifest, error) {
-		steps = append(steps, "load")
-		want := filepath.Join(root, "validation", "ci-efficacy", "pilot-v0", "manifest.json")
-		if path != want {
-			t.Errorf("manifest path = %q, want %q", path, want)
-		}
-		return validationpilot.Manifest{}, nil
-	}
-	validateV0DetectorAuthority = func(gotRoot string, _ validationpilot.Manifest) error {
-		steps = append(steps, "authority")
-		if gotRoot != root {
-			t.Errorf("authority root = %q, want %q", gotRoot, root)
-		}
-		return errors.New("detector authority rejected")
-	}
 	runV0Detector = func(context.Context, validationpilot.DetectorRequest) (validationpilot.Attempt, error) {
 		ranDetector = true
 		return validationpilot.Attempt{Status: "passed"}, nil
 	}
 
-	if code := run([]string{"detector", "--catalog", "--engine", "engine", "--repo", root, "--commit", validationpilot.DetectorRef, "--output", output}); code != 1 {
-		t.Fatalf("run(detector) = %d, want authority rejection", code)
-	}
-	if got := strings.Join(steps, ","); got != "load,authority" {
-		t.Fatalf("steps = %q, want load,authority", got)
+	for _, test := range []struct {
+		name    string
+		command func([]string) int
+	}{
+		{name: "top-level", command: run},
+		{name: "legacy", command: runV0},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			output := filepath.Join(root, test.name+".json")
+			if code := test.command([]string{"detector", "--output", output}); code != 1 {
+				t.Fatalf("detector command = %d, want decommissioned rejection", code)
+			}
+			if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("evidence output err = %v, want not exist", err)
+			}
+		})
 	}
 	if ranDetector {
-		t.Fatal("detector ran after authority rejection")
-	}
-	if _, err := os.Stat(output); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("evidence output err = %v, want not exist", err)
+		t.Fatal("detector ran after decommissioned command rejection")
 	}
 }
 

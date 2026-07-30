@@ -38,7 +38,7 @@ func run(args []string) int {
 	case "aggregate-v1":
 		return runAggregateV1(args[1:])
 	case "detector":
-		return runDetector(args[1:])
+		return rejectV0Detector()
 	case "infrastructure":
 		return runInfrastructure(args[1:])
 	}
@@ -49,11 +49,14 @@ func run(args []string) int {
 }
 
 func runV0(args []string) int {
-	if len(args) < 2 {
+	if len(args) < 1 {
 		return 2
 	}
 	if args[0] == "detector" {
-		return runDetector(args[1:])
+		return rejectV0Detector()
+	}
+	if len(args) < 2 {
+		return 2
 	}
 	if args[0] == "infrastructure" {
 		return runInfrastructure(args[1:])
@@ -201,53 +204,9 @@ func inconclusiveV1Aggregate(manifest validationpilot.V1Manifest) validationpilo
 	return aggregate
 }
 
-func runDetector(args []string) int {
-	flags := flag.NewFlagSet("endstate-validation-pilot detector", flag.ContinueOnError)
-	request := validationpilot.DetectorRequest{}
-	var output string
-	flags.BoolVar(&request.Catalog, "catalog", false, "run the catalog matrix")
-	flags.StringVar(&request.EnginePath, "engine", "", "absolute engine path")
-	flags.StringVar(&request.RepoRoot, "repo", "", "absolute repository path")
-	flags.StringVar(&request.Commit, "commit", "", "fixed detector commit")
-	flags.StringVar(&request.ModuleID, "module", "", "module id")
-	flags.StringVar(&request.ScenarioID, "scenario", "", "scenario id")
-	flags.StringVar(&output, "output", "", "structured result path")
-	if flags.Parse(args) != nil || output == "" || request.EnginePath == "" || request.RepoRoot == "" || (!request.Catalog && (request.ModuleID == "" || request.ScenarioID == "")) {
-		return 2
-	}
-	request.ResultPath = output
-	root, err := filepath.Abs(request.RepoRoot)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	manifest, err := loadV0Manifest(filepath.Join(root, "validation", "ci-efficacy", "pilot-v0", "manifest.json"))
-	if err == nil {
-		err = validateV0DetectorAuthority(root, manifest)
-	}
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	request.RepoRoot = root
-	attempt, err := runV0Detector(context.Background(), request)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	data, err := json.Marshal(attempt)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	if err := os.WriteFile(output, append(data, '\n'), 0o600); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	if attempt.Status != "passed" {
-		return 1
-	}
-	return 0
+func rejectV0Detector() int {
+	fmt.Fprintln(os.Stderr, "v0 detector command is decommissioned")
+	return 1
 }
 
 func runInfrastructure(args []string) int {
