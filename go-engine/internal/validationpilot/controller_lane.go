@@ -649,6 +649,7 @@ func v1AttemptEnvironment(root, runnerRoot, goCache, goModCache string) ([]strin
 		"LOCALAPPDATA="+filepath.Join(profile, "localappdata"),
 		"TEMP="+filepath.Join(profile, "temp"),
 		"TMP="+filepath.Join(profile, "temp"),
+		"TMPDIR="+filepath.Join(profile, "temp"),
 		"GOCACHE="+goCache,
 		"GOMODCACHE="+goModCache,
 	), nil
@@ -666,7 +667,7 @@ func v1WithoutGoCaches(environment []string) []string {
 	filtered := make([]string, 0, len(environment))
 	for _, value := range environment {
 		name, _, found := strings.Cut(value, "=")
-		if found && (name == "GOCACHE" || name == "GOMODCACHE") {
+		if found && (name == "GOCACHE" || name == "GOMODCACHE" || name == "TMPDIR") {
 			continue
 		}
 		filtered = append(filtered, value)

@@ -321,7 +321,7 @@ func fmtV1Digest(sum [sha256.Size]byte) string {
 // Go, and typed detector child processes. Credential and workflow authority
 // variables are categorically excluded.
 func V1ChildEnvironment(parent []string) []string {
-	allowed := map[string]bool{"PATH": true, "SystemRoot": true, "SYSTEMROOT": true, "TMP": true, "TEMP": true, "HOME": true, "USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true, "GOCACHE": true, "GOMODCACHE": true, "GOTELEMETRY": true}
+	allowed := map[string]bool{"PATH": true, "SystemRoot": true, "SYSTEMROOT": true, "TMP": true, "TEMP": true, "TMPDIR": true, "HOME": true, "USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true, "GOCACHE": true, "GOMODCACHE": true, "GOTELEMETRY": true}
 	child := make([]string, 0, len(allowed)+2)
 	for _, value := range parent {
 		name, _, found := strings.Cut(value, "=")

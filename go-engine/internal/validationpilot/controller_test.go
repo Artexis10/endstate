@@ -84,6 +84,26 @@ func TestV1ComparatorRunsVetThenTestWithStrippedEnvironment(t *testing.T) {
 	}
 }
 
+func TestV1ComparatorPreservesAttemptTMPDIR(t *testing.T) {
+	const tempRoot = "/attempt/profile/temp"
+	var commands []V1ChildCommand
+	runner := func(command V1ChildCommand) V1ChildResult {
+		commands = append(commands, command)
+		return V1ChildResult{}
+	}
+	if result := RunV1Comparator(runner, []string{"PATH=test", "TMPDIR=" + tempRoot}); result.Infrastructure != "" {
+		t.Fatalf("RunV1Comparator() = %#v", result)
+	}
+	if len(commands) != 2 {
+		t.Fatalf("comparator command count = %d, want 2", len(commands))
+	}
+	for _, command := range commands {
+		if got := v1EnvironmentValue(command.Env, "TMPDIR"); got != tempRoot {
+			t.Fatalf("TMPDIR = %q, want %q", got, tempRoot)
+		}
+	}
+}
+
 func mustV1Evidence(t *testing.T, evidence V1Evidence) []byte {
 	t.Helper()
 	raw, _, err := EncodeV1Evidence(evidence)

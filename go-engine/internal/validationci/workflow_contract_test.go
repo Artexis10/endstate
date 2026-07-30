@@ -52,6 +52,8 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 		"--runner-root", "--runner-image-os", "--runner-image-version", "ImageOS", "ImageVersion",
 		"GOCACHE=$RUNNER_TEMP/v1-owned/go-build", "GOMODCACHE=$RUNNER_TEMP/v1-owned/go-mod", "mkdir -p \"$RUNNER_TEMP/v1-owned/go-build\" \"$RUNNER_TEMP/v1-owned/go-mod\"",
 		"GOCACHE=$env:RUNNER_TEMP/v1-owned/go-build", "GOMODCACHE=$env:RUNNER_TEMP/v1-owned/go-mod", "New-Item -ItemType Directory -Force \"$env:RUNNER_TEMP/v1-owned/go-build\", \"$env:RUNNER_TEMP/v1-owned/go-mod\" | Out-Null",
+		"$repositoryRoot = Join-Path $env:GITHUB_WORKSPACE 'audit'", "$manifestPath = Join-Path $repositoryRoot 'validation\\ci-efficacy\\pilot-v1\\manifest.json'", "$runnerRoot = Join-Path $env:RUNNER_TEMP 'v1-owned'",
+		"$goCache = Join-Path $runnerRoot 'go-build'", "$goModCache = Join-Path $runnerRoot 'go-mod'", "$resultRoot = Join-Path $runnerRoot 'results'", "$controller = Join-Path $env:RUNNER_TEMP 'endstate-validation-pilot.exe'",
 		"--go-cache", "--go-mod-cache",
 	} {
 		if !strings.Contains(text, wanted) {
@@ -61,6 +63,7 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 	for _, forbidden := range []string{
 		"pull_request", "push:", "schedule:", "actions/checkout", "GITHUB_TOKEN", "GH_TOKEN", "secrets.", "ConvertTo-Json", "ConvertFrom-Json", "jq", "notepad", "winget", "choco", "brew", "apt-get", "Remove-Item", "rm -rf", "git config", "--depth=1",
 		"GOCACHE: ${{ runner.temp }}/v1-owned/go-build", "GOMODCACHE: ${{ runner.temp }}/v1-owned/go-mod",
+		"--root \"$env:GITHUB_WORKSPACE/audit\"", "--manifest \"$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json\"", "--runner-root \"$env:RUNNER_TEMP/v1-owned\"", "--go-cache \"$env:GOCACHE\"", "--go-mod-cache \"$env:GOMODCACHE\"", "--result-root \"$env:RUNNER_TEMP/v1-owned/results\"",
 	} {
 		if strings.Contains(strings.ToLower(text), strings.ToLower(forbidden)) {
 			t.Errorf("workflow contains forbidden %q", forbidden)

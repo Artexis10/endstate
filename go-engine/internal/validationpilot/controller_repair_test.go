@@ -377,6 +377,31 @@ func TestV1AttemptEnvironmentPreservesSafeSharedJobCaches(t *testing.T) {
 	}
 }
 
+func TestV1AttemptEnvironmentReplacesTMPDIRAndPreservesItForNestedChild(t *testing.T) {
+	runnerRoot := t.TempDir()
+	attemptRoot := filepath.Join(runnerRoot, "attempt")
+	goCache := filepath.Join(runnerRoot, "go-build")
+	goModCache := filepath.Join(runnerRoot, "go-mod")
+	for _, path := range []string{attemptRoot, goCache, goModCache} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	inherited := filepath.Join(t.TempDir(), "inherited-tmpdir")
+	t.Setenv("TMPDIR", inherited)
+	environment, err := v1AttemptEnvironment(attemptRoot, runnerRoot, goCache, goModCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(attemptRoot, "profile", "temp")
+	if got := v1EnvironmentValue(environment, "TMPDIR"); got != want {
+		t.Fatalf("TMPDIR = %q, want %q", got, want)
+	}
+	if got := v1EnvironmentValue(V1ChildEnvironment(environment), "TMPDIR"); got != want {
+		t.Fatalf("nested TMPDIR = %q, want %q", got, want)
+	}
+}
+
 func runV1TestGit(t *testing.T, directory string, arguments ...string) string {
 	t.Helper()
 	output, err := exec.Command("git", append([]string{"-C", directory}, arguments...)...).CombinedOutput()

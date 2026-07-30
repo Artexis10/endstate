@@ -60,12 +60,19 @@ jobs:
       - name: Build and run native Windows controller
         shell: pwsh
         run: |
-          Push-Location audit/go-engine
-          go build -buildvcs=false -o "$env:RUNNER_TEMP/endstate-validation-pilot.exe" ./cmd/endstate-validation-pilot
+          $repositoryRoot = Join-Path $env:GITHUB_WORKSPACE 'audit'
+          $manifestPath = Join-Path $repositoryRoot 'validation\ci-efficacy\pilot-v1\manifest.json'
+          $runnerRoot = Join-Path $env:RUNNER_TEMP 'v1-owned'
+          $goCache = Join-Path $runnerRoot 'go-build'
+          $goModCache = Join-Path $runnerRoot 'go-mod'
+          $resultRoot = Join-Path $runnerRoot 'results'
+          $controller = Join-Path $env:RUNNER_TEMP 'endstate-validation-pilot.exe'
+          Push-Location (Join-Path $repositoryRoot 'go-engine')
+          go build -buildvcs=false -o $controller ./cmd/endstate-validation-pilot
           Pop-Location
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$env:GITHUB_SHA" --role comparator --lane windows-go --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$env:GITHUB_SHA" --role baseline --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
-          & "$env:RUNNER_TEMP/endstate-validation-pilot.exe" run-v1-lane --root "$env:GITHUB_WORKSPACE/audit" --manifest "$env:GITHUB_WORKSPACE/audit/validation/ci-efficacy/pilot-v1/manifest.json" --dispatch-commit "$env:GITHUB_SHA" --role detector --lane windows-detector --runner-root "$env:RUNNER_TEMP/v1-owned" --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache "$env:GOCACHE" --go-mod-cache "$env:GOMODCACHE" --result-root "$env:RUNNER_TEMP/v1-owned/results"
+          & $controller run-v1-lane --root $repositoryRoot --manifest $manifestPath --dispatch-commit "$env:GITHUB_SHA" --role comparator --lane windows-go --runner-root $runnerRoot --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache $goCache --go-mod-cache $goModCache --result-root $resultRoot
+          & $controller run-v1-lane --root $repositoryRoot --manifest $manifestPath --dispatch-commit "$env:GITHUB_SHA" --role baseline --lane windows-detector --runner-root $runnerRoot --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache $goCache --go-mod-cache $goModCache --result-root $resultRoot
+          & $controller run-v1-lane --root $repositoryRoot --manifest $manifestPath --dispatch-commit "$env:GITHUB_SHA" --role detector --lane windows-detector --runner-root $runnerRoot --runner-family windows --runner-image-os "$env:ImageOS" --runner-image-version "$env:ImageVersion" --go-cache $goCache --go-mod-cache $goModCache --result-root $resultRoot
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
