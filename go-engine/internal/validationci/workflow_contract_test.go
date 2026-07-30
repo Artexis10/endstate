@@ -79,3 +79,16 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 		}
 	}
 }
+
+func TestEfficacyAuditV1CorpusIsPinnedToLF(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", ".gitattributes"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	const wanted = "validation/ci-efficacy/pilot-v1/** text eol=lf"
+	if !strings.Contains(text, wanted) {
+		t.Errorf(".gitattributes missing %q", wanted)
+	}
+}

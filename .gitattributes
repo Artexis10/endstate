@@ -5,3 +5,4 @@
 modules/apps/**/seed.ps1 text eol=lf
 modules/apps/**/validation-fixtures/** text eol=lf
 go-engine/internal/validationharness/testdata/restore-contract/** text eol=lf
+validation/ci-efficacy/pilot-v1/** text eol=lf
