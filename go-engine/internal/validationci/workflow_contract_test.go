@@ -5,6 +5,7 @@ package validationci
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -82,13 +83,71 @@ func TestEfficacyAuditWorkflowKeepsTypedV1ProofContract(t *testing.T) {
 
 func TestEfficacyAuditV1CorpusIsPinnedToLF(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
-	raw, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "..", ".gitattributes"))
+	repoRoot := filepath.Join(filepath.Dir(file), "..", "..", "..")
+	raw, err := os.ReadFile(filepath.Join(repoRoot, ".gitattributes"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
 	const wanted = "validation/ci-efficacy/pilot-v1/** text eol=lf"
-	if !strings.Contains(text, wanted) {
+	if !hasActiveAttributeRule(text, wanted) {
 		t.Errorf(".gitattributes missing %q", wanted)
 	}
+
+	paths := []string{
+		"validation/ci-efficacy/pilot-v1/manifest.json",
+		"validation/ci-efficacy/pilot-v1/review.md",
+		"validation/ci-efficacy/pilot-v1/nested/patch.diff",
+		"validation/ci-efficacy/pilot-v0/manifest.json",
+	}
+	args := append([]string{"-C", repoRoot, "check-attr", "--cached", "text", "eol", "--"}, paths...)
+	attrs, err := exec.Command("git", args...).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, wanted := range []string{
+		"validation/ci-efficacy/pilot-v1/manifest.json: text: set",
+		"validation/ci-efficacy/pilot-v1/manifest.json: eol: lf",
+		"validation/ci-efficacy/pilot-v1/review.md: text: set",
+		"validation/ci-efficacy/pilot-v1/review.md: eol: lf",
+		"validation/ci-efficacy/pilot-v1/nested/patch.diff: text: set",
+		"validation/ci-efficacy/pilot-v1/nested/patch.diff: eol: lf",
+		"validation/ci-efficacy/pilot-v0/manifest.json: text: auto",
+		"validation/ci-efficacy/pilot-v0/manifest.json: eol: unspecified",
+	} {
+		if !strings.Contains(string(attrs), wanted) {
+			t.Errorf("git check-attr output missing %q:\n%s", wanted, attrs)
+		}
+	}
+}
+
+func TestHasActiveAttributeRuleRejectsCommentsAndExtraAttributes(t *testing.T) {
+	const rule = "validation/ci-efficacy/pilot-v1/** text eol=lf"
+	for name, test := range map[string]struct {
+		text string
+		want bool
+	}{
+		"active exact rule": {text: rule, want: true},
+		"commented rule":    {text: "# " + rule, want: false},
+		"extra attribute":   {text: rule + " -diff", want: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := hasActiveAttributeRule(test.text, rule); got != test.want {
+				t.Errorf("hasActiveAttributeRule(%q) = %t, want %t", test.text, got, test.want)
+			}
+		})
+	}
+}
+
+func hasActiveAttributeRule(text, rule string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.Join(strings.Fields(line), " ") == rule {
+			return true
+		}
+	}
+	return false
 }
