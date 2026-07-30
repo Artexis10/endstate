@@ -105,19 +105,18 @@ func TestEfficacyAuditV1CorpusIsPinnedToLF(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, wanted := range []string{
-		"validation/ci-efficacy/pilot-v1/manifest.json: text: set",
-		"validation/ci-efficacy/pilot-v1/manifest.json: eol: lf",
-		"validation/ci-efficacy/pilot-v1/review.md: text: set",
-		"validation/ci-efficacy/pilot-v1/review.md: eol: lf",
-		"validation/ci-efficacy/pilot-v1/nested/patch.diff: text: set",
-		"validation/ci-efficacy/pilot-v1/nested/patch.diff: eol: lf",
-		"validation/ci-efficacy/pilot-v0/manifest.json: text: auto",
-		"validation/ci-efficacy/pilot-v0/manifest.json: eol: unspecified",
-	} {
-		if !strings.Contains(string(attrs), wanted) {
-			t.Errorf("git check-attr output missing %q:\n%s", wanted, attrs)
-		}
+	expectedAttrs := []gitAttribute{
+		{path: "validation/ci-efficacy/pilot-v1/manifest.json", attribute: "text", value: "set"},
+		{path: "validation/ci-efficacy/pilot-v1/manifest.json", attribute: "eol", value: "lf"},
+		{path: "validation/ci-efficacy/pilot-v1/review.md", attribute: "text", value: "set"},
+		{path: "validation/ci-efficacy/pilot-v1/review.md", attribute: "eol", value: "lf"},
+		{path: "validation/ci-efficacy/pilot-v1/nested/patch.diff", attribute: "text", value: "set"},
+		{path: "validation/ci-efficacy/pilot-v1/nested/patch.diff", attribute: "eol", value: "lf"},
+		{path: "validation/ci-efficacy/pilot-v0/manifest.json", attribute: "text", value: "auto"},
+		{path: "validation/ci-efficacy/pilot-v0/manifest.json", attribute: "eol", value: "unspecified"},
+	}
+	if !hasExactGitAttributes(string(attrs), expectedAttrs) {
+		t.Errorf("git check-attr output did not match expected records:\n%s", attrs)
 	}
 }
 
@@ -139,6 +138,46 @@ func TestHasActiveAttributeRuleRejectsCommentsAndExtraAttributes(t *testing.T) {
 	}
 }
 
+type gitAttribute struct {
+	path      string
+	attribute string
+	value     string
+}
+
+func TestHasExactGitAttributesRejectsSimilarValuesAndExtraRecords(t *testing.T) {
+	expected := []gitAttribute{
+		{path: "validation/ci-efficacy/pilot-v1/manifest.json", attribute: "text", value: "set"},
+		{path: "validation/ci-efficacy/pilot-v1/manifest.json", attribute: "eol", value: "lf"},
+	}
+	for name, test := range map[string]struct {
+		output string
+		want   bool
+	}{
+		"exact records": {
+			output: "validation/ci-efficacy/pilot-v1/manifest.json: text: set\nvalidation/ci-efficacy/pilot-v1/manifest.json: eol: lf\n",
+			want:   true,
+		},
+		"suffixed text value": {
+			output: "validation/ci-efficacy/pilot-v1/manifest.json: text: setfoo\nvalidation/ci-efficacy/pilot-v1/manifest.json: eol: lf\n",
+			want:   false,
+		},
+		"suffixed eol value": {
+			output: "validation/ci-efficacy/pilot-v1/manifest.json: text: set\nvalidation/ci-efficacy/pilot-v1/manifest.json: eol: lfx\n",
+			want:   false,
+		},
+		"extra record": {
+			output: "validation/ci-efficacy/pilot-v1/manifest.json: text: set\nvalidation/ci-efficacy/pilot-v1/manifest.json: eol: lf\nvalidation/ci-efficacy/pilot-v1/manifest.json: diff: unset\n",
+			want:   false,
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := hasExactGitAttributes(test.output, expected); got != test.want {
+				t.Errorf("hasExactGitAttributes(%q) = %t, want %t", test.output, got, test.want)
+			}
+		})
+	}
+}
+
 func hasActiveAttributeRule(text, rule string) bool {
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -150,4 +189,42 @@ func hasActiveAttributeRule(text, rule string) bool {
 		}
 	}
 	return false
+}
+
+func hasExactGitAttributes(output string, expected []gitAttribute) bool {
+	actual, ok := parseGitAttributes(output)
+	if !ok || len(actual) != len(expected) {
+		return false
+	}
+	remaining := make(map[gitAttribute]bool, len(expected))
+	for _, record := range expected {
+		if remaining[record] {
+			return false
+		}
+		remaining[record] = true
+	}
+	for _, record := range actual {
+		if !remaining[record] {
+			return false
+		}
+		delete(remaining, record)
+	}
+	return len(remaining) == 0
+}
+
+func parseGitAttributes(output string) ([]gitAttribute, bool) {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return nil, false
+	}
+	lines := strings.Split(output, "\n")
+	records := make([]gitAttribute, 0, len(lines))
+	for _, line := range lines {
+		parts := strings.Split(strings.TrimSpace(line), ": ")
+		if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
+			return nil, false
+		}
+		records = append(records, gitAttribute{path: parts[0], attribute: parts[1], value: parts[2]})
+	}
+	return records, true
 }
