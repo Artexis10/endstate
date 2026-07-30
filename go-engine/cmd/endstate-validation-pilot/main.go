@@ -66,7 +66,10 @@ func runV0(args []string) int {
 		if len(args) != 2 {
 			return 2
 		}
-		err = validationpilot.ValidateCorpus(root, manifest)
+		err = validationpilot.ValidateDetectorAuthority(root, manifest)
+		if err == nil {
+			err = validationpilot.ValidateCorpus(root, manifest)
+		}
 	case "aggregate":
 		if len(args) != 4 {
 			return 2

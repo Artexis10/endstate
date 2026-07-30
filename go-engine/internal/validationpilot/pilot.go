@@ -116,11 +116,6 @@ func ValidateCorpus(root string, manifest Manifest) error {
 			return fmt.Errorf("fixed authority %s is unavailable: %w", ref, err)
 		}
 	}
-	for _, path := range []string{"go-engine/internal/validationharness", "go-engine/internal/catalogplan", "go-engine/internal/validationmatrix"} {
-		if _, err := gitOutput(root, nil, "diff", "--quiet", manifest.DetectorRef, "--", path); err != nil {
-			return fmt.Errorf("pilot detector source differs from detector authority for %q", path)
-		}
-	}
 	for _, path := range []string{"bundles/gaming.jsonc", "bundles/remote-access.jsonc", "bundles/communication.jsonc", "modules/apps/vlc/module.jsonc", "modules/apps/alacritty/module.jsonc", "modules/apps/obs-studio/module.jsonc"} {
 		legacy, err := gitOutput(root, nil, "rev-parse", manifest.LegacyRef+":"+path)
 		if err != nil {
@@ -154,6 +149,20 @@ func ValidateCorpus(root string, manifest Manifest) error {
 			if err := applyAndValidatePatch(root, ref, filepath.Join(root, "validation", "ci-efficacy", "pilot-v0", filepath.FromSlash(patch.Path)), candidate, patchIndex == 1); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func ValidateDetectorAuthority(root string, manifest Manifest) error {
+	canonicalRoot, err := filepath.Abs(root)
+	if err != nil {
+		return err
+	}
+	root = canonicalRoot
+	for _, path := range []string{"go-engine/internal/validationharness", "go-engine/internal/catalogplan", "go-engine/internal/validationmatrix"} {
+		if _, err := gitOutput(root, nil, "diff", "--quiet", manifest.DetectorRef, "--", path); err != nil {
+			return fmt.Errorf("pilot detector source differs from detector authority for %q", path)
 		}
 	}
 	return nil

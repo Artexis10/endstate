@@ -79,6 +79,9 @@ func TestValidateCorpusBindsCandidatePatchesAndModuleCompanions(t *testing.T) {
 	if err := ValidateCorpus(root, manifest); err != nil {
 		t.Fatal(err)
 	}
+	if err := ValidateDetectorAuthority(root, manifest); err == nil || !strings.Contains(err.Error(), "pilot detector source differs") {
+		t.Fatalf("ValidateDetectorAuthority() error = %v, want current detector-authority drift rejection", err)
+	}
 }
 
 func TestClassifyEvidenceRejectsReorderedInventoryAndRequiresExactDetectorFailure(t *testing.T) {
