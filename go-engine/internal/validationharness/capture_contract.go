@@ -18,7 +18,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
-var captureContractMGBAINI = []byte("[ports]\nshowFps=1\nmute=0\n")
+var captureContractDeterministicBytes = []byte("[ports]\nshowFps=1\nmute=0\n")
 
 type CaptureContractTarget struct {
 	Coordinate     string
@@ -136,15 +136,15 @@ func compileCaptureContract(mod *modules.Module, scenario validationmatrix.Scena
 	if scenario.Review == nil || scenario.Review.Decision != "approved-one-way" {
 		return reject("review", "capture contract requires approved one-way review authority")
 	}
-	if len(mod.Restore) != 0 || mod.Config != nil || mod.Capture == nil || len(mod.Capture.Files) == 0 || len(mod.Capture.RegistryKeys) != 0 || len(mod.Capture.RegistryValues) != 0 {
-		return reject("operations", "capture contract requires file capture with no restore or generation lane")
+	if len(mod.Restore) != 0 || mod.Config != nil || mod.Capture == nil || len(mod.Capture.Files) != 1 || len(mod.Capture.RegistryKeys) != 0 || len(mod.Capture.RegistryValues) != 0 {
+		return reject("operations", "capture contract requires one file capture with no restore or generation lane")
 	}
-	if len(mod.Matches.Winget)+len(mod.Matches.Chocolatey) != 1 {
-		return reject("matches", "capture contract requires exactly one package-backed app reference")
+	if len(mod.Matches.Winget) != 1 || len(mod.Matches.Chocolatey) != 0 {
+		return reject("matches", "capture contract requires exactly one Winget app reference")
 	}
 	inventory := validationInventory(mod)
-	if inventory.AppID == "" || inventory.Ref == "" || inventory.InitialState != "present" || inventory.Driver != "winget" && inventory.Driver != "chocolatey" {
-		return reject("inventory", "capture contract inventory is not one exact present package authority")
+	if inventory.AppID == "" || inventory.Ref == "" || inventory.InitialState != "present" || inventory.Driver != "winget" || inventory.Source != "winget" {
+		return reject("inventory", "capture contract inventory is not one exact present Winget authority")
 	}
 
 	prefix := "apps/" + strings.TrimPrefix(mod.ID, "apps.") + "/"
@@ -154,6 +154,9 @@ func compileCaptureContract(mod *modules.Module, scenario validationmatrix.Scena
 		source := strings.ReplaceAll(file.Source, `\`, "/")
 		if !canonicalDirectCaptureSource(file.Source) {
 			return reject(coordinate+".source", "capture contract requires one direct canonical file source")
+		}
+		if !file.Optional {
+			return reject(coordinate+".optional", "capture contract requires one optional direct file capture")
 		}
 		destination := strings.ReplaceAll(file.Dest, `\`, "/")
 		if destination != file.Dest || path.Clean(destination) != destination || !strings.HasPrefix(destination, prefix) || strings.TrimPrefix(destination, prefix) == "" || strings.Contains(destination, ":") {
@@ -171,7 +174,7 @@ func compileCaptureContract(mod *modules.Module, scenario validationmatrix.Scena
 		}
 		targets = append(targets, CaptureContractTarget{
 			Coordinate: coordinate, AuthoredSource: file.Source, Destination: destination,
-			Optional: file.Optional, Content: append([]byte(nil), captureContractMGBAINI...),
+			Optional: file.Optional, Content: append([]byte(nil), captureContractDeterministicBytes...),
 		})
 	}
 	if len(mod.Verify) != 1 || mod.Verify[0].Type != "file-exists" || mod.Verify[0].Path != targets[0].AuthoredSource || mod.Verify[0].Command != "" || mod.Verify[0].ValueName != "" || mod.Verify[0].ValueType != "" || mod.Verify[0].Data != "" {

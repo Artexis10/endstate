@@ -10,8 +10,8 @@ import (
 )
 
 const (
-	mGBACaptureWarningCode    = "inventory_union_skipped"
-	mGBACaptureWarningMessage = "Installed-software inventory union skipped because a package-manager row lacks an authoritative ARP binding."
+	captureContractWarningCode    = "inventory_union_skipped"
+	captureContractWarningMessage = "Installed-software inventory union skipped because a package-manager row lacks an authoritative ARP binding."
 )
 
 func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any, runtime *scenarioRuntime, artifactBase string) *Failure {
@@ -25,7 +25,7 @@ func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any,
 		"captureWarnings", "warnings", "configCapture", "manifest") {
 		return fail(CodeEnvelopeContract, "capture", "data", "capture result has a malformed, duplicate, or foreign field shape")
 	}
-	if failure := validateMGBACaptureWarnings(data["warnings"]); failure != nil {
+	if failure := validateCaptureContractWarnings(data["warnings"]); failure != nil {
 		return failure
 	}
 	wantArtifact := "$ENDSTATE_ROOT/manifests/" + artifactBase
@@ -36,11 +36,11 @@ func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any,
 		return failure
 	}
 	var moduleMap map[string]string
-	if json.Unmarshal(data["configModuleMap"], &moduleMap) != nil || len(moduleMap) != 1 || moduleMap[strings.ToLower(runtime.Inventory.Ref)] != runtime.Module.ID {
+	if json.Unmarshal(data["configModuleMap"], &moduleMap) != nil || len(moduleMap) != 1 || moduleMap[runtime.Inventory.Ref] != runtime.Module.ID {
 		return fail(CodeEnvelopeContract, "capture", "configModuleMap", "capture module ownership is not exact")
 	}
 	var packageMap map[string][]string
-	packageKey := strings.ToLower(runtime.Inventory.Driver) + ":" + strings.ToLower(runtime.Inventory.Ref)
+	packageKey := runtime.Inventory.Driver + ":" + runtime.Inventory.Ref
 	if json.Unmarshal(data["packageModuleMap"], &packageMap) != nil || len(packageMap) != 1 || !exactStrings(packageMap[packageKey], []string{runtime.Module.ID}) {
 		return fail(CodeEnvelopeContract, "capture", "packageModuleMap", "capture package ownership is not exact")
 	}
@@ -49,9 +49,9 @@ func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any,
 		json.Unmarshal(data["outputFormat"], &outputFormat) != nil || outputFormat != "zip" {
 		return fail(CodeEnvelopeContract, "capture", "outputPath", "capture artifact reference is not the exact ZIP")
 	}
-	if !rawStringArrayEquals(data["configsIncluded"], []string{"mgba"}) || !rawStringArrayEquals(data["configsSkipped"], []string{}) ||
+	if !rawStringArrayEquals(data["configsIncluded"], []string{captureContractModuleName(runtime)}) || !rawStringArrayEquals(data["configsSkipped"], []string{}) ||
 		!rawStringArrayEquals(data["configsCaptureErrors"], []string{}) || !rawStringArrayEquals(data["captureWarnings"], []string{}) {
-		return fail(CodeEnvelopeContract, "capture", "configsIncluded", "capture module outcome is not one successful mGBA config")
+		return fail(CodeEnvelopeContract, "capture", "configsIncluded", "capture module outcome is not one successful config")
 	}
 	var sanitized, isExample bool
 	if json.Unmarshal(data["sanitized"], &sanitized) != nil || sanitized || json.Unmarshal(data["isExample"], &isExample) != nil || isExample {
@@ -76,15 +76,15 @@ func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any,
 	return validateCaptureContractEvents(events, runtime, wantArtifact)
 }
 
-func validateMGBACaptureWarnings(raw json.RawMessage) *Failure {
+func validateCaptureContractWarnings(raw json.RawMessage) *Failure {
 	var warnings []map[string]json.RawMessage
 	if json.Unmarshal(raw, &warnings) != nil || len(warnings) != 1 || !exactRawFields(warnings[0], "code", "message") {
-		return fail(CodeEnvelopeContract, "capture", "warnings", "mGBA capture warnings are not an exact singleton")
+		return fail(CodeEnvelopeContract, "capture", "warnings", "capture contract warnings are not an exact singleton")
 	}
 	var warning struct{ Code, Message string }
 	encoded, _ := json.Marshal(warnings[0])
-	if json.Unmarshal(encoded, &warning) != nil || warning.Code != mGBACaptureWarningCode || warning.Message != mGBACaptureWarningMessage {
-		return fail(CodeEnvelopeContract, "capture", "warnings", "mGBA capture warning differs from production")
+	if json.Unmarshal(encoded, &warning) != nil || warning.Code != captureContractWarningCode || warning.Message != captureContractWarningMessage {
+		return fail(CodeEnvelopeContract, "capture", "warnings", "capture contract warning differs from production")
 	}
 	return nil
 }
@@ -115,11 +115,15 @@ func validateCaptureContractModule(raw json.RawMessage, runtime *scenarioRuntime
 	}
 	rawValue, _ := json.Marshal(values[0])
 	wantPath := v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination)
-	if json.Unmarshal(rawValue, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != "mgba" || value.ID != runtime.Module.ID ||
-		value.Status != "captured" || value.FilesCaptured != 1 || !exactStrings(value.WingetRefs, []string{runtime.Inventory.Ref}) || len(value.ChocolateyRefs) != 0 || !exactStrings(value.Paths, []string{wantPath}) {
+	if json.Unmarshal(rawValue, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != captureContractModuleName(runtime) || value.ID != runtime.Module.ID ||
+		value.Status != "captured" || value.FilesCaptured != 1 || !captureContractReferencesExact(value.WingetRefs, value.ChocolateyRefs, runtime) || !exactStrings(value.Paths, []string{wantPath}) {
 		return fail(CodeEnvelopeContract, "capture", "configModules", "capture module result is vacuous, foreign, or inexact")
 	}
 	return nil
+}
+
+func captureContractReferencesExact(winget, chocolatey []string, runtime *scenarioRuntime) bool {
+	return runtime.Inventory.Driver == "winget" && exactStrings(winget, []string{runtime.Inventory.Ref}) && len(chocolatey) == 0
 }
 
 func validateCaptureContractDeclaration(raw json.RawMessage, runtime *scenarioRuntime) *Failure {

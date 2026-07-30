@@ -47,7 +47,7 @@ func TestCompileCaptureContractBindsExactProductionMGBAAuthority(t *testing.T) {
 	if target.AuthoredSource != `%APPDATA%\mGBA\config.ini` || target.Destination != "apps/mgba/config.ini" || !target.Optional {
 		t.Fatalf("compiled target = %+v", target)
 	}
-	if !bytes.Equal(target.Content, captureContractMGBAINI) {
+	if !bytes.Equal(target.Content, captureContractDeterministicBytes) {
 		t.Fatalf("compiled content = %q", target.Content)
 	}
 	if len(plan.Verifiers) != 1 || plan.Verifiers[0].Type != "file-exists" || plan.Verifiers[0].Path != target.AuthoredSource {
@@ -174,6 +174,13 @@ func TestCompileCaptureContractRejectsForeignUnsafeOrAmbiguousAuthority(t *testi
 		}},
 		{"ambiguous package", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
 			mod.Matches.Winget = append(mod.Matches.Winget, "Foreign.mGBA")
+		}},
+		{"chocolatey package authority", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
+			mod.Matches.Winget = nil
+			mod.Matches.Chocolatey = []string{"mgba"}
+		}},
+		{"store Winget source", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
+			mod.Matches.Winget = []string{"9NBLGGH4NNS1"}
 		}},
 		{"relative source", false, func(mod *modules.Module, _ *validationmatrix.Scenario) { mod.Capture.Files[0].Source = "config.ini" }},
 		{"traversing source", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {

@@ -1226,6 +1226,89 @@ func TestConfigRestoreExecutionUnifiedCollisionPreflightCoversLegacyOrdinaryAndR
 	})
 }
 
+func TestConcreteLegacyRestoreClaimValidationRegistryImportResolvesPortableSource(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "seven-zip", Driver: "winget", Ref: "7zip.7zip", DisplayName: "7-Zip", InitialState: "present",
+	})
+	manifestDir := filepath.Join(context.Root(), "manifests", "registry-import")
+	action := restore.RestoreAction{
+		Type: "registry-import", Source: "./configs/7zip/7-Zip.reg", Target: `HKCU\Software\7-Zip`,
+	}
+	path := filepath.Join(manifestDir, "configs", "7zip", "7-Zip.reg")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\7-Zip]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	options := restore.RestoreOptions{ManifestDir: manifestDir, ValidationContext: context}
+	if descriptor := restore.DescribeAction(action, options); descriptor.Source != action.Source {
+		t.Fatalf("DescribeAction source = %q, want portable %q", descriptor.Source, action.Source)
+	}
+	claim, err := concreteLegacyRestoreClaim(action, options)
+	if err != nil {
+		t.Fatalf("concreteLegacyRestoreClaim() error = %v", err)
+	}
+	if want := "registry-key\x00software\\7-zip"; claim != want {
+		t.Fatalf("concreteLegacyRestoreClaim() = %q, want %q", claim, want)
+	}
+}
+
+func TestConcreteLegacyRestoreClaimValidationRegistryImportRejectsOutOfSubtree(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "seven-zip", Driver: "winget", Ref: "7zip.7zip", DisplayName: "7-Zip", InitialState: "present",
+	})
+	manifestDir := filepath.Join(context.Root(), "manifests", "registry-import")
+	path := filepath.Join(manifestDir, "configs", "7zip", "7-Zip.reg")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Sibling]\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := concreteLegacyRestoreClaim(restore.RestoreAction{
+		Type: "registry-import", Source: "./configs/7zip/7-Zip.reg", Target: `HKCU\Software\7-Zip`,
+	}, restore.RestoreOptions{ManifestDir: manifestDir, ValidationContext: context})
+	if err == nil || !strings.Contains(err.Error(), "outside declared target") {
+		t.Fatalf("concreteLegacyRestoreClaim() error = %v, want outside declared target", err)
+	}
+}
+
+func TestConcreteLegacyRestoreClaimValidationRegistryImportAllowsOptionalMissingSource(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "seven-zip", Driver: "winget", Ref: "7zip.7zip", DisplayName: "7-Zip", InitialState: "present",
+	})
+	manifestDir := filepath.Join(context.Root(), "manifests", "registry-import")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	claim, err := concreteLegacyRestoreClaim(restore.RestoreAction{
+		Type: "registry-import", Source: "./configs/7zip/7-Zip.reg", Target: `HKCU\Software\7-Zip`, Optional: true,
+	}, restore.RestoreOptions{ManifestDir: manifestDir, ValidationContext: context})
+	if err != nil {
+		t.Fatalf("concreteLegacyRestoreClaim() error = %v", err)
+	}
+	if want := "registry-key\x00software\\7-zip"; claim != want {
+		t.Fatalf("concreteLegacyRestoreClaim() = %q, want %q", claim, want)
+	}
+}
+
+func TestConcreteLegacyRestoreClaimValidationRegistryImportRejectsOptionalMissingNonHKCU(t *testing.T) {
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "seven-zip", Driver: "winget", Ref: "7zip.7zip", DisplayName: "7-Zip", InitialState: "present",
+	})
+	manifestDir := filepath.Join(context.Root(), "manifests", "registry-import")
+	if err := os.MkdirAll(manifestDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_, err := concreteLegacyRestoreClaim(restore.RestoreAction{
+		Type: "registry-import", Source: "./configs/7zip/7-Zip.reg", Target: `HKLM\Software\7-Zip`, Optional: true,
+	}, restore.RestoreOptions{ManifestDir: manifestDir, ValidationContext: context})
+	if err == nil || !strings.Contains(err.Error(), "only supports HKCU") {
+		t.Fatalf("concreteLegacyRestoreClaim() error = %v, want non-HKCU rejection", err)
+	}
+}
+
 func TestConfigRestoreExecutionRejectsLegacyScopeEscapesDuringUnifiedPreflight(t *testing.T) {
 	t.Run("registry import outside declared subtree", func(t *testing.T) {
 		manifestDir := t.TempDir()

@@ -95,6 +95,24 @@ func ValidateRegistryImportScope(source, target string) error {
 	return nil
 }
 
+// ValidateRegistryImportActionScope resolves an import source exactly as a
+// restore run would, then proves that its registry sections stay within the
+// declared target. It does not modify the source or registry.
+func ValidateRegistryImportActionScope(action RestoreAction, opts RestoreOptions) error {
+	if err := ValidateRegistryTarget(action.Target); err != nil {
+		return err
+	}
+	source, err := resolveRestoreSource(action.Source, opts)
+	if err != nil {
+		return err
+	}
+	boundary := legacyValidationBoundary{context: opts.ValidationContext}
+	if _, err := boundary.stat("registry-import-preflight-source-stat", source); err != nil {
+		return err
+	}
+	return ValidateRegistryImportScope(source, action.Target)
+}
+
 func decodeRegistryImport(data []byte) (string, error) {
 	switch {
 	case len(data) >= 2 && data[0] == 0xff && data[1] == 0xfe:

@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"unicode/utf16"
@@ -27,6 +28,80 @@ import (
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
 )
+
+func TestBundleContainsValueDecodesUTF16LE(t *testing.T) {
+	const header = "Windows Registry Editor Version 5.00"
+	const sentinel = "captured-registry-sentinel"
+	const forbidden = "mapped-namespace-nonce"
+
+	encoded := []byte{0xff, 0xfe}
+	for _, codeUnit := range utf16.Encode([]rune(header + "\r\n" + sentinel)) {
+		var bytes [2]byte
+		binary.LittleEndian.PutUint16(bytes[:], codeUnit)
+		encoded = append(encoded, bytes[:]...)
+	}
+	entries := map[string]string{"7zip.reg": string(encoded)}
+
+	if !bundleContainsValue(entries, header) {
+		t.Fatalf("registry header not found")
+	}
+	if !bundleContainsValue(entries, sentinel) {
+		t.Fatalf("registry sentinel not found")
+	}
+	if bundleContainsValue(entries, forbidden) {
+		t.Fatalf("forbidden value %q found", forbidden)
+	}
+	headerEnd := 2 + len(utf16.Encode([]rune(header)))*2
+	malformed := append([]byte{0xff, 0xfe}, encoded[2:headerEnd]...)
+	malformed = append(malformed, 0x00, 0xd8)
+	malformed = append(malformed, encoded[headerEnd:]...)
+	if bundleContainsValue(map[string]string{"malformed-surrogate.reg": string(malformed)}, header) {
+		t.Fatal("malformed UTF-16LE entry matched header")
+	}
+	if bundleContainsValue(map[string]string{"malformed-surrogate.reg": string(malformed)}, sentinel) {
+		t.Fatal("malformed UTF-16LE entry matched sentinel")
+	}
+	if bundleContainsValue(map[string]string{"malformed.reg": "\xff\xfeA"}, "A") {
+		t.Fatal("odd-length UTF-16LE entry matched")
+	}
+}
+
+func TestLifecycleRegistryImportRestoreEvidence(t *testing.T) {
+	restored := map[string]interface{}{
+		"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+		"restoreType": "registry-import", "status": "restored",
+	}
+	tests := []struct {
+		name                     string
+		rebuildItems, applyItems interface{}
+		wantErr                  bool
+	}{
+		{name: "restored", rebuildItems: []interface{}{restored}, applyItems: []interface{}{restored}},
+		{name: "failed", rebuildItems: []interface{}{map[string]interface{}{
+			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+			"restoreType": "registry-import", "status": "failed", "error": "import failed",
+		}}, applyItems: []interface{}{map[string]interface{}{
+			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+			"restoreType": "registry-import", "status": "failed", "error": "import failed",
+		}}, wantErr: true},
+		{name: "skipped", rebuildItems: []interface{}{map[string]interface{}{
+			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+			"restoreType": "registry-import", "status": "skipped_missing_source",
+		}}, applyItems: []interface{}{map[string]interface{}{
+			"source": "./configs/7zip/7-Zip.reg", "target": `HKCU\Software\7-Zip`,
+			"restoreType": "registry-import", "status": "skipped_missing_source",
+		}}, wantErr: true},
+		{name: "missing", rebuildItems: []interface{}{}, applyItems: []interface{}{}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := lifecycleRegistryImportRestoreEvidenceError(tt.rebuildItems, tt.applyItems); (err != nil) != tt.wantErr {
+				t.Fatalf("lifecycleRegistryImportRestoreEvidenceError() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
 
 func TestBuiltExecutableValidationTrackedModuleLifecycles(t *testing.T) {
 	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
@@ -352,7 +427,7 @@ func inspectLifecycleBundle(t *testing.T, path string) ([]byte, map[string]strin
 		if err != nil {
 			t.Fatal(err)
 		}
-		entries[file.Name] = decodeLifecycleEntry(data)
+		entries[file.Name] = string(data)
 		if file.Name == "manifest.jsonc" {
 			manifestBytes = data
 		}
@@ -365,6 +440,19 @@ func inspectLifecycleBundle(t *testing.T, path string) ([]byte, map[string]strin
 
 func bundleContainsValue(entries map[string]string, value string) bool {
 	for _, data := range entries {
+		if len(data) >= 2 && data[0] == 0xff && data[1] == 0xfe {
+			if len(data)%2 != 0 {
+				continue
+			}
+			codeUnits := make([]uint16, 0, (len(data)-2)/2)
+			for index := 2; index < len(data); index += 2 {
+				codeUnits = append(codeUnits, binary.LittleEndian.Uint16([]byte(data[index:index+2])))
+			}
+			if !validUTF16(codeUnits) {
+				continue
+			}
+			data = string(utf16.Decode(codeUnits))
+		}
 		if strings.Contains(data, value) {
 			return true
 		}
@@ -372,22 +460,20 @@ func bundleContainsValue(entries map[string]string, value string) bool {
 	return false
 }
 
-func decodeLifecycleEntry(data []byte) string {
-	if len(data) < 2 || data[0] != 0xff || data[1] != 0xfe || (len(data)-2)%2 != 0 {
-		return string(data)
+func validUTF16(words []uint16) bool {
+	for index := 0; index < len(words); index++ {
+		word := words[index]
+		switch {
+		case 0xd800 <= word && word <= 0xdbff:
+			if index+1 >= len(words) || words[index+1] < 0xdc00 || words[index+1] > 0xdfff {
+				return false
+			}
+			index++
+		case 0xdc00 <= word && word <= 0xdfff:
+			return false
+		}
 	}
-	words := make([]uint16, (len(data)-2)/2)
-	for index := range words {
-		words[index] = binary.LittleEndian.Uint16(data[2+index*2:])
-	}
-	return string(utf16.Decode(words))
-}
-
-func TestDecodeLifecycleEntryUTF16LE(t *testing.T) {
-	encoded := []byte{0xff, 0xfe, 'W', 0, 'i', 0, 'n', 0, 'd', 0, 'o', 0, 'w', 0, 's', 0}
-	if got := decodeLifecycleEntry(encoded); got != "Windows" {
-		t.Fatalf("decoded UTF-16LE registry export = %q, want Windows", got)
-	}
+	return true
 }
 
 func writeLifecycleFile(t *testing.T, path, value string) {
@@ -482,6 +568,10 @@ func assertLifecycleNestedSuccess(t *testing.T, envelopeValue map[string]interfa
 	t.Helper()
 	data := envelopeValue["data"].(map[string]interface{})
 	apply := data["apply"].(map[string]interface{})
+	if err := lifecycleRegistryImportRestoreEvidenceError(data["restoreItems"], apply["restoreItems"]); err != nil {
+		t.Fatalf("registry import restore evidence invalid: %v\nrebuild restoreItems=%#v\napply restoreItems=%#v",
+			err, data["restoreItems"], apply["restoreItems"])
+	}
 	applySummary := apply["summary"].(map[string]interface{})
 	if applySummary["failed"].(float64) != 0 {
 		t.Fatalf("nested apply failed: %#v", apply)
@@ -491,6 +581,32 @@ func assertLifecycleNestedSuccess(t *testing.T, envelopeValue map[string]interfa
 	if verifySummary["fail"].(float64) != 0 || verifySummary["pass"].(float64) < 2 {
 		t.Fatalf("nested verify failed or vacuous: %#v", verify)
 	}
+}
+
+func lifecycleRegistryImportRestoreEvidenceError(rebuildItems, applyItems interface{}) error {
+	if !reflect.DeepEqual(rebuildItems, applyItems) {
+		return errors.New("rebuild and apply restore items differ")
+	}
+	items, ok := rebuildItems.([]interface{})
+	if !ok {
+		return errors.New("restore items are not an array")
+	}
+	matched := 0
+	for _, value := range items {
+		item, ok := value.(map[string]interface{})
+		if !ok || item["source"] != "./configs/7zip/7-Zip.reg" ||
+			item["target"] != `HKCU\Software\7-Zip` || item["restoreType"] != "registry-import" {
+			continue
+		}
+		matched++
+		if item["status"] != "restored" || (item["error"] != nil && item["error"] != "") {
+			return errors.New("registry import was not restored without error")
+		}
+	}
+	if matched != 1 {
+		return errors.New("expected exactly one registry import restore item")
+	}
+	return nil
 }
 
 func assertLifecycleVerifyFails(t *testing.T, envelopeValue map[string]interface{}) {

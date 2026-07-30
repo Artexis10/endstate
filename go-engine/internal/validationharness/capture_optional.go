@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
@@ -26,7 +25,7 @@ func validateCaptureContractOptionalAbsentOutcome(raw []byte, events []map[strin
 		"captureWarnings", "warnings", "configCapture", "manifest") {
 		return fail(CodeEnvelopeContract, "capture", "data", "optional-absence result has a malformed or foreign field shape")
 	}
-	if failure := validateMGBACaptureWarnings(data["warnings"]); failure != nil {
+	if failure := validateCaptureContractWarnings(data["warnings"]); failure != nil {
 		return failure
 	}
 	if failure := validateCaptureContractApp(data["appsIncluded"], runtime); failure != nil {
@@ -36,11 +35,11 @@ func validateCaptureContractOptionalAbsentOutcome(raw []byte, events []map[strin
 		return failure
 	}
 	var moduleMap map[string]string
-	if json.Unmarshal(data["configModuleMap"], &moduleMap) != nil || len(moduleMap) != 1 || moduleMap[strings.ToLower(runtime.Inventory.Ref)] != runtime.Module.ID {
+	if json.Unmarshal(data["configModuleMap"], &moduleMap) != nil || len(moduleMap) != 1 || moduleMap[runtime.Inventory.Ref] != runtime.Module.ID {
 		return fail(CodeEnvelopeContract, "capture", "configModuleMap", "optional-absence module ownership is not exact")
 	}
 	var packageMap map[string][]string
-	packageKey := strings.ToLower(runtime.Inventory.Driver) + ":" + strings.ToLower(runtime.Inventory.Ref)
+	packageKey := runtime.Inventory.Driver + ":" + runtime.Inventory.Ref
 	if json.Unmarshal(data["packageModuleMap"], &packageMap) != nil || len(packageMap) != 1 || !exactStrings(packageMap[packageKey], []string{runtime.Module.ID}) {
 		return fail(CodeEnvelopeContract, "capture", "packageModuleMap", "optional-absence package ownership is not exact")
 	}
@@ -49,7 +48,7 @@ func validateCaptureContractOptionalAbsentOutcome(raw []byte, events []map[strin
 	if json.Unmarshal(data["outputPath"], &outputPath) != nil || portableCapturePath(outputPath) != wantArtifact || json.Unmarshal(data["outputFormat"], &outputFormat) != nil || outputFormat != "zip" {
 		return fail(CodeEnvelopeContract, "capture", "outputPath", "optional-absence artifact reference is not exact")
 	}
-	if !rawStringArrayEquals(data["configsIncluded"], []string{}) || !rawStringArrayEquals(data["configsSkipped"], []string{"mgba"}) ||
+	if !rawStringArrayEquals(data["configsIncluded"], []string{}) || !rawStringArrayEquals(data["configsSkipped"], []string{captureContractModuleName(runtime)}) ||
 		!rawStringArrayEquals(data["configsCaptureErrors"], []string{}) || !rawStringArrayEquals(data["captureWarnings"], []string{}) {
 		return fail(CodeEnvelopeContract, "capture", "configsSkipped", "optional-absence module was not exactly skipped")
 	}
@@ -87,8 +86,8 @@ func validateOptionalCaptureModule(raw json.RawMessage, runtime *scenarioRuntime
 		FilesCaptured                     int
 	}
 	encoded, _ := json.Marshal(values[0])
-	if json.Unmarshal(encoded, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != "mgba" || value.ID != runtime.Module.ID || value.Status != "skipped" ||
-		value.FilesCaptured != 0 || !exactStrings(value.WingetRefs, []string{runtime.Inventory.Ref}) || len(value.ChocolateyRefs) != 0 || len(value.Paths) != 0 {
+	if json.Unmarshal(encoded, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != captureContractModuleName(runtime) || value.ID != runtime.Module.ID || value.Status != "skipped" ||
+		value.FilesCaptured != 0 || !captureContractReferencesExact(value.WingetRefs, value.ChocolateyRefs, runtime) || len(value.Paths) != 0 {
 		return fail(CodeEnvelopeContract, "capture", "configModules", "all-optional absence minted captured config evidence")
 	}
 	return nil
@@ -154,7 +153,7 @@ func validateOptionalCaptureMetadata(runtime *scenarioRuntime, raw []byte) *Fail
 	}
 	var value bundle.BundleMetadata
 	if json.Unmarshal(raw, &value) != nil || value.SchemaVersion != "1.0" || value.OS != "windows" || value.MachineName == "" || value.EndstateVersion == "" || len(value.ConfigModulesIncluded) != 0 ||
-		!exactStrings(value.ConfigModulesSkipped, []string{"mgba"}) || len(value.CaptureWarnings) != 0 {
+		!exactStrings(value.ConfigModulesSkipped, []string{captureContractModuleName(runtime)}) || len(value.CaptureWarnings) != 0 {
 		return fail(CodeArtifactContract, "capture", "metadata", "optional-absence metadata did not record the exact skipped module")
 	}
 	if _, err := time.Parse(time.RFC3339, value.CapturedAt); err != nil {
