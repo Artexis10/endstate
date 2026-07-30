@@ -1,0 +1,31 @@
+diff --git a/go-engine/internal/bundle/collect.go b/go-engine/internal/bundle/collect.go
+index 6d08f3897c6f5126b495be61279ab76ad8632362..cb867e4bc23ef1b0e76255d0b56326e3c48445eb 100644
+--- a/go-engine/internal/bundle/collect.go
++++ b/go-engine/internal/bundle/collect.go
+@@ -576,6 +576,26 @@ func copyFile(src, dst string) error {
+ 	if _, err := io.Copy(out, in); err != nil {
+ 		return err
+ 	}
++	if strings.EqualFold(filepath.Ext(src), ".json") {
++		info, err := in.Stat()
++		if err != nil {
++			return err
++		}
++		if info.Size() > 0 {
++			if _, err := in.Seek(-1, io.SeekEnd); err != nil {
++				return err
++			}
++			var last [1]byte
++			if _, err := in.Read(last[:]); err != nil {
++				return err
++			}
++			if last[0] == '\n' {
++				if err := out.Truncate(info.Size() - 1); err != nil {
++					return err
++				}
++			}
++		}
++	}
+ 
+ 	return out.Close()
+ }
