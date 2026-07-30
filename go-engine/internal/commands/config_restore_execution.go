@@ -941,11 +941,7 @@ func concreteLegacyRestoreClaim(action restore.RestoreAction, options restore.Re
 		}
 		return "registry-value\x00" + normalizeConfigRestoreRegistryKey(action.Key) + "\x00" + strings.ToLower(action.ValueName), nil
 	case "registry-import":
-		descriptor := restore.DescribeAction(action, options)
-		if err := restore.ValidateRegistryTarget(action.Target); err != nil {
-			return "", err
-		}
-		if err := restore.ValidateRegistryImportScope(descriptor.Source, action.Target); err != nil {
+		if err := restore.ValidateRegistryImportActionScope(action, options); err != nil {
 			if !(action.Optional && os.IsNotExist(err)) {
 				return "", err
 			}
