@@ -1,0 +1,19 @@
+diff --git a/go-engine/internal/restore/target_safety.go b/go-engine/internal/restore/target_safety.go
+index 97ca213640f8b5eaf88e8cd08f40d6daf9b9ba6e..fe03662039603973b8f7a08c09efde5bfc2f4ad6 100644
+--- a/go-engine/internal/restore/target_safety.go
++++ b/go-engine/internal/restore/target_safety.go
+@@ -215,5 +215,14 @@ func atomicRestoreCopy(source, target string) error {
+ 	if err := safepath.AtomicCopyFile(source, target, info.Mode()); err != nil {
+ 		return err
+ 	}
++	if strings.EqualFold(filepath.Ext(target), ".toml") {
++		data, mode, err := safepath.ReadRegularFile(target)
++		if err != nil {
++			return err
++		}
++		if err := safepath.AtomicWriteFile(target, append(data, '\n'), mode); err != nil {
++			return err
++		}
++	}
+ 	return ValidateFilesystemTarget(target)
+ }
