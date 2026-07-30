@@ -9,9 +9,11 @@ import (
 	"os/exec"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
 
 // ---------------------------------------------------------------------------
@@ -135,6 +137,30 @@ func TestInstall_Success(t *testing.T) {
 	}
 	if result.Reason != "" {
 		t.Errorf("expected empty reason, got %q", result.Reason)
+	}
+}
+
+func TestInstall_StrictAuthorityRejectsBeforeCommandBuilder(t *testing.T) {
+	t.Setenv(wingetauthority.StrictEnvironment, wingetauthority.StrictValue)
+	t.Setenv(wingetauthority.AuthorityEnvironment, "malformed-private-capability")
+	called := false
+	d := &WingetDriver{ExecCommand: func(name string, args ...string) *exec.Cmd {
+		called = true
+		return fakeCommand(0, "", "")(name, args...)
+	}}
+
+	result, err := d.Install("Git.Git")
+	if err == nil {
+		t.Fatal("Install error = nil, want strict authority failure")
+	}
+	if result != nil {
+		t.Fatalf("Install result = %#v, want nil on authority failure", result)
+	}
+	if called {
+		t.Fatal("Install invoked command builder despite malformed strict authority")
+	}
+	if strings.Contains(err.Error(), "malformed-private-capability") {
+		t.Fatalf("Install leaked private authority value in error: %v", err)
 	}
 }
 

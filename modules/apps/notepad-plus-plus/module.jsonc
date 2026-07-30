@@ -19,10 +19,6 @@
     "uninstallDisplayName": ["^Notepad\\+\\+"]
   },
   
-  "verify": [
-    { "type": "command-exists", "command": "notepad++" }
-  ],
-  
   "restore": [
     {
       "type": "copy",
@@ -89,7 +85,7 @@
     ]
   },
   
-  "notes": "Captures Notepad++ user configuration (config.xml, shortcuts, language definitions, stylers, user-defined languages, context menu). User config lives at %APPDATA%\\Notepad++\\ only after settings are customized — all entries are optional. The install directory contains model defaults (not captured). Session files and backup directories are excluded as volatile. Verify uses command-exists for portability across install locations.",
+  "notes": "Captures Notepad++ user configuration (config.xml, shortcuts, language definitions, stylers, user-defined languages, context menu). User config lives at %APPDATA%\\Notepad++\\ only after settings are customized — all entries are optional. The install directory contains model defaults (not captured). Session files and backup directories are excluded as volatile. Installed state is established by the exact Winget app result plus independent observer, package, and executable evidence; hosted exact-byte comparison proves restored configuration.",
   
   "curation": {
     "seed": {

@@ -82,8 +82,10 @@ type LiveDefinition struct {
 	PRTimeoutMinutes        int                         `json:"prTimeoutMinutes"`
 	ScheduledTimeoutMinutes int                         `json:"scheduledTimeoutMinutes"`
 	Comparator              ExactBytesComparator        `json:"comparator"`
+	DeclaredTargets         []LiveDeclaredTarget        `json:"declaredTargets"`
 	NonAuthorizing          bool                        `json:"nonAuthorizing"`
 	MutationAuthorized      bool                        `json:"mutationAuthorized"`
+	production              *modules.Module
 }
 
 // ExactBytesComparator describes the stable mappings a later runner may
@@ -99,6 +101,22 @@ type ComparatorMapping struct {
 	CaptureTemplate string `json:"captureTemplate"`
 	RestoreTemplate string `json:"restoreTemplate"`
 	Optional        bool   `json:"optional"`
+}
+
+type LiveDeclaredTargetKind string
+
+const (
+	LiveDeclaredTargetFile      LiveDeclaredTargetKind = "file"
+	LiveDeclaredTargetDirectory LiveDeclaredTargetKind = "directory"
+)
+
+// LiveDeclaredTarget identifies one cleanup and absence boundary member. It
+// deliberately preserves directory targets separately from exact-byte
+// comparator mappings.
+type LiveDeclaredTarget struct {
+	Identity string                 `json:"identity"`
+	Template string                 `json:"template"`
+	Kind     LiveDeclaredTargetKind `json:"kind"`
 }
 
 type PackageObservation struct {
@@ -185,11 +203,22 @@ func compileLiveDefinitionAt(repoRoot string, record validationmatrix.Validation
 	if err != nil {
 		return LiveDefinition{}, err
 	}
+	targets, err := deriveLiveDeclaredTargets(module, definitions)
+	if err != nil {
+		return LiveDefinition{}, err
+	}
 	source := record.SourceSnapshot()
 	digest := sha256.Sum256(source)
 	policy := cloneLivePolicy(record.Live)
 	if policy.Trust == nil {
 		return LiveDefinition{}, fmt.Errorf("live definition seed trust is absent")
+	}
+	projection, err := modules.ParseModuleJSON(module.CanonicalSnapshot())
+	if err != nil || projection.ID != module.ID || projection.Revision != module.Revision {
+		return LiveDefinition{}, fmt.Errorf("live definition production module projection is invalid")
+	}
+	if len(projection.Verify) != 0 {
+		return LiveDefinition{}, fmt.Errorf("live definition production module verifier is unsupported")
 	}
 	definition := LiveDefinition{
 		SchemaVersion: LiveDefinitionSchemaVersion, ModuleID: record.ModuleID, ModuleRevision: module.Revision,
@@ -197,12 +226,54 @@ func compileLiveDefinitionAt(repoRoot string, record validationmatrix.Validation
 		Observer:           LiveObserverDefinition{WingetRef: policy.Ref, UninstallDisplayName: append([]string(nil), module.Matches.UninstallDisplayName...), ExecutableNames: append([]string(nil), module.Matches.Exe...)},
 		SeedRepositoryPath: policy.Seed, SeedSHA256: policy.Trust.SeedSHA256, RunnerLabel: policy.RunnerLabel,
 		PRTimeoutMinutes: policy.PRTimeoutMinutes, ScheduledTimeoutMinutes: policy.ScheduledTimeoutMinutes,
-		Comparator: comparator, NonAuthorizing: true, MutationAuthorized: false,
+		Comparator: comparator, DeclaredTargets: targets, NonAuthorizing: true, MutationAuthorized: false, production: projection,
 	}
 	if err := validateLiveDefinition(definition); err != nil {
 		return LiveDefinition{}, err
 	}
 	return definition, nil
+}
+
+func (definition LiveDefinition) productionModule() (*modules.Module, bool) {
+	if definition.production == nil || definition.production.ID != definition.ModuleID || definition.production.Revision != definition.ModuleRevision {
+		return nil, false
+	}
+	module, err := modules.ParseModuleJSON(definition.production.CanonicalSnapshot())
+	if err != nil || module.ID != definition.ModuleID || module.Revision != definition.ModuleRevision {
+		return nil, false
+	}
+	return module, true
+}
+
+func deriveLiveDeclaredTargets(module *modules.Module, definitions fixtureDefinitions) ([]LiveDeclaredTarget, error) {
+	if module == nil || module.Capture == nil || len(module.Capture.Files) == 0 || len(definitions.Entries) != len(module.Capture.Files) {
+		return nil, fmt.Errorf("live declared targets require classified capture mappings")
+	}
+	targets := make([]LiveDeclaredTarget, 0, len(module.Capture.Files))
+	seen := make(map[string]struct{}, len(module.Capture.Files))
+	for index, capture := range module.Capture.Files {
+		definition := definitions.Entries[index]
+		if definition.Coordinate != fmt.Sprintf("capture.files[%d]", index) || !validLiveUserTemplate(capture.Source) || !sameLiveTemplate(capture.Source, definition.Source) || !sameLiveTemplate(capture.Source, definition.Target) || definition.Destination != filepath.ToSlash(capture.Dest) {
+			return nil, fmt.Errorf("live capture.files[%d] has an invalid declared target", index)
+		}
+		identity, err := liveCaptureIdentity(capture.Dest)
+		if err != nil {
+			return nil, fmt.Errorf("live capture.files[%d]: %w", index, err)
+		}
+		kind := LiveDeclaredTargetFile
+		if definition.Kind == fixtureKindDirectory {
+			kind = LiveDeclaredTargetDirectory
+		} else if definition.Kind != fixtureKindFile {
+			return nil, fmt.Errorf("live capture.files[%d] has unsupported declared target kind", index)
+		}
+		if _, duplicate := seen[identity]; duplicate {
+			return nil, fmt.Errorf("live capture.files[%d] duplicates declared target %q", index, identity)
+		}
+		seen[identity] = struct{}{}
+		targets = append(targets, LiveDeclaredTarget{Identity: identity, Template: capture.Source, Kind: kind})
+	}
+	sort.Slice(targets, func(left, right int) bool { return targets[left].Identity < targets[right].Identity })
+	return targets, nil
 }
 
 func cloneLivePolicy(policy validationmatrix.LivePolicy) validationmatrix.LivePolicy {
@@ -574,8 +645,29 @@ func validateLiveDefinition(definition LiveDefinition) error {
 	if definition.Observer.WingetRef != definition.WingetRef || validateLiveObserverDefinition(definition.Observer) != nil {
 		return fmt.Errorf("live definition observer is invalid")
 	}
+	if definition.production != nil && len(definition.production.Verify) != 0 {
+		return fmt.Errorf("live definition production module verifier is unsupported")
+	}
 	if policy.PRTimeoutMinutes < 1 || policy.PRTimeoutMinutes > 25 || policy.ScheduledTimeoutMinutes < 1 || policy.ScheduledTimeoutMinutes > 45 || len(definition.Comparator.Mappings) == 0 || len(definition.Comparator.Mappings) > maxLiveMappings || definition.Comparator.MinimumExistingMappings < 1 || definition.Comparator.MinimumExistingMappings > len(definition.Comparator.Mappings) {
 		return fmt.Errorf("live definition comparator bounds are invalid")
+	}
+	if len(definition.DeclaredTargets) == 0 || len(definition.DeclaredTargets) > maxLiveMappings {
+		return fmt.Errorf("live definition declared target bounds are invalid")
+	}
+	targets := make(map[string]LiveDeclaredTarget, len(definition.DeclaredTargets))
+	for _, target := range definition.DeclaredTargets {
+		if !validLiveIdentity(target.Identity) || !validLiveUserTemplate(target.Template) || (target.Kind != LiveDeclaredTargetFile && target.Kind != LiveDeclaredTargetDirectory) {
+			return fmt.Errorf("live definition declared target is invalid")
+		}
+		if _, duplicate := targets[target.Identity]; duplicate {
+			return fmt.Errorf("live definition declared target is duplicated")
+		}
+		for _, existing := range targets {
+			if liveTemplatesOverlap(target.Template, existing.Template) {
+				return fmt.Errorf("live definition declared targets overlap")
+			}
+		}
+		targets[target.Identity] = target
 	}
 	seen := make(map[string]struct{}, len(definition.Comparator.Mappings))
 	for _, mapping := range definition.Comparator.Mappings {
@@ -586,8 +678,17 @@ func validateLiveDefinition(definition LiveDefinition) error {
 			return fmt.Errorf("live definition comparator mapping is duplicated")
 		}
 		seen[mapping.Identity] = struct{}{}
+		target, exists := targets[mapping.Identity]
+		if !exists || target.Kind != LiveDeclaredTargetFile || !sameLiveTemplate(target.Template, mapping.CaptureTemplate) {
+			return fmt.Errorf("live definition comparator mapping is outside declared targets")
+		}
 	}
 	return nil
+}
+
+func liveTemplatesOverlap(left, right string) bool {
+	left, right = strings.ToUpper(left), strings.ToUpper(right)
+	return left == right || strings.HasPrefix(left, right+`\`) || strings.HasPrefix(right, left+`\`)
 }
 
 func boundedLivePolicy(policy validationmatrix.LivePolicy) bool {

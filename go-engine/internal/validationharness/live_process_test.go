@@ -12,10 +12,18 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
 
-func newTrustedLiveMutationPermit() trustedLiveMutationPermit {
-	return trustedLiveMutationPermit{capability: &liveMutationCapability{serial: 1}}
+func newTrustedLiveMutationPermit(admission liveReceiptAdmission, expected liveReceiptExpectedIdentity, executable string, arguments []string, directory string, environment map[string]string) trustedLiveMutationPermit {
+	admission.issuer.authorityCampaign = sha256.Sum256([]byte("campaign"))
+	return trustedLiveMutationPermit{capability: &liveMutationCapability{
+		serial: 1, campaign: admission.issuer.authorityCampaign, operation: admission.operation, sequence: admission.sequence, nonce: admission.nonce, issuerID: admission.issuer.id, admissionToken: admission.token,
+		issuedAt: time.Now().UTC().Add(-time.Minute), expiresAt: time.Now().UTC().Add(time.Minute), definition: expected.definition, engine: expected.engine, seed: expected.seed, packageRef: expected.packageRef,
+		comparator: sha256.Sum256([]byte("comparator")), targets: sha256.Sum256([]byte("targets")), observer: sha256.Sum256([]byte("observer")), workflow: sha256.Sum256([]byte("workflow")), packageArguments: append([]string(nil), arguments...), executable: executable, executableSHA256: expected.engine, arguments: append([]string(nil), arguments...), directory: directory, environment: cloneLiveEnvironment(environment),
+	}}
 }
 
 func TestLiveProcessRejectsZeroValueRequest(t *testing.T) {
@@ -25,7 +33,7 @@ func TestLiveProcessRejectsZeroValueRequest(t *testing.T) {
 }
 
 func TestLiveProcessRejectsMutationWithoutTrustedPermit(t *testing.T) {
-	_, err := runLiveProcess(context.Background(), newLiveTypedMutation(liveTestAdmission(t, liveOperationWingetExactInstall), trustedLiveMutationPermit{}, liveOperationWingetExactInstall, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, "", nil, liveReceiptExpectedIdentity{}, 0))
+	_, err := runLiveProcess(context.Background(), newLiveTypedMutation(liveTestAdmission(t, liveOperationWingetExactInstall), trustedLiveMutationPermit{}, liveOperationWingetExactInstall, liveTestExecutable(t), []string{"install", "Vendor.Fixture"}, "", nil, liveTestExpectedIdentity(), 0))
 	if err == nil {
 		t.Fatal("runLiveProcess() error = nil, want mutation denial")
 	}
@@ -41,6 +49,99 @@ func TestLiveProcessRejectsMutationWithoutProofIdentity(t *testing.T) {
 	var executionErr *LiveExecutionError
 	if !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionInvalidRequest {
 		t.Fatalf("validateLiveProcessRequest() error = %T %v, want invalid request", err, err)
+	}
+}
+
+func TestLiveProcessRejectsMalformedBoundInstallWithoutPanicking(t *testing.T) {
+	admission := liveTestAdmission(t, liveOperationWingetExactInstall)
+	expected := liveTestExpectedIdentity()
+	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), nil, "", nil), liveOperationWingetExactInstall, liveTestExecutable(t), nil, "", nil, expected, 0)
+	if err := validateLiveProcessRequest(request); err == nil {
+		t.Fatal("validateLiveProcessRequest() accepted malformed install request")
+	}
+}
+
+func TestLiveProcessRejectsHostilePermitInvocationSubstitution(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	executable := liveTestExecutable(t)
+	environment := liveTestHostedWingetEnvironment(t, map[string]string{"PATH": `C:\Windows\System32`})
+	permit := newTrustedLiveMutationPermit(admission, expected, executable, []string{"apply"}, `C:\reviewed`, environment)
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, executable, []string{"apply"}, `C:\reviewed`, environment, expected, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("bound request rejected: %v", err)
+	}
+	for _, mutate := range []func(*LiveProcessRequest){
+		func(value *LiveProcessRequest) { value.executable = filepath.Join(os.TempDir(), "substituted.exe") },
+		func(value *LiveProcessRequest) { value.args = []string{"apply", "--foreign"} },
+		func(value *LiveProcessRequest) { value.dir = `C:\foreign` },
+		func(value *LiveProcessRequest) { value.environment = map[string]string{"PATH": `C:\foreign`} },
+		func(value *LiveProcessRequest) { value.expected.comparator = sha256.Sum256([]byte("foreign")) },
+	} {
+		candidate := request
+		candidate.args = append([]string(nil), request.args...)
+		candidate.environment = cloneLiveEnvironment(request.environment)
+		mutate(&candidate)
+		if err := validateLiveProcessRequest(candidate); err == nil {
+			t.Fatal("validateLiveProcessRequest accepted a substituted invocation")
+		}
+	}
+}
+
+func TestLiveMutationPermitFinalGateBindsImageAndExpiry(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, expected, 0)
+	if permit.capability.finalize(request, sha256.Sum256([]byte("substituted")), time.Now().UTC()) {
+		t.Fatal("final gate accepted substituted image")
+	}
+	if permit.capability.consumed.Load() {
+		t.Fatal("substituted image consumed permit")
+	}
+	tampered := request
+	tampered.admission.token[0]++
+	if permit.capability.finalize(tampered, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate accepted a substituted admission token")
+	}
+	permit = newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	permit.capability.expiresAt = time.Now().UTC().Add(-time.Second)
+	if permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate accepted expired permit")
+	}
+	permit = newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	if !permit.capability.finalize(request, expected.engine, time.Now().UTC()) || permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate did not consume exactly once")
+	}
+}
+
+func TestLiveMutationPermitFinalGateRejectsReleasedAdmission(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, expected, 0)
+	admission.complete()
+	if permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate accepted an admission released before launch")
+	}
+}
+
+func TestLiveMutationPermitLaunchCommitDefersCompletionUntilSeal(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", nil)
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, expected, 0)
+	if !permit.capability.finalize(request, expected.engine, time.Now().UTC()) {
+		t.Fatal("final gate rejected a reserved exact admission")
+	}
+	admission.complete()
+	receipt := liveUnsealedReceiptForTest(t, admission, nil, nil, "")
+	if err := admission.issuer.sealFn(receipt); err != nil {
+		t.Fatalf("launch-committed admission could not seal: %v", err)
+	}
+	admission.complete()
+	if _, err := admission.issuer.admit(liveOperationEngineVerify, 2, liveReceiptTestNonce(20)); err != nil {
+		t.Fatalf("sealed completion did not release admission: %v", err)
 	}
 }
 
@@ -105,8 +206,111 @@ func TestLiveProcessWingetListProbeHasExactReviewedArguments(t *testing.T) {
 	}
 }
 
+func TestLiveProcessWingetUninstallBuilderUsesOnlyBoundInvocation(t *testing.T) {
+	admission := liveTestAdmission(t, liveOperationWingetExactUninstall)
+	expected := liveTestExpectedIdentity()
+	binding := liveTrustedAppXBinding{metadata: liveAppXPackageMetadata{packageRoot: `C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.2.3.4_x64__8wekyb3d8bbwe`, executableName: "winget.exe", receipt: liveTrustedAppXReceipt{valid: true}}}
+	executable := filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName)
+	permit := newTrustedLiveMutationPermit(admission, expected, executable, []string{"uninstall", "--id", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-source-agreements", "--disable-interactivity"}, "", nil)
+	request := newLiveTrustedAppXWingetExactUninstall(admission, permit, binding, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("bound uninstall request rejected: %v", err)
+	}
+	for _, mutate := range []func(*LiveProcessRequest){
+		func(value *LiveProcessRequest) { value.args[1] = "Vendor.Foreign" },
+		func(value *LiveProcessRequest) { value.executable = `C:\\shadow\\winget.exe` },
+	} {
+		candidate := request
+		candidate.args = append([]string(nil), request.args...)
+		mutate(&candidate)
+		if err := validateLiveProcessRequest(candidate); err == nil {
+			t.Fatal("bound uninstall builder accepted a caller substitution")
+		}
+	}
+}
+
+func TestLiveProcessWingetInstallBuilderUsesOnlyFixedInvocation(t *testing.T) {
+	admission := liveTestAdmission(t, liveOperationWingetExactInstall)
+	expected := liveTestExpectedIdentity()
+	binding := liveTrustedAppXBinding{metadata: liveAppXPackageMetadata{packageRoot: `C:\\Program Files\\WindowsApps\\Microsoft.DesktopAppInstaller_1.2.3.4_x64__8wekyb3d8bbwe`, executableName: "winget.exe", receipt: liveTrustedAppXReceipt{valid: true}}}
+	executable := filepath.Join(binding.metadata.packageRoot, binding.metadata.executableName)
+	arguments := []string{"install", "Notepad++.Notepad++", "--exact", "--source", "winget", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity"}
+	permit := newTrustedLiveMutationPermit(admission, expected, executable, arguments, "", nil)
+	request := newLiveTrustedAppXWingetExactInstall(admission, permit, binding, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("bound install request rejected: %v", err)
+	}
+	request.args[1] = "Vendor.Foreign"
+	if err := validateLiveProcessRequest(request); err == nil {
+		t.Fatal("bound install builder accepted a foreign package")
+	}
+}
+
+func TestLiveTrustedEngineMutationCopiesPermitInvocationAndRejectsMutation(t *testing.T) {
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	expected := liveTestExpectedIdentity()
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, `C:\reviewed`, liveTestHostedWingetEnvironment(t, map[string]string{"PATH": `C:\Windows\System32`}))
+	request := newLiveTrustedEngineMutation(admission, permit, liveOperationEngineApply, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("trusted engine request rejected: %v", err)
+	}
+	request.args = []string{"apply", "--foreign"}
+	if err := validateLiveProcessRequest(request); err == nil {
+		t.Fatal("trusted engine request accepted substituted arguments")
+	}
+}
+
+func TestLiveProcessRejectsEngineRequestsWithoutCompleteHostedWingetAuthority(t *testing.T) {
+	expected := liveTestExpectedIdentity()
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	authority, err := wingetauthority.Encode(`C:\\Program Files\\WindowsApps\\winget.exe`, sha256.Sum256([]byte("winget")))
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	base := map[string]string{wingetauthority.StrictEnvironment: wingetauthority.StrictValue, wingetauthority.AuthorityEnvironment: authority}
+	permit := newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", base)
+	request := newLiveTypedMutation(admission, permit, liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", base, expected, 0)
+	if err := validateLiveProcessRequest(request); err != nil {
+		t.Fatalf("complete authority rejected: %v", err)
+	}
+	for _, test := range []struct {
+		name             string
+		environment      map[string]string
+		matchEnvironment bool
+	}{
+		{name: "strict marker missing", environment: map[string]string{wingetauthority.AuthorityEnvironment: authority}, matchEnvironment: true},
+		{name: "authority missing", environment: map[string]string{wingetauthority.StrictEnvironment: wingetauthority.StrictValue}, matchEnvironment: true},
+		{name: "both absent", environment: map[string]string{}, matchEnvironment: true},
+		{name: "authority substituted", environment: map[string]string{wingetauthority.StrictEnvironment: wingetauthority.StrictValue, wingetauthority.AuthorityEnvironment: "v1:QmFk:0000000000000000000000000000000000000000000000000000000000000000"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := request
+			candidate.environment = cloneLiveEnvironment(test.environment)
+			permitEnvironment := request.permit.capability.environment
+			if test.matchEnvironment {
+				permitEnvironment = candidate.environment
+			}
+			candidate.permit = newTrustedLiveMutationPermit(admission, expected, liveTestExecutable(t), []string{"apply"}, "", permitEnvironment)
+			if err := validateLiveProcessRequest(candidate); err == nil {
+				t.Fatal("engine request accepted missing or substituted hosted Winget authority")
+			}
+		})
+	}
+}
+
+func TestLiveProcessAllowsOrdinaryEnvironmentWithoutHostedWingetAuthority(t *testing.T) {
+	environment, err := liveProcessEnvironment(map[string]string{"PATH": `C:\Windows\System32`})
+	if err != nil {
+		t.Fatalf("liveProcessEnvironment() error = %v", err)
+	}
+	if !containsLiveEnvironment(environment, `PATH=C:\Windows\System32`) {
+		t.Fatalf("environment = %q, want unrelated PATH preserved", environment)
+	}
+}
+
 func TestLiveProcessRejectsMissingProofIdentity(t *testing.T) {
-	request := newLiveTypedMutation(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	request := newLiveTypedMutation(admission, newTrustedLiveMutationPermit(admission, liveReceiptExpectedIdentity{}, liveTestExecutable(t), []string{"apply"}, "", nil), liveOperationEngineApply, liveTestExecutable(t), []string{"apply"}, "", nil, liveReceiptExpectedIdentity{}, 0)
 	if err := validateLiveProcessRequest(request); err == nil {
 		t.Fatal("validateLiveProcessRequest() accepted missing proof identities")
 	}
@@ -119,7 +323,7 @@ func TestLiveProcessInvalidRequestReleasesAdmission(t *testing.T) {
 		t.Fatalf("admit() error = %v", err)
 	}
 	_, _ = runLiveProcess(context.Background(), LiveProcessRequest{operation: liveOperationWingetExactList, admission: admission})
-	if _, err := issuer.admit(liveOperationWingetExactList, 2, liveReceiptTestNonce(12)); err != nil {
+	if _, err := issuer.admit(liveOperationWingetExactList, 1, liveReceiptTestNonce(12)); err != nil {
 		t.Fatalf("invalid request retained admission: %v", err)
 	}
 }
@@ -130,6 +334,11 @@ func liveTestExpectedIdentity() liveReceiptExpectedIdentity {
 		engine:     sha256.Sum256([]byte("engine")),
 		seed:       sha256.Sum256([]byte("seed")),
 		packageRef: sha256.Sum256([]byte("package")),
+		comparator: sha256.Sum256([]byte("comparator")),
+		targets:    sha256.Sum256([]byte("targets")),
+		observer:   sha256.Sum256([]byte("observer")),
+		workflow:   sha256.Sum256([]byte("workflow")),
+		runner:     sha256.Sum256([]byte("runner")),
 	}
 }
 
@@ -147,4 +356,16 @@ func liveTestAdmission(t *testing.T, operation liveOperation) liveReceiptAdmissi
 func liveTestExecutable(t *testing.T) string {
 	t.Helper()
 	return filepath.Join(os.TempDir(), "endstate-live-process.exe")
+}
+
+func liveTestHostedWingetEnvironment(t *testing.T, environment map[string]string) map[string]string {
+	t.Helper()
+	authority, err := wingetauthority.Encode(`C:\\Program Files\\WindowsApps\\winget.exe`, sha256.Sum256([]byte("winget")))
+	if err != nil {
+		t.Fatalf("Encode() error = %v", err)
+	}
+	bound := cloneLiveEnvironment(environment)
+	bound[wingetauthority.StrictEnvironment] = wingetauthority.StrictValue
+	bound[wingetauthority.AuthorityEnvironment] = authority
+	return bound
 }

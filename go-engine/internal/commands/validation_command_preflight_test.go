@@ -363,8 +363,11 @@ func TestRunVerifyValidationPreflightPrecedesRealizerAndVerifier(t *testing.T) {
 	assertValidationCommandPreflightFailure(t, fixture, commandErr)
 }
 
-func TestRunVerifyValidationPreflightsExactMatchedProductionModuleAndKeepsAssertionFailureOrdinary(t *testing.T) {
+func TestRunVerifyValidationPreflightsExactMatchedProductionModuleWithZeroVerifiers(t *testing.T) {
 	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	if module := fixture.catalog["apps.notepad-plus-plus"]; module == nil || len(module.Verify) != 0 {
+		t.Fatalf("production module verify declarations = %#v, want none", module)
+	}
 	originalLoad := loadModuleCatalogFn
 	loadModuleCatalogFn = func(string) (map[string]*modules.Module, error) { return fixture.catalog, nil }
 	t.Cleanup(func() { loadModuleCatalogFn = originalLoad })
@@ -373,8 +376,15 @@ func TestRunVerifyValidationPreflightsExactMatchedProductionModuleAndKeepsAssert
 	if commandErr != nil || data == nil {
 		t.Fatalf("valid production-module verify = (%T, %v)", data, commandErr)
 	}
+	result := data.(*VerifyResult)
+	if result.Summary.Total != 1 || result.Summary.Pass != 1 || result.Summary.Fail != 0 || result.Summary.Skipped != 0 {
+		t.Fatalf("production-module verify summary = %#v", result.Summary)
+	}
+	if len(result.Results) != 1 || result.Results[0].Type != "app" || result.Results[0].Status != "pass" {
+		t.Fatalf("production-module verify results = %#v, want one app pass", result.Results)
+	}
 	if isolationErr := fixture.session.IsolationError(); isolationErr != nil {
-		t.Fatalf("ordinary failed assertion was mislabeled as isolation: %v", isolationErr)
+		t.Fatalf("zero-verifier production module was mislabeled as isolation: %v", isolationErr)
 	}
 }
 

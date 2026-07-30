@@ -38,14 +38,17 @@ func (w *WingetDriver) Detect(ref string) (bool, string, error) {
 
 func (w *WingetDriver) DetectSource(ref, source string) (bool, string, error) {
 	source = packagesource.ResolveWinget(ref, source)
-	cmd := w.ExecCommand(
-		"winget",
+	cmd, release, commandErr := w.command(
 		"list",
 		"--id", ref,
 		"--source", source,
 		"-e",
 		"--accept-source-agreements",
 	)
+	if commandErr != nil {
+		return false, "", commandErr
+	}
+	defer release()
 
 	var stdout strings.Builder
 	cmd.Stdout = &stdout

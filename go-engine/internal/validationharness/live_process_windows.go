@@ -24,7 +24,7 @@ import (
 const liveWindowsJobDrainTimeout = 30 * time.Second
 const liveWindowsReaderDrainTimeout = 2 * time.Second
 
-func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (liveProcessOutput, error) {
+func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest, finalize func(liveReceiptImageIdentity) error) (liveProcessOutput, error) {
 	binding, err := bindLiveWindowsRequestExecutable(request)
 	if err != nil {
 		return liveProcessOutput{}, liveExecutionError(LiveExecutionInvalidRequest, err)
@@ -113,6 +113,15 @@ func runLiveProcessPlatform(ctx context.Context, request LiveProcessRequest) (li
 		windows.CloseHandle(stdoutRead)
 		windows.CloseHandle(stderrRead)
 		return result, liveExecutionError(LiveExecutionContainment, err)
+	}
+	if finalize != nil {
+		if err := finalize(image); err != nil {
+			_ = windows.TerminateProcess(process.Process, 1)
+			_, _ = windows.WaitForSingleObject(process.Process, windows.INFINITE)
+			windows.CloseHandle(stdoutRead)
+			windows.CloseHandle(stderrRead)
+			return result, err
+		}
 	}
 	if _, err := windows.ResumeThread(process.Thread); err != nil {
 		_ = stopLiveWindowsJob(job)

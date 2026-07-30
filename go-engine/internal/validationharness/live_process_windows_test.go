@@ -22,9 +22,13 @@ import (
 func TestLiveProcessPermitRunsWindowsCommand(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	result, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", "exit 0"}, 0))
+	request := liveWindowsEngineRequest(t, []string{"/d", "/c", "exit 0"}, 0)
+	result, err := runLiveProcess(ctx, request)
 	if err != nil || result.exitCode != 0 {
 		t.Fatalf("runLiveProcess() = (%+v, %v), want zero exit", result, err)
+	}
+	if _, err := request.admission.issuer.admit(liveOperationEngineVerify, 2, liveReceiptTestNonce(23)); err != nil {
+		t.Fatalf("sealed process did not advance issuer sequence: %v", err)
 	}
 }
 
@@ -56,7 +60,7 @@ func TestLiveProcessCancellationSealsPartialOutputReceipt(t *testing.T) {
 		err     error
 	}, 1)
 	go func() {
-		command := "echo ready>" + ready + " & echo partial-output & ping -n 20 127.0.0.1 >nul"
+		command := "echo partial-output & echo ready>" + ready + " & ping -n 20 127.0.0.1 >nul"
 		receipt, err := runLiveProcess(ctx, liveWindowsEngineRequest(t, []string{"/d", "/c", command}, 0))
 		finished <- struct {
 			receipt *liveExecutionReceipt
@@ -74,7 +78,15 @@ func TestLiveProcessCancellationSealsPartialOutputReceipt(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	cancel()
-	result := <-finished
+	var result struct {
+		receipt *liveExecutionReceipt
+		err     error
+	}
+	select {
+	case result = <-finished:
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled child did not return")
+	}
 	var execution *LiveExecutionError
 	if !errors.As(result.err, &execution) || execution.Code != LiveExecutionCanceled || result.receipt == nil {
 		t.Fatalf("runLiveProcess() = (%+v, %v), want canceled sealed receipt", result.receipt, result.err)
@@ -262,8 +274,24 @@ func TestLiveProcessRejectsReparseExecutablePath(t *testing.T) {
 	request.executable = filepath.Join(junction, filepath.Base(liveWindowsProbeExecutable(t)))
 	_, err := runLiveProcess(context.Background(), request)
 	var executionErr *LiveExecutionError
-	if err == nil || !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionInvalidRequest {
-		t.Fatalf("runLiveProcess() error = %T %v, want invalid reparse path", err, err)
+	if err == nil || !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionMutationDenied {
+		t.Fatalf("runLiveProcess() error = %T %v, want prelaunch mutation denial", err, err)
+	}
+}
+
+func TestLiveProcessPreResumeFailureDoesNotAdvanceAdmission(t *testing.T) {
+	request := liveWindowsEngineRequest(t, []string{"/d", "/c", "exit 0"}, 0)
+	issuer := request.admission.issuer
+	original := liveWindowsProcessImagePath
+	liveWindowsProcessImagePath = func(windows.Handle) (string, error) { return "", errors.New("image unavailable") }
+	t.Cleanup(func() { liveWindowsProcessImagePath = original })
+	_, err := runLiveProcess(context.Background(), request)
+	var executionErr *LiveExecutionError
+	if !errors.As(err, &executionErr) || executionErr.Code != LiveExecutionContainment {
+		t.Fatalf("runLiveProcess() error = %T %v, want containment failure", err, err)
+	}
+	if _, err := issuer.admit(liveOperationEngineApply, 1, liveReceiptTestNonce(22)); err != nil {
+		t.Fatalf("pre-resume failure advanced or retained admission: %v", err)
 	}
 }
 
@@ -292,7 +320,7 @@ func liveWindowsProbeExecutable(t *testing.T) string {
 func liveWindowsTestEnvironment(t *testing.T) map[string]string {
 	t.Helper()
 	systemRoot := os.Getenv("SystemRoot")
-	return map[string]string{"COMSPEC": liveWindowsProbeExecutable(t), "PATH": filepath.Join(systemRoot, "System32"), "SYSTEMROOT": systemRoot}
+	return liveTestHostedWingetEnvironment(t, map[string]string{"COMSPEC": liveWindowsProbeExecutable(t), "PATH": filepath.Join(systemRoot, "System32"), "SYSTEMROOT": systemRoot})
 }
 
 func liveWindowsEngineRequest(t *testing.T, args []string, outputLimit int) LiveProcessRequest {
@@ -304,5 +332,7 @@ func liveWindowsEngineRequest(t *testing.T, args []string, outputLimit int) Live
 	if err != nil {
 		t.Fatalf("liveWindowsFileSHA256() error = %v", err)
 	}
-	return newLiveEngineApply(liveTestAdmission(t, liveOperationEngineApply), newTrustedLiveMutationPermit(), executable, args, "", liveWindowsTestEnvironment(t), expected, outputLimit)
+	admission := liveTestAdmission(t, liveOperationEngineApply)
+	environment := liveWindowsTestEnvironment(t)
+	return newLiveEngineApply(admission, newTrustedLiveMutationPermit(admission, expected, executable, args, "", environment), executable, args, "", environment, expected, outputLimit)
 }

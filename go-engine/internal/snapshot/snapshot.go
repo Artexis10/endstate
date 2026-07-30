@@ -17,6 +17,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+
+	"github.com/Artexis10/endstate/go-engine/internal/wingetauthority"
 )
 
 // SnapshotApp represents one installed application from winget list.
@@ -36,7 +38,11 @@ var ExecCommand = defaultExecCommand
 // winget writes progress spinners to stderr which would corrupt the tabular
 // output if captured together.
 func defaultExecCommand(name string, args ...string) ([]byte, error) {
-	cmd := exec.Command(name, args...)
+	cmd, release, err := wingetauthority.Command(args...)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	out, err := cmd.Output()
 	if err != nil && len(out) > 0 {
 		// winget may exit non-zero but still produce valid stdout.
@@ -168,7 +174,11 @@ type wingetExportPackage struct {
 var ExecCommandWithFile = defaultExecCommandWithFile
 
 func defaultExecCommandWithFile(outFile string, name string, args ...string) error {
-	cmd := exec.Command(name, args...)
+	cmd, release, err := wingetauthority.Command(args...)
+	if err != nil {
+		return err
+	}
+	defer release()
 	// winget writes progress spinners to stderr; discard them.
 	cmd.Stderr = nil
 	return cmd.Run()

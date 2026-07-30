@@ -8,8 +8,20 @@ package validationharness
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 )
+
+func TestWindowsLiveVersionSourceReadsPEFixedFileVersion(t *testing.T) {
+	path := os.Getenv("ComSpec")
+	if path == "" {
+		t.Fatal("ComSpec is unavailable")
+	}
+	version, err := (windowsLiveVersionSource{}).FileVersion(path)
+	if err != nil || version == "" {
+		t.Fatalf("FileVersion() = %q, %v", version, err)
+	}
+}
 
 func TestNewWindowsLiveObserverFailsClosedWhenTrustedResolverIsUnavailable(t *testing.T) {
 	original := newWindowsLiveWingetResolver
@@ -46,5 +58,37 @@ func TestWindowsLiveProcessRejectsBareOrUntrustedWingetResolution(t *testing.T) 
 	}
 	if _, err := (windowsLiveProcess{}).Run(context.Background(), `C:\shadow\winget.exe`, "list"); err == nil {
 		t.Fatal("windowsLiveProcess accepted a caller-provided executable path")
+	}
+}
+
+func TestWindowsLiveServiceTypeClassificationIsCompleteAndFailClosed(t *testing.T) {
+	for _, test := range []struct {
+		name                    string
+		kind                    uint64
+		wantDriver, wantService bool
+	}{
+		{"kernel driver", 0x1, true, false},
+		{"file system driver", 0x2, true, false},
+		{"adapter", 0x4, true, false},
+		{"recognizer", 0x8, true, false},
+		{"own process", 0x10, false, true},
+		{"shared process", 0x20, false, true},
+		{"user service instance", 0x40, false, true},
+		{"user service template", 0x80, false, true},
+		{"user service", 0x200, false, true},
+		{"user service instance template", 0x60, false, true},
+		{"user service instance template aggregate", 0xe0, false, true},
+		{"interactive user service", 0x210, false, true},
+		{"interactive own process", 0x110, false, true},
+	} {
+		driver, service, err := classifyWindowsLiveServiceType(test.kind)
+		if err != nil || driver != test.wantDriver || service != test.wantService {
+			t.Fatalf("%s: classifyWindowsLiveServiceType(%#x) = (%v, %v, %v)", test.name, test.kind, driver, service, err)
+		}
+	}
+	for _, kind := range []uint64{0, 0x3, 0x11, 0x30, 0x101, 0x400} {
+		if _, _, err := classifyWindowsLiveServiceType(kind); err == nil {
+			t.Fatalf("classifyWindowsLiveServiceType(%#x) accepted an unknown or mixed type", kind)
+		}
 	}
 }

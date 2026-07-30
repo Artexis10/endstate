@@ -1,0 +1,318 @@
+// Copyright 2026 Substrate Systems OU
+// SPDX-License-Identifier: Apache-2.0
+
+package validationharness
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+)
+
+const liveGitHubAPIEndpoint = "https://api.github.com"
+
+type liveWorkflowRun struct {
+	ID         uint64 `json:"id"`
+	RunAttempt int    `json:"run_attempt"`
+	Event      string `json:"event"`
+	Path       string `json:"path"`
+	HeadBranch string `json:"head_branch"`
+	HeadSHA    string `json:"head_sha"`
+	Repository struct {
+		FullName string `json:"full_name"`
+	} `json:"repository"`
+	Actor struct {
+		Type string `json:"type"`
+	} `json:"actor"`
+}
+
+// LiveWorkflowRunClient always addresses the GitHub production API. It retains
+// no token in campaign or permit data.
+type LiveWorkflowRunClient struct {
+	client   *http.Client
+	endpoint string
+}
+
+func NewLiveWorkflowRunClient(client *http.Client) LiveWorkflowRunClient {
+	return newLiveWorkflowRunClient(client, liveGitHubAPIEndpoint)
+}
+
+func newLiveWorkflowRunClient(client *http.Client, endpoint string) LiveWorkflowRunClient {
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	if endpoint == "" {
+		endpoint = liveGitHubAPIEndpoint
+	}
+	return LiveWorkflowRunClient{client: client, endpoint: strings.TrimRight(endpoint, "/")}
+}
+
+func (client LiveWorkflowRunClient) Fetch(ctx context.Context, campaign LiveCampaign) (liveWorkflowRun, error) {
+	if err := ValidateLiveCampaign(campaign); err != nil || campaign.RunID == 0 || campaign.RunAttempt != 1 {
+		return liveWorkflowRun{}, fmt.Errorf("live workflow run request is invalid")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	requestURL := client.endpoint + "/repos/Artexis10/endstate/actions/runs/" + fmt.Sprint(campaign.RunID)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return liveWorkflowRun{}, fmt.Errorf("create live workflow request: %w", err)
+	}
+	response, err := client.client.Do(request)
+	if err != nil {
+		return liveWorkflowRun{}, fmt.Errorf("fetch live workflow run: %w", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxLiveAuthorityBodyBytes))
+		return liveWorkflowRun{}, fmt.Errorf("live workflow API returned %d", response.StatusCode)
+	}
+	raw, err := io.ReadAll(io.LimitReader(response.Body, maxLiveAuthorityBodyBytes+1))
+	if err != nil || len(raw) > maxLiveAuthorityBodyBytes {
+		return liveWorkflowRun{}, fmt.Errorf("live workflow API body is invalid")
+	}
+	var run liveWorkflowRun
+	if err := decodeLiveWorkflowRunJSON(raw, &run); err != nil {
+		return liveWorkflowRun{}, fmt.Errorf("decode live workflow run: %w", err)
+	}
+	if run.Repository.FullName != campaign.Repository || !liveWorkflowPathMatches(run.Path, campaign.WorkflowPath) || run.Event != campaign.Event || run.HeadBranch != "main" || run.HeadSHA != campaign.ControllerCommit || run.ID != campaign.RunID || run.RunAttempt != campaign.RunAttempt || run.Actor.Type != campaign.TrustedActorClass {
+		return liveWorkflowRun{}, fmt.Errorf("live workflow run identity differs from campaign")
+	}
+	return run, nil
+}
+
+func decodeLiveWorkflowRunJSON(raw []byte, target *liveWorkflowRun) error {
+	if len(raw) == 0 || len(raw) > maxLiveAuthorityBodyBytes {
+		return fmt.Errorf("live workflow JSON size is invalid")
+	}
+	if err := rejectDuplicateJSONKeys(raw); err != nil {
+		return err
+	}
+	decoder := json.NewDecoder(strings.NewReader(string(raw)))
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func liveWorkflowPathMatches(value, workflow string) bool {
+	return value == workflow || value == workflow+"@main" || value == workflow+"@refs/heads/main"
+}
+
+type LiveAuthoritySessionRequest struct {
+	Campaign                 LiveCampaign
+	Definition               LiveDefinition
+	DefinitionSHA256         string
+	EngineSHA256             string
+	ValidatorSHA256          string
+	ControllerCheckoutCommit string
+	TestedCheckoutCommit     string
+	Now                      time.Time
+}
+
+type LiveAuthoritySession struct {
+	campaignID             [32]byte
+	campaign               LiveCampaign
+	definition             liveAuthorityDefinition
+	now                    time.Time
+	mu                     sync.Mutex
+	minted                 map[liveAuthorityPermitKey]struct{}
+	issuerID               uint64
+	cleanup                bool
+	runtimeBindingRequired bool
+	runtimeBound           bool
+}
+
+// EnterCleanup permanently aborts proof progression and admits only the
+// campaign's final uninstall, declared wipe, and owned attempt-root cleanup.
+func (session *LiveAuthoritySession) EnterCleanup(issuer *liveReceiptIssuer) error {
+	if session == nil || issuer == nil || issuer.enterCleanupFn == nil {
+		return fmt.Errorf("live cleanup transition is unavailable")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.cleanup || issuer.id != session.issuerID || issuer.authorityCampaign != session.campaignID {
+		return fmt.Errorf("live cleanup transition is unavailable")
+	}
+	var last uint64
+	for sequence := range session.definition.operations {
+		if sequence > last {
+			last = sequence
+		}
+	}
+	if last < 3 || session.definition.operations[last-2].Operation != string(liveOperationWingetExactUninstall) || session.definition.operations[last-1].Operation != string(liveOperationDeclaredTargetWipe) || session.definition.operations[last].Operation != string(liveOperationAttemptRootCleanup) {
+		return fmt.Errorf("live cleanup transition is absent from campaign")
+	}
+	if err := issuer.enterCleanupFn(last-2, []liveOperation{liveOperationWingetExactUninstall, liveOperationDeclaredTargetWipe, liveOperationAttemptRootCleanup}); err != nil {
+		return err
+	}
+	session.cleanup = true
+	return nil
+}
+
+type liveAuthorityDefinition struct {
+	definition, engine, seed, packageRef               [32]byte
+	validator, comparator, targets, observer, workflow [32]byte
+	packageArguments                                   []string
+	templates, operations                              map[uint64]LiveCampaignOperation
+}
+
+type liveAuthorityPermitKey struct {
+	operation      liveOperation
+	sequence       uint64
+	admissionToken [32]byte
+}
+
+func NewLiveAuthoritySession(ctx context.Context, client LiveWorkflowRunClient, request LiveAuthoritySessionRequest) (*LiveAuthoritySession, error) {
+	if err := ValidateLiveCampaign(request.Campaign); err != nil || request.Campaign.RunID == 0 || request.Campaign.RunAttempt != 1 || request.ControllerCheckoutCommit != request.Campaign.ControllerCommit || request.TestedCheckoutCommit != request.Campaign.TestedCheckoutCommit {
+		return nil, fmt.Errorf("live authority campaign is invalid")
+	}
+	if request.Now.IsZero() || request.Now.Location() != time.UTC || !request.Campaign.ExpiresAt.After(request.Now) || request.Campaign.ExpiresAt.Sub(request.Now) > 24*time.Hour {
+		return nil, fmt.Errorf("live authority campaign expiry is invalid")
+	}
+	if _, err := client.Fetch(ctx, request.Campaign); err != nil {
+		return nil, err
+	}
+	if err := validateLiveDefinition(request.Definition); err != nil {
+		return nil, fmt.Errorf("live authority definition is invalid")
+	}
+	definitionDigest, err := CanonicalLiveDefinitionSHA256(request.Definition)
+	if err != nil || definitionDigest != request.DefinitionSHA256 || request.Definition.ModuleID != request.Campaign.ModuleID || request.Definition.ModuleRevision != request.Campaign.ModuleRevision || request.Definition.ValidationSourceSHA256 != request.Campaign.ValidationSourceSHA256 || request.Definition.SeedSHA256 != request.Campaign.SeedSHA256 || request.Definition.WingetRef != request.Campaign.PackageRef || request.EngineSHA256 != request.Campaign.EngineSHA256 || request.ValidatorSHA256 != request.Campaign.ValidatorSHA256 {
+		return nil, fmt.Errorf("live authority source or binary binding differs from campaign")
+	}
+	if liveSHA256Hex(request.Definition.Comparator) != request.Campaign.ComparatorSHA256 || liveSHA256Hex(request.Definition.DeclaredTargets) != request.Campaign.TargetsSHA256 || liveSHA256Hex(request.Definition.Observer) != request.Campaign.ObserverSHA256 {
+		return nil, fmt.Errorf("live authority comparator or observer binding differs from campaign")
+	}
+	identity, err := CanonicalLiveCampaignIdentity(request.Campaign)
+	if err != nil {
+		return nil, err
+	}
+	operations := make(map[uint64]LiveCampaignOperation, len(request.Campaign.Operations))
+	for _, operation := range request.Campaign.Operations {
+		operation.Arguments = append([]string(nil), operation.Arguments...)
+		operation.Environment = cloneLiveEnvironment(operation.Environment)
+		operations[operation.Sequence] = operation
+	}
+	return &LiveAuthoritySession{campaignID: liveSHA256Bytes(identity), campaign: request.Campaign, now: request.Now, minted: make(map[liveAuthorityPermitKey]struct{}), definition: liveAuthorityDefinition{
+		definition: liveSHA256Bytes(request.DefinitionSHA256), engine: liveSHA256Bytes(request.EngineSHA256), seed: liveSHA256Bytes(request.Definition.SeedSHA256), packageRef: sha256.Sum256([]byte(request.Campaign.PackageRef)),
+		validator: liveSHA256Bytes(request.ValidatorSHA256), comparator: liveSHA256Bytes(request.Campaign.ComparatorSHA256), targets: liveSHA256Bytes(request.Campaign.TargetsSHA256), observer: liveSHA256Bytes(request.Campaign.ObserverSHA256), workflow: liveSHA256Bytes(request.Campaign.WorkflowPolicySHA256), packageArguments: append([]string(nil), request.Campaign.PackageArguments...), templates: operations,
+	}, runtimeBindingRequired: true}, nil
+}
+
+func (session *LiveAuthoritySession) NonceFor(operation liveOperation, sequence uint64) [32]byte {
+	if session == nil {
+		return [32]byte{}
+	}
+	return liveAuthorityNonce(session.campaign.PhaseNonce, operation, sequence)
+}
+
+// NewReceiptIssuer enables skip only for a campaign-declared uninstall and
+// declared-target-wipe pair, so apply may admit only after both slots.
+func (session *LiveAuthoritySession) NewReceiptIssuer() *liveReceiptIssuer {
+	if session == nil {
+		return newLiveReceiptIssuer()
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if session.issuerID != 0 || session.runtimeBindingRequired && !session.runtimeBound {
+		return nil
+	}
+	var optional []liveDeclaredPreflight
+	if uninstall, ok := session.definition.operations[1]; ok {
+		if wipe, wipeOK := session.definition.operations[2]; wipeOK && uninstall.Operation == string(liveOperationWingetExactUninstall) && wipe.Operation == string(liveOperationDeclaredTargetWipe) {
+			optional = append(optional, liveDeclaredPreflight{
+				firstOperation: liveOperationWingetExactUninstall, firstSequence: 1, firstNonce: session.NonceFor(liveOperationWingetExactUninstall, 1),
+				secondOperation: liveOperationDeclaredTargetWipe, secondSequence: 2, secondNonce: session.NonceFor(liveOperationDeclaredTargetWipe, 2),
+			})
+		}
+	}
+	issuer := newLiveReceiptIssuer(optional...)
+	issuer.authorityCampaign = session.campaignID
+	session.issuerID = issuer.id
+	baseAdmit := issuer.admitFn
+	issuer.admitFn = func(operation liveOperation, sequence uint64, nonce [32]byte) (liveReceiptAdmission, error) {
+		entry, ok := session.definition.operations[sequence]
+		if !ok || entry.Operation != string(operation) || nonce != session.NonceFor(operation, sequence) {
+			return liveReceiptAdmission{}, fmt.Errorf("hosted receipt admission is outside campaign plan")
+		}
+		return baseAdmit(operation, sequence, nonce)
+	}
+	return issuer
+}
+
+func (session *LiveAuthoritySession) MintMutationPermit(admission liveReceiptAdmission) (trustedLiveMutationPermit, error) {
+	operation, sequence, nonce := admission.operation, admission.sequence, admission.nonce
+	if session == nil {
+		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	if admission.issuer == nil || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || !operation.valid() || !operation.mutation() || session.runtimeBindingRequired && !session.runtimeBound || nonce != session.NonceFor(operation, sequence) || session.cleanup && operation != liveOperationWingetExactUninstall {
+		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation operation is not predeclared")
+	}
+	key := liveAuthorityPermitKey{operation: operation, sequence: sequence, admissionToken: admission.token}
+	invocation, exists := session.definition.operations[sequence]
+	if !exists || invocation.Operation != string(operation) || operation == liveOperationDeclaredTargetWipe || operation == liveOperationAttemptRootCleanup {
+		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation invocation is absent")
+	}
+	if _, exists := session.minted[key]; exists {
+		return trustedLiveMutationPermit{}, fmt.Errorf("live mutation permit already minted")
+	}
+	session.minted[key] = struct{}{}
+	capability := &liveMutationCapability{campaign: session.campaignID, operation: operation, sequence: sequence, nonce: nonce, issuerID: admission.issuer.id, admissionToken: admission.token, issuedAt: session.now, expiresAt: session.campaign.ExpiresAt, definition: session.definition.definition, engine: session.definition.engine, seed: session.definition.seed, packageRef: session.definition.packageRef, comparator: session.definition.comparator, targets: session.definition.targets, observer: session.definition.observer, workflow: session.definition.workflow, packageArguments: append([]string(nil), session.definition.packageArguments...), executable: invocation.Executable, executableSHA256: liveSHA256Bytes(invocation.ExecutableSHA256), arguments: append([]string(nil), invocation.Arguments...), directory: invocation.Directory, environment: cloneLiveEnvironment(invocation.Environment)}
+	return trustedLiveMutationPermit{capability: capability}, nil
+}
+
+// MintHostMutationPermit is deliberately limited to the campaign's two
+// internal mutation slots. It cannot mint a subprocess capability or advance
+// an issuer; the Windows primitive must still finalise and seal this admission.
+func (session *LiveAuthoritySession) MintHostMutationPermit(admission liveReceiptAdmission, binding liveHostMutationBinding) (trustedLiveHostMutationPermit, error) {
+	if session == nil || binding.appData == ([32]byte{}) || admission.issuer == nil {
+		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation operation is not predeclared")
+	}
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	operation, sequence := admission.operation, admission.sequence
+	if (operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup) || operation == liveOperationDeclaredTargetWipe && binding.attemptRoot != ([32]byte{}) || operation == liveOperationAttemptRootCleanup && binding.attemptRoot == ([32]byte{}) || admission.issuer.id != session.issuerID || admission.issuer.authorityCampaign != session.campaignID || admission.issuer.activeFn == nil || !admission.issuer.activeFn(admission) || session.runtimeBindingRequired && !session.runtimeBound || admission.nonce != session.NonceFor(operation, sequence) || !session.campaign.ExpiresAt.After(session.now) || session.cleanup && operation != liveOperationDeclaredTargetWipe && operation != liveOperationAttemptRootCleanup {
+		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation operation is not predeclared")
+	}
+	invocation, exists := session.definition.operations[sequence]
+	key := liveAuthorityPermitKey{operation: operation, sequence: sequence, admissionToken: admission.token}
+	if !exists || invocation.Operation != string(operation) || invocation.Executable != "" || invocation.ExecutableSHA256 != "" || len(invocation.Arguments) != 0 || invocation.Directory != "" || len(invocation.Environment) != 0 {
+		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation invocation is absent")
+	}
+	if _, exists := session.minted[key]; exists {
+		return trustedLiveHostMutationPermit{}, fmt.Errorf("live host mutation permit already minted")
+	}
+	session.minted[key] = struct{}{}
+	return trustedLiveHostMutationPermit{capability: &liveHostMutationCapability{campaign: session.campaignID, operation: operation, sequence: sequence, nonce: admission.nonce, issuedAt: session.now, expiresAt: session.campaign.ExpiresAt, definition: session.definition.definition, targets: session.definition.targets, observer: session.definition.observer, workflow: session.definition.workflow, issuerID: admission.issuer.id, admissionToken: admission.token, binding: binding}}, nil
+}
+
+func liveAuthorityNonce(phaseNonce string, operation liveOperation, sequence uint64) [32]byte {
+	return sha256.Sum256([]byte(phaseNonce + "\x00" + string(operation) + "\x00" + fmt.Sprint(sequence)))
+}
+
+func liveSHA256Hex(value any) string {
+	encoded, _ := json.Marshal(value)
+	digest := sha256.Sum256(encoded)
+	return hex.EncodeToString(digest[:])
+}
+func liveSHA256Bytes(value string) [32]byte {
+	decoded, _ := hex.DecodeString(value)
+	var result [32]byte
+	copy(result[:], decoded)
+	return result
+}
