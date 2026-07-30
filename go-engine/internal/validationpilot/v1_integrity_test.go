@@ -88,6 +88,7 @@ func TestClassifyV1GuardFailuresAndComparatorInfrastructureCannotEarnCredit(t *t
 	}
 	manifest, evidence = validV1Proof()
 	evidence.Attempts[2].Status = V1StatusInfrastructure
+	evidence.Attempts[2].InfrastructureCoordinate = "comparator"
 	aggregate, err = ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationInfrastructureFailure || aggregate.Decision != DecisionInsufficientSignal {
 		t.Fatalf("ClassifyV1(comparator infrastructure) = %#v, %v", aggregate, err)

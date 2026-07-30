@@ -284,6 +284,7 @@ func TestV1MeasuredRepositoryIdentityIsRepeatabilityGoverning(t *testing.T) {
 func TestV1InfrastructureEvidenceAllowsNoUnmeasuredRepositoryIdentity(t *testing.T) {
 	_, evidence := validV1Proof()
 	evidence.Attempts[0].Status = V1StatusInfrastructure
+	evidence.Attempts[0].InfrastructureCoordinate = "attempt_environment"
 	evidence.Attempts[0].RepositorySHA256 = ""
 	evidence.Attempts[0].BaselineProof = V1BaselineProofIdentity{}
 	if _, _, err := EncodeV1Evidence(evidence); err != nil {
@@ -400,6 +401,56 @@ func TestV1AttemptEnvironmentReplacesTMPDIRAndPreservesItForNestedChild(t *testi
 	if got := v1EnvironmentValue(V1ChildEnvironment(environment), "TMPDIR"); got != want {
 		t.Fatalf("nested TMPDIR = %q, want %q", got, want)
 	}
+}
+
+func TestV1AttemptEnvironmentOwnsEachProfileAndCacheKeyAndReachesDetector(t *testing.T) {
+	repository, _, candidate, raw := v1ExternalDetectorFixture(t)
+	runnerRoot := t.TempDir()
+	attemptRoot := filepath.Join(runnerRoot, "attempt")
+	goCache := filepath.Join(runnerRoot, "go-build")
+	goModCache := filepath.Join(runnerRoot, "go-mod")
+	for _, path := range []string{attemptRoot, goCache, goModCache} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for key, value := range map[string]string{
+		"HOME": "inherited-home", "USERPROFILE": "inherited-profile", "APPDATA": "inherited-appdata", "LOCALAPPDATA": "inherited-localappdata", "TEMP": "inherited-temp", "TMP": "inherited-tmp", "TMPDIR": "inherited-tmpdir", "GOCACHE": "inherited-go-cache", "GOMODCACHE": "inherited-go-mod-cache",
+	} {
+		t.Setenv(key, value)
+	}
+	environment, err := v1AttemptEnvironment(attemptRoot, runnerRoot, goCache, goModCache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "TMPDIR", "GOCACHE", "GOMODCACHE"} {
+		if got := v1EnvironmentCount(environment, key); got != 1 {
+			t.Fatalf("%s occurrence count = %d, want 1", key, got)
+		}
+	}
+	reached := false
+	run := func(_ context.Context, _ string, command V1ChildCommand) V1ChildResult {
+		reached = true
+		if err := os.WriteFile(command.Args[9], raw, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return V1ChildResult{Value: string(raw[:len(raw)-1]), RawValue: string(raw)}
+	}
+	admission, status, _, _, infrastructure := runV1ExternalDetector(context.Background(), run, attemptRoot, filepath.Join(repository, "go-engine"), "engine", "validator", repository, candidate, environment)
+	if !reached || infrastructure != "" || admission != V1AdmissionAdmitted || status != V1StatusPassed {
+		t.Fatalf("detector reached=%t admission=%q status=%q infrastructure=%q", reached, admission, status, infrastructure)
+	}
+}
+
+func v1EnvironmentCount(environment []string, name string) int {
+	count := 0
+	for _, value := range environment {
+		key, _, found := strings.Cut(value, "=")
+		if found && v1EnvironmentKeyEqual(key, name) {
+			count++
+		}
+	}
+	return count
 }
 
 func runV1TestGit(t *testing.T, directory string, arguments ...string) string {

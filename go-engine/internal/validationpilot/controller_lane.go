@@ -559,6 +559,7 @@ func HostedV1Runner(family, imageOS, imageVersion string) (V1Runner, error) {
 
 func finishV1Infrastructure(attempt V1Attempt, started time.Time, coordinate string) V1Attempt {
 	attempt.Status = V1StatusInfrastructure
+	attempt.InfrastructureCoordinate = coordinate
 	return finishV1Attempt(attempt, started)
 }
 
@@ -641,7 +642,7 @@ func v1AttemptEnvironment(root, runnerRoot, goCache, goModCache string) ([]strin
 			return nil, err
 		}
 	}
-	environment := v1WithoutGoCaches(V1ChildEnvironment(os.Environ()))
+	environment := v1WithoutAttemptOwnedEnvironment(V1ChildEnvironment(os.Environ()))
 	return append(environment,
 		"HOME="+profile,
 		"USERPROFILE="+profile,
@@ -663,11 +664,12 @@ func v1SafeSharedCache(runnerRoot, cache string) bool {
 	return err == nil && info.IsDir() && !validationaudit.IsUnsafePath(cache)
 }
 
-func v1WithoutGoCaches(environment []string) []string {
+func v1WithoutAttemptOwnedEnvironment(environment []string) []string {
+	owned := []string{"HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "TEMP", "TMP", "TMPDIR", "GOCACHE", "GOMODCACHE"}
 	filtered := make([]string, 0, len(environment))
 	for _, value := range environment {
 		name, _, found := strings.Cut(value, "=")
-		if found && (name == "GOCACHE" || name == "GOMODCACHE" || name == "TMPDIR") {
+		if found && v1AllowedEnvironmentKey(name, owned) {
 			continue
 		}
 		filtered = append(filtered, value)
@@ -678,7 +680,7 @@ func v1WithoutGoCaches(environment []string) []string {
 func v1EnvironmentValue(environment []string, name string) string {
 	for _, value := range environment {
 		key, value, found := strings.Cut(value, "=")
-		if found && key == name {
+		if found && v1EnvironmentKeyEqual(key, name) {
 			return value
 		}
 	}

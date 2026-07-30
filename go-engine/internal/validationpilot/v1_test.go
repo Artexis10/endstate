@@ -6,6 +6,7 @@ package validationpilot
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestClassifyV1MeaningfulSignalRequiresCompleteSixCaseProof(t *testing.T) {
@@ -48,6 +49,7 @@ func TestClassifyV1InfrastructureAndShallowFailuresCannotBeCorrectKills(t *testi
 	manifest, evidence := validV1Proof()
 	evidence.Attempts[5].Status = V1StatusInfrastructure
 	evidence.Attempts[5].Failure = nil
+	evidence.Attempts[5].InfrastructureCoordinate = "detector_result_root"
 	aggregate, err := ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationInfrastructureFailure {
 		t.Fatalf("ClassifyV1(infrastructure) = %#v, %v", aggregate, err)
@@ -58,6 +60,37 @@ func TestClassifyV1InfrastructureAndShallowFailuresCannotBeCorrectKills(t *testi
 	aggregate, err = ClassifyV1(manifest, evidence)
 	if err != nil || aggregate.Rows[0].Classification != ClassificationWrongKill {
 		t.Fatalf("ClassifyV1(shallow) = %#v, %v", aggregate, err)
+	}
+}
+
+func TestV1AttemptInfrastructureRequiresBoundedCoordinate(t *testing.T) {
+	_, evidence := validV1Proof()
+	infrastructure := evidence.Attempts[5]
+	infrastructure.Status = V1StatusInfrastructure
+	infrastructure.Failure = nil
+	if validV1Attempt(infrastructure) {
+		t.Fatal("validV1Attempt() accepted infrastructure evidence without a coordinate")
+	}
+	infrastructure.InfrastructureCoordinate = "detector_result_root"
+	if !validV1Attempt(infrastructure) {
+		t.Fatal("validV1Attempt() rejected infrastructure evidence with a bounded coordinate")
+	}
+	nonInfrastructure := evidence.Attempts[5]
+	nonInfrastructure.InfrastructureCoordinate = "detector_result_root"
+	if validV1Attempt(nonInfrastructure) {
+		t.Fatal("validV1Attempt() accepted a coordinate on non-infrastructure evidence")
+	}
+}
+
+func TestFinishV1InfrastructureRecordsItsBoundedCoordinate(t *testing.T) {
+	_, evidence := validV1Proof()
+	attempt := evidence.Attempts[5]
+	attempt.Failure = nil
+	started := time.Now().UTC().Add(-time.Second).Truncate(time.Millisecond)
+	attempt.StartedAt = started.Format(time.RFC3339Nano)
+	finished := finishV1Infrastructure(attempt, started, "detector_result_root")
+	if finished.Status != V1StatusInfrastructure || finished.InfrastructureCoordinate != "detector_result_root" || !validV1Attempt(finished) {
+		t.Fatalf("finishV1Infrastructure() = %#v", finished)
 	}
 }
 

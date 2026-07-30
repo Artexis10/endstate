@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/validationaudit"
@@ -321,16 +322,32 @@ func fmtV1Digest(sum [sha256.Size]byte) string {
 // Go, and typed detector child processes. Credential and workflow authority
 // variables are categorically excluded.
 func V1ChildEnvironment(parent []string) []string {
-	allowed := map[string]bool{"PATH": true, "SystemRoot": true, "SYSTEMROOT": true, "TMP": true, "TEMP": true, "TMPDIR": true, "HOME": true, "USERPROFILE": true, "APPDATA": true, "LOCALAPPDATA": true, "GOCACHE": true, "GOMODCACHE": true, "GOTELEMETRY": true}
+	allowed := []string{"PATH", "SystemRoot", "SYSTEMROOT", "ComSpec", "TMP", "TEMP", "TMPDIR", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "GOCACHE", "GOMODCACHE", "GOTELEMETRY"}
 	child := make([]string, 0, len(allowed)+2)
 	for _, value := range parent {
 		name, _, found := strings.Cut(value, "=")
-		if found && allowed[name] {
+		if found && v1AllowedEnvironmentKey(name, allowed) {
 			child = append(child, value)
 		}
 	}
 	child = append(child, "GIT_CONFIG_NOSYSTEM=1")
 	return child
+}
+
+func v1AllowedEnvironmentKey(name string, allowed []string) bool {
+	for _, candidate := range allowed {
+		if v1EnvironmentKeyEqual(name, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func v1EnvironmentKeyEqual(left, right string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(left, right)
+	}
+	return left == right
 }
 
 func canonicalV1Root(root string) (string, error) {

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -101,6 +102,25 @@ func TestV1ComparatorPreservesAttemptTMPDIR(t *testing.T) {
 		if got := v1EnvironmentValue(command.Env, "TMPDIR"); got != tempRoot {
 			t.Fatalf("TMPDIR = %q, want %q", got, tempRoot)
 		}
+	}
+}
+
+func TestV1ChildEnvironmentPreservesWindowsComSpecAndUsesPlatformKeyMatching(t *testing.T) {
+	environment := V1ChildEnvironment([]string{"PATH=test", "comspec=cmd.exe", "UNRELATED=value"})
+	if runtime.GOOS == "windows" {
+		if got := v1EnvironmentValue(environment, "ComSpec"); got != "cmd.exe" {
+			t.Fatalf("ComSpec = %q, want cmd.exe", got)
+		}
+		if got := v1EnvironmentValue([]string{"temp=attempt"}, "TEMP"); got != "attempt" {
+			t.Fatalf("Windows TEMP lookup = %q, want attempt", got)
+		}
+		return
+	}
+	if got := v1EnvironmentValue(environment, "ComSpec"); got != "" {
+		t.Fatalf("Unix ComSpec = %q, want empty", got)
+	}
+	if got := v1EnvironmentValue([]string{"temp=attempt"}, "TEMP"); got != "" {
+		t.Fatalf("Unix TEMP lookup = %q, want empty", got)
 	}
 }
 
