@@ -18,6 +18,9 @@ import (
 
 func TestCaptureContractAssertionsBindSyntheticOneFileModule(t *testing.T) {
 	runtime, entries := syntheticCaptureContractArtifactFixture(t)
+	if runtime.Inventory.AppID == captureContractModuleName(runtime) {
+		t.Fatalf("synthetic inventory AppID %q unexpectedly matches module AppID", runtime.Inventory.AppID)
+	}
 	artifact := writeV2ArtifactZip(t, runtime.Root, "synthetic-capture-contract.zip", entries)
 	if _, failure := inspectCaptureContractArtifact(runtime, artifact); failure != nil {
 		t.Fatalf("synthetic capture artifact: %+v", failure)

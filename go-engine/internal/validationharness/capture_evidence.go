@@ -115,7 +115,7 @@ func validateCaptureContractModule(raw json.RawMessage, runtime *scenarioRuntime
 	}
 	rawValue, _ := json.Marshal(values[0])
 	wantPath := v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination)
-	if json.Unmarshal(rawValue, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != runtime.Inventory.AppID || value.ID != runtime.Module.ID ||
+	if json.Unmarshal(rawValue, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != captureContractModuleName(runtime) || value.ID != runtime.Module.ID ||
 		value.Status != "captured" || value.FilesCaptured != 1 || !captureContractReferencesExact(value.WingetRefs, value.ChocolateyRefs, runtime) || !exactStrings(value.Paths, []string{wantPath}) {
 		return fail(CodeEnvelopeContract, "capture", "configModules", "capture module result is vacuous, foreign, or inexact")
 	}

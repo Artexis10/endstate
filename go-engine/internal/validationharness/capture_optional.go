@@ -86,7 +86,7 @@ func validateOptionalCaptureModule(raw json.RawMessage, runtime *scenarioRuntime
 		FilesCaptured                     int
 	}
 	encoded, _ := json.Marshal(values[0])
-	if json.Unmarshal(encoded, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != runtime.Inventory.AppID || value.ID != runtime.Module.ID || value.Status != "skipped" ||
+	if json.Unmarshal(encoded, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != captureContractModuleName(runtime) || value.ID != runtime.Module.ID || value.Status != "skipped" ||
 		value.FilesCaptured != 0 || !captureContractReferencesExact(value.WingetRefs, value.ChocolateyRefs, runtime) || len(value.Paths) != 0 {
 		return fail(CodeEnvelopeContract, "capture", "configModules", "all-optional absence minted captured config evidence")
 	}

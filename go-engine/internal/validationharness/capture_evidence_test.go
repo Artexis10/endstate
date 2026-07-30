@@ -125,7 +125,7 @@ func captureContractEvidenceFixture(t *testing.T, runtime *scenarioRuntime) ([]b
 	data := map[string]any{
 		"appsIncluded": []any{map[string]any{"source": runtime.Inventory.Source, "name": runtime.Inventory.DisplayName, "id": runtime.Inventory.Ref, "manifestId": runtime.Inventory.AppID}},
 		"configModules": []any{map[string]any{
-			"displayName": runtime.Module.DisplayName, "wingetRefs": wingetRefs, "chocolateyRefs": chocolateyRefs, "appId": runtime.Inventory.AppID, "id": runtime.Module.ID,
+			"displayName": runtime.Module.DisplayName, "wingetRefs": wingetRefs, "chocolateyRefs": chocolateyRefs, "appId": captureContractModuleName(runtime), "id": runtime.Module.ID,
 			"paths": []any{payloadPath}, "filesCaptured": float64(1), "status": "captured",
 		}},
 		"configModuleMap":      map[string]any{runtime.Inventory.Ref: runtime.Module.ID},
