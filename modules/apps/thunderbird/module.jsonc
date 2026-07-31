@@ -10,7 +10,14 @@
   "matches": {
     "winget": ["Mozilla.Thunderbird"],
     "exe": ["thunderbird.exe"],
-    "uninstallDisplayName": ["^Mozilla Thunderbird"]
+    "uninstallDisplayName": ["^Mozilla Thunderbird"],
+    // Site-repackaged installers carry their own ARP key and publisher, so they
+    // are a different package identity and never match the winget ref above.
+    // profiles.ini is written by every Thunderbird install regardless of how it
+    // was delivered, which is the signal a settings module should attach on.
+    "pathExists": [
+      "%APPDATA%\\Thunderbird\\profiles.ini"
+    ]
   },
 
   "verify": [
