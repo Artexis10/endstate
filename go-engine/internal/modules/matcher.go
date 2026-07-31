@@ -5,6 +5,7 @@ package modules
 
 import (
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -89,9 +90,7 @@ func matchModulesForApps(catalog map[string]*Module, apps []manifest.App, includ
 		// Check pathExists matches (expand env vars, check filesystem).
 		if !isMatch && includePathExists {
 			for _, pathPattern := range mod.Matches.PathExists {
-				expandedPath := config.ExpandEnvVars(pathPattern)
-				expandedPath = os.ExpandEnv(expandedPath)
-				if _, err := os.Stat(expandedPath); err == nil {
+				if pathExistsOnHost(pathPattern) {
 					isMatch = true
 					break
 				}
@@ -109,4 +108,27 @@ func matchModulesForApps(catalog map[string]*Module, apps []manifest.App, includ
 	})
 
 	return matched
+}
+
+// pathExistsOnHost reports whether a matches.pathExists entry resolves to
+// something on this filesystem, after environment expansion.
+//
+// Patterns carrying a wildcard go through filepath.Glob; everything else keeps
+// the original os.Stat. Versioned install roots can only be expressed as
+// wildcards — after-effects pins
+// "%ProgramFiles%\Adobe\Adobe After Effects*\Support Files\AfterFX.exe" — and a
+// bare Stat on such a pattern can never succeed, so those modules were silently
+// undetectable. Glob is existence-checked by definition, so a wildcard that
+// resolves to nothing stays unmatched rather than becoming a blanket match.
+func pathExistsOnHost(pathPattern string) bool {
+	expandedPath := config.ExpandEnvVars(pathPattern)
+	expandedPath = os.ExpandEnv(expandedPath)
+
+	if strings.ContainsAny(expandedPath, "*?[") {
+		matches, err := filepath.Glob(expandedPath)
+		return err == nil && len(matches) > 0
+	}
+
+	_, err := os.Stat(expandedPath)
+	return err == nil
 }
