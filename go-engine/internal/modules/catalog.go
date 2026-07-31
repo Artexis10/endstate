@@ -188,15 +188,38 @@ func validateModule(mod *Module, filePath string) error {
 		return validationError(mod, filePath, DiagnosticInvalidID, "missing or empty 'displayName' field")
 	}
 
-	// matches must have at least one matcher.
+	// matches must declare at least one matcher, and a module that actually does
+	// something must declare one the engine consults.
+	//
+	// exe and uninstallDisplayName satisfy the first rule but not the second.
+	// Neither takes part in matching: matchModulesForApps reads only winget,
+	// chocolatey and pathExists, exe supplies the planner's running-process
+	// guard, and uninstallDisplayName only breaks precedence ties between modules
+	// that already matched. Accepting them as sufficient let seven modules load
+	// cleanly, appear in the catalog, and never attach to anything — the silent
+	// failure behind Artexis10/endstate#208.
+	//
+	// The stricter rule is scoped to modules carrying capture or restore work,
+	// because those are the only ones that can strand a user. Inert stubs that
+	// declare neither are left alone; whether they should exist at all is a
+	// catalog question, not a validation one. Schema-v2 modules are exempt
+	// throughout, being discovered via config.instanceDetectors instead.
 	hasWinget := len(mod.Matches.Winget) > 0
 	hasChocolatey := len(mod.Matches.Chocolatey) > 0
 	hasExe := len(mod.Matches.Exe) > 0
 	hasUninstall := len(mod.Matches.UninstallDisplayName) > 0
 	hasPathExists := len(mod.Matches.PathExists) > 0
+	hasDetectors := mod.Config != nil && len(mod.Config.InstanceDetectors) > 0
 
-	if !hasWinget && !hasChocolatey && !hasExe && !hasUninstall && !hasPathExists {
+	if !hasWinget && !hasChocolatey && !hasExe && !hasUninstall && !hasPathExists && !hasDetectors {
 		return validationError(mod, filePath, DiagnosticInvalidID, "matches must have at least one of: winget, chocolatey, exe, uninstallDisplayName, pathExists")
+	}
+
+	capturesSomething := mod.Capture != nil && (len(mod.Capture.Files) > 0 || len(mod.Capture.RegistryKeys) > 0)
+	restoresSomething := len(mod.Restore) > 0
+
+	if (capturesSomething || restoresSomething) && !hasWinget && !hasChocolatey && !hasPathExists && !hasDetectors {
+		return validationError(mod, filePath, DiagnosticInvalidID, "a module with capture or restore work must match on winget, chocolatey or pathExists; exe and uninstallDisplayName do not participate in matching, so the module could never attach")
 	}
 
 	return validateModuleV2(mod, filePath)
