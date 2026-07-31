@@ -180,6 +180,12 @@ func TestShareModuleDenied(t *testing.T) {
 	if ShareModuleDenied("apps.vscode") {
 		t.Error("an ordinary preferences module must not be denied")
 	}
+	// apps.ssh-config only began attaching when it gained a pathExists matcher.
+	// Its payload names remote hosts, bastions and per-host usernames, none of
+	// which the redaction pass touches, so it must never reach a share bundle.
+	if !ShareModuleDenied("apps.ssh-config") {
+		t.Error("an SSH config maps remote infrastructure and must not be shared")
+	}
 }
 
 // TestRedactText_HandlesFileURIs covers percent-encoded drive colons.
