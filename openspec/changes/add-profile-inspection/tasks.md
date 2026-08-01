@@ -1,9 +1,9 @@
 ## 1. Inspection model and command
 
 - [ ] 1.1 Add the `profile inspect <manifest-path> --json` subcommand under the existing top-level `profile` command and reject missing, bundle, and directory inputs with structured failures.
-- [ ] 1.2 Implement a read-only manifest inspection path with restricted root-contained relative includes, root-only composition exclusions, permitted artifact metadata/snapshots, and the pure trusted-catalog enrichment loader.
-- [ ] 1.3 Derive v1 and v2 settings ownership as the specified canonical-key union, preserving provenance/raw IDs and excluding only root-config exclusions before association.
-- [ ] 1.4 Implement tiered verified-owner-ref selection, duplicate-safe Apps row identities, mandatory grouping, fixed status/identifier/nullability semantics, exact v1/v2 captured-entry counting, label/timestamp precedence, deterministic ordering, typed warnings, and post-grouping summaries.
+- [x] 1.2 Implement a read-only manifest inspection path with restricted root-contained relative includes, root-only composition exclusions, permitted artifact metadata/snapshots, and the pure trusted-catalog enrichment loader.
+- [x] 1.3 Derive v1 and v2 settings ownership as the specified canonical-key union, preserving provenance/raw IDs and excluding only root-config exclusions before association.
+- [x] 1.4 Implement tiered verified-owner-ref selection, duplicate-safe Apps row identities, mandatory grouping, fixed status/identifier/nullability semantics, exact v1/v2 captured-entry counting, label/timestamp precedence, deterministic ordering, typed warnings, and post-grouping summaries.
 
 ## 2. JSON and capabilities contract
 

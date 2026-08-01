@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -235,10 +236,10 @@ func TestLoadManifestIncludes(t *testing.T) {
 
 func TestValidateProfile(t *testing.T) {
 	tests := []struct {
-		name       string
-		fixture    string
-		wantValid  bool
-		wantCodes  []string
+		name      string
+		fixture   string
+		wantValid bool
+		wantCodes []string
 	}{
 		{
 			name:      "valid profile passes",
@@ -1035,6 +1036,42 @@ func TestLoadManifest_ManifestFieldsPreserved(t *testing.T) {
 	}
 	if len(m.Verify) != 1 {
 		t.Errorf("len(Verify) = %d, want 1", len(m.Verify))
+	}
+}
+
+func TestLoadManifestIncludes_MergesV1ConfigModulesAndAppliesRootExclude(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root.jsonc")
+	child := filepath.Join(dir, "child.jsonc")
+	if err := os.WriteFile(child, []byte(`{
+		"apps": [{"id": "child", "refs": {"windows": "Vendor.Child"}}],
+		"configModules": ["apps.child"],
+		"exclude": ["Vendor.Root"]
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root, []byte(`{
+		"version": 1,
+		"apps": [{"id": "root", "refs": {"windows": "Vendor.Root"}}],
+		"includes": ["child.jsonc"],
+		"configModules": ["apps.root"],
+		"exclude": ["Vendor.Child"]
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadManifest(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Apps) != 1 || got.Apps[0].ID != "root" {
+		t.Fatalf("Apps = %+v, want only root app after root exclude", got.Apps)
+	}
+	if !reflect.DeepEqual(got.ConfigModules, []string{"apps.root", "apps.child"}) {
+		t.Fatalf("ConfigModules = %v, want root and child modules", got.ConfigModules)
+	}
+	if !reflect.DeepEqual(got.Exclude, []string{"Vendor.Child"}) {
+		t.Fatalf("Exclude = %v, want root-only exclusion", got.Exclude)
 	}
 }
 

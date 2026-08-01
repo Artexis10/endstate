@@ -95,6 +95,9 @@ func loadManifestInternal(absPath string, visited map[string]bool, inheritedVers
 			return nil, err
 		}
 	}
+	if root {
+		m.Apps = excludeApps(m.Apps, m.Exclude)
+	}
 
 	if version == 2 {
 		if err := validateConfigCaptures(m.ConfigCaptures, absPath, root); err != nil {
@@ -137,12 +140,27 @@ func resolveIncludes(m *Manifest, basePath string, visited map[string]bool, pare
 		m.Verify = append(m.Verify, included.Verify...)
 		m.ConfigCaptures = append(m.ConfigCaptures, included.ConfigCaptures...)
 		m.LegacyConfigLanes = append(m.LegacyConfigLanes, included.LegacyConfigLanes...)
-		if parentVersion == 2 {
-			m.ConfigModules = append(m.ConfigModules, included.ConfigModules...)
-		}
+		m.ConfigModules = append(m.ConfigModules, included.ConfigModules...)
 	}
 
 	return nil
+}
+
+func excludeApps(apps []App, exclude []string) []App {
+	if len(exclude) == 0 {
+		return apps
+	}
+	excluded := make(map[string]struct{}, len(exclude))
+	for _, ref := range exclude {
+		excluded[ref] = struct{}{}
+	}
+	filtered := make([]App, 0, len(apps))
+	for _, app := range apps {
+		if _, found := excluded[app.Refs["windows"]]; !found {
+			filtered = append(filtered, app)
+		}
+	}
+	return filtered
 }
 
 // HashManifest computes the hex-encoded SHA256 hash of the manifest file at
