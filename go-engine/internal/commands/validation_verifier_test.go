@@ -154,3 +154,131 @@ func TestValidationRebuildReusesSessionAcrossNestedApplyAndFailedVerifierAsserti
 		t.Fatalf("ordinary nested assertion poisoned session: %v", isolationErr)
 	}
 }
+
+func TestValidationDriverRebuildBindsManifestModuleWithoutPackageMatcher(t *testing.T) {
+	fixture := validationDriverCommandFixture(t, []string{"apps.notepad-plus-plus"})
+	installValidationDriverCommandCatalog(t, fixture)
+
+	raw, commandErr := RunRebuild(RebuildFlags{From: fixture.manifestPath, NoRestore: true})
+	if commandErr != nil {
+		t.Fatalf("validation-driver rebuild error = %+v isolation=%v", commandErr, fixture.session.IsolationError())
+	}
+	result := raw.(*RebuildResult)
+	applyResult, ok := result.Apply.(*ApplyResult)
+	if !ok || applyResult.ConfigModuleMap["notepad-plus-plus"] != "apps.notepad-plus-plus" || len(applyResult.PackageModuleMap) != 0 {
+		t.Fatalf("nested apply ownership = %#v", result.Apply)
+	}
+	if _, ok := result.Verify.(*VerifyResult); !ok {
+		t.Fatalf("nested verify result = %#v", result.Verify)
+	}
+	if isolationErr := fixture.session.IsolationError(); isolationErr != nil {
+		t.Fatalf("validation-driver rebuild poisoned session: %v", isolationErr)
+	}
+}
+
+func TestValidationDriverVerifyRejectsNonExactConfigModuleAuthority(t *testing.T) {
+	for _, configModules := range [][]string{
+		nil,
+		{"apps.foreign"},
+		{"apps.notepad-plus-plus", "apps.foreign"},
+	} {
+		t.Run(strings.Join(configModules, ","), func(t *testing.T) {
+			fixture := validationDriverCommandFixture(t, configModules)
+			installValidationDriverCommandCatalog(t, fixture)
+
+			_, commandErr := RunVerify(VerifyFlags{Manifest: fixture.manifestPath})
+			assertValidationCommandPreflightFailure(t, fixture, commandErr)
+		})
+	}
+}
+
+func TestValidationDriverVerifyRejectsMalformedAuthorityBeforePathExistsFallback(t *testing.T) {
+	fixture := validationDriverCommandFixtureWithPathExists(t, []string{"apps.foreign"}, true)
+	installValidationDriverCommandCatalog(t, fixture)
+	if ambient := modules.MatchModulesForAppsIncludingInstall(fixture.catalog, []manifest.App{{Driver: "validation"}}); len(ambient) != 1 {
+		t.Fatalf("hostile ambient matcher = %+v", ambient)
+	}
+
+	_, commandErr := RunVerify(VerifyFlags{Manifest: fixture.manifestPath})
+	assertValidationCommandPreflightFailure(t, fixture, commandErr)
+}
+
+func validationDriverCommandFixture(t *testing.T, configModules []string) commandPreflightTestFixture {
+	return validationDriverCommandFixtureWithOptions(t, configModules, "", false)
+}
+
+func validationDriverCommandFixtureWithPathExists(t *testing.T, configModules []string, pathExists bool) commandPreflightTestFixture {
+	return validationDriverCommandFixtureWithOptions(t, configModules, "", pathExists)
+}
+
+func validationDriverCommandFixtureWithInventoryVersion(t *testing.T, configModules []string, version string) commandPreflightTestFixture {
+	return validationDriverCommandFixtureWithOptions(t, configModules, version, false)
+}
+
+func validationDriverCommandFixtureWithOptions(t *testing.T, configModules []string, version string, pathExists bool) commandPreflightTestFixture {
+	t.Helper()
+	mod := loadValidationProductionModule(t, "notepad-plus-plus")
+	context := validationContext(t, validationmode.Inventory{
+		AppID: "notepad-plus-plus", Driver: "validation", Ref: "notepad-plus-plus",
+		DisplayName: mod.DisplayName, Version: version, InitialState: "present",
+	})
+	restoreEnvironment, err := context.Activate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restoreEnvironment() })
+	session, err := ActivateValidationMode(context)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = session.Restore() })
+	moduleCopy := *mod
+	moduleCopy.Matches.Winget = nil
+	moduleCopy.Matches.Chocolatey = nil
+	moduleCopy.Matches.PathExists = nil
+	if pathExists {
+		appData, ok := context.VirtualRoot("APPDATA")
+		if !ok {
+			t.Fatal("APPDATA virtual root missing")
+		}
+		matchPath := filepath.Join(appData, "ambient-bypass.txt")
+		if err := os.WriteFile(matchPath, []byte("present"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		moduleCopy.Matches.PathExists = []string{matchPath}
+	}
+	mod = repinValidationModule(t, &moduleCopy)
+
+	mf := manifestForValidationModule(mod)
+	mf.ConfigModules = append([]string(nil), configModules...)
+	mf.Apps = []manifest.App{{
+		ID: "notepad-plus-plus", Driver: "validation", DisplayName: mod.DisplayName, Version: version,
+		Refs: map[string]string{"windows": "notepad-plus-plus"},
+	}}
+	manifestPath := filepath.Join(context.Root(), "manifests", "validation-driver.jsonc")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(mf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	packageState, err := os.ReadFile(filepath.Join(context.Root(), ".endstate", "validation-package-state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return commandPreflightTestFixture{
+		context: context, session: session, catalog: map[string]*modules.Module{mod.ID: mod}, manifestPath: manifestPath,
+		packageState: packageState,
+	}
+}
+
+func installValidationDriverCommandCatalog(t *testing.T, fixture commandPreflightTestFixture) {
+	t.Helper()
+	originalLoad := loadModuleCatalogFn
+	loadModuleCatalogFn = func(string) (map[string]*modules.Module, error) { return fixture.catalog, nil }
+	t.Cleanup(func() { loadModuleCatalogFn = originalLoad })
+}

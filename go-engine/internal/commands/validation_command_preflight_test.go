@@ -403,6 +403,99 @@ func commandPreflightFixture(t *testing.T, shortID string) commandPreflightTestF
 	return commandPreflightFixtureWithState(t, shortID, "present")
 }
 
+func TestValidationDriverModuleOwnershipDoesNotOverridePackageDriver(t *testing.T) {
+	fixture := commandPreflightFixture(t, "notepad-plus-plus")
+	mod := fixture.catalog["apps.notepad-plus-plus"]
+	if matched, configMap, packageMap, applicable := validationDriverModuleOwnership(fixture.catalog, manifestForValidationModule(mod)); applicable || matched != nil || configMap != nil || packageMap != nil {
+		t.Fatalf("package-backed ownership = applicable=%v modules=%+v config=%+v package=%+v", applicable, matched, configMap, packageMap)
+	}
+}
+
+func TestValidationDriverModuleOwnershipRequiresExactAuthority(t *testing.T) {
+	cases := []struct {
+		name              string
+		configModules     []string
+		configCaptures    []manifest.ConfigCapture
+		legacyConfigLanes []manifest.LegacyConfigLane
+		matched           bool
+	}{
+		{name: "exact legacy", configModules: []string{"apps.notepad-plus-plus"}, matched: true},
+		{name: "exact pure v2", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus"}}, matched: true},
+		{name: "multiple pure v2 captures", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus"}, {ModuleID: "apps.notepad-plus-plus"}}, matched: true},
+		{name: "migration-shaped pure v2", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus", ConfigSetID: "settings", SourceGeneration: "g1"}}, matched: true},
+		{name: "neither"},
+		{name: "foreign legacy", configModules: []string{"apps.foreign"}},
+		{name: "extra legacy", configModules: []string{"apps.notepad-plus-plus", "apps.foreign"}},
+		{name: "both provenance families", configModules: []string{"apps.notepad-plus-plus"}, configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus"}}},
+		{name: "pure v2 with legacy lane", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus"}}, legacyConfigLanes: []manifest.LegacyConfigLane{{ModuleID: "apps.notepad-plus-plus"}}},
+		{name: "pure v2 empty module", configCaptures: []manifest.ConfigCapture{{}}},
+		{name: "pure v2 foreign module", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.foreign"}}},
+		{name: "pure v2 mixed modules", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus"}, {ModuleID: "apps.foreign"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := validationDriverCommandFixture(t, tc.configModules)
+			mf, commandErr := loadValidationCommandManifest(fixture.manifestPath)
+			if commandErr != nil {
+				t.Fatalf("load validation manifest = %+v", commandErr)
+			}
+			mf.ConfigModules = append([]string(nil), tc.configModules...)
+			mf.ConfigCaptures = append([]manifest.ConfigCapture(nil), tc.configCaptures...)
+			mf.LegacyConfigLanes = append([]manifest.LegacyConfigLane(nil), tc.legacyConfigLanes...)
+			matched, configMap, packageMap, applicable := validationDriverModuleOwnership(fixture.catalog, mf)
+			if !applicable {
+				t.Fatal("validation driver did not claim manifest authority")
+			}
+			if tc.matched {
+				if len(matched) != 1 || matched[0].ID != "apps.notepad-plus-plus" || configMap["notepad-plus-plus"] != "apps.notepad-plus-plus" || len(packageMap) != 0 {
+					t.Fatalf("exact authority ownership = modules=%+v config=%+v package=%+v", matched, configMap, packageMap)
+				}
+				return
+			}
+			if matched != nil || configMap != nil || packageMap != nil {
+				t.Fatalf("malformed authority ownership = modules=%+v config=%+v package=%+v", matched, configMap, packageMap)
+			}
+		})
+	}
+}
+
+func TestValidationDriverModuleOwnershipBindsVersionByProvenanceFamily(t *testing.T) {
+	cases := []struct {
+		name           string
+		configModules  []string
+		configCaptures []manifest.ConfigCapture
+		appVersion     string
+		matched        bool
+	}{
+		{name: "legacy exact version", configModules: []string{"apps.notepad-plus-plus"}, appVersion: "7", matched: true},
+		{name: "legacy unpinned version", configModules: []string{"apps.notepad-plus-plus"}},
+		{name: "pure v2 unpinned version", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus"}}, matched: true},
+		{name: "pure v2 pinned descriptor version", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus"}}, appVersion: "7"},
+		{name: "pure v2 foreign version", configCaptures: []manifest.ConfigCapture{{ModuleID: "apps.notepad-plus-plus"}}, appVersion: "8"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fixture := validationDriverCommandFixtureWithInventoryVersion(t, tc.configModules, "7")
+			mod := fixture.catalog["apps.notepad-plus-plus"]
+			mf := manifestForValidationModule(mod)
+			mf.Apps = []manifest.App{{
+				ID: "notepad-plus-plus", Driver: "validation", DisplayName: mod.DisplayName,
+				Version: tc.appVersion, Refs: map[string]string{"windows": "notepad-plus-plus"},
+			}}
+			mf.ConfigModules = append([]string(nil), tc.configModules...)
+			mf.ConfigCaptures = append([]manifest.ConfigCapture(nil), tc.configCaptures...)
+			mf.Apps[0].Version = tc.appVersion
+			matched, _, _, applicable := validationDriverModuleOwnership(fixture.catalog, mf)
+			if !applicable {
+				t.Fatal("validation driver did not claim manifest authority")
+			}
+			if (len(matched) == 1) != tc.matched {
+				t.Fatalf("version-bound ownership = %+v, want matched=%v", matched, tc.matched)
+			}
+		})
+	}
+}
+
 func commandPreflightFixtureWithState(t *testing.T, shortID, initialState string) commandPreflightTestFixture {
 	t.Helper()
 	mod := loadValidationProductionModule(t, shortID)

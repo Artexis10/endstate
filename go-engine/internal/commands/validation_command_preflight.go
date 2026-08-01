@@ -6,6 +6,7 @@ package commands
 import (
 	"errors"
 	"path/filepath"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/envelope"
@@ -32,6 +33,43 @@ func validationRuntimeIsolationFailure(coordinate, target string, err error) *en
 		_ = currentValidationSession.recordIsolationFinding(coordinate, target, reason)
 	}
 	return validationCommandIsolationError()
+}
+
+func validationDriverModuleOwnership(catalog map[string]*modules.Module, mf *manifest.Manifest) ([]*modules.Module, map[string]string, map[string][]string, bool) {
+	if currentValidationMode == nil {
+		return nil, nil, nil, false
+	}
+	descriptor := currentValidationMode.Descriptor()
+	inventory := descriptor.Inventory
+	if !strings.EqualFold(inventory.Driver, "validation") {
+		return nil, nil, nil, false
+	}
+	if mf == nil || len(catalog) == 0 || len(mf.Apps) != 1 {
+		return nil, nil, nil, true
+	}
+	app := mf.Apps[0]
+	if app.ID != inventory.AppID || !strings.EqualFold(app.Driver, "validation") || app.Refs["windows"] != inventory.Ref ||
+		app.Source != inventory.Source || app.DisplayName != inventory.DisplayName || app.Manual != nil || len(app.Refs) != 1 {
+		return nil, nil, nil, true
+	}
+	mod := catalog[descriptor.ModuleID]
+	if mod == nil {
+		return nil, nil, nil, true
+	}
+	legacy := app.Version == inventory.Version && len(mf.ConfigModules) == 1 && mf.ConfigModules[0] == descriptor.ModuleID && len(mf.ConfigCaptures) == 0
+	pureV2 := app.Version == "" && len(mf.ConfigModules) == 0 && len(mf.LegacyConfigLanes) == 0 && len(mf.ConfigCaptures) > 0
+	if pureV2 {
+		for _, capture := range mf.ConfigCaptures {
+			if capture.ModuleID != descriptor.ModuleID {
+				pureV2 = false
+				break
+			}
+		}
+	}
+	if !legacy && !pureV2 {
+		return nil, nil, nil, true
+	}
+	return []*modules.Module{mod}, map[string]string{strings.TrimPrefix(mod.ID, "apps."): mod.ID}, map[string][]string{}, true
 }
 
 func validationCapturePlanningFacts(prepared *captureConfigPreparation) ([]validationProductionConfigPlan, []modules.ConfigInstance) {

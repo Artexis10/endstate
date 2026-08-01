@@ -392,7 +392,11 @@ func RunApply(flags ApplyFlags) (interface{}, *envelope.Error) {
 	var configModuleMap map[string]string
 	var packageModuleMap map[string][]string
 	var matchedModules []*modules.Module
-	if catalog != nil {
+	validationDriver := false
+	if flags.validationRebuild {
+		matchedModules, configModuleMap, packageModuleMap, validationDriver = validationDriverModuleOwnership(catalog, mf)
+	}
+	if !validationDriver && catalog != nil {
 		matchedModules, configModuleMap, packageModuleMap = matchApplyModuleOwnership(catalog, mf.Apps)
 	}
 	// restoreModulesAvailable answers "which settings does this profile carry",
