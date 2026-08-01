@@ -323,6 +323,41 @@ Both `apply` and `preview` commands validate the manifest before execution:
 - Invalid manifests are rejected with clear error messages
 - Validation uses the same `Test-ProfileManifest` function
 
+### Inspect Command
+
+```powershell
+endstate profile inspect <manifest-path> --json
+```
+
+`inspect` accepts only an extracted manifest path. It reads the manifest, recursively resolved includes, sibling capture metadata, declared config payload metadata, and verified `provenance/modules/` snapshots. It does not accept or extract a bundle, resolve a profile name, or inspect a directory.
+
+Inspection is an artifact-only boundary: it MUST NOT invoke drivers or matchers, detect current-machine state, plan, preview, apply, restore, or mutate any input. Missing input is a structured usage failure; missing, unparsable, and invalid manifests use the standard `MANIFEST_NOT_FOUND`, `MANIFEST_PARSE_ERROR`, and `MANIFEST_VALIDATION_ERROR` JSON errors.
+
+## Profile Inspection Semantics
+
+The saved profile is authoritative for Apps membership, settings ownership, and captured-entry counts. The current catalog and verified sibling snapshots can enrich labels and association evidence only; catalog membership alone MUST NOT add a settings row.
+
+### Ownership Evidence
+
+- Version 2 ownership is the deduplicated union of distinct `configCaptures[].moduleId` values and explicitly declared legacy config lanes.
+- Version 1 ownership uses, in descending authority: explicit `restore[].fromModule`, declared captured config-module metadata, sibling capture metadata, and old `configs/<module-id>/...` restore sources.
+- Every profile-owned settings module is represented exactly once before verified-owner grouping. Modules are grouped only when they share one verified owner; ambiguous and unresolved modules remain separate.
+
+### Association and Labels
+
+Each inspected settings row has exactly one association status: `included`, `not_in_profile`, `ambiguous`, or `unresolved`.
+
+- Only `included` marks an Apps row `hasSettings`.
+- `included` and `not_in_profile` are verified app-settings owners; `ambiguous` and `unresolved` are unidentified rows and mark no app.
+- A legacy short module ID can associate through verified catalog package refs: for example, owned module `obsidian` can associate with Apps row `obsidian-obsidian` through `Obsidian.Obsidian`; exact app-ID equality is not required.
+- Friendly labels prefer a verified embedded snapshot, captured module metadata, catalog display name for an already-owned module, associated manifest app display name/package ref, then a deterministic human-readable short module ID. Raw provenance IDs are technical details, not default labels.
+
+### Deterministic Representation
+
+Inspection arrays are always non-null and deterministically ordered. Apps rows contain `id`, `displayName`, `packageRefs[]`, and `hasSettings`. Settings rows contain deterministic `id`, `displayName`, `associationStatus`, nullable `ownerId`, nullable `appId`, `appIncluded`, `packageRefs[]`, `moduleIds[]`, `candidateAppIds[]`, and `capturedEntryCount`.
+
+Warnings contain a stable `code`, engine-authored `message`, and explicit `impact` of either `diagnostic` or `inventory_incomplete`; consumers MUST NOT infer impact from message text. App and settings summary counts are non-negative values derived from the finalized arrays.
+
 ---
 
 ## Backward Compatibility

@@ -230,7 +230,8 @@ endstate capabilities --json
     "features": {
       "streaming": false,
       "parallelInstall": true,
-      "configModules": true
+      "configModules": true,
+      "profileInspection": true
     },
     "platform": {
       "os": "windows",
@@ -257,6 +258,66 @@ endstate capabilities --json
 | `bootstrapTimestamp` | string\|null | Yes | ISO 8601 UTC timestamp of last bootstrap, or `null` if not bootstrapped |
 
 > **`platform` is host-dependent.** `platform.os` reflects the host operating system (`windows`, `linux`, `darwin`) and `platform.drivers` lists the supported package backends in deterministic registry order. Windows reports `{ "os": "windows", "drivers": ["winget", "chocolatey"] }`; Winget remains its default. Linux reports the Nix realizer, and macOS reports Nix plus the additive Brew driver. On a host with no implemented backend, `drivers` is an empty array (`[]`). Consumers MUST NOT infer that every advertised optional driver is currently installed.
+
+`features.profileInspection` is an additive boolean. When true, `profile inspect <manifest-path> --json` is supported. Consumers MUST use this feature flag rather than probing a generic subcommand shape.
+
+---
+
+## Command: `profile inspect`
+
+Inspects one extracted manifest without evaluating the current machine:
+
+```powershell
+endstate profile inspect ./manifest.jsonc --json
+```
+
+The standard envelope retains `command: "profile"` and schema 1.x. On success, `data` has this shape:
+
+```json
+{
+  "profile": {
+    "name": "workstation",
+    "capturedAt": "2026-07-30T12:00:00Z",
+    "manifestVersion": 2,
+    "manifestPath": "C:\\Profiles\\workstation\\manifest.jsonc"
+  },
+  "summary": {
+    "appCount": 2,
+    "settingsRowCount": 2,
+    "verifiedSettingsAppCount": 1,
+    "unidentifiedSettingsRowCount": 1
+  },
+  "apps": [
+    {
+      "id": "obsidian-obsidian",
+      "displayName": "Obsidian",
+      "packageRefs": ["Obsidian.Obsidian"],
+      "hasSettings": true
+    }
+  ],
+  "settingsApps": [
+    {
+      "id": "obsidian",
+      "displayName": "Obsidian",
+      "associationStatus": "included",
+      "ownerId": "obsidian",
+      "appId": "obsidian-obsidian",
+      "appIncluded": true,
+      "packageRefs": ["Obsidian.Obsidian"],
+      "moduleIds": ["obsidian"],
+      "candidateAppIds": ["obsidian-obsidian"],
+      "capturedEntryCount": 3
+    }
+  ],
+  "warnings": []
+}
+```
+
+`profile.name` and `profile.capturedAt` are nullable strings; `manifestVersion` is an integer and `manifestPath` is a string. All summary values and `capturedEntryCount` are non-negative integers. `apps`, `settingsApps`, `warnings`, `packageRefs`, `moduleIds`, and `candidateAppIds` are always present, non-null, and deterministically ordered.
+
+`associationStatus` is exactly `included`, `not_in_profile`, `ambiguous`, or `unresolved`. `ownerId` and `appId` are nullable. Only `included` can make `apps[].hasSettings` true. `included` and `not_in_profile` contribute to `verifiedSettingsAppCount`; `ambiguous` and `unresolved` contribute to `unidentifiedSettingsRowCount`. Each warning has `code`, engine-authored `message`, and `impact`, where `impact` is exactly `diagnostic` or `inventory_incomplete`.
+
+The command accepts only an extracted manifest path and is read-only. A missing path is a structured usage failure, never a panic or human-only stdout result. Missing, malformed, and invalid manifests use the existing `MANIFEST_NOT_FOUND`, `MANIFEST_PARSE_ERROR`, and `MANIFEST_VALIDATION_ERROR` errors, respectively.
 
 ---
 
