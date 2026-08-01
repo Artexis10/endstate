@@ -1070,6 +1070,27 @@ func TestRunProfile_InspectRejectsLinkedRootBeforeStat(t *testing.T) {
 	}
 }
 
+func TestRunProfile_InspectAllowsLinkedParentDirectory(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child.jsonc")
+	if err := os.WriteFile(child, []byte(`{"apps":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(root, "manifest.jsonc")
+	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"apps":[],"includes":["child.jsonc"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parentAlias := filepath.Join(t.TempDir(), "profile")
+	if err := os.Symlink(root, parentAlias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{filepath.Join(parentAlias, "manifest.jsonc")}})
+	if envErr != nil {
+		t.Fatalf("RunProfile inspect through parent alias error = %+v", envErr)
+	}
+}
+
 func TestRunProfile_InspectClassifiesInvalidRootIncludeShapeAsValidationError(t *testing.T) {
 	for _, includes := range []string{`"child.jsonc"`, `[1]`, `[{}]`} {
 		t.Run(includes, func(t *testing.T) {

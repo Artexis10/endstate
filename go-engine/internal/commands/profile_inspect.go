@@ -150,8 +150,8 @@ func inspectProfile(path string, deps profileInspectDeps) (*ProfileInspectResult
 	if err != nil {
 		return nil, err
 	}
-	if profileInspectPathContainsLink(absPath) {
-		return nil, fmt.Errorf("%w: root manifest path contains a link or reparse hop", manifest.ErrValidation)
+	if profileInspectRootIsLink(absPath) {
+		return nil, fmt.Errorf("%w: root manifest file is a link or reparse file", manifest.ErrValidation)
 	}
 	info, err := os.Stat(path)
 	if err != nil {
@@ -281,17 +281,9 @@ func validateProfileInspectManifest(path string) error {
 	}
 }
 
-func profileInspectPathContainsLink(path string) bool {
-	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
-		info, err := os.Lstat(current)
-		if err == nil && info.Mode()&os.ModeSymlink != 0 {
-			return true
-		}
-		parent := filepath.Dir(current)
-		if parent == current {
-			return false
-		}
-	}
+func profileInspectRootIsLink(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 
 func collectProfileInspectOwnership(mf *manifest.Manifest, metadata bundle.BundleMetadata) map[string]*inspectedModule {
