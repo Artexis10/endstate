@@ -481,6 +481,26 @@ func TestProfileInspectAcceptanceMatrixPassB(t *testing.T) {
 }
 
 func TestProfileInspectExplicitReviewRegressions(t *testing.T) {
+	t.Run("rejects linked root before loader can choose another base", func(t *testing.T) {
+		a, b := t.TempDir(), t.TempDir()
+		target := filepath.Join(b, "profile.jsonc")
+		if err := os.WriteFile(target, []byte(`{"version":1,"apps":[],"includes":["child.jsonc"]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(b, "child.jsonc"), []byte(`{"apps":[]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(a, "child.jsonc"), []byte(`{"apps":[{"id":"wrong","refs":{"windows":"Vendor.Wrong"}}]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		link := filepath.Join(a, "profile.jsonc")
+		if err := os.Symlink(target, link); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		if _, err := inspectProfile(link, defaultProfileInspectDeps()); err == nil || !errors.Is(err, manifest.ErrValidation) {
+			t.Fatalf("error=%v, want validation", err)
+		}
+	})
 	t.Run("root child grandchild merges apps and ownership", func(t *testing.T) {
 		dir := t.TempDir()
 		grand := filepath.Join(dir, "grand.jsonc")
