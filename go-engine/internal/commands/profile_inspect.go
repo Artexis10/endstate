@@ -551,6 +551,10 @@ func preflightProfileInspectIncludes(rootPath string) error {
 			Includes []string `json:"includes"`
 		}
 		if err := json.Unmarshal(manifest.StripJsoncComments(data), &source); err != nil {
+			var typeErr *json.UnmarshalTypeError
+			if errors.As(err, &typeErr) {
+				return profileInspectIncludeError{fmt.Errorf("invalid includes shape: %w", err)}
+			}
 			return err
 		}
 		for _, include := range source.Includes {
