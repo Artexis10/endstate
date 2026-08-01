@@ -289,7 +289,8 @@ The standard envelope retains `command: "profile"` and schema 1.x. On success, `
   },
   "apps": [
     {
-      "id": "obsidian-obsidian",
+      "id": "app:obsidian-obsidian:1",
+      "manifestAppId": "obsidian-obsidian",
       "displayName": "Obsidian",
       "packageRefs": ["Obsidian.Obsidian"],
       "hasSettings": true
@@ -297,15 +298,15 @@ The standard envelope retains `command: "profile"` and schema 1.x. On success, `
   ],
   "settingsApps": [
     {
-      "id": "app:obsidian-obsidian",
+      "id": "settings:app:obsidian-obsidian:1",
       "displayName": "Obsidian",
       "associationStatus": "included",
-      "ownerId": "obsidian-obsidian",
-      "appId": "obsidian-obsidian",
+      "ownerId": "app:obsidian-obsidian:1",
+      "appId": "app:obsidian-obsidian:1",
       "appIncluded": true,
       "packageRefs": ["Obsidian.Obsidian"],
       "moduleIds": ["obsidian"],
-      "candidateAppIds": ["obsidian-obsidian"],
+      "candidateAppIds": ["app:obsidian-obsidian:1"],
       "capturedEntryCount": 3
     }
   ],
@@ -315,11 +316,13 @@ The standard envelope retains `command: "profile"` and schema 1.x. On success, `
 
 `profile.name` and `profile.capturedAt` are nullable strings; `manifestVersion` is an integer and `manifestPath` is a string. `capturedAt` uses non-empty manifest `captured`, then sibling metadata `capturedAt`, then null; a conflict can emit a diagnostic warning without changing precedence. All summary values and `capturedEntryCount` are non-negative integers. `apps`, `settingsApps`, `warnings`, `packageRefs`, `moduleIds`, and `candidateAppIds` are always present and non-null.
 
-`associationStatus` is exactly `included`, `not_in_profile`, `ambiguous`, or `unresolved`. `ownerId` is non-null only for included/not-in-profile; `appId` is non-null only for included; `appIncluded` is true iff included; and `candidateAppIds` is the single app ID for included, sorted candidates for ambiguous, and empty otherwise. Settings row IDs are `app:<case-folded-app-id>` for included, `owner:<case-folded-owner-id>` for not-in-profile, and `module:<canonical-module-key>` for ambiguous/unresolved. An included `ownerId` is its app ID; an absent `ownerId` is the canonical verified package-owner key. Only `included` can make `apps[].hasSettings` true. `included` and `not_in_profile` contribute to `verifiedSettingsAppCount`; `ambiguous` and `unresolved` contribute to `unidentifiedSettingsRowCount`.
+`apps[]` entries include opaque unique `id` plus raw `manifestAppId`. Before presentation sorting, `id` is `app:<case-folded-manifest-app-id-or-unnamed>:<one-based-occurrence-among-that-case-folded-id-in-resolved-manifest-order>`. `associationStatus` is exactly `included`, `not_in_profile`, `ambiguous`, or `unresolved`. Each owned module selects one verified owner-ref tier: `configCaptures[].sourceInstance.evidence.ref`, successfully verified embedded snapshot refs, then trusted-catalog refs for that already-owned module. The first non-empty tier wins; lower tiers cannot add candidates or override it. Selected refs are trimmed, case-insensitively deduplicated, and sorted. An Apps candidate exactly case-insensitively intersects selected refs: one is included, multiple ambiguous, zero with refs not-in-profile, and no refs unresolved.
+
+`ownerId` is non-null only for included/not-in-profile; `appId` is non-null only for included; `appIncluded` is true iff included; and `candidateAppIds` is the single Apps row `id` for included, sorted Apps row IDs for ambiguous, and empty otherwise. Settings row IDs are `settings:<app-row-id>` for included, `settings:<absent-owner-key>` for not-in-profile, and `settings:module:<canonical-module-key>` for ambiguous/unresolved. An included `ownerId` is its Apps row `id`; an absent-owner key is `package:` plus the complete sorted case-folded selected-ref set joined by `|`, and modules group only when this whole key is identical. Only `included` can make `apps[].hasSettings` true. `included` and `not_in_profile` contribute to `verifiedSettingsAppCount`; `ambiguous` and `unresolved` contribute to `unidentifiedSettingsRowCount`.
 
 Ownership canonicalizes module IDs by trimming whitespace, lowercasing for comparison, and stripping one leading `apps.`; it unions and deduplicates all applicable saved-profile sources. V2 sources are `configCaptures[].moduleId` and `legacyConfigLanes[].moduleId`; v1 sources are `restore[].fromModule`, `configModules[]`, sibling `metadata.json.configModulesIncluded[]`, and the first segment after `configs/` in restore `source`. The trusted current catalog can enrich already-owned modules with labels and verified package refs but cannot create ownership or run matchers. Root-only exact `refs.windows` `exclude` applies to Apps and root-only `excludeConfigs` to ownership; included exclusions are ignored.
 
-Apps display names use captured app `displayName`, first sorted package ref, then humanized app ID. Settings display names use verified snapshot `displayName`, trusted-catalog `displayName`, associated app `displayName`, first sorted verified package ref, then humanized canonical module key. App package refs include all non-empty trimmed `refs` values, deduplicated and sorted. For v2, `capturedEntryCount` sums `payloadManifest.length` once per distinct `captureId` and counts restore entries bound to a legacy lane `legacyCaptureId`; for v1 it counts distinct restore entries attributed by `fromModule`, falling back per entry to `configs/<module>/...`. Metadata-only/configModules-only ownership is zero; grouped rows sum without double counting.
+Apps display names use captured app `displayName`, first sorted package ref, then humanized manifest app ID. Settings display names use verified snapshot `displayName`, trusted-catalog `displayName`, associated app `displayName`, first sorted verified package ref, then humanized canonical module key. App package refs include all non-empty trimmed `refs` values, deduplicated and sorted; a settings row's package refs are the sorted union of its contributing modules' selected verified owner refs. For v2, `capturedEntryCount` sums `payloadManifest.length` once per distinct `captureId` (manifest validation guarantees uniqueness; counting deduplicates defensively) and counts restore entries bound to a legacy lane `legacyCaptureId`; for v1 it counts distinct restore entries attributed by `fromModule`, falling back per entry to `configs/<module>/...`. Metadata-only/configModules-only ownership is zero; grouped rows sum without double counting.
 
 Apps/settings rows sort by case-folded display name then row ID; package/module/candidate arrays by case-folded value then original value; warnings by code then message. Each warning has `code`, engine-authored `message`, and `impact`, where impact is exactly `diagnostic` or `inventory_incomplete`.
 

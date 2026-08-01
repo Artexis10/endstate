@@ -29,30 +29,36 @@ For v2, applicable sources are `configCaptures[].moduleId` and `legacyConfigLane
 ### Requirement: Deterministic inventory grouping and association
 The inspection success envelope SHALL use schema 1.x, retain top-level `command: "profile"`, and contain non-null deterministic `apps`, `settingsApps`, and `warnings` arrays. Every owned module MUST be represented exactly once before grouping. The engine MUST group every `included` module that shares one unique Apps row and every `not_in_profile` module that shares one verified absent-owner identity. It MUST NOT group `ambiguous` or `unresolved` modules.
 
-Each settings row MUST have exactly one association status: `included`, `not_in_profile`, `ambiguous`, or `unresolved`. `ownerId` MUST be non-null only for `included` and `not_in_profile`; `appId` MUST be non-null only for `included`; `appIncluded` MUST be true iff the status is `included`; and `candidateAppIds` MUST contain the single app ID for `included`, sorted candidates for `ambiguous`, and `[]` otherwise. Row IDs MUST be `app:<case-folded-app-id>` for included, `owner:<case-folded-owner-id>` for not-in-profile, and `module:<canonical-module-key>` for ambiguous or unresolved. `ownerId` for included is the app ID; for not-in-profile it is the canonical verified package-owner key. Only `included` can mark the referenced Apps row `hasSettings` true.
+For every owned module, association MUST select exactly one verified owner-ref tier in this order: non-empty `configCaptures[].sourceInstance.evidence.ref` values; package refs from successfully verified embedded snapshots; then package refs from the trusted current catalog for that already-owned module. The first non-empty tier MUST be the selected owner-ref set. Lower tiers MAY supply labels but MUST NOT add association candidates or override a higher tier. Within that set, refs MUST be trimmed, case-insensitively deduplicated, and sorted. Failure to verify an intended higher tier MUST emit the contracted warning and permit the next tier.
+
+An Apps-row candidate MUST be an Apps row whose normalized `packageRefs[]` intersects the selected owner-ref set by exact case-insensitive equality. Exactly one candidate MUST yield `included`; more than one MUST yield `ambiguous`; zero candidates with a non-empty selected ref set MUST yield `not_in_profile`; and an empty selected ref set MUST yield `unresolved`.
+
+Every Apps inventory entry MUST have `id`, `manifestAppId`, `displayName`, non-null `packageRefs`, and `hasSettings`. Its `id` MUST be assigned before presentation sorting as `app:<case-folded-manifest-app-id-or-unnamed>:<one-based-occurrence-among-that-case-folded-id-in-resolved-manifest-order>`. `manifestAppId` preserves the raw manifest app identifier. Each settings row MUST have exactly one association status: `included`, `not_in_profile`, `ambiguous`, or `unresolved`. `ownerId` MUST be non-null only for `included` and `not_in_profile`; `appId` MUST be non-null only for `included`; `appIncluded` MUST be true iff the status is `included`; and `candidateAppIds` MUST contain the single Apps row `id` for `included`, sorted Apps row IDs for `ambiguous`, and `[]` otherwise. Settings row IDs MUST be `settings:<app-row-id>` for included, `settings:<absent-owner-key>` for not-in-profile, and `settings:module:<canonical-module-key>` for ambiguous or unresolved. `ownerId` for included is the Apps row `id`.
+
+For `not_in_profile`, the absent-owner key MUST be `package:` plus the complete sorted case-folded selected-ref set joined by `|`; `ownerId` MUST use that key, and modules MAY group only when their entire key is identical. Only `included` can mark the referenced Apps row `hasSettings` true.
 
 `included` and `not_in_profile` rows SHALL contribute to `verifiedSettingsAppCount`; `ambiguous` and `unresolved` rows SHALL contribute to `unidentifiedSettingsRowCount`. A short owned module ID MAY associate through verified trusted-catalog package refs with a manifest Apps row having a different ID.
 
 #### Scenario: Group verified included modules
 - **WHEN** two owned modules uniquely associate to the same included Apps row
-- **THEN** the engine returns one `included` row with both module IDs and row ID `app:<case-folded-app-id>`
+- **THEN** the engine returns one `included` row with both module IDs and row ID `settings:<app-row-id>`
 
-#### Scenario: Preserve ambiguous ownership separately
-- **WHEN** a profile-owned module has multiple candidate Apps rows
-- **THEN** the engine returns a separate `ambiguous` `module:<canonical-module-key>` row with sorted candidates, no owner/app ID, and no marked Apps row
+#### Scenario: Preserve duplicate-App ambiguity separately
+- **WHEN** two resolved Apps rows have the same verified owner ref, including duplicate manifest app identifiers preserved by composition
+- **THEN** the engine returns an `ambiguous` `settings:module:<canonical-module-key>` row with sorted Apps row IDs, no owner/app ID, and no marked Apps row
 
 ### Requirement: Deterministic fields, labels, counts, and ordering
 `data.profile` MUST contain nullable `name`, nullable `capturedAt`, integer `manifestVersion`, and string `manifestPath`. Non-empty manifest `captured` MUST win for `capturedAt`; otherwise non-empty sibling metadata `capturedAt` MUST be used; otherwise it is null. A conflict MAY produce a diagnostic warning without changing that order.
 
-Each `apps[]` row MUST contain `id`, `displayName`, non-null `packageRefs`, and `hasSettings`. Apps display names MUST use captured app `displayName`, then first sorted package ref, then humanized app ID. App package refs MUST include every non-empty `refs` value, trimmed, deduplicated, and sorted. Each `settingsApps[]` row MUST contain `id`, `displayName`, `associationStatus`, nullable `ownerId`, nullable `appId`, `appIncluded`, non-null `packageRefs`, non-null `moduleIds`, non-null `candidateAppIds`, and non-negative `capturedEntryCount`. Settings display names MUST use verified snapshot `displayName`, trusted-catalog `displayName`, associated app `displayName`, first sorted verified package ref, then a humanized canonical module key. Raw provenance IDs MUST NOT be default labels.
+Apps display names MUST use captured app `displayName`, then first sorted package ref, then humanized manifest app ID. App package refs MUST include every non-empty `refs` value, trimmed, deduplicated, and sorted. Each `settingsApps[]` row MUST contain `id`, `displayName`, `associationStatus`, nullable `ownerId`, nullable `appId`, `appIncluded`, non-null `packageRefs`, non-null `moduleIds`, non-null `candidateAppIds`, and non-negative `capturedEntryCount`. `settingsApps[].packageRefs` MUST be the sorted union of selected verified owner refs for its contributing modules. Settings display names MUST use verified snapshot `displayName`, trusted-catalog `displayName`, associated app `displayName`, first sorted verified package ref, then a humanized canonical module key. Raw provenance IDs MUST NOT be default labels.
 
 For v2, `capturedEntryCount` MUST sum `payloadManifest.length` once per distinct `captureId` and count restore entries bound to each legacy lane's `legacyCaptureId`. For v1, it MUST count distinct restore-array entries attributed by `fromModule`, falling back per entry to `configs/<module>/...` source attribution. Metadata-only/configModules-only ownership MUST count zero. A grouped row MUST sum its contributing module counts without double-counting an entry.
 
 Apps and settings rows MUST sort by case-folded display name then stable row ID. `packageRefs`, `moduleIds`, and `candidateAppIds` MUST sort by case-folded value then original value. Warnings MUST sort by code then message. `data.summary` MUST contain non-negative `appCount`, `settingsRowCount`, `verifiedSettingsAppCount`, and `unidentifiedSettingsRowCount`, derived from the finalized grouped arrays. Each warning MUST contain `code`, engine-authored `message`, and `impact`, where impact is exactly `diagnostic` or `inventory_incomplete`.
 
 #### Scenario: Count a grouped v2 row without duplication
-- **WHEN** two grouped modules reference config captures with a repeated capture ID
-- **THEN** the row sums that capture's `payloadManifest.length` once and derives the summary after grouping
+- **WHEN** module A has distinct capture IDs with payload-manifest lengths 2 and 3, module B has a third distinct capture ID with length 1, and both verify to the same Apps row
+- **THEN** one grouped row has `capturedEntryCount` 6, because manifest validation guarantees unique capture IDs and counting defensively deduplicates
 
 #### Scenario: Return metadata-only v1 ownership
 - **WHEN** a v1 module is owned only through `configModules[]` or sibling metadata
