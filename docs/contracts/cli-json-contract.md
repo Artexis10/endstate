@@ -282,10 +282,10 @@ The standard envelope retains `command: "profile"` and schema 1.x. On success, `
     "manifestPath": "C:\\Profiles\\workstation\\manifest.jsonc"
   },
   "summary": {
-    "appCount": 2,
-    "settingsRowCount": 2,
+    "appCount": 1,
+    "settingsRowCount": 1,
     "verifiedSettingsAppCount": 1,
-    "unidentifiedSettingsRowCount": 1
+    "unidentifiedSettingsRowCount": 0
   },
   "apps": [
     {
