@@ -198,6 +198,7 @@ func safeValidationCICommandFailure(err error) string {
 		"result directory is unsafe",
 		"missing or malformed shard evidence",
 		"foreign shard evidence",
+		"failed shard evidence",
 		"row proof identity drift",
 		"duplicate row evidence",
 		"failed row evidence",

@@ -67,25 +67,99 @@ func compileInstallContract(mod *modules.Module, scenario validationmatrix.Scena
 	if len(mod.Verify) != 1 {
 		return reject("verify", "install contract requires exactly one production verifier")
 	}
-	verifier := mod.Verify[0]
-	if verifier.Type != "command-exists" || verifier.Command == "" || verifier.Path != "" || verifier.ValueName != "" || verifier.ValueType != "" || verifier.Data != "" {
-		return reject("verify[0]", "install contract requires one exact command-exists verifier")
-	}
-	command := filepath.Base(verifier.Command)
-	if command != verifier.Command || strings.ContainsAny(command, `\/:`) {
-		return reject("verify[0].command", "command verifier must be one contained executable name")
-	}
-	if filepath.Ext(command) == "" {
-		command += ".exe"
-	}
-	if !strings.EqualFold(filepath.Ext(command), ".exe") {
-		return reject("verify[0].command", fmt.Sprintf("command verifier executable %q is not a Windows executable", command))
+	command, failure := compileInstallVerifier(mod.Verify[0])
+	if failure != nil {
+		return reject(failure.coordinate, failure.detail)
 	}
 
 	return &InstallContractPlan{
 		ModuleID: mod.ID, ModuleRevision: mod.Revision, ScenarioID: scenario.ID,
 		Inventory: inventory, Verifiers: append([]modules.VerifyDef(nil), mod.Verify...), CommandExecutable: command,
 	}, nil
+}
+
+type installVerifierFailure struct {
+	coordinate string
+	detail     string
+}
+
+func compileInstallVerifier(verifier modules.VerifyDef) (string, *installVerifierFailure) {
+	reject := func(coordinate, detail string) (string, *installVerifierFailure) {
+		return "", &installVerifierFailure{coordinate: coordinate, detail: detail}
+	}
+	switch verifier.Type {
+	case "command-exists":
+		if verifier.Command == "" || verifier.Path != "" || verifier.ValueName != "" || verifier.ValueType != "" || verifier.Data != "" {
+			return reject("verify[0]", "command verifier has foreign fields")
+		}
+		command := filepath.Base(verifier.Command)
+		if command != verifier.Command || strings.ContainsAny(command, `\/:`) {
+			return reject("verify[0].command", "command verifier must be one contained executable name")
+		}
+		if filepath.Ext(command) == "" {
+			command += ".exe"
+		}
+		if !strings.EqualFold(filepath.Ext(command), ".exe") {
+			return reject("verify[0].command", fmt.Sprintf("command verifier executable %q is not a Windows executable", command))
+		}
+		return command, nil
+	case "file-exists":
+		if verifier.Path == "" || verifier.Command != "" || verifier.ValueName != "" || verifier.ValueType != "" || verifier.Data != "" {
+			return reject("verify[0]", "file verifier has foreign fields")
+		}
+		if !safeInstallFileVerifierPath(verifier.Path) {
+			return reject("verify[0].path", "file verifier path is not a contained validation alias path")
+		}
+		return "", nil
+	case "registry-key-exists":
+		if verifier.Path == "" || verifier.Command != "" || verifier.ValueName != "" || verifier.ValueType != "" || verifier.Data != "" {
+			return reject("verify[0]", "registry key verifier has foreign fields")
+		}
+		if _, err := validationmode.NormalizeHKCU(verifier.Path); err != nil {
+			return reject("verify[0].path", "registry key verifier is not an exact HKCU key")
+		}
+		return "", nil
+	default:
+		return reject("verify[0]", "install contract verifier type is unsupported")
+	}
+}
+
+func safeInstallFileVerifierPath(path string) bool {
+	if path == "" || path != strings.TrimSpace(path) || strings.ContainsRune(path, '\x00') {
+		return false
+	}
+	path = validationmode.NormalizeProductionAuthoredPath(path)
+	if strings.HasPrefix(path, `\\`) || strings.HasPrefix(path, "//") || filepath.IsAbs(path) ||
+		(len(path) >= 2 && path[1] == ':') || !strings.HasPrefix(path, "%") {
+		return false
+	}
+	closing := strings.Index(path[1:], "%")
+	if closing < 0 {
+		return false
+	}
+	closing++
+	if closing == 1 || !installFileVerifierAlias(path[1:closing]) || closing+1 >= len(path) || (path[closing+1] != '\\' && path[closing+1] != '/') {
+		return false
+	}
+	suffix := path[closing+2:]
+	if suffix == "" || strings.ContainsAny(suffix, `%$~:<>`) || strings.Contains(suffix, `\\`) || strings.Contains(suffix, "//") {
+		return false
+	}
+	for _, component := range strings.FieldsFunc(suffix, func(value rune) bool { return value == '\\' || value == '/' }) {
+		if component == "." || component == ".." || component != strings.TrimSpace(component) {
+			return false
+		}
+	}
+	return true
+}
+
+func installFileVerifierAlias(alias string) bool {
+	switch strings.ToLower(alias) {
+	case "appdata", "localappdata", "userprofile", "programfiles", "programw6432", "programfiles(x86)", "programdata", "public", "systemroot", "windir", "temp", "tmp":
+		return true
+	default:
+		return false
+	}
 }
 
 func declarativeModuleJSON(mod *modules.Module) []byte {

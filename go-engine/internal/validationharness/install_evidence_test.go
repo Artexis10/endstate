@@ -102,6 +102,28 @@ func TestInstallVerifyEvidenceRequiresExactNegativeThenPositiveMultiset(t *testi
 	}
 }
 
+func TestInstallVerifyEvidenceMatchesExactProductionTypedOutput(t *testing.T) {
+	for _, moduleID := range []string{"apps.brave", "apps.clementine"} {
+		t.Run(moduleID, func(t *testing.T) {
+			_, module, scenario := productionInstallAuthority(t, moduleID)
+			plan, failure := compileInstallContract(module, scenario)
+			if failure != nil {
+				t.Fatal(failure)
+			}
+			runtime := &scenarioRuntime{InstallPlan: plan, Inventory: plan.Inventory}
+			for _, passing := range []bool{false, true} {
+				events := validInstallEvents(runtime, false)
+				if !passing {
+					events[2]["success"], events[2]["failed"] = json.Number("1"), json.Number("1")
+				}
+				if failure := validateInstallVerifyEvidence(typedInstallVerifyPayload(t, runtime, passing), events, runtime, passing); failure != nil {
+					t.Fatalf("passing=%t evidence: %+v", passing, failure)
+				}
+			}
+		})
+	}
+}
+
 func TestInstallEvidenceCanonicalizesSemanticManifestSeparators(t *testing.T) {
 	runtime := installEvidenceRuntime(t)
 	apply := validInstallApplyPayload(runtime)
@@ -204,6 +226,30 @@ func validInstallVerifyPayload(runtime *scenarioRuntime, passing bool) map[strin
 			map[string]any{"type": "command-exists", "status": commandStatus, "message": commandMessage},
 		},
 	}
+}
+
+func typedInstallVerifyPayload(t *testing.T, runtime *scenarioRuntime, passing bool) []byte {
+	verifier := runtime.InstallPlan.Verifiers[0]
+	message := "File not found: " + verifier.Path
+	if verifier.Type == "registry-key-exists" {
+		message = "Registry key not found: " + verifier.Path
+	}
+	pass, fail := 1, 1
+	if passing {
+		message = "Path exists: " + verifier.Path
+		if verifier.Type == "registry-key-exists" {
+			message = "Registry key exists: " + verifier.Path
+		}
+		pass, fail = 2, 0
+	}
+	return mustInstallJSON(t, map[string]any{
+		"manifest": map[string]any{"path": "$ENDSTATE_ROOT/manifests/install-v1.jsonc", "name": "Endstate validation " + runtime.InstallPlan.ModuleID},
+		"summary":  map[string]any{"total": 2, "pass": pass, "fail": fail},
+		"results": []any{
+			map[string]any{"type": "app", "id": runtime.Inventory.AppID, "ref": runtime.Inventory.Ref, "driver": runtime.Inventory.Driver, "name": runtime.Inventory.DisplayName, "status": "pass"},
+			map[string]any{"type": verifier.Type, "status": map[bool]string{false: "fail", true: "pass"}[passing], "message": message},
+		},
+	})
 }
 
 func validInstallEvents(runtime *scenarioRuntime, apply bool) []map[string]any {

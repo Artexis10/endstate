@@ -507,19 +507,69 @@ func assertFixtureWitnessContent(t *testing.T, path, want string) {
 	}
 }
 
-func TestFixturePlanRejectsExcludeContractWithoutDirectoryWitnessTarget(t *testing.T) {
+func TestFixturePlanAcceptsFileOnlyNonmatchingGlobalExcludeWithoutWitness(t *testing.T) {
 	mod, err := modules.ParseModuleJSON([]byte(fixtureModuleJSON))
 	if err != nil {
 		t.Fatal(err)
 	}
-	mod.Capture.ExcludeGlobs = []string{"**/*.log"}
+	mod.Capture.ExcludeGlobs = []string{`**\*.log`}
 	scenario := fixtureScenario()
 	definitions, failure := compileFixtureDefinitions(mod, scenario)
 	if failure != nil {
 		t.Fatal(failure)
 	}
-	if _, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); failure == nil || failure.Code != CodeUnsupportedFixture {
-		t.Fatalf("missing directory witness failure = %+v", failure)
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(plan.Targets) != 1 || plan.Targets[0].Directory || len(plan.Targets[0].CaptureExcluded) != 0 {
+		t.Fatalf("file-only nonmatching global exclude plan = %+v", plan)
+	}
+}
+
+func TestFixturePlanRejectsFileOnlyGlobalExcludeMatchingExactSourceBasename(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(fixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod.Capture.ExcludeGlobs = []string{`**\settings.json`}
+	scenario := fixtureScenario()
+	definitions, failure := compileFixtureDefinitions(mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); plan != nil || failure == nil || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "capture.files[0]" {
+		t.Fatalf("matching file-only global exclude plan=%+v failure=%+v", plan, failure)
+	}
+}
+
+func TestFixturePlanRejectsMalformedFileOnlyGlobalExclude(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(fixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod.Capture.ExcludeGlobs = []string{`**\broken[.tmp`}
+	scenario := fixtureScenario()
+	definitions, failure := compileFixtureDefinitions(mod, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); plan != nil || failure == nil || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "capture.excludeGlobs[0]" {
+		t.Fatalf("malformed file-only global exclude plan=%+v failure=%+v", plan, failure)
+	}
+}
+
+func TestFixturePlanMixedGlobalExcludeRejectsMatchingDirectFile(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	for index := range definitions.Entries {
+		definitions.Entries[index].GlobalExclude = []string{`**\settings.json`}
+	}
+	if plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions); plan != nil || failure == nil || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "capture.files[0]" {
+		t.Fatalf("matching mixed global exclude plan=%+v failure=%+v", plan, failure)
 	}
 }
 

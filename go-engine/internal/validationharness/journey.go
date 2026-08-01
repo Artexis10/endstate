@@ -29,6 +29,7 @@ type scenarioRuntime struct {
 	ChildWorkingDir     string
 	Nonce               string
 	Inventory           validationmode.Inventory
+	RegistryFixture     *validationmode.RegistryFixture
 	Guards              []guardTarget
 	ToolRoot            string
 	OriginalEnvironment map[string]string

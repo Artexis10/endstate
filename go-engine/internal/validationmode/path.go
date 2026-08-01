@@ -30,7 +30,7 @@ func (context *Context) ResolveHostPath(authored string, policy HostPathPolicy) 
 	if authored == "" || authored != strings.TrimSpace(authored) || strings.ContainsRune(authored, '\x00') {
 		return fail("path is empty or malformed")
 	}
-	authored = normalizeProductionAuthoredPath(authored)
+	authored = NormalizeProductionAuthoredPath(authored)
 	if strings.HasPrefix(authored, `\\`) || strings.HasPrefix(authored, "//") || hasWindowsDrivePrefix(authored) || strings.HasPrefix(authored, "~") {
 		return fail("raw host paths are forbidden")
 	}
@@ -111,7 +111,9 @@ func (context *Context) declaredAlias(name string) bool {
 	return false
 }
 
-func normalizeProductionAuthoredPath(value string) string {
+// NormalizeProductionAuthoredPath maps supported production home paths to the
+// canonical declared alias form.
+func NormalizeProductionAuthoredPath(value string) string {
 	if strings.HasPrefix(value, `~\`) || strings.HasPrefix(value, "~/") {
 		return `%USERPROFILE%\` + value[2:]
 	}
@@ -314,7 +316,7 @@ func (context *Context) DisplayHostPath(absolute string, policy HostPathPolicy) 
 // environment value captured before activation. Wildcards protect their
 // non-wildcard parent prefix. Callers must never serialize the returned path.
 func (context *Context) OriginalHostPath(authored string, policy HostPathPolicy) (string, error) {
-	authored = normalizeProductionAuthoredPath(authored)
+	authored = NormalizeProductionAuthoredPath(authored)
 	if strings.HasPrefix(strings.ToLower(authored), "${instance.root}") {
 		if policy.InstanceRoot == "" || policy.InstanceAlias == "" {
 			return "", fmt.Errorf("%w: instance provenance is incomplete", ErrUnsafePath)
@@ -429,7 +431,7 @@ func (context *Context) ResolveHostPattern(authored string, policy HostPathPolic
 	if _, err := context.ResolveHostPath(probe, policy); err != nil {
 		return "", err
 	}
-	authored = normalizeProductionAuthoredPath(authored)
+	authored = NormalizeProductionAuthoredPath(authored)
 	var root, suffix string
 	if strings.HasPrefix(strings.ToLower(authored), "${instance.root}") {
 		var err error

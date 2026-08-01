@@ -1126,6 +1126,29 @@ func TestCleanupFailureCannotLeavePassingResult(t *testing.T) {
 	}
 }
 
+func TestCleanupFailureSurfacesAfterJourneyFailure(t *testing.T) {
+	result := Result{Status: ResultStatusFailed, Failure: fail(CodeExecutionFailure, "rebuild", "fixture", "rebuild failed")}
+	result = applyCleanupFailure(result, fmt.Errorf("cleanup failed"))
+	if result.Status != ResultStatusFailed || result.Failure == nil || result.Failure.Code != CodeIsolationFailure {
+		t.Fatalf("result = %+v", result)
+	}
+}
+
+func TestAbandonScenarioRuntimeSurfacesRegistryCleanupFailureAfterSetupFailure(t *testing.T) {
+	registryFixtureCreated := true
+	cleanupCalls := 0
+	failure, err := abandonScenarioRuntime(func() error {
+		cleanupCalls++
+		if !registryFixtureCreated {
+			t.Fatal("registry fixture was not created before setup failed")
+		}
+		return fmt.Errorf("registry fixture cleanup failed")
+	}, fail(CodeExecutionFailure, "setup", "boundary", "later setup failed"), nil)
+	if err != nil || failure == nil || failure.Code != CodeIsolationFailure || failure.Phase != "cleanup" || cleanupCalls != 1 {
+		t.Fatalf("failure = %+v, err = %v, cleanup calls = %d", failure, err, cleanupCalls)
+	}
+}
+
 func TestPersistResultRejectsSwappedParentLink(t *testing.T) {
 	base := t.TempDir()
 	parent := filepath.Join(base, "results")

@@ -416,6 +416,239 @@ func TestAggregateAcceptsCompleteCanonicalEvidence(t *testing.T) {
 	}
 }
 
+func TestAggregateClassifiesCanonicalFailedShardEvidence(t *testing.T) {
+	fixture := newAggregateFixture(t)
+	var shard ShardResult
+	readJSON(t, filepath.Join(fixture.Input, "shard-0.json"), &shard)
+	shard.Status = validationharness.ResultStatusFailed
+	shard.Failure = "scenario failed"
+	setCanonicalFailedShardRow(&shard.Rows[0].Result)
+	writeJSON(t, filepath.Join(fixture.Input, "shard-0.json"), shard)
+
+	result, err := Aggregate(fixture.Request)
+	if err == nil || err.Error() != "failed shard evidence" {
+		t.Fatalf("Aggregate error = %v, want failed shard evidence", err)
+	}
+	assertFailedAggregateDenominators(t, fixture, result, "failed shard evidence")
+
+	var persisted AggregateResult
+	readJSON(t, fixture.Request.ResultPath, &persisted)
+	if !reflect.DeepEqual(persisted, result) {
+		t.Fatalf("persisted aggregate = %+v, want %+v", persisted, result)
+	}
+}
+
+func TestAggregateClassifiesForeignShardIdentity(t *testing.T) {
+	fixture := newAggregateFixture(t)
+	var shard ShardResult
+	readJSON(t, filepath.Join(fixture.Input, "shard-0.json"), &shard)
+	shard.Commit = strings.Repeat("a", 40)
+	writeJSON(t, filepath.Join(fixture.Input, "shard-0.json"), shard)
+
+	result, err := Aggregate(fixture.Request)
+	if err == nil || err.Error() != "foreign shard evidence" {
+		t.Fatalf("Aggregate error = %v, want foreign shard evidence", err)
+	}
+	assertFailedAggregateDenominators(t, fixture, result, "foreign shard evidence")
+}
+
+func TestAggregateDoesNotMisclassifyMalformedFailedShardEvidence(t *testing.T) {
+	tests := []struct {
+		name    string
+		status  string
+		failure string
+	}{
+		{name: "passed status with failure", status: validationharness.ResultStatusPassed, failure: "scenario failed"},
+		{name: "failed status without failure", status: validationharness.ResultStatusFailed},
+		{name: "failed status with another failure", status: validationharness.ResultStatusFailed, failure: "failed row evidence"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newAggregateFixture(t)
+			var shard ShardResult
+			readJSON(t, filepath.Join(fixture.Input, "shard-0.json"), &shard)
+			shard.Status = tt.status
+			shard.Failure = tt.failure
+			writeJSON(t, filepath.Join(fixture.Input, "shard-0.json"), shard)
+
+			result, err := Aggregate(fixture.Request)
+			if err == nil || err.Error() != "foreign shard evidence" {
+				t.Fatalf("Aggregate error = %v, want foreign shard evidence", err)
+			}
+			assertFailedAggregateDenominators(t, fixture, result, "foreign shard evidence")
+		})
+	}
+}
+
+func TestAggregateRejectsMalformedCanonicalFailedShardEvidence(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*ShardResult)
+		failure string
+	}{
+		{
+			name: "foreign row identity",
+			mutate: func(shard *ShardResult) {
+				shard.Rows[0].Identity.ModuleID = "apps.foreign"
+			},
+			failure: "row proof identity drift",
+		},
+		{
+			name: "duplicate row",
+			mutate: func(shard *ShardResult) {
+				shard.Rows = append(shard.Rows, shard.Rows[0])
+			},
+			failure: "duplicate row evidence",
+		},
+		{
+			name: "missing row",
+			mutate: func(shard *ShardResult) {
+				shard.Rows = shard.Rows[1:]
+			},
+			failure: "missing row evidence",
+		},
+		{
+			name: "invalid result failure grammar",
+			mutate: func(shard *ShardResult) {
+				setCanonicalFailedShardRow(&shard.Rows[0].Result)
+				shard.Rows[0].Result.Failure = nil
+			},
+			failure: "failed row evidence",
+		},
+		{
+			name: "blank failure code",
+			mutate: func(shard *ShardResult) {
+				setCanonicalFailedShardRow(&shard.Rows[0].Result)
+				shard.Rows[0].Result.Failure.Code = ""
+			},
+			failure: "failed row evidence",
+		},
+		{
+			name: "unknown failure code",
+			mutate: func(shard *ShardResult) {
+				setCanonicalFailedShardRow(&shard.Rows[0].Result)
+				shard.Rows[0].Result.Failure.Code = "unknown_failure"
+			},
+			failure: "failed row evidence",
+		},
+		{
+			name: "blank failure phase",
+			mutate: func(shard *ShardResult) {
+				setCanonicalFailedShardRow(&shard.Rows[0].Result)
+				shard.Rows[0].Result.Failure.Phase = ""
+			},
+			failure: "failed row evidence",
+		},
+		{
+			name: "blank failure detail",
+			mutate: func(shard *ShardResult) {
+				setCanonicalFailedShardRow(&shard.Rows[0].Result)
+				shard.Rows[0].Result.Failure.Detail = ""
+			},
+			failure: "failed row evidence",
+		},
+		{
+			name: "null assertion counts",
+			mutate: func(shard *ShardResult) {
+				setCanonicalFailedShardRow(&shard.Rows[0].Result)
+				shard.Rows[0].Result.AssertionCounts = nil
+			},
+			failure: "failed row evidence",
+		},
+		{
+			name: "null phase timings",
+			mutate: func(shard *ShardResult) {
+				setCanonicalFailedShardRow(&shard.Rows[0].Result)
+				shard.Rows[0].Result.PhaseTimings = nil
+			},
+			failure: "failed row evidence",
+		},
+		{
+			name:    "all rows passed",
+			mutate:  func(*ShardResult) {},
+			failure: "failed row evidence",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fixture := newAggregateFixture(t)
+			var shard ShardResult
+			readJSON(t, filepath.Join(fixture.Input, "shard-0.json"), &shard)
+			shard.Status = validationharness.ResultStatusFailed
+			shard.Failure = "scenario failed"
+			tt.mutate(&shard)
+			writeJSON(t, filepath.Join(fixture.Input, "shard-0.json"), shard)
+
+			result, err := Aggregate(fixture.Request)
+			if err == nil || err.Error() != tt.failure {
+				t.Fatalf("Aggregate error = %v, want %s", err, tt.failure)
+			}
+			assertFailedAggregateDenominators(t, fixture, result, tt.failure)
+		})
+	}
+}
+
+func TestAggregateRejectsNullPhaseTimingsOnPassedRowAlongsideCanonicalFailedShard(t *testing.T) {
+	fixture := newAggregateFixtureForRepo(t, testTwoRowRepo(t))
+	type rowLocation struct{ shard, row int }
+	locations := []rowLocation{}
+	for shard := 0; shard < ShardCount; shard++ {
+		var evidence ShardResult
+		readJSON(t, filepath.Join(fixture.Input, "shard-"+string(rune('0'+shard))+".json"), &evidence)
+		for row := range evidence.Rows {
+			locations = append(locations, rowLocation{shard: shard, row: row})
+		}
+	}
+	if len(locations) < 2 {
+		t.Fatal("two-row fixture did not produce two planned rows")
+	}
+	failed := locations[0]
+	passed := locations[1]
+	var failedShard ShardResult
+	readJSON(t, filepath.Join(fixture.Input, "shard-"+string(rune('0'+failed.shard))+".json"), &failedShard)
+	failedShard.Status = validationharness.ResultStatusFailed
+	failedShard.Failure = "scenario failed"
+	setCanonicalFailedShardRow(&failedShard.Rows[failed.row].Result)
+	writeJSON(t, filepath.Join(fixture.Input, "shard-"+string(rune('0'+failed.shard))+".json"), failedShard)
+
+	var passedShard ShardResult
+	readJSON(t, filepath.Join(fixture.Input, "shard-"+string(rune('0'+passed.shard))+".json"), &passedShard)
+	passedShard.Rows[passed.row].Result.PhaseTimings = nil
+	writeJSON(t, filepath.Join(fixture.Input, "shard-"+string(rune('0'+passed.shard))+".json"), passedShard)
+
+	result, err := Aggregate(fixture.Request)
+	if err == nil || err.Error() != "failed row evidence" {
+		t.Fatalf("Aggregate error = %v, want failed row evidence", err)
+	}
+	assertFailedAggregateDenominators(t, fixture, result, "failed row evidence")
+}
+
+func setCanonicalFailedShardRow(result *validationharness.Result) {
+	result.Status = validationharness.ResultStatusFailed
+	result.ProofLevels = []validationmatrix.ProofLevel{}
+	result.AssertionCounts = map[string]int{}
+	result.Failure = &validationharness.Failure{Code: validationharness.CodeExecutionFailure, Phase: "harness", Detail: "expected"}
+	result.PhaseTimings = map[string]time.Duration{}
+}
+
+func assertFailedAggregateDenominators(t *testing.T, fixture aggregateFixture, result AggregateResult, failure string) {
+	t.Helper()
+	catalog, err := validationmatrix.LoadCatalog(fixture.Request.RepoRoot, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := validationmatrix.PlanSynthetic(catalog, validationmatrix.SyntheticPlanOptions{ShardCount: ShardCount})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SchemaVersion != SchemaVersion || result.Commit != fixture.Request.Commit || result.Status != validationharness.ResultStatusFailed || result.Failure != failure {
+		t.Fatalf("aggregate classification = %+v", result)
+	}
+	if result.Modules != (PassedEligible{Eligible: len(catalog.Modules)}) || result.Scenarios != (PassedEligible{Eligible: len(plan.Rows)}) || result.Bundles != (PassedEligible{}) {
+		t.Fatalf("aggregate denominators = %+v", result)
+	}
+}
+
 type aggregateFixture struct {
 	Request AggregateRequest
 	Input   string
@@ -423,6 +656,11 @@ type aggregateFixture struct {
 }
 
 func newAggregateFixture(t *testing.T) aggregateFixture {
+	t.Helper()
+	return newAggregateFixtureForRepo(t, testRepoRoot(t))
+}
+
+func newAggregateFixtureForRepo(t *testing.T, repo string) aggregateFixture {
 	t.Helper()
 	runnerTemp := filepath.Join(t.TempDir(), "runner-temp")
 	input := filepath.Join(runnerTemp, "validation-input")
@@ -433,7 +671,6 @@ func newAggregateFixture(t *testing.T) aggregateFixture {
 		}
 	}
 	t.Setenv("RUNNER_TEMP", runnerTemp)
-	repo := testRepoRoot(t)
 	engine := filepath.Join(t.TempDir(), "endstate.exe")
 	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
 		t.Fatal(err)

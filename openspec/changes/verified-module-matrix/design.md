@@ -304,6 +304,29 @@ PR artifacts and job summaries are ephemeral test signals, not durable public ve
 
 No phase may publish a stronger claim than the evidence implemented in that phase.
 
+## Hosted Synthetic Baseline Recovery (2026-08-01)
+
+The first eight-shard hosted run produced 362 exact synthetic rows: 112 passed and 250 failed. This is a useful fail-closed baseline, not a reason to weaken the matrix. The failures contain both shared harness capability gaps and invalid production contracts:
+
+- 28 opaque harness-owned I/O failures: `~/` normalization and validation-scoped registry-verifier setup are harness gaps, while schema-v1 wildcard restore targets are invalid because production legacy restore does not glob targets;
+- 98 unsupported `excludeGlobs` fixtures, where directory captures need matcher-confirmed descendant witnesses but file-only captures can prove only whether the exact declared basename is excluded;
+- 42 valid schema-v1 non-copy restores (`merge-json`, `merge-ini`, and `registry-import`) rejected by the copy-only automatic fixture compiler; and
+- remaining capture/install contract, artifact topology, isolation, hard-coded verifier, and schema-v2 fixture failures that require an exact residual ledger rather than an estimated range.
+
+The recovery order is intentionally shared-capability-first:
+
+1. Harden failed-shard classification by validating every row identity, uniqueness, completeness, and result grammar before calling the shard a canonical in-run failure.
+2. Normalize `~/` before guard/verifier setup and support production registry verifiers only through the disposable registry adapter. Do not rewrite wildcard restore targets into invented production semantics; keep those rows red for module correction, schema-v2 instance binding, or explicit deferral.
+3. Replace the narrow directory-exclude witness generator with deterministic descendants checked by the production bundle matcher. For a direct-file capture, test the exact declared basename against every glob; an exclude that would suppress that file is invalid, and a sibling witness must not be fabricated.
+4. Extend automatic schema-v1 fixtures with typed `merge-json` and `merge-ini` state models whose nonempty conflicting destinations prove production merge precedence, backup, revert, and convergence.
+5. Add nonce-scoped registry lifecycle cleanup that post-proves absence on every exit and cannot be hidden by an earlier scenario failure. Only then extend the typed state model to `registry-import`, mapped exclusively into the validation registry namespace with exact value/type restoration.
+
+Every repair is red-first and must preserve the existing module scenario kind, minimum assertions, proof level, and denominator. Per-module fixtures, relabeling, quarantine, invented wildcard restoration, or relaxed artifact comparison are not acceptable substitutes for production proof. A fresh local eight-shard rebaseline at `16ee7ef66226eb5876aa56838c64af8a8062f272` reproduced all 362 rows and the exact 112-pass/250-fail distribution, disproving the assumption that nine artifact failures predated the current head. Before another hosted run, all eight fresh local shards must contain no opaque harness I/O failure and must produce an exact residual row ledger: every remaining row is mapped to a stable code/phase/coordinate/detail cluster, row identities/digests and the 362-row denominator are unchanged, and supported merge/registry/directory-exclude behavior has structured non-vacuous evidence.
+
+The first production-matched recovery slice then raised the exact local result from 112/362 to 182/362 without changing any row identity or shrinking the denominator. File-only global excludes now prove the exact authored capture basename against the production matcher instead of fabricating sibling evidence; that blocker fell from 98 rows to 8. Production-equivalent tilde normalization cleared all eight known `~/` setup failures. The smaller-than-maximum pass gain is expected and useful: formerly blocked rows now reach deeper artifact, isolation, and module checks, so a shared repair may reveal a new structured downstream failure rather than immediately pass.
+
+The newly reachable ledger also sharpens the harness-versus-catalog boundary. The 20 install-contract verifier failures are a shared harness limitation: 14 exact `file-exists` and 6 exact key-only `registry-key-exists` rows are valid production verifier families and must retain negative-before-positive proof rather than being rewritten as commands. Of 29 capture-contract failures, 22 are legitimate multi-file, directory, registry-only, or partially restorable shapes needing typed hash-bound fixtures. Seven rows contain definite catalog or sidecar defects—flattened destination collisions, captures wholly shadowed by secret rules, or whole-key registry capture that conflicts with declared secret scope—and must remain red until their production contract is repaired. This distinction is part of the CI result, not an exception mechanism.
+
 ## Risks / Trade-offs
 
 - **Catalog-wide sidecars add maintenance:** The schema validator and generated defaults make omissions obvious; module-specific exceptions remain reviewable beside the module.

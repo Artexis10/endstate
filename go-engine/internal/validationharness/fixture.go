@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -65,9 +66,28 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 			firstDirectory = index
 		}
 	}
-	globalWitnesses, globalOK := excludedFixtureRelatives(globalPatterns)
-	if !globalOK || len(globalPatterns) > 0 && firstDirectory < 0 {
-		return nil, fail(CodeUnsupportedFixture, "fixture", "capture.excludeGlobs", "every authored exclude glob requires one deterministic directory witness")
+	for _, definition := range definitions.Entries {
+		if definition.Kind != fixtureKindFile {
+			continue
+		}
+		basename := path.Base(catalogPath(definition.Source))
+		for patternIndex, pattern := range globalPatterns {
+			matched, err := bundle.ConfigPathMatchesExcludeGlob(basename, pattern)
+			if err != nil {
+				return nil, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.excludeGlobs[%d]", patternIndex), "global exclude glob is malformed")
+			}
+			if matched {
+				return nil, fail(CodeUnsupportedFixture, "fixture", definition.Coordinate, "global exclude glob applies to a direct capture filename")
+			}
+		}
+	}
+	globalWitnesses := []string(nil)
+	if firstDirectory >= 0 {
+		var globalOK bool
+		globalWitnesses, globalOK = excludedFixtureRelatives(globalPatterns)
+		if !globalOK {
+			return nil, fail(CodeUnsupportedFixture, "fixture", "capture.excludeGlobs", "every authored exclude glob requires one deterministic directory witness")
+		}
 	}
 	plan := &FixturePlan{context: context}
 	for definitionIndex, definition := range definitions.Entries {

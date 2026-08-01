@@ -136,6 +136,9 @@ func TestValidationCICommandFailureRedactsUnknownPaths(t *testing.T) {
 	if got := safeValidationCICommandFailure(errors.New("engine authority is unsafe")); got != "engine authority is unsafe" {
 		t.Fatalf("classified validation CI failure = %q", got)
 	}
+	if got := safeValidationCICommandFailure(errors.New("failed shard evidence")); got != "failed shard evidence" {
+		t.Fatalf("failed shard classification = %q", got)
+	}
 }
 
 func TestAggregateCommandFailurePreservesClassifiedEvidence(t *testing.T) {

@@ -105,6 +105,7 @@ func failedSelectionResult(selected *selection, failure *Failure) Result {
 }
 
 func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error, *Failure, error) {
+	var runtime *scenarioRuntime
 	nonce, err := randomNonce()
 	if err != nil {
 		return nil, func() error { return nil }, nil, err
@@ -137,6 +138,9 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	}
 	cleanup := func() error {
 		var cleanupErrors []error
+		if runtime != nil && runtime.RegistryFixture != nil {
+			cleanupErrors = append(cleanupErrors, runtime.RegistryFixture.Cleanup())
+		}
 		cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(childWorkingDir))
 		cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(guardRoot))
 		cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(root))
@@ -154,25 +158,25 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	}
 	data, err := json.Marshal(descriptor)
 	if err != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, nil, err
+		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	if err := safepath.MkdirParent(root, ".endstate/validation-mode.json", 0o700); err != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, nil, err
+		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	if err := safepath.AtomicWriteFile(filepath.Join(root, ".endstate", "validation-mode.json"), data, 0o600); err != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, nil, err
+		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	if err := copyProductionModule(selected.module, root); err != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, nil, err
+		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	validationContext, err := loadAndMaterializeContext(root)
 	if err != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, nil, err
+		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	var plan *FixturePlan
 	var v2Plan *V2FixturePlan
@@ -248,36 +252,43 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "scenario.mode", "scenario mode is not implemented by this validation runtime")
 	}
 	if fixtureFailure != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, fixtureFailure, nil
+		failure, setupErr := abandonScenarioRuntime(cleanup, fixtureFailure, nil)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	var transition *v2VersionTransition
 	if selected.scenario.Mode == validationmatrix.ScenarioConfigMigrationV2 {
 		transition, fixtureFailure = compileV2VersionTransition(root, selected.scenario, selected.v2Fixture, selected.module, inventory, nonce, descriptor, data)
 		if fixtureFailure != nil {
-			_ = cleanup()
-			return nil, func() error { return nil }, fixtureFailure, nil
+			failure, setupErr := abandonScenarioRuntime(cleanup, fixtureFailure, nil)
+			return nil, func() error { return nil }, failure, setupErr
 		}
 	}
-	runtime := &scenarioRuntime{
+	runtime = &scenarioRuntime{
 		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan, InstallPlan: installPlan, CapturePlan: capturePlan, RestorePlan: restorePlan,
 		V2Transition:  transition,
 		AuthorityRoot: authorityRoot, Root: root, GuardRoot: guardRoot, ChildWorkingDir: childWorkingDir,
 		Nonce: nonce, Inventory: inventory,
 	}
 	if err := runtime.prepareGuardsAndTools(); err != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, nil, err
+		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	if err := runtime.captureIndependentBoundaries(selected.request.RepoRoot, selected.request.EnginePath); err != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, nil, err
+		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	if err := validateSelectedSidecarBoundary(selected.request.RepoRoot, selected.record.FilePath, selected.record.SourceSnapshot(), runtime.repositoryBoundary); err != nil {
-		_ = cleanup()
-		return nil, func() error { return nil }, nil, err
+		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		return nil, func() error { return nil }, failure, setupErr
 	}
 	return runtime, cleanup, nil, nil
+}
+
+func abandonScenarioRuntime(cleanup func() error, failure *Failure, setupErr error) (*Failure, error) {
+	if cleanupErr := cleanup(); cleanupErr != nil {
+		return fail(CodeIsolationFailure, "cleanup", "runtime", "validation-owned cleanup did not complete safely"), nil
+	}
+	return failure, setupErr
 }
 
 func randomNonce() (string, error) {
@@ -401,7 +412,7 @@ func persistResult(path string, result Result) error {
 }
 
 func applyCleanupFailure(result Result, cleanupErr error) Result {
-	if cleanupErr == nil || result.Status != ResultStatusPassed {
+	if cleanupErr == nil {
 		return result
 	}
 	result.Status = ResultStatusFailed

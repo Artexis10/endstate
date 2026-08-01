@@ -11,6 +11,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 type installJourneyExecutor interface {
@@ -37,14 +38,14 @@ func executeInstallJourney(ctx context.Context, runtime *scenarioRuntime, execut
 		return failure
 	}
 
-	if failure := assertInstallToolRoot(runtime, false); failure != nil {
+	if failure := assertInstallVerifier(runtime, false); failure != nil {
 		return failResult(failure)
 	}
 	if failure := timed("apply-dry-run", func() *Failure { return executor.ApplyDryRun(ctx, runtime) }); failure != nil {
 		return failResult(failure)
 	}
 	result.AssertionCounts[validationmatrix.AssertionAppReferences] = 1
-	if failure := assertInstallToolRoot(runtime, false); failure != nil {
+	if failure := assertInstallVerifier(runtime, false); failure != nil {
 		return failResult(failure)
 	}
 	if failure := timed("verify-absent", func() *Failure { return executor.VerifyAbsent(ctx, runtime) }); failure != nil {
@@ -56,7 +57,7 @@ func executeInstallJourney(ctx context.Context, runtime *scenarioRuntime, execut
 	if failure := timed("verify-present", func() *Failure { return executor.VerifyPresent(ctx, runtime) }); failure != nil {
 		return failResult(failure)
 	}
-	if failure := assertInstallToolRoot(runtime, true); failure != nil {
+	if failure := assertInstallVerifier(runtime, true); failure != nil {
 		return failResult(failure)
 	}
 	result.AssertionCounts[validationmatrix.AssertionVerify] = len(runtime.InstallPlan.Verifiers)
@@ -69,6 +70,43 @@ func executeInstallJourney(ctx context.Context, runtime *scenarioRuntime, execut
 	result.Status = ResultStatusPassed
 	result.ProofLevels = proof
 	return result
+}
+
+func assertInstallVerifier(runtime *scenarioRuntime, present bool) *Failure {
+	if runtime == nil || runtime.InstallPlan == nil || len(runtime.InstallPlan.Verifiers) != 1 {
+		return fail(CodeIsolationFailure, "install", "verify", "install verifier authority is absent")
+	}
+	verifier := runtime.InstallPlan.Verifiers[0]
+	switch verifier.Type {
+	case "command-exists":
+		return assertInstallToolRoot(runtime, present)
+	case "file-exists":
+		path, failure := installFileVerifierPath(runtime)
+		if failure != nil {
+			return failure
+		}
+		info, err := os.Lstat(path)
+		if !present {
+			if os.IsNotExist(err) {
+				return nil
+			}
+			return fail(CodeIsolationFailure, "install", "verify.path", "install file verifier was materialized before the negative verification")
+		}
+		if err != nil || safepath.IsLinkOrReparse(info) || !info.Mode().IsRegular() {
+			return fail(CodeIsolationFailure, "install", "verify.path", "install file verifier is not a contained regular fixture")
+		}
+		return nil
+	case "registry-key-exists":
+		if present && runtime.RegistryFixture == nil {
+			return fail(CodeIsolationFailure, "install", "verify.path", "install registry verifier fixture is absent")
+		}
+		if !present && runtime.RegistryFixture != nil {
+			return fail(CodeIsolationFailure, "install", "verify.path", "install registry verifier was materialized before the negative verification")
+		}
+		return nil
+	default:
+		return fail(CodeIsolationFailure, "install", "verify.type", "install verifier type is unsupported")
+	}
 }
 
 func assertInstallToolRoot(runtime *scenarioRuntime, present bool) *Failure {
@@ -103,19 +141,62 @@ func assertInstallToolRoot(runtime *scenarioRuntime, present bool) *Failure {
 }
 
 func materializeInstallVerifier(runtime *scenarioRuntime) *Failure {
-	if failure := assertInstallToolRoot(runtime, false); failure != nil {
+	if failure := assertInstallVerifier(runtime, false); failure != nil {
 		return failure
 	}
-	name := runtime.InstallPlan.CommandExecutable
-	if filepath.Base(name) != name || filepath.Ext(name) == "" {
-		return fail(CodeIsolationFailure, "install", "verify.command", "install verifier executable is not a contained name")
+	verifier := runtime.InstallPlan.Verifiers[0]
+	switch verifier.Type {
+	case "command-exists":
+		name := runtime.InstallPlan.CommandExecutable
+		if filepath.Base(name) != name || filepath.Ext(name) == "" {
+			return fail(CodeIsolationFailure, "install", "verify.command", "install verifier executable is not a contained name")
+		}
+		path := filepath.Join(runtime.ToolRoot, name)
+		if !fixtureContained(runtime.ToolRoot, path) {
+			return fail(CodeIsolationFailure, "install", "verify.command", "install verifier executable escaped ToolRoot")
+		}
+		if err := safepath.AtomicWriteFile(path, []byte("endstate validation command sentinel"), 0o700); err != nil {
+			return fail(CodeIsolationFailure, "install", "verify.command", "install verifier executable could not be materialized")
+		}
+	case "file-exists":
+		path, failure := installFileVerifierPath(runtime)
+		if failure != nil {
+			return failure
+		}
+		if failure := prepareFixtureFile(runtime.validationContext(), path, "verify[0].path"); failure != nil {
+			return failure
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return fail(CodeIsolationFailure, "install", "verify[0].path", "install file verifier parent could not be materialized")
+		}
+		if failure := prepareFixtureFile(runtime.validationContext(), path, "verify[0].path"); failure != nil {
+			return failure
+		}
+		if err := safepath.AtomicWriteFile(path, []byte("endstate validation file sentinel"), 0o600); err != nil {
+			return fail(CodeIsolationFailure, "install", "verify[0].path", "install file verifier could not be materialized")
+		}
+	case "registry-key-exists":
+		fixture, err := validationmode.NewRegistryFixture(runtime.validationContext())
+		if err != nil {
+			return fail(CodeIsolationFailure, "install", "verify[0].path", "install registry verifier fixture cannot be created")
+		}
+		runtime.RegistryFixture = fixture
+		if err := runtime.RegistryFixture.Materialize(verifier.Path); err != nil {
+			return fail(CodeIsolationFailure, "install", "verify[0].path", "install registry verifier could not be materialized")
+		}
+	default:
+		return fail(CodeIsolationFailure, "install", "verify.type", "install verifier type is unsupported")
 	}
-	path := filepath.Join(runtime.ToolRoot, name)
-	if !fixtureContained(runtime.ToolRoot, path) {
-		return fail(CodeIsolationFailure, "install", "verify.command", "install verifier executable escaped ToolRoot")
+	return assertInstallVerifier(runtime, true)
+}
+
+func installFileVerifierPath(runtime *scenarioRuntime) (string, *Failure) {
+	if runtime == nil || runtime.InstallPlan == nil || len(runtime.InstallPlan.Verifiers) != 1 || runtime.validationContext() == nil {
+		return "", fail(CodeIsolationFailure, "install", "verify.path", "install file verifier validation authority is absent")
 	}
-	if err := safepath.AtomicWriteFile(path, []byte("endstate validation command sentinel"), 0o700); err != nil {
-		return fail(CodeIsolationFailure, "install", "verify.command", "install verifier executable could not be materialized")
+	path, err := runtime.validationContext().ResolveHostPath(runtime.InstallPlan.Verifiers[0].Path, validationmode.HostPathPolicy{})
+	if err != nil || runtime.validationContext().ValidateSandboxPath(path) != nil || !fixtureContained(runtime.Root, path) {
+		return "", fail(CodeIsolationFailure, "install", "verify.path", "install file verifier escaped validation authority")
 	}
-	return assertInstallToolRoot(runtime, true)
+	return path, nil
 }

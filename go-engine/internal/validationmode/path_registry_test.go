@@ -245,6 +245,17 @@ func TestResolveHostPathMapsSupportedProductionDialect(t *testing.T) {
 	}
 }
 
+func TestNormalizeProductionAuthoredPathMapsTildeHomeSpellings(t *testing.T) {
+	for authored, want := range map[string]string{
+		`~/config/tool/settings`: `%USERPROFILE%\config/tool/settings`,
+		`~\config\tool\settings`: `%USERPROFILE%\config\tool\settings`,
+	} {
+		if got := NormalizeProductionAuthoredPath(authored); got != want {
+			t.Fatalf("NormalizeProductionAuthoredPath(%q) = %q, want %q", authored, got, want)
+		}
+	}
+}
+
 func TestResolveHostPathAndPortablePathRejectLinks(t *testing.T) {
 	context := activeTestContext(t, "links")
 	appdata, _ := context.VirtualRoot("APPDATA")

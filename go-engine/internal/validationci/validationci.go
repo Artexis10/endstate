@@ -347,14 +347,21 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 		expected[rowKey(row)] = row
 	}
 	seen := map[string]struct{}{}
+	failedShards := 0
+	emptyFailedShards := 0
 	for shard := 0; shard < ShardCount; shard++ {
 		var evidence ShardResult
 		if err := readBounded(filepath.Join(request.InputDir, fmt.Sprintf("shard-%d.json", shard)), &evidence); err != nil {
 			return aggregateFailure(request, result, "missing or malformed shard evidence")
 		}
-		if evidence.SchemaVersion != SchemaVersion || evidence.Commit != request.Commit || evidence.EngineSHA256 != engineHash || evidence.RepositoryHash != repositoryHash || evidence.ShardCount != ShardCount || evidence.Shard != shard || evidence.Status != validationharness.ResultStatusPassed || evidence.Failure != "" {
+		if evidence.SchemaVersion != SchemaVersion || evidence.Commit != request.Commit || evidence.EngineSHA256 != engineHash || evidence.RepositoryHash != repositoryHash || evidence.ShardCount != ShardCount || evidence.Shard != shard {
 			return aggregateFailure(request, result, "foreign shard evidence")
 		}
+		failedShard := evidence.Status == validationharness.ResultStatusFailed && evidence.Failure == "scenario failed"
+		if !failedShard && (evidence.Status != validationharness.ResultStatusPassed || evidence.Failure != "") {
+			return aggregateFailure(request, result, "foreign shard evidence")
+		}
+		failedRows := 0
 		for _, row := range evidence.Rows {
 			key := rowIdentityKey(row.Identity)
 			expectedRow, ok := expected[key]
@@ -364,14 +371,29 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 			if _, duplicate := seen[key]; duplicate {
 				return aggregateFailure(request, result, "duplicate row evidence")
 			}
-			if !matchesRow(expectedRow, row.Result) || !validPassedRow(expectedRow, row.Result) {
+			if !matchesRow(expectedRow, row.Result) || (!failedShard && !validPassedRow(expectedRow, row.Result)) || (failedShard && !validRowResult(expectedRow, row.Result)) {
 				return aggregateFailure(request, result, "failed row evidence")
 			}
+			if row.Result.Status == validationharness.ResultStatusFailed {
+				failedRows++
+			}
 			seen[key] = struct{}{}
+		}
+		if failedShard {
+			if failedRows == 0 {
+				emptyFailedShards++
+			}
+			failedShards++
 		}
 	}
 	if len(seen) != len(expected) {
 		return aggregateFailure(request, result, "missing row evidence")
+	}
+	if emptyFailedShards > 0 {
+		return aggregateFailure(request, result, "failed row evidence")
+	}
+	if failedShards > 0 {
+		return aggregateFailure(request, result, "failed shard evidence")
 	}
 	result.Scenarios.Passed = len(seen)
 	modulePass := map[string]struct{}{}
@@ -419,7 +441,7 @@ func validRowResult(row validationmatrix.SyntheticRow, result validationharness.
 	if result.Status == validationharness.ResultStatusPassed {
 		return validPassedRow(row, result)
 	}
-	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || len(result.ProofLevels) != 0 {
+	if result.Status != validationharness.ResultStatusFailed || result.Failure == nil || result.AssertionCounts == nil || result.PhaseTimings == nil || len(result.ProofLevels) != 0 || !canonicalFailureCode(result.Failure.Code) || strings.TrimSpace(result.Failure.Phase) == "" || strings.TrimSpace(result.Failure.Detail) == "" {
 		return false
 	}
 	allowed := allowedAssertions(row.ScenarioKind)
@@ -431,8 +453,30 @@ func validRowResult(row validationmatrix.SyntheticRow, result validationharness.
 	return true
 }
 
+func canonicalFailureCode(code string) bool {
+	switch code {
+	case validationharness.CodeInvalidEngine,
+		validationharness.CodeInvalidResultPath,
+		validationharness.CodeScenarioSelection,
+		validationharness.CodeUnsupportedFixture,
+		validationharness.CodeAssertionContract,
+		validationharness.CodeEnvelopeContract,
+		validationharness.CodeEventContract,
+		validationharness.CodeExecutionFailure,
+		validationharness.CodeArtifactContract,
+		validationharness.CodeContentMismatch,
+		validationharness.CodeRevertFailure,
+		validationharness.CodeIsolationFailure,
+		validationharness.CodeGenerationContract,
+		validationharness.CodeMigrationContract:
+		return true
+	default:
+		return false
+	}
+}
+
 func validPassedRow(row validationmatrix.SyntheticRow, result validationharness.Result) bool {
-	if result.Status != validationharness.ResultStatusPassed || result.Failure != nil || len(result.AssertionCounts) == 0 || !reflect.DeepEqual(result.ProofLevels, canonicalProofs(row.ScenarioKind)) {
+	if result.Status != validationharness.ResultStatusPassed || result.Failure != nil || result.PhaseTimings == nil || len(result.AssertionCounts) == 0 || !reflect.DeepEqual(result.ProofLevels, canonicalProofs(row.ScenarioKind)) {
 		return false
 	}
 	allowed := allowedAssertions(row.ScenarioKind)

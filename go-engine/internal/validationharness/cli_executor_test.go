@@ -4,7 +4,9 @@
 package validationharness
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -100,6 +102,83 @@ func TestPrepareGuardsAndToolsMaterializesDirectoryFileExistsVerifiers(t *testin
 			t.Fatalf("exact file verifier = %v, %v; want regular file", info, err)
 		}
 	})
+}
+
+func TestPrepareGuardsAndToolsDefersInstallFileVerifierMaterialization(t *testing.T) {
+	_, module, scenario := productionInstallAuthority(t, "apps.brave")
+	plan, failure := compileInstallContract(module, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	runtime := fixtureScenarioRuntime(t)
+	runtime.Module = module
+	runtime.InstallPlan = plan
+	runtime.GuardRoot = t.TempDir()
+	path, err := runtime.validationContext().ResolveHostPath(module.Verify[0].Path, validationmode.HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("file verifier existed before prepare: %v", err)
+	}
+	if err := runtime.prepareGuardsAndTools(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(path); !os.IsNotExist(err) {
+		t.Fatalf("install file verifier was eagerly materialized: %v", err)
+	}
+}
+
+func TestPrepareGuardsAndToolsNormalizesTildeHomeTargets(t *testing.T) {
+	for _, authored := range []string{`~/.gitconfig`, `~\.gitconfig`} {
+		t.Run(authored, func(t *testing.T) {
+			runtime := fixtureScenarioRuntime(t)
+			runtime.Module = &modules.Module{ID: "apps.git"}
+			runtime.Plan.Targets = []FixtureTarget{{
+				Coordinate: "capture.files[0]", Authored: authored,
+			}}
+			runtime.GuardRoot = t.TempDir()
+
+			if err := runtime.prepareGuardsAndTools(); err != nil {
+				t.Fatal(err)
+			}
+			if got, want := runtime.OriginalEnvironment["USERPROFILE"], filepath.Join(runtime.GuardRoot, "userprofile"); got != want {
+				t.Fatalf("USERPROFILE guard root = %q, want %q", got, want)
+			}
+			if len(runtime.Guards) != 1 || runtime.Guards[0].Path != filepath.Join(runtime.GuardRoot, "userprofile", ".gitconfig") {
+				t.Fatalf("guards = %+v, want contained .gitconfig witness", runtime.Guards)
+			}
+			if failure := runtime.assertGuards(); failure != nil {
+				t.Fatalf("original user-profile guard changed: %+v", failure)
+			}
+		})
+	}
+}
+
+func TestRunFreshBuiltEngineTrackedGitDefaultV1AvoidsRawHarnessIO(t *testing.T) {
+	engineRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildRoot := t.TempDir()
+	engine := filepath.Join(buildRoot, "endstate.exe")
+	build := exec.Command("go", "build", "-buildvcs=false", "-o", engine, "./cmd/endstate")
+	build.Dir = engineRoot
+	build.Env = append(os.Environ(), "GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build engine: %v\n%s", err, output)
+	}
+
+	result, err := Run(context.Background(), Request{
+		EnginePath: engine, RepoRoot: filepath.Dir(engineRoot), ModuleID: "apps.git",
+		ScenarioID: "default-v1", ResultPath: filepath.Join(t.TempDir(), "git-default-v1.json"),
+	})
+	if err != nil {
+		t.Fatalf("Run returned raw harness I/O error: %v", err)
+	}
+	if result.ModuleID != "apps.git" || result.ScenarioID != "default-v1" {
+		t.Fatalf("result identity = %q/%q, want apps.git/default-v1", result.ModuleID, result.ScenarioID)
+	}
 }
 
 func TestDolphinDirectoryFixtureUsesNestedFileVerifierAsPayloadWitness(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 func TestInstallJourneyExercisesDryRunThenNegativeAndPositiveVerification(t *testing.T) {
@@ -126,6 +127,60 @@ func TestCompileInstallContractBindsExactProductionKubectlAuthority(t *testing.T
 	}
 }
 
+func TestCompileInstallContractBindsExactProductionVerifierAuthority(t *testing.T) {
+	tests := []struct {
+		moduleID string
+		want     modules.VerifyDef
+	}{
+		{"apps.kubectl", modules.VerifyDef{Type: "command-exists", Command: "kubectl"}},
+		{"apps.brave", modules.VerifyDef{Type: "file-exists", Path: `%ProgramFiles%\BraveSoftware\Brave-Browser\Application\brave.exe`}},
+		{"apps.clementine", modules.VerifyDef{Type: "registry-key-exists", Path: `HKCU:\Software\Clementine\Clementine`}},
+	}
+	for _, test := range tests {
+		t.Run(test.moduleID, func(t *testing.T) {
+			_, mod, scenario := productionInstallAuthority(t, test.moduleID)
+			plan, failure := compileInstallContract(mod, scenario)
+			if failure != nil {
+				t.Fatalf("compile install contract: %+v", failure)
+			}
+			if !reflect.DeepEqual(plan.Verifiers, []modules.VerifyDef{test.want}) {
+				t.Fatalf("verifiers = %+v, want %+v", plan.Verifiers, []modules.VerifyDef{test.want})
+			}
+		})
+	}
+}
+
+func TestCompileInstallContractPinsAllProductionVerifierFamilies(t *testing.T) {
+	repo := filepath.Clean(filepath.Join("..", "..", ".."))
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	counts := map[string]int{}
+	for moduleID, record := range catalog.Records {
+		for _, scenario := range record.Synthetic.Scenarios {
+			if scenario.Mode != validationmatrix.ScenarioInstallContract {
+				continue
+			}
+			verifiers := catalog.Modules[moduleID].Verify
+			if len(verifiers) != 1 || verifiers[0].Type == "command-exists" {
+				continue
+			}
+			plan, failure := compileInstallContract(catalog.Modules[moduleID], scenario)
+			if failure != nil {
+				t.Fatalf("%s/%s: %+v", moduleID, scenario.ID, failure)
+			}
+			if len(plan.Verifiers) != 1 {
+				t.Fatalf("%s/%s verifier count = %d", moduleID, scenario.ID, len(plan.Verifiers))
+			}
+			counts[plan.Verifiers[0].Type]++
+		}
+	}
+	if !reflect.DeepEqual(counts, map[string]int{"file-exists": 14, "registry-key-exists": 6}) {
+		t.Fatalf("install verifier catalog counts = %v", counts)
+	}
+}
+
 func TestCompileInstallContractRejectsUnsupportedAndDriftedAuthority(t *testing.T) {
 	_, mod, scenario := productionKubectlAuthority(t)
 	tests := []struct {
@@ -149,8 +204,29 @@ func TestCompileInstallContractRejectsUnsupportedAndDriftedAuthority(t *testing.
 		{"config restore", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
 			value.Restore = []modules.RestoreDef{{Type: "copy"}}
 		}, "operations"},
-		{"file verifier", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
+		{"file verifier with raw absolute path", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
 			value.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `C:\host\kubectl.exe`}}
+		}, "verify[0].path"},
+		{"file verifier with foreign field", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
+			value.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\kubectl.exe`, Command: "kubectl"}}
+		}, "verify[0]"},
+		{"file verifier with unknown alias", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
+			value.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `%FOREIGN%\kubectl.exe`}}
+		}, "verify[0].path"},
+		{"file verifier with traversal", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
+			value.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Vendor\..\kubectl.exe`}}
+		}, "verify[0].path"},
+		{"file verifier with empty path component", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
+			value.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Vendor\\kubectl.exe`}}
+		}, "verify[0].path"},
+		{"registry verifier with HKLM path", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
+			value.Verify = []modules.VerifyDef{{Type: "registry-key-exists", Path: `HKLM:\Software\Vendor`}}
+		}, "verify[0].path"},
+		{"registry verifier with value field", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
+			value.Verify = []modules.VerifyDef{{Type: "registry-key-exists", Path: `HKCU:\Software\Vendor`, ValueName: "Setting"}}
+		}, "verify[0]"},
+		{"registry value equals", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
+			value.Verify = []modules.VerifyDef{{Type: "registry-value-equals", Path: `HKCU:\Software\Vendor`, ValueName: "Setting", Data: "1"}}
 		}, "verify[0]"},
 		{"escaping command verifier", false, func(value *modules.Module, _ *validationmatrix.Scenario) { value.Verify[0].Command = `..\kubectl` }, "verify[0].command"},
 		{"duplicate verifier", false, func(value *modules.Module, _ *validationmatrix.Scenario) {
@@ -227,6 +303,28 @@ func TestInstallExecutorRejectsHostPATHContamination(t *testing.T) {
 	}
 }
 
+func TestMaterializeInstallVerifierUsesValidationContextForFileVerifier(t *testing.T) {
+	_, module, scenario := productionInstallAuthority(t, "apps.brave")
+	plan, failure := compileInstallContract(module, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	runtime := fixtureScenarioRuntime(t)
+	runtime.Module = module
+	runtime.InstallPlan = plan
+	if failure := materializeInstallVerifier(runtime); failure != nil {
+		t.Fatalf("materialize file verifier = %+v", failure)
+	}
+	path, err := runtime.validationContext().ResolveHostPath(module.Verify[0].Path, validationmode.HostPathPolicy{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		t.Fatalf("file verifier fixture = %v, %v; want contained regular file", info, err)
+	}
+}
+
 func TestInstallManifestProjectsVerifierWithoutClaimingConfigPayloadOwnership(t *testing.T) {
 	plan := productionKubectlInstallPlan(t)
 	value := installManifestProjection(plan)
@@ -249,16 +347,20 @@ func productionKubectlInstallPlan(t *testing.T) *InstallContractPlan {
 }
 
 func productionKubectlAuthority(t *testing.T) (*validationmatrix.Catalog, *modules.Module, validationmatrix.Scenario) {
+	return productionInstallAuthority(t, "apps.kubectl")
+}
+
+func productionInstallAuthority(t *testing.T, moduleID string) (*validationmatrix.Catalog, *modules.Module, validationmatrix.Scenario) {
 	t.Helper()
 	repo := filepath.Clean(filepath.Join("..", "..", ".."))
 	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
 	if err != nil {
 		t.Fatal(err)
 	}
-	mod := catalog.Modules["apps.kubectl"]
-	record := catalog.Records["apps.kubectl"]
+	mod := catalog.Modules[moduleID]
+	record := catalog.Records[moduleID]
 	if mod == nil || len(record.Synthetic.Scenarios) != 1 {
-		t.Fatalf("production kubectl authority is absent: module=%v scenarios=%d", mod != nil, len(record.Synthetic.Scenarios))
+		t.Fatalf("production install authority is absent for %s: module=%v scenarios=%d", moduleID, mod != nil, len(record.Synthetic.Scenarios))
 	}
 	return catalog, mod, record.Synthetic.Scenarios[0]
 }

@@ -86,23 +86,44 @@ func validateInstallVerifyEvidence(raw []byte, events []map[string]any, runtime 
 		return fail(CodeEnvelopeContract, "verify", "results.app", "install package verification is not the exact selected passing package")
 	}
 	if !exactRawFields(results[1], "type", "status", "message") {
-		return fail(CodeEnvelopeContract, "verify", "results.command", "install command verifier has a foreign field shape")
+		return fail(CodeEnvelopeContract, "verify", "results.verifier", "install verifier has a foreign field shape")
 	}
-	var command struct{ Type, Status, Message string }
-	commandRaw, _ := json.Marshal(results[1])
-	if json.Unmarshal(commandRaw, &command) != nil || command.Type != runtime.InstallPlan.Verifiers[0].Type {
-		return fail(CodeEnvelopeContract, "verify", "results.command", "install command verifier identity differs from production")
+	var verifier struct{ Type, Status, Message string }
+	verifierRaw, _ := json.Marshal(results[1])
+	if json.Unmarshal(verifierRaw, &verifier) != nil || verifier.Type != runtime.InstallPlan.Verifiers[0].Type {
+		return fail(CodeEnvelopeContract, "verify", "results.verifier", "install verifier identity differs from production")
 	}
 	wantStatus := "fail"
-	wantMessage := "Command not found: " + runtime.InstallPlan.Verifiers[0].Command
 	if commandPass {
 		wantStatus = "pass"
-		wantMessage = "Command exists: $ENDSTATE_ROOT/state/validation-tools/" + runtime.InstallPlan.CommandExecutable
 	}
-	if command.Status != wantStatus || strings.ReplaceAll(command.Message, `\`, "/") != wantMessage {
-		return fail(CodeEnvelopeContract, "verify", "results.command", "install command verifier status or ToolRoot resolution is not exact")
+	if verifier.Status != wantStatus || strings.ReplaceAll(verifier.Message, `\`, "/") != strings.ReplaceAll(installVerifierMessage(runtime, commandPass), `\`, "/") {
+		return fail(CodeEnvelopeContract, "verify", "results.verifier", "install verifier status or production message is not exact")
 	}
 	return validateInstallEventEvidence(events, runtime, "verify", !commandPass)
+}
+
+func installVerifierMessage(runtime *scenarioRuntime, present bool) string {
+	verifier := runtime.InstallPlan.Verifiers[0]
+	switch verifier.Type {
+	case "command-exists":
+		if present {
+			return "Command exists: $ENDSTATE_ROOT/state/validation-tools/" + runtime.InstallPlan.CommandExecutable
+		}
+		return "Command not found: " + verifier.Command
+	case "file-exists":
+		if present {
+			return "Path exists: " + verifier.Path
+		}
+		return "File not found: " + verifier.Path
+	case "registry-key-exists":
+		if present {
+			return "Registry key exists: " + verifier.Path
+		}
+		return "Registry key not found: " + verifier.Path
+	default:
+		return ""
+	}
 }
 
 func validateInstallManifestRef(raw json.RawMessage, runtime *scenarioRuntime, apply bool) *Failure {

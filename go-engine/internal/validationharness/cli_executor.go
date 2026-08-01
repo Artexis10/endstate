@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"time"
 
@@ -86,7 +87,7 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			runtime.Guards = append(runtime.Guards, guardTarget{Path: guardPath, Content: content})
 			continue
 		}
-		alias, suffix, ok := authoredAliasSuffix(target.authored)
+		alias, suffix, ok := authoredAliasSuffix(validationmode.NormalizeProductionAuthoredPath(target.authored))
 		if !ok {
 			return fmt.Errorf("fixture target has no declared alias")
 		}
@@ -129,6 +130,12 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 	}
 	if info, err := os.Lstat(runtime.ChildWorkingDir); err != nil || safepath.IsLinkOrReparse(info) || !info.IsDir() {
 		return fmt.Errorf("validation child working directory is not a regular directory")
+	}
+	if runtime.InstallPlan != nil {
+		if runtime.Module == nil || !reflect.DeepEqual(runtime.Module.Verify, runtime.InstallPlan.Verifiers) {
+			return fmt.Errorf("install verifier differs from compiled install authority")
+		}
+		return nil
 	}
 	for index, verifier := range runtime.Module.Verify {
 		switch verifier.Type {
@@ -175,6 +182,17 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 				}
 			} else if err != nil {
 				return err
+			}
+		case "registry-key-exists":
+			if runtime.RegistryFixture == nil {
+				fixture, err := validationmode.NewRegistryFixture(runtime.validationContext())
+				if err != nil {
+					return fmt.Errorf("verify[%d] registry fixture: %w", index, err)
+				}
+				runtime.RegistryFixture = fixture
+			}
+			if err := runtime.RegistryFixture.Materialize(verifier.Path); err != nil {
+				return fmt.Errorf("verify[%d] registry path: %w", index, err)
 			}
 		default:
 			return fmt.Errorf("verify[%d] type %q is unsupported by Task 7A", index, verifier.Type)
