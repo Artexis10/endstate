@@ -479,3 +479,68 @@ func TestProfileInspectAcceptanceMatrixPassB(t *testing.T) {
 		}
 	})
 }
+
+func TestProfileInspectExplicitReviewRegressions(t *testing.T) {
+	t.Run("root child grandchild merges apps and ownership", func(t *testing.T) {
+		dir := t.TempDir()
+		grand := filepath.Join(dir, "grand.jsonc")
+		child := filepath.Join(dir, "child.jsonc")
+		root := filepath.Join(dir, "root.jsonc")
+		_ = os.WriteFile(grand, []byte(`{"apps":[{"id":"grand","refs":{"windows":"Vendor.Grand"}}],"configModules":["apps.grand"]}`), 0o644)
+		_ = os.WriteFile(child, []byte(`{"apps":[{"id":"child","refs":{"windows":"Vendor.Child"}}],"includes":["grand.jsonc"],"configModules":["apps.child"]}`), 0o644)
+		_ = os.WriteFile(root, []byte(`{"version":1,"apps":[{"id":"root","refs":{"windows":"Vendor.Root"}}],"includes":["child.jsonc"],"configModules":["apps.root"]}`), 0o644)
+		result, err := inspectProfile(root, defaultProfileInspectDeps())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Apps) != 3 || len(result.SettingsApps) != 3 {
+			t.Fatalf("result=%+v", result)
+		}
+	})
+	t.Run("groups absent modules sharing complete ref set", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		_ = os.WriteFile(path, []byte(`{"version":1,"apps":[]}`), 0o644)
+		catalog := map[string]*modules.Module{"apps.one": {ID: "apps.one", Matches: modules.MatchCriteria{Winget: []string{"Vendor.Absent"}}}, "apps.two": {ID: "apps.two", Matches: modules.MatchCriteria{Winget: []string{"Vendor.Absent"}}}}
+		result, err := inspectProfile(path, profileInspectDeps{loadManifest: func(string) (*manifest.Manifest, error) {
+			return &manifest.Manifest{Version: 1, ConfigModules: []string{"apps.one", "apps.two"}}, nil
+		}, preflightIncludes: func(string) error { return nil }, loadCatalog: func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+			return catalog, nil, nil
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		row := result.SettingsApps[0]
+		if len(result.SettingsApps) != 1 || row.AssociationStatus != "not_in_profile" || row.OwnerID == nil || *row.OwnerID != "package:vendor.absent" || !reflect.DeepEqual(row.ModuleIDs, []string{"apps.one", "apps.two"}) {
+			t.Fatalf("rows=%+v", result.SettingsApps)
+		}
+	})
+	t.Run("capture evidence wins conflicting snapshot", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		_ = os.WriteFile(path, []byte(`{"version":2,"apps":[]}`), 0o644)
+		snap := []byte(`{"moduleSchemaVersion":2,"id":"apps.fixture","displayName":"Snapshot","sensitivity":"none","matches":{"winget":["Vendor.Snapshot"]}}`)
+		capture := manifest.ConfigCapture{CaptureID: "a", ModuleID: "apps.fixture", SourceInstance: manifest.ConfigSourceInstance{Evidence: &manifest.ConfigSourceInstanceEvidence{Ref: "Vendor.Source"}}, CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 2, ContentHash: fmt.Sprintf("%x", sha256.Sum256(snap)), SnapshotPath: "provenance/modules/x.json"}}
+		result, err := inspectProfile(path, profileInspectDeps{loadManifest: func(string) (*manifest.Manifest, error) {
+			return &manifest.Manifest{Version: 2, Apps: []manifest.App{{ID: "source", Refs: map[string]string{"windows": "Vendor.Source"}}, {ID: "snapshot", Refs: map[string]string{"windows": "Vendor.Snapshot"}}}, ConfigCaptures: []manifest.ConfigCapture{capture}}, nil
+		}, preflightIncludes: func(string) error { return nil }, verifySnapshot: func(string, manifest.ConfigCapture) error { return nil }, readFile: func(string) ([]byte, error) { return snap, nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.SettingsApps[0].AppID == nil || *result.SettingsApps[0].AppID != "app:source:1" {
+			t.Fatalf("rows=%+v", result.SettingsApps)
+		}
+	})
+	t.Run("root excludes override child and metadata timestamp falls back", func(t *testing.T) {
+		dir := t.TempDir()
+		child := filepath.Join(dir, "child.jsonc")
+		root := filepath.Join(dir, "root.jsonc")
+		_ = os.WriteFile(child, []byte(`{"apps":[],"configModules":["apps.child"],"excludeConfigs":["apps.child"]}`), 0o644)
+		_ = os.WriteFile(root, []byte(`{"version":1,"apps":[],"includes":["child.jsonc"],"configModules":["apps.root"],"excludeConfigs":["apps.root"]}`), 0o644)
+		result, err := inspectProfile(root, profileInspectDeps{loadManifest: manifest.LoadManifest, preflightIncludes: preflightProfileInspectIncludes, readFile: func(string) ([]byte, error) { return []byte(`{"capturedAt":"metadata-time"}`), nil }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.SettingsApps) != 1 || !reflect.DeepEqual(result.SettingsApps[0].ModuleIDs, []string{"apps.child"}) || result.Profile.CapturedAt == nil || *result.Profile.CapturedAt != "metadata-time" {
+			t.Fatalf("result=%+v", result)
+		}
+	})
+}
