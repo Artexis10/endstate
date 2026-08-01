@@ -83,31 +83,6 @@ func runProfileInspect(path string) (interface{}, *envelope.Error) {
 			WithDetail(map[string]string{"path": path}).
 			WithRemediation("Extract the profile first, then provide its manifest path.")
 	}
-	info, err := os.Stat(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil, envelope.NewError(envelope.ErrManifestNotFound, "The specified manifest file does not exist.").
-			WithDetail(map[string]string{"path": path}).
-			WithRemediation("Check the manifest path and ensure the extracted file exists.")
-	}
-	if err != nil {
-		return nil, envelope.NewError(envelope.ErrManifestParseError, "The manifest file could not be read.").
-			WithDetail(map[string]string{"path": path, "error": err.Error()})
-	}
-	if info.IsDir() {
-		return nil, envelope.NewError(envelope.ErrManifestValidationError, "profile inspect requires a manifest file, not a directory.").
-			WithDetail(map[string]string{"path": path}).
-			WithRemediation("Provide the extracted manifest file path.")
-	}
-	if validation := manifest.ValidateProfile(path); !validation.Valid {
-		code := envelope.ErrManifestValidationError
-		if len(validation.Errors) > 0 && validation.Errors[0].Code == "PARSE_ERROR" {
-			code = envelope.ErrManifestParseError
-		}
-		return nil, envelope.NewError(code, "The manifest is invalid for profile inspection.").
-			WithDetail(map[string]interface{}{"path": path, "errors": validation.Errors}).
-			WithRemediation("Correct the manifest validation error and try again.")
-	}
-
 	result, err := inspectProfile(path, defaultProfileInspectDeps())
 	if err == nil {
 		return result, nil
@@ -128,6 +103,7 @@ func runProfileInspect(path string) (interface{}, *envelope.Error) {
 
 type profileInspectDeps struct {
 	loadManifest      func(string) (*manifest.Manifest, error)
+	validateManifest  func(string) error
 	preflightIncludes func(string) error
 	readFile          func(string) ([]byte, error)
 	loadCatalog       func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error)
@@ -137,6 +113,7 @@ type profileInspectDeps struct {
 func defaultProfileInspectDeps() profileInspectDeps {
 	return profileInspectDeps{
 		loadManifest:      manifest.LoadManifest,
+		validateManifest:  validateProfileInspectManifest,
 		preflightIncludes: preflightProfileInspectIncludes,
 		readFile:          os.ReadFile,
 		loadCatalog:       modules.GetCatalogWithDiagnostics,
@@ -169,9 +146,6 @@ func inspectProfile(path string, deps profileInspectDeps) (*ProfileInspectResult
 	if deps.verifySnapshot == nil {
 		deps.verifySnapshot = bundle.VerifyModuleSnapshot
 	}
-	if _, err := os.Stat(path); err != nil {
-		return nil, err
-	}
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		return nil, err
@@ -179,12 +153,24 @@ func inspectProfile(path string, deps profileInspectDeps) (*ProfileInspectResult
 	if profileInspectPathContainsLink(absPath) {
 		return nil, fmt.Errorf("%w: root manifest path contains a link or reparse hop", manifest.ErrValidation)
 	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("%w: profile inspect requires a manifest file, not a directory", manifest.ErrValidation)
+	}
 	if err := deps.preflightIncludes(path); err != nil {
 		var includeErr profileInspectIncludeError
 		if errors.As(err, &includeErr) {
 			return nil, fmt.Errorf("%w: %w", manifest.ErrValidation, err)
 		}
 		return nil, err
+	}
+	if deps.validateManifest != nil {
+		if err := deps.validateManifest(path); err != nil {
+			return nil, err
+		}
 	}
 	mf, err := deps.loadManifest(path)
 	if err != nil {
@@ -274,6 +260,25 @@ func inspectProfile(path string, deps profileInspectDeps) (*ProfileInspectResult
 		}
 	}
 	return result, nil
+}
+
+func validateProfileInspectManifest(path string) error {
+	validation := manifest.ValidateProfile(path)
+	if validation.Valid {
+		return nil
+	}
+	if len(validation.Errors) == 0 {
+		return errors.New("manifest validation failed")
+	}
+	first := validation.Errors[0]
+	switch first.Code {
+	case "FILE_NOT_FOUND":
+		return os.ErrNotExist
+	case "PARSE_ERROR", "MANIFEST_PARSE_ERROR":
+		return errors.New(first.Message)
+	default:
+		return fmt.Errorf("%w: %s", manifest.ErrValidation, first.Message)
+	}
 }
 
 func profileInspectPathContainsLink(path string) bool {

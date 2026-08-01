@@ -1039,3 +1039,33 @@ func TestRunProfile_InspectClassifiesInputFailures(t *testing.T) {
 		})
 	}
 }
+
+func TestRunProfile_InspectClassifiesMalformedAllowedIncludeAsParseError(t *testing.T) {
+	dir := t.TempDir()
+	child := filepath.Join(dir, "child.jsonc")
+	if err := os.WriteFile(child, []byte(`{"version":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(dir, "manifest.jsonc")
+	if err := os.WriteFile(root, []byte(`{"version":1,"apps":[],"includes":["child.jsonc"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{root}})
+	if envErr == nil || envErr.Code != envelope.ErrManifestParseError {
+		t.Fatalf("RunProfile inspect error = %+v, want %s", envErr, envelope.ErrManifestParseError)
+	}
+}
+
+func TestRunProfile_InspectRejectsLinkedRootBeforeStat(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "linked.jsonc")
+	if err := os.Symlink(filepath.Join(root, "missing-target.jsonc"), path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{path}})
+	if envErr == nil || envErr.Code != envelope.ErrManifestValidationError {
+		t.Fatalf("RunProfile inspect error = %+v, want %s before following the linked root", envErr, envelope.ErrManifestValidationError)
+	}
+}

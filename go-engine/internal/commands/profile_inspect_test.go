@@ -94,6 +94,40 @@ func TestProfileInspectPreflightRejectsUnsupportedIncludes(t *testing.T) {
 	}
 }
 
+func TestProfileInspectPreflightDoesNotTouchForbiddenIncludeTargets(t *testing.T) {
+	for _, include := range []string{`\\server\share\forbidden.jsonc`, `C:\forbidden.jsonc`} {
+		t.Run(include, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "manifest.jsonc")
+			content, err := json.Marshal(map[string]interface{}{"version": 1, "apps": []interface{}{}, "includes": []string{include}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			validationCalls := 0
+			loadCalls := 0
+			_, err = inspectProfile(path, profileInspectDeps{
+				preflightIncludes: preflightProfileInspectIncludes,
+				validateManifest: func(string) error {
+					validationCalls++
+					return nil
+				},
+				loadManifest: func(string) (*manifest.Manifest, error) {
+					loadCalls++
+					return nil, errors.New("forbidden include target was touched")
+				},
+			})
+			if err == nil || !errors.Is(err, manifest.ErrValidation) {
+				t.Fatalf("inspectProfile error = %v, want validation failure", err)
+			}
+			if validationCalls != 0 || loadCalls != 0 {
+				t.Fatalf("forbidden include invoked validation=%d loader=%d, want neither", validationCalls, loadCalls)
+			}
+		})
+	}
+}
+
 func TestProfileInspectPrefersVerifiedSnapshotRefsOverCatalogRefs(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "manifest.jsonc"), []byte(`{"version":2,"apps":[]}`), 0o644); err != nil {
