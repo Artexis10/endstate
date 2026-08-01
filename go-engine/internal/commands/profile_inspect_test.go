@@ -205,13 +205,43 @@ func TestProfileInspectPreflightRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestProfileInspectPreflightRejectsLinkedIncludeEvenInsideRoot(t *testing.T) {
+	root := t.TempDir()
+	real := filepath.Join(root, "real")
+	if err := os.Mkdir(real, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "child.jsonc"), []byte(`{"apps":[],"includes":["nested.jsonc"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	alias := filepath.Join(root, "alias")
+	if err := os.Symlink(real, alias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+	path := filepath.Join(root, "manifest.jsonc")
+	if err := os.WriteFile(path, []byte(`{"version":1,"apps":[],"includes":["alias/child.jsonc"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := preflightProfileInspectIncludes(path); err == nil {
+		t.Fatal("linked include accepted")
+	}
+}
+
+func TestProfileInspectAbsoluteIncludeSyntaxIsHostIndependent(t *testing.T) {
+	for _, value := range []string{`C:/outside.jsonc`, `C:\\outside.jsonc`, `\\server\\share\\x.jsonc`, `//server/share/x.jsonc`} {
+		if !isAbsoluteProfileInspectInclude(value) {
+			t.Fatalf("%q not absolute", value)
+		}
+	}
+}
+
 // Characterization/acceptance proof: inspection is intentionally read-only.
 // These command-package seams panic if the model accidentally reaches any
 // current-machine path; this test is deliberately not parallel.
 func TestProfileInspectNeverInvokesMachineSeams(t *testing.T) {
-	originalSnapshot, originalInstalled, originalMatcher, originalEnumerator, originalRealizer, originalBrew := takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn, newRealizerFn, newBrewDriverFn
+	originalSnapshot, originalInstalled, originalMatcher, originalEnumerator, originalRealizer, originalBrew, originalDriver := takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn, newRealizerFn, newBrewDriverFn, newDriverFn
 	t.Cleanup(func() {
-		takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn, newRealizerFn, newBrewDriverFn = originalSnapshot, originalInstalled, originalMatcher, originalEnumerator, originalRealizer, originalBrew
+		takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn, newRealizerFn, newBrewDriverFn, newDriverFn = originalSnapshot, originalInstalled, originalMatcher, originalEnumerator, originalRealizer, originalBrew, originalDriver
 	})
 	takeSnapshotFn = func() ([]snapshot.SnapshotApp, error) { panic("snapshot") }
 	listInstalledFn = func() ([]snapshot.SnapshotApp, error) { panic("detection") }
@@ -219,11 +249,16 @@ func TestProfileInspectNeverInvokesMachineSeams(t *testing.T) {
 	resolveCaptureEnumeratorFn = func(string, bool) (driver.InstalledEnumerator, error) { panic("driver") }
 	newRealizerFn = func() (realizer.Realizer, error) { panic("realizer") }
 	newBrewDriverFn = func() (driver.Driver, error) { panic("brew") }
+	newDriverFn = func() (driver.Driver, error) { panic("default driver") }
 	path := filepath.Join(t.TempDir(), "manifest.jsonc")
-	if err := os.WriteFile(path, []byte(`{"version":1,"apps":[{"id":"fixture","refs":{"windows":"Vendor.Fixture"}}]}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"version":1,"apps":[{"id":"fixture","refs":{"windows":"Vendor.Fixture"}}],"configModules":["apps.fixture"]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := inspectProfile(path, defaultProfileInspectDeps()); err != nil {
+	deps := defaultProfileInspectDeps()
+	deps.loadCatalog = func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+		return map[string]*modules.Module{"apps.fixture": {ID: "apps.fixture", Matches: modules.MatchCriteria{Winget: []string{"Vendor.Fixture"}}}}, nil, nil
+	}
+	if _, err := inspectProfile(path, deps); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -251,7 +286,7 @@ func TestProfileInspectOwnershipMatrixPassA(t *testing.T) {
 
 	t.Run("v1 unions normalized evidence once", func(t *testing.T) {
 		result := inspect(t, &manifest.Manifest{Version: 1, ConfigModules: []string{"apps.fixture", " fixture "}, Restore: []manifest.RestoreEntry{{FromModule: "apps.fixture"}, {Source: "configs/fixture/settings.json"}}}, `{"configModulesIncluded":["apps.fixture"]}`, nil)
-		if len(result.SettingsApps) != 1 || !reflect.DeepEqual(result.SettingsApps[0].ModuleIDs, []string{"fixture"}) || result.SettingsApps[0].CapturedEntryCount != 2 {
+		if len(result.SettingsApps) != 1 || !reflect.DeepEqual(result.SettingsApps[0].ModuleIDs, []string{"apps.fixture", "fixture"}) || result.SettingsApps[0].CapturedEntryCount != 2 {
 			t.Fatalf("rows = %+v", result.SettingsApps)
 		}
 	})
@@ -300,7 +335,7 @@ func TestProfileInspectOwnershipMatrixPassA(t *testing.T) {
 	t.Run("groups included modules and applies root exclusions", func(t *testing.T) {
 		catalog := map[string]*modules.Module{"apps.one": {ID: "apps.one", Matches: modules.MatchCriteria{Winget: []string{"Vendor.One"}}}, "apps.two": {ID: "apps.two", Matches: modules.MatchCriteria{Winget: []string{"Vendor.One"}}}, "apps.drop": {ID: "apps.drop", Matches: modules.MatchCriteria{Winget: []string{"Vendor.Drop"}}}}
 		result := inspect(t, &manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: "one", Refs: map[string]string{"windows": "Vendor.One"}}, {ID: "drop", Refs: map[string]string{"windows": "Vendor.Drop"}}}, Exclude: []string{"Vendor.Drop"}, ExcludeConfigs: []string{"apps.drop"}, ConfigModules: []string{"apps.one", "apps.two", "apps.drop"}}, `{}`, catalog)
-		if len(result.Apps) != 1 || len(result.SettingsApps) != 1 || !reflect.DeepEqual(result.SettingsApps[0].ModuleIDs, []string{"one", "two"}) || result.SettingsApps[0].ID != "settings:app:one:1" {
+		if len(result.Apps) != 1 || len(result.SettingsApps) != 1 || !reflect.DeepEqual(result.SettingsApps[0].ModuleIDs, []string{"apps.one", "apps.two"}) || result.SettingsApps[0].ID != "settings:app:one:1" {
 			t.Fatalf("result=%+v", result)
 		}
 	})
@@ -313,7 +348,7 @@ func TestProfileInspectOwnershipMatrixPassA(t *testing.T) {
 		for _, row := range result.SettingsApps {
 			counts[row.ModuleIDs[0]] = row.CapturedEntryCount
 		}
-		if counts["one"] != 3 || counts["two"] != 1 {
+		if counts["apps.one"] != 3 || counts["apps.two"] != 1 {
 			t.Fatalf("counts=%v", counts)
 		}
 	})

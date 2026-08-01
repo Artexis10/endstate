@@ -380,7 +380,7 @@ func profileInspectSettings(owned map[string]*inspectedModule, apps []ProfileIns
 		if label == "" {
 			label = humanizeProfileInspect(key)
 		}
-		rows = append(rows, ProfileInspectSettingsApp{ID: rowID, DisplayName: label, AssociationStatus: status, OwnerID: owner, AppID: appID, AppIncluded: status == "included", PackageRefs: refs, ModuleIDs: []string{key}, CandidateAppIDs: candidates, CapturedEntryCount: item.count})
+		rows = append(rows, ProfileInspectSettingsApp{ID: rowID, DisplayName: label, AssociationStatus: status, OwnerID: owner, AppID: appID, AppIncluded: status == "included", PackageRefs: refs, ModuleIDs: item.rawIDs, CandidateAppIDs: candidates, CapturedEntryCount: item.count})
 	}
 	return groupProfileInspectSettings(rows)
 }
@@ -391,7 +391,7 @@ func groupProfileInspectSettings(rows []ProfileInspectSettingsApp) []ProfileInsp
 	for _, row := range rows {
 		key := row.ID
 		if row.AssociationStatus == "ambiguous" || row.AssociationStatus == "unresolved" {
-			key += ":" + row.ModuleIDs[0]
+			key += ":" + row.ID
 		}
 		if _, found := groups[key]; !found {
 			order = append(order, key)
@@ -474,10 +474,14 @@ func preflightProfileInspectIncludes(rootPath string) error {
 		}
 		for _, include := range source.Includes {
 			ext := strings.ToLower(filepath.Ext(include))
-			if filepath.IsAbs(include) || (ext != ".json" && ext != ".jsonc" && ext != ".json5") {
+			if isAbsoluteProfileInspectInclude(include) || (ext != ".json" && ext != ".jsonc" && ext != ".json5") {
 				return profileInspectIncludeError{fmt.Errorf("unsupported include %q", include)}
 			}
 			candidate := filepath.Clean(filepath.Join(filepath.Dir(path), include))
+			lexicalRelative, err := filepath.Rel(rootDir, candidate)
+			if err != nil || lexicalRelative == ".." || strings.HasPrefix(lexicalRelative, ".."+string(filepath.Separator)) {
+				return profileInspectIncludeError{fmt.Errorf("include escapes root: %q", include)}
+			}
 			resolved, err := filepath.EvalSymlinks(candidate)
 			if err != nil {
 				return profileInspectIncludeError{err}
@@ -485,6 +489,9 @@ func preflightProfileInspectIncludes(rootPath string) error {
 			relative, err := filepath.Rel(rootDir, resolved)
 			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 				return profileInspectIncludeError{fmt.Errorf("include escapes root: %q", include)}
+			}
+			if filepath.Clean(resolved) != filepath.Clean(filepath.Join(rootDir, lexicalRelative)) {
+				return profileInspectIncludeError{fmt.Errorf("include contains a link or reparse hop: %q", include)}
 			}
 			info, err := os.Stat(resolved)
 			if err != nil {
@@ -500,6 +507,13 @@ func preflightProfileInspectIncludes(rootPath string) error {
 		return nil
 	}
 	return visit(root)
+}
+
+func isAbsoluteProfileInspectInclude(value string) bool {
+	if filepath.IsAbs(value) || strings.HasPrefix(value, `\\`) || strings.HasPrefix(value, "//") {
+		return true
+	}
+	return len(value) >= 3 && ((value[0] >= 'A' && value[0] <= 'Z') || (value[0] >= 'a' && value[0] <= 'z')) && value[1] == ':' && (value[2] == '\\' || value[2] == '/')
 }
 
 func readProfileInspectMetadata(root string, readFile func(string) ([]byte, error)) (bundle.BundleMetadata, []ProfileInspectWarning) {
