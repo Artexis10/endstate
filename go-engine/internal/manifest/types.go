@@ -22,6 +22,7 @@ type Manifest struct {
 	Restore        []RestoreEntry  `json:"restore,omitempty"`
 	Verify         []VerifyEntry   `json:"verify,omitempty"`
 	ConfigModules  []string        `json:"configModules,omitempty"`
+	Exclude        []string        `json:"exclude,omitempty"`
 	ExcludeConfigs []string        `json:"excludeConfigs,omitempty"`
 	ConfigCaptures []ConfigCapture `json:"configCaptures,omitempty"`
 	// LegacyConfigLanes explicitly associates every flat schema-v1 payload
