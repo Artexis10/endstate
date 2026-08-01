@@ -15,6 +15,7 @@ import (
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
 	"github.com/Artexis10/endstate/go-engine/internal/config"
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
@@ -68,6 +69,61 @@ type ProfileInspectSummary struct {
 	SettingsRowCount             int `json:"settingsRowCount"`
 	VerifiedSettingsAppCount     int `json:"verifiedSettingsAppCount"`
 	UnidentifiedSettingsRowCount int `json:"unidentifiedSettingsRowCount"`
+}
+
+func runProfileInspect(path string) (interface{}, *envelope.Error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, envelope.NewError(envelope.ErrManifestValidationError, "profile inspect requires an extracted manifest path").
+			WithRemediation("Provide one extracted .json, .jsonc, or .json5 manifest path.")
+	}
+	ext := strings.ToLower(filepath.Ext(path))
+	if ext != ".json" && ext != ".jsonc" && ext != ".json5" {
+		return nil, envelope.NewError(envelope.ErrManifestValidationError, "profile inspect accepts only extracted .json, .jsonc, or .json5 manifests").
+			WithDetail(map[string]string{"path": path}).
+			WithRemediation("Extract the profile first, then provide its manifest path.")
+	}
+	info, err := os.Stat(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, envelope.NewError(envelope.ErrManifestNotFound, "The specified manifest file does not exist.").
+			WithDetail(map[string]string{"path": path}).
+			WithRemediation("Check the manifest path and ensure the extracted file exists.")
+	}
+	if err != nil {
+		return nil, envelope.NewError(envelope.ErrManifestParseError, "The manifest file could not be read.").
+			WithDetail(map[string]string{"path": path, "error": err.Error()})
+	}
+	if info.IsDir() {
+		return nil, envelope.NewError(envelope.ErrManifestValidationError, "profile inspect requires a manifest file, not a directory.").
+			WithDetail(map[string]string{"path": path}).
+			WithRemediation("Provide the extracted manifest file path.")
+	}
+	if validation := manifest.ValidateProfile(path); !validation.Valid {
+		code := envelope.ErrManifestValidationError
+		if len(validation.Errors) > 0 && validation.Errors[0].Code == "PARSE_ERROR" {
+			code = envelope.ErrManifestParseError
+		}
+		return nil, envelope.NewError(code, "The manifest is invalid for profile inspection.").
+			WithDetail(map[string]interface{}{"path": path, "errors": validation.Errors}).
+			WithRemediation("Correct the manifest validation error and try again.")
+	}
+
+	result, err := inspectProfile(path, defaultProfileInspectDeps())
+	if err == nil {
+		return result, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, envelope.NewError(envelope.ErrManifestNotFound, "The specified manifest file does not exist.").
+			WithDetail(map[string]string{"path": path, "error": err.Error()})
+	}
+	if errors.Is(err, manifest.ErrValidation) {
+		return nil, envelope.NewError(envelope.ErrManifestValidationError, "The manifest is invalid for profile inspection.").
+			WithDetail(map[string]string{"path": path, "error": err.Error()}).
+			WithRemediation("Correct the manifest validation error and try again.")
+	}
+	return nil, envelope.NewError(envelope.ErrManifestParseError, "Failed to parse the manifest file.").
+		WithDetail(map[string]string{"path": path, "error": err.Error()}).
+		WithRemediation("Ensure the extracted manifest is valid JSONC.")
 }
 
 type profileInspectDeps struct {

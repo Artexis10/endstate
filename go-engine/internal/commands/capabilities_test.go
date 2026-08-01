@@ -157,3 +157,23 @@ func TestRunCapabilities_HostedBackupShape(t *testing.T) {
 		t.Error("hostedBackup.ifChanged = false, want true")
 	}
 }
+
+func TestRunCapabilities_AdvertisesProfileInspection(t *testing.T) {
+	data, err := RunCapabilities()
+	if err != nil {
+		t.Fatalf("RunCapabilities() returned error: %v", err)
+	}
+
+	raw, jsonErr := json.Marshal(data)
+	if jsonErr != nil {
+		t.Fatal(jsonErr)
+	}
+	var got map[string]interface{}
+	if jsonErr := json.Unmarshal(raw, &got); jsonErr != nil {
+		t.Fatal(jsonErr)
+	}
+	features := got["features"].(map[string]interface{})
+	if value, ok := features["profileInspection"].(bool); !ok || !value {
+		t.Fatalf("features.profileInspection = %#v, want true", features["profileInspection"])
+	}
+}
