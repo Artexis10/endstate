@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -47,7 +48,7 @@ func TestCompileCaptureContractBindsExactProductionMGBAAuthority(t *testing.T) {
 	if target.AuthoredSource != `%APPDATA%\mGBA\config.ini` || target.Destination != "apps/mgba/config.ini" || !target.Optional {
 		t.Fatalf("compiled target = %+v", target)
 	}
-	if !bytes.Equal(target.Content, captureContractDeterministicBytes) {
+	if !bytes.Equal(target.Content, captureContractContent(plan.ModuleID, plan.ScenarioID, target.Coordinate)) {
 		t.Fatalf("compiled content = %q", target.Content)
 	}
 	if len(plan.Verifiers) != 1 || plan.Verifiers[0].Type != "file-exists" || plan.Verifiers[0].Path != target.AuthoredSource {
@@ -161,7 +162,13 @@ func TestCompileCaptureContractRejectsForeignUnsafeOrAmbiguousAuthority(t *testi
 	}{
 		{"mutable module identity", true, func(mod *modules.Module, _ *validationmatrix.Scenario) { mod.DisplayName = "Foreign" }},
 		{"restore declaration", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
-			mod.Restore = []modules.RestoreDef{{Type: "copy", Source: "./payload/apps/mgba/config.ini", Target: `%APPDATA%\mGBA\config.ini`, Backup: true}}
+			mod.Restore = []modules.RestoreDef{{Type: "copy", Source: "./payload/apps/mgba/foreign.ini", Target: `%APPDATA%\mGBA\config.ini`, Backup: true}}
+		}},
+		{"restore pattern", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
+			mod.Restore = []modules.RestoreDef{{Type: "copy", Source: "./payload/apps/mgba/config.ini", Target: `%APPDATA%\mGBA\config.ini`, Backup: true, Pattern: "*.ini"}}
+		}},
+		{"restore reason", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
+			mod.Restore = []modules.RestoreDef{{Type: "copy", Source: "./payload/apps/mgba/config.ini", Target: `%APPDATA%\mGBA\config.ini`, Backup: true, Reason: "fixture"}}
 		}},
 		{"schema v2 declaration", false, func(mod *modules.Module, _ *validationmatrix.Scenario) { mod.Config = &modules.ConfigDef{} }},
 		{"registry capture", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
@@ -196,8 +203,8 @@ func TestCompileCaptureContractRejectsForeignUnsafeOrAmbiguousAuthority(t *testi
 			mod.Capture.ExcludeGlobs = []string{"**/config.ini"}
 		}},
 		{"malformed exclude", false, func(mod *modules.Module, _ *validationmatrix.Scenario) { mod.Capture.ExcludeGlobs = []string{"["} }},
-		{"foreign verifier", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
-			mod.Verify[0].Path = `%APPDATA%\mGBA\foreign.ini`
+		{"unsupported verifier", false, func(mod *modules.Module, _ *validationmatrix.Scenario) {
+			mod.Verify[0].Path = `C:\Users\host\foreign.ini`
 		}},
 	}
 	for _, test := range tests {
@@ -222,6 +229,58 @@ func TestCompileCaptureContractRejectsForeignUnsafeOrAmbiguousAuthority(t *testi
 	}
 }
 
+func TestCompileCaptureContractRejectsSecretShadowAndFlattenedDestinationCollision(t *testing.T) {
+	repo := filepath.Clean(filepath.Join("..", "..", ".."))
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	production := catalog.Modules["apps.mgba"]
+	scenario := catalog.Records["apps.mgba"].Synthetic.Scenarios[0]
+	tests := []struct {
+		name       string
+		mutate     func(*modules.Module)
+		coordinate string
+	}{
+		{
+			name: "secret shadow",
+			mutate: func(mod *modules.Module) {
+				mod.Secrets = &modules.SecretsDef{Files: []string{`%APPDATA%\mGBA\*.ini`}}
+			},
+			coordinate: "capture.files[0].source",
+		},
+		{
+			name: "case insensitive flattened destination collision",
+			mutate: func(mod *modules.Module) {
+				mod.Capture.Files = append(mod.Capture.Files, modules.CaptureFile{
+					Source: `%APPDATA%\mGBA\other.ini`, Dest: "apps/mgba/other/CONFIG.INI", Optional: true,
+				})
+			},
+			coordinate: "capture.files[1].dest",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			mod, err := modules.ParseModuleJSON(production.CanonicalSnapshot())
+			if err != nil {
+				t.Fatal(err)
+			}
+			test.mutate(mod)
+			raw, err := json.Marshal(mod)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mod, err = modules.ParseModuleJSON(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, failure := compileCaptureContract(mod, scenario); failure == nil || failure.Coordinate != test.coordinate {
+				t.Fatalf("failure = %+v, want coordinate %q", failure, test.coordinate)
+			}
+		})
+	}
+}
+
 func TestCompileSelectionRoutesReviewedCaptureContractExplicitly(t *testing.T) {
 	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
@@ -240,5 +299,48 @@ func TestCompileSelectionRoutesReviewedCaptureContractExplicitly(t *testing.T) {
 	}
 	if selected.capturePlan == nil || selected.capturePlan.ModuleID != "apps.mgba" {
 		t.Fatalf("capture plan = %+v", selected.capturePlan)
+	}
+}
+
+func TestCompileSelectionBindsReviewedMultiFileCaptureContracts(t *testing.T) {
+	repo, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(t.TempDir(), "endstate.exe")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string]int{
+		"apps.claude-desktop":          3,
+		"apps.glasswire":               2,
+		"apps.ocenaudio":               3,
+		"apps.okular":                  2,
+		"apps.xtreme-download-manager": 2,
+		"apps.yubikey-manager":         2,
+	}
+	for moduleID, wantTargets := range tests {
+		t.Run(moduleID, func(t *testing.T) {
+			selected, failure := compileSelection(Request{
+				EnginePath: engine, RepoRoot: repo, ModuleID: moduleID, ScenarioID: "reviewed-capture-v1",
+				ResultPath: filepath.Join(t.TempDir(), "result.json"),
+			}, time.Now().UTC())
+			if failure != nil {
+				t.Fatalf("compile selection: %+v", failure)
+			}
+			if selected.capturePlan == nil || len(selected.capturePlan.Targets) != wantTargets {
+				t.Fatalf("capture plan = %+v, want %d targets", selected.capturePlan, wantTargets)
+			}
+			seenContent := map[string]struct{}{}
+			for index, target := range selected.capturePlan.Targets {
+				if target.Coordinate != "capture.files["+strconv.Itoa(index)+"]" || !target.Optional || len(target.Content) == 0 {
+					t.Fatalf("target[%d] = %+v", index, target)
+				}
+				if _, duplicate := seenContent[string(target.Content)]; duplicate {
+					t.Fatalf("target[%d] repeats another capture sentinel", index)
+				}
+				seenContent[string(target.Content)] = struct{}{}
+			}
+		})
 	}
 }

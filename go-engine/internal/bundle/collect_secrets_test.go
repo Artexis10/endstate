@@ -97,6 +97,25 @@ func TestCollectConfigFiles_ExcludesSecretInDir(t *testing.T) {
 	}
 }
 
+func TestCapturePathMatchesSecretsUsesProductionMatcher(t *testing.T) {
+	if !CapturePathMatchesSecrets(`%APPDATA%\Fixture\token.json`, []string{`%APPDATA%\Fixture\*.json`}) {
+		t.Fatal("capture source matching a declared secret must be rejected")
+	}
+	if CapturePathMatchesSecrets(`%APPDATA%\Fixture\settings.ini`, []string{`%APPDATA%\Fixture\*.json`}) {
+		t.Fatal("non-secret capture source matched a foreign secret declaration")
+	}
+}
+
+func TestCapturePathMatchesSecretsDoesNotFlattenDirectoryScopedWildcard(t *testing.T) {
+	pattern := `%APPDATA%\Claude\Local Storage\*`
+	if CapturePathMatchesSecrets(`%APPDATA%\Claude\claude_desktop_config.json`, []string{pattern}) {
+		t.Fatal("directory-scoped secret wildcard must not shadow a sibling direct capture")
+	}
+	if !CapturePathMatchesSecrets(`%APPDATA%\Claude\Local Storage\token`, []string{pattern}) {
+		t.Fatal("directory-scoped secret wildcard must match the declared secret descendant")
+	}
+}
+
 // TestMatchesSecrets covers literal, directory-prefix, glob, and ** patterns.
 func TestMatchesSecrets(t *testing.T) {
 	cases := []struct {

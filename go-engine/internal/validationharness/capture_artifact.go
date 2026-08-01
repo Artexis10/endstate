@@ -7,7 +7,8 @@ import (
 	"archive/zip"
 	"encoding/json"
 	"os"
-	"path"
+	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -30,26 +31,32 @@ func inspectCaptureContractArtifact(runtime *scenarioRuntime, zipPath string) (c
 	if failure != nil {
 		return captureContractEvidence{}, failure
 	}
-	if len(runtime.CapturePlan.Targets) != 1 || len(entries) != 3 {
-		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP is not the exact three-file artifact")
+	if len(runtime.CapturePlan.Targets) == 0 || len(entries) != len(runtime.CapturePlan.Targets)+2 {
+		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP does not contain the exact payload set")
 	}
-	expectedPayload := v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination)
-	expectedPayloadKey := strings.ToLower(expectedPayload)
-	if !captureContractArtifactNamesExact(zipPath, "configs/", path.Dir(expectedPayload)+"/", "manifest.jsonc", "metadata.json", expectedPayload) {
+	expectedPayloads := captureContractPayloadPaths(runtime)
+	expectedPayloadKeys := make(map[string]struct{}, len(runtime.CapturePlan.Targets))
+	for _, payload := range expectedPayloads {
+		expectedPayloadKeys[strings.ToLower(payload)] = struct{}{}
+	}
+	if !captureContractArtifactNamesExact(zipPath, captureContractArtifactNames(runtime)...) {
 		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP member casing or portable names are not exact")
 	}
 	for name, data := range entries {
-		if name != "manifest.jsonc" && name != "metadata.json" && name != expectedPayloadKey {
-			return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP contains a foreign member")
+		if name != "manifest.jsonc" && name != "metadata.json" {
+			if _, exists := expectedPayloadKeys[name]; !exists {
+				return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP contains a foreign member")
+			}
 		}
 		if leaked(data, runtime.forbiddenOutputValues()...) {
 			return captureContractEvidence{}, fail(CodeArtifactContract, "capture", "artifact", "capture contract ZIP leaks validation authority")
 		}
 	}
-	target := runtime.CapturePlan.Targets[0]
-	payload, exists := entries[expectedPayloadKey]
-	if !exists || string(payload) != string(target.Content) {
-		return captureContractEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "capture contract ZIP lacks the exact deterministic payload")
+	for _, target := range runtime.CapturePlan.Targets {
+		payload, exists := entries[strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, target.Destination))]
+		if !exists || !reflect.DeepEqual(payload, target.Content) {
+			return captureContractEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "capture contract ZIP lacks the exact deterministic payload")
+		}
 	}
 	if failure := validateCaptureContractManifest(runtime, entries["manifest.jsonc"]); failure != nil {
 		return captureContractEvidence{}, failure
@@ -57,16 +64,21 @@ func inspectCaptureContractArtifact(runtime *scenarioRuntime, zipPath string) (c
 	if failure := validateCaptureContractMetadata(runtime, entries["metadata.json"]); failure != nil {
 		return captureContractEvidence{}, failure
 	}
+	count := len(runtime.CapturePlan.Targets)
 	return captureContractEvidence{ArtifactPath: zipPath, AssertionCounts: map[string]int{
-		validationmatrix.AssertionCaptured: 1, validationmatrix.AssertionContent: 1,
-		validationmatrix.AssertionPayload: 1, validationmatrix.AssertionProvenance: 1,
+		validationmatrix.AssertionCaptured: count, validationmatrix.AssertionContent: count,
+		validationmatrix.AssertionPayload: count, validationmatrix.AssertionProvenance: count,
 	}}, nil
 }
 
 func validateCaptureContractManifest(runtime *scenarioRuntime, raw []byte) *Failure {
 	var fields map[string]json.RawMessage
 	clean := manifest.StripJsoncComments(raw)
-	if rejectDuplicateJSONFields(clean) != nil || json.Unmarshal(clean, &fields) != nil || !exactRawFields(fields, "version", "name", "captured", "apps", "verify", "configModules") {
+	wantFields := []string{"version", "name", "captured", "apps", "verify", "configModules"}
+	if len(runtime.CapturePlan.Restores) != 0 {
+		wantFields = append(wantFields, "restore")
+	}
+	if rejectDuplicateJSONFields(clean) != nil || json.Unmarshal(clean, &fields) != nil || !exactRawFields(fields, wantFields...) {
 		return fail(CodeArtifactContract, "capture", "manifest", "capture contract manifest has a foreign, absent, or explicitly empty legacy field")
 	}
 	var version int
@@ -91,20 +103,60 @@ func validateCaptureContractManifest(runtime *scenarioRuntime, raw []byte) *Fail
 		len(app.Refs) != 1 || app.Refs["windows"] != runtime.Inventory.Ref {
 		return fail(CodeArtifactContract, "capture", "manifest.apps", "capture contract app identity differs from validation inventory")
 	}
-	var verifiers []map[string]json.RawMessage
-	if json.Unmarshal(fields["verify"], &verifiers) != nil || len(verifiers) != 1 || !exactRawFields(verifiers[0], "type", "path") {
-		return fail(CodeArtifactContract, "capture", "manifest.verify", "capture contract verifier projection is not exact")
-	}
-	var verifier struct{ Type, Path string }
-	verifierRaw, _ := json.Marshal(verifiers[0])
-	if json.Unmarshal(verifierRaw, &verifier) != nil || verifier.Type != runtime.CapturePlan.Verifiers[0].Type || verifier.Path != runtime.CapturePlan.Verifiers[0].Path {
+	if !captureContractVerifierProjectionExact(fields["verify"], runtime) {
 		return fail(CodeArtifactContract, "capture", "manifest.verify", "capture contract verifier differs from production")
 	}
 	var moduleIDs []string
 	if json.Unmarshal(fields["configModules"], &moduleIDs) != nil || len(moduleIDs) != 1 || moduleIDs[0] != runtime.CapturePlan.ModuleID {
 		return fail(CodeArtifactContract, "capture", "manifest.configModules", "capture contract module provenance differs from production")
 	}
+	if len(runtime.CapturePlan.Restores) != 0 && !captureContractRestoreProjectionExact(fields["restore"], runtime) {
+		return fail(CodeArtifactContract, "capture", "manifest.restore", "capture contract restore projection differs from production")
+	}
 	return nil
+}
+
+func captureContractVerifierProjectionExact(raw json.RawMessage, runtime *scenarioRuntime) bool {
+	if runtime == nil || runtime.CapturePlan == nil {
+		return false
+	}
+	want := make([]manifest.VerifyEntry, 0, len(runtime.CapturePlan.Verifiers))
+	for _, verifier := range runtime.CapturePlan.Verifiers {
+		want = append(want, manifest.VerifyEntry{Type: verifier.Type, Command: verifier.Command, Path: verifier.Path, ValueName: verifier.ValueName, ValueType: verifier.ValueType, Data: verifier.Data})
+	}
+	encoded, err := json.Marshal(want)
+	if err != nil {
+		return false
+	}
+	var gotValue, wantValue any
+	return json.Unmarshal(raw, &gotValue) == nil && json.Unmarshal(encoded, &wantValue) == nil && reflect.DeepEqual(gotValue, wantValue)
+}
+
+func captureContractRestoreProjectionExact(raw json.RawMessage, runtime *scenarioRuntime) bool {
+	if runtime == nil || runtime.CapturePlan == nil {
+		return false
+	}
+	want := captureContractRestoreProjection(runtime)
+	encoded, err := json.Marshal(want)
+	if err != nil {
+		return false
+	}
+	var gotValue, wantValue any
+	return json.Unmarshal(raw, &gotValue) == nil && json.Unmarshal(encoded, &wantValue) == nil && reflect.DeepEqual(gotValue, wantValue)
+}
+
+func captureContractRestoreProjection(runtime *scenarioRuntime) []manifest.RestoreEntry {
+	entries := make([]manifest.RestoreEntry, 0, len(runtime.CapturePlan.Restores))
+	for _, restore := range runtime.CapturePlan.Restores {
+		entries = append(entries, manifest.RestoreEntry{
+			Type: restore.Type, Source: v1RestoreSource(runtime.Module.ID, payloadDestination(restore.Source)), Target: restore.Target,
+			Backup: restore.Backup, Optional: restore.Optional, FromModule: runtime.Module.ID,
+		})
+	}
+	sort.SliceStable(entries, func(left, right int) bool {
+		return strings.Join([]string{entries[left].Type, entries[left].Source, entries[left].Target}, "\x00") < strings.Join([]string{entries[right].Type, entries[right].Source, entries[right].Target}, "\x00")
+	})
+	return entries
 }
 
 func validateCaptureContractMetadata(runtime *scenarioRuntime, raw []byte) *Failure {
@@ -128,25 +180,26 @@ func captureContractModuleName(runtime *scenarioRuntime) string {
 	return strings.TrimPrefix(runtime.Module.ID, "apps.")
 }
 
+func captureContractArtifactNames(runtime *scenarioRuntime) []string {
+	moduleDirectory := "configs/" + captureContractModuleName(runtime) + "/"
+	payloads := append([]string(nil), captureContractPayloadPaths(runtime)...)
+	sort.Strings(payloads)
+	return append(append([]string{"configs/", moduleDirectory}, payloads...), "manifest.jsonc", "metadata.json")
+}
+
 func captureContractArtifactNamesExact(zipPath string, expected ...string) bool {
 	reader, err := zip.OpenReader(zipPath)
 	if err != nil {
 		return false
 	}
 	defer reader.Close()
-	want := make(map[string]struct{}, len(expected))
-	for _, name := range expected {
-		want[name] = struct{}{}
+	if len(reader.File) != len(expected) {
+		return false
 	}
-	seen := map[string]struct{}{}
-	for _, file := range reader.File {
-		if _, ok := want[file.Name]; !ok {
+	for index, file := range reader.File {
+		if file.Name != expected[index] {
 			return false
 		}
-		if _, duplicate := seen[file.Name]; duplicate {
-			return false
-		}
-		seen[file.Name] = struct{}{}
 	}
-	return len(seen) == len(want)
+	return true
 }

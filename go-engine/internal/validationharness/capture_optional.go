@@ -15,8 +15,13 @@ import (
 )
 
 func validateCaptureContractOptionalAbsentOutcome(raw []byte, events []map[string]any, runtime *scenarioRuntime, zipPath string) *Failure {
-	if runtime == nil || runtime.CapturePlan == nil || len(runtime.CapturePlan.Targets) != 1 || !runtime.CapturePlan.Targets[0].Optional {
+	if runtime == nil || runtime.CapturePlan == nil || len(runtime.CapturePlan.Targets) == 0 || !runtime.CapturePlan.HasOptionalTargets() {
 		return fail(CodeAssertionContract, "capture", "optional", "all-optional capture authority is absent")
+	}
+	for _, target := range runtime.CapturePlan.Targets {
+		if !target.Optional {
+			return fail(CodeAssertionContract, "capture", "optional", "capture contract contains a required source")
+		}
 	}
 	var data map[string]json.RawMessage
 	if rejectDuplicateJSONFields(raw) != nil || json.Unmarshal(raw, &data) != nil || !exactRawFields(data,

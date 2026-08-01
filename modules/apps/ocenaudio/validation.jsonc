@@ -8,7 +8,9 @@
         "id": "reviewed-capture-v1",
         "mode": "capture-contract",
         "fixture": {
-          "type": "auto"
+          "type": "declarative",
+          "path": "modules/apps/ocenaudio/validation-fixtures/capture-contract-v1.jsonc",
+          "sha256": "3c6f4fcde4819ea57498b0e4ec3aa9143922e1b0a3945c29d059b8d93a97e39e"
         },
         "timeoutSeconds": 120,
         "minimumAssertions": {

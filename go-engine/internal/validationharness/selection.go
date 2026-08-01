@@ -78,7 +78,7 @@ func compileSelection(request Request, now time.Time) (*selection, *Failure) {
 		}
 		selected.installPlan = plan
 	case validationmatrix.ScenarioCaptureContract:
-		plan, failure := compileCaptureContract(mod, scenario)
+		plan, failure := compileCaptureContractAt(request.RepoRoot, mod, scenario)
 		if failure != nil {
 			return selected, failure
 		}

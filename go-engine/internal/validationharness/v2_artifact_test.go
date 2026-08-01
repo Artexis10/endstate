@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -138,7 +139,13 @@ func writeV2ArtifactZip(t *testing.T, root, name string, entries map[string][]by
 		t.Fatal(err)
 	}
 	writer := zip.NewWriter(file)
-	for name, data := range entries {
+	names := make([]string, 0, len(entries))
+	for name := range entries {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		data := entries[name]
 		entry, err := writer.Create(filepath.ToSlash(name))
 		if err != nil {
 			t.Fatal(err)

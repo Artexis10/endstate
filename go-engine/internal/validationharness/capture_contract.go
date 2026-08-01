@@ -5,6 +5,10 @@ package validationharness
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -12,13 +16,12 @@ import (
 	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/bundle"
+	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
-
-var captureContractDeterministicBytes = []byte("[ports]\nshowFps=1\nmute=0\n")
 
 type CaptureContractTarget struct {
 	Coordinate     string
@@ -39,6 +42,7 @@ type CaptureContractPlan struct {
 	Inventory      validationmode.Inventory
 	Targets        []CaptureContractTarget
 	Verifiers      []modules.VerifyDef
+	Restores       []modules.RestoreDef
 	context        *validationmode.Context
 	root           string
 }
@@ -117,6 +121,10 @@ func (plan *CaptureContractPlan) validateTarget(target *CaptureContractTarget) *
 }
 
 func compileCaptureContract(mod *modules.Module, scenario validationmatrix.Scenario) (*CaptureContractPlan, *Failure) {
+	return compileCaptureContractAt("", mod, scenario)
+}
+
+func compileCaptureContractAt(repoRoot string, mod *modules.Module, scenario validationmatrix.Scenario) (*CaptureContractPlan, *Failure) {
 	reject := func(coordinate, detail string) (*CaptureContractPlan, *Failure) {
 		return nil, fail(CodeUnsupportedFixture, "fixture", coordinate, detail)
 	}
@@ -130,14 +138,11 @@ func compileCaptureContract(mod *modules.Module, scenario validationmatrix.Scena
 	if mod.EffectiveSchemaVersion() != 1 || scenario.Mode != validationmatrix.ScenarioCaptureContract {
 		return reject("schema", "capture contract requires a schema-v1 capture-contract scenario")
 	}
-	if scenario.Fixture.Type != validationmatrix.FixtureAuto || scenario.Fixture.Path != "" || scenario.Fixture.SHA256 != "" {
-		return reject("fixture.type", "capture contract requires an authority-free auto fixture")
-	}
 	if scenario.Review == nil || scenario.Review.Decision != "approved-one-way" {
 		return reject("review", "capture contract requires approved one-way review authority")
 	}
-	if len(mod.Restore) != 0 || mod.Config != nil || mod.Capture == nil || len(mod.Capture.Files) != 1 || len(mod.Capture.RegistryKeys) != 0 || len(mod.Capture.RegistryValues) != 0 {
-		return reject("operations", "capture contract requires one file capture with no restore or generation lane")
+	if mod.Config != nil || mod.Capture == nil || len(mod.Capture.Files) == 0 || len(mod.Capture.RegistryKeys) != 0 || len(mod.Capture.RegistryValues) != 0 {
+		return reject("operations", "capture contract requires direct file captures with no registry or generation lane")
 	}
 	if len(mod.Matches.Winget) != 1 || len(mod.Matches.Chocolatey) != 0 {
 		return reject("matches", "capture contract requires exactly one Winget app reference")
@@ -149,6 +154,7 @@ func compileCaptureContract(mod *modules.Module, scenario validationmatrix.Scena
 
 	prefix := "apps/" + strings.TrimPrefix(mod.ID, "apps.") + "/"
 	targets := make([]CaptureContractTarget, 0, len(mod.Capture.Files))
+	seenPayloads := make(map[string]struct{}, len(mod.Capture.Files))
 	for index, file := range mod.Capture.Files {
 		coordinate := "capture.files[" + strconv.Itoa(index) + "]"
 		source := strings.ReplaceAll(file.Source, `\`, "/")
@@ -156,7 +162,7 @@ func compileCaptureContract(mod *modules.Module, scenario validationmatrix.Scena
 			return reject(coordinate+".source", "capture contract requires one direct canonical file source")
 		}
 		if !file.Optional {
-			return reject(coordinate+".optional", "capture contract requires one optional direct file capture")
+			return reject(coordinate+".optional", "capture contract requires every direct file capture to be optional")
 		}
 		destination := strings.ReplaceAll(file.Dest, `\`, "/")
 		if destination != file.Dest || path.Clean(destination) != destination || !strings.HasPrefix(destination, prefix) || strings.TrimPrefix(destination, prefix) == "" || strings.Contains(destination, ":") {
@@ -172,18 +178,118 @@ func compileCaptureContract(mod *modules.Module, scenario validationmatrix.Scena
 				return reject("capture.excludeGlobs["+strconv.Itoa(globIndex)+"]", "capture exclude glob applies to a direct capture filename")
 			}
 		}
+		if mod.Secrets != nil && bundle.CapturePathMatchesSecrets(file.Source, mod.Secrets.Files) {
+			return reject(coordinate+".source", "capture source is shadowed by the production secrets matcher")
+		}
+		payload := strings.ToLower(v1ArtifactPayloadPath(mod.ID, destination))
+		if _, duplicate := seenPayloads[payload]; duplicate {
+			return reject(coordinate+".dest", "capture destinations collide after the production flattened payload rewrite")
+		}
+		seenPayloads[payload] = struct{}{}
 		targets = append(targets, CaptureContractTarget{
 			Coordinate: coordinate, AuthoredSource: file.Source, Destination: destination,
-			Optional: file.Optional, Content: append([]byte(nil), captureContractDeterministicBytes...),
+			Optional: file.Optional, Content: captureContractContent(mod.ID, scenario.ID, coordinate),
 		})
 	}
-	if len(mod.Verify) != 1 || mod.Verify[0].Type != "file-exists" || mod.Verify[0].Path != targets[0].AuthoredSource || mod.Verify[0].Command != "" || mod.Verify[0].ValueName != "" || mod.Verify[0].ValueType != "" || mod.Verify[0].Data != "" {
-		return reject("verify", "capture contract requires the exact captured-file production verifier")
+	if len(mod.Verify) != 1 {
+		return reject("verify", "capture contract requires exactly one supported production verifier")
+	}
+	if _, verifierFailure := compileInstallVerifier(mod.Verify[0]); verifierFailure != nil {
+		return reject(verifierFailure.coordinate, verifierFailure.detail)
+	}
+	consumedTargets := make(map[string]struct{}, len(mod.Restore))
+	for index, restore := range mod.Restore {
+		coordinate := "restore[" + strconv.Itoa(index) + "]"
+		if restore.Type != "copy" || !restore.Backup || restore.Pattern != "" || restore.Reason != "" || restore.Key != "" || restore.ValueName != "" || restore.ValueType != "" || restore.Data != "" || len(restore.Exclude) != 0 {
+			return reject(coordinate, "capture contract supports only exact backup-enabled copy restore projections")
+		}
+		captureIndex := -1
+		for targetIndex, target := range targets {
+			if restore.Target == target.AuthoredSource && payloadDestination(restore.Source) == target.Destination {
+				captureIndex = targetIndex
+				break
+			}
+		}
+		if captureIndex < 0 {
+			return reject(coordinate, "copy restore must project exactly one captured file")
+		}
+		key := targets[captureIndex].Coordinate
+		if _, duplicate := consumedTargets[key]; duplicate {
+			return reject(coordinate, "multiple copy restores project one captured file")
+		}
+		consumedTargets[key] = struct{}{}
+	}
+	switch scenario.Fixture.Type {
+	case validationmatrix.FixtureAuto:
+		if scenario.Fixture.Path != "" || scenario.Fixture.SHA256 != "" || len(targets) != 1 {
+			return reject("fixture.type", "auto capture fixtures support exactly one direct file")
+		}
+	case validationmatrix.FixtureDeclarative:
+		if failure := validateCaptureContractFixture(repoRoot, scenario, targets); failure != nil {
+			return nil, failure
+		}
+	default:
+		return reject("fixture.type", "capture contract fixture type is unsupported")
 	}
 	return &CaptureContractPlan{
 		ModuleID: mod.ID, ModuleRevision: mod.Revision, ScenarioID: scenario.ID,
-		Inventory: inventory, Targets: targets, Verifiers: append([]modules.VerifyDef(nil), mod.Verify...),
+		Inventory: inventory, Targets: targets, Verifiers: append([]modules.VerifyDef(nil), mod.Verify...), Restores: append([]modules.RestoreDef(nil), mod.Restore...),
 	}, nil
+}
+
+func captureContractContent(moduleID, scenarioID, coordinate string) []byte {
+	return []byte(fixtureSentinel(moduleID, scenarioID, coordinate, "capture"))
+}
+
+func validateCaptureContractFixture(repoRoot string, scenario validationmatrix.Scenario, targets []CaptureContractTarget) *Failure {
+	if repoRoot == "" || !filepath.IsAbs(repoRoot) || filepath.Clean(repoRoot) != repoRoot || scenario.Fixture.Path == "" || scenario.Fixture.SHA256 == "" {
+		return fail(CodeUnsupportedFixture, "fixture", "fixture.path", "declarative capture fixture requires repository authority and a pinned path")
+	}
+	fixturePath, err := safepath.Resolve(repoRoot, filepath.FromSlash(scenario.Fixture.Path))
+	if err != nil {
+		return fail(CodeUnsupportedFixture, "fixture", "fixture.path", "declarative capture fixture path left repository authority")
+	}
+	raw, _, err := safepath.ReadRegularFile(fixturePath)
+	if err != nil {
+		return fail(CodeUnsupportedFixture, "fixture", "fixture.path", "declarative capture fixture is absent or not regular")
+	}
+	digest := sha256.Sum256(raw)
+	if fmt.Sprintf("%x", digest) != scenario.Fixture.SHA256 {
+		return fail(CodeUnsupportedFixture, "fixture", "fixture.sha256", "declarative capture fixture hash differs from the sidecar")
+	}
+	jsonc := manifest.StripJsoncComments(raw)
+	if rejectDuplicateJSONFields(jsonc) != nil {
+		return fail(CodeUnsupportedFixture, "fixture", "fixture.path", "declarative capture fixture JSONC contains duplicate fields")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(jsonc))
+	decoder.DisallowUnknownFields()
+	var shape declarativeFixtureShape
+	if err := decoder.Decode(&shape); err != nil {
+		return fail(CodeUnsupportedFixture, "fixture", "fixture.path", "declarative capture fixture JSONC is malformed")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fail(CodeUnsupportedFixture, "fixture", "fixture.path", "declarative capture fixture must contain one JSON object")
+	}
+	if shape.SchemaVersion != 1 || len(shape.Entries) != len(targets) {
+		return fail(CodeUnsupportedFixture, "fixture", "fixture.entries", "declarative capture fixture must cover every capture coordinate exactly once")
+	}
+	seen := make(map[string]struct{}, len(shape.Entries))
+	for _, entry := range shape.Entries {
+		if entry.Kind != fixtureKindFile {
+			return fail(CodeUnsupportedFixture, "fixture", entry.Coordinate, "declarative capture fixture requires direct file kinds")
+		}
+		if _, duplicate := seen[entry.Coordinate]; duplicate {
+			return fail(CodeUnsupportedFixture, "fixture", entry.Coordinate, "declarative capture fixture coordinate is duplicated")
+		}
+		seen[entry.Coordinate] = struct{}{}
+	}
+	for _, target := range targets {
+		if _, exists := seen[target.Coordinate]; !exists {
+			return fail(CodeUnsupportedFixture, "fixture", target.Coordinate, "declarative capture fixture coordinate is absent")
+		}
+	}
+	return nil
 }
 
 func canonicalDirectCaptureSource(authored string) bool {

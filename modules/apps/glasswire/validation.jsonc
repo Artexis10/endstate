@@ -8,7 +8,9 @@
         "id": "reviewed-capture-v1",
         "mode": "capture-contract",
         "fixture": {
-          "type": "auto"
+          "type": "declarative",
+          "path": "modules/apps/glasswire/validation-fixtures/capture-contract-v1.jsonc",
+          "sha256": "958d5c518758fee236e94e138ab66ecfaa2e848b7b15910e4d5b1daee0dc7736"
         },
         "timeoutSeconds": 120,
         "minimumAssertions": {

@@ -6,6 +6,7 @@ package validationharness
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -15,7 +16,7 @@ const (
 )
 
 func validateCaptureContractCommandEvidence(raw []byte, events []map[string]any, runtime *scenarioRuntime, artifactBase string) *Failure {
-	if runtime == nil || runtime.CapturePlan == nil || len(runtime.CapturePlan.Targets) != 1 {
+	if runtime == nil || runtime.CapturePlan == nil || len(runtime.CapturePlan.Targets) == 0 {
 		return fail(CodeEnvelopeContract, "capture", "data", "capture contract runtime authority is absent")
 	}
 	var data map[string]json.RawMessage
@@ -114,9 +115,9 @@ func validateCaptureContractModule(raw json.RawMessage, runtime *scenarioRuntime
 		FilesCaptured                     int
 	}
 	rawValue, _ := json.Marshal(values[0])
-	wantPath := v1ArtifactPayloadPath(runtime.Module.ID, runtime.CapturePlan.Targets[0].Destination)
+	wantPaths := captureContractPayloadPaths(runtime)
 	if json.Unmarshal(rawValue, &value) != nil || value.DisplayName != runtime.Module.DisplayName || value.AppID != captureContractModuleName(runtime) || value.ID != runtime.Module.ID ||
-		value.Status != "captured" || value.FilesCaptured != 1 || !captureContractReferencesExact(value.WingetRefs, value.ChocolateyRefs, runtime) || !exactStrings(value.Paths, []string{wantPath}) {
+		value.Status != "captured" || value.FilesCaptured != len(wantPaths) || !captureContractReferencesExact(value.WingetRefs, value.ChocolateyRefs, runtime) || !exactStrings(value.Paths, wantPaths) {
 		return fail(CodeEnvelopeContract, "capture", "configModules", "capture module result is vacuous, foreign, or inexact")
 	}
 	return nil
@@ -124,6 +125,30 @@ func validateCaptureContractModule(raw json.RawMessage, runtime *scenarioRuntime
 
 func captureContractReferencesExact(winget, chocolatey []string, runtime *scenarioRuntime) bool {
 	return runtime.Inventory.Driver == "winget" && exactStrings(winget, []string{runtime.Inventory.Ref}) && len(chocolatey) == 0
+}
+
+func captureContractPayloadPaths(runtime *scenarioRuntime) []string {
+	if runtime == nil || runtime.CapturePlan == nil {
+		return nil
+	}
+	paths := make([]string, 0, len(runtime.CapturePlan.Targets))
+	for _, target := range runtime.CapturePlan.Targets {
+		paths = append(paths, v1ArtifactPayloadPath(runtime.Module.ID, target.Destination))
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+func captureContractDestinations(runtime *scenarioRuntime) []string {
+	if runtime == nil || runtime.CapturePlan == nil {
+		return nil
+	}
+	destinations := make([]string, 0, len(runtime.CapturePlan.Targets))
+	for _, target := range runtime.CapturePlan.Targets {
+		destinations = append(destinations, target.Destination)
+	}
+	sort.Strings(destinations)
+	return destinations
 }
 
 func validateCaptureContractDeclaration(raw json.RawMessage, runtime *scenarioRuntime) *Failure {
@@ -141,8 +166,8 @@ func validateCaptureContractDeclaration(raw json.RawMessage, runtime *scenarioRu
 		Files           []string
 	}
 	rawValue, _ := json.Marshal(modules[0])
-	if json.Unmarshal(rawValue, &value) != nil || value.ID != runtime.Module.ID || value.DisplayName != runtime.Module.DisplayName || value.Entries != 0 ||
-		!exactStrings(value.Files, []string{runtime.CapturePlan.Targets[0].Destination}) {
+	if json.Unmarshal(rawValue, &value) != nil || value.ID != runtime.Module.ID || value.DisplayName != runtime.Module.DisplayName || value.Entries != len(runtime.CapturePlan.Restores) ||
+		!exactStrings(value.Files, captureContractDestinations(runtime)) {
 		return fail(CodeEnvelopeContract, "capture", "configCapture", "capture declaration differs from production")
 	}
 	return nil

@@ -691,8 +691,10 @@ func matchesSecrets(filePath string, patterns []string) bool {
 			if m, _ := path.Match(p, target); m {
 				return true
 			}
-			if m, _ := path.Match(path.Base(p), path.Base(target)); m {
-				return true
+			if !strings.Contains(strings.Trim(p, "/"), "/") {
+				if m, _ := path.Match(path.Base(p), path.Base(target)); m {
+					return true
+				}
 			}
 		default:
 			// Literal file, or directory prefix (path lives under the secret dir).
@@ -702,6 +704,12 @@ func matchesSecrets(filePath string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+// CapturePathMatchesSecrets applies the same production secret matcher used by
+// direct capture declarations without granting filesystem authority.
+func CapturePathMatchesSecrets(filePath string, patterns []string) bool {
+	return matchesSecrets(expandPath(filePath), patterns)
 }
 
 func catalogPath(value string) string {
