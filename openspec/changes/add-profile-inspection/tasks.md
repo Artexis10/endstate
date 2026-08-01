@@ -1,9 +1,9 @@
 ## 1. Inspection model and command
 
 - [ ] 1.1 Add the `profile inspect <manifest-path> --json` subcommand under the existing top-level `profile` command and reject missing, bundle, and directory inputs with structured failures.
-- [ ] 1.2 Implement a read-only manifest inspection path that resolves includes and reads only the permitted artifact-side metadata and verified module snapshots.
-- [ ] 1.3 Derive v1 and v2 settings ownership using the specified evidence precedence, deduplicating owned modules before association and grouping.
-- [ ] 1.4 Implement deterministic app/settings inventories, association statuses, label precedence, captured-entry counts, typed warnings, and summary derivation.
+- [ ] 1.2 Implement a read-only manifest inspection path with restricted root-contained relative includes, root-only composition exclusions, permitted artifact metadata/snapshots, and the pure trusted-catalog enrichment loader.
+- [ ] 1.3 Derive v1 and v2 settings ownership as the specified canonical-key union, preserving provenance/raw IDs and excluding only root-config exclusions before association.
+- [ ] 1.4 Implement mandatory verified-owner grouping, fixed status/identifier/nullability semantics, exact v1/v2 captured-entry counting, label/timestamp precedence, deterministic ordering, typed warnings, and post-grouping summaries.
 
 ## 2. JSON and capabilities contract
 
@@ -13,7 +13,7 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Add hermetic engine tests for extracted-only input, no machine evaluation, v1/v2 ownership evidence, legacy ref association, grouping, labels, warnings, ordering, and summaries.
+- [ ] 3.1 Add hermetic engine tests for extracted-only/root-contained includes, no machine evaluation, root-only excludes, v1/v2 ownership unions, legacy ref association, mandatory grouping, status matrix/IDs, labels/timestamp, entry counts, warnings, ordering, and summaries.
 - [ ] 3.2 Add schema/envelope tests for success, manifest failures, missing-path usage failure, and capability advertisement.
 - [ ] 3.3 Update GUI integration coverage to capability-gate the feature, render engine semantics, and show update-required for stale engines without fallback ownership inference.
 - [ ] 3.4 Run targeted engine tests, GUI tests, and strict OpenSpec validation.

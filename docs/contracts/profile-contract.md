@@ -329,19 +329,23 @@ Both `apply` and `preview` commands validate the manifest before execution:
 endstate profile inspect <manifest-path> --json
 ```
 
-`inspect` accepts only an extracted manifest path. It reads the manifest, recursively resolved includes, sibling capture metadata, declared config payload metadata, and verified `provenance/modules/` snapshots. It does not accept or extract a bundle, resolve a profile name, or inspect a directory.
+`inspect` accepts only an extracted manifest path. It can read extracted artifact files, allowed inspect-only includes, sibling capture/config metadata, verified `provenance/modules/` snapshots, and the trusted current module catalog through its pure loader. The catalog is enrichment-only: it cannot add ownership and inspection never invokes its matchers. Inspection does not accept or extract a bundle, resolve a profile name, or inspect a directory.
+
+Inspect-only includes are relative `.json`, `.jsonc`, or `.json5` paths that resolve inside the root manifest directory. Absolute, extensionless/profile-name, directory, bundle, and root-escaping includes fail with `MANIFEST_VALIDATION_ERROR`; inspection never extracts them. It observes composition, applies root-only exact `refs.windows` `exclude` to Apps and root-only `excludeConfigs` to settings ownership, and ignores exclusions declared by included manifests.
 
 Inspection is an artifact-only boundary: it MUST NOT invoke drivers or matchers, detect current-machine state, plan, preview, apply, restore, or mutate any input. Missing input is a structured usage failure; missing, unparsable, and invalid manifests use the standard `MANIFEST_NOT_FOUND`, `MANIFEST_PARSE_ERROR`, and `MANIFEST_VALIDATION_ERROR` JSON errors.
 
 ## Profile Inspection Semantics
 
-The saved profile is authoritative for Apps membership, settings ownership, and captured-entry counts. The current catalog and verified sibling snapshots can enrich labels and association evidence only; catalog membership alone MUST NOT add a settings row.
+The saved profile is authoritative for Apps membership, settings ownership, and captured-entry counts. Verified sibling snapshots and the trusted current catalog can enrich labels and association evidence only; catalog membership alone MUST NOT add a settings row.
 
 ### Ownership Evidence
 
-- Version 2 ownership is the deduplicated union of distinct `configCaptures[].moduleId` values and explicitly declared legacy config lanes.
-- Version 1 ownership uses, in descending authority: explicit `restore[].fromModule`, declared captured config-module metadata, sibling capture metadata, and old `configs/<module-id>/...` restore sources.
-- Every profile-owned settings module is represented exactly once before verified-owner grouping. Modules are grouped only when they share one verified owner; ambiguous and unresolved modules remain separate.
+- Canonical module keys trim whitespace, lowercase for comparison, and strip exactly one leading `apps.`. Inspection does not fuzzy-match; contributing raw IDs remain technical details.
+- Ownership is a union across all applicable sources, deduplicated by canonical key. A stronger source records provenance but never suppresses a module found only in a lower tier.
+- Version 2 sources are `configCaptures[].moduleId` and `legacyConfigLanes[].moduleId`.
+- Version 1 sources are, strongest first, `restore[].fromModule`, `configModules[]`, sibling `metadata.json.configModulesIncluded[]`, and the first segment after `configs/` in restore `source`.
+- Every owned module is represented exactly once before grouping. Every `included` module sharing one unique Apps row and every `not_in_profile` module sharing one verified absent-owner identity is grouped. `ambiguous` and `unresolved` modules remain separate.
 
 ### Association and Labels
 
@@ -350,13 +354,17 @@ Each inspected settings row has exactly one association status: `included`, `not
 - Only `included` marks an Apps row `hasSettings`.
 - `included` and `not_in_profile` are verified app-settings owners; `ambiguous` and `unresolved` are unidentified rows and mark no app.
 - A legacy short module ID can associate through verified catalog package refs: for example, owned module `obsidian` can associate with Apps row `obsidian-obsidian` through `Obsidian.Obsidian`; exact app-ID equality is not required.
-- Friendly labels prefer a verified embedded snapshot, captured module metadata, catalog display name for an already-owned module, associated manifest app display name/package ref, then a deterministic human-readable short module ID. Raw provenance IDs are technical details, not default labels.
+- `ownerId` is non-null only for `included`/`not_in_profile`; `appId` is non-null only for `included`; `appIncluded` is true iff `included`; and `candidateAppIds` contains the single app ID for included, sorted candidates for ambiguous, and `[]` otherwise.
+- Row IDs are `app:<case-folded-app-id>` for included, `owner:<case-folded-owner-id>` for not-in-profile, and `module:<canonical-module-key>` for ambiguous/unresolved. An included `ownerId` equals its app ID; an absent owner uses the canonical verified package-owner key.
+- Apps labels use captured app `displayName`, first sorted package ref, then humanized app ID. Settings labels use verified snapshot `displayName`, trusted-catalog `displayName`, associated app `displayName`, first sorted verified package ref, then humanized canonical module key. Raw provenance IDs are technical details, not default labels.
 
 ### Deterministic Representation
 
-Inspection arrays are always non-null and deterministically ordered. Apps rows contain `id`, `displayName`, `packageRefs[]`, and `hasSettings`. Settings rows contain deterministic `id`, `displayName`, `associationStatus`, nullable `ownerId`, nullable `appId`, `appIncluded`, `packageRefs[]`, `moduleIds[]`, `candidateAppIds[]`, and `capturedEntryCount`.
+Inspection arrays are always non-null. Apps rows contain `id`, `displayName`, `packageRefs[]`, and `hasSettings`; every non-empty `refs` value is trimmed, deduplicated, and sorted into `packageRefs`. Settings rows contain deterministic `id`, `displayName`, `associationStatus`, nullable `ownerId`, nullable `appId`, `appIncluded`, `packageRefs[]`, `moduleIds[]`, `candidateAppIds[]`, and `capturedEntryCount`.
 
-Warnings contain a stable `code`, engine-authored `message`, and explicit `impact` of either `diagnostic` or `inventory_incomplete`; consumers MUST NOT infer impact from message text. App and settings summary counts are non-negative values derived from the finalized arrays.
+For v2, `capturedEntryCount` sums `payloadManifest.length` once per distinct `captureId` and counts restore entries bound to a legacy lane's `legacyCaptureId`. For v1 it counts distinct restore-array entries attributed by `fromModule`, falling back per entry to `configs/<module>/...`. Metadata-only/configModules-only ownership counts zero; groups sum contributing module counts without double-counting entries.
+
+Apps and settings rows sort by case-folded display name then stable row ID; package/module/candidate arrays sort by case-folded value then original value; warnings sort by code then message. `profile.capturedAt` uses non-empty manifest `captured`, then sibling metadata `capturedAt`, then null; a conflict can emit a diagnostic warning but cannot change that precedence. Warnings contain a stable `code`, engine-authored `message`, and explicit `impact` of either `diagnostic` or `inventory_incomplete`; consumers MUST NOT infer impact from message text. App and settings summary counts are non-negative values derived from the finalized grouped arrays.
 
 ---
 

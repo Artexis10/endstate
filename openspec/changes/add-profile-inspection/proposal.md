@@ -5,7 +5,7 @@ The GUI needs a trustworthy, profile-specific inventory of apps and captured set
 ## What Changes
 
 - Add the read-only `endstate profile inspect <manifest-path> --json` capability for extracted manifests only.
-- Define deterministic profile-owned app and settings inventories, association outcomes, labels, warnings, counts, and the schema-1.x JSON result envelope.
+- Define deterministic profile-owned app and settings inventories, including canonical ownership normalization, composition/exclude handling, grouping, row identifiers, labels, warnings, counts, and the schema-1.x JSON result envelope.
 - Define capability negotiation through `features.profileInspection` so stale engines produce an update-required state rather than GUI-side ownership inference.
 - Update the profile, CLI JSON, and GUI integration contracts for this additive cross-repository boundary.
 
@@ -21,5 +21,5 @@ The GUI needs a trustworthy, profile-specific inventory of apps and captured set
 
 ## Impact
 
-- Affects the engine profile command surface, manifest/include and capture-provenance readers, JSON envelope output, capabilities response, and GUI profile-contents presentation.
+- Affects the engine profile command surface, restricted manifest/include and capture-provenance readers, the pure trusted-catalog loader, JSON envelope output, capabilities response, and GUI profile-contents presentation.
 - Adds no new dependencies and preserves schema major version 1.

@@ -225,7 +225,7 @@ endstate capabilities --json
 
 For generation-aware restore, `commands.apply.flags`, `commands.restore.flags`, and `commands.rebuild.flags` advertise repeatable `--restore-target`. The GUI must capability-gate target selection rather than assuming a CLI version supports it.
 
-`features.profileInspection` is the canonical gate for `profile inspect <manifest-path> --json`. When it is true, the GUI can inspect only an extracted manifest path. When it is absent or false, the GUI MUST show an update-required state and MUST NOT parse manifests, catalog metadata, snapshots, or current-machine state to infer settings ownership.
+`features.profileInspection` is the canonical gate for `profile inspect <manifest-path> --json`. When it is true, the GUI can inspect only an extracted manifest path. When it is absent or false, the GUI MUST show an update-required state and MUST NOT parse manifests, catalog metadata, snapshots, or current-machine state to infer settings ownership. The engine alone resolves restricted includes, root-only exclusions, saved-profile ownership, catalog enrichment, association, grouping, labels, counts, and ordering.
 
 ### GUI Responsibilities
 
@@ -272,9 +272,11 @@ The GUI reads only fields the CLI JSON contract defines **for the command it inv
 
 ### Profile Inspection Presentation
 
-The GUI renders the `profile inspect` envelope as engine-authored semantics: `apps[]`, `settingsApps[]`, `warnings[]`, and the summary counts. It MUST preserve engine labels, association statuses, candidate IDs, package refs, captured-entry counts, and warning impacts. It MUST NOT group rows, mark Apps rows, recalculate counts, infer warning impact from message text, or turn catalog membership into ownership.
+The GUI renders the `profile inspect` envelope as engine-authored semantics: `apps[]`, `settingsApps[]`, `warnings[]`, and summary counts. It MUST preserve engine labels, association statuses, row/owner/app/candidate IDs, package refs, module IDs, captured-entry counts, warning impacts, nullability, and order. It MUST NOT group rows, mark Apps rows, recalculate counts, infer warning impact from message text, use a catalog entry as ownership evidence, or derive a different timestamp/label/order.
 
-Only `included` settings rows are shown as settings for an included Apps row. `not_in_profile` remains a verified owner that is not an Apps member; `ambiguous` and `unresolved` remain unidentified settings rows. The GUI presents all returned arrays in engine order and treats raw provenance identifiers as progressive technical detail rather than default labels.
+Only `included` settings rows are shown as settings for an included Apps row. `not_in_profile` remains a verified absent owner; `ambiguous` and `unresolved` remain unidentified settings rows. For the fixed status matrix, `ownerId` is non-null only for included/not-in-profile, `appId` only for included, `appIncluded` is true iff included, and `candidateAppIds` is one app ID for included, sorted candidates for ambiguous, and empty otherwise. The GUI presents all arrays in engine order and treats raw provenance identifiers as progressive technical detail rather than default labels.
+
+The engine groups all included modules with the same unique Apps row and all not-in-profile modules with the same verified absent-owner identity; it never groups ambiguous/unresolved modules. The GUI treats IDs as opaque engine values: `app:<case-folded-app-id>`, `owner:<case-folded-owner-id>`, or `module:<canonical-module-key>`. It does not reconstruct the engine's canonicalization, captured-entry counting, package-ref association, or root-only exclusion semantics.
 
 ---
 

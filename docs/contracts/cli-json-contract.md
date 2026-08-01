@@ -297,10 +297,10 @@ The standard envelope retains `command: "profile"` and schema 1.x. On success, `
   ],
   "settingsApps": [
     {
-      "id": "obsidian",
+      "id": "app:obsidian-obsidian",
       "displayName": "Obsidian",
       "associationStatus": "included",
-      "ownerId": "obsidian",
+      "ownerId": "obsidian-obsidian",
       "appId": "obsidian-obsidian",
       "appIncluded": true,
       "packageRefs": ["Obsidian.Obsidian"],
@@ -313,11 +313,17 @@ The standard envelope retains `command: "profile"` and schema 1.x. On success, `
 }
 ```
 
-`profile.name` and `profile.capturedAt` are nullable strings; `manifestVersion` is an integer and `manifestPath` is a string. All summary values and `capturedEntryCount` are non-negative integers. `apps`, `settingsApps`, `warnings`, `packageRefs`, `moduleIds`, and `candidateAppIds` are always present, non-null, and deterministically ordered.
+`profile.name` and `profile.capturedAt` are nullable strings; `manifestVersion` is an integer and `manifestPath` is a string. `capturedAt` uses non-empty manifest `captured`, then sibling metadata `capturedAt`, then null; a conflict can emit a diagnostic warning without changing precedence. All summary values and `capturedEntryCount` are non-negative integers. `apps`, `settingsApps`, `warnings`, `packageRefs`, `moduleIds`, and `candidateAppIds` are always present and non-null.
 
-`associationStatus` is exactly `included`, `not_in_profile`, `ambiguous`, or `unresolved`. `ownerId` and `appId` are nullable. Only `included` can make `apps[].hasSettings` true. `included` and `not_in_profile` contribute to `verifiedSettingsAppCount`; `ambiguous` and `unresolved` contribute to `unidentifiedSettingsRowCount`. Each warning has `code`, engine-authored `message`, and `impact`, where `impact` is exactly `diagnostic` or `inventory_incomplete`.
+`associationStatus` is exactly `included`, `not_in_profile`, `ambiguous`, or `unresolved`. `ownerId` is non-null only for included/not-in-profile; `appId` is non-null only for included; `appIncluded` is true iff included; and `candidateAppIds` is the single app ID for included, sorted candidates for ambiguous, and empty otherwise. Settings row IDs are `app:<case-folded-app-id>` for included, `owner:<case-folded-owner-id>` for not-in-profile, and `module:<canonical-module-key>` for ambiguous/unresolved. An included `ownerId` is its app ID; an absent `ownerId` is the canonical verified package-owner key. Only `included` can make `apps[].hasSettings` true. `included` and `not_in_profile` contribute to `verifiedSettingsAppCount`; `ambiguous` and `unresolved` contribute to `unidentifiedSettingsRowCount`.
 
-The command accepts only an extracted manifest path and is read-only. A missing path is a structured usage failure, never a panic or human-only stdout result. Missing, malformed, and invalid manifests use the existing `MANIFEST_NOT_FOUND`, `MANIFEST_PARSE_ERROR`, and `MANIFEST_VALIDATION_ERROR` errors, respectively.
+Ownership canonicalizes module IDs by trimming whitespace, lowercasing for comparison, and stripping one leading `apps.`; it unions and deduplicates all applicable saved-profile sources. V2 sources are `configCaptures[].moduleId` and `legacyConfigLanes[].moduleId`; v1 sources are `restore[].fromModule`, `configModules[]`, sibling `metadata.json.configModulesIncluded[]`, and the first segment after `configs/` in restore `source`. The trusted current catalog can enrich already-owned modules with labels and verified package refs but cannot create ownership or run matchers. Root-only exact `refs.windows` `exclude` applies to Apps and root-only `excludeConfigs` to ownership; included exclusions are ignored.
+
+Apps display names use captured app `displayName`, first sorted package ref, then humanized app ID. Settings display names use verified snapshot `displayName`, trusted-catalog `displayName`, associated app `displayName`, first sorted verified package ref, then humanized canonical module key. App package refs include all non-empty trimmed `refs` values, deduplicated and sorted. For v2, `capturedEntryCount` sums `payloadManifest.length` once per distinct `captureId` and counts restore entries bound to a legacy lane `legacyCaptureId`; for v1 it counts distinct restore entries attributed by `fromModule`, falling back per entry to `configs/<module>/...`. Metadata-only/configModules-only ownership is zero; grouped rows sum without double counting.
+
+Apps/settings rows sort by case-folded display name then row ID; package/module/candidate arrays by case-folded value then original value; warnings by code then message. Each warning has `code`, engine-authored `message`, and `impact`, where impact is exactly `diagnostic` or `inventory_incomplete`.
+
+The command accepts only an extracted manifest path and is read-only. Its includes must be relative `.json`, `.jsonc`, or `.json5` files within the root manifest directory; absolute, extensionless/profile-name, directory, bundle, and escaping includes fail with `MANIFEST_VALIDATION_ERROR` and are never extracted. A missing path is a structured usage failure, never a panic or human-only stdout result. Missing, malformed, and invalid manifests use the existing `MANIFEST_NOT_FOUND`, `MANIFEST_PARSE_ERROR`, and `MANIFEST_VALIDATION_ERROR` errors, respectively.
 
 ---
 

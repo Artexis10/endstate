@@ -23,25 +23,29 @@ The command is additive in JSON schema 1.x and remains under the existing top-le
 
 ### Extracted-manifest-only input
 
-`profile inspect` accepts exactly one extracted manifest path. It can read that manifest, its recursively resolved includes, sibling capture/config metadata, and verified `provenance/modules/` snapshots. This preserves a bounded, side-effect-free artifact inspection boundary and avoids duplicating bundle extraction behavior in the GUI.
+`profile inspect` accepts exactly one extracted manifest path. It can read that manifest; inspect-only recursively resolved relative `.json`, `.jsonc`, and `.json5` includes that remain inside the root manifest directory; sibling capture/config metadata; verified `provenance/modules/` snapshots; and the trusted current module catalog through its pure loader. Absolute, extensionless/profile-name, directory, bundle, and root-escaping includes fail with `MANIFEST_VALIDATION_ERROR`; inspection never extracts them. This preserves a bounded, side-effect-free artifact inspection boundary and avoids duplicating bundle extraction behavior in the GUI.
 
 The alternative—accepting bundles, directories, or profile names—would couple inspection to discovery and extraction paths and make the GUI/CLI ownership boundary less explicit.
 
 ### Saved artifact is authoritative for ownership
 
-For v2, ownership is the deduplicated union of distinct `configCaptures[].moduleId` values and explicitly declared legacy config lanes. For v1, evidence is considered in descending authority: explicit `restore[].fromModule`, declared captured config-module metadata, sibling capture metadata, then old `configs/<module-id>/...` restore sources. Catalog data can enrich an already-owned module with names and package-reference associations but MUST NOT create settings rows.
+Ownership first canonicalizes every module ID by trimming whitespace, lowercasing for comparison, and stripping exactly one leading `apps.`; no fuzzy matching occurs and raw IDs remain available as details. It is a union of applicable sources, deduplicated by canonical key: a stronger source records provenance but never suppresses modules found only in lower tiers. For v2 those sources are `configCaptures[].moduleId` and `legacyConfigLanes[].moduleId`. For v1 they are, strongest first, `restore[].fromModule`, `configModules[]`, sibling `metadata.json.configModulesIncluded[]`, and the first segment after `configs/` in restore `source`.
+
+Inspection observes composition and applies only the root manifest's exact `refs.windows` `exclude` to Apps and root-only `excludeConfigs` to settings ownership; included manifests' exclusions are ignored. The pure trusted current catalog can enrich already-owned modules with labels and verified package-reference associations but MUST NOT create settings rows or run matchers.
 
 This rejects the alternative of using catalog mappings as membership proof, which would make a newly installed catalog change the inventory of an unchanged profile.
 
 ### Conservative association and deterministic representation
 
-Every owned settings module becomes one settings-app row before owner grouping. A row is grouped only when all grouped modules share one verified owner; ambiguous and unresolved modules remain separate. Association states are exactly `included`, `not_in_profile`, `ambiguous`, and `unresolved`; only `included` marks an Apps row `hasSettings`. Arrays are never null and have documented deterministic ordering, allowing summary values to be derived exclusively from finalized arrays.
+Every owned module is attributed before mandatory grouping. Every `included` module sharing one unique Apps row is grouped, and every `not_in_profile` module sharing one verified absent-owner identity is grouped; `ambiguous` and `unresolved` modules are never grouped. Association states are exactly `included`, `not_in_profile`, `ambiguous`, and `unresolved`. Their field matrix is fixed: `ownerId` is non-null only for included/not-in-profile, `appId` only for included, `appIncluded` is true iff included, and `candidateAppIds` is the single app ID for included, sorted candidates for ambiguous, and empty otherwise. Row IDs are `app:<case-folded-app-id>`, `owner:<case-folded-owner-id>`, and `module:<canonical-module-key>` respectively. Only included marks an Apps row `hasSettings`.
+
+Apps use captured `displayName`, then the first sorted package ref, then humanized app ID; package refs are all non-empty `refs` values, trimmed, deduplicated, and sorted. Settings use verified snapshot `displayName`, trusted-catalog `displayName`, associated app `displayName`, first sorted verified package ref, then a humanized canonical module key. `capturedAt` is non-empty manifest `captured`, then sibling metadata `capturedAt`, then null; conflicts can warn diagnostically. Apps and settings sort by case-folded display name then row ID; inner arrays sort by case-folded value then original value; warnings sort by code then message. Arrays are never null and summaries derive after grouping.
 
 The alternative—collapsing uncertain modules into a likely app or hiding them—would overstate the inventory and force GUI logic to reconstruct uncertainty.
 
 ### Snapshot-first enrichment with explicit warning impact
 
-Verified embedded snapshots have friendly-label precedence, followed by captured module metadata, catalog labels for an already-owned module, associated manifest-app labels/package refs, then deterministic humanized short IDs. Warnings contain engine-authored messages and a typed `diagnostic` or `inventory_incomplete` impact; the GUI does not classify prose.
+`capturedEntryCount` is source-specific: v2 config captures sum `payloadManifest.length` once per distinct `captureId`; v2 legacy lanes count restore entries bound to the lane `legacyCaptureId`; v1 counts distinct restore-array entries attributed by `fromModule`, falling back per entry to `configs/<module>/...`. Metadata-only/configModules-only ownership counts zero. Grouped rows sum contributing module counts without double-counting an entry. Warnings contain engine-authored messages and a typed `diagnostic` or `inventory_incomplete` impact; the GUI does not classify prose.
 
 The alternative—using raw provenance IDs or parsing warning text in the GUI—would expose technical identifiers by default and create an unstable cross-repository protocol.
 
