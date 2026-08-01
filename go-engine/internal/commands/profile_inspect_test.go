@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
 
 func TestProfileInspectBuildsReadOnlyDeterministicInventory(t *testing.T) {
@@ -196,5 +198,26 @@ func TestProfileInspectPreflightRejectsSymlinkEscape(t *testing.T) {
 	}
 	if err := preflightProfileInspectIncludes(manifestPath); err == nil {
 		t.Fatal("symlink escape was accepted")
+	}
+}
+
+// Characterization/acceptance proof: inspection is intentionally read-only.
+// These command-package seams panic if the model accidentally reaches any
+// current-machine path; this test is deliberately not parallel.
+func TestProfileInspectNeverInvokesMachineSeams(t *testing.T) {
+	originalSnapshot, originalInstalled, originalMatcher, originalEnumerator := takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn
+	t.Cleanup(func() {
+		takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn = originalSnapshot, originalInstalled, originalMatcher, originalEnumerator
+	})
+	takeSnapshotFn = func() ([]snapshot.SnapshotApp, error) { panic("snapshot") }
+	listInstalledFn = func() ([]snapshot.SnapshotApp, error) { panic("detection") }
+	matchModulesForAppsFn = func(map[string]*modules.Module, []manifest.App) []*modules.Module { panic("matcher") }
+	resolveCaptureEnumeratorFn = func(string, bool) (driver.InstalledEnumerator, error) { panic("driver") }
+	path := filepath.Join(t.TempDir(), "manifest.jsonc")
+	if err := os.WriteFile(path, []byte(`{"version":1,"apps":[{"id":"fixture","refs":{"windows":"Vendor.Fixture"}}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := inspectProfile(path, defaultProfileInspectDeps()); err != nil {
+		t.Fatal(err)
 	}
 }
