@@ -13,7 +13,7 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Add hermetic engine tests for extracted-only/root-contained includes, no machine evaluation, root-only excludes, v1/v2 ownership unions, tiered owner-ref association, duplicate Apps ambiguity/identities, mandatory grouping, status matrix/IDs, labels/timestamp, valid unique-capture entry counts, warnings, ordering, and summaries.
+- [x] 3.1 Add hermetic engine tests for extracted-only/root-contained includes, no machine evaluation, root-only excludes, v1/v2 ownership unions, tiered owner-ref association, duplicate Apps ambiguity/identities, mandatory grouping, status matrix/IDs, labels/timestamp, valid unique-capture entry counts, warnings, ordering, and summaries.
 - [ ] 3.2 Add schema/envelope tests for success, manifest failures, missing-path usage failure, and capability advertisement.
 - [ ] 3.3 Update GUI integration coverage to capability-gate the feature, render engine semantics, and show update-required for stale engines without fallback ownership inference.
 - [ ] 3.4 Run targeted engine tests, GUI tests, and strict OpenSpec validation.

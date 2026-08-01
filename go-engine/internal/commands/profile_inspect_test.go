@@ -17,6 +17,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/realizer"
 	"github.com/Artexis10/endstate/go-engine/internal/snapshot"
 )
 
@@ -208,14 +209,16 @@ func TestProfileInspectPreflightRejectsSymlinkEscape(t *testing.T) {
 // These command-package seams panic if the model accidentally reaches any
 // current-machine path; this test is deliberately not parallel.
 func TestProfileInspectNeverInvokesMachineSeams(t *testing.T) {
-	originalSnapshot, originalInstalled, originalMatcher, originalEnumerator := takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn
+	originalSnapshot, originalInstalled, originalMatcher, originalEnumerator, originalRealizer, originalBrew := takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn, newRealizerFn, newBrewDriverFn
 	t.Cleanup(func() {
-		takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn = originalSnapshot, originalInstalled, originalMatcher, originalEnumerator
+		takeSnapshotFn, listInstalledFn, matchModulesForAppsFn, resolveCaptureEnumeratorFn, newRealizerFn, newBrewDriverFn = originalSnapshot, originalInstalled, originalMatcher, originalEnumerator, originalRealizer, originalBrew
 	})
 	takeSnapshotFn = func() ([]snapshot.SnapshotApp, error) { panic("snapshot") }
 	listInstalledFn = func() ([]snapshot.SnapshotApp, error) { panic("detection") }
 	matchModulesForAppsFn = func(map[string]*modules.Module, []manifest.App) []*modules.Module { panic("matcher") }
 	resolveCaptureEnumeratorFn = func(string, bool) (driver.InstalledEnumerator, error) { panic("driver") }
+	newRealizerFn = func() (realizer.Realizer, error) { panic("realizer") }
+	newBrewDriverFn = func() (driver.Driver, error) { panic("brew") }
 	path := filepath.Join(t.TempDir(), "manifest.jsonc")
 	if err := os.WriteFile(path, []byte(`{"version":1,"apps":[{"id":"fixture","refs":{"windows":"Vendor.Fixture"}}]}`), 0o644); err != nil {
 		t.Fatal(err)
