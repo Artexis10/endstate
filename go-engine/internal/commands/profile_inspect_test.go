@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
@@ -220,4 +221,95 @@ func TestProfileInspectNeverInvokesMachineSeams(t *testing.T) {
 	if _, err := inspectProfile(path, defaultProfileInspectDeps()); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestProfileInspectOwnershipMatrixPassA(t *testing.T) {
+	inspect := func(t *testing.T, mf *manifest.Manifest, metadata string, catalog map[string]*modules.Module) *ProfileInspectResult {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		if err := os.WriteFile(path, []byte(`{"version":1,"apps":[]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result, err := inspectProfile(path, profileInspectDeps{
+			loadManifest: func(string) (*manifest.Manifest, error) { return mf, nil }, preflightIncludes: func(string) error { return nil },
+			readFile: func(string) ([]byte, error) { return []byte(metadata), nil },
+			loadCatalog: func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+				return catalog, nil, nil
+			},
+			verifySnapshot: func(string, manifest.ConfigCapture) error { return nil },
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result
+	}
+
+	t.Run("v1 unions normalized evidence once", func(t *testing.T) {
+		result := inspect(t, &manifest.Manifest{Version: 1, ConfigModules: []string{"apps.fixture", " fixture "}, Restore: []manifest.RestoreEntry{{FromModule: "apps.fixture"}, {Source: "configs/fixture/settings.json"}}}, `{"configModulesIncluded":["apps.fixture"]}`, nil)
+		if len(result.SettingsApps) != 1 || !reflect.DeepEqual(result.SettingsApps[0].ModuleIDs, []string{"fixture"}) || result.SettingsApps[0].CapturedEntryCount != 2 {
+			t.Fatalf("rows = %+v", result.SettingsApps)
+		}
+	})
+	t.Run("unique obsidian and absent owner", func(t *testing.T) {
+		catalog := map[string]*modules.Module{"apps.obsidian": {ID: "apps.obsidian", DisplayName: "Obsidian", Matches: modules.MatchCriteria{Winget: []string{"Obsidian.Obsidian"}}}, "apps.absent": {ID: "apps.absent", DisplayName: "Absent", Matches: modules.MatchCriteria{Winget: []string{"Vendor.Absent"}}}}
+		result := inspect(t, &manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: "obsidian-obsidian", Refs: map[string]string{"windows": "Obsidian.Obsidian"}}}, ConfigModules: []string{"obsidian", "absent"}}, `{}`, catalog)
+		if len(result.SettingsApps) != 2 {
+			t.Fatal(result.SettingsApps)
+		}
+		var included, absent ProfileInspectSettingsApp
+		for _, row := range result.SettingsApps {
+			if row.AssociationStatus == "included" {
+				included = row
+			} else {
+				absent = row
+			}
+		}
+		if included.AppID == nil || *included.AppID != "app:obsidian-obsidian:1" || !included.AppIncluded || included.OwnerID == nil || len(included.CandidateAppIDs) != 1 {
+			t.Fatalf("included=%+v", included)
+		}
+		if absent.AssociationStatus != "not_in_profile" || absent.OwnerID == nil || *absent.OwnerID != "package:vendor.absent" || absent.AppID != nil || absent.AppIncluded || len(absent.CandidateAppIDs) != 0 {
+			t.Fatalf("absent=%+v", absent)
+		}
+	})
+	t.Run("ambiguous unresolved and duplicate app identities", func(t *testing.T) {
+		catalog := map[string]*modules.Module{"apps.amb": {ID: "apps.amb", Matches: modules.MatchCriteria{Winget: []string{"Vendor.Amb"}}}}
+		result := inspect(t, &manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: "same", Refs: map[string]string{"windows": "Vendor.Amb"}}, {ID: "SAME", Refs: map[string]string{"windows": "Vendor.Amb"}}}, ConfigModules: []string{"amb", "unknown"}}, `{}`, catalog)
+		if len(result.Apps) != 2 || result.Apps[0].ID != "app:same:1" || result.Apps[1].ID != "app:same:2" {
+			t.Fatalf("apps=%+v", result.Apps)
+		}
+		var ambiguous, unresolved ProfileInspectSettingsApp
+		for _, row := range result.SettingsApps {
+			if row.AssociationStatus == "ambiguous" {
+				ambiguous = row
+			} else {
+				unresolved = row
+			}
+		}
+		if ambiguous.OwnerID != nil || ambiguous.AppID != nil || ambiguous.AppIncluded || len(ambiguous.CandidateAppIDs) != 2 {
+			t.Fatalf("ambiguous=%+v", ambiguous)
+		}
+		if unresolved.AssociationStatus != "unresolved" || unresolved.OwnerID != nil || unresolved.AppID != nil || unresolved.AppIncluded || len(unresolved.CandidateAppIDs) != 0 {
+			t.Fatalf("unresolved=%+v", unresolved)
+		}
+	})
+	t.Run("groups included modules and applies root exclusions", func(t *testing.T) {
+		catalog := map[string]*modules.Module{"apps.one": {ID: "apps.one", Matches: modules.MatchCriteria{Winget: []string{"Vendor.One"}}}, "apps.two": {ID: "apps.two", Matches: modules.MatchCriteria{Winget: []string{"Vendor.One"}}}, "apps.drop": {ID: "apps.drop", Matches: modules.MatchCriteria{Winget: []string{"Vendor.Drop"}}}}
+		result := inspect(t, &manifest.Manifest{Version: 1, Apps: []manifest.App{{ID: "one", Refs: map[string]string{"windows": "Vendor.One"}}, {ID: "drop", Refs: map[string]string{"windows": "Vendor.Drop"}}}, Exclude: []string{"Vendor.Drop"}, ExcludeConfigs: []string{"apps.drop"}, ConfigModules: []string{"apps.one", "apps.two", "apps.drop"}}, `{}`, catalog)
+		if len(result.Apps) != 1 || len(result.SettingsApps) != 1 || !reflect.DeepEqual(result.SettingsApps[0].ModuleIDs, []string{"one", "two"}) || result.SettingsApps[0].ID != "settings:app:one:1" {
+			t.Fatalf("result=%+v", result)
+		}
+	})
+	t.Run("v2 counts captures and legacy lane", func(t *testing.T) {
+		result := inspect(t, &manifest.Manifest{Version: 2, ConfigCaptures: []manifest.ConfigCapture{{CaptureID: "a", ModuleID: "apps.one", PayloadManifest: []manifest.PayloadManifestEntry{{}, {}}}, {CaptureID: "b", ModuleID: "apps.one", PayloadManifest: []manifest.PayloadManifestEntry{{}}}}, LegacyConfigLanes: []manifest.LegacyConfigLane{{CaptureID: "legacy", ModuleID: "apps.two"}}, Restore: []manifest.RestoreEntry{{LegacyCaptureID: "legacy"}}}, `{}`, nil)
+		if len(result.SettingsApps) != 2 {
+			t.Fatal(result.SettingsApps)
+		}
+		counts := map[string]int{}
+		for _, row := range result.SettingsApps {
+			counts[row.ModuleIDs[0]] = row.CapturedEntryCount
+		}
+		if counts["one"] != 3 || counts["two"] != 1 {
+			t.Fatalf("counts=%v", counts)
+		}
+	})
 }

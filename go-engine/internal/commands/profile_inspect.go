@@ -131,7 +131,7 @@ func inspectProfile(path string, deps profileInspectDeps) (*ProfileInspectResult
 	owned := collectProfileInspectOwnership(mf, metadata)
 	applyProfileInspectExclusions(owned, mf.ExcludeConfigs)
 
-	apps := profileInspectApps(mf.Apps)
+	apps := profileInspectApps(profileInspectExcludedApps(mf.Apps, mf.Exclude))
 	if len(owned) > 0 && deps.loadCatalog != nil {
 		catalog, diagnostics, catalogErr := deps.loadCatalog(config.ResolveRepoRoot())
 		if catalogErr != nil {
@@ -319,6 +319,20 @@ func profileInspectApps(entries []manifest.App) []ProfileInspectApp {
 		apps = append(apps, ProfileInspectApp{ID: fmt.Sprintf("app:%s:%d", key, counts[key]), ManifestAppID: entry.ID, DisplayName: label, PackageRefs: refs})
 	}
 	return apps
+}
+
+func profileInspectExcludedApps(entries []manifest.App, exclusions []string) []manifest.App {
+	excluded := make(map[string]struct{}, len(exclusions))
+	for _, ref := range exclusions {
+		excluded[ref] = struct{}{}
+	}
+	filtered := make([]manifest.App, 0, len(entries))
+	for _, entry := range entries {
+		if _, found := excluded[entry.Refs["windows"]]; !found {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 func profileInspectSettings(owned map[string]*inspectedModule, apps []ProfileInspectApp) []ProfileInspectSettingsApp {
