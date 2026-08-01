@@ -87,7 +87,7 @@
 
 - [x] 10.1 Rebaseline all eight local shards at exact HEAD and preserve the current structured residuals before changing shared harness behavior (362 total, 112 passed, 250 failed).
 - [x] 10.2 Validate every shard row identity, uniqueness, completeness, and result/failure grammar before distinguishing canonical failed-shard evidence from foreign or malformed evidence.
-- [ ] 10.3 Normalize authored tilde paths and route registry verifiers through disposable registry authority before guard/verifier I/O; reject rather than synthesize unsupported wildcard restore semantics.
+- [x] 10.3 Normalize authored tilde paths and route registry verifiers through disposable registry authority before guard/verifier I/O; reject rather than synthesize unsupported wildcard restore semantics.
 - [ ] 10.4 Generate production-matcher-confirmed descendant witnesses for directory excludes; for direct-file captures, prove only whether each glob excludes the exact declared basename and reject an invalid dead capture.
 - [ ] 10.5 Add typed automatic `merge-json` and `merge-ini` state models that independently prove production merge precedence, backup, exact restore, revert, and convergence.
 - [ ] 10.6 Make nonce-scoped validation registry cleanup post-prove absence on every exit and override/augment earlier failures, then add typed `registry-import` state with exact value/type restoration.
