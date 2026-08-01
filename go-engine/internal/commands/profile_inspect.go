@@ -4,7 +4,9 @@
 package commands
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -111,8 +113,15 @@ func inspectProfile(path string, deps profileInspectDeps) (*ProfileInspectResult
 	if deps.verifySnapshot == nil {
 		deps.verifySnapshot = bundle.VerifyModuleSnapshot
 	}
+	if _, err := os.Stat(path); err != nil {
+		return nil, err
+	}
 	if err := deps.preflightIncludes(path); err != nil {
-		return nil, fmt.Errorf("%w: inspect includes: %v", manifest.ErrValidation, err)
+		var includeErr profileInspectIncludeError
+		if errors.As(err, &includeErr) {
+			return nil, fmt.Errorf("%w: %w", manifest.ErrValidation, err)
+		}
+		return nil, err
 	}
 	mf, err := deps.loadManifest(path)
 	if err != nil {
@@ -150,13 +159,17 @@ func inspectProfile(path string, deps profileInspectDeps) (*ProfileInspectResult
 			warnings = append(warnings, profileInspectWarning("PROFILE_INSPECT_SNAPSHOT", "A verified module snapshot could not be read.", "inventory_incomplete"))
 			continue
 		}
+		if fmt.Sprintf("%x", sha256.Sum256(data)) != capture.CaptureModule.ContentHash {
+			warnings = append(warnings, profileInspectWarning("PROFILE_INSPECT_SNAPSHOT", "A saved module snapshot changed after verification.", "inventory_incomplete"))
+			continue
+		}
 		snapshot, err := modules.ParseModuleJSON(data)
 		if err != nil || canonicalProfileInspectModule(snapshot.ID) != module.key || snapshot.EffectiveSchemaVersion() != capture.CaptureModule.SchemaVersion {
 			warnings = append(warnings, profileInspectWarning("PROFILE_INSPECT_SNAPSHOT", "A saved module snapshot does not match its captured provenance.", "inventory_incomplete"))
 			continue
 		}
 		module.snapshotLabel = strings.TrimSpace(snapshot.DisplayName)
-		module.snapshotRefs = sortedProfileInspectStrings(snapshot.Matches.Winget)
+		module.snapshotRefs = sortedProfileInspectStrings(append(module.snapshotRefs, append(snapshot.Matches.Winget, snapshot.Matches.Chocolatey...)...))
 	}
 
 	settings := profileInspectSettings(owned, apps)
@@ -278,7 +291,7 @@ func enrichProfileInspectCatalog(owned map[string]*inspectedModule, catalog map[
 			continue
 		}
 		item.label = strings.TrimSpace(module.DisplayName)
-		item.catalogRefs = sortedProfileInspectStrings(module.Matches.Winget)
+		item.catalogRefs = sortedProfileInspectStrings(append(module.Matches.Winget, module.Matches.Chocolatey...))
 	}
 }
 
@@ -414,12 +427,20 @@ func selectedProfileInspectRefs(item *inspectedModule) []string {
 	return item.catalogRefs
 }
 
+type profileInspectIncludeError struct{ err error }
+
+func (e profileInspectIncludeError) Error() string { return e.err.Error() }
+func (e profileInspectIncludeError) Unwrap() error { return e.err }
+
 func preflightProfileInspectIncludes(rootPath string) error {
-	root, err := filepath.Abs(rootPath)
+	root, err := filepath.EvalSymlinks(rootPath)
 	if err != nil {
 		return err
 	}
-	rootDir := filepath.Dir(root)
+	rootDir, err := filepath.EvalSymlinks(filepath.Dir(root))
+	if err != nil {
+		return err
+	}
 	seen := map[string]bool{}
 	var visit func(string) error
 	visit = func(path string) error {
@@ -440,21 +461,25 @@ func preflightProfileInspectIncludes(rootPath string) error {
 		for _, include := range source.Includes {
 			ext := strings.ToLower(filepath.Ext(include))
 			if filepath.IsAbs(include) || (ext != ".json" && ext != ".jsonc" && ext != ".json5") {
-				return fmt.Errorf("unsupported include %q", include)
+				return profileInspectIncludeError{fmt.Errorf("unsupported include %q", include)}
 			}
 			candidate := filepath.Clean(filepath.Join(filepath.Dir(path), include))
-			relative, err := filepath.Rel(rootDir, candidate)
-			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-				return fmt.Errorf("include escapes root: %q", include)
-			}
-			info, err := os.Stat(candidate)
+			resolved, err := filepath.EvalSymlinks(candidate)
 			if err != nil {
-				return err
+				return profileInspectIncludeError{err}
+			}
+			relative, err := filepath.Rel(rootDir, resolved)
+			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return profileInspectIncludeError{fmt.Errorf("include escapes root: %q", include)}
+			}
+			info, err := os.Stat(resolved)
+			if err != nil {
+				return profileInspectIncludeError{err}
 			}
 			if info.IsDir() {
-				return fmt.Errorf("include is a directory: %q", include)
+				return profileInspectIncludeError{fmt.Errorf("include is a directory: %q", include)}
 			}
-			if err := visit(candidate); err != nil {
+			if err := visit(resolved); err != nil {
 				return err
 			}
 		}
