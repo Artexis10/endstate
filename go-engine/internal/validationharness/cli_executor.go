@@ -6,6 +6,7 @@ package validationharness
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,6 +25,36 @@ const maxCommandOutputBytes = 8 << 20
 type guardTarget struct {
 	Path    string
 	Content string
+}
+
+type registryVerifierFixtureSetupError struct {
+	verifierIndex int
+	verifierKind  string
+	cause         error
+}
+
+func (err *registryVerifierFixtureSetupError) Error() string {
+	return "registry verifier fixture setup failed"
+}
+
+func (err *registryVerifierFixtureSetupError) Unwrap() error {
+	return err.cause
+}
+
+func registryVerifierFixtureSetup(err error) (*registryVerifierFixtureSetupError, bool) {
+	var setup *registryVerifierFixtureSetupError
+	if !errors.As(err, &setup) {
+		return nil, false
+	}
+	return setup, true
+}
+
+func registryVerifierFixtureSetupFailure(err error) *Failure {
+	setup, ok := registryVerifierFixtureSetup(err)
+	if !ok {
+		return nil
+	}
+	return fail(CodeIsolationFailure, "fixture", fmt.Sprintf("verify[%d]", setup.verifierIndex), "registry verifier fixture could not be materialized")
 }
 
 func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
@@ -187,12 +218,12 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			if runtime.RegistryFixture == nil {
 				fixture, err := validationmode.NewRegistryFixture(runtime.validationContext())
 				if err != nil {
-					return fmt.Errorf("verify[%d] registry fixture: %w", index, err)
+					return &registryVerifierFixtureSetupError{verifierIndex: index, verifierKind: verifier.Type, cause: err}
 				}
 				runtime.RegistryFixture = fixture
 			}
 			if err := runtime.RegistryFixture.Materialize(verifier.Path); err != nil {
-				return fmt.Errorf("verify[%d] registry path: %w", index, err)
+				return &registryVerifierFixtureSetupError{verifierIndex: index, verifierKind: verifier.Type, cause: err}
 			}
 		default:
 			return fmt.Errorf("verify[%d] type %q is unsupported by Task 7A", index, verifier.Type)

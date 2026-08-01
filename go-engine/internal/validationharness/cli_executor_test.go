@@ -5,6 +5,8 @@ package validationharness
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +26,41 @@ func TestCaptureArtifactPathUsesCanonicalBundleExtension(t *testing.T) {
 		if got := captureArtifactPath(root, name); got != want {
 			t.Fatalf("captureArtifactPath(%q) = %q, want %q", name, got, want)
 		}
+	}
+}
+
+func TestRegistryVerifierFixtureSetupFailureIsStructuredAndCleansRuntime(t *testing.T) {
+	cause := errors.New("registry access denied")
+	setup := &registryVerifierFixtureSetupError{verifierIndex: 2, verifierKind: "registry-key-exists", cause: cause}
+	wrapped := fmt.Errorf("prepare guards: %w", setup)
+
+	classified, ok := registryVerifierFixtureSetup(wrapped)
+	if !ok || classified != setup || !errors.Is(classified, cause) {
+		t.Fatalf("classified setup = %+v, %v", classified, ok)
+	}
+	if _, ok := registryVerifierFixtureSetup(cause); ok {
+		t.Fatal("raw registry error was classified as a fixture setup failure")
+	}
+	failure := registryVerifierFixtureSetupFailure(wrapped)
+	if failure == nil || failure.Code != CodeIsolationFailure || failure.Phase != "fixture" || failure.Coordinate != "verify[2]" || failure.Detail != "registry verifier fixture could not be materialized" {
+		t.Fatalf("failure = %+v", failure)
+	}
+	cleaned := false
+	failure, setupErr := abandonGuardPreparation(func() error {
+		cleaned = true
+		return nil
+	}, wrapped)
+	if !cleaned || setupErr != nil || failure == nil || failure.Code != CodeIsolationFailure {
+		t.Fatalf("cleanup result = failure:%+v setupErr:%v cleaned:%v", failure, setupErr, cleaned)
+	}
+
+	rawCleaned := false
+	failure, setupErr = abandonGuardPreparation(func() error {
+		rawCleaned = true
+		return nil
+	}, cause)
+	if !rawCleaned || failure != nil || !errors.Is(setupErr, cause) {
+		t.Fatalf("raw setup result = failure:%+v setupErr:%v cleaned:%v", failure, setupErr, rawCleaned)
 	}
 }
 

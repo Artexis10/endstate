@@ -52,6 +52,9 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 		if restore.Type != "copy" || restore.Key != "" {
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "only schema-v1 copy restores are supported")
 		}
+		if strings.ContainsAny(restore.Target, "*?[") {
+			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].target", index), "authored operation does not support wildcard paths")
+		}
 		if !restore.Backup {
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "roundtrip restore must produce revertable backup evidence")
 		}
@@ -65,6 +68,9 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 	result := fixtureDefinitions{}
 	consumedRestore := make(map[int]struct{}, len(mod.Restore))
 	for captureIndex, capture := range mod.Capture.Files {
+		if strings.ContainsAny(capture.Source, "*?[") {
+			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.files[%d].source", captureIndex), "authored operation does not support wildcard paths")
+		}
 		var matches []int
 		for restoreIndex, restore := range mod.Restore {
 			if capture.Source == restore.Target && payloadDestination(restore.Source) == catalogPath(capture.Dest) {
@@ -99,6 +105,13 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 	}
 	if len(consumedRestore) != len(mod.Restore) {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "restore", "every copy restore must be consumed exactly once")
+	}
+	for index, verifier := range mod.Verify {
+		if verifier.Type == "file-exists" && strings.ContainsAny(verifier.Path, "*?[") {
+			// Fixture path semantics use path.Match, where '[' starts a character
+			// class just like '*' and '?', so none can name a concrete fixture.
+			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("verify[%d].path", index), "authored operation does not support wildcard paths")
+		}
 	}
 	return result, nil
 }

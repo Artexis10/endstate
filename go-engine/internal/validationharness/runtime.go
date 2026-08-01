@@ -270,7 +270,7 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		Nonce: nonce, Inventory: inventory,
 	}
 	if err := runtime.prepareGuardsAndTools(); err != nil {
-		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
+		failure, setupErr := abandonGuardPreparation(cleanup, err)
 		return nil, func() error { return nil }, failure, setupErr
 	}
 	if err := runtime.captureIndependentBoundaries(selected.request.RepoRoot, selected.request.EnginePath); err != nil {
@@ -289,6 +289,13 @@ func abandonScenarioRuntime(cleanup func() error, failure *Failure, setupErr err
 		return fail(CodeIsolationFailure, "cleanup", "runtime", "validation-owned cleanup did not complete safely"), nil
 	}
 	return failure, setupErr
+}
+
+func abandonGuardPreparation(cleanup func() error, setupErr error) (*Failure, error) {
+	if failure := registryVerifierFixtureSetupFailure(setupErr); failure != nil {
+		return abandonScenarioRuntime(cleanup, failure, nil)
+	}
+	return abandonScenarioRuntime(cleanup, nil, setupErr)
 }
 
 func randomNonce() (string, error) {

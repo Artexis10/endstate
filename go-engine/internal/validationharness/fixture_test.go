@@ -618,6 +618,49 @@ func TestRoundtripFixtureRejectsRestoreWithoutBackupEvidence(t *testing.T) {
 	}
 }
 
+func TestCompileFixtureDefinitionsRejectsWildcardAuthoredOperationsBeforePlanning(t *testing.T) {
+	repositoryRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := modules.LoadCatalog(filepath.Join(repositoryRoot, "modules", "apps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	betterbird := catalog["apps.betterbird"]
+	if betterbird == nil {
+		t.Fatal("apps.betterbird is absent from catalog")
+	}
+	betterbirdCaptureWildcard := *betterbird
+	betterbirdCaptureWildcard.Restore = append([]modules.RestoreDef(nil), betterbird.Restore...)
+	betterbirdCaptureWildcard.Restore[0].Target = strings.Replace(betterbirdCaptureWildcard.Restore[0].Target, "*.default-release", "default-release", 1)
+	betterbirdCapture := *betterbird.Capture
+	betterbirdCapture.Files = append([]modules.CaptureFile(nil), betterbird.Capture.Files...)
+	betterbirdCapture.Files[0].Source = strings.Replace(betterbirdCapture.Files[0].Source, "*.default-release", "?.default-release", 1)
+	betterbirdCaptureWildcard.Capture = &betterbirdCapture
+	blenderCharacterClass := *catalog["apps.blender"]
+	blenderCharacterClass.Verify = append([]modules.VerifyDef(nil), blenderCharacterClass.Verify...)
+	blenderCharacterClass.Verify[0].Path = strings.Replace(blenderCharacterClass.Verify[0].Path, "Blender*", "Blender[0-9]", 1)
+
+	for _, test := range []struct {
+		name       string
+		module     *modules.Module
+		coordinate string
+	}{
+		{name: "Betterbird restore target", module: betterbird, coordinate: "restore[0].target"},
+		{name: "Betterbird capture source", module: &betterbirdCaptureWildcard, coordinate: "capture.files[0].source"},
+		{name: "Blender file verifier", module: catalog["apps.blender"], coordinate: "verify[0].path"},
+		{name: "Blender file verifier character class", module: &blenderCharacterClass, coordinate: "verify[0].path"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, failure := compileFixtureDefinitions(test.module, fixtureScenario())
+			if failure == nil || failure.Code != CodeUnsupportedFixture || failure.Phase != "fixture" || failure.Coordinate != test.coordinate || failure.Detail != "authored operation does not support wildcard paths" {
+				t.Fatalf("failure = %+v", failure)
+			}
+		})
+	}
+}
+
 func directoryFixtureDefinitions(t *testing.T, mod *modules.Module) (validationmatrix.Scenario, fixtureDefinitions) {
 	t.Helper()
 	scenario := fixtureScenario()
