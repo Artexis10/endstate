@@ -5,11 +5,13 @@ package commands
 
 import (
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/driver"
@@ -310,6 +312,132 @@ func TestProfileInspectOwnershipMatrixPassA(t *testing.T) {
 		}
 		if counts["one"] != 3 || counts["two"] != 1 {
 			t.Fatalf("counts=%v", counts)
+		}
+	})
+}
+
+func TestProfileInspectAcceptanceMatrixPassB(t *testing.T) {
+	t.Run("missing metadata is typed inventory warning", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		_ = os.WriteFile(path, []byte(`{"version":1,"apps":[]}`), 0o644)
+		result, err := inspectProfile(path, profileInspectDeps{loadManifest: func(string) (*manifest.Manifest, error) { return &manifest.Manifest{Version: 1}, nil }, preflightIncludes: func(string) error { return nil }, readFile: func(string) ([]byte, error) { return nil, os.ErrNotExist }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Warnings) == 0 || result.Warnings[0].Code != "PROFILE_INSPECT_METADATA" || result.Warnings[0].Impact != "inventory_incomplete" {
+			t.Fatalf("warnings=%+v", result.Warnings)
+		}
+	})
+	t.Run("malformed metadata warning is ordered with snapshot warning", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		_ = os.WriteFile(path, []byte(`{"version":2,"apps":[]}`), 0o644)
+		capture := manifest.ConfigCapture{CaptureID: "a", ModuleID: "apps.fixture", CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 2, SnapshotPath: "provenance/modules/x.json"}}
+		result, err := inspectProfile(path, profileInspectDeps{loadManifest: func(string) (*manifest.Manifest, error) {
+			return &manifest.Manifest{Version: 2, ConfigCaptures: []manifest.ConfigCapture{capture}}, nil
+		}, preflightIncludes: func(string) error { return nil }, readFile: func(string) ([]byte, error) { return []byte(`{bad`), nil }, verifySnapshot: func(string, manifest.ConfigCapture) error { return errors.New("bad") }})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Warnings) != 2 || result.Warnings[0].Code != "PROFILE_INSPECT_METADATA" || result.Warnings[1].Code != "PROFILE_INSPECT_SNAPSHOT" {
+			t.Fatalf("warnings=%+v", result.Warnings)
+		}
+	})
+	t.Run("recursively inspects contained includes", func(t *testing.T) {
+		dir := t.TempDir()
+		child := filepath.Join(dir, "child.jsonc")
+		root := filepath.Join(dir, "root.jsonc")
+		if err := os.WriteFile(child, []byte(`{"apps":[{"id":"child","refs":{"windows":"Vendor.Child"}}]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(root, []byte(`{"version":1,"apps":[{"id":"root","refs":{"windows":"Vendor.Root"}}],"includes":["child.jsonc"]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result, err := inspectProfile(root, defaultProfileInspectDeps())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(result.Apps) != 2 {
+			t.Fatalf("apps=%+v", result.Apps)
+		}
+	})
+	t.Run("install only has non-null empty inventories", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		if err := os.WriteFile(path, []byte(`{"version":1,"apps":[]}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		result, err := inspectProfile(path, defaultProfileInspectDeps())
+		if err != nil {
+			t.Fatal(err)
+		}
+		data, _ := json.Marshal(result)
+		var raw map[string]json.RawMessage
+		_ = json.Unmarshal(data, &raw)
+		for _, field := range []string{"apps", "settingsApps", "warnings"} {
+			if string(raw[field]) == "null" {
+				t.Fatalf("%s was null: %s", field, data)
+			}
+		}
+	})
+	t.Run("invalid snapshot warns and falls back to catalog", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		_ = os.WriteFile(path, []byte(`{"version":2,"apps":[]}`), 0o644)
+		capture := manifest.ConfigCapture{CaptureID: "a", ModuleID: "apps.fixture", CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 2, SnapshotPath: "provenance/modules/x.json"}}
+		result, err := inspectProfile(path, profileInspectDeps{loadManifest: func(string) (*manifest.Manifest, error) {
+			return &manifest.Manifest{Version: 2, Apps: []manifest.App{{ID: "fixture", Refs: map[string]string{"windows": "Vendor.Fixture"}}}, ConfigCaptures: []manifest.ConfigCapture{capture}}, nil
+		}, preflightIncludes: func(string) error { return nil }, verifySnapshot: func(string, manifest.ConfigCapture) error { return errors.New("bad") }, loadCatalog: func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+			return map[string]*modules.Module{"apps.fixture": {ID: "apps.fixture", Matches: modules.MatchCriteria{Winget: []string{"Vendor.Fixture"}}}}, nil, nil
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.SettingsApps[0].AssociationStatus != "included" || len(result.Warnings) == 0 || result.Warnings[0].Impact != "inventory_incomplete" {
+			t.Fatalf("result=%+v", result)
+		}
+	})
+	t.Run("unions valid snapshot refs", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		_ = os.WriteFile(path, []byte(`{"version":2,"apps":[]}`), 0o644)
+		one := []byte(`{"moduleSchemaVersion":2,"id":"apps.fixture","displayName":"Fixture","sensitivity":"none","matches":{"winget":["Vendor.One"]}}`)
+		two := []byte(`{"moduleSchemaVersion":2,"id":"apps.fixture","displayName":"Fixture","sensitivity":"none","matches":{"chocolatey":["Vendor.Two"]}}`)
+		mk := func(id, p string, b []byte) manifest.ConfigCapture {
+			return manifest.ConfigCapture{CaptureID: id, ModuleID: "apps.fixture", CaptureModule: manifest.CaptureModuleProvenance{SchemaVersion: 2, ContentHash: fmt.Sprintf("%x", sha256.Sum256(b)), SnapshotPath: p}}
+		}
+		captures := []manifest.ConfigCapture{mk("a", "provenance/modules/one.json", one), mk("b", "provenance/modules/two.json", two)}
+		result, err := inspectProfile(path, profileInspectDeps{loadManifest: func(string) (*manifest.Manifest, error) {
+			return &manifest.Manifest{Version: 2, ConfigCaptures: captures}, nil
+		}, preflightIncludes: func(string) error { return nil }, verifySnapshot: func(string, manifest.ConfigCapture) error { return nil }, readFile: func(p string) ([]byte, error) {
+			if filepath.Base(p) == "one.json" {
+				return one, nil
+			}
+			return two, nil
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(result.SettingsApps[0].PackageRefs, []string{"Vendor.One", "Vendor.Two"}) {
+			t.Fatalf("refs=%+v", result.SettingsApps)
+		}
+	})
+	t.Run("metadata warnings timestamps labels json and ordering", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "manifest.jsonc")
+		_ = os.WriteFile(path, []byte(`{"version":1,"apps":[]}`), 0o644)
+		mf := &manifest.Manifest{Version: 1, Captured: "manifest-time", Apps: []manifest.App{{ID: "z-app", Refs: map[string]string{"windows": "Z.Ref"}}, {ID: "a-app", DisplayName: "Alpha"}}, ConfigModules: []string{"apps.zed", "apps.alpha"}}
+		catalog := map[string]*modules.Module{"apps.zed": {ID: "apps.zed", Matches: modules.MatchCriteria{Winget: []string{"Z.Ref"}}}, "apps.alpha": {ID: "apps.alpha", DisplayName: "Catalog Alpha"}}
+		result, err := inspectProfile(path, profileInspectDeps{loadManifest: func(string) (*manifest.Manifest, error) { return mf, nil }, preflightIncludes: func(string) error { return nil }, readFile: func(string) ([]byte, error) { return []byte(`{"capturedAt":"metadata-time"}`), nil }, loadCatalog: func(string) (map[string]*modules.Module, []modules.CatalogDiagnostic, error) {
+			return catalog, nil, nil
+		}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Profile.CapturedAt == nil || *result.Profile.CapturedAt != "manifest-time" || len(result.Warnings) == 0 || result.Apps[0].DisplayName != "Alpha" || result.SettingsApps[0].DisplayName != "Catalog Alpha" {
+			t.Fatalf("result=%+v", result)
+		}
+		data, _ := json.Marshal(result)
+		if !strings.Contains(string(data), `"name":null`) {
+			t.Fatalf("nullable name absent: %s", data)
+		}
+		if result.Summary.AppCount != len(result.Apps) || result.Summary.SettingsRowCount != len(result.SettingsApps) {
+			t.Fatalf("summary=%+v", result.Summary)
 		}
 	})
 }

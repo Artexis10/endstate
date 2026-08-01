@@ -506,7 +506,7 @@ func readProfileInspectMetadata(root string, readFile func(string) ([]byte, erro
 	data, err := readFile(filepath.Join(root, "metadata.json"))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return bundle.BundleMetadata{}, []ProfileInspectWarning{}
+			return bundle.BundleMetadata{}, []ProfileInspectWarning{profileInspectWarning("PROFILE_INSPECT_METADATA", "Profile metadata is missing.", "inventory_incomplete")}
 		}
 		return bundle.BundleMetadata{}, []ProfileInspectWarning{profileInspectWarning("PROFILE_INSPECT_METADATA", "Profile metadata could not be read.", "inventory_incomplete")}
 	}
