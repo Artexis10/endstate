@@ -89,7 +89,7 @@
 - [x] 10.2 Validate every shard row identity, uniqueness, completeness, and result/failure grammar before distinguishing canonical failed-shard evidence from foreign or malformed evidence.
 - [x] 10.3 Normalize authored tilde paths and route registry verifiers through disposable registry authority before guard/verifier I/O; reject rather than synthesize unsupported wildcard restore semantics.
 - [ ] 10.4 Generate production-matcher-confirmed descendant witnesses for directory excludes; for direct-file captures, prove only whether each glob excludes the exact declared basename and reject an invalid dead capture.
-- [ ] 10.5 Add typed automatic `merge-json` and `merge-ini` state models that independently prove production merge precedence, backup, exact restore, revert, and convergence.
+- [x] 10.5 Add typed automatic `merge-json` and `merge-ini` state models that independently prove production merge precedence, backup, exact restore, revert, and convergence.
 - [ ] 10.6 Make nonce-scoped validation registry cleanup post-prove absence on every exit and override/augment earlier failures, then add typed `registry-import` state with exact value/type restoration.
 - [ ] 10.7 Run targeted packages, `go test ./...`, `go vet ./...`, OpenSpec validation, and all eight fresh local shards; require no opaque harness I/O and preserve an exact 362-row residual ledger before spending another hosted run.
 - [x] 10.8 Rebaseline the first production-matched recovery slice across all eight local shards without changing row identity or denominator (362 total, 182 passed, 180 failed; up from 112 passed).

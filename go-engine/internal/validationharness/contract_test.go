@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -87,7 +88,7 @@ func TestSelectDeclaredScenarioRejectsDuplicateAndForeignCatalogObjects(t *testi
 }
 
 func TestCompileFixtureRejectsUnsupportedOperation(t *testing.T) {
-	mod, err := modules.ParseModuleJSON([]byte(strings.Replace(fixtureModuleJSON, `"type":"copy"`, `"type":"merge-json"`, 1)))
+	mod, err := modules.ParseModuleJSON([]byte(strings.Replace(fixtureModuleJSON, `"type":"copy"`, `"type":"append"`, 1)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,6 +120,101 @@ func TestCompileFixtureRejectsUnsupportedOperation(t *testing.T) {
 			t.Fatalf("failure = %+v", failure)
 		}
 	})
+}
+
+func TestCompileFixtureAcceptsTypedFileMerges(t *testing.T) {
+	for _, strategy := range []string{"merge-json", "merge-ini"} {
+		t.Run(strategy, func(t *testing.T) {
+			mod, err := modules.ParseModuleJSON([]byte(strings.Replace(fixtureModuleJSON, `"type":"copy"`, `"type":"`+strategy+`"`, 1)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			definitions, failure := compileFixtureDefinitions(mod, fixtureScenario())
+			if failure != nil {
+				t.Fatal(failure)
+			}
+			if len(definitions.Entries) != 1 || definitions.Entries[0].Kind != fixtureKindFile || definitions.Entries[0].Strategy != strategy {
+				t.Fatalf("definitions = %+v", definitions)
+			}
+		})
+	}
+}
+
+func TestTrackedSchemaV1NonCopyFixturePartition(t *testing.T) {
+	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := validationmatrix.LoadCatalog(repoRoot, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	mergeIDs := map[string]struct{}{
+		"apps.beekeeper-studio": {}, "apps.copyq": {}, "apps.core-temp": {}, "apps.crystaldiskinfo": {}, "apps.drawio-desktop": {},
+		"apps.duckstation": {}, "apps.files": {}, "apps.flameshot": {}, "apps.mkvtoolnix": {}, "apps.nomacs": {}, "apps.pip": {},
+		"apps.smplayer": {}, "apps.wiztree": {},
+	}
+	mergeTargets, copyTargets := 0, 0
+	for id := range mergeIDs {
+		mod, record := catalog.Modules[id], catalog.Records[id]
+		if mod == nil {
+			t.Fatalf("merge module %q is absent", id)
+		}
+		var scenario validationmatrix.Scenario
+		for _, candidate := range record.Synthetic.Scenarios {
+			if candidate.Mode == validationmatrix.ScenarioConfigRoundtripV1 {
+				scenario = candidate
+				break
+			}
+		}
+		definitions, failure := compileFixtureDefinitionsAt(repoRoot, mod, scenario)
+		if failure != nil {
+			t.Fatalf("merge module %q failure = %+v", id, failure)
+		}
+		if len(definitions.Entries) == 0 {
+			t.Fatalf("merge module %q has no file fixture entries", id)
+		}
+		for _, definition := range definitions.Entries {
+			switch definition.Strategy {
+			case "merge-json", "merge-ini":
+				mergeTargets++
+				if definition.Kind != fixtureKindFile {
+					t.Fatalf("merge module %q definition = %+v", id, definition)
+				}
+			case "copy":
+				copyTargets++
+			default:
+				t.Fatalf("merge module %q definition = %+v", id, definition)
+			}
+		}
+	}
+
+	registryFailures := 0
+	for id, mod := range catalog.Modules {
+		if _, merge := mergeIDs[id]; merge || mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 && len(mod.Capture.RegistryValues) == 0 {
+			continue
+		}
+		hasRegistryRestore := false
+		for _, restore := range mod.Restore {
+			hasRegistryRestore = hasRegistryRestore || restore.Type == "registry-import" || restore.Type == "registry-set"
+		}
+		if !hasRegistryRestore {
+			continue
+		}
+		record := catalog.Records[id]
+		for _, scenario := range record.Synthetic.Scenarios {
+			if scenario.Mode != validationmatrix.ScenarioConfigRoundtripV1 {
+				continue
+			}
+			if _, failure := compileFixtureDefinitionsAt(repoRoot, mod, scenario); failure == nil || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "capture.registry" {
+				t.Fatalf("registry module %q failure = %+v", id, failure)
+			}
+			registryFailures++
+		}
+	}
+	if len(mergeIDs) != 13 || mergeTargets != 17 || copyTargets != 15 || registryFailures != 29 {
+		t.Fatalf("non-copy partition = %d modules, %d merge + %d copy targets, %d registry; want 13, 17, 15, 29", len(mergeIDs), mergeTargets, copyTargets, registryFailures)
+	}
 }
 
 func TestAutoFixtureUsesDirectoryForExtensionlessCaptureDestination(t *testing.T) {
@@ -340,7 +436,7 @@ func TestRuntimeForbiddenOutputValuesCoverAuthoritiesArtifactsAndFixtureSentinel
 		filepath.Join(runtime.Root, "state", "backups"), filepath.Join(runtime.Root, "logs"), runtime.Nonce,
 	}
 	for _, target := range runtime.Plan.Targets {
-		required = append(required, target.Resolved, target.PayloadPath, target.Captured, target.Mutated)
+		required = append(required, target.Resolved, target.PayloadPath, target.Captured, target.Mutated, target.Restored)
 		for _, excluded := range append(append(append([]FixtureExcluded(nil), target.CaptureExcluded...), target.RestoreExcluded...), target.OverlappingExcluded...) {
 			required = append(required, excluded.Path, excluded.Captured, excluded.Mutated)
 		}
@@ -357,6 +453,19 @@ func TestRuntimeForbiddenOutputValuesCoverAuthoritiesArtifactsAndFixtureSentinel
 		if leaked([]byte(safe), values...) {
 			t.Fatalf("compact public label produced a false-positive leak: %q", safe)
 		}
+	}
+}
+
+func TestCLIOutputRejectsRestoredFixtureBytes(t *testing.T) {
+	runtime := fixtureScenarioRuntime(t)
+	runtime.Plan.Targets = []FixtureTarget{{Restored: fixtureSentinel(runtime.Module.ID, runtime.Scenario.ID, "capture.files[0]", "restored-only")}}
+	forbidden := runtime.forbiddenOutputValues()
+	value := runtime.Plan.Targets[0].Restored
+	if _, failure := decodeEnvelope([]byte(`{"debug":`+mustContractJSON(t, value)+`}`), "rebuild", runtime.Module.ID, runtime.Scenario.ID, forbidden...); failure == nil || failure.Code != CodeIsolationFailure || failure.Coordinate != "stdout" {
+		t.Fatalf("restored stdout leak failure = %+v", failure)
+	}
+	if _, failure := decodeEvents([]byte(`{"debug":`+mustContractJSON(t, value)+`}\n`), "rebuild", "rebuild-run", forbidden...); failure == nil || failure.Code != CodeIsolationFailure || failure.Coordinate != "stderr" {
+		t.Fatalf("restored stderr leak failure = %+v", failure)
 	}
 }
 
@@ -473,6 +582,42 @@ func TestArtifactConfigPayloadSetRejectsUnexpectedMember(t *testing.T) {
 	entries["configs/fixture/unexpected.json"] = []byte("unexpected")
 	if failure := validateArtifactConfigPayloadSet(runtime, entries); failure == nil || failure.Code != CodeArtifactContract {
 		t.Fatalf("unexpected configs member failure = %+v", failure)
+	}
+}
+
+func TestMergeFixtureStatesBindEachPayloadAndRestoreTarget(t *testing.T) {
+	for _, strategy := range []string{"merge-json", "merge-ini"} {
+		t.Run(strategy, func(t *testing.T) {
+			firstCaptured, firstMutated, firstRestored := fixtureStates("apps.fixture", "default-v1", "capture.files[0]", strategy)
+			secondCaptured, secondMutated, secondRestored := fixtureStates("apps.fixture", "default-v1", "capture.files[1]", strategy)
+			if firstCaptured == secondCaptured || firstMutated == secondMutated || firstRestored == secondRestored {
+				t.Fatalf("same-strategy fixture states are not target-distinct: first=%q/%q/%q second=%q/%q/%q", firstCaptured, firstMutated, firstRestored, secondCaptured, secondMutated, secondRestored)
+			}
+			if strategy == "merge-json" && (!strings.HasSuffix(firstRestored, "\n") || !strings.Contains(firstRestored, "\n  ")) {
+				t.Fatalf("JSON merge oracle lost canonical formatting: %q", firstRestored)
+			}
+			plan := fixtureScenarioRuntime(t).Plan
+			plan.Targets[0].Captured, plan.Targets[0].Mutated, plan.Targets[0].Restored = firstCaptured, firstMutated, firstRestored
+			plan.Targets[1].Captured, plan.Targets[1].Mutated, plan.Targets[1].Restored = secondCaptured, secondMutated, secondRestored
+			if failure := plan.MaterializeCaptured(); failure != nil {
+				t.Fatal(failure)
+			}
+			if err := os.WriteFile(plan.Targets[0].PayloadPath, []byte(secondCaptured), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if failure := plan.CompareCaptured(); failure == nil || failure.Coordinate != "capture.files[0]" {
+				t.Fatalf("swapped capture payload failure = %+v", failure)
+			}
+			if failure := plan.MaterializeRestored(); failure != nil {
+				t.Fatal(failure)
+			}
+			if err := os.WriteFile(plan.Targets[0].PayloadPath, []byte(secondRestored), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if failure := plan.CompareRestored(); failure == nil || failure.Coordinate != "capture.files[0]" {
+				t.Fatalf("swapped restored payload failure = %+v", failure)
+			}
+		})
 	}
 }
 
@@ -851,6 +996,9 @@ func TestRebuildEvidenceRequiresExactIterationOutcomes(t *testing.T) {
 			}
 			payload["restoreItems"] = append(payload["restoreItems"].([]any), item)
 		}
+		payload["apply"].(map[string]any)["configResolutionSummary"] = payload["configResolutionSummary"]
+		payload["apply"].(map[string]any)["configResolutions"] = payload["configResolutions"]
+		payload["apply"].(map[string]any)["restoreItems"] = payload["restoreItems"]
 		raw, _ := json.Marshal(payload)
 		if failure := validateRebuildEvidence(raw, runtime, iteration); failure != nil {
 			t.Fatalf("iteration %d valid evidence rejected: %+v", iteration, failure)
@@ -858,6 +1006,8 @@ func TestRebuildEvidenceRequiresExactIterationOutcomes(t *testing.T) {
 		if iteration == 2 {
 			payload["configResolutionSummary"] = map[string]any{"total": 1, "selected": 1, "skipped": 0, "failed": 0}
 			payload["configResolutions"] = []any{map[string]any{"status": "restored", "resolution": "legacy_unverified", "reason": nil}}
+			payload["apply"].(map[string]any)["configResolutionSummary"] = payload["configResolutionSummary"]
+			payload["apply"].(map[string]any)["configResolutions"] = payload["configResolutions"]
 			invalid, _ := json.Marshal(payload)
 			if failure := validateRebuildEvidence(invalid, runtime, iteration); failure == nil {
 				t.Fatal("selected convergence resolution was accepted for skipped restore items")
@@ -871,12 +1021,90 @@ func TestRebuildEvidenceRequiresExactIterationOutcomes(t *testing.T) {
 			}
 			payload["apply"].(map[string]any)["actions"].([]any)[0].(map[string]any)["reason"] = "already_installed"
 			payload["configResolutions"].([]any)[0].(map[string]any)["resolution"] = "future"
+			payload["apply"].(map[string]any)["configResolutions"] = payload["configResolutions"]
 			invalid, _ = json.Marshal(payload)
 			if failure := validateRebuildEvidence(invalid, runtime, iteration); failure == nil {
 				t.Fatal("unknown config resolution was accepted")
 			}
 		}
 	}
+}
+
+func TestV1RebuildEventsCrossBindTerminalBackupPaths(t *testing.T) {
+	runtime := fixtureScenarioRuntime(t)
+	runtime.Inventory = validationInventory(runtime.Module)
+	backups := make(map[string]string, len(runtime.Plan.Targets))
+	for index, target := range runtime.Plan.Targets {
+		backups[strings.ToLower(target.Authored)] = fmt.Sprintf("$ENDSTATE_ROOT/state/backups/rebuild/item-%d", index)
+	}
+	binding := rebuildEvidenceBinding{BackupsByTarget: backups}
+	events := v1RebuildEventsForTest(runtime, binding, false)
+	if failure := validateV1RebuildEvents(events, runtime, 0, binding); failure != nil {
+		t.Fatalf("valid restore events = %+v", failure)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func([]map[string]any)
+	}{
+		{"foreign path", func(events []map[string]any) { events[3]["backupPath"] = "$ENDSTATE_ROOT/state/backups/foreign/item" }},
+		{"swapped paths", func(events []map[string]any) {
+			events[3]["backupPath"], events[5]["backupPath"] = events[5]["backupPath"], events[3]["backupPath"]
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			candidate := make([]map[string]any, len(events))
+			for index, event := range events {
+				candidate[index] = make(map[string]any, len(event))
+				for key, value := range event {
+					candidate[index][key] = value
+				}
+			}
+			test.mutate(candidate)
+			if failure := validateV1RebuildEvents(candidate, runtime, 0, binding); failure == nil || failure.Coordinate != "restore-item" {
+				t.Fatalf("%s terminal backup accepted: %+v", test.name, failure)
+			}
+		})
+	}
+	if failure := validateV1RebuildEvents(v1RebuildEventsForTest(runtime, rebuildEvidenceBinding{}, true), runtime, 2, rebuildEvidenceBinding{}); failure != nil {
+		t.Fatalf("repeat restore event backup nullability = %+v", failure)
+	}
+}
+
+func v1RebuildEventsForTest(runtime *scenarioRuntime, binding rebuildEvidenceBinding, repeat bool) []map[string]any {
+	events := []map[string]any{
+		{"event": "phase", "phase": "restore"},
+		{"event": "config-resolution"},
+	}
+	for _, target := range runtime.Plan.Targets {
+		start := map[string]any{
+			"event": "restore-item", "module": runtime.Module.ID, "restorer": fixtureStrategy(target),
+			"source": v1RestoreSource(runtime.Module.ID, target.Destination), "target": target.Authored,
+			"status": "restoring", "reason": nil, "backupPath": nil, "targetExisted": true,
+		}
+		terminal := map[string]any{}
+		for key, value := range start {
+			terminal[key] = value
+		}
+		if repeat {
+			terminal["status"], terminal["reason"] = "skipped_up_to_date", "already_up_to_date"
+		} else {
+			terminal["status"], terminal["backupPath"] = "restored", binding.BackupsByTarget[strings.ToLower(target.Authored)]
+		}
+		events = append(events, start, terminal)
+	}
+	success, skipped := len(runtime.Plan.Targets), 0
+	if repeat {
+		success, skipped = 0, len(runtime.Plan.Targets)
+	}
+	events = append(events, map[string]any{"event": "summary", "phase": "restore", "total": json.Number(strconv.Itoa(len(runtime.Plan.Targets))), "success": json.Number(strconv.Itoa(success)), "skipped": json.Number(strconv.Itoa(skipped)), "failed": json.Number("0")})
+	for _, total := range []int{1, 1 + len(runtime.Module.Verify)} {
+		events = append(events,
+			map[string]any{"event": "phase", "phase": "verify"},
+			map[string]any{"event": "item", "id": runtime.Inventory.Ref, "driver": runtime.Inventory.Driver},
+			map[string]any{"event": "summary", "phase": "verify", "total": json.Number(strconv.Itoa(total)), "success": json.Number(strconv.Itoa(total)), "skipped": json.Number("0"), "failed": json.Number("0")},
+		)
+	}
+	return events
 }
 
 func TestRevertEvidenceRequiresJournalAndExactActions(t *testing.T) {

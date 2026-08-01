@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"reflect"
 	"strings"
 )
 
@@ -169,6 +170,10 @@ func validateRebuildEvidence(raw []byte, runtime *scenarioRuntime, iteration int
 	if failure := validateVerifyEvidence(data.Verify, runtime, "rebuild"); failure != nil {
 		return failure
 	}
+	if !reflect.DeepEqual(data.ConfigResolutionSummary, data.Apply.ConfigResolutionSummary) ||
+		!reflect.DeepEqual(data.ConfigResolutions, data.Apply.ConfigResolutions) || !reflect.DeepEqual(data.RestoreItems, data.Apply.RestoreItems) {
+		return fail(CodeEnvelopeContract, "rebuild", "apply", "nested and outer restore evidence differ")
+	}
 	if len(data.ConfigResolutions) != 1 || data.ConfigResolutionSummary.Total != 1 || data.ConfigResolutionSummary.Failed != 0 || len(data.RestoreItems) != len(runtime.Plan.Targets) {
 		return fail(CodeEnvelopeContract, "rebuild", "config", "rebuild config evidence does not cover the exact fixture plan")
 	}
@@ -186,17 +191,24 @@ func validateRebuildEvidence(raw []byte, runtime *scenarioRuntime, iteration int
 		return fail(CodeEnvelopeContract, "rebuild", "configResolutions", "config resolution differs from the schema-v1 legacy contract")
 	}
 
-	expected := make(map[string]string, len(runtime.Plan.Targets))
+	type expectedRestore struct {
+		source   string
+		strategy string
+	}
+	expected := make(map[string]expectedRestore, len(runtime.Plan.Targets))
 	for _, target := range runtime.Plan.Targets {
-		expected[strings.ToLower(target.Authored)] = v1RestoreSource(runtime.Module.ID, target.Destination)
+		expected[strings.ToLower(target.Authored)] = expectedRestore{source: v1RestoreSource(runtime.Module.ID, target.Destination), strategy: fixtureStrategy(target)}
 	}
 	for _, item := range data.RestoreItems {
-		source, ok := expected[strings.ToLower(item.Target)]
-		copyType := item.RestoreType == "" || item.RestoreType == "copy"
-		if !ok || filepath.ToSlash(item.Source) != source || !copyType || !item.TargetExistedBefore {
+		expectedItem, ok := expected[strings.ToLower(item.Target)]
+		restoreType := item.RestoreType
+		if restoreType == "" {
+			restoreType = "copy"
+		}
+		if !ok || filepath.ToSlash(item.Source) != expectedItem.source || restoreType != expectedItem.strategy || !item.TargetExistedBefore {
 			return fail(CodeEnvelopeContract, "rebuild", "restoreItems", fmt.Sprintf(
 				"restore item attribution differs: targetKnown=%t sourceMatches=%t type=%q targetExisted=%t",
-				ok, filepath.ToSlash(item.Source) == source, item.RestoreType, item.TargetExistedBefore))
+				ok, filepath.ToSlash(item.Source) == expectedItem.source, item.RestoreType, item.TargetExistedBefore))
 		}
 		delete(expected, strings.ToLower(item.Target))
 		if repeat {
@@ -211,6 +223,74 @@ func validateRebuildEvidence(raw []byte, runtime *scenarioRuntime, iteration int
 	}
 	if len(expected) != 0 {
 		return fail(CodeEnvelopeContract, "rebuild", "restoreItems", "restore item multiset omitted a fixture target")
+	}
+	return nil
+}
+
+func validateV1RebuildEvents(events []map[string]any, runtime *scenarioRuntime, iteration int, binding rebuildEvidenceBinding) *Failure {
+	if runtime == nil || runtime.Module == nil || runtime.Plan == nil {
+		return fail(CodeEventContract, "rebuild", "events", "schema-v1 event authority is absent")
+	}
+	start, end := -1, -1
+	for index, event := range events {
+		if event["event"] == "phase" && event["phase"] == "restore" {
+			start = index
+		}
+		if start >= 0 && event["event"] == "summary" && event["phase"] == "restore" {
+			end = index
+			break
+		}
+	}
+	if start < 0 || end < 0 {
+		return fail(CodeEventContract, "rebuild", "restore", "schema-v1 restore event segment is absent")
+	}
+	repeat := iteration == 2
+	perTarget := 2
+	segment := events[start : end+1]
+	wantCount := 3 + len(runtime.Plan.Targets)*perTarget
+	if len(segment) != wantCount || segment[0]["event"] != "phase" || segment[1]["event"] != "config-resolution" {
+		return fail(CodeEventContract, "rebuild", "restore", fmt.Sprintf("schema-v1 restore event segment differs: got=%d want=%d", len(segment), wantCount))
+	}
+	expected := make(map[string]FixtureTarget, len(runtime.Plan.Targets))
+	for _, target := range runtime.Plan.Targets {
+		expected[strings.ToLower(target.Authored)] = target
+	}
+	for index := 2; index < len(segment)-1; {
+		event := segment[index]
+		if event["event"] != "restore-item" {
+			return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 restore item event is absent")
+		}
+		targetText := restoreEventString(event["target"])
+		target, ok := expected[strings.ToLower(targetText)]
+		if !ok || event["module"] != runtime.Module.ID || event["restorer"] != fixtureStrategy(target) ||
+			filepath.ToSlash(restoreEventString(event["source"])) != v1RestoreSource(runtime.Module.ID, target.Destination) || event["targetExisted"] != true {
+			return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 restore item attribution differs")
+		}
+		if event["status"] != "restoring" || event["reason"] != nil || event["backupPath"] != nil || index+1 >= len(segment)-1 {
+			return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 restoring event differs")
+		}
+		terminal := segment[index+1]
+		backup, backupOK := terminal["backupPath"].(string)
+		expectedBackup, backupBound := binding.BackupsByTarget[strings.ToLower(target.Authored)]
+		if terminal["event"] != "restore-item" || terminal["module"] != runtime.Module.ID || terminal["restorer"] != fixtureStrategy(target) ||
+			filepath.ToSlash(restoreEventString(terminal["source"])) != v1RestoreSource(runtime.Module.ID, target.Destination) || terminal["target"] != target.Authored ||
+			terminal["targetExisted"] != true || (!repeat && (terminal["status"] != "restored" || terminal["reason"] != nil || !backupOK || strings.TrimSpace(backup) == "" || !backupBound || backup != expectedBackup)) ||
+			(repeat && (terminal["status"] != "skipped_up_to_date" || terminal["reason"] != "already_up_to_date" || terminal["backupPath"] != nil)) {
+			return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 terminal restore event differs")
+		}
+		delete(expected, strings.ToLower(targetText))
+		index += 2
+	}
+	if len(expected) != 0 {
+		return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 restore event multiset omitted a target")
+	}
+	summary := segment[len(segment)-1]
+	success, skipped := len(runtime.Plan.Targets), 0
+	if repeat {
+		success, skipped = 0, len(runtime.Plan.Targets)
+	}
+	if !v2SummaryEventExact(summary, "restore", len(runtime.Plan.Targets), success, skipped, 0) {
+		return fail(CodeEventContract, "rebuild", "restore.summary", "schema-v1 restore summary differs")
 	}
 	return nil
 }

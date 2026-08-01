@@ -242,6 +242,10 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 	var results []RestoreResult
 
 	for _, entry := range entries {
+		strategyType := entry.Type
+		if strategyType == "" {
+			strategyType = "copy"
+		}
 		id := generateID(entry)
 		boundary := legacyValidationBoundary{context: opts.ValidationContext, backupDir: opts.BackupDir}
 
@@ -408,6 +412,9 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 				Target: target,
 				Status: "skipped_missing_source",
 			}
+			if strategyType != "copy" {
+				r.RestoreType = strategyType
+			}
 			projected := projectValidationRestoreResult(&r, entry, opts)
 			emitRestoreItemEvent(emitter, entry, *projected)
 			results = append(results, *projected)
@@ -428,11 +435,6 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 
 		var result *RestoreResult
 		var err error
-
-		strategyType := entry.Type
-		if strategyType == "" {
-			strategyType = "copy"
-		}
 
 		switch strategyType {
 		case "copy":
@@ -472,6 +474,9 @@ func RunRestore(entries []RestoreAction, opts RestoreOptions, emitter *events.Em
 			result.Target = target
 		}
 		result.TargetExistedBefore = targetExisted
+		if strategyType != "copy" {
+			result.RestoreType = strategyType
+		}
 
 		// Merge warnings.
 		result.Warnings = append(warnings, result.Warnings...)

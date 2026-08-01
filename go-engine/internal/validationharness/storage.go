@@ -306,15 +306,18 @@ func newRestoreJournal(runtime *scenarioRuntime, before, after rebuildStorageSna
 }
 
 func validateJournalEntries(runtime *scenarioRuntime, journal *restore.Journal, binding rebuildEvidenceBinding, repeat bool) *Failure {
-	expected := make(map[string]struct{}, len(runtime.Plan.Targets))
+	expected := make(map[string]string, len(runtime.Plan.Targets))
 	for _, target := range runtime.Plan.Targets {
-		expected[strings.ToLower(target.Authored)] = struct{}{}
+		expected[strings.ToLower(target.Authored)] = fixtureStrategy(target)
 	}
 	for _, entry := range journal.Entries {
 		key := strings.ToLower(entry.TargetPath)
-		_, known := expected[key]
-		copyType := entry.RestoreType == "" || entry.RestoreType == "copy"
-		common := known && entry.ResolvedSourcePath == binding.SourcesByTarget[key] && entry.TargetExistedBefore && entry.Error == "" && copyType
+		strategy, known := expected[key]
+		restoreType := entry.RestoreType
+		if restoreType == "" {
+			restoreType = "copy"
+		}
+		common := known && entry.ResolvedSourcePath == binding.SourcesByTarget[key] && entry.TargetExistedBefore && entry.Error == "" && restoreType == strategy
 		restored := !repeat && entry.BackupRequested && entry.BackupCreated && entry.BackupPath == binding.BackupsByTarget[key] && entry.Action == "restored"
 		converged := repeat && !entry.BackupRequested && !entry.BackupCreated && entry.BackupPath == "" && entry.Action == "skipped_up_to_date"
 		if !common || !restored && !converged {

@@ -32,8 +32,10 @@ type FixtureTarget struct {
 	Destination         string
 	Resolved            string
 	PayloadPath         string
+	Strategy            string
 	Captured            string
 	Mutated             string
+	Restored            string
 	Directory           bool
 	Optional            bool
 	CaptureExcluded     []FixtureExcluded
@@ -105,12 +107,12 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 		if directory {
 			payloadPath = filepath.Join(resolved, fixturePayloadName)
 		}
+		captured, mutated, restored := fixtureStates(mod.ID, scenario.ID, definition.Coordinate, definition.Strategy)
 		target := FixtureTarget{
 			Coordinate: definition.Coordinate, Authored: definition.Target, Resolved: resolved,
 			Destination: definition.Destination,
-			PayloadPath: payloadPath, Directory: directory, Optional: definition.Optional,
-			Captured: fixtureSentinel(mod.ID, scenario.ID, definition.Coordinate, "captured"),
-			Mutated:  fixtureSentinel(mod.ID, scenario.ID, definition.Coordinate, "mutated"),
+			PayloadPath: payloadPath, Directory: directory, Optional: definition.Optional, Strategy: definition.Strategy,
+			Captured: captured, Mutated: mutated, Restored: restored,
 		}
 		if directory {
 			restoreWitnesses, ok := excludedFixtureRelatives(definition.TargetExclude)
@@ -182,6 +184,34 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 		return nil, failure
 	}
 	return plan, nil
+}
+
+func fixtureStates(moduleID, scenarioID, coordinate, strategy string) (captured, mutated, restored string) {
+	sourceValue, targetValue := "", ""
+	if strategy == "merge-json" || strategy == "merge-ini" {
+		target := fixtureSentinel(moduleID, scenarioID, coordinate, "merge-target")
+		sourceValue, targetValue = "source-"+target, "target-"+target
+	}
+	switch strategy {
+	case "merge-json":
+		return fmt.Sprintf(`{"array":["%s"],"nested":{"sourceOnly":"%s","shared":"%s"},"sourceOnly":"%s"}`, sourceValue, sourceValue, sourceValue, sourceValue),
+			fmt.Sprintf(`{"array":["%s"],"nested":{"shared":"%s","targetOnly":"%s"},"targetOnly":"%s"}`, targetValue, targetValue, targetValue, targetValue),
+			fmt.Sprintf("{\n  \"array\": [\n    \"%s\"\n  ],\n  \"nested\": {\n    \"shared\": \"%s\",\n    \"sourceOnly\": \"%s\",\n    \"targetOnly\": \"%s\"\n  },\n  \"sourceOnly\": \"%s\",\n  \"targetOnly\": \"%s\"\n}\n", sourceValue, sourceValue, sourceValue, targetValue, sourceValue, targetValue)
+	case "merge-ini":
+		return fmt.Sprintf("global=%s\n\n[shared]\nsourceOnly=%s\nshared=%s\n\n[source]\nkey=%s", sourceValue, sourceValue, sourceValue, sourceValue),
+			fmt.Sprintf("global=%s\ntargetGlobal=%s\n\n[shared]\nshared=%s\ntargetOnly=%s\n\n[target]\nkey=%s", targetValue, targetValue, targetValue, targetValue, targetValue),
+			fmt.Sprintf("global=%s\ntargetGlobal=%s\n\n[shared]\nshared=%s\nsourceOnly=%s\ntargetOnly=%s\n\n[source]\nkey=%s\n\n[target]\nkey=%s", sourceValue, targetValue, sourceValue, sourceValue, targetValue, sourceValue, targetValue)
+	default:
+		captured = fixtureSentinel(moduleID, scenarioID, coordinate, "captured")
+		return captured, fixtureSentinel(moduleID, scenarioID, coordinate, "mutated"), captured
+	}
+}
+
+func fixtureStrategy(target FixtureTarget) string {
+	if target.Strategy == "" {
+		return "copy"
+	}
+	return target.Strategy
 }
 
 func fixtureTargetRootsOverlap(first, second string) bool {
@@ -343,7 +373,7 @@ func (plan *FixturePlan) MaterializeCaptured() *Failure {
 
 func (plan *FixturePlan) MaterializeRestored() *Failure {
 	for index := range plan.Targets {
-		if failure := plan.materialize(&plan.Targets[index], plan.Targets[index].Captured, false); failure != nil {
+		if failure := plan.materialize(&plan.Targets[index], plan.Targets[index].Restored, false); failure != nil {
 			return failure
 		}
 	}
@@ -427,18 +457,20 @@ func (plan *FixturePlan) materialize(target *FixtureTarget, content string, incl
 	return nil
 }
 
-func (plan *FixturePlan) CompareCaptureSeed() *Failure { return plan.compare(true, true) }
+func (plan *FixturePlan) CompareCaptureSeed() *Failure { return plan.compare("captured", true) }
 
-func (plan *FixturePlan) CompareCaptured() *Failure { return plan.compare(true, false) }
+func (plan *FixturePlan) CompareCaptured() *Failure { return plan.compare("captured", false) }
 
-func (plan *FixturePlan) CompareMutated() *Failure { return plan.compare(false, false) }
+func (plan *FixturePlan) CompareRestored() *Failure { return plan.compare("restored", false) }
+
+func (plan *FixturePlan) CompareMutated() *Failure { return plan.compare("mutated", false) }
 
 type expectedFixtureEntry struct {
 	Directory bool
 	Content   string
 }
 
-func (plan *FixturePlan) compare(captured, includeExcluded bool) *Failure {
+func (plan *FixturePlan) compare(state string, includeExcluded bool) *Failure {
 	for _, target := range plan.Targets {
 		if err := plan.context.ValidateSandboxPath(target.Resolved); err != nil {
 			return fail(CodeIsolationFailure, "fixture", target.Coordinate, "fixture target left validation authority before comparison")
@@ -448,8 +480,10 @@ func (plan *FixturePlan) compare(captured, includeExcluded bool) *Failure {
 			return fail(CodeContentMismatch, "fixture", target.Coordinate, "fixture root changed type before comparison")
 		}
 		want := target.Mutated
-		if captured {
+		if state == "captured" {
 			want = target.Captured
+		} else if state == "restored" {
+			want = target.Restored
 		}
 		expected := map[string]expectedFixtureEntry{".": {Directory: target.Directory}}
 		if target.Directory {

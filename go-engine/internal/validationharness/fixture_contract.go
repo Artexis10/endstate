@@ -35,6 +35,7 @@ type fixtureDefinition struct {
 	GlobalExclude []string
 	TargetExclude []string
 	Kind          fixtureKind
+	Strategy      string
 }
 
 type fixtureDefinitions struct {
@@ -48,9 +49,13 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 	if scenario.Fixture.Type != validationmatrix.FixtureAuto && scenario.Fixture.Type != validationmatrix.FixtureDeclarative {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "fixture.type", "fixture type is unsupported")
 	}
+	if mod.Capture == nil || len(mod.Capture.RegistryKeys) > 0 || len(mod.Capture.RegistryValues) > 0 {
+		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registry", "schema-v1 merge fixtures do not support registry capture")
+	}
 	for index, restore := range mod.Restore {
-		if restore.Type != "copy" || restore.Key != "" {
-			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "only schema-v1 copy restores are supported")
+		if restore.Type != "copy" && restore.Type != "merge-json" && restore.Type != "merge-ini" ||
+			restore.Key != "" || restore.ValueName != "" || restore.ValueType != "" || restore.Data != "" || restore.Pattern != "" || restore.Reason != "" {
+			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "only file copy, merge-json, and merge-ini restores are supported")
 		}
 		if strings.ContainsAny(restore.Target, "*?[") {
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].target", index), "authored operation does not support wildcard paths")
@@ -59,11 +64,8 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "roundtrip restore must produce revertable backup evidence")
 		}
 	}
-	if mod.Capture == nil || len(mod.Capture.Files) == 0 || len(mod.Restore) == 0 {
+	if len(mod.Capture.Files) == 0 || len(mod.Restore) == 0 {
 		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "operations", "roundtrip fixture has no executable file operations")
-	}
-	if len(mod.Capture.RegistryKeys) > 0 || len(mod.Capture.RegistryValues) > 0 {
-		return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registry", "Task 7A does not support registry capture fixtures")
 	}
 	result := fixtureDefinitions{}
 	consumedRestore := make(map[int]struct{}, len(mod.Restore))
@@ -91,7 +93,7 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 		// representative directory. This does not claim the production target's
 		// live filesystem type; type-sensitive cases require a hash-bound
 		// declarative fixture.
-		if scenario.Fixture.Type == validationmatrix.FixtureAuto && path.Ext(path.Base(catalogPath(capture.Dest))) == "" {
+		if scenario.Fixture.Type == validationmatrix.FixtureAuto && restore.Type == "copy" && path.Ext(path.Base(catalogPath(capture.Dest))) == "" {
 			kind = fixtureKindDirectory
 		}
 		result.Entries = append(result.Entries, fixtureDefinition{
@@ -101,6 +103,7 @@ func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Sc
 			GlobalExclude: append([]string(nil), mod.Capture.ExcludeGlobs...),
 			TargetExclude: append([]string(nil), restore.Exclude...),
 			Kind:          kind,
+			Strategy:      restore.Type,
 		})
 	}
 	if len(consumedRestore) != len(mod.Restore) {
@@ -179,6 +182,9 @@ func compileFixtureDefinitionsAt(repoRoot string, mod *modules.Module, scenario 
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", definitions.Entries[index].Coordinate, "declarative fixture coordinate is absent")
 		}
 		definitions.Entries[index].Kind = kind
+		if definitions.Entries[index].Strategy != "copy" && kind != fixtureKindFile {
+			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", definitions.Entries[index].Coordinate, "merge restores require a file fixture kind")
+		}
 		delete(byCoordinate, definitions.Entries[index].Coordinate)
 	}
 	if len(byCoordinate) != 0 {

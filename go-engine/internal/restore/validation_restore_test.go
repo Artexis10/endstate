@@ -105,6 +105,23 @@ func TestValidationRestoreCopyJournalAndDurableRevertStaySemantic(t *testing.T) 
 	assertNoLegacyValidationIdentity(t, context, string(prepared))
 }
 
+func TestRunRestorePreservesMergeStrategyForOptionalMissingSource(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "merge-optional")
+	manifestDir := filepath.Join(context.Root(), "manifests")
+	if err := os.MkdirAll(manifestDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	results, err := RunRestore([]RestoreAction{{
+		Type: "merge-json", Source: "payload/missing.json", Target: `%APPDATA%\Vendor\settings.json`, Optional: true,
+	}}, RestoreOptions{ManifestDir: manifestDir, ValidationContext: context}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Status != "skipped_missing_source" || results[0].RestoreType != "merge-json" {
+		t.Fatalf("optional merge result = %+v", results)
+	}
+}
+
 func TestValidationDurableRevertRejectsOutsideJournalTargetBeforeMutation(t *testing.T) {
 	context, originalAppData := activeLegacyRestoreValidationContext(t, "legacy-tamper")
 	originalTarget := filepath.Join(originalAppData, "Vendor", "outside.txt")

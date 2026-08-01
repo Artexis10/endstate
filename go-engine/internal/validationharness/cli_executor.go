@@ -625,12 +625,22 @@ func (executor *cliJourneyExecutor) Rebuild(ctx context.Context, runtime *scenar
 	if failure := validateRebuildEvidence(output.Envelope.Data, runtime, iteration); failure != nil {
 		return failure
 	}
-	binding, _, failure := validateRebuildStorageEvidence(runtime, output.Envelope.Data, iteration, storageBefore)
+	binding, err := rebuildBindingFromEvidence(output.Envelope.Data)
+	if err != nil {
+		return fail(CodeEnvelopeContract, "rebuild", "restoreItems", "rebuild backup attribution is malformed")
+	}
+	if failure := validateV1RebuildEvents(output.Events, runtime, iteration, binding); failure != nil {
+		return failure
+	}
+	binding, _, failure = validateRebuildStorageEvidence(runtime, output.Envelope.Data, iteration, storageBefore)
 	if failure != nil {
 		return failure
 	}
 	if iteration == 0 {
 		executor.firstRebuild = binding
+	}
+	if _, failure := inspectCaptureArtifact(runtime, evidence.ArtifactPath); failure != nil {
+		return failure
 	}
 	executor.rebuildIteration++
 	return nil

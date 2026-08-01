@@ -12,6 +12,9 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
+
+	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 )
 
 func TestRunFreshBuiltEngineTrackedNotepadDefaultV1(t *testing.T) {
@@ -51,6 +54,90 @@ func TestRunFreshBuiltEngineTrackedNotepadDefaultV1(t *testing.T) {
 	}
 	if persisted.Status != ResultStatusPassed || persisted.ModuleRevision == "" || len(persisted.ProofLevels) != 3 {
 		t.Fatalf("persisted result = %+v", persisted)
+	}
+}
+
+func TestRunFreshBuiltEngineTrackedSchemaV1FileMerges(t *testing.T) {
+	engineRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := filepath.Dir(engineRoot)
+	catalog, err := validationmatrix.LoadCatalog(repoRoot, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	buildRoot := t.TempDir()
+	engine := filepath.Join(buildRoot, "endstate.exe")
+	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
+	build.Dir = engineRoot
+	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
+		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build engine: %v\n%s", err, output)
+	}
+	rows := []string{"apps.beekeeper-studio", "apps.copyq", "apps.core-temp", "apps.crystaldiskinfo", "apps.drawio-desktop", "apps.duckstation", "apps.files", "apps.flameshot", "apps.mkvtoolnix", "apps.nomacs", "apps.pip", "apps.smplayer", "apps.wiztree"}
+	targets := map[string]int{}
+	total := 0
+	for _, moduleID := range rows {
+		mod, record := catalog.Modules[moduleID], catalog.Records[moduleID]
+		var scenario validationmatrix.Scenario
+		for _, candidate := range record.Synthetic.Scenarios {
+			if candidate.ID == "default-v1" {
+				scenario = candidate
+				break
+			}
+		}
+		definitions, failure := compileFixtureDefinitionsAt(repoRoot, mod, scenario)
+		if failure != nil {
+			t.Fatalf("compile %s: %+v", moduleID, failure)
+		}
+		targets[moduleID] = len(definitions.Entries)
+		total += len(definitions.Entries)
+	}
+	if total != 32 {
+		t.Fatalf("merge target total = %d, want 32", total)
+	}
+	for _, moduleID := range rows {
+		moduleID := moduleID
+		t.Run(moduleID, func(t *testing.T) {
+			targetCount := targets[moduleID]
+			result, err := Run(context.Background(), Request{
+				EnginePath: engine, RepoRoot: repoRoot, ModuleID: moduleID, ScenarioID: "default-v1",
+				ResultPath: filepath.Join(t.TempDir(), moduleID+".json"),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if moduleID == "apps.pip" {
+				if result.Status != ResultStatusFailed || result.Failure == nil || result.Failure.Code != CodeArtifactContract || result.Failure.Phase != "capture" || result.Failure.Coordinate != "configs" || result.Failure.Detail != "capture ZIP omits an expected config payload" {
+					t.Fatalf("pip result = %+v", result)
+				}
+				return
+			}
+			if result.Status != ResultStatusPassed || result.Failure != nil {
+				t.Fatalf("failure = %+v; counts=%v", result.Failure, result.AssertionCounts)
+			}
+			want := map[string]int{"captured": targetCount, "payload": targetCount, "rewrittenRestore": targetCount,
+				"content": 3 * targetCount, "provenance": 1, "rebuild": 3, "nestedSummary": 3, "revert": 1, "verify": 2}
+			if len(result.AssertionCounts) != len(want) {
+				t.Fatalf("counts = %v, want %v", result.AssertionCounts, want)
+			}
+			for name, count := range want {
+				if result.AssertionCounts[name] != count {
+					t.Fatalf("counts = %v, want %v", result.AssertionCounts, want)
+				}
+			}
+			wantProof := []string{"catalog", "engine-contract", "config-roundtrip-v1"}
+			if len(result.ProofLevels) != len(wantProof) {
+				t.Fatalf("proof levels = %v", result.ProofLevels)
+			}
+			for index, proof := range wantProof {
+				if string(result.ProofLevels[index]) != proof {
+					t.Fatalf("proof levels = %v", result.ProofLevels)
+				}
+			}
+		})
 	}
 }
 

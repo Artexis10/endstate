@@ -80,7 +80,7 @@ func (runtime *scenarioRuntime) forbiddenOutputValues() []string {
 	}
 	if runtime.Plan != nil {
 		for _, target := range runtime.Plan.Targets {
-			for _, value := range []string{target.Resolved, target.PayloadPath, target.Captured, target.Mutated} {
+			for _, value := range []string{target.Resolved, target.PayloadPath, target.Captured, target.Mutated, target.Restored} {
 				add(value)
 			}
 			all := append(append(append([]FixtureExcluded(nil), target.CaptureExcluded...), target.RestoreExcluded...), target.OverlappingExcluded...)
@@ -211,7 +211,7 @@ func executeJourney(ctx context.Context, runtime *scenarioRuntime, executor jour
 		if failure := timed(phase, func() *Failure { return executor.Rebuild(ctx, runtime, evidence) }); failure != nil {
 			return failResult(failure)
 		}
-		if failure := runtime.Plan.CompareCaptured(); failure != nil {
+		if failure := runtime.Plan.CompareRestored(); failure != nil {
 			return failResult(failure)
 		}
 		result.AssertionCounts[validationmatrix.AssertionContent] += len(runtime.Plan.Targets)
