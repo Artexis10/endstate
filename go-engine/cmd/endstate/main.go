@@ -96,6 +96,7 @@ Subcommands:
   profile list         List discovered profiles
   profile path <name>  Resolve profile path
   profile validate <p> Validate a profile manifest
+  profile inspect <manifest-path>  Inspect an extracted manifest without machine evaluation
   backup signup        Create Hosted Backup account (passphrase via stdin)
   backup login         Sign in to Hosted Backup (passphrase via stdin)
   backup logout        Clear cached Hosted Backup session
@@ -453,7 +454,7 @@ func commandUsage(cmd string) string {
 	case "doctor":
 		return "Usage: endstate doctor [--json]\n\nRun system diagnostics.\n"
 	case "profile":
-		return "Usage: endstate profile <subcommand> [args] [--json]\n\nSubcommands:\n  list              List discovered profiles\n  path <name>       Resolve profile path from name\n  validate <path>   Validate a profile manifest\n"
+		return "Usage: endstate profile <subcommand> [args] [--json]\n\nSubcommands:\n  list              List discovered profiles\n  path <name>       Resolve profile path from name\n  validate <path>   Validate a profile manifest\n  inspect <manifest-path>  Inspect an extracted manifest read-only, without machine evaluation\n"
 	case "backup":
 		return "Usage: endstate backup <subcommand> [flags] [--json] [--events jsonl]\n\nSubcommands:\n  signup --email <addr> --save-recovery-to <path>\n                              Create account (passphrase + optional 24-word phrase via stdin)\n  claim --token <token> --save-recovery-to <path>\n                              Attach credentials to a pre-account using the bearer claim token\n                              from the buyer's purchase email (passphrase via stdin).\n                              Replaces any existing local session on success.\n  login --email <addr>          Sign in (passphrase via stdin)\n  logout                        Clear local session\n  status                        Report current session state\n  subscribe                     Start a Hosted Backup subscription checkout (returns checkoutUrl for the GUI to open)\n  browser-session               Mint a 60s /account portal handoff token (returns sessionToken + accountUrl for the GUI to open)\n  push --profile <path> [--backup-id <id>] [--name <label>]\n                              Encrypt and upload a profile\n  pull --backup-id <id> --to <path> [--version-id <id>] [--overwrite]\n                              Download and restore a profile\n  list                          List backups\n  versions --backup-id <id>     List versions of a backup\n  delete --backup-id <id> --confirm\n                              Permanently delete a backup\n  delete-version --backup-id <id> --version-id <id> --confirm\n                              Soft-delete a backup version\n  recover --email <addr>        Reset passphrase using recovery phrase (stdin: phrase, then new passphrase)\n\nEnv vars:\n  ENDSTATE_OIDC_ISSUER_URL    Backend issuer URL (default: https://substratesystems.io)\n  ENDSTATE_OIDC_AUDIENCE      JWT audience (default: endstate-backup)\n  ENDSTATE_BACKUP_CONCURRENCY Worker pool size for chunk transfer (default 4, clamp 1..16)\n"
 	case "account":
@@ -751,6 +752,7 @@ func replaceFold(value, old, replacement string) string {
 var (
 	runCaptureFn = commands.RunCapture
 	runRebuildFn = commands.RunRebuild
+	runProfileFn = commands.RunProfile
 )
 
 func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
@@ -900,7 +902,7 @@ func dispatch(p parsedArgs) (interface{}, *envelope.Error) {
 			subcommand = p.positionalArgs[0]
 			subArgs = p.positionalArgs[1:]
 		}
-		return commands.RunProfile(commands.ProfileFlags{
+		return runProfileFn(commands.ProfileFlags{
 			Subcommand: subcommand,
 			Args:       subArgs,
 			Events:     p.events,

@@ -822,3 +822,31 @@ func TestDispatch_ForwardsRebuildBootstrapFlags(t *testing.T) {
 		t.Fatalf("forwarded rebuild flags = %+v", captured)
 	}
 }
+
+func TestProfileInspectParsingAndHelp(t *testing.T) {
+	orig := runProfileFn
+	defer func() { runProfileFn = orig }()
+	var forwarded commands.ProfileFlags
+	runProfileFn = func(flags commands.ProfileFlags) (interface{}, *envelope.Error) {
+		forwarded = flags
+		return struct{}{}, nil
+	}
+
+	parsed := parseArgs([]string{"profile", "inspect", "fixture.jsonc", "--json"})
+	if !parsed.jsonMode || !reflect.DeepEqual(parsed.positionalArgs, []string{"inspect", "fixture.jsonc"}) {
+		t.Fatalf("parsed profile inspect = %+v", parsed)
+	}
+	if _, err := dispatch(parsed); err != nil {
+		t.Fatalf("dispatch error = %v", err)
+	}
+	if forwarded.Subcommand != "inspect" || !reflect.DeepEqual(forwarded.Args, []string{"fixture.jsonc"}) {
+		t.Fatalf("forwarded profile flags = %+v", forwarded)
+	}
+	if !strings.Contains(usageText, "profile inspect <manifest-path>") {
+		t.Fatalf("top-level help does not advertise profile inspect: %s", usageText)
+	}
+	usage := commandUsage("profile")
+	if !strings.Contains(usage, "inspect <manifest-path>") || !strings.Contains(usage, "extracted") {
+		t.Fatalf("profile help does not describe extracted inspection: %s", usage)
+	}
+}

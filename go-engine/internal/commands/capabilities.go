@@ -41,13 +41,14 @@ type CommandInfo struct {
 
 // FeaturesInfo is the features capability map returned in the capabilities response.
 type FeaturesInfo struct {
-	Streaming       bool                `json:"streaming"`
-	ParallelInstall bool                `json:"parallelInstall"`
-	ConfigModules   bool                `json:"configModules"`
-	JSONOutput      bool                `json:"jsonOutput"`
-	ManualApps      bool                `json:"manualApps"`
-	HostedBackup    HostedBackupFeature `json:"hostedBackup"`
-	Schedule        ScheduleFeature     `json:"schedule"`
+	Streaming         bool                `json:"streaming"`
+	ParallelInstall   bool                `json:"parallelInstall"`
+	ConfigModules     bool                `json:"configModules"`
+	JSONOutput        bool                `json:"jsonOutput"`
+	ManualApps        bool                `json:"manualApps"`
+	ProfileInspection bool                `json:"profileInspection"`
+	HostedBackup      HostedBackupFeature `json:"hostedBackup"`
+	Schedule          ScheduleFeature     `json:"schedule"`
 }
 
 // ScheduleFeature advertises the scheduled drift-check capability. The GUI gates
@@ -175,11 +176,12 @@ func RunCapabilities() (interface{}, *envelope.Error) {
 			},
 		},
 		Features: FeaturesInfo{
-			Streaming:       false,
-			ParallelInstall: true,
-			ConfigModules:   true,
-			JSONOutput:      true,
-			ManualApps:      true,
+			Streaming:         false,
+			ParallelInstall:   true,
+			ConfigModules:     true,
+			JSONOutput:        true,
+			ManualApps:        true,
+			ProfileInspection: true,
 			HostedBackup: HostedBackupFeature{
 				Supported:        true,
 				MinSchemaVersion: "1.0",

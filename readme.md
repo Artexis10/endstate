@@ -169,6 +169,14 @@ endstate rebuild --from MyProfile.zip --confirm
 
 Overwritten files are backed up first and can be undone with `endstate revert`. Use `--no-restore` to install and verify without touching configuration.
 
+### Inspect an extracted profile
+
+To view the saved app and settings inventory without evaluating or changing the current machine, inspect an extracted manifest only — bundles and directories are not accepted:
+
+```bash
+endstate profile inspect ./extracted-profile/manifest.jsonc --json
+```
+
 When multiple installed app versions are valid configuration targets, `apply`, `restore`, and `rebuild` accept repeatable `--restore-target <captureId>=<targetInstanceId>` mappings. `--restore-filter` still selects modules first; Endstate never silently chooses the newest side-by-side version.
 
 ### Import from UniGetUI
@@ -205,6 +213,7 @@ The default output is `manifests/local/imported-unigetui.jsonc` (gitignored); ou
 | `verify` | Check current state against manifest without modifying |
 | `doctor` | Diagnose environment issues (missing drivers, permissions, etc.) |
 | `report` | Show history of previous runs and their outcomes |
+| `profile inspect <manifest-path> --json` | Read an extracted profile inventory without machine evaluation |
 | `state` | Manage endstate state (subcommands: reset, export, import) |
 
 ---

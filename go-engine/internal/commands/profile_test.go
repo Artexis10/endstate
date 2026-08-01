@@ -4,9 +4,12 @@
 package commands
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/Artexis10/endstate/go-engine/internal/envelope"
 )
 
 // ---------------------------------------------------------------------------
@@ -943,5 +946,184 @@ func TestProfileList_DisplayNameFallbackChain(t *testing.T) {
 				t.Errorf("p3 displayName=%q, want %q (file stem fallback)", p.DisplayName, "p3")
 			}
 		}
+	}
+}
+
+func TestRunProfile_InspectReturnsProfileInspection(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "profile.jsonc")
+	if err := os.WriteFile(path, []byte(`{"version": 1, "apps": []}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{path}})
+	if envErr != nil {
+		t.Fatalf("RunProfile inspect error = %+v", envErr)
+	}
+	result, ok := data.(*ProfileInspectResult)
+	if !ok {
+		t.Fatalf("RunProfile inspect data = %T, want *ProfileInspectResult", data)
+	}
+	if result.Profile.Name != nil || result.Profile.CapturedAt != nil {
+		t.Fatalf("nullable profile fields = %+v, want nil name and capturedAt", result.Profile)
+	}
+	if result.Apps == nil || result.SettingsApps == nil || result.Warnings == nil {
+		t.Fatalf("inspection arrays must be non-nil: %+v", result)
+	}
+
+	raw, err := json.Marshal(envelope.NewSuccess("profile", "test-run", "1.0", "test", result))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]interface{}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["command"] != "profile" || got["schemaVersion"] != "1.0" {
+		t.Fatalf("envelope identity = %#v", got)
+	}
+	payload := got["data"].(map[string]interface{})
+	profile := payload["profile"].(map[string]interface{})
+	if profile["name"] != nil || profile["capturedAt"] != nil {
+		t.Fatalf("marshaled nullable fields = %#v", profile)
+	}
+	for _, field := range []string{"apps", "settingsApps", "warnings"} {
+		if _, ok := payload[field].([]interface{}); !ok {
+			t.Fatalf("data.%s = %T, want non-null array", field, payload[field])
+		}
+	}
+}
+
+func TestRunProfile_InspectClassifiesInputFailures(t *testing.T) {
+	dir := t.TempDir()
+	malformed := filepath.Join(dir, "malformed.jsonc")
+	if err := os.WriteFile(malformed, []byte(`{`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	invalid := filepath.Join(dir, "invalid.jsonc")
+	if err := os.WriteFile(invalid, []byte(`{"version": 1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bundle := filepath.Join(dir, "profile.endstate")
+	if err := os.WriteFile(bundle, []byte("not a bundle"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unsupported := filepath.Join(dir, "profile.txt")
+	if err := os.WriteFile(unsupported, []byte(`{"version": 1, "apps": []}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unsafeInclude := filepath.Join(dir, "unsafe.jsonc")
+	if err := os.WriteFile(unsafeInclude, []byte(`{"version": 1, "apps": [], "includes": ["../other.jsonc"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		args []string
+		code envelope.ErrorCode
+	}{
+		{name: "missing argument", code: envelope.ErrManifestValidationError},
+		{name: "extra argument", args: []string{malformed, "extra"}, code: envelope.ErrManifestValidationError},
+		{name: "missing file", args: []string{filepath.Join(dir, "missing.jsonc")}, code: envelope.ErrManifestNotFound},
+		{name: "malformed JSONC", args: []string{malformed}, code: envelope.ErrManifestParseError},
+		{name: "invalid manifest", args: []string{invalid}, code: envelope.ErrManifestValidationError},
+		{name: "bundle", args: []string{bundle}, code: envelope.ErrManifestValidationError},
+		{name: "directory", args: []string{dir}, code: envelope.ErrManifestValidationError},
+		{name: "unsupported extension", args: []string{unsupported}, code: envelope.ErrManifestValidationError},
+		{name: "unsafe include", args: []string{unsafeInclude}, code: envelope.ErrManifestValidationError},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: tt.args})
+			if envErr == nil || envErr.Code != tt.code {
+				t.Fatalf("RunProfile inspect error = %+v, want %s", envErr, tt.code)
+			}
+		})
+	}
+}
+
+func TestRunProfile_InspectClassifiesMalformedAllowedIncludeAsParseError(t *testing.T) {
+	dir := t.TempDir()
+	child := filepath.Join(dir, "child.jsonc")
+	if err := os.WriteFile(child, []byte(`{"version":`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(dir, "manifest.jsonc")
+	if err := os.WriteFile(root, []byte(`{"version":1,"apps":[],"includes":["child.jsonc"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{root}})
+	if envErr == nil || envErr.Code != envelope.ErrManifestParseError {
+		t.Fatalf("RunProfile inspect error = %+v, want %s", envErr, envelope.ErrManifestParseError)
+	}
+}
+
+func TestRunProfile_InspectRejectsLinkedRootBeforeStat(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "linked.jsonc")
+	if err := os.Symlink(filepath.Join(root, "missing-target.jsonc"), path); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{path}})
+	if envErr == nil || envErr.Code != envelope.ErrManifestValidationError {
+		t.Fatalf("RunProfile inspect error = %+v, want %s before following the linked root", envErr, envelope.ErrManifestValidationError)
+	}
+}
+
+func TestRunProfile_InspectAllowsLinkedParentDirectory(t *testing.T) {
+	root := t.TempDir()
+	child := filepath.Join(root, "child.jsonc")
+	if err := os.WriteFile(child, []byte(`{"apps":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(root, "manifest.jsonc")
+	if err := os.WriteFile(manifestPath, []byte(`{"version":1,"apps":[],"includes":["child.jsonc"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parentAlias := filepath.Join(t.TempDir(), "profile")
+	if err := os.Symlink(root, parentAlias); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{filepath.Join(parentAlias, "manifest.jsonc")}})
+	if envErr != nil {
+		t.Fatalf("RunProfile inspect through parent alias error = %+v", envErr)
+	}
+}
+
+func TestRunProfile_InspectClassifiesInvalidRootIncludeShapeAsValidationError(t *testing.T) {
+	for _, includes := range []string{`"child.jsonc"`, `[1]`, `[{}]`} {
+		t.Run(includes, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "manifest.jsonc")
+			if err := os.WriteFile(path, []byte(`{"version":1,"apps":[],"includes":`+includes+`}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{path}})
+			if envErr == nil || envErr.Code != envelope.ErrManifestValidationError {
+				t.Fatalf("RunProfile inspect error = %+v, want %s", envErr, envelope.ErrManifestValidationError)
+			}
+		})
+	}
+}
+
+func TestRunProfile_InspectClassifiesInvalidNestedIncludeShapeAsValidationError(t *testing.T) {
+	for _, includes := range []string{`"grandchild.jsonc"`, `[1]`, `[{}]`} {
+		t.Run(includes, func(t *testing.T) {
+			dir := t.TempDir()
+			child := filepath.Join(dir, "child.jsonc")
+			if err := os.WriteFile(child, []byte(`{"includes":`+includes+`}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			root := filepath.Join(dir, "manifest.jsonc")
+			if err := os.WriteFile(root, []byte(`{"version":1,"apps":[],"includes":["child.jsonc"]}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, envErr := RunProfile(ProfileFlags{Subcommand: "inspect", Args: []string{root}})
+			if envErr == nil || envErr.Code != envelope.ErrManifestValidationError {
+				t.Fatalf("RunProfile inspect error = %+v, want %s", envErr, envelope.ErrManifestValidationError)
+			}
+		})
 	}
 }
