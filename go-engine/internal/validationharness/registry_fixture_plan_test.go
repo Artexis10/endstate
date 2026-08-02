@@ -4,8 +4,12 @@
 package validationharness
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -24,7 +28,7 @@ func TestCompositeFixturePlanComposesFileAndRegistryTargetsBehindClosedProductio
 	}
 
 	fixture := &recordingRegistryFixture{}
-	plan, failure := compileCompositeFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, fixture)
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, fixture)
 	if failure != nil {
 		t.Fatal(failure)
 	}
@@ -76,7 +80,7 @@ func TestCompositeFixturePlanRetainsFileOnlyPlans(t *testing.T) {
 	mod.Capture.RegistryKeys = nil
 	mod.Restore = mod.Restore[1:]
 	scenario := fixtureScenario()
-	plan, failure := compileCompositeFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, nil)
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, nil)
 	if failure != nil {
 		t.Fatal(failure)
 	}
@@ -87,7 +91,7 @@ func TestCompositeFixturePlanRetainsFileOnlyPlans(t *testing.T) {
 
 func TestCompositeFixturePlanRegistryStatesAreClosureCompleteAndTyped(t *testing.T) {
 	mod := registryFixtureModule()
-	plan, failure := compileCompositeFixturePlan(fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), &recordingRegistryFixture{})
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), &recordingRegistryFixture{})
 	if failure != nil {
 		t.Fatal(failure)
 	}
@@ -110,7 +114,7 @@ func TestCompositeFixturePlanRegistryStatesAreClosureCompleteAndTyped(t *testing
 func TestCompositeFixturePlanRegistryComparisonFailsAtTargetWithoutSentinelLeak(t *testing.T) {
 	mod := registryFixtureModule()
 	fixture := &recordingRegistryFixture{}
-	plan, failure := compileCompositeFixturePlan(fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), fixture)
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), fixture)
 	if failure != nil {
 		t.Fatal(failure)
 	}
@@ -157,7 +161,7 @@ func TestCompositeFixturePlanRejectsWrongMissingExtraTypeAndDataRegistrySnapshot
 		t.Run(tt.name, func(t *testing.T) {
 			mod := registryFixtureModule()
 			fixture := &recordingRegistryFixture{}
-			plan, failure := compileCompositeFixturePlan(fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), fixture)
+			plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), fixture)
 			if failure != nil {
 				t.Fatal(failure)
 			}
@@ -184,7 +188,7 @@ func TestCompositeFixturePlanRejectsWrongMissingExtraTypeAndDataRegistrySnapshot
 func TestCompositeFixturePlanRegistryErrorsAreStableAndRedacted(t *testing.T) {
 	mod := registryFixtureModule()
 	fixture := &recordingRegistryFixture{err: errors.New("endstate-validation-v1: raw sentinel nonce")}
-	plan, failure := compileCompositeFixturePlan(fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), fixture)
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), fixture)
 	if failure != nil {
 		t.Fatal(failure)
 	}
@@ -198,14 +202,14 @@ func TestCompositeFixturePlanRegistryTargetsRemainDistinct(t *testing.T) {
 	mod := mixedRegistryFixtureModule()
 	mod.Capture.RegistryKeys = append(mod.Capture.RegistryKeys, modules.CaptureRegistryKey{Key: `HKCU\Software\Other`, Dest: "apps/fixture/other.reg", Optional: true})
 	mod.Restore = append(mod.Restore, modules.RestoreDef{Type: "registry-import", Source: "./payload/apps/fixture/other.reg", Target: `HKCU\Software\Other`, Optional: true, Backup: true})
-	plan, failure := compileCompositeFixturePlan(fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), &recordingRegistryFixture{})
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), &recordingRegistryFixture{})
 	if failure != nil {
 		t.Fatal(failure)
 	}
 	if len(plan.RegistryTargets) != 2 || plan.RegistryTargets[0].Authored == plan.RegistryTargets[1].Authored || plan.RegistryTargets[0].Captured.Equal(plan.RegistryTargets[1].Captured) {
 		t.Fatalf("registry targets = %+v", plan.RegistryTargets)
 	}
-	second, failure := compileCompositeFixturePlan(fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), &recordingRegistryFixture{})
+	second, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), &recordingRegistryFixture{})
 	if failure != nil {
 		t.Fatal(failure)
 	}
@@ -216,7 +220,74 @@ func TestCompositeFixturePlanRegistryTargetsRemainDistinct(t *testing.T) {
 	}
 }
 
-func TestCompositeFixturePlanCompilesSafeRegistryCatalogWhileProductionGateRemainsClosed(t *testing.T) {
+func TestCompositeFixturePlanAtPreservesDeclarativeFilesystemContract(t *testing.T) {
+	repo := t.TempDir()
+	fixturePath := filepath.Join(repo, "fixtures", "mixed.json")
+	good := []byte(`{"schemaVersion":1,"entries":[{"coordinate":"capture.files[0]","kind":"directory"}]}`)
+	if err := os.MkdirAll(filepath.Dir(fixturePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixturePath, good, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mod := mixedRegistryFixtureModule()
+	scenario := fixtureScenario()
+	scenario.Fixture = validationmatrix.Fixture{Type: validationmatrix.FixtureDeclarative, Path: "fixtures/mixed.json", SHA256: fixtureSHA256(good)}
+	validationRoot := filepath.Join(t.TempDir(), "endstate-validation-reusable-fixture")
+	context, restore := reusableFixtureValidationContext(t, validationRoot, mod.ID, scenario.ID)
+	defer restore()
+	plan, failure := compileCompositeFixturePlanAt(repo, context, mod, scenario, &recordingRegistryFixture{})
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(plan.Targets) != 1 || !plan.Targets[0].Directory {
+		t.Fatalf("declarative mixed plan = %+v", plan)
+	}
+
+	if err := os.WriteFile(fixturePath, append(good, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, failure := compileCompositeFixturePlanAt(repo, context, mod, scenario, &recordingRegistryFixture{}); failure == nil || failure.Coordinate != "fixture.sha256" {
+		t.Fatalf("tampered declarative fixture failure = %+v", failure)
+	}
+	wrongKind := []byte(`{"schemaVersion":1,"entries":[{"coordinate":"capture.files[0]","kind":"unsupported"}]}`)
+	if err := os.WriteFile(fixturePath, wrongKind, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scenario.Fixture.SHA256 = fixtureSHA256(wrongKind)
+	if _, failure := compileCompositeFixturePlanAt(repo, context, mod, scenario, &recordingRegistryFixture{}); failure == nil || failure.Coordinate != "capture.files[0]" {
+		t.Fatalf("declarative kind failure = %+v", failure)
+	}
+}
+
+func TestCompositeFixturePlanAtRejectsOrphanRegistryRestoresAndAllowsFileOnly(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		mutate     func(*modules.Module)
+		coordinate string
+	}{
+		{"orphan registry import", func(mod *modules.Module) { mod.Capture.RegistryKeys = nil }, "restore[0]"},
+		{"orphan registry set", func(mod *modules.Module) { mod.Capture.RegistryKeys = nil; mod.Restore[0].Type = "registry-set" }, "restore[0]"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			mod := mixedRegistryFixtureModule()
+			tt.mutate(mod)
+			scenario := fixtureScenario()
+			if _, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, &recordingRegistryFixture{}); failure == nil || failure.Coordinate != tt.coordinate {
+				t.Fatalf("orphan registry failure = %+v", failure)
+			}
+		})
+	}
+	mod := mixedRegistryFixtureModule()
+	mod.Capture.RegistryKeys = nil
+	mod.Restore = mod.Restore[1:]
+	scenario := fixtureScenario()
+	if plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, nil); failure != nil || len(plan.Targets) != 1 || len(plan.RegistryTargets) != 0 {
+		t.Fatalf("file-only composite plan = %+v failure=%+v", plan, failure)
+	}
+}
+
+func TestCompositeFixturePlanAtCompilesSafeRegistryCatalogPlans(t *testing.T) {
 	repoRoot, err := filepath.Abs(filepath.Join("..", "..", ".."))
 	if err != nil {
 		t.Fatal(err)
@@ -225,7 +296,8 @@ func TestCompositeFixturePlanCompilesSafeRegistryCatalogWhileProductionGateRemai
 	if err != nil {
 		t.Fatal(err)
 	}
-	modules, registryTargets, fileTargets := 0, 0, 0
+	validationRoot := filepath.Join(t.TempDir(), "endstate-validation-reusable-fixture")
+	accepted, registryTargets, fileTargets := 0, 0, 0
 	rejected := map[string]string{}
 	for id, mod := range catalog.Modules {
 		if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 {
@@ -241,34 +313,73 @@ func TestCompositeFixturePlanCompilesSafeRegistryCatalogWhileProductionGateRemai
 		if scenario.ID == "" {
 			continue
 		}
-		definitions, failure := compileFilesystemFixtureDefinitions(mod, scenario, true)
-		if failure == nil {
-			var registries registryDefinitions
-			registries, failure = compileRegistryDefinitions(mod, scenario)
-			if failure == nil {
-				modules++
-				registryTargets += len(registries.Entries)
-				fileTargets += len(definitions.Entries)
-			}
-		}
+		context, restore := reusableFixtureValidationContext(t, validationRoot, mod.ID, scenario.ID)
+		plan, failure := compileCompositeFixturePlanAt(repoRoot, context, mod, scenario, &recordingRegistryFixture{})
+		restore()
 		if failure != nil {
 			rejected[id] = failure.Coordinate
 			continue
 		}
-		if _, failure := compileFixtureDefinitions(mod, scenario); failure == nil || failure.Coordinate != "capture.registry" {
-			t.Fatalf("registry module %q opened production file compiler: %+v", id, failure)
-		}
+		accepted++
+		registryTargets += len(plan.RegistryTargets)
+		fileTargets += len(plan.Targets)
 	}
-	if modules != 27 || registryTargets != 35 || fileTargets != 36 {
-		t.Fatalf("registry catalog = %d modules, %d registry targets, %d file targets; want 27, 35, 36", modules, registryTargets, fileTargets)
+	if accepted != 27 || registryTargets != 35 || fileTargets != 36 {
+		t.Fatalf("registry catalog = %d modules, %d registry targets, %d file targets; want 27, 35, 36", accepted, registryTargets, fileTargets)
 	}
 	wantRejected := map[string]string{"apps.ccleaner": "capture.registryKeys[0].key", "apps.revo-uninstaller": "capture.registryKeys[0].key"}
-	if len(rejected) != len(wantRejected) {
+	if fmt.Sprint(rejected) != fmt.Sprint(wantRejected) {
 		t.Fatalf("rejected registry modules = %+v, want %+v", rejected, wantRejected)
 	}
-	for id, coordinate := range wantRejected {
-		if rejected[id] != coordinate {
-			t.Fatalf("registry module %q failure = %q, want %q", id, rejected[id], coordinate)
+}
+
+func TestFixturePlanRejectsEmptyFilePlanAndCompositePlan(t *testing.T) {
+	mod := &modules.Module{ID: "apps.fixture", Capture: &modules.CaptureDef{}}
+	scenario := fixtureScenario()
+	context := fixtureValidationContext(t, mod.ID, scenario.ID)
+	if _, failure := compileFixturePlan(context, mod, scenario, fixtureDefinitions{}); failure == nil || failure.Coordinate != "operations" {
+		t.Fatalf("empty file plan failure = %+v", failure)
+	}
+	if _, failure := compileCompositeFixturePlanAt("", context, mod, scenario, nil); failure == nil || failure.Coordinate != "operations" {
+		t.Fatalf("empty composite plan failure = %+v", failure)
+	}
+}
+
+func fixtureSHA256(data []byte) string {
+	digest := sha256.Sum256(data)
+	return fmt.Sprintf("%x", digest)
+}
+
+func reusableFixtureValidationContext(t *testing.T, root, moduleID, scenarioID string) (*validationmode.Context, func()) {
+	t.Helper()
+	nonce := strings.TrimPrefix(filepath.Base(root), "endstate-validation-")
+	descriptor := validationmode.Descriptor{
+		SchemaVersion: 1, ScenarioID: scenarioID, Nonce: nonce, ModuleID: moduleID,
+		Inventory: validationmode.Inventory{AppID: "vendor-fixture", Driver: "winget", Ref: "Vendor.Fixture", DisplayName: "Fixture", InitialState: "present"},
+	}
+	data, err := json.Marshal(descriptor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".endstate"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".endstate", "validation-mode.json"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(validationmode.TestModeEnvironment, "1")
+	t.Setenv(validationmode.RootEnvironment, root)
+	context, err := validationmode.LoadFromEnvironment()
+	if err != nil {
+		t.Fatal(err)
+	}
+	restore, err := context.Activate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return context, func() {
+		if err := restore(); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

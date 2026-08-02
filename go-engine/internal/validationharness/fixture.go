@@ -77,6 +77,10 @@ type FixtureExcluded struct {
 }
 
 func compileFixturePlan(context *validationmode.Context, mod *modules.Module, scenario validationmatrix.Scenario, definitions fixtureDefinitions) (*FixturePlan, *Failure) {
+	return compileFixturePlanWithEmptyOption(context, mod, scenario, definitions, false)
+}
+
+func compileFixturePlanWithEmptyOption(context *validationmode.Context, mod *modules.Module, scenario validationmatrix.Scenario, definitions fixtureDefinitions, allowEmpty bool) (*FixturePlan, *Failure) {
 	if context == nil || mod == nil || context.Descriptor().ModuleID != mod.ID || context.Descriptor().ScenarioID != scenario.ID {
 		return nil, fail(CodeIsolationFailure, "fixture", "testMode", "fixture authority does not match module and scenario")
 	}
@@ -201,25 +205,28 @@ func compileFixturePlan(context *validationmode.Context, mod *modules.Module, sc
 		}
 		plan.Targets = append(plan.Targets, target)
 	}
+	if !allowEmpty && len(plan.Targets) == 0 {
+		return nil, fail(CodeUnsupportedFixture, "fixture", "operations", "fixture plan is empty")
+	}
 	if failure := plan.bindNestedFileVerifierPayloads(mod, definitions); failure != nil {
 		return nil, failure
 	}
 	return plan, nil
 }
 
-func compileCompositeFixturePlan(context *validationmode.Context, mod *modules.Module, scenario validationmatrix.Scenario, fixture registryFixture) (*FixturePlan, *Failure) {
-	definitions, failure := compileFilesystemFixtureDefinitions(mod, scenario, true)
+func compileCompositeFixturePlanAt(repoRoot string, context *validationmode.Context, mod *modules.Module, scenario validationmatrix.Scenario, fixture registryFixture) (*FixturePlan, *Failure) {
+	definitions, failure := compileFilesystemFixtureDefinitionsAt(repoRoot, mod, scenario, true)
 	if failure != nil {
 		return nil, failure
 	}
 	registries := registryDefinitions{}
-	if mod != nil && mod.Capture != nil && (len(mod.Capture.RegistryKeys) != 0 || len(mod.Capture.RegistryValues) != 0) {
+	if moduleHasRegistryFixtureContract(mod) {
 		registries, failure = compileRegistryDefinitions(mod, scenario)
 		if failure != nil {
 			return nil, failure
 		}
 	}
-	plan, failure := compileFixturePlan(context, mod, scenario, definitions)
+	plan, failure := compileFixturePlanWithEmptyOption(context, mod, scenario, definitions, true)
 	if failure != nil {
 		return nil, failure
 	}
@@ -242,6 +249,21 @@ func compileCompositeFixturePlan(context *validationmode.Context, mod *modules.M
 		return nil, fail(CodeUnsupportedFixture, "fixture", "operations", "fixture plan is empty")
 	}
 	return plan, nil
+}
+
+func moduleHasRegistryFixtureContract(mod *modules.Module) bool {
+	if mod == nil {
+		return false
+	}
+	if mod.Capture != nil && (len(mod.Capture.RegistryKeys) != 0 || len(mod.Capture.RegistryValues) != 0) {
+		return true
+	}
+	for _, restore := range mod.Restore {
+		if restore.Type == "registry-import" || restore.Type == "registry-set" {
+			return true
+		}
+	}
+	return false
 }
 
 func registryFixtureStates(moduleID, scenarioID, coordinate, key string) (validationmode.RegistryState, validationmode.RegistryState, validationmode.RegistryState, error) {

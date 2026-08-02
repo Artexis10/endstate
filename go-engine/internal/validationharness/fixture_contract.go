@@ -63,7 +63,39 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 	if scenario.Fixture.Type != validationmatrix.FixtureAuto && scenario.Fixture.Type != validationmatrix.FixtureDeclarative {
 		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "fixture.type", "fixture type is unsupported")
 	}
+	registryImports := make(map[int]struct{})
+	for index, restore := range mod.Restore {
+		switch restore.Type {
+		case "registry-set":
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry-set restores are unsupported")
+		case "registry-import":
+			if restore.Pattern != "" || restore.Reason != "" || len(restore.Exclude) != 0 || restore.Key != "" || restore.ValueName != "" || restore.ValueType != "" || restore.Data != "" {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import includes fields from another restore strategy")
+			}
+			if !restore.Optional || !restore.Backup {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import must be optional and backup-enabled")
+			}
+			if strings.ContainsAny(restore.Target, "*?[") {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].target", index), "authored registry identity does not support wildcard paths")
+			}
+			if _, err := validationmode.NormalizeHKCU(restore.Target); err != nil {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].target", index), "registry import requires a canonical HKCU target")
+			}
+			if !strings.HasPrefix(restore.Source, "./payload/") {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].source", index), "registry import source must use the payload prefix")
+			}
+			if _, ok := portableRegistryDestination(strings.TrimPrefix(restore.Source, "./payload/")); !ok {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].source", index), "registry import source is not portable")
+			}
+			registryImports[index] = struct{}{}
+		}
+	}
 	if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 {
+		for index := range mod.Restore {
+			if _, registryImport := registryImports[index]; registryImport {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import has no whole-key registry capture")
+			}
+		}
 		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registry", "roundtrip fixture has no whole-key registry capture")
 	}
 	if len(mod.Capture.RegistryValues) != 0 {
@@ -104,34 +136,6 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 					return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture contains a declared secret descendant")
 				}
 			}
-		}
-	}
-
-	registryImports := make(map[int]struct{})
-	for index, restore := range mod.Restore {
-		switch restore.Type {
-		case "registry-set":
-			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry-set restores are unsupported")
-		case "registry-import":
-			if restore.Pattern != "" || restore.Reason != "" || len(restore.Exclude) != 0 || restore.Key != "" || restore.ValueName != "" || restore.ValueType != "" || restore.Data != "" {
-				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import includes fields from another restore strategy")
-			}
-			if !restore.Optional || !restore.Backup {
-				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import must be optional and backup-enabled")
-			}
-			if strings.ContainsAny(restore.Target, "*?[") {
-				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].target", index), "authored registry identity does not support wildcard paths")
-			}
-			if _, err := validationmode.NormalizeHKCU(restore.Target); err != nil {
-				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].target", index), "registry import requires a canonical HKCU target")
-			}
-			if !strings.HasPrefix(restore.Source, "./payload/") {
-				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].source", index), "registry import source must use the payload prefix")
-			}
-			if _, ok := portableRegistryDestination(strings.TrimPrefix(restore.Source, "./payload/")); !ok {
-				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].source", index), "registry import source is not portable")
-			}
-			registryImports[index] = struct{}{}
 		}
 	}
 
@@ -300,7 +304,11 @@ type declarativeFixtureEntry struct {
 }
 
 func compileFixtureDefinitionsAt(repoRoot string, mod *modules.Module, scenario validationmatrix.Scenario) (fixtureDefinitions, *Failure) {
-	definitions, failure := compileFixtureDefinitions(mod, scenario)
+	return compileFilesystemFixtureDefinitionsAt(repoRoot, mod, scenario, false)
+}
+
+func compileFilesystemFixtureDefinitionsAt(repoRoot string, mod *modules.Module, scenario validationmatrix.Scenario, allowRegistry bool) (fixtureDefinitions, *Failure) {
+	definitions, failure := compileFilesystemFixtureDefinitions(mod, scenario, allowRegistry)
 	if failure != nil || scenario.Fixture.Type == validationmatrix.FixtureAuto {
 		return definitions, failure
 	}
