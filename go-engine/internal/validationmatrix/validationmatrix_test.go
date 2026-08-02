@@ -345,6 +345,64 @@ func TestLoadCatalogRejectsDuplicateSidecarFields(t *testing.T) {
 	}
 }
 
+func TestLoadCatalogRejectsCaseInsensitiveDuplicateSidecarFields(t *testing.T) {
+	tests := []struct {
+		name string
+		from string
+		to   string
+	}{
+		{
+			name: "scenario canonical then alias",
+			from: `"timeoutSeconds":60`,
+			to:   `"timeoutSeconds":0,"TimeoutSeconds":60`,
+		},
+		{
+			name: "scenario alias then canonical",
+			from: `"timeoutSeconds":60`,
+			to:   `"TimeoutSeconds":0,"timeoutSeconds":60`,
+		},
+		{
+			name: "fixture canonical then alias",
+			from: `"fixture":{"type":"auto"}`,
+			to:   `"fixture":{"type":"","Type":"auto"}`,
+		},
+		{
+			name: "fixture alias then canonical",
+			from: `"fixture":{"type":"auto"}`,
+			to:   `"fixture":{"Type":"","type":"auto"}`,
+		},
+		{
+			name: "live canonical then alias",
+			from: `"reasonCode":"not-hosted"`,
+			to:   `"reasonCode":"","ReasonCode":"not-hosted"`,
+		},
+		{
+			name: "live alias then canonical",
+			from: `"reasonCode":"not-hosted"`,
+			to:   `"ReasonCode":"","reasonCode":"not-hosted"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+			record := validV1Validation(mod.ID, mod.Revision)
+			data, err := json.Marshal(record)
+			if err != nil {
+				t.Fatal(err)
+			}
+			data = []byte(strings.Replace(string(data), tt.from, tt.to, 1))
+			writeRawValidation(t, root, "alpha", data)
+
+			_, err = LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+			if ErrorCode(err) != CodeInvalidSidecar || !strings.Contains(err.Error(), "duplicate") {
+				t.Fatalf("LoadCatalog error = %v, want case-insensitive duplicate sidecar field rejection", err)
+			}
+		})
+	}
+}
+
 func TestLoadCatalogDefaultsSchemaV2AssertionsFromProductionVerifier(t *testing.T) {
 	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
 	tests := []struct {

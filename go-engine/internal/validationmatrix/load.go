@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
@@ -190,7 +191,7 @@ func walkJSONValue(decoder *json.Decoder) error {
 	}
 	switch delimiter {
 	case '{':
-		seen := map[string]struct{}{}
+		var seen []string
 		for decoder.More() {
 			key, err := decoder.Token()
 			if err != nil {
@@ -200,10 +201,12 @@ func walkJSONValue(decoder *json.Decoder) error {
 			if !ok {
 				return fmt.Errorf("object key is not a string")
 			}
-			if _, duplicate := seen[name]; duplicate {
-				return fmt.Errorf("duplicate object key %q", name)
+			for _, previous := range seen {
+				if strings.EqualFold(previous, name) {
+					return fmt.Errorf("duplicate object key %q", name)
+				}
 			}
-			seen[name] = struct{}{}
+			seen = append(seen, name)
 			if err := walkJSONValue(decoder); err != nil {
 				return err
 			}
