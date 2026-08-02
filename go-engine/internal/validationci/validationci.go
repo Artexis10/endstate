@@ -441,7 +441,16 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 		return aggregateFailure(request, result, "missing or failed synthetic canary")
 	}
 	base, baseErr := readKnownFailureLedger(request.BaseAuthorityPath, true, request.RepoRoot)
+	if baseErr != nil {
+		return aggregateFailure(request, result, "malformed known-failure authority")
+	}
+	if base == nil {
+		return aggregateFailure(request, result, "missing known-failure authority")
+	}
 	head, headErr := readKnownFailureLedger(request.HeadCandidatePath, false, request.RepoRoot)
+	if headErr != nil {
+		return aggregateFailure(request, result, "malformed known-failure candidate")
+	}
 	comparison := EvaluateKnownFailureLedger(KnownFailureComparison{Base: base, Head: head, HeadRows: headRows})
 	result.KnownDebt = len(comparison.KnownDebt)
 	result.ResolvedDebt = len(comparison.ResolvedDebt)
@@ -450,12 +459,6 @@ func Aggregate(request AggregateRequest) (AggregateResult, error) {
 	result.MissingDebt = len(comparison.MissingDebt)
 	result.StaleDebt = len(comparison.StaleDebt)
 	result.InventoryRemovals = len(comparison.InventoryRemovals)
-	if baseErr != nil {
-		return aggregateFailure(request, result, "malformed known-failure authority")
-	}
-	if headErr != nil {
-		return aggregateFailure(request, result, "malformed known-failure candidate")
-	}
 	if !comparison.Clean() {
 		return aggregateFailure(request, result, comparison.Failure)
 	}

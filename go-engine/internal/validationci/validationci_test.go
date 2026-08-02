@@ -484,6 +484,30 @@ func TestAggregateClassifiesCanonicalFailedShardEvidence(t *testing.T) {
 	}
 }
 
+func TestAggregatePrioritizesMissingAuthorityOverMalformedCandidate(t *testing.T) {
+	fixture := newAggregateFixture(t)
+	if err := os.Remove(fixture.Request.BaseAuthorityPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fixture.Request.HeadCandidatePath, []byte("{\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rewriteAggregateEvidenceRepositoryHash(t, &fixture)
+
+	result, err := Aggregate(fixture.Request)
+	if err == nil || err.Error() != "missing known-failure authority" {
+		t.Fatalf("Aggregate error = %v, want missing known-failure authority", err)
+	}
+	if result.Status != validationharness.ResultStatusFailed || result.Scenarios != (PassedEligible{Passed: 1, Eligible: 1}) || result.Modules != (PassedEligible{Passed: 1, Eligible: 1}) || result.Bundles != (PassedEligible{Passed: 1, Eligible: 1}) || result.Failure != "missing known-failure authority" {
+		t.Fatalf("aggregate result = %+v", result)
+	}
+	var persisted AggregateResult
+	readJSON(t, fixture.Request.ResultPath, &persisted)
+	if !reflect.DeepEqual(persisted, result) {
+		t.Fatalf("persisted aggregate = %+v, want %+v", persisted, result)
+	}
+}
+
 func TestAggregateAcceptsKnownFailedEvidenceWithoutProofInflation(t *testing.T) {
 	fixture := newAggregateFixture(t)
 	var shard ShardResult
