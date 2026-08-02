@@ -105,6 +105,9 @@ func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T
 		t.Fatal(err)
 	}
 	target := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(target, []byte(`{"theme":"light"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	inputs := emptyConfigRestoreInputs()
 	inputs.hasConfigPayloads = true
 	inputs.legacyLanes = []configRestoreLegacyLane{{
@@ -134,8 +137,8 @@ func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T
 		result.RestoreItems[0].SourceGeneration != "" || result.RestoreItems[0].TargetGeneration != "" {
 		t.Fatalf("legacy items = %+v", result.RestoreItems)
 	}
-	if _, err := os.Stat(target); !os.IsNotExist(err) {
-		t.Fatalf("dry-run changed target: %v", err)
+	if data, err := os.ReadFile(target); err != nil || string(data) != `{"theme":"light"}` {
+		t.Fatalf("dry-run changed target: %q, %v", data, err)
 	}
 	lines := strings.Split(strings.TrimSpace(buffer.String()), "\n")
 	if len(lines) < 2 {
@@ -161,6 +164,9 @@ func TestConfigRestoreExecutionEmitsLegacyWarningBeforeDryRunAction(t *testing.T
 	if len(restoreEvents) != 2 || restoreEvents[0]["id"] != restoreEvents[1]["id"] ||
 		restoreEvents[0]["status"] != "restoring" || restoreEvents[1]["status"] == "restoring" {
 		t.Fatalf("restore-item lifecycle = %#v", restoreEvents)
+	}
+	if restoreEvents[0]["targetExisted"] != true || restoreEvents[1]["targetExisted"] != true {
+		t.Fatalf("restore-item target existence diverged: %#v", restoreEvents)
 	}
 }
 

@@ -95,7 +95,11 @@ func DescribeAction(action RestoreAction, opts RestoreOptions) ActionDescriptor 
 		} else {
 			descriptor.Target = action.Target
 		}
-		if restoreType == "registry-set" || restoreType == "registry-import" {
+		if restoreType == "registry-import" {
+			descriptor.TargetExisted = describeValidationRegistryImportTargetExists(opts.ValidationContext, action)
+			return descriptor
+		}
+		if restoreType == "registry-set" {
 			return descriptor
 		}
 		physical, err := legacyValidationBoundary{context: opts.ValidationContext}.resolveHost(action.Target)

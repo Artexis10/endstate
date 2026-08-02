@@ -5,7 +5,11 @@
 
 package restore
 
-import "golang.org/x/sys/windows/registry"
+import (
+	"golang.org/x/sys/windows/registry"
+
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
+)
 
 func describeRegistryTargetExists(action RestoreAction) bool {
 	hive, subkey, err := splitHKCUKey(action.Key)
@@ -25,4 +29,17 @@ func describeRegistryTargetExists(action RestoreAction) bool {
 	}
 	_ = key.Close()
 	return true
+}
+
+func describeValidationRegistryImportTargetExists(context *validationmode.Context, action RestoreAction) bool {
+	semanticKey, err := validationmode.NormalizeHKCU(action.Target)
+	if err != nil {
+		return false
+	}
+	mappedKey, err := context.MapHKCU(semanticKey)
+	if err != nil {
+		return false
+	}
+	exists, err := registryImportQueryNative(mappedKey)
+	return err == nil && exists
 }

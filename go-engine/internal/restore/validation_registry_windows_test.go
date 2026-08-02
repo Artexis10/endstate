@@ -149,6 +149,49 @@ func TestValidationRegistryImportRewritesNestedInputAndBackupAtNativeBoundary(t 
 	assertNoLegacyValidationIdentity(t, context, string(backupData))
 }
 
+func TestDescribeValidationRegistryImportQueriesMappedTargetAndKeepsSemanticDescriptor(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regimport-describe")
+	semanticKey := `HKCU\Software\Vendor\Describe`
+	mappedKey, err := context.MapHKCU(semanticKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalQuery := registryImportQueryNative
+	defer func() { registryImportQueryNative = originalQuery }()
+	var queried []string
+	registryImportQueryNative = func(key string) (bool, error) {
+		queried = append(queried, key)
+		return len(queried) == 1, nil
+	}
+	action := RestoreAction{Type: "registry-import", Source: "payload/settings.reg", Target: semanticKey}
+
+	exists := DescribeAction(action, RestoreOptions{ValidationContext: context})
+	if !exists.TargetExisted || exists.Source != action.Source || exists.Target != semanticKey {
+		t.Fatalf("existing descriptor = %+v", exists)
+	}
+	if len(queried) != 1 || !strings.EqualFold(queried[0], mappedKey) {
+		t.Fatalf("queried = %q, want mapped key %q", queried, mappedKey)
+	}
+	assertNoLegacyValidationIdentity(t, context, exists.Source, exists.Target)
+
+	absent := DescribeAction(action, RestoreOptions{ValidationContext: context})
+	if absent.TargetExisted {
+		t.Fatalf("absent descriptor = %+v, want targetExisted false", absent)
+	}
+	if len(queried) != 2 || !strings.EqualFold(queried[1], mappedKey) {
+		t.Fatalf("queried = %q, want mapped key %q twice", queried, mappedKey)
+	}
+
+	registryImportQueryNative = func(string) (bool, error) {
+		t.Fatal("invalid registry target reached native query")
+		return false, nil
+	}
+	invalid := DescribeAction(RestoreAction{Type: "registry-import", Target: `HKLM\Software\Vendor\Describe`}, RestoreOptions{ValidationContext: context})
+	if invalid.TargetExisted {
+		t.Fatalf("invalid descriptor = %+v, want targetExisted false", invalid)
+	}
+}
+
 func TestValidationRegistryRejectsUnsafeIdentityBeforeNativeCallbacks(t *testing.T) {
 	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regreject")
 	originalRead, originalWrite := registrySetReadNative, registrySetWriteNative
