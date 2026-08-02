@@ -4,8 +4,10 @@
 package validationci
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -20,7 +22,7 @@ func TestGoCIWorkflowKeepsVerifiedModuleMatrixContract(t *testing.T) {
 
 func TestGoCIWorkflowContractRejectsParentTwoAuthorityExtraction(t *testing.T) {
 	workflow := readGoCIWorkflow(t)
-	mutated := strings.Replace(workflow, `git show "$($parents[1]):$ledgerPath"`, `git show "$($parents[2]):$ledgerPath"`, 1)
+	mutated := strings.Replace(workflow, "Extract-BaseAuthority $parents[1]", "Extract-BaseAuthority $parents[2]", 1)
 	if mutated == workflow {
 		t.Fatal("parent-one extraction mutation did not apply")
 	}
@@ -30,6 +32,229 @@ func TestGoCIWorkflowContractRejectsParentTwoAuthorityExtraction(t *testing.T) {
 		}
 	}
 	t.Fatal("workflow contract accepted parent-two authority extraction")
+}
+
+func TestGoCIAuthorityStepHandlesBaseLedgerAuthority(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("authority step is PowerShell for Windows runners")
+	}
+	t.Run("missing base ledger exits zero without authority file", func(t *testing.T) {
+		fixture := newAuthorityFixture(t, nil, nil)
+		result := runAuthorityStep(t, fixture, fixture.base, fixture.head, "")
+		if result.exitCode != 0 {
+			t.Fatalf("authority step exit = %d, output=%s", result.exitCode, result.output)
+		}
+		if _, err := os.Lstat(result.authorityPath); !os.IsNotExist(err) {
+			t.Fatalf("missing base ledger produced authority file: %v", err)
+		}
+	})
+	t.Run("base ledger is copied byte exact", func(t *testing.T) {
+		ledger := []byte("{\n  \"schemaVersion\": 1\n}\n")
+		fixture := newAuthorityFixture(t, ledger, nil)
+		result := runAuthorityStep(t, fixture, fixture.base, fixture.head, "")
+		if result.exitCode != 0 {
+			t.Fatalf("authority step exit = %d, output=%s", result.exitCode, result.output)
+		}
+		got, err := os.ReadFile(result.authorityPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != string(ledger) {
+			t.Fatalf("authority bytes = %q, want %q", got, ledger)
+		}
+	})
+	t.Run("parent two cannot authorize", func(t *testing.T) {
+		ledger := []byte("{\"schemaVersion\":1}\n")
+		fixture := newAuthorityFixture(t, nil, ledger)
+		result := runAuthorityStep(t, fixture, fixture.base, fixture.head, "")
+		if result.exitCode != 0 {
+			t.Fatalf("authority step exit = %d, output=%s", result.exitCode, result.output)
+		}
+		if _, err := os.Lstat(result.authorityPath); !os.IsNotExist(err) {
+			t.Fatalf("parent-two ledger produced authority file: %v", err)
+		}
+	})
+	t.Run("base and head event parents are enforced", func(t *testing.T) {
+		fixture := newAuthorityFixture(t, nil, nil)
+		for _, parents := range [][2]string{{fixture.head, fixture.head}, {fixture.base, fixture.base}} {
+			result := runAuthorityStep(t, fixture, parents[0], parents[1], "")
+			if result.exitCode == 0 {
+				t.Fatalf("authority step accepted event parents %q, %q", parents[0], parents[1])
+			}
+		}
+	})
+	t.Run("unexpected git probe error fails closed", func(t *testing.T) {
+		fixture := newAuthorityFixture(t, nil, nil)
+		gitPath := failingGitCommand(t, "cat-file")
+		result := runAuthorityStep(t, fixture, fixture.base, fixture.head, gitPath)
+		if result.exitCode == 0 {
+			t.Fatalf("authority step accepted git cat-file failure: %s", result.output)
+		}
+	})
+	t.Run("git show error fails closed", func(t *testing.T) {
+		fixture := newAuthorityFixture(t, []byte("{}\n"), nil)
+		gitPath := failingGitCommand(t, "show")
+		result := runAuthorityStep(t, fixture, fixture.base, fixture.head, gitPath)
+		if result.exitCode == 0 {
+			t.Fatalf("authority step accepted git show failure: %s", result.output)
+		}
+	})
+	t.Run("authority write error fails closed", func(t *testing.T) {
+		fixture := newAuthorityFixture(t, []byte("{}\n"), nil)
+		result := runAuthorityStepWithOptions(t, fixture, fixture.base, fixture.head, authorityStepOptions{blockAuthorityWrite: true})
+		if result.exitCode == 0 {
+			t.Fatalf("authority step accepted authority write failure: %s", result.output)
+		}
+	})
+}
+
+type authorityFixture struct {
+	repo  string
+	base  string
+	head  string
+	merge string
+}
+
+type authorityStepResult struct {
+	authorityPath string
+	exitCode      int
+	output        string
+}
+
+type authorityStepOptions struct {
+	gitPath             string
+	blockAuthorityWrite bool
+}
+
+func newAuthorityFixture(t *testing.T, baseLedger, headLedger []byte) authorityFixture {
+	t.Helper()
+	repo := t.TempDir()
+	runGit(t, repo, "init", "-b", "main")
+	runGit(t, repo, "config", "user.email", "validation@example.test")
+	runGit(t, repo, "config", "user.name", "Validation Test")
+	writeAuthorityFixtureFile(t, repo, "base.txt", []byte("base\n"))
+	if baseLedger != nil {
+		writeAuthorityFixtureFile(t, repo, filepath.Join(".github", "validation", "synthetic-known-failures.json"), baseLedger)
+	}
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "base")
+	base := runGit(t, repo, "rev-parse", "HEAD")
+	runGit(t, repo, "switch", "-c", "feature")
+	writeAuthorityFixtureFile(t, repo, "feature.txt", []byte("feature\n"))
+	if headLedger != nil {
+		writeAuthorityFixtureFile(t, repo, filepath.Join(".github", "validation", "synthetic-known-failures.json"), headLedger)
+	}
+	runGit(t, repo, "add", ".")
+	runGit(t, repo, "commit", "-m", "feature")
+	head := runGit(t, repo, "rev-parse", "HEAD")
+	runGit(t, repo, "switch", "main")
+	runGit(t, repo, "merge", "--no-ff", "feature", "-m", "merge feature")
+	return authorityFixture{repo: repo, base: base, head: head, merge: runGit(t, repo, "rev-parse", "HEAD")}
+}
+
+func writeAuthorityFixtureFile(t *testing.T, repo, relative string, data []byte) {
+	t.Helper()
+	path := filepath.Join(repo, relative)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runGit(t *testing.T, repo string, args ...string) string {
+	t.Helper()
+	command := exec.Command("git", args...)
+	command.Dir = repo
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, output)
+	}
+	return strings.TrimSpace(string(output))
+}
+
+func runAuthorityStep(t *testing.T, fixture authorityFixture, base, head, gitPath string) authorityStepResult {
+	return runAuthorityStepWithOptions(t, fixture, base, head, authorityStepOptions{gitPath: gitPath})
+}
+
+func runAuthorityStepWithOptions(t *testing.T, fixture authorityFixture, base, head string, options authorityStepOptions) authorityStepResult {
+	t.Helper()
+	runnerTemp := filepath.Join(t.TempDir(), "runner-temp")
+	if err := os.Mkdir(runnerTemp, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	authorityPath := filepath.Join(runnerTemp, "base-known-failures.json")
+	if options.blockAuthorityWrite {
+		if err := os.Mkdir(authorityPath, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	eventPath := filepath.Join(t.TempDir(), "event.json")
+	event, err := json.Marshal(map[string]any{"pull_request": map[string]any{"base": map[string]string{"sha": base}, "head": map[string]string{"sha": head}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(eventPath, event, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scriptPath := filepath.Join(t.TempDir(), "authority.ps1")
+	if err := os.WriteFile(scriptPath, []byte(authorityStepScript(t)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("pwsh", "-NoProfile", "-NonInteractive", "-Command", "& '"+scriptPath+"'; exit $LASTEXITCODE")
+	command.Dir = fixture.repo
+	command.Env = append(os.Environ(), "GITHUB_SHA="+fixture.merge, "GITHUB_EVENT_NAME=pull_request", "GITHUB_REF=refs/pull/1/merge", "GITHUB_EVENT_PATH="+eventPath, "RUNNER_TEMP="+runnerTemp)
+	if options.gitPath != "" {
+		command.Env = append(command.Env, "PATH="+filepath.Dir(options.gitPath)+string(os.PathListSeparator)+os.Getenv("PATH"))
+	}
+	output, err := command.CombinedOutput()
+	result := authorityStepResult{authorityPath: authorityPath, output: string(output)}
+	if err == nil {
+		return result
+	}
+	if exitError, ok := err.(*exec.ExitError); ok {
+		result.exitCode = exitError.ExitCode()
+		return result
+	}
+	t.Fatalf("run authority step: %v", err)
+	return authorityStepResult{}
+}
+
+func authorityStepScript(t *testing.T) string {
+	t.Helper()
+	aggregateJob, found := workflowJob(readGoCIWorkflow(t), "verified-module-matrix")
+	if !found {
+		t.Fatal("missing aggregate job")
+	}
+	step, found := workflowNamedStep(aggregateJob, "Extract known-failure authority")
+	if !found {
+		t.Fatal("missing authority step")
+	}
+	const marker = "        run: |\n"
+	start := strings.Index(step, marker)
+	if start < 0 {
+		t.Fatal("authority step has no PowerShell script")
+	}
+	lines := strings.Split(step[start+len(marker):], "\n")
+	for index, line := range lines {
+		lines[index] = strings.TrimPrefix(line, "          ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+func failingGitCommand(t *testing.T, commandName string) string {
+	t.Helper()
+	realGit, err := exec.LookPath("git")
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "git.cmd")
+	script := "@echo off\r\nif /I \"%~1\"==\"" + commandName + "\" exit /b 2\r\n\"" + realGit + "\" %*\r\n"
+	if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 func readGoCIWorkflow(t *testing.T) string {
@@ -105,17 +330,20 @@ func workflowContractViolations(t *testing.T, workflow string) []string {
 		"$parents.Count -ne 3",
 		"$parents[1].ToLowerInvariant() -ne $event.pull_request.base.sha.ToLowerInvariant()",
 		"$parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()",
-		"git cat-file -e \"$($parents[1]):$ledgerPath\"",
-		"git show \"$($parents[1]):$ledgerPath\"",
+		"function Copy-GitBlob",
+		"$process.StartInfo.ArgumentList.Add(\"git show $reference\")",
+		"function Extract-BaseAuthority",
+		"git cat-file -e $reference",
+		"Extract-BaseAuthority $parents[1]",
 		"$env:GITHUB_EVENT_NAME -eq 'pull_request'",
 		"$env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main'",
-		"git show \"$env:GITHUB_SHA`:$ledgerPath\"",
+		"Extract-BaseAuthority $env:GITHUB_SHA",
 	} {
 		if !strings.Contains(authorityStep, wanted) {
 			violations = append(violations, fmt.Sprintf("authority step missing %q", wanted))
 		}
 	}
-	if strings.Contains(authorityStep, `git cat-file -e "$($parents[2]):$ledgerPath"`) || strings.Contains(authorityStep, `git show "$($parents[2]):$ledgerPath"`) {
+	if strings.Contains(authorityStep, "Extract-BaseAuthority $parents[2]") {
 		violations = append(violations, "authority step does not use only parent-one ledger extraction")
 	}
 	aggregateStep, found := workflowNamedStep(aggregateJob, "Aggregate compact evidence")

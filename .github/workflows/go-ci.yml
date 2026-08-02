@@ -245,6 +245,54 @@ jobs:
           }
           $baseAuthority = Join-Path $env:RUNNER_TEMP 'base-known-failures.json'
           $ledgerPath = '.github/validation/synthetic-known-failures.json'
+          function Copy-GitBlob([string]$reference, [string]$destination) {
+            $stream = [System.IO.File]::Open($destination, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+            $process = [System.Diagnostics.Process]::new()
+            $process.StartInfo.FileName = $env:ComSpec
+            $process.StartInfo.UseShellExecute = $false
+            $process.StartInfo.RedirectStandardOutput = $true
+            $process.StartInfo.RedirectStandardError = $true
+            $process.StartInfo.ArgumentList.Add('/d')
+            $process.StartInfo.ArgumentList.Add('/s')
+            $process.StartInfo.ArgumentList.Add('/c')
+            $process.StartInfo.ArgumentList.Add("git show $reference")
+            try {
+              if (-not $process.Start()) {
+                throw 'git show did not start'
+              }
+              $process.StandardOutput.BaseStream.CopyTo($stream)
+              $stderr = $process.StandardError.ReadToEnd()
+              $process.WaitForExit()
+              if ($process.ExitCode -ne 0) {
+                throw "git show failed with exit code $($process.ExitCode): $stderr"
+              }
+            } catch {
+              Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+              throw
+            } finally {
+              $stream.Dispose()
+            }
+          }
+          function Extract-BaseAuthority([string]$commit) {
+            $reference = "$commit`:$ledgerPath"
+            git cat-file -e $reference 2>$null
+            $probeExit = $LASTEXITCODE
+            if ($probeExit -eq 0) {
+              Copy-GitBlob $reference $baseAuthority
+              return
+            }
+            if ($probeExit -ne 1 -and $probeExit -ne 128) {
+              throw "git cat-file probe failed with exit code $probeExit"
+            }
+            $treeEntry = @(git ls-tree $commit -- $ledgerPath)
+            if ($LASTEXITCODE -ne 0) {
+              throw "git ls-tree probe failed with exit code $LASTEXITCODE"
+            }
+            if ($treeEntry.Count -ne 0) {
+              throw 'git cat-file reported an existing base ledger as absent'
+            }
+            $global:LASTEXITCODE = 0
+          }
           if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
             $event = Get-Content -Raw $env:GITHUB_EVENT_PATH | ConvertFrom-Json
             $parents = ((git rev-list --parents -n 1 HEAD).Trim() -split '\s+')
@@ -254,15 +302,9 @@ jobs:
             if ($parents[1].ToLowerInvariant() -ne $event.pull_request.base.sha.ToLowerInvariant() -or $parents[2].ToLowerInvariant() -ne $event.pull_request.head.sha.ToLowerInvariant()) {
               throw 'pull request merge parents do not match event authority'
             }
-            git cat-file -e "$($parents[1]):$ledgerPath" 2>$null
-            if ($LASTEXITCODE -eq 0) {
-              git show "$($parents[1]):$ledgerPath" | Set-Content -NoNewline -Encoding utf8 $baseAuthority
-            }
+            Extract-BaseAuthority $parents[1]
           } elseif ($env:GITHUB_EVENT_NAME -eq 'push' -and $env:GITHUB_REF -eq 'refs/heads/main') {
-            git cat-file -e "$env:GITHUB_SHA`:$ledgerPath" 2>$null
-            if ($LASTEXITCODE -eq 0) {
-              git show "$env:GITHUB_SHA`:$ledgerPath" | Set-Content -NoNewline -Encoding utf8 $baseAuthority
-            }
+            Extract-BaseAuthority $env:GITHUB_SHA
           } else {
             throw 'unsupported validation authority event or ref'
           }
