@@ -12,20 +12,6 @@
           "path": "modules/apps/windows-terminal/validation-fixtures/generation-preferences-g1.jsonc",
           "sha256": "e2dc58ece044edd9518c8e02d777ad68495cd309b154cdaca47e6d5ba4b6e678"
         },
-        "timeoutSeconds": 120,
-        "minimumAssertions": {
-          "captured": 1,
-          "content": 1,
-          "generation": 1,
-          "nestedSummary": 1,
-          "payload": 1,
-          "provenance": 1,
-          "rebuild": 1,
-          "revert": 1,
-          "rewrittenRestore": 1,
-          "validation": 1,
-          "verify": 1
-        },
         "expected": {
           "identityMode": "derived-from-fixture",
           "detectorId": "installed",
@@ -37,8 +23,6 @@
     ]
   },
   "live": {
-    "mode": "candidate",
-    "reasonCode": "unproven-hosted-baseline",
-    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+    "mode": "candidate"
   }
 }

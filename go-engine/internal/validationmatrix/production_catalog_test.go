@@ -146,6 +146,25 @@ func TestProductionCatalogValidationMetadataIsComplete(t *testing.T) {
 	assertModuleIDSet(t, "install-only", gotInstallOnly, wantInstallOnly)
 }
 
+func TestProductionCatalogKeepsExplicitVerificationOverrides(t *testing.T) {
+	t.Parallel()
+
+	catalog, err := LoadCatalog(productionCatalogRepoRoot(t), time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []string{}
+	for moduleID, record := range catalog.Records {
+		for _, scenario := range record.Synthetic.Scenarios {
+			if scenario.MinimumAssertions[AssertionVerify] == 2 {
+				got = append(got, moduleID)
+			}
+		}
+	}
+	want := prefixedModuleIDs([]string{"houdini", "macrium-reflect", "maya", "rawtherapee", "rustup-cargo", "ssms"})
+	assertModuleIDSet(t, "explicit verify: 2 overrides", got, want)
+}
+
 func productionCatalogRepoRoot(t *testing.T) string {
 	t.Helper()
 	_, thisFile, _, ok := runtime.Caller(0)

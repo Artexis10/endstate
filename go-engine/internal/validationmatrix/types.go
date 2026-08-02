@@ -114,7 +114,8 @@ type ValidationRecord struct {
 
 	FilePath string `json:"-"`
 
-	sourceSnapshot []byte
+	sourceSnapshot  []byte
+	defaultPresence defaultPresence
 }
 
 // SourceSnapshot returns the exact validation.jsonc bytes loaded for this

@@ -11,25 +11,11 @@
           "type": "declarative",
           "path": "modules/apps/stream-deck/validation-fixtures/default-v1.jsonc",
           "sha256": "8eeeca9ba5ef8857b244fdd4ff9486470879b4190f7c73f5e3760d8c9d5aaed9"
-        },
-        "timeoutSeconds": 120,
-        "minimumAssertions": {
-          "captured": 1,
-          "content": 1,
-          "nestedSummary": 1,
-          "payload": 1,
-          "provenance": 1,
-          "rebuild": 1,
-          "revert": 1,
-          "rewrittenRestore": 1,
-          "verify": 1
         }
       }
     ]
   },
   "live": {
-    "mode": "candidate",
-    "reasonCode": "unproven-hosted-baseline",
-    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+    "mode": "candidate"
   }
 }

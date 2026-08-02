@@ -74,9 +74,16 @@ func validateAssertions(record *ValidationRecord, mod *modules.Module, scenario 
 		return err
 	}
 	required := requiredAssertions(scenario.Mode, len(mod.Verify) > 0)
+	requiredSet := make(map[string]struct{}, len(required))
 	for _, name := range required {
+		requiredSet[name] = struct{}{}
 		if scenario.MinimumAssertions[name] <= 0 {
 			return validationError(CodeMissingAssertionMinimum, record.ModuleID, record.FilePath, "scenario %q requires non-zero %s assertions", scenario.ID, name)
+		}
+	}
+	for name := range scenario.MinimumAssertions {
+		if _, required := requiredSet[name]; !required {
+			return validationError(CodeInvalidSidecar, record.ModuleID, record.FilePath, "scenario %q assertion %q is not required for this scenario", scenario.ID, name)
 		}
 	}
 	return nil

@@ -11,25 +11,11 @@
           "type": "declarative",
           "path": "modules/apps/wave-link/validation-fixtures/default-v1.jsonc",
           "sha256": "cf9bb50c289e40321835f2fdbb638491284c79a7e3135531fb1ae2381c1ce8d4"
-        },
-        "timeoutSeconds": 120,
-        "minimumAssertions": {
-          "captured": 1,
-          "content": 1,
-          "nestedSummary": 1,
-          "payload": 1,
-          "provenance": 1,
-          "rebuild": 1,
-          "revert": 1,
-          "rewrittenRestore": 1,
-          "verify": 1
         }
       }
     ]
   },
   "live": {
-    "mode": "manual",
-    "reasonCode": "no-supported-package-reference",
-    "explanation": "No supported unattended Winget or Chocolatey package reference is declared by this module."
+    "mode": "manual"
   }
 }

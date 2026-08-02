@@ -12,19 +12,6 @@
           "path": "modules/apps/owncloud/validation-fixtures/generation-preferences-g1.jsonc",
           "sha256": "2b374eb1f654341e8e1e1de8f6dcf1a99f49c9a3606fb8f2cbb59dfa3fb54d3d"
         },
-        "timeoutSeconds": 120,
-        "minimumAssertions": {
-          "captured": 1,
-          "content": 1,
-          "generation": 1,
-          "nestedSummary": 1,
-          "payload": 1,
-          "provenance": 1,
-          "rebuild": 1,
-          "revert": 1,
-          "rewrittenRestore": 1,
-          "validation": 1
-        },
         "expected": {
           "identityMode": "derived-from-fixture",
           "detectorId": "installed",
@@ -40,19 +27,6 @@
           "type": "declarative",
           "path": "modules/apps/owncloud/validation-fixtures/generation-preferences-g2.jsonc",
           "sha256": "29cbcdd0bacc73ee76f00682ac2295355dee310ad53e3ffc281e753d8b0e8438"
-        },
-        "timeoutSeconds": 120,
-        "minimumAssertions": {
-          "captured": 1,
-          "content": 1,
-          "generation": 1,
-          "nestedSummary": 1,
-          "payload": 1,
-          "provenance": 1,
-          "rebuild": 1,
-          "revert": 1,
-          "rewrittenRestore": 1,
-          "validation": 1
         },
         "expected": {
           "identityMode": "derived-from-fixture",
@@ -70,20 +44,6 @@
           "path": "modules/apps/owncloud/validation-fixtures/migration-preferences-g1-to-g2.jsonc",
           "sha256": "135455832261afe7bb823d1aec8f73ce5b0f672b52be18fa96481a1f0595234f"
         },
-        "timeoutSeconds": 120,
-        "minimumAssertions": {
-          "captured": 1,
-          "content": 1,
-          "generation": 1,
-          "migration": 1,
-          "nestedSummary": 1,
-          "payload": 1,
-          "provenance": 1,
-          "rebuild": 1,
-          "revert": 1,
-          "rewrittenRestore": 1,
-          "validation": 1
-        },
         "expected": {
           "identityMode": "derived-from-fixture",
           "detectorId": "installed",
@@ -97,8 +57,6 @@
     ]
   },
   "live": {
-    "mode": "candidate",
-    "reasonCode": "unproven-hosted-baseline",
-    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+    "mode": "candidate"
   }
 }

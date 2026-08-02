@@ -12,13 +12,6 @@
           "path": "modules/apps/ocenaudio/validation-fixtures/capture-contract-v1.jsonc",
           "sha256": "3c6f4fcde4819ea57498b0e4ec3aa9143922e1b0a3945c29d059b8d93a97e39e"
         },
-        "timeoutSeconds": 120,
-        "minimumAssertions": {
-          "captured": 1,
-          "content": 1,
-          "payload": 1,
-          "provenance": 1
-        },
         "review": {
           "decision": "approved-one-way",
           "reasonCode": "documented-sensitive-one-way",
@@ -30,8 +23,6 @@
     ]
   },
   "live": {
-    "mode": "candidate",
-    "reasonCode": "unproven-hosted-baseline",
-    "explanation": "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module."
+    "mode": "candidate"
   }
 }

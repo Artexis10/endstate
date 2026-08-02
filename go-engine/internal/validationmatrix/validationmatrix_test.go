@@ -120,6 +120,206 @@ func TestLoadedValidationRecordPinsImmutableSourceSnapshot(t *testing.T) {
 	}
 }
 
+func TestLoadCatalogResolvesPresenceAwareDefaults(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name            string
+		liveMode        LiveMode
+		wantReason      string
+		wantExplanation string
+	}{
+		{
+			name:            "candidate",
+			liveMode:        LiveCandidate,
+			wantReason:      "unproven-hosted-baseline",
+			wantExplanation: "Install metadata exists, but no trusted GitHub-hosted baseline has passed for this module.",
+		},
+		{
+			name:            "manual",
+			liveMode:        LiveManual,
+			wantReason:      "no-supported-package-reference",
+			wantExplanation: "No supported unattended Winget or Chocolatey package reference is declared by this module.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+			record := validV1Validation(mod.ID, mod.Revision)
+			record.Live = nonHostedLivePolicy(tt.liveMode)
+			writeValidationWithMutation(t, root, "alpha", record, func(document map[string]any) {
+				scenario := firstScenarioJSON(t, document)
+				delete(scenario["fixture"].(map[string]any), "type")
+				delete(scenario, "timeoutSeconds")
+				delete(scenario, "minimumAssertions")
+				live := document["live"].(map[string]any)
+				delete(live, "reasonCode")
+				delete(live, "explanation")
+			})
+
+			catalog, err := LoadCatalog(root, now)
+			if err != nil {
+				t.Fatalf("LoadCatalog returned %v", err)
+			}
+			got := catalog.Records[mod.ID]
+			scenario := got.Synthetic.Scenarios[0]
+			if scenario.Fixture.Type != FixtureAuto {
+				t.Errorf("fixture type = %q, want %q", scenario.Fixture.Type, FixtureAuto)
+			}
+			if scenario.TimeoutSeconds != 120 {
+				t.Errorf("timeoutSeconds = %d, want 120", scenario.TimeoutSeconds)
+			}
+			for _, assertion := range requiredAssertions(scenario.Mode, true) {
+				if scenario.MinimumAssertions[assertion] != 1 {
+					t.Errorf("minimumAssertions[%q] = %d, want 1", assertion, scenario.MinimumAssertions[assertion])
+				}
+			}
+			if got.Live.ReasonCode != tt.wantReason || got.Live.Explanation != tt.wantExplanation {
+				t.Errorf("live defaults = %+v, want reason %q and explanation %q", got.Live, tt.wantReason, tt.wantExplanation)
+			}
+		})
+	}
+}
+
+func TestLoadCatalogRejectsExplicitInvalidDefaultableValues(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		mutate func(t *testing.T, document map[string]any)
+		code   string
+	}{
+		{
+			name: "blank fixture type",
+			mutate: func(t *testing.T, document map[string]any) {
+				firstScenarioJSON(t, document)["fixture"].(map[string]any)["type"] = ""
+			},
+			code: CodeInvalidFixture,
+		},
+		{
+			name: "empty declarative fixture path without type",
+			mutate: func(t *testing.T, document map[string]any) {
+				fixture := firstScenarioJSON(t, document)["fixture"].(map[string]any)
+				delete(fixture, "type")
+				fixture["path"] = ""
+			},
+			code: CodeInvalidFixture,
+		},
+		{
+			name: "zero timeout",
+			mutate: func(t *testing.T, document map[string]any) {
+				firstScenarioJSON(t, document)["timeoutSeconds"] = 0
+			},
+			code: CodeInvalidSidecar,
+		},
+		{
+			name: "blank candidate reason",
+			mutate: func(t *testing.T, document map[string]any) {
+				document["live"].(map[string]any)["reasonCode"] = ""
+			},
+			code: CodeInvalidLivePolicy,
+		},
+		{
+			name: "blank candidate explanation",
+			mutate: func(t *testing.T, document map[string]any) {
+				document["live"].(map[string]any)["explanation"] = ""
+			},
+			code: CodeInvalidLivePolicy,
+		},
+		{
+			name: "empty assertion map",
+			mutate: func(t *testing.T, document map[string]any) {
+				firstScenarioJSON(t, document)["minimumAssertions"] = map[string]any{}
+			},
+			code: CodeMissingAssertionMinimum,
+		},
+		{
+			name: "partial assertion map",
+			mutate: func(t *testing.T, document map[string]any) {
+				firstScenarioJSON(t, document)["minimumAssertions"] = map[string]any{AssertionCaptured: 1}
+			},
+			code: CodeMissingAssertionMinimum,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+			record := validV1Validation(mod.ID, mod.Revision)
+			record.Live = nonHostedLivePolicy(LiveCandidate)
+			writeValidationWithMutation(t, root, "alpha", record, func(document map[string]any) {
+				tt.mutate(t, document)
+			})
+			_, err := LoadCatalog(root, now)
+			if got := ErrorCode(err); got != tt.code {
+				t.Fatalf("LoadCatalog error = %v (code %q), want code %q", err, got, tt.code)
+			}
+		})
+	}
+}
+
+func TestLoadCatalogRejectsDuplicateSidecarFields(t *testing.T) {
+	root := t.TempDir()
+	mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+	record := validV1Validation(mod.ID, mod.Revision)
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), `"schemaVersion":1`, `"schemaVersion":1,"schemaVersion":1`, 1))
+	writeRawValidation(t, root, "alpha", data)
+
+	_, err = LoadCatalog(root, time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC))
+	if ErrorCode(err) != CodeInvalidSidecar || !strings.Contains(err.Error(), "duplicate") {
+		t.Fatalf("LoadCatalog error = %v, want duplicate sidecar field rejection", err)
+	}
+}
+
+func TestLoadCatalogDefaultsSchemaV2AssertionsFromProductionVerifier(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name       string
+		module     string
+		wantVerify bool
+	}{
+		{
+			name:       "with verifier",
+			module:     schemaV2Module("apps.v2"),
+			wantVerify: true,
+		},
+		{
+			name:       "without verifier",
+			module:     strings.Replace(schemaV2Module("apps.v2"), `"verify": [{"type": "file-exists", "path": "%APPDATA%\\Fixture\\settings.json"}],`, `"verify": [],`, 1),
+			wantVerify: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "v2", tt.module)
+			record := validV2Validation(t, mod)
+			writeValidationWithMutation(t, root, "v2", record, func(document map[string]any) {
+				for _, raw := range document["synthetic"].(map[string]any)["scenarios"].([]any) {
+					delete(raw.(map[string]any), "minimumAssertions")
+				}
+			})
+
+			catalog, err := LoadCatalog(root, now)
+			if err != nil {
+				t.Fatalf("LoadCatalog returned %v", err)
+			}
+			for _, scenario := range catalog.Records[mod.ID].Synthetic.Scenarios {
+				_, gotVerify := scenario.MinimumAssertions[AssertionVerify]
+				if gotVerify != tt.wantVerify {
+					t.Errorf("scenario %q verify default present = %t, want %t", scenario.ID, gotVerify, tt.wantVerify)
+				}
+			}
+		})
+	}
+}
+
 func TestLoadCatalogUsesCanonicalJSONCParser(t *testing.T) {
 	root := t.TempDir()
 	mod := writeModule(t, root, "urls", strings.Replace(schemaV1Module("apps.urls", true), `"displayName": "Fixture"`, `"displayName": "https://example.test/path//literal"`, 1))

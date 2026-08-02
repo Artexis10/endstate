@@ -110,6 +110,7 @@ func LoadCatalog(repoRoot string, now time.Time) (*Catalog, error) {
 		if record.ModuleID != moduleID {
 			return nil, validationError(CodeMismatchedSidecar, record.ModuleID, sidecarPath, "sibling module identity is %q", moduleID)
 		}
+		resolveDefaults(&record, mod)
 		if err := validateRecord(&record, mod, now); err != nil {
 			return nil, err
 		}
@@ -139,7 +140,11 @@ func LoadCatalog(repoRoot string, now time.Time) (*Catalog, error) {
 }
 
 func parseValidationJSONC(data []byte) (ValidationRecord, error) {
-	decoder := json.NewDecoder(bytes.NewReader(manifest.StripJsoncComments(data)))
+	clean := manifest.StripJsoncComments(data)
+	if err := rejectDuplicateJSONKeys(clean); err != nil {
+		return ValidationRecord{}, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(clean))
 	decoder.DisallowUnknownFields()
 	var record ValidationRecord
 	if err := decoder.Decode(&record); err != nil {
@@ -152,5 +157,68 @@ func parseValidationJSONC(data []byte) (ValidationRecord, error) {
 		}
 		return ValidationRecord{}, err
 	}
+	presence, err := collectDefaultPresence(clean)
+	if err != nil {
+		return ValidationRecord{}, err
+	}
+	record.defaultPresence = presence
 	return record, nil
+}
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := walkJSONValue(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
+}
+
+func walkJSONValue(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, objectOrArray := token.(json.Delim)
+	if !objectOrArray {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := map[string]struct{}{}
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return fmt.Errorf("object key is not a string")
+			}
+			if _, duplicate := seen[name]; duplicate {
+				return fmt.Errorf("duplicate object key %q", name)
+			}
+			seen[name] = struct{}{}
+			if err := walkJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	case '[':
+		for decoder.More() {
+			if err := walkJSONValue(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	default:
+		return fmt.Errorf("unexpected JSON delimiter")
+	}
 }
