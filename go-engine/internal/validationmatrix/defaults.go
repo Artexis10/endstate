@@ -5,6 +5,7 @@ package validationmatrix
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 )
@@ -23,10 +24,7 @@ type defaultPresence struct {
 }
 
 type scenarioDefaultPresence struct {
-	fixtureObject     bool
-	fixtureType       bool
-	fixturePath       bool
-	fixtureSHA256     bool
+	fixture           bool
 	timeoutSeconds    bool
 	minimumAssertions bool
 }
@@ -53,28 +51,21 @@ func collectDefaultPresence(data []byte) (defaultPresence, error) {
 		if err := json.Unmarshal(rawScenario, &scenario); err != nil {
 			return defaultPresence{}, err
 		}
-		_, presence.scenarios[index].timeoutSeconds = scenario["timeoutSeconds"]
-		_, presence.scenarios[index].minimumAssertions = scenario["minimumAssertions"]
-		fixture, exists := scenario["fixture"]
+		presence.scenarios[index].timeoutSeconds = hasJSONField(scenario, "timeoutSeconds")
+		presence.scenarios[index].minimumAssertions = hasJSONField(scenario, "minimumAssertions")
+		_, exists := jsonField(scenario, "fixture")
+		presence.scenarios[index].fixture = exists
 		if !exists {
 			continue
 		}
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(fixture, &fields); err != nil {
-			return defaultPresence{}, err
-		}
-		presence.scenarios[index].fixtureObject = fields != nil
-		_, presence.scenarios[index].fixtureType = fields["type"]
-		_, presence.scenarios[index].fixturePath = fields["path"]
-		_, presence.scenarios[index].fixtureSHA256 = fields["sha256"]
 	}
 	if len(document.Live) != 0 {
 		var live map[string]json.RawMessage
 		if err := json.Unmarshal(document.Live, &live); err != nil {
 			return defaultPresence{}, err
 		}
-		_, presence.live.reasonCode = live["reasonCode"]
-		_, presence.live.explanation = live["explanation"]
+		presence.live.reasonCode = hasJSONField(live, "reasonCode")
+		presence.live.explanation = hasJSONField(live, "explanation")
 	}
 	return presence, nil
 }
@@ -86,7 +77,7 @@ func resolveDefaults(record *ValidationRecord, mod *modules.Module) {
 			continue
 		}
 		presence := record.defaultPresence.scenarios[index]
-		if presence.fixtureObject && !presence.fixtureType && !presence.fixturePath && !presence.fixtureSHA256 {
+		if !presence.fixture {
 			scenario.Fixture.Type = FixtureAuto
 		}
 		if !presence.timeoutSeconds {
@@ -116,4 +107,18 @@ func resolveDefaults(record *ValidationRecord, mod *modules.Module) {
 			record.Live.Explanation = defaultManualExplanation
 		}
 	}
+}
+
+func hasJSONField(fields map[string]json.RawMessage, name string) bool {
+	_, ok := jsonField(fields, name)
+	return ok
+}
+
+func jsonField(fields map[string]json.RawMessage, name string) (json.RawMessage, bool) {
+	for field, value := range fields {
+		if strings.EqualFold(field, name) {
+			return value, true
+		}
+	}
+	return nil, false
 }

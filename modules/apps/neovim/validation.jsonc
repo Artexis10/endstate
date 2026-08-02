@@ -6,9 +6,7 @@
     "scenarios": [
       {
         "id": "default-v1",
-        "mode": "config-roundtrip-v1",
-        "fixture": {
-        }
+        "mode": "config-roundtrip-v1"
       }
     ]
   },

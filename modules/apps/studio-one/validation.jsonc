@@ -23,8 +23,6 @@
       {
         "id": "generation-preferences-g1-abc0141add29",
         "mode": "config-generation-v2",
-        "fixture": {
-        },
         "expected": {
           "identityMode": "derived-from-fixture",
           "detectorId": "versions",

@@ -6,9 +6,7 @@
     "scenarios": [
       {
         "id": "install-v1",
-        "mode": "install-contract",
-        "fixture": {
-        }
+        "mode": "install-contract"
       }
     ]
   },

@@ -7,8 +7,6 @@
       {
         "id": "default-v1",
         "mode": "config-roundtrip-v1",
-        "fixture": {
-        },
         "minimumAssertions": {
           "captured": 1,
           "content": 1,

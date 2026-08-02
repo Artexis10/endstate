@@ -150,7 +150,7 @@ func TestLoadCatalogResolvesPresenceAwareDefaults(t *testing.T) {
 			record.Live = nonHostedLivePolicy(tt.liveMode)
 			writeValidationWithMutation(t, root, "alpha", record, func(document map[string]any) {
 				scenario := firstScenarioJSON(t, document)
-				delete(scenario["fixture"].(map[string]any), "type")
+				delete(scenario, "fixture")
 				delete(scenario, "timeoutSeconds")
 				delete(scenario, "minimumAssertions")
 				live := document["live"].(map[string]any)
@@ -197,6 +197,13 @@ func TestLoadCatalogRejectsExplicitInvalidDefaultableValues(t *testing.T) {
 			code: CodeInvalidFixture,
 		},
 		{
+			name: "empty fixture object",
+			mutate: func(t *testing.T, document map[string]any) {
+				firstScenarioJSON(t, document)["fixture"] = map[string]any{}
+			},
+			code: CodeInvalidFixture,
+		},
+		{
 			name: "empty declarative fixture path without type",
 			mutate: func(t *testing.T, document map[string]any) {
 				fixture := firstScenarioJSON(t, document)["fixture"].(map[string]any)
@@ -239,6 +246,68 @@ func TestLoadCatalogRejectsExplicitInvalidDefaultableValues(t *testing.T) {
 				firstScenarioJSON(t, document)["minimumAssertions"] = map[string]any{AssertionCaptured: 1}
 			},
 			code: CodeMissingAssertionMinimum,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root := t.TempDir()
+			mod := writeModule(t, root, "alpha", schemaV1Module("apps.alpha", true))
+			record := validV1Validation(mod.ID, mod.Revision)
+			record.Live = nonHostedLivePolicy(LiveCandidate)
+			writeValidationWithMutation(t, root, "alpha", record, func(document map[string]any) {
+				tt.mutate(t, document)
+			})
+			_, err := LoadCatalog(root, now)
+			if got := ErrorCode(err); got != tt.code {
+				t.Fatalf("LoadCatalog error = %v (code %q), want code %q", err, got, tt.code)
+			}
+		})
+	}
+}
+
+func TestLoadCatalogRejectsCaseInsensitiveAliasDefaultBypass(t *testing.T) {
+	now := time.Date(2026, 7, 22, 0, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name   string
+		mutate func(t *testing.T, document map[string]any)
+		code   string
+	}{
+		{
+			name: "TimeoutSeconds",
+			mutate: func(t *testing.T, document map[string]any) {
+				scenario := firstScenarioJSON(t, document)
+				delete(scenario, "timeoutSeconds")
+				scenario["TimeoutSeconds"] = 0
+			},
+			code: CodeInvalidSidecar,
+		},
+		{
+			name: "MinimumAssertions",
+			mutate: func(t *testing.T, document map[string]any) {
+				scenario := firstScenarioJSON(t, document)
+				delete(scenario, "minimumAssertions")
+				scenario["MinimumAssertions"] = map[string]any{}
+			},
+			code: CodeMissingAssertionMinimum,
+		},
+		{
+			name: "fixture.Type",
+			mutate: func(t *testing.T, document map[string]any) {
+				fixture := firstScenarioJSON(t, document)["fixture"].(map[string]any)
+				delete(fixture, "type")
+				fixture["Type"] = ""
+			},
+			code: CodeInvalidFixture,
+		},
+		{
+			name: "ReasonCode",
+			mutate: func(t *testing.T, document map[string]any) {
+				live := document["live"].(map[string]any)
+				delete(live, "reasonCode")
+				live["ReasonCode"] = ""
+			},
+			code: CodeInvalidLivePolicy,
 		},
 	}
 

@@ -7,8 +7,6 @@
       {
         "id": "reviewed-capture-v1",
         "mode": "capture-contract",
-        "fixture": {
-        },
         "review": {
           "decision": "approved-one-way",
           "reasonCode": "documented-sensitive-one-way",
