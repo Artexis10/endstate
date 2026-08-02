@@ -20,6 +20,8 @@ import (
 
 type scenarioRunner func(context.Context, validationharness.Request) (validationharness.Result, error)
 
+var syncRevisions = validationmatrix.SyncRevisions
+
 func main() {
 	os.Exit(runCLICommands(os.Args[1:], os.Stdout, os.Stderr, validationharness.Run))
 }
@@ -54,7 +56,7 @@ func runSyncRevisions(args []string, stdout io.Writer) int {
 	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || repoRoot == "" {
 		return writeCommandError(stdout, "invalid sync-revisions flags")
 	}
-	result, err := validationmatrix.SyncRevisions(repoRoot, write, time.Now().UTC())
+	result, err := syncRevisions(repoRoot, write, time.Now().UTC())
 	if err != nil {
 		failure := "invalid sync-revisions catalog"
 		if validationmatrix.ErrorCode(err) == validationmatrix.CodeStaleSidecar {

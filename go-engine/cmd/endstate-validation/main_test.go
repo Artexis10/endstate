@@ -129,6 +129,39 @@ func TestRunCLICommandsRejectsInvalidSyncRevisionFlags(t *testing.T) {
 	}
 }
 
+func TestRunSyncRevisionsMapsResultsDeterministically(t *testing.T) {
+	original := syncRevisions
+	t.Cleanup(func() { syncRevisions = original })
+	tests := []struct {
+		name        string
+		result      validationmatrix.RevisionSyncResult
+		err         error
+		wantCode    int
+		wantStatus  string
+		wantFailure any
+	}{
+		{"success", validationmatrix.RevisionSyncResult{}, nil, 0, validationharness.ResultStatusPassed, nil},
+		{"drift", validationmatrix.RevisionSyncResult{Stale: 2}, &validationmatrix.ValidationError{Code: validationmatrix.CodeStaleSidecar}, 1, validationharness.ResultStatusFailed, "stale validation sidecars"},
+		{"partial write", validationmatrix.RevisionSyncResult{Stale: 2, Updated: 1}, errors.New("write failure"), 1, validationharness.ResultStatusFailed, "invalid sync-revisions catalog"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			syncRevisions = func(string, bool, time.Time) (validationmatrix.RevisionSyncResult, error) { return tt.result, tt.err }
+			var stdout bytes.Buffer
+			if code := runSyncRevisions([]string{"--repo", `C:\repo`}, &stdout); code != tt.wantCode {
+				t.Fatalf("exit = %d, output=%s", code, stdout.String())
+			}
+			var result map[string]any
+			if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result["status"] != tt.wantStatus || result["stale"] != float64(tt.result.Stale) || result["updated"] != float64(tt.result.Updated) || result["failure"] != tt.wantFailure {
+				t.Fatalf("result = %s", stdout.String())
+			}
+		})
+	}
+}
+
 func TestRunCLICommandsClassifiesCatalogSetupFailure(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	commit := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

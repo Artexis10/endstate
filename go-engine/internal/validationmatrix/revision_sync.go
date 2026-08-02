@@ -32,6 +32,20 @@ type revisionSyncPlan struct {
 	revision string
 }
 
+type revisionSyncOperations struct {
+	resolve func(string, string) (string, error)
+	read    func(string) ([]byte, os.FileMode, error)
+	write   func(string, []byte, os.FileMode) error
+	reload  func(string, time.Time) (*Catalog, error)
+}
+
+var defaultRevisionSyncOperations = revisionSyncOperations{
+	resolve: safepath.Resolve,
+	read:    safepath.ReadRegularFile,
+	write:   safepath.AtomicWriteFile,
+	reload:  LoadCatalog,
+}
+
 // SyncRevisions checks production module revision pins and, when write is
 // explicit, replaces only stale moduleRevision value bytes after full preflight.
 func SyncRevisions(repoRoot string, write bool, now time.Time) (RevisionSyncResult, error) {
@@ -47,30 +61,35 @@ func SyncRevisions(repoRoot string, write bool, now time.Time) (RevisionSyncResu
 		return result, nil
 	}
 
+	return applyRevisionSyncPlans(repoRoot, plans, now, defaultRevisionSyncOperations)
+}
+
+func applyRevisionSyncPlans(repoRoot string, plans []revisionSyncPlan, now time.Time, operations revisionSyncOperations) (RevisionSyncResult, error) {
+	result := RevisionSyncResult{Stale: len(plans)}
 	for _, plan := range plans {
 		portable, err := filepath.Rel(repoRoot, plan.path)
 		if err != nil {
-			return RevisionSyncResult{}, validationErrorWithCause(CodeInvalidSidecar, plan.moduleID, plan.path, "resolve validation sidecar", err)
+			return result, validationErrorWithCause(CodeInvalidSidecar, plan.moduleID, plan.path, "resolve validation sidecar", err)
 		}
-		path, err := safepath.Resolve(repoRoot, filepath.ToSlash(portable))
+		path, err := operations.resolve(repoRoot, filepath.ToSlash(portable))
 		if err != nil {
-			return RevisionSyncResult{}, validationErrorWithCause(CodeInvalidSidecar, plan.moduleID, plan.path, "resolve validation sidecar", err)
+			return result, validationErrorWithCause(CodeInvalidSidecar, plan.moduleID, plan.path, "resolve validation sidecar", err)
 		}
-		data, mode, err := safepath.ReadRegularFile(path)
+		data, mode, err := operations.read(path)
 		if err != nil {
-			return RevisionSyncResult{}, validationErrorWithCause(CodeInvalidSidecar, plan.moduleID, path, "read validation sidecar", err)
+			return result, validationErrorWithCause(CodeInvalidSidecar, plan.moduleID, path, "read validation sidecar", err)
 		}
 		if !bytes.Equal(data, plan.before) {
-			return RevisionSyncResult{}, validationError(CodeInvalidSidecar, plan.moduleID, path, "validation sidecar changed during synchronization")
+			return result, validationError(CodeInvalidSidecar, plan.moduleID, path, "validation sidecar changed during synchronization")
 		}
 		copy(data[plan.start:plan.start+64], plan.revision)
-		if err := safepath.AtomicWriteFile(path, data, mode); err != nil {
-			return RevisionSyncResult{}, validationErrorWithCause(CodeInvalidSidecar, plan.moduleID, path, "write validation sidecar", err)
+		if err := operations.write(path, data, mode); err != nil {
+			return result, validationErrorWithCause(CodeInvalidSidecar, plan.moduleID, path, "write validation sidecar", err)
 		}
+		result.Updated++
 	}
-	result.Updated = len(plans)
-	if _, err := LoadCatalog(repoRoot, now); err != nil {
-		return RevisionSyncResult{}, err
+	if _, err := operations.reload(repoRoot, now); err != nil {
+		return result, err
 	}
 	return result, nil
 }
@@ -109,7 +128,7 @@ func preflightRevisionSync(repoRoot string, now time.Time) ([]revisionSyncPlan, 
 		if err != nil {
 			return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", modulePath, "read production module", err)
 		}
-		mod, err := modules.ParseModuleJSON(moduleData)
+		mod, err := modules.ParseAndValidateModuleJSON(moduleData, modulePath)
 		if err != nil {
 			return nil, validationErrorWithCause(CodeInvalidModuleCatalog, "", modulePath, "parse production module", err)
 		}
