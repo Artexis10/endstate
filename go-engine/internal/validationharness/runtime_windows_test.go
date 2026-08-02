@@ -172,7 +172,7 @@ func TestRunFreshBuiltEngineRegistryRoundtrips(t *testing.T) {
 		_, failure := compileCompositeFixturePlanAt(repoRoot, validationContext, mod, scenario, &recordingRegistryFixture{})
 		restore()
 		if failure != nil {
-			if (moduleID != "apps.ccleaner" && moduleID != "apps.revo-uninstaller" && moduleID != "apps.tableplus") || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "capture.registryKeys[0].key" {
+			if (moduleID != "apps.ccleaner" && moduleID != "apps.displayfusion" && moduleID != "apps.revo-uninstaller" && moduleID != "apps.tableplus") || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "capture.registryKeys[0].key" {
 				t.Fatalf("registry contract %s = %+v", moduleID, failure)
 			}
 			continue

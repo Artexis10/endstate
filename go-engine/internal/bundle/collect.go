@@ -53,6 +53,9 @@ func CollectConfigFiles(module *modules.Module, stagingDir string) ([]string, in
 // CollectConfigFilesWithValidation preserves the legacy collector contract and
 // virtualizes only host reads and portable staging writes when context is set.
 func CollectConfigFilesWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, int, error) {
+	if err := validateRegistryCaptureBoundary(module); err != nil {
+		return nil, 0, registryCaptureBoundaryFailure(module, context, err)
+	}
 	if module.Capture == nil || len(module.Capture.Files) == 0 {
 		return nil, 0, nil
 	}
@@ -182,6 +185,9 @@ func CollectRegistryKeys(module *modules.Module, stagingDir string) ([]string, e
 // then rewrites the disposable physical namespace back to semantic HKCU bytes
 // before publication. A nil context is the established production path.
 func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, error) {
+	if err := validateRegistryCaptureBoundary(module); err != nil {
+		return nil, registryCaptureBoundaryFailure(module, context, err)
+	}
 	if runtime.GOOS != "windows" {
 		return nil, nil
 	}
@@ -198,17 +204,6 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 	var collected []string
 
 	for index, keyEntry := range module.Capture.RegistryKeys {
-		if err := validateRegistryCaptureSecrets(module, keyEntry.Key); err != nil {
-			coordinate, authored := fmt.Sprintf("capture.registryKeys[%d].key", index), keyEntry.Key
-			var secret *registrySecretDeclarationError
-			if errors.As(err, &secret) {
-				coordinate, authored = secret.coordinate, secret.authored
-			}
-			if context != nil {
-				return collected, captureIsolation(module.ID, coordinate, "registry", authored, validationmode.ErrUnsafeRegistry)
-			}
-			return collected, fmt.Errorf("registry capture secret overlap at %s: %w", coordinate, validationmode.ErrUnsafeRegistry)
-		}
 		exportKey := keyEntry.Key
 		semanticKey := keyEntry.Key
 		if context != nil {
@@ -291,23 +286,57 @@ func CollectRegistryKeysWithValidation(module *modules.Module, stagingDir string
 	return collected, nil
 }
 
-type registrySecretDeclarationError struct {
+type registrySecretBoundaryError struct {
 	coordinate string
 	authored   string
 }
 
-func (err *registrySecretDeclarationError) Error() string {
-	return "registry secret declaration overlaps capture"
+func (err *registrySecretBoundaryError) Error() string {
+	return "registry secret boundary rejects capture"
 }
 
-func validateRegistryCaptureSecrets(module *modules.Module, captureKey string) error {
-	captureKind, normalizedCapture := modules.ClassifySecretCoordinate(captureKey)
-	if captureKind != modules.SecretCoordinateRegistry {
-		return validationmode.ErrUnsafeRegistry
-	}
-	if module == nil || module.Secrets == nil {
+func (err *registrySecretBoundaryError) Unwrap() error {
+	return validationmode.ErrUnsafeRegistry
+}
+
+func validateRegistryCaptureBoundary(module *modules.Module) error {
+	if module == nil || module.Capture == nil {
 		return nil
 	}
+	secrets, err := registryCaptureSecrets(module)
+	if err != nil {
+		return err
+	}
+	for index, capture := range module.Capture.RegistryKeys {
+		key, err := normalizeRegistryCaptureKey(capture.Key)
+		if err != nil {
+			return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryKeys[%d].key", index), authored: capture.Key}
+		}
+		for _, secret := range secrets {
+			if registrySubtreesOverlap(key, secret) {
+				return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryKeys[%d].key", index), authored: capture.Key}
+			}
+		}
+	}
+	for index, capture := range module.Capture.RegistryValues {
+		key, err := normalizeRegistryCaptureKey(capture.Key)
+		if err != nil {
+			return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryValues[%d].key", index), authored: capture.Key}
+		}
+		for _, secret := range secrets {
+			if registryKeyContains(secret, key) {
+				return &registrySecretBoundaryError{coordinate: fmt.Sprintf("capture.registryValues[%d].key", index), authored: capture.Key}
+			}
+		}
+	}
+	return nil
+}
+
+func registryCaptureSecrets(module *modules.Module) ([]string, error) {
+	if module == nil || module.Secrets == nil {
+		return nil, nil
+	}
+	var secrets []string
 	for _, declaration := range []struct {
 		coordinate string
 		values     []string
@@ -322,19 +351,50 @@ func validateRegistryCaptureSecrets(module *modules.Module, captureKey string) e
 				continue
 			}
 			if kind == modules.SecretCoordinateRegistryInvalid {
-				return &registrySecretDeclarationError{coordinate: coordinate, authored: authored}
+				return nil, &registrySecretBoundaryError{coordinate: coordinate, authored: authored}
 			}
-			if registrySubtreesOverlap(normalizedCapture, normalizedSecret) {
-				return &registrySecretDeclarationError{coordinate: coordinate, authored: authored}
+			secret, err := validationmode.NormalizeHKCU(normalizedSecret)
+			if err != nil {
+				return nil, &registrySecretBoundaryError{coordinate: coordinate, authored: authored}
 			}
+			secrets = append(secrets, secret)
 		}
 	}
-	return nil
+	return secrets, nil
+}
+
+func normalizeRegistryCaptureKey(authored string) (string, error) {
+	kind, normalized := modules.ClassifySecretCoordinate(authored)
+	if kind != modules.SecretCoordinateRegistry {
+		return "", validationmode.ErrUnsafeRegistry
+	}
+	return validationmode.NormalizeHKCU(normalized)
+}
+
+func registryCaptureBoundaryFailure(module *modules.Module, context *validationmode.Context, err error) error {
+	if context == nil {
+		return err
+	}
+	coordinate, authored := "capture.registry", ""
+	var boundary *registrySecretBoundaryError
+	if errors.As(err, &boundary) {
+		coordinate, authored = boundary.coordinate, boundary.authored
+	}
+	moduleID := ""
+	if module != nil {
+		moduleID = module.ID
+	}
+	return captureIsolation(moduleID, coordinate, "registry", authored, validationmode.ErrUnsafeRegistry)
 }
 
 func registrySubtreesOverlap(first, second string) bool {
 	first, second = strings.ToLower(first), strings.ToLower(second)
 	return first == second || strings.HasPrefix(first, second+`\`) || strings.HasPrefix(second, first+`\`)
+}
+
+func registryKeyContains(root, key string) bool {
+	root, key = strings.ToLower(root), strings.ToLower(key)
+	return root == key || strings.HasPrefix(key, root+`\`)
 }
 
 // CapturedRegistryValue is a single named value captured at value-level (its
@@ -363,6 +423,9 @@ func CollectRegistryValues(module *modules.Module, stagingDir string) ([]string,
 // CollectRegistryValuesWithValidation reads the mapped physical key but keeps
 // the module-authored semantic key in registry-values.json.
 func CollectRegistryValuesWithValidation(module *modules.Module, stagingDir string, context *validationmode.Context) ([]string, error) {
+	if err := validateRegistryCaptureBoundary(module); err != nil {
+		return nil, registryCaptureBoundaryFailure(module, context, err)
+	}
 	if runtime.GOOS != "windows" {
 		return nil, nil
 	}
@@ -766,7 +829,7 @@ func matchesSecrets(filePath string, patterns []string) bool {
 // CapturePathMatchesSecrets applies the same production secret matcher used by
 // direct capture declarations without granting filesystem authority.
 func CapturePathMatchesSecrets(filePath string, patterns []string) bool {
-	return matchesSecrets(expandPath(filePath), patterns)
+	return matchesSecrets(expandPath(filePath), filesystemSecretPatterns(patterns))
 }
 
 func catalogPath(value string) string {
@@ -777,7 +840,17 @@ func captureMatchesSecrets(path string, authored, resolved []string, validation 
 	if validation {
 		return matchesSecrets(path, resolved)
 	}
-	return matchesSecrets(path, authored)
+	return matchesSecrets(path, filesystemSecretPatterns(authored))
+}
+
+func filesystemSecretPatterns(patterns []string) []string {
+	filtered := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		if kind, _ := modules.ClassifySecretCoordinate(pattern); kind == modules.SecretCoordinateFilesystem {
+			filtered = append(filtered, pattern)
+		}
+	}
+	return filtered
 }
 
 // containsOrdered reports whether target contains each trimmed, non-empty part

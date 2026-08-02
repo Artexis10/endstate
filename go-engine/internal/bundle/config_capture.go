@@ -359,6 +359,9 @@ func moduleMatchesPinnedSnapshot(mod *modules.Module) bool {
 }
 
 func preflightConfigCopies(plan ConfigSetCapturePlan, context *validationmode.Context) (*configCopyPreflight, error) {
+	if err := validateRegistryCaptureBoundary(plan.Module); err != nil {
+		return nil, registryCaptureBoundaryFailure(plan.Module, context, err)
+	}
 	capture := plan.Generation.Capture
 	excludeGlobs := capture.ExcludeGlobs
 	var secretFiles []string

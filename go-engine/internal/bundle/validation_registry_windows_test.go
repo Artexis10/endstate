@@ -113,6 +113,35 @@ func TestCollectRegistryKeysRejectsTypedSecretOverlapBeforeExport(t *testing.T) 
 	}
 }
 
+func TestCollectRegistryKeysPreflightsAllSecretsBeforeAnyExport(t *testing.T) {
+	original := runRegistryExport
+	exports := 0
+	runRegistryExport = func(_, _ string) error { exports++; return nil }
+	t.Cleanup(func() { runRegistryExport = original })
+	mod := &modules.Module{ID: "apps.example", Capture: &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{
+		{Key: `HKCU\Software\Safe`, Dest: "safe.reg", Optional: true},
+		{Key: `HKCU\Software\Unsafe`, Dest: "unsafe.reg", Optional: true},
+	}}, Secrets: &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Unsafe\Secret`}}}
+	if _, err := CollectRegistryKeys(mod, t.TempDir()); !errors.Is(err, validationmode.ErrUnsafeRegistry) || exports != 0 {
+		t.Fatalf("CollectRegistryKeys() error = %v exports=%d, want boundary failure before export", err, exports)
+	}
+}
+
+func TestCollectRegistryValuesRejectsSecretBeforeQueryOrOutput(t *testing.T) {
+	context := activeBundleValidationContext(t, "apps.example")
+	original := runRegistryQuery
+	runRegistryQuery = func(_, _ string) ([]byte, error) { panic("registry query reached") }
+	t.Cleanup(func() { runRegistryQuery = original })
+	staging := bundleValidationWorkRoot(t, context, "registry-value-secret")
+	mod := &modules.Module{ID: "apps.example", Capture: &modules.CaptureDef{RegistryValues: []modules.CaptureRegistryValue{{Key: `HKCU\Software\Example\Secret\Child`, ValueName: "Theme"}}}, Secrets: &modules.SecretsDef{Files: []string{`HKCU\Software\Example\Secret`}}}
+	if _, err := CollectRegistryValuesWithValidation(mod, staging, context); !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+		t.Fatalf("CollectRegistryValuesWithValidation() error = %v, want ErrUnsafeRegistry", err)
+	}
+	if _, err := os.Stat(filepath.Join(staging, "configs", "example", "registry-values.json")); !os.IsNotExist(err) {
+		t.Fatalf("registry values output exists after boundary failure: %v", err)
+	}
+}
+
 func TestCollectRegistryValuesWithValidationReadsMappedKeyAndWritesSemanticIdentity(t *testing.T) {
 	context := activeBundleValidationContext(t, "apps.example")
 	semantic := `HKCU\Software\Vendor\Example`
