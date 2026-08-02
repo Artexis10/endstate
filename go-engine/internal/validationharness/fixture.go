@@ -671,6 +671,48 @@ func (plan *FixturePlan) CompareCaptureSeed() *Failure {
 	return plan.compareRegistry("captured")
 }
 
+func (plan *FixturePlan) CompareOptionalAbsent() *Failure {
+	if plan == nil || plan.context == nil {
+		return fail(CodeIsolationFailure, "fixture", "optional", "fixture authority is absent")
+	}
+	for _, target := range plan.Targets {
+		if target.Optional {
+			if err := plan.context.ValidateSandboxPath(target.Resolved); err != nil {
+				return fail(CodeIsolationFailure, "fixture", target.Coordinate, "optional fixture target left validation authority")
+			}
+			info, err := os.Lstat(target.Resolved)
+			if os.IsNotExist(err) {
+				continue
+			}
+			if err != nil || safepath.IsLinkOrReparse(info) || !info.Mode().IsRegular() && !info.IsDir() {
+				return fail(CodeIsolationFailure, "fixture", target.Coordinate, "optional fixture target cannot be checked safely")
+			}
+			return fail(CodeContentMismatch, "fixture", target.Coordinate, "optional fixture target is present after optional-absence capture")
+		}
+	}
+	for _, target := range plan.RegistryTargets {
+		if target.Optional {
+			if plan.registryFixture == nil || plan.registryFixture.ProveAbsent(target.Authored) != nil {
+				return fail(CodeIsolationFailure, "fixture", target.Coordinate, "registry fixture operation failed")
+			}
+		}
+	}
+	retained := *plan
+	retained.Targets = make([]FixtureTarget, 0, len(plan.Targets))
+	for _, target := range plan.Targets {
+		if !target.Optional {
+			retained.Targets = append(retained.Targets, target)
+		}
+	}
+	retained.RegistryTargets = make([]RegistryFixtureTarget, 0, len(plan.RegistryTargets))
+	for _, target := range plan.RegistryTargets {
+		if !target.Optional {
+			retained.RegistryTargets = append(retained.RegistryTargets, target)
+		}
+	}
+	return retained.CompareCaptureSeed()
+}
+
 func (plan *FixturePlan) CompareCaptured() *Failure {
 	if failure := plan.compare("captured", false); failure != nil {
 		return failure

@@ -220,6 +220,9 @@ func executeJourney(ctx context.Context, runtime *scenarioRuntime, executor jour
 	}); failure != nil {
 		return failResult(failure)
 	}
+	if failure := runtime.Plan.CompareCaptureSeed(); failure != nil {
+		return failResult(failure)
+	}
 	for name, count := range evidence.AssertionCounts {
 		result.AssertionCounts[name] += count
 	}
@@ -228,7 +231,10 @@ func executeJourney(ctx context.Context, runtime *scenarioRuntime, executor jour
 			if failure := runtime.Plan.MaterializeOptionalAbsent(); failure != nil {
 				return failure
 			}
-			return executor.CaptureOptionalAbsent(ctx, runtime)
+			if failure := executor.CaptureOptionalAbsent(ctx, runtime); failure != nil {
+				return failure
+			}
+			return runtime.Plan.CompareOptionalAbsent()
 		}); failure != nil {
 			return failResult(failure)
 		}

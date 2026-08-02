@@ -72,6 +72,120 @@ func TestSuccessfulDeterministicExecutorMeetsExactV1Ledger(t *testing.T) {
 	}
 }
 
+func TestJourneyRejectsCaptureLiveStateCorruptionBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		mutate func(*scenarioRuntime)
+	}{
+		{"file", func(runtime *scenarioRuntime) {
+			target := runtime.Plan.Targets[0]
+			if err := os.WriteFile(target.PayloadPath, []byte("capture-corrupted"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"registry", func(runtime *scenarioRuntime) {
+			target := runtime.Plan.RegistryTargets[0]
+			fixture := runtime.Plan.registryFixture.(*recordingRegistryFixture)
+			fixture.states[target.Authored] = target.Mutated
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := mixedRegistryJourneyRuntime(t, false)
+			result := executeJourney(context.Background(), runtime, hostileJourneyExecutor{capture: test.mutate})
+			if result.Failure == nil || result.Failure.Code != CodeContentMismatch {
+				t.Fatalf("capture corruption result = %+v", result)
+			}
+		})
+	}
+}
+
+func TestJourneyRejectsOptionalAbsenceCorruptionBeforeMutation(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		code   string
+		mutate func(*scenarioRuntime)
+	}{
+		{"optional file recreated", CodeContentMismatch, func(runtime *scenarioRuntime) {
+			target := runtime.Plan.Targets[0]
+			if err := os.MkdirAll(filepath.Dir(target.PayloadPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(target.PayloadPath, []byte("recreated"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"optional registry recreated", CodeIsolationFailure, func(runtime *scenarioRuntime) {
+			target := runtime.Plan.RegistryTargets[0]
+			fixture := runtime.Plan.registryFixture.(*recordingRegistryFixture)
+			fixture.states[target.Authored] = target.Captured
+		}},
+		{"required file corrupted", CodeContentMismatch, func(runtime *scenarioRuntime) {
+			target := runtime.Plan.Targets[1]
+			if err := os.WriteFile(target.PayloadPath, []byte("required-corrupted"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			runtime := mixedRegistryJourneyRuntime(t, true)
+			result := executeJourney(context.Background(), runtime, hostileJourneyExecutor{optional: test.mutate})
+			if result.Failure == nil || result.Failure.Code != test.code {
+				t.Fatalf("optional corruption result = %+v", result)
+			}
+		})
+	}
+}
+
+type hostileJourneyExecutor struct {
+	capture  func(*scenarioRuntime)
+	optional func(*scenarioRuntime)
+}
+
+func (executor hostileJourneyExecutor) Capture(_ context.Context, runtime *scenarioRuntime) (captureEvidence, *Failure) {
+	if executor.capture != nil {
+		executor.capture(runtime)
+	}
+	return captureEvidence{AssertionCounts: map[string]int{
+		validationmatrix.AssertionCaptured: runtime.Plan.OperationCount(), validationmatrix.AssertionPayload: runtime.Plan.OperationCount(),
+		validationmatrix.AssertionProvenance: 1, validationmatrix.AssertionRewrittenRestore: runtime.Plan.OperationCount(),
+	}}, nil
+}
+
+func (executor hostileJourneyExecutor) CaptureOptionalAbsent(_ context.Context, runtime *scenarioRuntime) *Failure {
+	if executor.optional != nil {
+		executor.optional(runtime)
+	}
+	return nil
+}
+
+func (hostileJourneyExecutor) Rebuild(_ context.Context, runtime *scenarioRuntime, _ captureEvidence) *Failure {
+	return runtime.Plan.MaterializeRestored()
+}
+
+func (hostileJourneyExecutor) Revert(_ context.Context, runtime *scenarioRuntime) *Failure {
+	return runtime.Plan.Mutate()
+}
+
+func (hostileJourneyExecutor) Verify(context.Context, *scenarioRuntime, captureEvidence) (int, *Failure) {
+	return 1, nil
+}
+
+func mixedRegistryJourneyRuntime(t *testing.T, requiredFile bool) *scenarioRuntime {
+	t.Helper()
+	mod := mixedRegistryFixtureModule()
+	if requiredFile {
+		mod.Capture.Files = append(mod.Capture.Files, modules.CaptureFile{Source: `%APPDATA%\Fixture\required.json`, Dest: "apps/fixture/required.json"})
+		mod.Restore = append(mod.Restore, modules.RestoreDef{Type: "copy", Source: "./payload/apps/fixture/required.json", Target: `%APPDATA%\Fixture\required.json`, Backup: true})
+	}
+	scenario := fixtureScenario()
+	fixture := &recordingRegistryFixture{}
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, fixture)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	return &scenarioRuntime{Module: mod, Scenario: scenario, Plan: plan, Root: plan.context.Root()}
+}
+
 type brokenMode string
 
 const (
