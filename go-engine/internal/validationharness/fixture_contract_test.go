@@ -5,11 +5,13 @@ package validationharness
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 func TestCompileRegistryDefinitionsAcceptsSafeWholeKey(t *testing.T) {
@@ -38,8 +40,14 @@ func TestCompileRegistryDefinitionsRejectsUnsafeContracts(t *testing.T) {
 		}, "capture.registryValues[0]"},
 		{"registry set", func(mod *modules.Module) { mod.Restore[0].Type = "registry-set" }, "restore[0]"},
 		{"nonportable destination", func(mod *modules.Module) { mod.Capture.RegistryKeys[0].Dest = "../settings.reg" }, "capture.registryKeys[0].dest"},
+		{"home destination", func(mod *modules.Module) { mod.Capture.RegistryKeys[0].Dest = "~/settings.reg" }, "capture.registryKeys[0].dest"},
+		{"environment destination", func(mod *modules.Module) { mod.Capture.RegistryKeys[0].Dest = "%APPDATA%/settings.reg" }, "capture.registryKeys[0].dest"},
+		{"dollar destination", func(mod *modules.Module) { mod.Capture.RegistryKeys[0].Dest = "$HOME/settings.reg" }, "capture.registryKeys[0].dest"},
+		{"control character destination", func(mod *modules.Module) { mod.Capture.RegistryKeys[0].Dest = "apps/fixture/settings\x00.reg" }, "capture.registryKeys[0].dest"},
+		{"padded destination component", func(mod *modules.Module) { mod.Capture.RegistryKeys[0].Dest = "apps/fixture/ settings.reg" }, "capture.registryKeys[0].dest"},
 		{"wrong payload source", func(mod *modules.Module) { mod.Restore[0].Source = "payload/apps/fixture/settings.reg" }, "restore[0].source"},
 		{"mismatched target", func(mod *modules.Module) { mod.Restore[0].Target = `HKCU\Software\Other` }, "capture.registryKeys[0].key"},
+		{"wildcard restore target", func(mod *modules.Module) { mod.Restore[0].Target = `HKCU\Software\Fixture*` }, "restore[0].target"},
 		{"missing backup", func(mod *modules.Module) { mod.Restore[0].Backup = false }, "restore[0]"},
 		{"required capture", func(mod *modules.Module) { mod.Capture.RegistryKeys[0].Optional = false }, "capture.registryKeys[0]"},
 		{"required restore", func(mod *modules.Module) { mod.Restore[0].Optional = false }, "restore[0]"},
@@ -64,6 +72,31 @@ func TestCompileRegistryDefinitionsRejectsUnsafeContracts(t *testing.T) {
 			_, failure := compileRegistryDefinitions(mod, fixtureScenario())
 			if failure == nil || failure.Code != CodeUnsupportedFixture || failure.Coordinate != tt.coordinate {
 				t.Fatalf("failure = %+v, want unsupported fixture at %q", failure, tt.coordinate)
+			}
+		})
+	}
+}
+
+func TestCompileRegistryDefinitionsRejectsRegistryImportStrategyFields(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*modules.RestoreDef)
+	}{
+		{"pattern", func(restore *modules.RestoreDef) { restore.Pattern = "*.reg" }},
+		{"reason", func(restore *modules.RestoreDef) { restore.Reason = "test" }},
+		{"exclude", func(restore *modules.RestoreDef) { restore.Exclude = []string{"*.reg"} }},
+		{"key", func(restore *modules.RestoreDef) { restore.Key = `HKCU\Software\Fixture` }},
+		{"value name", func(restore *modules.RestoreDef) { restore.ValueName = "setting" }},
+		{"value type", func(restore *modules.RestoreDef) { restore.ValueType = "REG_SZ" }},
+		{"data", func(restore *modules.RestoreDef) { restore.Data = "value" }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mod := registryFixtureModule()
+			tt.mutate(&mod.Restore[0])
+			_, failure := compileRegistryDefinitions(mod, fixtureScenario())
+			if failure == nil || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "restore[0]" {
+				t.Fatalf("failure = %+v, want unsupported fixture at restore[0]", failure)
 			}
 		})
 	}
@@ -127,6 +160,25 @@ func TestCompileRegistryDefinitionsClassifiesProductionCatalog(t *testing.T) {
 	for id, coordinate := range wantRejected {
 		if rejected[id] != coordinate {
 			t.Fatalf("registry module %q failure = %q, want %q", id, rejected[id], coordinate)
+		}
+		mod := catalog.Modules[id]
+		_, failure := compileRegistryDefinitions(mod, catalog.Records[id].Synthetic.Scenarios[0])
+		if failure == nil || failure.Detail != "registry capture contains a declared secret descendant" {
+			t.Fatalf("registry module %q failure = %+v, want secret-descendant overlap", id, failure)
+		}
+		captureKey, err := validationmode.NormalizeHKCU(mod.Capture.RegistryKeys[0].Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		hasDescendant := false
+		for _, secret := range mod.Secrets.Files {
+			secretKey, err := validationmode.NormalizeHKCU(secret)
+			if err == nil && !strings.EqualFold(captureKey, secretKey) && registryKeyContains(captureKey, secretKey) {
+				hasDescendant = true
+			}
+		}
+		if !hasDescendant {
+			t.Fatalf("registry module %q has no declared secret descendant", id)
 		}
 	}
 }

@@ -97,7 +97,10 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 			for _, secret := range mod.Secrets.Files {
 				secretKey, err := validationmode.NormalizeHKCU(secret)
 				if err == nil && registryKeyContains(key, secretKey) {
-					return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture contains a declared secret")
+					if strings.EqualFold(key, secretKey) {
+						return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture equals a declared secret")
+					}
+					return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture contains a declared secret descendant")
 				}
 			}
 		}
@@ -176,19 +179,19 @@ func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.S
 }
 
 func portableRegistryDestination(value string) (string, bool) {
-	if value == "" || value != strings.TrimSpace(value) || strings.Contains(value, ":") {
+	root, err := filepath.Abs(".")
+	if err != nil {
 		return "", false
 	}
-	normalized := catalogPath(value)
-	if strings.HasPrefix(normalized, "/") || !strings.HasSuffix(strings.ToLower(normalized), ".reg") {
+	resolved, err := safepath.Resolve(root, value)
+	if err != nil {
 		return "", false
 	}
-	for _, component := range strings.Split(normalized, "/") {
-		if component == "" || component == "." || component == ".." {
-			return "", false
-		}
+	normalized, err := filepath.Rel(root, resolved)
+	if err != nil || !strings.HasSuffix(strings.ToLower(normalized), ".reg") {
+		return "", false
 	}
-	return normalized, true
+	return filepath.ToSlash(normalized), true
 }
 
 func registryRootsOverlap(first, second string) bool {
