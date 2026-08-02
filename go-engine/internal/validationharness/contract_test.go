@@ -247,6 +247,42 @@ func TestCompileFixtureDefinitionsNormalizesMixedCatalogSeparators(t *testing.T)
 	}
 }
 
+func TestCompileFixtureDefinitionsRejectsCaseInsensitiveFlattenedDestinationCollision(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(fixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod.Capture.Files = append(mod.Capture.Files, modules.CaptureFile{
+		Source: `%APPDATA%\Fixture\nested\Settings.JSON`, Dest: "apps/fixture/nested/Settings.JSON",
+	})
+	mod.Restore = append(mod.Restore, modules.RestoreDef{
+		Type: "copy", Source: "./payload/apps/fixture/nested/Settings.JSON", Target: `%APPDATA%\Fixture\nested\Settings.JSON`, Backup: true,
+	})
+	if _, failure := compileFixtureDefinitions(mod, fixtureScenario()); failure == nil || failure.Code != CodeUnsupportedFixture || failure.Phase != "fixture" || failure.Coordinate != "capture.files[1].dest" || failure.Detail != "capture destinations collide after the production flattened payload rewrite" {
+		t.Fatalf("flattened destination collision failure = %+v", failure)
+	}
+}
+
+func TestCompileFixtureDefinitionsPreservesNestedDestinationsWithDistinctBasenames(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(fixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod.Capture.Files = append(mod.Capture.Files, modules.CaptureFile{
+		Source: `%APPDATA%\Fixture\nested\preferences.json`, Dest: "apps/fixture/nested/preferences.json",
+	})
+	mod.Restore = append(mod.Restore, modules.RestoreDef{
+		Type: "copy", Source: "./payload/apps/fixture/nested/preferences.json", Target: `%APPDATA%\Fixture\nested\preferences.json`, Backup: true,
+	})
+	definitions, failure := compileFixtureDefinitions(mod, fixtureScenario())
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	if len(definitions.Entries) != 2 || definitions.Entries[0].Destination != "apps/fixture/settings.json" || definitions.Entries[1].Destination != "apps/fixture/nested/preferences.json" {
+		t.Fatalf("definitions = %+v, want authored nested destinations", definitions.Entries)
+	}
+}
+
 func TestDeclarativeFixtureLoadsExactHashedCoordinateKinds(t *testing.T) {
 	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
 	if err != nil {

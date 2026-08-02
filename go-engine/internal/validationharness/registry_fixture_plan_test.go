@@ -504,7 +504,7 @@ func TestCompositeFixturePlanAtCompilesSafeRegistryCatalogPlans(t *testing.T) {
 	}
 	validationRoot := filepath.Join(t.TempDir(), "endstate-validation-reusable-fixture")
 	accepted, registryTargets, fileTargets := 0, 0, 0
-	rejected := map[string]string{}
+	rejected := map[string]*Failure{}
 	for id, mod := range catalog.Modules {
 		if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 {
 			continue
@@ -523,19 +523,34 @@ func TestCompositeFixturePlanAtCompilesSafeRegistryCatalogPlans(t *testing.T) {
 		plan, failure := compileCompositeFixturePlanAt(repoRoot, context, mod, scenario, &recordingRegistryFixture{})
 		restore()
 		if failure != nil {
-			rejected[id] = failure.Coordinate
+			rejected[id] = failure
 			continue
 		}
 		accepted++
 		registryTargets += len(plan.RegistryTargets)
 		fileTargets += len(plan.Targets)
 	}
-	if accepted != 25 || registryTargets != 32 || fileTargets != 36 {
-		t.Fatalf("registry catalog = %d modules, %d registry targets, %d file targets; want 25, 32, 36", accepted, registryTargets, fileTargets)
+	if accepted != 24 || registryTargets != 31 || fileTargets != 29 {
+		t.Fatalf("registry catalog = %d modules, %d registry targets, %d file targets; want 24, 31, 29", accepted, registryTargets, fileTargets)
 	}
-	wantRejected := map[string]string{"apps.ccleaner": "capture.registryKeys[0].key", "apps.displayfusion": "capture.registryKeys[0].key", "apps.revo-uninstaller": "capture.registryKeys[0].key", "apps.tableplus": "capture.registryKeys[0].key"}
-	if fmt.Sprint(rejected) != fmt.Sprint(wantRejected) {
+	wantRejected := map[string]struct {
+		coordinate string
+		detail     string
+	}{
+		"apps.ccleaner":         {coordinate: "capture.registryKeys[0].key", detail: "registry capture contains a declared secret descendant"},
+		"apps.displayfusion":    {coordinate: "capture.registryKeys[0].key", detail: "registry capture is contained by a declared secret ancestor"},
+		"apps.kleopatra":        {coordinate: "capture.files[4].dest", detail: "capture destinations collide after the production flattened payload rewrite"},
+		"apps.revo-uninstaller": {coordinate: "capture.registryKeys[0].key", detail: "registry capture contains a declared secret descendant"},
+		"apps.tableplus":        {coordinate: "capture.registryKeys[0].key", detail: "registry capture contains a declared secret descendant"},
+	}
+	if len(rejected) != len(wantRejected) {
 		t.Fatalf("rejected registry modules = %+v, want %+v", rejected, wantRejected)
+	}
+	for id, want := range wantRejected {
+		failure := rejected[id]
+		if failure == nil || failure.Code != CodeUnsupportedFixture || failure.Phase != "fixture" || failure.Coordinate != want.coordinate || failure.Detail != want.detail {
+			t.Fatalf("registry module %q failure = %+v, want coordinate %q detail %q", id, failure, want.coordinate, want.detail)
+		}
 	}
 }
 

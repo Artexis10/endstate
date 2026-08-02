@@ -259,6 +259,7 @@ func compileFilesystemFixtureDefinitions(mod *modules.Module, scenario validatio
 	}
 	result := fixtureDefinitions{}
 	consumedRestore := make(map[int]struct{}, len(mod.Restore))
+	seenPayloads := make(map[string]struct{}, len(mod.Capture.Files))
 	for captureIndex, capture := range mod.Capture.Files {
 		if strings.ContainsAny(capture.Source, "*?[") {
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.files[%d].source", captureIndex), "authored operation does not support wildcard paths")
@@ -279,6 +280,11 @@ func compileFilesystemFixtureDefinitions(mod *modules.Module, scenario validatio
 			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.files[%d]", captureIndex), "restore is consumed by more than one capture")
 		}
 		consumedRestore[matches[0]] = struct{}{}
+		payload := strings.ToLower(v1ArtifactPayloadPath(mod.ID, capture.Dest))
+		if _, duplicate := seenPayloads[payload]; duplicate {
+			return fixtureDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("capture.files[%d].dest", captureIndex), "capture destinations collide after the production flattened payload rewrite")
+		}
+		seenPayloads[payload] = struct{}{}
 		restore := mod.Restore[matches[0]]
 		kind := fixtureKindFile
 		// Auto fixtures use a deterministic synthetic shape only: a destination

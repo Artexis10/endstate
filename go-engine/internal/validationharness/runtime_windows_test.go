@@ -152,7 +152,7 @@ func TestRunFreshBuiltEngineRegistryRoundtrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := make([]string, 0, 25)
+	rows := make([]string, 0, 24)
 	validationRoot := filepath.Join(t.TempDir(), "endstate-validation-registry-contract")
 	for moduleID, mod := range catalog.Modules {
 		if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 {
@@ -172,7 +172,14 @@ func TestRunFreshBuiltEngineRegistryRoundtrips(t *testing.T) {
 		_, failure := compileCompositeFixturePlanAt(repoRoot, validationContext, mod, scenario, &recordingRegistryFixture{})
 		restore()
 		if failure != nil {
-			if (moduleID != "apps.ccleaner" && moduleID != "apps.displayfusion" && moduleID != "apps.revo-uninstaller" && moduleID != "apps.tableplus") || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "capture.registryKeys[0].key" {
+			validFailure := false
+			switch moduleID {
+			case "apps.ccleaner", "apps.displayfusion", "apps.revo-uninstaller", "apps.tableplus":
+				validFailure = failure.Coordinate == "capture.registryKeys[0].key"
+			case "apps.kleopatra":
+				validFailure = failure.Coordinate == "capture.files[4].dest" && failure.Detail == "capture destinations collide after the production flattened payload rewrite"
+			}
+			if !validFailure || failure.Code != CodeUnsupportedFixture || failure.Phase != "fixture" {
 				t.Fatalf("registry contract %s = %+v", moduleID, failure)
 			}
 			continue
@@ -180,8 +187,8 @@ func TestRunFreshBuiltEngineRegistryRoundtrips(t *testing.T) {
 		rows = append(rows, moduleID)
 	}
 	sort.Strings(rows)
-	if len(rows) != 25 {
-		t.Fatalf("safe registry rows = %d, want 25 (%v)", len(rows), rows)
+	if len(rows) != 24 {
+		t.Fatalf("safe registry rows = %d, want 24 (%v)", len(rows), rows)
 	}
 	buildRoot := t.TempDir()
 	engine := filepath.Join(buildRoot, "endstate.exe")
