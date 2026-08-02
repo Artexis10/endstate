@@ -27,7 +27,7 @@ func main() {
 // runCLICommands preserves the original no-subcommand byte contract. New
 // subcommands deliberately have their own compact evidence JSON contracts.
 func runCLICommands(args []string, stdout, stderr io.Writer, runner scenarioRunner) int {
-	if len(args) == 0 || (args[0] != "shard" && args[0] != "catalog" && args[0] != "canary" && args[0] != "aggregate") {
+	if len(args) == 0 || (args[0] != "shard" && args[0] != "catalog" && args[0] != "canary" && args[0] != "aggregate" && args[0] != "sync-revisions") {
 		return runCLI(args, stdout, stderr, runner)
 	}
 	switch args[0] {
@@ -37,9 +37,38 @@ func runCLICommands(args []string, stdout, stderr io.Writer, runner scenarioRunn
 		return runCatalog(args[1:], stdout)
 	case "canary":
 		return runCanary(args[1:], stdout, runner)
+	case "sync-revisions":
+		return runSyncRevisions(args[1:], stdout)
 	default:
 		return runAggregate(args[1:], stdout)
 	}
+}
+
+func runSyncRevisions(args []string, stdout io.Writer) int {
+	flags := flag.NewFlagSet("endstate-validation sync-revisions", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+	repoRoot := ""
+	write := false
+	flags.StringVar(&repoRoot, "repo", "", "absolute repository root")
+	flags.BoolVar(&write, "write", false, "update stale revision pins")
+	if err := flags.Parse(args); err != nil || flags.NArg() != 0 || repoRoot == "" {
+		return writeCommandError(stdout, "invalid sync-revisions flags")
+	}
+	result, err := validationmatrix.SyncRevisions(repoRoot, write, time.Now().UTC())
+	if err != nil {
+		failure := "invalid sync-revisions catalog"
+		if validationmatrix.ErrorCode(err) == validationmatrix.CodeStaleSidecar {
+			failure = "stale validation sidecars"
+		}
+		return writeJSON(stdout, map[string]any{
+			"schemaVersion": 1, "status": validationharness.ResultStatusFailed,
+			"stale": result.Stale, "updated": result.Updated, "failure": failure,
+		}, true)
+	}
+	return writeJSON(stdout, map[string]any{
+		"schemaVersion": 1, "status": validationharness.ResultStatusPassed,
+		"stale": result.Stale, "updated": result.Updated,
+	}, false)
 }
 
 func runShard(args []string, stdout io.Writer, runner scenarioRunner) int {

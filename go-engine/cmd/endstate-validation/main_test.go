@@ -104,6 +104,31 @@ func TestRunCLICommandsDispatchesCanaryFlags(t *testing.T) {
 	}
 }
 
+func TestRunCLICommandsRejectsInvalidSyncRevisionFlags(t *testing.T) {
+	tests := [][]string{
+		{"sync-revisions"},
+		{"sync-revisions", "--repo", ""},
+		{"sync-revisions", "--repo", "C:\\repo", "--unknown"},
+		{"sync-revisions", "--repo", "C:\\repo", "extra"},
+	}
+	for _, args := range tests {
+		var stdout, stderr bytes.Buffer
+		if code := runCLICommands(args, &stdout, &stderr, nil); code == 0 {
+			t.Fatalf("args %q exit = 0, stdout=%s", args, stdout.String())
+		}
+		var result map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+			t.Fatalf("args %q invalid JSON: %v", args, err)
+		}
+		if result["failure"] != "invalid sync-revisions flags" {
+			t.Fatalf("args %q result = %s", args, stdout.String())
+		}
+		if stderr.Len() != 0 {
+			t.Fatalf("args %q stderr = %q", args, stderr.String())
+		}
+	}
+}
+
 func TestRunCLICommandsClassifiesCatalogSetupFailure(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	commit := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

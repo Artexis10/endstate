@@ -41,6 +41,26 @@ repository hash, status, and result. Final evidence is written under
 
 This document describes how to use the automated Sandbox-based validation loop to test Endstate modules without touching the host environment.
 
+### Revision pin synchronization
+
+Validation sidecars pin the canonical production-module revision. Check drift
+without changing files with:
+
+```powershell
+.\endstate-validation.exe sync-revisions --repo (Resolve-Path ..)
+```
+
+It exits nonzero when a pin is stale. Only the explicit `--write` form updates
+stale sibling `modules/apps/<id>/validation.jsonc` pins:
+
+```powershell
+.\endstate-validation.exe sync-revisions --repo (Resolve-Path ..) --write
+```
+
+The command preflights every module and sidecar before any write, replaces only
+the 64-byte `moduleRevision` value, preserves comments/formatting/line endings,
+and never reads or changes validation debt authority.
+
 ## Overview
 
 The validation loop performs a complete capture/restore cycle inside Windows Sandbox:

@@ -43,6 +43,9 @@ Endstate organizes configuration portability through three artifact types:
 - Source paths are relative and portable
 - Target paths are absolute system paths
 - Modules do not execute directly; they are referenced by manifests or bundles
+- Each production module has a sibling `validation.jsonc` with its canonical
+  `moduleRevision` pin. Use `endstate-validation sync-revisions --repo <path>`
+  to check drift; `--write` is required to repair that pin.
 
 ---
 
