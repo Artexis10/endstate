@@ -53,6 +53,10 @@ func (fixture *RegistryFixture) Materialize(authored string) error {
 
 // Replace makes an authored key and all descendants exactly match state.
 func (fixture *RegistryFixture) Replace(authored string, state RegistryState) error {
+	state, err := NewRegistryState(state.Keys())
+	if err != nil {
+		return err
+	}
 	return fixture.withAuthoredSubkey(authored, func(subkey string) error {
 		return fixture.operations.replace(subkey, state)
 	})

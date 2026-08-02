@@ -24,22 +24,42 @@ func TestRegistryFixtureSnapshotsRootAndNestedTypedValues(t *testing.T) {
 			t.Error(err)
 		}
 	})
-	state, err := NewRegistryState([]RegistryKey{
+	extra, err := NewRegistryState([]RegistryKey{
+		{Path: "", Values: []RegistryValue{{Name: "Extra", Type: RegistryTypeBinary, Data: []byte{9}}}},
+		{Path: "Legacy", Values: []RegistryValue{{Name: "Value", Type: RegistryTypeBinary, Data: []byte{8}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired, err := NewRegistryState([]RegistryKey{
 		{Path: "", Values: []RegistryValue{{Name: "", Type: RegistryTypeString, Data: utf16RegistryString("root")}}},
 		{Path: `Child`, Values: []RegistryValue{{Name: "Flag", Type: RegistryTypeDWORD, Data: []byte{1, 0, 0, 0}}, {Name: "Blob", Type: RegistryTypeBinary, Data: []byte{1, 2, 3}}}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := fixture.Replace(`HKCU\Software\Fixture`, state); err != nil {
+	if err := fixture.Replace(`HKCU\Software\Fixture`, extra); err != nil {
+		t.Fatal(err)
+	}
+	if err := fixture.Replace(`HKCU\Software\Fixture`, desired); err != nil {
 		t.Fatal(err)
 	}
 	got, err := fixture.Snapshot(`HKCU\Software\Fixture`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !got.Equal(state) {
-		t.Fatalf("Snapshot() = %#v, want %#v", got, state)
+	if !got.Equal(desired) {
+		t.Fatalf("Snapshot() = %#v, want %#v", got, desired)
+	}
+	for _, key := range got.Keys() {
+		if key.Path == "LEGACY" {
+			t.Fatal("Snapshot() retains the old descendant")
+		}
+		for _, value := range key.Values {
+			if value.Name == "EXTRA" {
+				t.Fatal("Snapshot() retains the old root value")
+			}
+		}
 	}
 }
 
@@ -113,6 +133,24 @@ func TestRegistryFixtureRejectsForeignIdentityBeforeBackendCalls(t *testing.T) {
 	}
 	if operations.calls() != 0 {
 		t.Fatalf("backend calls = %d, want 0", operations.calls())
+	}
+}
+
+func TestRegistryFixtureRejectsUnvalidatedStateBeforeBackendCalls(t *testing.T) {
+	context := activeTestContext(t, "registry-fixture-invalid-state")
+	for _, state := range []RegistryState{
+		{},
+		{keys: []RegistryKey{{Path: "Child"}}},
+		{keys: []RegistryKey{{Path: ""}, {Path: `Child\Grandchild`}}},
+	} {
+		operations := &fakeRegistryFixtureOperations{}
+		fixture := newRegistryFixtureWithOperations(context, operations)
+		if err := fixture.Replace(`HKCU\Software\Fixture`, state); !errors.Is(err, ErrUnsafeRegistry) {
+			t.Fatalf("Replace(%#v) error = %v, want ErrUnsafeRegistry", state, err)
+		}
+		if operations.calls() != 0 {
+			t.Fatalf("backend calls = %d, want 0", operations.calls())
+		}
 	}
 }
 
