@@ -325,6 +325,31 @@ func TestMaterializeInstallVerifierUsesValidationContextForFileVerifier(t *testi
 	}
 }
 
+func TestInstallRegistryVerifierUsesPreownedFixtureForNegativeAndPositiveChecks(t *testing.T) {
+	_, module, scenario := productionInstallAuthority(t, "apps.clementine")
+	plan, failure := compileInstallContract(module, scenario)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	runtime := fixtureScenarioRuntime(t)
+	runtime.Module = module
+	runtime.InstallPlan = plan
+	fixture := &runtimeRegistryFixture{}
+	runtime.RegistryFixture = fixture
+	if failure := assertInstallVerifier(runtime, false); failure != nil {
+		t.Fatalf("negative registry verifier = %+v", failure)
+	}
+	if failure := materializeInstallVerifier(runtime); failure != nil {
+		t.Fatalf("materialize registry verifier = %+v", failure)
+	}
+	if failure := assertInstallVerifier(runtime, true); failure != nil {
+		t.Fatalf("positive registry verifier = %+v", failure)
+	}
+	if !reflect.DeepEqual(fixture.calls, []string{"prove-absent", "prove-absent", "materialize", "snapshot", "snapshot"}) {
+		t.Fatalf("registry verifier calls = %v", fixture.calls)
+	}
+}
+
 func TestInstallManifestProjectsVerifierWithoutClaimingConfigPayloadOwnership(t *testing.T) {
 	plan := productionKubectlInstallPlan(t)
 	value := installManifestProjection(plan)

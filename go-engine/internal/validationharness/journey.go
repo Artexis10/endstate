@@ -29,7 +29,7 @@ type scenarioRuntime struct {
 	ChildWorkingDir     string
 	Nonce               string
 	Inventory           validationmode.Inventory
-	RegistryFixture     *validationmode.RegistryFixture
+	RegistryFixture     scenarioRegistryFixture
 	Guards              []guardTarget
 	ToolRoot            string
 	OriginalEnvironment map[string]string
@@ -39,6 +39,14 @@ type scenarioRuntime struct {
 	guardBoundary       boundaryTree
 	workingBoundary     boundaryTree
 	engineBoundary      boundaryEntry
+}
+
+// scenarioRegistryFixture owns the validation namespace for every registry
+// fixture operation in one scenario runtime.
+type scenarioRegistryFixture interface {
+	registryFixture
+	Materialize(string) error
+	Cleanup() error
 }
 
 func (runtime *scenarioRuntime) forbiddenOutputValues() []string {

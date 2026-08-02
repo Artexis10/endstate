@@ -89,6 +89,8 @@ func Run(ctx context.Context, request Request) (Result, error) {
 	return result, nil
 }
 
+type registryFixtureFactory func(*validationmode.Context) (scenarioRegistryFixture, error)
+
 func failedRequestResult(request Request, failure *Failure) Result {
 	return Result{
 		SchemaVersion: ResultSchemaVersion, ModuleID: request.ModuleID, ScenarioID: request.ScenarioID,
@@ -105,7 +107,12 @@ func failedSelectionResult(selected *selection, failure *Failure) Result {
 }
 
 func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error, *Failure, error) {
-	var runtime *scenarioRuntime
+	return prepareScenarioRuntimeWithRegistryFixtureFactory(selected, func(context *validationmode.Context) (scenarioRegistryFixture, error) {
+		return validationmode.NewRegistryFixture(context)
+	})
+}
+
+func prepareScenarioRuntimeWithRegistryFixtureFactory(selected *selection, factory registryFixtureFactory) (*scenarioRuntime, func() error, *Failure, error) {
 	nonce, err := randomNonce()
 	if err != nil {
 		return nil, func() error { return nil }, nil, err
@@ -136,16 +143,22 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		_ = cleanupAuthorityRoot(authorityRoot)
 		return nil, func() error { return nil }, nil, err
 	}
+	var registryFixture scenarioRegistryFixture
+	var cleanupOnce sync.Once
+	var cleanupErr error
 	cleanup := func() error {
-		var cleanupErrors []error
-		if runtime != nil && runtime.RegistryFixture != nil {
-			cleanupErrors = append(cleanupErrors, runtime.RegistryFixture.Cleanup())
-		}
-		cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(childWorkingDir))
-		cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(guardRoot))
-		cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(root))
-		cleanupErrors = append(cleanupErrors, cleanupAuthorityRoot(authorityRoot))
-		return errors.Join(cleanupErrors...)
+		cleanupOnce.Do(func() {
+			var cleanupErrors []error
+			if registryFixture != nil {
+				cleanupErrors = append(cleanupErrors, registryFixture.Cleanup())
+			}
+			cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(childWorkingDir))
+			cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(guardRoot))
+			cleanupErrors = append(cleanupErrors, cleanupGeneratedRoot(root))
+			cleanupErrors = append(cleanupErrors, cleanupAuthorityRoot(authorityRoot))
+			cleanupErr = errors.Join(cleanupErrors...)
+		})
+		return cleanupErr
 	}
 
 	inventory := validationInventory(selected.module)
@@ -178,6 +191,21 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		failure, setupErr := abandonScenarioRuntime(cleanup, nil, err)
 		return nil, func() error { return nil }, failure, setupErr
 	}
+	if scenarioNeedsRegistryFixture(selected) {
+		if factory == nil {
+			failure, setupErr := abandonScenarioRuntime(cleanup, fail(CodeIsolationFailure, "setup", "runtime", "registry fixture factory is unavailable"), nil)
+			return nil, func() error { return nil }, failure, setupErr
+		}
+		registryFixture, err = factory(validationContext)
+		if err != nil || registryFixture == nil {
+			failure, setupErr := abandonScenarioRuntime(cleanup, fail(CodeIsolationFailure, "setup", "runtime", "registry fixture could not be created"), nil)
+			return nil, func() error { return nil }, failure, setupErr
+		}
+		if err := registryFixture.Cleanup(); err != nil {
+			failure, setupErr := abandonScenarioRuntime(cleanup, fail(CodeIsolationFailure, "cleanup", "runtime", "registry fixture namespace could not be established"), nil)
+			return nil, func() error { return nil }, failure, setupErr
+		}
+	}
 	var plan *FixturePlan
 	var v2Plan *V2FixturePlan
 	var installPlan *InstallContractPlan
@@ -186,7 +214,11 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 	var fixtureFailure *Failure
 	switch selected.scenario.Mode {
 	case validationmatrix.ScenarioConfigRoundtripV1:
-		plan, fixtureFailure = compileFixturePlan(validationContext, selected.module, selected.scenario, selected.fixture)
+		if moduleHasRegistryFixtureContract(selected.module) {
+			plan, fixtureFailure = compileCompositeFixturePlanAt(selected.request.RepoRoot, validationContext, selected.module, selected.scenario, registryFixture)
+		} else {
+			plan, fixtureFailure = compileFixturePlan(validationContext, selected.module, selected.scenario, selected.fixture)
+		}
 	case validationmatrix.ScenarioConfigGenerationV2, validationmatrix.ScenarioConfigMigrationV2:
 		v2Plan, fixtureFailure = compileV2FixturePlan(validationContext, selected.module, selected.scenario, selected.v2Fixture, inventory)
 	case validationmatrix.ScenarioInstallContract:
@@ -263,11 +295,11 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 			return nil, func() error { return nil }, failure, setupErr
 		}
 	}
-	runtime = &scenarioRuntime{
+	runtime := &scenarioRuntime{
 		Module: selected.module, Scenario: selected.scenario, Plan: plan, V2Plan: v2Plan, InstallPlan: installPlan, CapturePlan: capturePlan, RestorePlan: restorePlan,
 		V2Transition:  transition,
 		AuthorityRoot: authorityRoot, Root: root, GuardRoot: guardRoot, ChildWorkingDir: childWorkingDir,
-		Nonce: nonce, Inventory: inventory,
+		Nonce: nonce, Inventory: inventory, RegistryFixture: registryFixture,
 	}
 	if err := runtime.prepareGuardsAndTools(); err != nil {
 		failure, setupErr := abandonGuardPreparation(cleanup, err)
@@ -282,6 +314,28 @@ func prepareScenarioRuntime(selected *selection) (*scenarioRuntime, func() error
 		return nil, func() error { return nil }, failure, setupErr
 	}
 	return runtime, cleanup, nil, nil
+}
+
+func scenarioNeedsRegistryFixture(selected *selection) bool {
+	if selected == nil || selected.module == nil {
+		return false
+	}
+	if selected.scenario.Mode == validationmatrix.ScenarioConfigRoundtripV1 && moduleHasRegistryFixtureContract(selected.module) {
+		return true
+	}
+	if selected.installPlan != nil {
+		for _, verifier := range selected.installPlan.Verifiers {
+			if verifier.Type == "registry-key-exists" {
+				return true
+			}
+		}
+	}
+	for _, verifier := range selected.module.Verify {
+		if verifier.Type == "registry-key-exists" {
+			return true
+		}
+	}
+	return false
 }
 
 func abandonScenarioRuntime(cleanup func() error, failure *Failure, setupErr error) (*Failure, error) {

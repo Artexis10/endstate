@@ -97,11 +97,17 @@ func assertInstallVerifier(runtime *scenarioRuntime, present bool) *Failure {
 		}
 		return nil
 	case "registry-key-exists":
-		if present && runtime.RegistryFixture == nil {
+		if runtime.RegistryFixture == nil {
 			return fail(CodeIsolationFailure, "install", "verify.path", "install registry verifier fixture is absent")
 		}
-		if !present && runtime.RegistryFixture != nil {
-			return fail(CodeIsolationFailure, "install", "verify.path", "install registry verifier was materialized before the negative verification")
+		if !present {
+			if err := runtime.RegistryFixture.ProveAbsent(verifier.Path); err != nil {
+				return fail(CodeIsolationFailure, "install", "verify.path", "install registry verifier was not absent before the negative verification")
+			}
+			return nil
+		}
+		if _, err := runtime.RegistryFixture.Snapshot(verifier.Path); err != nil {
+			return fail(CodeIsolationFailure, "install", "verify.path", "install registry verifier was not materialized")
 		}
 		return nil
 	default:
@@ -176,11 +182,9 @@ func materializeInstallVerifier(runtime *scenarioRuntime) *Failure {
 			return fail(CodeIsolationFailure, "install", "verify[0].path", "install file verifier could not be materialized")
 		}
 	case "registry-key-exists":
-		fixture, err := validationmode.NewRegistryFixture(runtime.validationContext())
-		if err != nil {
-			return fail(CodeIsolationFailure, "install", "verify[0].path", "install registry verifier fixture cannot be created")
+		if runtime.RegistryFixture == nil {
+			return fail(CodeIsolationFailure, "install", "verify[0].path", "install registry verifier fixture is absent")
 		}
-		runtime.RegistryFixture = fixture
 		if err := runtime.RegistryFixture.Materialize(verifier.Path); err != nil {
 			return fail(CodeIsolationFailure, "install", "verify[0].path", "install registry verifier could not be materialized")
 		}

@@ -50,11 +50,11 @@ func registryVerifierFixtureSetup(err error) (*registryVerifierFixtureSetupError
 }
 
 func registryVerifierFixtureSetupFailure(err error) *Failure {
-	setup, ok := registryVerifierFixtureSetup(err)
+	_, ok := registryVerifierFixtureSetup(err)
 	if !ok {
 		return nil
 	}
-	return fail(CodeIsolationFailure, "fixture", fmt.Sprintf("verify[%d]", setup.verifierIndex), "registry verifier fixture could not be materialized")
+	return fail(CodeIsolationFailure, "setup", "runtime", "registry verifier fixture could not be materialized")
 }
 
 func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
@@ -216,11 +216,7 @@ func (runtime *scenarioRuntime) prepareGuardsAndTools() error {
 			}
 		case "registry-key-exists":
 			if runtime.RegistryFixture == nil {
-				fixture, err := validationmode.NewRegistryFixture(runtime.validationContext())
-				if err != nil {
-					return &registryVerifierFixtureSetupError{verifierIndex: index, verifierKind: verifier.Type, cause: err}
-				}
-				runtime.RegistryFixture = fixture
+				return &registryVerifierFixtureSetupError{verifierIndex: index, verifierKind: verifier.Type, cause: fmt.Errorf("registry fixture was not prepared")}
 			}
 			if err := runtime.RegistryFixture.Materialize(verifier.Path); err != nil {
 				return &registryVerifierFixtureSetupError{verifierIndex: index, verifierKind: verifier.Type, cause: err}

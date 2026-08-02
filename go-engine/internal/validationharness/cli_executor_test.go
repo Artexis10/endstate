@@ -5,19 +5,234 @@ package validationharness
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
+
+func TestPrepareScenarioRuntimePreparesOneRegistryFixtureForOrdinaryVerifier(t *testing.T) {
+	selected := registryVerifierSelection(t)
+	fixture := &runtimeRegistryFixture{}
+	factoryCalls := 0
+	runtime, cleanup, failure, err := prepareScenarioRuntimeWithRegistryFixtureFactory(selected, func(*validationmode.Context) (scenarioRegistryFixture, error) {
+		factoryCalls++
+		return fixture, nil
+	})
+	if err != nil || failure != nil {
+		t.Fatalf("prepare runtime = runtime:%+v failure:%+v err:%v", runtime, failure, err)
+	}
+	if factoryCalls != 1 || runtime.RegistryFixture != fixture || !reflect.DeepEqual(fixture.calls, []string{"cleanup", "materialize"}) {
+		t.Fatalf("registry ownership = factory:%d runtime:%p fixture:%p calls:%v", factoryCalls, runtime.RegistryFixture, fixture, fixture.calls)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(fixture.calls, []string{"cleanup", "materialize", "cleanup"}) {
+		t.Fatalf("cleanup calls = %v", fixture.calls)
+	}
+}
+
+func TestPrepareScenarioRuntimeDoesNotCreateRegistryFixtureWithoutRegistryAuthority(t *testing.T) {
+	selected := runtimeSelection(t, fixtureModuleJSON)
+	factoryCalls := 0
+	runtime, cleanup, failure, err := prepareScenarioRuntimeWithRegistryFixtureFactory(selected, func(*validationmode.Context) (scenarioRegistryFixture, error) {
+		factoryCalls++
+		return &runtimeRegistryFixture{}, nil
+	})
+	if err != nil || failure != nil {
+		t.Fatalf("prepare runtime = runtime:%+v failure:%+v err:%v", runtime, failure, err)
+	}
+	if factoryCalls != 0 || runtime.RegistryFixture != nil {
+		t.Fatalf("unexpected registry fixture = calls:%d fixture:%v", factoryCalls, runtime.RegistryFixture)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrepareScenarioRuntimeReusesRegistryFixtureForCompositePlan(t *testing.T) {
+	selected := registryContractSelection(t)
+	fixture := &runtimeRegistryFixture{}
+	factoryCalls := 0
+	runtime, cleanup, failure, err := prepareScenarioRuntimeWithRegistryFixtureFactory(selected, func(*validationmode.Context) (scenarioRegistryFixture, error) {
+		factoryCalls++
+		return fixture, nil
+	})
+	if err != nil || failure != nil {
+		t.Fatalf("prepare runtime = runtime:%+v failure:%+v err:%v", runtime, failure, err)
+	}
+	if factoryCalls != 1 || runtime.RegistryFixture != fixture || runtime.Plan == nil || len(runtime.Plan.RegistryTargets) != 1 || !reflect.DeepEqual(fixture.calls, []string{"cleanup"}) {
+		t.Fatalf("registry plan ownership = factory:%d fixture:%p plan:%+v calls:%v", factoryCalls, runtime.RegistryFixture, runtime.Plan, fixture.calls)
+	}
+	if err := cleanup(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPrepareScenarioRuntimeClassifiesRegistryFixtureFactoryAndCleanupFailures(t *testing.T) {
+	t.Run("factory", func(t *testing.T) {
+		_, _, failure, err := prepareScenarioRuntimeWithRegistryFixtureFactory(registryVerifierSelection(t), func(*validationmode.Context) (scenarioRegistryFixture, error) {
+			return nil, errors.New("access denied")
+		})
+		if err != nil || failure == nil || failure.Code != CodeIsolationFailure || failure.Phase != "setup" || failure.Coordinate != "runtime" {
+			t.Fatalf("factory failure = %+v, %v", failure, err)
+		}
+	})
+	t.Run("initial cleanup", func(t *testing.T) {
+		fixture := &runtimeRegistryFixture{cleanupErr: errors.New("access denied")}
+		_, _, failure, err := prepareScenarioRuntimeWithRegistryFixtureFactory(registryVerifierSelection(t), func(*validationmode.Context) (scenarioRegistryFixture, error) {
+			return fixture, nil
+		})
+		if err != nil || failure == nil || failure.Code != CodeIsolationFailure || failure.Phase != "cleanup" || failure.Coordinate != "runtime" {
+			t.Fatalf("cleanup failure = %+v, %v", failure, err)
+		}
+		if !reflect.DeepEqual(fixture.calls, []string{"cleanup", "cleanup"}) {
+			t.Fatalf("cleanup calls = %v", fixture.calls)
+		}
+	})
+}
+
+type runtimeRegistryFixture struct {
+	calls      []string
+	cleanupErr error
+}
+
+func (fixture *runtimeRegistryFixture) Replace(string, validationmode.RegistryState) error {
+	fixture.calls = append(fixture.calls, "replace")
+	return nil
+}
+
+func (fixture *runtimeRegistryFixture) Snapshot(string) (validationmode.RegistryState, error) {
+	fixture.calls = append(fixture.calls, "snapshot")
+	return validationmode.RegistryState{}, nil
+}
+
+func (fixture *runtimeRegistryFixture) Remove(string) error {
+	fixture.calls = append(fixture.calls, "remove")
+	return nil
+}
+
+func (fixture *runtimeRegistryFixture) ProveAbsent(string) error {
+	fixture.calls = append(fixture.calls, "prove-absent")
+	return nil
+}
+
+func (fixture *runtimeRegistryFixture) Materialize(string) error {
+	fixture.calls = append(fixture.calls, "materialize")
+	return nil
+}
+
+func (fixture *runtimeRegistryFixture) Cleanup() error {
+	fixture.calls = append(fixture.calls, "cleanup")
+	return fixture.cleanupErr
+}
+
+func registryVerifierSelection(t *testing.T) *selection {
+	t.Helper()
+	return runtimeSelection(t, strings.Replace(fixtureModuleJSON, `{"type":"file-exists","path":"%APPDATA%\\Fixture\\settings.json"}`, `{"type":"registry-key-exists","path":"HKCU:\\Software\\Fixture"}`, 1))
+}
+
+func runtimeSelection(t *testing.T, moduleJSON string) *selection {
+	t.Helper()
+	repo := t.TempDir()
+	directory := filepath.Join(repo, "modules", "apps", "fixture")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "module.jsonc"), []byte(moduleJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modules.ParseModuleJSON([]byte(moduleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := validationmatrix.ValidationRecord{
+		SchemaVersion: 1, ModuleID: mod.ID, ModuleRevision: mod.Revision,
+		Synthetic: validationmatrix.SyntheticPolicy{Scenarios: []validationmatrix.Scenario{fixtureScenario()}},
+		Live:      validationmatrix.LivePolicy{Mode: validationmatrix.LiveCandidate, ReasonCode: "test", Explanation: "test fixture"},
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "validation.jsonc"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(t.TempDir(), "endstate.exe")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	selected, failure := compileSelection(Request{EnginePath: engine, RepoRoot: repo, ModuleID: mod.ID, ScenarioID: "default-v1", ResultPath: filepath.Join(t.TempDir(), "result.json")}, time.Now().UTC())
+	if failure != nil {
+		t.Fatalf("compile selection: %+v", failure)
+	}
+	return selected
+}
+
+func registryContractSelection(t *testing.T) *selection {
+	t.Helper()
+	repo := t.TempDir()
+	directory := filepath.Join(repo, "modules", "apps", "fixture")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	moduleJSON := `{
+  "id":"apps.fixture","displayName":"Fixture","sensitivity":"none",
+  "matches":{"winget":["Vendor.Fixture"]},
+  "verify":[{"type":"file-exists","path":"%APPDATA%\\Fixture\\settings.json"}],
+  "restore":[
+    {"type":"copy","source":"./payload/apps/fixture/settings.json","target":"%APPDATA%\\Fixture\\settings.json","backup":true},
+    {"type":"registry-import","source":"./payload/apps/fixture/settings.reg","target":"HKCU\\Software\\Fixture","backup":true,"optional":true}
+  ],
+  "capture":{"files":[{"source":"%APPDATA%\\Fixture\\settings.json","dest":"apps/fixture/settings.json"}],"registryKeys":[{"key":"HKCU\\Software\\Fixture","dest":"apps/fixture/settings.reg","optional":true}]}
+}`
+	if err := os.WriteFile(filepath.Join(directory, "module.jsonc"), []byte(moduleJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mod, err := modules.ParseModuleJSON([]byte(moduleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := validationmatrix.ValidationRecord{
+		SchemaVersion: 1, ModuleID: mod.ID, ModuleRevision: mod.Revision,
+		Synthetic: validationmatrix.SyntheticPolicy{Scenarios: []validationmatrix.Scenario{fixtureScenario()}},
+		Live:      validationmatrix.LivePolicy{Mode: validationmatrix.LiveCandidate, ReasonCode: "test", Explanation: "test fixture"},
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "validation.jsonc"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := filepath.Join(t.TempDir(), "endstate.exe")
+	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return &selection{
+		request: Request{EnginePath: engine, RepoRoot: repo, ModuleID: mod.ID, ScenarioID: "default-v1", ResultPath: filepath.Join(t.TempDir(), "result.json")},
+		catalog: catalog, module: catalog.Modules[mod.ID], record: catalog.Records[mod.ID], scenario: fixtureScenario(),
+	}
+}
 
 func TestCaptureArtifactPathUsesCanonicalBundleExtension(t *testing.T) {
 	root := t.TempDir()
@@ -42,7 +257,7 @@ func TestRegistryVerifierFixtureSetupFailureIsStructuredAndCleansRuntime(t *test
 		t.Fatal("raw registry error was classified as a fixture setup failure")
 	}
 	failure := registryVerifierFixtureSetupFailure(wrapped)
-	if failure == nil || failure.Code != CodeIsolationFailure || failure.Phase != "fixture" || failure.Coordinate != "verify[2]" || failure.Detail != "registry verifier fixture could not be materialized" {
+	if failure == nil || failure.Code != CodeIsolationFailure || failure.Phase != "setup" || failure.Coordinate != "runtime" || failure.Detail != "registry verifier fixture could not be materialized" {
 		t.Fatalf("failure = %+v", failure)
 	}
 	cleaned := false

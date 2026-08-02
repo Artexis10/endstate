@@ -6,13 +6,12 @@
 package validationharness
 
 import (
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
-	"golang.org/x/sys/windows"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 func TestPrepareGuardsAndToolsMaterializesRegistryKeyExistsVerifier(t *testing.T) {
@@ -46,14 +45,19 @@ func TestPrepareGuardsAndToolsMaterializesRegistryKeyExistsVerifier(t *testing.T
 			if runtime.Module == nil || len(runtime.Module.Verify) <= test.index || runtime.Module.Verify[test.index].Type != "registry-key-exists" {
 				t.Fatalf("registry verifier = %+v, want verify[%d] registry-key-exists", runtime.Module, test.index)
 			}
+			fixture, err := validationmode.NewRegistryFixture(runtime.validationContext())
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime.RegistryFixture = fixture
+			if err := runtime.RegistryFixture.Cleanup(); err != nil {
+				t.Fatal(err)
+			}
 
 			if err := runtime.prepareGuardsAndTools(); err != nil {
 				setup, ok := registryVerifierFixtureSetup(err)
 				if !ok || setup.verifierIndex != test.index || setup.verifierKind != "registry-key-exists" || setup.cause == nil {
 					t.Fatalf("registry fixture setup = %+v, classified=%v, want verify[%d] registry-key-exists", setup, ok, test.index)
-				}
-				if errors.Is(setup.cause, windows.ERROR_ACCESS_DENIED) {
-					t.Skip("local HKCU registry fixture capability unavailable: access denied")
 				}
 				t.Fatalf("registry fixture setup failed: %v", setup.cause)
 			}
@@ -66,9 +70,6 @@ func TestPrepareGuardsAndToolsMaterializesRegistryKeyExistsVerifier(t *testing.T
 			}
 			if !strings.HasPrefix(strings.ToLower(mapped), strings.ToLower(runtime.validationContext().RegistryNamespace()+`\`)) {
 				t.Fatalf("registry verifier mapped outside namespace: %q", mapped)
-			}
-			if err := runtime.RegistryFixture.Cleanup(); err != nil {
-				t.Fatal(err)
 			}
 		})
 	}
