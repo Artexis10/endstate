@@ -17,6 +17,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
+	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
 
 type fixtureKind string
@@ -40,6 +41,163 @@ type fixtureDefinition struct {
 
 type fixtureDefinitions struct {
 	Entries []fixtureDefinition
+}
+
+type registryDefinition struct {
+	Coordinate  string
+	Key         string
+	Destination string
+	Source      string
+	Target      string
+}
+
+type registryDefinitions struct {
+	Entries []registryDefinition
+}
+
+func compileRegistryDefinitions(mod *modules.Module, scenario validationmatrix.Scenario) (registryDefinitions, *Failure) {
+	if mod == nil || mod.EffectiveSchemaVersion() != 1 || scenario.Mode != validationmatrix.ScenarioConfigRoundtripV1 {
+		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "schema", "registry fixture requires a schema-v1 roundtrip module")
+	}
+	if scenario.Fixture.Type != validationmatrix.FixtureAuto && scenario.Fixture.Type != validationmatrix.FixtureDeclarative {
+		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "fixture.type", "fixture type is unsupported")
+	}
+	if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 {
+		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registry", "roundtrip fixture has no whole-key registry capture")
+	}
+	if len(mod.Capture.RegistryValues) != 0 {
+		return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", "capture.registryValues[0]", "named registry values are unsupported")
+	}
+
+	canonicalKeys := make([]string, len(mod.Capture.RegistryKeys))
+	destinations := make([]string, len(mod.Capture.RegistryKeys))
+	for index, capture := range mod.Capture.RegistryKeys {
+		coordinate := fmt.Sprintf("capture.registryKeys[%d]", index)
+		if !capture.Optional {
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate, "registry capture must be optional")
+		}
+		if strings.ContainsAny(capture.Key, "*?[") {
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "authored registry identity does not support wildcard paths")
+		}
+		key, err := validationmode.NormalizeHKCU(capture.Key)
+		if err != nil {
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture requires a canonical HKCU key")
+		}
+		destination, ok := portableRegistryDestination(capture.Dest)
+		if !ok {
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".dest", "registry capture destination is not portable")
+		}
+		canonicalKeys[index], destinations[index] = key, destination
+		for previous := range canonicalKeys[:index] {
+			if registryRootsOverlap(key, canonicalKeys[previous]) {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture roots overlap")
+			}
+		}
+		if mod.Secrets != nil {
+			for _, secret := range mod.Secrets.Files {
+				secretKey, err := validationmode.NormalizeHKCU(secret)
+				if err == nil && registryKeyContains(key, secretKey) {
+					return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture contains a declared secret")
+				}
+			}
+		}
+	}
+
+	registryImports := make(map[int]struct{})
+	for index, restore := range mod.Restore {
+		switch restore.Type {
+		case "registry-set":
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry-set restores are unsupported")
+		case "registry-import":
+			if restore.Pattern != "" || restore.Reason != "" || len(restore.Exclude) != 0 || restore.Key != "" || restore.ValueName != "" || restore.ValueType != "" || restore.Data != "" {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import includes fields from another restore strategy")
+			}
+			if !restore.Optional || !restore.Backup {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", index), "registry import must be optional and backup-enabled")
+			}
+			if strings.ContainsAny(restore.Target, "*?[") {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].target", index), "authored registry identity does not support wildcard paths")
+			}
+			if _, err := validationmode.NormalizeHKCU(restore.Target); err != nil {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].target", index), "registry import requires a canonical HKCU target")
+			}
+			if !strings.HasPrefix(restore.Source, "./payload/") {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].source", index), "registry import source must use the payload prefix")
+			}
+			if _, ok := portableRegistryDestination(strings.TrimPrefix(restore.Source, "./payload/")); !ok {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d].source", index), "registry import source is not portable")
+			}
+			registryImports[index] = struct{}{}
+		}
+	}
+
+	result := registryDefinitions{}
+	consumed := make(map[int]struct{}, len(registryImports))
+	for captureIndex := range mod.Capture.RegistryKeys {
+		var matches []int
+		for restoreIndex, restore := range mod.Restore {
+			if _, ok := registryImports[restoreIndex]; !ok {
+				continue
+			}
+			target, _ := validationmode.NormalizeHKCU(restore.Target)
+			if !strings.EqualFold(target, canonicalKeys[captureIndex]) {
+				continue
+			}
+			source, _ := portableRegistryDestination(strings.TrimPrefix(restore.Source, "./payload/"))
+			if source == destinations[captureIndex] {
+				matches = append(matches, restoreIndex)
+			}
+		}
+		coordinate := fmt.Sprintf("capture.registryKeys[%d]", captureIndex)
+		if len(matches) != 1 {
+			if len(matches) == 0 {
+				return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate+".key", "registry capture must map to exactly one registry import")
+			}
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", matches[1]), "registry import is matched more than once")
+		}
+		if _, duplicate := consumed[matches[0]]; duplicate {
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", coordinate, "registry import is consumed by more than one capture")
+		}
+		consumed[matches[0]] = struct{}{}
+		restore := mod.Restore[matches[0]]
+		result.Entries = append(result.Entries, registryDefinition{
+			Coordinate: coordinate, Key: canonicalKeys[captureIndex], Destination: destinations[captureIndex], Source: restore.Source, Target: canonicalKeys[captureIndex],
+		})
+	}
+	for restoreIndex := range mod.Restore {
+		if _, registryImport := registryImports[restoreIndex]; !registryImport {
+			continue
+		}
+		if _, ok := consumed[restoreIndex]; !ok {
+			return registryDefinitions{}, fail(CodeUnsupportedFixture, "fixture", fmt.Sprintf("restore[%d]", restoreIndex), "registry import is not consumed by a capture")
+		}
+	}
+	return result, nil
+}
+
+func portableRegistryDestination(value string) (string, bool) {
+	if value == "" || value != strings.TrimSpace(value) || strings.Contains(value, ":") {
+		return "", false
+	}
+	normalized := catalogPath(value)
+	if strings.HasPrefix(normalized, "/") || !strings.HasSuffix(strings.ToLower(normalized), ".reg") {
+		return "", false
+	}
+	for _, component := range strings.Split(normalized, "/") {
+		if component == "" || component == "." || component == ".." {
+			return "", false
+		}
+	}
+	return normalized, true
+}
+
+func registryRootsOverlap(first, second string) bool {
+	return registryKeyContains(first, second) || registryKeyContains(second, first)
+}
+
+func registryKeyContains(root, key string) bool {
+	root, key = strings.ToLower(root), strings.ToLower(key)
+	return root == key || strings.HasPrefix(key, root+`\`)
 }
 
 func compileFixtureDefinitions(mod *modules.Module, scenario validationmatrix.Scenario) (fixtureDefinitions, *Failure) {
