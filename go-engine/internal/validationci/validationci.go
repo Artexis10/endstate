@@ -22,6 +22,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationharness"
@@ -794,10 +796,11 @@ func walkJSONValue(decoder *json.Decoder) error {
 			if !ok {
 				return errors.New("evidence object key is not a string")
 			}
-			if _, duplicate := seen[name]; duplicate {
+			foldedName := foldEvidenceJSONKey(name)
+			if _, duplicate := seen[foldedName]; duplicate {
 				return fmt.Errorf("duplicate evidence object key %q", name)
 			}
-			seen[name] = struct{}{}
+			seen[foldedName] = struct{}{}
 			if err := walkJSONValue(decoder); err != nil {
 				return err
 			}
@@ -814,6 +817,36 @@ func walkJSONValue(decoder *json.Decoder) error {
 		return err
 	default:
 		return errors.New("unexpected JSON delimiter")
+	}
+}
+
+// foldEvidenceJSONKey matches encoding/json's case-insensitive struct-field
+// matching without sharing its parser boundary.
+func foldEvidenceJSONKey(name string) string {
+	folded := make([]byte, 0, len(name))
+	for index := 0; index < len(name); {
+		if value := name[index]; value < utf8.RuneSelf {
+			if 'a' <= value && value <= 'z' {
+				value -= 'a' - 'A'
+			}
+			folded = append(folded, value)
+			index++
+			continue
+		}
+		value, size := utf8.DecodeRuneInString(name[index:])
+		folded = utf8.AppendRune(folded, foldEvidenceJSONRune(value))
+		index += size
+	}
+	return string(folded)
+}
+
+func foldEvidenceJSONRune(value rune) rune {
+	for {
+		next := unicode.SimpleFold(value)
+		if next <= value {
+			return next
+		}
+		value = next
 	}
 }
 

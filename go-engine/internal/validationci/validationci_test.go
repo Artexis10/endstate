@@ -319,6 +319,31 @@ func TestReadBoundedRejectsRecursiveDuplicateJSONKeys(t *testing.T) {
 	}
 }
 
+func TestReadBoundedRejectsCaseFoldedDuplicateJSONKeys(t *testing.T) {
+	tests := []string{
+		`{"status":"passed","STATUS":"failed"}`,
+		`{"STATUS":"failed","status":"passed"}`,
+		`{"ſtatus":"passed","status":"failed"}`,
+		`{"status":"failed","ſtatus":"passed"}`,
+		`{"rows":[{"identity":{"moduleId":"apps.first","MODULEID":"apps.last"}}]}`,
+		`{"rows":[{"identity":{"MODULEID":"apps.last","moduleId":"apps.first"}}]}`,
+		`{"rows":[{"result":{"status":"passed","STATUS":"failed"}}]}`,
+		`{"rows":[{"result":{"STATUS":"failed","status":"passed"}}]}`,
+		`{"rows":[{"result":{"failure":{"code":"execution_failure","CODE":"artifact_contract"}}}]}`,
+		`{"rows":[{"result":{"failure":{"CODE":"artifact_contract","code":"execution_failure"}}}]}`,
+	}
+	for _, raw := range tests {
+		path := filepath.Join(t.TempDir(), "evidence.json")
+		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		var target ShardResult
+		if err := readBounded(path, &target); err == nil {
+			t.Fatalf("readBounded accepted case-folded duplicate keys: %s", raw)
+		}
+	}
+}
+
 func TestAggregateRejectsInvalidEvidence(t *testing.T) {
 	tests := []struct {
 		name   string
