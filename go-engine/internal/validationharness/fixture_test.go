@@ -532,6 +532,54 @@ func TestFixturePlanRestoresNonExcludedCaptureAncestorDirectories(t *testing.T) 
 	}
 }
 
+func TestFixturePlanRestoresRetainedAncestorAlreadyCreatedByNestedPayload(t *testing.T) {
+	mod, err := modules.ParseModuleJSON([]byte(directoryFixtureModuleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mod.Verify = []modules.VerifyDef{{Type: "file-exists", Path: `%APPDATA%\Fixture\profiles\Foo\settings.json`}}
+	scenario, definitions := directoryFixtureDefinitions(t, mod)
+	for index := range definitions.Entries {
+		definitions.Entries[index].GlobalExclude = []string{`**\Foo\Backups\**`}
+	}
+	plan, failure := compileFixturePlan(fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, definitions)
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	target := &plan.Targets[1]
+	if !containsFixtureRelative(target.RetainedCaptureAncestorDirs, "Foo") {
+		t.Fatalf("retained capture ancestors = %#v, want Foo", target.RetainedCaptureAncestorDirs)
+	}
+	if failure := plan.MaterializeRestored(); failure != nil {
+		t.Fatalf("restore with payload-created retained ancestor: %+v", failure)
+	}
+	if failure := plan.CompareRestored(); failure != nil {
+		t.Fatalf("restored comparison with payload-created retained ancestor: %+v", failure)
+	}
+	if failure := plan.Mutate(); failure != nil {
+		t.Fatalf("mutated fixture changed semantics: %+v", failure)
+	}
+	if failure := plan.CompareMutated(); failure != nil {
+		t.Fatalf("mutated comparison changed semantics: %+v", failure)
+	}
+}
+
+func TestRetainedCaptureAncestorDirectoryRejectsFileCollision(t *testing.T) {
+	plan := fixtureScenarioRuntime(t).Plan
+	target := &plan.Targets[1]
+	target.RetainedCaptureAncestorDirs = []string{"Foo"}
+	path := filepath.Join(target.Resolved, "Foo")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("not-a-directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if failure := plan.materializeRetainedCaptureAncestorDirs(target); failure == nil || failure.Code != CodeIsolationFailure {
+		t.Fatalf("file collision failure = %+v", failure)
+	}
+}
+
 func TestProductionCatalogCaptureExcludesRetainNonExcludedAncestors(t *testing.T) {
 	repo := productionLiveRepoRoot(t)
 	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())

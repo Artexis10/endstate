@@ -637,11 +637,8 @@ func (plan *FixturePlan) MaterializeRestored() *Failure {
 func (plan *FixturePlan) materializeRetainedCaptureAncestorDirs(target *FixtureTarget) *Failure {
 	for _, relative := range target.RetainedCaptureAncestorDirs {
 		path := filepath.Join(target.Resolved, filepath.FromSlash(relative))
-		if failure := prepareFixtureFile(plan.context, path, target.Coordinate); failure != nil {
+		if failure := prepareRetainedCaptureAncestorDirectory(plan.context, path, target.Coordinate); failure != nil {
 			return failure
-		}
-		if err := os.MkdirAll(path, 0o700); err != nil {
-			return fail(CodeIsolationFailure, "fixture", target.Coordinate, "create retained capture ancestor")
 		}
 	}
 	return nil
@@ -1058,6 +1055,38 @@ func prepareFixtureFile(context *validationmode.Context, path, coordinate string
 		return fail(CodeIsolationFailure, "fixture", coordinate, "fixture file is linked or not regular")
 	} else if err != nil && !os.IsNotExist(err) {
 		return fail(CodeIsolationFailure, "fixture", coordinate, "fixture file cannot be inspected")
+	}
+	return nil
+}
+
+func prepareRetainedCaptureAncestorDirectory(context *validationmode.Context, path, coordinate string) *Failure {
+	if err := context.ValidateSandboxPath(path); err != nil {
+		return fail(CodeIsolationFailure, "fixture", coordinate, "retained capture ancestor left validation authority")
+	}
+	parent := filepath.Dir(path)
+	if err := context.ValidateSandboxPath(parent); err != nil {
+		return fail(CodeIsolationFailure, "fixture", coordinate, "retained capture ancestor parent left validation authority")
+	}
+	parentInfo, err := os.Lstat(parent)
+	if err != nil || safepath.IsLinkOrReparse(parentInfo) || !parentInfo.IsDir() {
+		return fail(CodeIsolationFailure, "fixture", coordinate, "retained capture ancestor parent is linked or not a directory")
+	}
+	info, err := os.Lstat(path)
+	if err == nil {
+		if safepath.IsLinkOrReparse(info) || !info.IsDir() {
+			return fail(CodeIsolationFailure, "fixture", coordinate, "retained capture ancestor is linked or not a directory")
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fail(CodeIsolationFailure, "fixture", coordinate, "retained capture ancestor cannot be inspected")
+	}
+	if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
+		return fail(CodeIsolationFailure, "fixture", coordinate, "create retained capture ancestor")
+	}
+	info, err = os.Lstat(path)
+	if err != nil || safepath.IsLinkOrReparse(info) || !info.IsDir() {
+		return fail(CodeIsolationFailure, "fixture", coordinate, "retained capture ancestor changed type during creation")
 	}
 	return nil
 }
