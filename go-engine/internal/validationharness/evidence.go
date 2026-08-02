@@ -174,7 +174,7 @@ func validateRebuildEvidence(raw []byte, runtime *scenarioRuntime, iteration int
 		!reflect.DeepEqual(data.ConfigResolutions, data.Apply.ConfigResolutions) || !reflect.DeepEqual(data.RestoreItems, data.Apply.RestoreItems) {
 		return fail(CodeEnvelopeContract, "rebuild", "apply", "nested and outer restore evidence differ")
 	}
-	if len(data.ConfigResolutions) != 1 || data.ConfigResolutionSummary.Total != 1 || data.ConfigResolutionSummary.Failed != 0 || len(data.RestoreItems) != len(runtime.Plan.Targets) {
+	if len(data.ConfigResolutions) != 1 || data.ConfigResolutionSummary.Total != 1 || data.ConfigResolutionSummary.Failed != 0 || len(data.RestoreItems) != runtime.Plan.OperationCount() {
 		return fail(CodeEnvelopeContract, "rebuild", "config", "rebuild config evidence does not cover the exact fixture plan")
 	}
 	repeat := iteration == 2
@@ -195,9 +195,12 @@ func validateRebuildEvidence(raw []byte, runtime *scenarioRuntime, iteration int
 		source   string
 		strategy string
 	}
-	expected := make(map[string]expectedRestore, len(runtime.Plan.Targets))
-	for _, target := range runtime.Plan.Targets {
-		expected[strings.ToLower(target.Authored)] = expectedRestore{source: v1RestoreSource(runtime.Module.ID, target.Destination), strategy: fixtureStrategy(target)}
+	expected := make(map[string]expectedRestore, runtime.Plan.OperationCount())
+	for _, target := range runtime.Plan.RestoreTargets() {
+		expected[strings.ToLower(target.Authored)] = expectedRestore{source: v1RestoreSource(runtime.Module.ID, target.Destination), strategy: target.Strategy}
+	}
+	if len(expected) != runtime.Plan.OperationCount() {
+		return fail(CodeEnvelopeContract, "rebuild", "restoreItems", "fixture restore target identities are not unique")
 	}
 	for _, item := range data.RestoreItems {
 		expectedItem, ok := expected[strings.ToLower(item.Target)]
@@ -247,13 +250,16 @@ func validateV1RebuildEvents(events []map[string]any, runtime *scenarioRuntime, 
 	repeat := iteration == 2
 	perTarget := 2
 	segment := events[start : end+1]
-	wantCount := 3 + len(runtime.Plan.Targets)*perTarget
+	wantCount := 3 + runtime.Plan.OperationCount()*perTarget
 	if len(segment) != wantCount || segment[0]["event"] != "phase" || segment[1]["event"] != "config-resolution" {
 		return fail(CodeEventContract, "rebuild", "restore", fmt.Sprintf("schema-v1 restore event segment differs: got=%d want=%d", len(segment), wantCount))
 	}
-	expected := make(map[string]FixtureTarget, len(runtime.Plan.Targets))
-	for _, target := range runtime.Plan.Targets {
+	expected := make(map[string]FixtureRestoreTarget, runtime.Plan.OperationCount())
+	for _, target := range runtime.Plan.RestoreTargets() {
 		expected[strings.ToLower(target.Authored)] = target
+	}
+	if len(expected) != runtime.Plan.OperationCount() {
+		return fail(CodeEventContract, "rebuild", "restore-item", "fixture restore target identities are not unique")
 	}
 	for index := 2; index < len(segment)-1; {
 		event := segment[index]
@@ -262,7 +268,7 @@ func validateV1RebuildEvents(events []map[string]any, runtime *scenarioRuntime, 
 		}
 		targetText := restoreEventString(event["target"])
 		target, ok := expected[strings.ToLower(targetText)]
-		if !ok || event["module"] != runtime.Module.ID || event["restorer"] != fixtureStrategy(target) ||
+		if !ok || event["module"] != runtime.Module.ID || event["restorer"] != target.Strategy ||
 			filepath.ToSlash(restoreEventString(event["source"])) != v1RestoreSource(runtime.Module.ID, target.Destination) || event["targetExisted"] != true {
 			return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 restore item attribution differs")
 		}
@@ -272,7 +278,7 @@ func validateV1RebuildEvents(events []map[string]any, runtime *scenarioRuntime, 
 		terminal := segment[index+1]
 		backup, backupOK := terminal["backupPath"].(string)
 		expectedBackup, backupBound := binding.BackupsByTarget[strings.ToLower(target.Authored)]
-		if terminal["event"] != "restore-item" || terminal["module"] != runtime.Module.ID || terminal["restorer"] != fixtureStrategy(target) ||
+		if terminal["event"] != "restore-item" || terminal["module"] != runtime.Module.ID || terminal["restorer"] != target.Strategy ||
 			filepath.ToSlash(restoreEventString(terminal["source"])) != v1RestoreSource(runtime.Module.ID, target.Destination) || terminal["target"] != target.Authored ||
 			terminal["targetExisted"] != true || (!repeat && (terminal["status"] != "restored" || terminal["reason"] != nil || !backupOK || strings.TrimSpace(backup) == "" || !backupBound || backup != expectedBackup)) ||
 			(repeat && (terminal["status"] != "skipped_up_to_date" || terminal["reason"] != "already_up_to_date" || terminal["backupPath"] != nil)) {
@@ -285,11 +291,11 @@ func validateV1RebuildEvents(events []map[string]any, runtime *scenarioRuntime, 
 		return fail(CodeEventContract, "rebuild", "restore-item", "schema-v1 restore event multiset omitted a target")
 	}
 	summary := segment[len(segment)-1]
-	success, skipped := len(runtime.Plan.Targets), 0
+	success, skipped := runtime.Plan.OperationCount(), 0
 	if repeat {
-		success, skipped = 0, len(runtime.Plan.Targets)
+		success, skipped = 0, runtime.Plan.OperationCount()
 	}
-	if !v2SummaryEventExact(summary, "restore", len(runtime.Plan.Targets), success, skipped, 0) {
+	if !v2SummaryEventExact(summary, "restore", runtime.Plan.OperationCount(), success, skipped, 0) {
 		return fail(CodeEventContract, "rebuild", "restore.summary", "schema-v1 restore summary differs")
 	}
 	return nil
@@ -309,12 +315,15 @@ func validateRevertEvidence(raw []byte, runtime *scenarioRuntime, binding rebuil
 		} `json:"results"`
 	}
 	if runtime == nil || runtime.Plan == nil || json.Unmarshal(raw, &data) != nil || strings.TrimSpace(data.JournalUsed) == "" ||
-		data.JournalUsed != binding.Journal || len(data.Results) != len(runtime.Plan.Targets) || len(binding.BackupsByTarget) != len(runtime.Plan.Targets) {
+		data.JournalUsed != binding.Journal || len(data.Results) != runtime.Plan.OperationCount() || len(binding.BackupsByTarget) != runtime.Plan.OperationCount() {
 		return fail(CodeEnvelopeContract, "revert", "data", "revert lacks an exact nonempty journal result")
 	}
-	expected := make(map[string]struct{}, len(runtime.Plan.Targets))
-	for _, target := range runtime.Plan.Targets {
+	expected := make(map[string]struct{}, runtime.Plan.OperationCount())
+	for _, target := range runtime.Plan.RestoreTargets() {
 		expected[strings.ToLower(target.Authored)] = struct{}{}
+	}
+	if len(expected) != runtime.Plan.OperationCount() {
+		return fail(CodeEnvelopeContract, "revert", "results", "fixture restore target identities are not unique")
 	}
 	for _, result := range data.Results {
 		key := strings.ToLower(result.Target)

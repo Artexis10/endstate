@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/configrestore"
+	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 )
@@ -94,15 +95,15 @@ func validateRebuildStorageEvidence(
 
 	binding, err := rebuildBindingFromEvidence(raw)
 	repeat := iteration == 2
-	expectedBackupCount := len(runtime.Plan.Targets)
+	expectedBackupCount := runtime.Plan.OperationCount()
 	if repeat {
 		expectedBackupCount = 0
 	}
-	if err != nil || len(binding.BackupsByTarget) != expectedBackupCount || len(binding.SourcesByTarget) != len(runtime.Plan.Targets) {
+	if err != nil || len(binding.BackupsByTarget) != expectedBackupCount || len(binding.SourcesByTarget) != runtime.Plan.OperationCount() {
 		return rebuildEvidenceBinding{}, after, fail(CodeEnvelopeContract, "rebuild", "backups", "backup evidence does not cover the exact fixture target set")
 	}
 	backupRoot := filepath.Join(runtime.Root, "state", "backups")
-	seenBackups := make(map[string]struct{}, len(runtime.Plan.Targets))
+	seenBackups := make(map[string]struct{}, runtime.Plan.OperationCount())
 	allowedBackupAdditions := map[string]struct{}{".": {}}
 	if repeat {
 		if before.storeExisted != after.storeExisted || !equalBoundaryTrees(before.store, after.store) {
@@ -116,7 +117,7 @@ func validateRebuildStorageEvidence(
 		}
 		return binding, after, nil
 	} else {
-		for _, target := range runtime.Plan.Targets {
+		for _, target := range runtime.Plan.RestoreTargets() {
 			key := strings.ToLower(target.Authored)
 			semantic, exists := binding.BackupsByTarget[key]
 			if !exists {
@@ -139,7 +140,7 @@ func validateRebuildStorageEvidence(
 				}
 			}
 			allowBoundarySubtree(after.backups, relative, allowedBackupAdditions)
-			if failure := validateMutatedBackup(runtime, target, physical); failure != nil {
+			if failure := validateFixtureBackup(runtime, target, physical); failure != nil {
 				return rebuildEvidenceBinding{}, after, failure
 			}
 		}
@@ -157,7 +158,7 @@ func validateRebuildStorageEvidence(
 		return rebuildEvidenceBinding{}, after, fail(CodeIsolationFailure, "rebuild", "journal", "read pinned rebuild journal")
 	}
 	journal, err := restore.ParseJournal(journalData)
-	if err != nil || strings.TrimSpace(journal.RunID) == "" || len(journal.Entries) != len(runtime.Plan.Targets) {
+	if err != nil || strings.TrimSpace(journal.RunID) == "" || len(journal.Entries) != runtime.Plan.OperationCount() {
 		return rebuildEvidenceBinding{}, after, fail(CodeEnvelopeContract, "rebuild", "journal", "rebuild journal is malformed or incomplete")
 	}
 	if _, err := time.Parse(time.RFC3339, journal.Timestamp); err != nil {
@@ -306,9 +307,12 @@ func newRestoreJournal(runtime *scenarioRuntime, before, after rebuildStorageSna
 }
 
 func validateJournalEntries(runtime *scenarioRuntime, journal *restore.Journal, binding rebuildEvidenceBinding, repeat bool) *Failure {
-	expected := make(map[string]string, len(runtime.Plan.Targets))
-	for _, target := range runtime.Plan.Targets {
-		expected[strings.ToLower(target.Authored)] = fixtureStrategy(target)
+	expected := make(map[string]string, runtime.Plan.OperationCount())
+	for _, target := range runtime.Plan.RestoreTargets() {
+		expected[strings.ToLower(target.Authored)] = target.Strategy
+	}
+	if len(expected) != runtime.Plan.OperationCount() {
+		return fail(CodeEnvelopeContract, "rebuild", "journal.entries", "fixture restore target identities are not unique")
 	}
 	for _, entry := range journal.Entries {
 		key := strings.ToLower(entry.TargetPath)
@@ -329,6 +333,29 @@ func validateJournalEntries(runtime *scenarioRuntime, journal *restore.Journal, 
 		return fail(CodeEnvelopeContract, "rebuild", "journal.entries", "journal omitted a fixture restore target")
 	}
 	return nil
+}
+
+func validateFixtureBackup(runtime *scenarioRuntime, target FixtureRestoreTarget, backup string) *Failure {
+	if target.Registry {
+		info, err := os.Lstat(backup)
+		if err != nil || safepath.IsLinkOrReparse(info) || !info.Mode().IsRegular() || info.Size() == 0 || !strings.EqualFold(filepath.Ext(backup), ".reg") {
+			return fail(CodeContentMismatch, "rebuild", target.Coordinate, "registry backup is not a regular nonempty .reg file")
+		}
+		data, _, err := safepath.ReadRegularFile(backup)
+		if err != nil {
+			return fail(CodeContentMismatch, "rebuild", target.Coordinate, "registry backup cannot be read safely")
+		}
+		if _, err := registryfile.RewriteSubtree(data, target.Authored, target.Authored); err != nil {
+			return fail(CodeContentMismatch, "rebuild", target.Coordinate, "registry backup is malformed or leaves its authored scope")
+		}
+		return nil
+	}
+	for _, fileTarget := range runtime.Plan.Targets {
+		if fileTarget.Authored == target.Authored && fileTarget.Destination == target.Destination {
+			return validateMutatedBackup(runtime, fileTarget, backup)
+		}
+	}
+	return fail(CodeIsolationFailure, "rebuild", target.Coordinate, "file backup target is absent from fixture plan")
 }
 
 func allowBoundarySubtree(tree boundaryTree, root string, allowed map[string]struct{}) {

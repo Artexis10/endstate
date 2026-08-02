@@ -89,6 +89,123 @@ func TestCompositeFixturePlanRetainsFileOnlyPlans(t *testing.T) {
 	}
 }
 
+func TestRegistryArtifactPayloadSetRequiresEveryCompositeTarget(t *testing.T) {
+	mod := mixedRegistryFixtureModule()
+	scenario := fixtureScenario()
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, &recordingRegistryFixture{})
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	runtime := &scenarioRuntime{Module: mod, Plan: plan}
+	entries := map[string][]byte{}
+	for _, target := range plan.Targets {
+		name, ok := targetArtifactPayloadName(mod.ID, target)
+		if !ok {
+			t.Fatal("file fixture payload was not representable")
+		}
+		entries[strings.ToLower(name)] = []byte(target.Captured)
+	}
+	if failure := validateArtifactConfigPayloadSet(runtime, entries); failure == nil || failure.Coordinate != "capture.registryKeys[0]" {
+		t.Fatalf("registry payload omission failure = %+v", failure)
+	}
+}
+
+func TestRegistryRebuildEvidenceDoesNotPermitAnOmittedCompositeOperation(t *testing.T) {
+	mod := mixedRegistryFixtureModule()
+	scenario := fixtureScenario()
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, &recordingRegistryFixture{})
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	runtime := &scenarioRuntime{Module: mod, Scenario: scenario, Plan: plan, Inventory: validationInventory(mod)}
+	items := make([]any, 0, plan.OperationCount())
+	for index, target := range plan.RestoreTargets() {
+		items = append(items, map[string]any{
+			"target": target.Authored, "source": v1RestoreSource(mod.ID, target.Destination), "restoreType": target.Strategy,
+			"targetExistedBefore": true, "status": "restored", "backupCreated": true,
+			"backupPath": fmt.Sprintf("$ENDSTATE_ROOT/state/backups/registry/item-%d.reg", index),
+		})
+	}
+	payload := map[string]any{
+		"apply": map[string]any{
+			"summary": map[string]any{"total": 1, "success": 0, "skipped": 1, "failed": 0},
+			"actions": []any{map[string]any{"id": runtime.Inventory.AppID, "driver": runtime.Inventory.Driver, "status": "present", "reason": "already_installed"}},
+		},
+		"configResolutionSummary": map[string]any{"total": 1, "selected": 1, "skipped": 0, "failed": 0},
+		"configResolutions":       []any{map[string]any{"status": "restored", "resolution": "legacy_unverified", "reason": nil}},
+		"restoreItems":            items,
+		"verify":                  json.RawMessage(validVerifyEvidenceData(runtime)),
+	}
+	payload["apply"].(map[string]any)["configResolutionSummary"] = payload["configResolutionSummary"]
+	payload["apply"].(map[string]any)["configResolutions"] = payload["configResolutions"]
+	payload["apply"].(map[string]any)["restoreItems"] = payload["restoreItems"]
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateRebuildEvidence(raw, runtime, 0); failure != nil {
+		t.Fatalf("composite evidence rejected: %+v", failure)
+	}
+	payload["restoreItems"] = items[:len(items)-1]
+	payload["apply"].(map[string]any)["restoreItems"] = payload["restoreItems"]
+	raw, err = json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateRebuildEvidence(raw, runtime, 0); failure == nil || failure.Coordinate != "config" {
+		t.Fatalf("omitted registry evidence failure = %+v", failure)
+	}
+}
+
+func TestRegistryBackupRequiresNonemptyScopedREGDocument(t *testing.T) {
+	mod := registryFixtureModule()
+	scenario := fixtureScenario()
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, &recordingRegistryFixture{})
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	target := plan.RestoreTargets()[0]
+	runtime := &scenarioRuntime{Module: mod, Plan: plan}
+	backup := filepath.Join(t.TempDir(), "fixture.reg")
+	valid := "Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Fixture]\n@=\"captured\"\n"
+	if err := os.WriteFile(backup, []byte(valid), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateFixtureBackup(runtime, target, backup); failure != nil {
+		t.Fatalf("scoped registry backup rejected: %+v", failure)
+	}
+	foreign := "Windows Registry Editor Version 5.00\n\n[HKEY_CURRENT_USER\\Software\\Foreign]\n@=\"captured\"\n"
+	if err := os.WriteFile(backup, []byte(foreign), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateFixtureBackup(runtime, target, backup); failure == nil || failure.Coordinate != "capture.registryKeys[0]" {
+		t.Fatalf("foreign registry backup failure = %+v", failure)
+	}
+}
+
+func TestRegistryFixtureSentinelsAndCoordinatesAreForbiddenOutput(t *testing.T) {
+	mod := registryFixtureModule()
+	scenario := fixtureScenario()
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, &recordingRegistryFixture{})
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	runtime := &scenarioRuntime{Module: mod, Scenario: scenario, Plan: plan}
+	forbidden := runtime.forbiddenOutputValues()
+	value := registryFixtureString(plan.RegistryTargets[0].Captured.Keys()[0].Values[0].Data)
+	seenValue, seenCoordinate := false, false
+	for _, candidate := range forbidden {
+		seenValue = seenValue || candidate == value
+		seenCoordinate = seenCoordinate || candidate == plan.RegistryTargets[0].Coordinate
+	}
+	if !seenValue || !seenCoordinate {
+		t.Fatalf("forbidden values omit registry state or coordinate: %q %q", value, plan.RegistryTargets[0].Coordinate)
+	}
+	if _, failure := decodeEnvelope([]byte(`{"debug":`+mustContractJSON(t, value)+`}`), "rebuild", mod.ID, scenario.ID, forbidden...); failure == nil || failure.Code != CodeIsolationFailure {
+		t.Fatalf("registry fixture sentinel leaked through output envelope: %+v", failure)
+	}
+}
+
 func TestCompositeFixturePlanRegistryStatesAreClosureCompleteAndTyped(t *testing.T) {
 	mod := registryFixtureModule()
 	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, fixtureScenario().ID), mod, fixtureScenario(), &recordingRegistryFixture{})

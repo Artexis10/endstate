@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"testing"
 	"time"
 
@@ -138,6 +139,70 @@ func TestRunFreshBuiltEngineTrackedSchemaV1FileMerges(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRunFreshBuiltEngineRegistryRoundtrips(t *testing.T) {
+	engineRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	repoRoot := filepath.Dir(engineRoot)
+	catalog, err := validationmatrix.LoadCatalog(repoRoot, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := make([]string, 0, 27)
+	validationRoot := filepath.Join(t.TempDir(), "endstate-validation-registry-contract")
+	for moduleID, mod := range catalog.Modules {
+		if mod.Capture == nil || len(mod.Capture.RegistryKeys) == 0 {
+			continue
+		}
+		var scenario validationmatrix.Scenario
+		for _, candidate := range catalog.Records[moduleID].Synthetic.Scenarios {
+			if candidate.ID == "default-v1" {
+				scenario = candidate
+				break
+			}
+		}
+		if scenario.ID == "" {
+			continue
+		}
+		validationContext, restore := reusableFixtureValidationContext(t, validationRoot, mod.ID, scenario.ID)
+		_, failure := compileCompositeFixturePlanAt(repoRoot, validationContext, mod, scenario, &recordingRegistryFixture{})
+		restore()
+		if failure != nil {
+			if (moduleID != "apps.ccleaner" && moduleID != "apps.revo-uninstaller") || failure.Code != CodeUnsupportedFixture || failure.Coordinate != "capture.registryKeys[0].key" {
+				t.Fatalf("registry contract %s = %+v", moduleID, failure)
+			}
+			continue
+		}
+		rows = append(rows, moduleID)
+	}
+	sort.Strings(rows)
+	if len(rows) != 27 {
+		t.Fatalf("safe registry rows = %d, want 27 (%v)", len(rows), rows)
+	}
+	buildRoot := t.TempDir()
+	engine := filepath.Join(buildRoot, "endstate.exe")
+	build := exec.Command("go", "build", "-o", engine, "./cmd/endstate")
+	build.Dir = engineRoot
+	build.Env = append(withoutTestEnvironment(os.Environ(), "GOCACHE", "GOTELEMETRY"),
+		"GOCACHE="+filepath.Join(buildRoot, "gocache"), "GOTELEMETRY=off")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build engine: %v\n%s", err, output)
+	}
+	for _, moduleID := range rows {
+		result, err := Run(context.Background(), Request{
+			EnginePath: engine, RepoRoot: repoRoot, ModuleID: moduleID, ScenarioID: "default-v1",
+			ResultPath: filepath.Join(t.TempDir(), moduleID+".json"),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if result.Status != ResultStatusPassed || result.Failure != nil {
+			t.Fatalf("registry roundtrip %s = %+v; counts=%v", moduleID, result.Failure, result.AssertionCounts)
+		}
 	}
 }
 

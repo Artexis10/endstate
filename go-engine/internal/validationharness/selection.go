@@ -60,7 +60,7 @@ func compileSelection(request Request, now time.Time) (*selection, *Failure) {
 	selected := &selection{request: request, catalog: catalog, module: mod, record: record, scenario: scenario}
 	switch scenario.Mode {
 	case validationmatrix.ScenarioConfigRoundtripV1:
-		fixture, failure := compileFixtureDefinitionsAt(request.RepoRoot, mod, scenario)
+		fixture, failure := compileFilesystemFixtureDefinitionsAt(request.RepoRoot, mod, scenario, moduleHasRegistryFixtureContract(mod))
 		if failure != nil {
 			return selected, failure
 		}

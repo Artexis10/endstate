@@ -67,6 +67,18 @@ type RegistryFixtureTarget struct {
 	Restored    validationmode.RegistryState
 }
 
+// FixtureRestoreTarget is the shared, deterministic projection consumed by
+// every production-backed roundtrip assertion. Registry payload text proves
+// only its grammar and scope; typed fixture snapshots prove its content.
+type FixtureRestoreTarget struct {
+	Coordinate  string
+	Authored    string
+	Destination string
+	Strategy    string
+	Optional    bool
+	Registry    bool
+}
+
 type FixtureExcluded struct {
 	Relative        string
 	Path            string
@@ -571,6 +583,26 @@ func (plan *FixturePlan) OperationCount() int {
 		return 0
 	}
 	return len(plan.Targets) + len(plan.RegistryTargets)
+}
+
+func (plan *FixturePlan) RestoreTargets() []FixtureRestoreTarget {
+	if plan == nil {
+		return nil
+	}
+	targets := make([]FixtureRestoreTarget, 0, plan.OperationCount())
+	for _, target := range plan.Targets {
+		targets = append(targets, FixtureRestoreTarget{
+			Coordinate: target.Coordinate, Authored: target.Authored, Destination: target.Destination,
+			Strategy: fixtureStrategy(target), Optional: target.Optional,
+		})
+	}
+	for _, target := range plan.RegistryTargets {
+		targets = append(targets, FixtureRestoreTarget{
+			Coordinate: target.Coordinate, Authored: target.Authored, Destination: target.Destination,
+			Strategy: target.Strategy, Optional: target.Optional, Registry: true,
+		})
+	}
+	return targets
 }
 
 func (plan *FixturePlan) replaceRegistry(target *RegistryFixtureTarget, state validationmode.RegistryState) *Failure {

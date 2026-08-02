@@ -15,6 +15,7 @@ import (
 	"github.com/Artexis10/endstate/go-engine/internal/manifest"
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/packagesource"
+	"github.com/Artexis10/endstate/go-engine/internal/registryfile"
 	"github.com/Artexis10/endstate/go-engine/internal/safepath"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
@@ -95,6 +96,21 @@ func inspectCaptureArtifact(runtime *scenarioRuntime, zipPath string) (captureEv
 		if matched != 1 {
 			return captureEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "rewritten restore entry is absent or ambiguous")
 		}
+		counts[validationmatrix.AssertionRewrittenRestore]++
+	}
+	for _, target := range runtime.Plan.RestoreTargets() {
+		if !target.Registry {
+			continue
+		}
+		payload, exists := entries[strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, target.Destination))]
+		if !exists || len(payload) == 0 {
+			return captureEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "capture ZIP lacks the registry fixture payload")
+		}
+		if _, err := registryfile.RewriteSubtree(payload, target.Authored, target.Authored); err != nil {
+			return captureEvidence{}, fail(CodeArtifactContract, "capture", target.Coordinate, "registry fixture payload is malformed or leaves its authored scope")
+		}
+		counts[validationmatrix.AssertionCaptured]++
+		counts[validationmatrix.AssertionPayload]++
 		counts[validationmatrix.AssertionRewrittenRestore]++
 	}
 	if failure := validateCapturedProjection(runtime, &captured); failure != nil {
@@ -182,7 +198,7 @@ func validateArtifactConfigPayloadSet(runtime *scenarioRuntime, entries map[stri
 	if runtime == nil || runtime.Plan == nil {
 		return fail(CodeArtifactContract, "capture", "configs", "fixture plan is absent")
 	}
-	expected := make(map[string]struct{}, len(runtime.Plan.Targets))
+	expected := make(map[string]struct{}, runtime.Plan.OperationCount())
 	for _, target := range runtime.Plan.Targets {
 		root := targetArtifactRoot(runtime.Module.ID, target)
 		name, ok := targetArtifactPayloadName(runtime.Module.ID, target)
@@ -196,6 +212,11 @@ func validateArtifactConfigPayloadSet(runtime *scenarioRuntime, entries map[stri
 		}
 		expected[strings.ToLower(name)] = struct{}{}
 	}
+	for _, target := range runtime.Plan.RestoreTargets() {
+		if target.Registry {
+			expected[strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, target.Destination))] = struct{}{}
+		}
+	}
 	seen := 0
 	for name := range entries {
 		if !strings.HasPrefix(name, "configs/") {
@@ -207,6 +228,13 @@ func validateArtifactConfigPayloadSet(runtime *scenarioRuntime, entries map[stri
 		seen++
 	}
 	if seen != len(expected) {
+		for _, target := range runtime.Plan.RestoreTargets() {
+			if target.Registry {
+				if _, exists := entries[strings.ToLower(v1ArtifactPayloadPath(runtime.Module.ID, target.Destination))]; !exists {
+					return fail(CodeArtifactContract, "capture", target.Coordinate, "capture ZIP omits an expected config payload")
+				}
+			}
+		}
 		return fail(CodeArtifactContract, "capture", "configs", "capture ZIP omits an expected config payload")
 	}
 	return nil
@@ -350,7 +378,7 @@ func validateCapturedProjection(runtime *scenarioRuntime, captured *manifest.Man
 
 func expectedCapturedRestoreSource(plan *FixturePlan, moduleID string, restore modules.RestoreDef) (string, bool) {
 	var rewritten string
-	for _, target := range plan.Targets {
+	for _, target := range plan.RestoreTargets() {
 		if target.Authored != restore.Target || filepath.ToSlash(target.Destination) != payloadDestination(restore.Source) {
 			continue
 		}

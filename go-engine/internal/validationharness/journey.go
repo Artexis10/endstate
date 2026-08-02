@@ -5,9 +5,11 @@ package validationharness
 
 import (
 	"context"
+	"encoding/binary"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
@@ -98,6 +100,18 @@ func (runtime *scenarioRuntime) forbiddenOutputValues() []string {
 				}
 			}
 		}
+		for _, target := range runtime.Plan.RegistryTargets {
+			add(target.Coordinate)
+			for _, state := range []validationmode.RegistryState{target.Captured, target.Mutated, target.Restored} {
+				for _, key := range state.Keys() {
+					for _, value := range key.Values {
+						if value.Type == validationmode.RegistryTypeString {
+							add(registryFixtureString(value.Data))
+						}
+					}
+				}
+			}
+		}
 	}
 	if runtime.V2Plan != nil {
 		for _, target := range append(append([]V2FixtureTarget(nil), runtime.V2Plan.CaptureTargets...), runtime.V2Plan.Targets...) {
@@ -123,6 +137,20 @@ func (runtime *scenarioRuntime) forbiddenOutputValues() []string {
 		add(runtime.RestorePlan.PayloadPath)
 	}
 	return result
+}
+
+func registryFixtureString(data []byte) string {
+	if len(data) == 0 || len(data)%2 != 0 {
+		return ""
+	}
+	units := make([]uint16, len(data)/2)
+	for index := range units {
+		units[index] = binary.LittleEndian.Uint16(data[index*2:])
+	}
+	if len(units) > 0 && units[len(units)-1] == 0 {
+		units = units[:len(units)-1]
+	}
+	return string(utf16.Decode(units))
 }
 
 func (runtime *scenarioRuntime) validationContext() *validationmode.Context {
@@ -222,7 +250,7 @@ func executeJourney(ctx context.Context, runtime *scenarioRuntime, executor jour
 		if failure := runtime.Plan.CompareRestored(); failure != nil {
 			return failResult(failure)
 		}
-		result.AssertionCounts[validationmatrix.AssertionContent] += len(runtime.Plan.Targets)
+		result.AssertionCounts[validationmatrix.AssertionContent] += runtime.Plan.OperationCount()
 		result.AssertionCounts[validationmatrix.AssertionRebuild]++
 		result.AssertionCounts[validationmatrix.AssertionNestedSummary]++
 		if iteration == 0 {
@@ -248,7 +276,7 @@ func executeJourney(ctx context.Context, runtime *scenarioRuntime, executor jour
 		result.AssertionCounts[validationmatrix.AssertionVerify] += verifyCount
 	}
 	proof, failure := evaluateAssertions(runtime.Scenario, result.AssertionCounts,
-		OperationCounts{Executed: len(runtime.Plan.Targets)},
+		OperationCounts{Executed: runtime.Plan.OperationCount()},
 		[]validationmatrix.ProofLevel{validationmatrix.ProofCatalog, validationmatrix.ProofEngineContract, validationmatrix.ProofConfigRoundtripV1})
 	if failure != nil {
 		return failResult(failure)
