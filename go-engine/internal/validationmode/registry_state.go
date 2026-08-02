@@ -39,13 +39,16 @@ type RegistryState struct {
 
 // NewRegistryState validates and canonically orders a registry subtree.
 func NewRegistryState(keys []RegistryKey) (RegistryState, error) {
+	if len(keys) == 0 {
+		return RegistryState{}, fmt.Errorf("%w: registry state must include its root key", ErrUnsafeRegistry)
+	}
 	state := RegistryState{keys: make([]RegistryKey, len(keys))}
 	seenKeys := make(map[string]struct{}, len(keys))
 	for index, key := range keys {
 		if err := validateRegistryRelativeKey(key.Path); err != nil {
 			return RegistryState{}, err
 		}
-		foldedPath := strings.ToLower(key.Path)
+		foldedPath := registryIdentity(key.Path)
 		if _, exists := seenKeys[foldedPath]; exists {
 			return RegistryState{}, fmt.Errorf("%w: duplicate registry key", ErrUnsafeRegistry)
 		}
@@ -54,7 +57,22 @@ func NewRegistryState(keys []RegistryKey) (RegistryState, error) {
 		if err != nil {
 			return RegistryState{}, err
 		}
-		state.keys[index] = RegistryKey{Path: strings.ToLower(key.Path), Values: values}
+		state.keys[index] = RegistryKey{Path: foldedPath, Values: values}
+	}
+	if _, exists := seenKeys[""]; !exists {
+		return RegistryState{}, fmt.Errorf("%w: registry state must include its root key", ErrUnsafeRegistry)
+	}
+	for path := range seenKeys {
+		if path == "" {
+			continue
+		}
+		parent := ""
+		if separator := strings.LastIndex(path, `\`); separator >= 0 {
+			parent = path[:separator]
+		}
+		if _, exists := seenKeys[parent]; !exists {
+			return RegistryState{}, fmt.Errorf("%w: registry state has an orphan key", ErrUnsafeRegistry)
+		}
 	}
 	sort.Slice(state.keys, func(left, right int) bool {
 		return registryIdentityLess(state.keys[left].Path, state.keys[right].Path)
@@ -79,12 +97,12 @@ func (state RegistryState) Equal(other RegistryState) bool {
 	}
 	for index, key := range state.keys {
 		otherKey := other.keys[index]
-		if !strings.EqualFold(key.Path, otherKey.Path) || len(key.Values) != len(otherKey.Values) {
+		if !registryIdentityEqual(key.Path, otherKey.Path) || len(key.Values) != len(otherKey.Values) {
 			return false
 		}
 		for valueIndex, value := range key.Values {
 			otherValue := otherKey.Values[valueIndex]
-			if !strings.EqualFold(value.Name, otherValue.Name) || value.Type != otherValue.Type || !equalBytes(value.Data, otherValue.Data) {
+			if !registryIdentityEqual(value.Name, otherValue.Name) || value.Type != otherValue.Type || !equalBytes(value.Data, otherValue.Data) {
 				return false
 			}
 		}
@@ -99,12 +117,12 @@ func canonicalRegistryValues(values []RegistryValue) ([]RegistryValue, error) {
 		if err := validateRegistryValue(value); err != nil {
 			return nil, err
 		}
-		foldedName := strings.ToLower(value.Name)
+		foldedName := registryIdentity(value.Name)
 		if _, exists := seen[foldedName]; exists {
 			return nil, fmt.Errorf("%w: duplicate registry value", ErrUnsafeRegistry)
 		}
 		seen[foldedName] = struct{}{}
-		result[index] = RegistryValue{Name: strings.ToLower(value.Name), Type: value.Type, Data: append([]byte(nil), value.Data...)}
+		result[index] = RegistryValue{Name: foldedName, Type: value.Type, Data: append([]byte(nil), value.Data...)}
 	}
 	sort.Slice(result, func(left, right int) bool {
 		return registryIdentityLess(result[left].Name, result[right].Name)
@@ -180,11 +198,26 @@ func validRegistryString(data []byte) bool {
 }
 
 func registryIdentityLess(left, right string) bool {
-	leftFolded, rightFolded := strings.ToLower(left), strings.ToLower(right)
-	if leftFolded == rightFolded {
-		return left < right
+	return registryIdentity(left) < registryIdentity(right)
+}
+
+func registryIdentityEqual(left, right string) bool {
+	return registryIdentity(left) == registryIdentity(right)
+}
+
+func registryIdentity(value string) string {
+	var result strings.Builder
+	result.Grow(len(value))
+	for _, current := range value {
+		canonical := current
+		for next := unicode.SimpleFold(current); next != current; next = unicode.SimpleFold(next) {
+			if next < canonical {
+				canonical = next
+			}
+		}
+		result.WriteRune(canonical)
 	}
-	return leftFolded < rightFolded
+	return result.String()
 }
 
 func equalBytes(left, right []byte) bool {

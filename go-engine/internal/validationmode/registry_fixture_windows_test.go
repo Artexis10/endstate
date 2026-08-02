@@ -70,11 +70,38 @@ func TestRegistryFixtureReplacesAndSnapshotsTypedState(t *testing.T) {
 	}
 }
 
+func TestRegistryFixtureReplaceRemovesPreexistingExtraState(t *testing.T) {
+	context := activeTestContext(t, "registry-fixture-replace-exact")
+	desired, err := NewRegistryState([]RegistryKey{{Path: "", Values: []RegistryValue{{Name: "Setting", Type: RegistryTypeDWORD, Data: []byte{1, 0, 0, 0}}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	extra, err := NewRegistryState([]RegistryKey{
+		{Path: "", Values: []RegistryValue{{Name: "Setting", Type: RegistryTypeDWORD, Data: []byte{9, 0, 0, 0}}, {Name: "Unexpected", Type: RegistryTypeBinary, Data: []byte{1}}}},
+		{Path: "Legacy", Values: []RegistryValue{{Name: "Value", Type: RegistryTypeBinary, Data: []byte{2}}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	operations := &fakeRegistryFixtureOperations{snapshot: extra}
+	fixture := newRegistryFixtureWithOperations(context, operations)
+	if err := fixture.Replace(`HKCU\Software\Fixture`, desired); err != nil {
+		t.Fatal(err)
+	}
+	got, err := fixture.Snapshot(`HKCU\Software\Fixture`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Equal(desired) || got.Equal(extra) {
+		t.Fatalf("replacement snapshot = %#v, want exact desired state %#v", got, desired)
+	}
+}
+
 func TestRegistryFixtureRejectsForeignIdentityBeforeBackendCalls(t *testing.T) {
 	context := activeTestContext(t, "registry-fixture-reject")
 	operations := &fakeRegistryFixtureOperations{}
 	fixture := newRegistryFixtureWithOperations(context, operations)
-	state, err := NewRegistryState(nil)
+	state, err := NewRegistryState([]RegistryKey{{}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,10 +169,38 @@ func TestRegistryFixtureRemovesAndProvesAuthoredKeyAbsent(t *testing.T) {
 
 func TestRegistryFixturePropagatesAccessDeniedWithoutSkip(t *testing.T) {
 	context := activeTestContext(t, "registry-fixture-denied")
-	operations := &fakeRegistryFixtureOperations{ensureErr: windows.ERROR_ACCESS_DENIED}
-	fixture := newRegistryFixtureWithOperations(context, operations)
-	if err := fixture.Materialize(`HKCU\Software\Fixture`); !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
-		t.Fatalf("Materialize() error = %v, want access denied", err)
+	state, err := NewRegistryState([]RegistryKey{{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		name       string
+		operations *fakeRegistryFixtureOperations
+		call       func(*RegistryFixture) error
+	}{
+		{"materialize", &fakeRegistryFixtureOperations{ensureErr: windows.ERROR_ACCESS_DENIED}, func(fixture *RegistryFixture) error { return fixture.Materialize(`HKCU\Software\Fixture`) }},
+		{"replace", &fakeRegistryFixtureOperations{replaceErr: windows.ERROR_ACCESS_DENIED}, func(fixture *RegistryFixture) error { return fixture.Replace(`HKCU\Software\Fixture`, state) }},
+		{"snapshot", &fakeRegistryFixtureOperations{snapshotErr: windows.ERROR_ACCESS_DENIED}, func(fixture *RegistryFixture) error { _, err := fixture.Snapshot(`HKCU\Software\Fixture`); return err }},
+		{"remove", &fakeRegistryFixtureOperations{removeErr: windows.ERROR_ACCESS_DENIED}, func(fixture *RegistryFixture) error { return fixture.Remove(`HKCU\Software\Fixture`) }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			fixture := newRegistryFixtureWithOperations(context, test.operations)
+			if err := test.call(fixture); !errors.Is(err, windows.ERROR_ACCESS_DENIED) {
+				t.Fatalf("operation error = %v, want access denied", err)
+			}
+		})
+	}
+}
+
+func TestReadRegistryValuesSkipsEnumeratedDefault(t *testing.T) {
+	values, err := collectRegistryValues([]string{"", "Named"}, func(name string) (RegistryValue, bool, error) {
+		return RegistryValue{Name: name, Type: RegistryTypeBinary, Data: []byte(name)}, true, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(values) != 2 || values[0].Name != "" || values[1].Name != "Named" {
+		t.Fatalf("values = %#v, want one default and one named value", values)
 	}
 }
 
@@ -166,6 +221,7 @@ func (operations *fakeRegistryFixtureOperations) replace(_ string, state Registr
 	operations.replaceCalls++
 	if operations.replaceErr == nil {
 		operations.replaced = state
+		operations.snapshot = state
 	}
 	return operations.replaceErr
 }

@@ -267,14 +267,23 @@ func readRegistryValues(key registry.Key) ([]RegistryValue, error) {
 	if err != nil {
 		return nil, err
 	}
+	return collectRegistryValues(names, func(name string) (RegistryValue, bool, error) {
+		return readRawRegistryValue(key, name)
+	})
+}
+
+func collectRegistryValues(names []string, read func(string) (RegistryValue, bool, error)) ([]RegistryValue, error) {
 	values := make([]RegistryValue, 0, len(names)+1)
-	if value, exists, err := readRawRegistryValue(key, ""); err != nil {
+	if value, exists, err := read(""); err != nil {
 		return nil, err
 	} else if exists {
 		values = append(values, value)
 	}
 	for _, name := range names {
-		value, exists, err := readRawRegistryValue(key, name)
+		if name == "" {
+			continue
+		}
+		value, exists, err := read(name)
 		if err != nil {
 			return nil, err
 		}

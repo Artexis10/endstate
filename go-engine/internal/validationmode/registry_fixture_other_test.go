@@ -12,7 +12,7 @@ import (
 
 func TestRegistryFixtureIsFailClosedOffWindows(t *testing.T) {
 	fixture := &RegistryFixture{}
-	state, err := NewRegistryState(nil)
+	state, err := NewRegistryState([]RegistryKey{{}})
 	if err != nil {
 		t.Fatal(err)
 	}
