@@ -424,8 +424,49 @@ The system SHALL keep pull-request, scheduled, dispatch, and release validation 
 
 - **WHEN** any required matrix child succeeds, fails, skips, cancels, times out, is neutral, or is missing
 - **THEN** an `always()` aggregate job named `Verified Module Matrix` SHALL run
-- **AND** it SHALL synthesize failure for every missing or non-success required row
+- **AND** each shard SHALL succeed only after emitting complete canonical evidence for every assigned row, including structured failed results
+- **AND** it SHALL synthesize failure for every missing, malformed, incomplete, or infrastructure-failed required row
+- **AND** a genuine scenario failure SHALL remain `failed` evidence and SHALL be evaluated only by the stable aggregate against protected-main debt authority
 - **AND** this stable check name SHALL be the branch-protection gate
+
+#### Scenario: Known failure remains unchanged
+
+- **WHEN** a logical scenario emits complete canonical failed evidence matching an entry authorized on the pull request base
+- **THEN** the aggregate MAY pass its regression gate for that row
+- **AND** the row SHALL remain failed, visible as known debt, and excluded from every proof numerator
+
+#### Scenario: Synthetic regression occurs
+
+- **WHEN** a previously passing logical row fails, an authorized failure changes without a reviewed transition, a passing row retains stale debt, or required evidence is absent or malformed
+- **THEN** the stable aggregate SHALL fail with the exact regression classification
+- **AND** a pull request SHALL NOT add or freely edit debt to make itself green
+
+#### Scenario: Complete inventory changes
+
+- **WHEN** the aggregate evaluates the head catalog
+- **THEN** it SHALL validate total modules, total scenarios, every `moduleId + scenarioId + kind` identity, and a canonical complete-inventory digest against protected-main authority
+- **AND** new scenarios MAY be added with evidence
+- **AND** a removed or renamed row SHALL fail unless an explicit reviewed inventory transition authorizes the production removal
+
+#### Scenario: Known failure is fixed
+
+- **WHEN** a base-authorized failed logical row produces passing evidence
+- **THEN** the pull request SHALL remove that debt entry
+- **AND** retaining a passing debt entry SHALL fail as stale authority
+
+#### Scenario: Pull request ledger authority is loaded
+
+- **WHEN** the aggregate runs for an unfiltered pull request
+- **THEN** checkout SHALL provide the exact two-parent merge commit without persisting credentials
+- **AND** the workflow SHALL validate and read the baseline from the base parent rather than trusting the head working tree alone
+- **AND** workflow and gate changes SHALL remain subject to protected review because the ledger is not a substitute for branch protection
+
+#### Scenario: Initial debt authority is established
+
+- **WHEN** the matrix first lands on protected main without an authorized ledger
+- **THEN** the synthetic aggregate SHALL remain non-required and SHALL NOT use a generic head-bootstrap exception
+- **AND** the exact protected-main evidence SHALL be reviewed and seeded in a separate baseline-only change
+- **AND** a fresh protected-main aggregate SHALL pass before the stable check becomes required
 
 ### Requirement: Honest Evidence and Aggregation
 
@@ -448,6 +489,20 @@ The system SHALL emit schema-versioned evidence for every attempted scenario and
 - **AND** every proof dimension SHALL report both `passed / eligible` and `eligible / catalog`
 - **AND** required scenario counts SHALL expose every schema-v2 alternative and migration edge
 - **AND** candidate, blocked, deferred, stale, quarantined, pass-after-retry, lab/manual, not-applicable, and missing rows SHALL remain explicit and SHALL NOT shrink a denominator
+
+#### Scenario: Sidecar defaults are resolved
+
+- **WHEN** a validation sidecar omits a supported uniform field
+- **THEN** its default SHALL resolve using the production module before validation, digesting, shard assignment, or row identity
+- **AND** an explicitly empty, zero, or partial assertion override SHALL fail instead of inheriting silently
+- **AND** default compression SHALL preserve every logical scenario, resolved record, proof requirement, digest, shard assignment, and row identity
+
+#### Scenario: Module revisions are synchronized
+
+- **WHEN** a developer runs the validation revision synchronizer
+- **THEN** it SHALL be check-only unless `--write` is explicit
+- **AND** it SHALL preflight the complete catalog before replacing exactly one sidecar revision token atomically
+- **AND** it SHALL preserve all unrelated bytes and line endings and SHALL NOT modify known-failure authority
 
 #### Scenario: Public claim is rendered
 

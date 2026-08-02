@@ -22,6 +22,8 @@ Endstate needs a catalog-wide, production-engine validation system whose PR path
 - Run all synthetic module scenarios and all bundle-resolution checks on every pull request, a live Notepad++ canary on engine-affecting pull requests, changed live-eligible modules on module pull requests, and the complete live-eligible set on a schedule.
 - Emit compact, schema-versioned evidence and an honest public summary that distinguishes engine-contract, config-roundtrip, live-install, manual, blocked, stale, quarantined, and not-applicable states.
 - Bound the blocking PR critical path with sharding, concurrency limits, standard-runner-only policy, per-job timeouts, and failure-only artifact uploads.
+- Track the initial synthetic failure debt as protected-main-owned, exact structured evidence without counting a known failure as proof, permitting a pull request to mint new debt, or allowing the full catalog denominator to shrink silently.
+- Keep the catalog-wide matrix maintainable through presence-aware sidecar defaults and a deterministic check-only revision synchronizer while preserving every scenario, fixture, independent verifier, and proof identity.
 
 ## Capabilities
 
@@ -38,6 +40,7 @@ The existing `sandbox-validation` capability remains available for local discove
 ## Impact
 
 - **Catalog:** `modules/apps/*/validation.jsonc` becomes required alongside every `module.jsonc`.
+- **Catalog maintenance:** Uniform validation boilerplate may be omitted only when it resolves deterministically from the production module before validation and digesting; explicit invalid values remain errors.
 - **Engine test tooling:** Adds isolated production-binary harnesses and deterministic fixture/path virtualization.
 - **CI:** Adds generated synthetic and live matrices under `.github/workflows/` while preserving the required `Go Tests` check name.
 - **Evidence:** Adds compact PR evidence plus trusted protected-main/release publication suitable for public compatibility reporting.
