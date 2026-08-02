@@ -149,6 +149,166 @@ func TestValidationRegistryImportRewritesNestedInputAndBackupAtNativeBoundary(t 
 	assertNoLegacyValidationIdentity(t, context, string(backupData))
 }
 
+func TestValidationRegistryImportSkipsExactMappedStateWithoutBackupOrImport(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regimport-converged")
+	semanticKey := `HKCU\Software\Vendor\Converged`
+	mappedKey, err := context.MapHKCU(semanticKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRoot := filepath.Join(context.Root(), "manifests", "legacy-regimport-converged")
+	source := filepath.Join(manifestRoot, "payload", "settings.reg")
+	desired := validationRegistryDocument(semanticKey, "desired")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, desired, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mappedCurrent, err := registryfile.RewriteSubtree(desired, semanticKey, mappedKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalQuery, originalExport, originalImport := registryImportQueryNative, registryImportExportNative, registryImportApplyNative
+	queried, exported, imported := "", "", false
+	registryImportQueryNative = func(key string) (bool, error) {
+		queried = key
+		return true, nil
+	}
+	registryImportExportNative = func(key, path string) error {
+		exported = key
+		return os.WriteFile(path, mappedCurrent, 0o600)
+	}
+	registryImportApplyNative = func(string) error {
+		imported = true
+		return nil
+	}
+	t.Cleanup(func() {
+		registryImportQueryNative, registryImportExportNative, registryImportApplyNative = originalQuery, originalExport, originalImport
+	})
+	backupDir := filepath.Join(context.Root(), "state", "backups", "legacy-regimport-converged")
+	results, err := RunRestore([]RestoreAction{{
+		Type: "registry-import", Source: "payload/settings.reg", Target: semanticKey, Backup: true,
+	}}, RestoreOptions{ManifestDir: manifestRoot, BackupDir: backupDir, ValidationContext: context}, nil)
+	if err != nil || len(results) != 1 {
+		t.Fatalf("restore = %+v, %v", results, err)
+	}
+	result := results[0]
+	if result.Status != "skipped_up_to_date" || !result.TargetExistedBefore || result.BackupCreated || result.BackupPath != "" || imported {
+		t.Fatalf("converged result = %+v imported=%v", result, imported)
+	}
+	if !strings.EqualFold(queried, mappedKey) || !strings.EqualFold(exported, mappedKey) {
+		t.Fatalf("native keys query=%q export=%q want=%q", queried, exported, mappedKey)
+	}
+	assertNoLegacyValidationIdentity(t, context, result.Source, result.Target, result.BackupPath, result.Error)
+}
+
+func TestValidationRegistryImportRestoresByteOrderingMismatch(t *testing.T) {
+	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regimport-ordering")
+	semanticKey := `HKCU\Software\Vendor\Ordering`
+	mappedKey, err := context.MapHKCU(semanticKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestRoot := filepath.Join(context.Root(), "manifests", "legacy-regimport-ordering")
+	source := filepath.Join(manifestRoot, "payload", "settings.reg")
+	desired := []byte("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\Vendor\\Ordering]\r\n\"Alpha\"=\"1\"\r\n\"Beta\"=\"2\"\r\n")
+	current := []byte("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\Vendor\\Ordering]\r\n\"Beta\"=\"2\"\r\n\"Alpha\"=\"1\"\r\n")
+	if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(source, desired, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mappedCurrent, err := registryfile.RewriteSubtree(current, semanticKey, mappedKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalQuery, originalExport, originalImport := registryImportQueryNative, registryImportExportNative, registryImportApplyNative
+	imported := false
+	registryImportQueryNative = func(string) (bool, error) { return true, nil }
+	registryImportExportNative = func(_ string, path string) error { return os.WriteFile(path, mappedCurrent, 0o600) }
+	registryImportApplyNative = func(string) error { imported = true; return nil }
+	t.Cleanup(func() {
+		registryImportQueryNative, registryImportExportNative, registryImportApplyNative = originalQuery, originalExport, originalImport
+	})
+	result, err := RestoreRegistryImport(RestoreAction{
+		Type: "registry-import", Source: "payload/settings.reg", Target: semanticKey,
+	}, source, RestoreOptions{ManifestDir: manifestRoot, ValidationContext: context})
+	if err != nil || result.Status != "restored" || !result.TargetExistedBefore || !imported {
+		t.Fatalf("ordering mismatch result = %+v imported=%v err=%v", result, imported, err)
+	}
+	assertNoLegacyValidationIdentity(t, context, result.Source, result.Target, result.Error)
+}
+
+func TestValidationRegistryImportStateInspectionFailuresDoNotImport(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		setup func(*testing.T, string)
+	}{
+		{
+			name: "query", setup: func(t *testing.T, _ string) {
+				registryImportQueryNative = func(string) (bool, error) { return false, errors.New("registry access denied") }
+				registryImportExportNative = func(string, string) error { t.Fatal("query failure exported registry"); return nil }
+			},
+		},
+		{
+			name: "export", setup: func(t *testing.T, _ string) {
+				registryImportQueryNative = func(string) (bool, error) { return true, nil }
+				registryImportExportNative = func(string, string) error { return errors.New("registry export denied") }
+			},
+		},
+		{
+			name: "rewrite", setup: func(t *testing.T, _ string) {
+				registryImportQueryNative = func(string) (bool, error) { return true, nil }
+				registryImportExportNative = func(_ string, path string) error { return os.WriteFile(path, []byte("not a registry export"), 0o600) }
+			},
+		},
+		{
+			name: "read", setup: func(t *testing.T, _ string) {
+				registryImportQueryNative = func(string) (bool, error) { return true, nil }
+				registryImportExportNative = func(_ string, path string) error {
+					return os.WriteFile(path, validationRegistryDocument(`HKCU\Software\Vendor\Failure`, "current"), 0o600)
+				}
+				originalRead := legacyRestoreReadFileNative
+				legacyRestoreReadFileNative = func(path string) ([]byte, error) {
+					if strings.Contains(filepath.Base(path), "registry-current-") {
+						return nil, errors.New("registry export read denied")
+					}
+					return originalRead(path)
+				}
+				t.Cleanup(func() { legacyRestoreReadFileNative = originalRead })
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			context, _ := activeLegacyRestoreValidationContext(t, "legacy-regimport-inspect-"+test.name)
+			manifestRoot := filepath.Join(context.Root(), "manifests", "legacy-regimport-inspect")
+			source := filepath.Join(manifestRoot, "payload", "settings.reg")
+			if err := os.MkdirAll(filepath.Dir(source), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(source, validationRegistryDocument(`HKCU\Software\Vendor\Failure`, "desired"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			originalQuery, originalExport, originalImport := registryImportQueryNative, registryImportExportNative, registryImportApplyNative
+			imported := false
+			registryImportApplyNative = func(string) error { imported = true; return nil }
+			t.Cleanup(func() {
+				registryImportQueryNative, registryImportExportNative, registryImportApplyNative = originalQuery, originalExport, originalImport
+			})
+			test.setup(t, source)
+			result, err := RestoreRegistryImport(RestoreAction{
+				Type: "registry-import", Source: "payload/settings.reg", Target: `HKCU\Software\Vendor\Failure`, Backup: true,
+			}, source, RestoreOptions{ManifestDir: manifestRoot, BackupDir: filepath.Join(context.Root(), "state", "backups"), ValidationContext: context})
+			if err != nil || result.Status != "failed" || imported || result.BackupCreated {
+				t.Fatalf("%s inspection result = %+v imported=%v err=%v", test.name, result, imported, err)
+			}
+			assertNoLegacyValidationIdentity(t, context, result.Source, result.Target, result.BackupPath, result.Error)
+		})
+	}
+}
+
 func TestDescribeValidationRegistryImportQueriesMappedTargetAndKeepsSemanticDescriptor(t *testing.T) {
 	context, _ := activeLegacyRestoreValidationContext(t, "legacy-regimport-describe")
 	semanticKey := `HKCU\Software\Vendor\Describe`
