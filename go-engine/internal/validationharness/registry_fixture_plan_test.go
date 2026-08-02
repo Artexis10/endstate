@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/Artexis10/endstate/go-engine/internal/modules"
+	"github.com/Artexis10/endstate/go-engine/internal/restore"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmatrix"
 	"github.com/Artexis10/endstate/go-engine/internal/validationmode"
 )
@@ -154,6 +155,66 @@ func TestRegistryRebuildEvidenceDoesNotPermitAnOmittedCompositeOperation(t *test
 	}
 	if failure := validateRebuildEvidence(raw, runtime, 0); failure == nil || failure.Coordinate != "config" {
 		t.Fatalf("omitted registry evidence failure = %+v", failure)
+	}
+}
+
+func TestRegistryRestoreProjectionUsesAcceptedRestoreSpelling(t *testing.T) {
+	mod := registryFixtureModule()
+	mod.Capture.RegistryKeys[0].Key = `HKEY_CURRENT_USER\Software\Fixture`
+	mod.Restore[0].Target = `HKCU:\Software\Fixture`
+	scenario := fixtureScenario()
+	plan, failure := compileCompositeFixturePlanAt("", fixtureValidationContext(t, mod.ID, scenario.ID), mod, scenario, &recordingRegistryFixture{})
+	if failure != nil {
+		t.Fatal(failure)
+	}
+	registry := plan.RegistryTargets[0]
+	projection := plan.RestoreTargets()[0]
+	if projection.Authored != registry.Target || projection.Authored == registry.Authored {
+		t.Fatalf("registry restore projection = %+v registry=%+v", projection, registry)
+	}
+	if source, ok := expectedCapturedRestoreSource(plan, mod.ID, mod.Restore[0]); !ok || source != v1RestoreSource(mod.ID, registry.Destination) {
+		t.Fatalf("captured registry restore source = %q ok=%t", source, ok)
+	}
+	runtime := &scenarioRuntime{Module: mod, Plan: plan}
+	runtime.Inventory = validationInventory(mod)
+	evidence := map[string]any{
+		"apply": map[string]any{
+			"summary": map[string]any{"total": 1, "success": 0, "skipped": 1, "failed": 0},
+			"actions": []any{map[string]any{"id": runtime.Inventory.AppID, "driver": runtime.Inventory.Driver, "status": "present", "reason": "already_installed"}},
+		},
+		"configResolutionSummary": map[string]any{"total": 1, "selected": 1, "skipped": 0, "failed": 0},
+		"configResolutions":       []any{map[string]any{"status": "restored", "resolution": "legacy_unverified", "reason": nil}},
+		"restoreItems": []any{map[string]any{
+			"target": projection.Authored, "source": v1RestoreSource(mod.ID, projection.Destination), "restoreType": projection.Strategy,
+			"targetExistedBefore": true, "status": "restored", "backupCreated": true, "backupPath": "$ENDSTATE_ROOT/state/backups/fixture.reg",
+		}},
+		"verify": json.RawMessage(validVerifyEvidenceData(runtime)),
+	}
+	evidence["apply"].(map[string]any)["configResolutionSummary"] = evidence["configResolutionSummary"]
+	evidence["apply"].(map[string]any)["configResolutions"] = evidence["configResolutions"]
+	evidence["apply"].(map[string]any)["restoreItems"] = evidence["restoreItems"]
+	raw, err := json.Marshal(evidence)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failure := validateRebuildEvidence(raw, runtime, 0); failure != nil {
+		t.Fatalf("alias registry evidence binding = %+v", failure)
+	}
+	journal := &restore.Journal{Entries: []restore.JournalEntry{{
+		ResolvedSourcePath: v1RestoreSource(mod.ID, projection.Destination), TargetPath: projection.Authored,
+		TargetExistedBefore: true, BackupRequested: true, BackupCreated: true, BackupPath: "$ENDSTATE_ROOT/state/backups/fixture.reg",
+		Action: "restored", RestoreType: "registry-import",
+	}}}
+	binding := rebuildEvidenceBinding{
+		SourcesByTarget: map[string]string{strings.ToLower(projection.Authored): v1RestoreSource(mod.ID, projection.Destination)},
+		BackupsByTarget: map[string]string{strings.ToLower(projection.Authored): "$ENDSTATE_ROOT/state/backups/fixture.reg"},
+	}
+	if failure := validateJournalEntries(runtime, journal, binding, false); failure != nil {
+		t.Fatalf("alias registry journal binding = %+v", failure)
+	}
+	journal.Entries[0].TargetPath = registry.Authored
+	if failure := validateJournalEntries(runtime, journal, binding, false); failure == nil || failure.Coordinate != "journal.entries" {
+		t.Fatalf("capture spelling was accepted as a registry restore target: %+v", failure)
 	}
 }
 

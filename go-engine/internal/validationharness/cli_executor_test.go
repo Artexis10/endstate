@@ -47,6 +47,66 @@ func TestPrepareScenarioRuntimePreparesOneRegistryFixtureForOrdinaryVerifier(t *
 	}
 }
 
+func TestRunRejectsInvalidRegistryContractBeforeFixtureFactory(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		moduleJSON string
+		coordinate string
+	}{
+		{
+			name:       "secret overlap",
+			moduleJSON: `{"id":"apps.fixture","displayName":"Fixture","sensitivity":"none","matches":{"winget":["Vendor.Fixture"]},"verify":[],"restore":[{"type":"registry-import","source":"./payload/apps/fixture/settings.reg","target":"HKCU\\Software\\Fixture","optional":true,"backup":true}],"capture":{"registryKeys":[{"key":"HKCU\\Software\\Fixture","dest":"apps/fixture/settings.reg","optional":true}]},"secrets":{"files":["HKCU\\Software\\Fixture\\Secret"]}}`,
+			coordinate: "capture.registryKeys[0].key",
+		},
+		{
+			name:       "required registry import",
+			moduleJSON: `{"id":"apps.fixture","displayName":"Fixture","sensitivity":"none","matches":{"winget":["Vendor.Fixture"]},"verify":[],"restore":[{"type":"registry-import","source":"./payload/apps/fixture/settings.reg","target":"HKCU\\Software\\Fixture","optional":false,"backup":true}],"capture":{"registryKeys":[{"key":"HKCU\\Software\\Fixture","dest":"apps/fixture/settings.reg","optional":true}]}}`,
+			coordinate: "restore[0]",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := writeRegistrySelectionRequest(t, test.moduleJSON)
+			factoryCalls := 0
+			result, err := runRequestWithRegistryFixtureFactory(context.Background(), request, func(*validationmode.Context) (scenarioRegistryFixture, error) {
+				factoryCalls++
+				panic("invalid registry contract reached the fixture factory")
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if factoryCalls != 0 || result.Failure == nil || result.Failure.Code != CodeUnsupportedFixture || result.Failure.Coordinate != test.coordinate {
+				t.Fatalf("result=%+v factoryCalls=%d", result, factoryCalls)
+			}
+		})
+	}
+}
+
+func writeRegistrySelectionRequest(t *testing.T, moduleJSON string) Request {
+	t.Helper()
+	repo, engine, resultPath := writeSelectionRepository(t)
+	mod, err := modules.ParseModuleJSON([]byte(moduleJSON))
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(repo, "modules", "apps", "fixture")
+	if err := os.WriteFile(filepath.Join(directory, "module.jsonc"), []byte(moduleJSON), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := validationmatrix.ValidationRecord{
+		SchemaVersion: 1, ModuleID: mod.ID, ModuleRevision: mod.Revision,
+		Synthetic: validationmatrix.SyntheticPolicy{Scenarios: []validationmatrix.Scenario{fixtureScenario()}},
+		Live:      validationmatrix.LivePolicy{Mode: validationmatrix.LiveCandidate, ReasonCode: "test", Explanation: "test fixture"},
+	}
+	data, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "validation.jsonc"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return Request{EnginePath: engine, RepoRoot: repo, ModuleID: mod.ID, ScenarioID: "default-v1", ResultPath: resultPath}
+}
+
 func TestPrepareScenarioRuntimeDoesNotCreateRegistryFixtureWithoutRegistryAuthority(t *testing.T) {
 	selected := runtimeSelection(t, fixtureModuleJSON)
 	factoryCalls := 0
@@ -227,18 +287,15 @@ func registryContractSelection(t *testing.T) *selection {
 	if err := os.WriteFile(filepath.Join(directory, "validation.jsonc"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	catalog, err := validationmatrix.LoadCatalog(repo, time.Now().UTC())
-	if err != nil {
-		t.Fatal(err)
-	}
 	engine := filepath.Join(t.TempDir(), "endstate.exe")
 	if err := os.WriteFile(engine, []byte("engine"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return &selection{
-		request: Request{EnginePath: engine, RepoRoot: repo, ModuleID: mod.ID, ScenarioID: "default-v1", ResultPath: filepath.Join(t.TempDir(), "result.json")},
-		catalog: catalog, module: catalog.Modules[mod.ID], record: catalog.Records[mod.ID], scenario: fixtureScenario(),
+	selected, failure := compileSelection(Request{EnginePath: engine, RepoRoot: repo, ModuleID: mod.ID, ScenarioID: "default-v1", ResultPath: filepath.Join(t.TempDir(), "result.json")}, time.Now().UTC())
+	if failure != nil {
+		t.Fatalf("compile registry selection: %+v", failure)
 	}
+	return selected
 }
 
 func TestCaptureArtifactPathUsesCanonicalBundleExtension(t *testing.T) {

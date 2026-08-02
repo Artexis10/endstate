@@ -21,6 +21,7 @@ type selection struct {
 	record      validationmatrix.ValidationRecord
 	scenario    validationmatrix.Scenario
 	fixture     fixtureDefinitions
+	registries  registryDefinitions
 	v2Fixture   v2CompiledFixture
 	installPlan *InstallContractPlan
 	capturePlan *CaptureContractPlan
@@ -60,6 +61,13 @@ func compileSelection(request Request, now time.Time) (*selection, *Failure) {
 	selected := &selection{request: request, catalog: catalog, module: mod, record: record, scenario: scenario}
 	switch scenario.Mode {
 	case validationmatrix.ScenarioConfigRoundtripV1:
+		if moduleHasRegistryFixtureContract(mod) {
+			registries, failure := compileRegistryDefinitions(mod, scenario)
+			if failure != nil {
+				return selected, failure
+			}
+			selected.registries = registries
+		}
 		fixture, failure := compileFilesystemFixtureDefinitionsAt(request.RepoRoot, mod, scenario, moduleHasRegistryFixtureContract(mod))
 		if failure != nil {
 			return selected, failure

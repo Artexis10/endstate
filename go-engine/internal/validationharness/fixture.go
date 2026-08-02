@@ -238,6 +238,10 @@ func compileCompositeFixturePlanAt(repoRoot string, context *validationmode.Cont
 			return nil, failure
 		}
 	}
+	return compileCompositeFixturePlanWithRegistryDefinitions(context, mod, scenario, definitions, registries, fixture)
+}
+
+func compileCompositeFixturePlanWithRegistryDefinitions(context *validationmode.Context, mod *modules.Module, scenario validationmatrix.Scenario, definitions fixtureDefinitions, registries registryDefinitions, fixture registryFixture) (*FixturePlan, *Failure) {
 	plan, failure := compileFixturePlanWithEmptyOption(context, mod, scenario, definitions, true)
 	if failure != nil {
 		return nil, failure
@@ -598,7 +602,7 @@ func (plan *FixturePlan) RestoreTargets() []FixtureRestoreTarget {
 	}
 	for _, target := range plan.RegistryTargets {
 		targets = append(targets, FixtureRestoreTarget{
-			Coordinate: target.Coordinate, Authored: target.Authored, Destination: target.Destination,
+			Coordinate: target.Coordinate, Authored: target.Target, Destination: target.Destination,
 			Strategy: target.Strategy, Optional: target.Optional, Registry: true,
 		})
 	}

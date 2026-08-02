@@ -35,6 +35,12 @@ var (
 // declared config roundtrip through the caller-built engine. Operational failures
 // are returned in Result; errors are reserved for harness-owned I/O failures.
 func Run(ctx context.Context, request Request) (Result, error) {
+	return runRequestWithRegistryFixtureFactory(ctx, request, func(context *validationmode.Context) (scenarioRegistryFixture, error) {
+		return validationmode.NewRegistryFixture(context)
+	})
+}
+
+func runRequestWithRegistryFixtureFactory(ctx context.Context, request Request, factory registryFixtureFactory) (Result, error) {
 	selected, failure := compileSelection(request, time.Now().UTC())
 	if failure != nil {
 		result := failedRequestResult(request, failure)
@@ -56,9 +62,7 @@ func Run(ctx context.Context, request Request) (Result, error) {
 		return result, nil
 	}
 
-	return runSelectedScenarioWithRegistryFixtureFactory(ctx, selected, func(context *validationmode.Context) (scenarioRegistryFixture, error) {
-		return validationmode.NewRegistryFixture(context)
-	}, executeSelectedScenario)
+	return runSelectedScenarioWithRegistryFixtureFactory(ctx, selected, factory, executeSelectedScenario)
 }
 
 type scenarioExecution func(context.Context, *selection, *scenarioRuntime) Result
@@ -228,7 +232,11 @@ func prepareScenarioRuntimeWithRegistryFixtureFactory(selected *selection, facto
 	switch selected.scenario.Mode {
 	case validationmatrix.ScenarioConfigRoundtripV1:
 		if moduleHasRegistryFixtureContract(selected.module) {
-			plan, fixtureFailure = compileCompositeFixturePlanAt(selected.request.RepoRoot, validationContext, selected.module, selected.scenario, registryFixture)
+			if len(selected.registries.Entries) == 0 {
+				fixtureFailure = fail(CodeUnsupportedFixture, "fixture", "capture.registry", "selected registry fixture contract is absent")
+				break
+			}
+			plan, fixtureFailure = compileCompositeFixturePlanWithRegistryDefinitions(validationContext, selected.module, selected.scenario, selected.fixture, selected.registries, registryFixture)
 		} else {
 			plan, fixtureFailure = compileFixturePlan(validationContext, selected.module, selected.scenario, selected.fixture)
 		}
