@@ -68,6 +68,30 @@ func TestKnownFailureLedgerRejectsHostileJSON(t *testing.T) {
 	}
 }
 
+func TestKnownFailureLedgerRejectsCaseInsensitiveFieldAliases(t *testing.T) {
+	valid := validKnownFailureLedgerJSON(t)
+	for name, data := range map[string]string{
+		"root canonical then alias":   strings.Replace(valid, `"schemaVersion":1,`, `"schemaVersion":1,"SCHEMAVERSION":1,`, 1),
+		"root alias then canonical":   strings.Replace(valid, `"schemaVersion":1,`, `"SCHEMAVERSION":1,"schemaVersion":1,`, 1),
+		"nested canonical then alias": strings.Replace(valid, `"moduleId":"apps.example",`, `"moduleId":"apps.example","MODULEID":"apps.example",`, 1),
+		"nested alias then canonical": strings.Replace(valid, `"moduleId":"apps.example",`, `"MODULEID":"apps.example","moduleId":"apps.example",`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := ParseKnownFailureLedger([]byte(data)); err == nil {
+				t.Fatalf("ParseKnownFailureLedger accepted %s", name)
+			}
+		})
+	}
+}
+
+func TestKnownFailureLedgerRejectsOmittedZeroValuedRequiredField(t *testing.T) {
+	data := validKnownFailureLedgerJSON(t)
+	data = strings.Replace(data, `,"shard":0,`, ",", 1)
+	if _, err := ParseKnownFailureLedger([]byte(data)); err == nil {
+		t.Fatal("ParseKnownFailureLedger accepted missing previousEvidence.row.shard")
+	}
+}
+
 func TestKnownFailureLedgerRejectsInvalidInventoryAndEvidence(t *testing.T) {
 	for name, mutate := range map[string]func(*KnownFailureLedger){
 		"inventory count":        func(ledger *KnownFailureLedger) { ledger.Inventory.ModuleCount++ },
@@ -106,6 +130,27 @@ func TestKnownFailureLedgerRejectsAmbiguousAuthorizations(t *testing.T) {
 	if _, err := ParseKnownFailureLedger(marshalKnownFailureLedger(t, ledger)); err == nil {
 		t.Fatal("ParseKnownFailureLedger accepted ambiguous removals")
 	}
+	ledger = parseValidKnownFailureLedger(t)
+	ledger.InventoryRemovals = []InventoryRemoval{{Identity: KnownFailureIdentity{ModuleID: "apps.absent", ScenarioID: "default-v1", Kind: "config-roundtrip-v1"}, Reason: "latent removal"}}
+	if _, err := ParseKnownFailureLedger(marshalKnownFailureLedger(t, ledger)); err == nil {
+		t.Fatal("ParseKnownFailureLedger accepted removal outside inventory")
+	}
+	ledger = parseValidKnownFailureLedger(t)
+	ledger.FailureTransitions = []FailureTransition{{Identity: identity, From: changed, To: fingerprint, Reason: "reversed"}}
+	if _, err := ParseKnownFailureLedger(marshalKnownFailureLedger(t, ledger)); err == nil {
+		t.Fatal("ParseKnownFailureLedger accepted transition whose from is not current debt")
+	}
+}
+
+func TestKnownFailureIdentityRejectsDelimiterCollision(t *testing.T) {
+	left := KnownFailureIdentity{ModuleID: "apps.example\x00default", ScenarioID: "v1", Kind: "config-roundtrip-v1"}
+	right := KnownFailureIdentity{ModuleID: "apps.example", ScenarioID: "default\x00v1", Kind: "config-roundtrip-v1"}
+	if _, err := identityKey(left); err == nil {
+		t.Fatal("identityKey accepted NUL-containing left identity")
+	}
+	if _, err := identityKey(right); err == nil {
+		t.Fatal("identityKey accepted NUL-containing right identity")
+	}
 }
 
 func TestEvaluateKnownFailureLedgerConsumesBaseInventoryRemoval(t *testing.T) {
@@ -116,7 +161,7 @@ func TestEvaluateKnownFailureLedgerConsumesBaseInventoryRemoval(t *testing.T) {
 	head.Inventory.SHA256 = inventorySHA256(head.Inventory)
 	head.KnownFailures = []KnownFailure{}
 	result := EvaluateKnownFailureLedger(KnownFailureComparison{Base: &base, Head: &head, HeadRows: []KnownFailureRow{}})
-	if result.Failure != "authorized row removal not consumed" {
+	if result.Failure != "malformed known-failure candidate" {
 		t.Fatalf("failure = %q", result.Failure)
 	}
 }
@@ -144,12 +189,12 @@ func TestEvaluateKnownFailureLedgerStateMachine(t *testing.T) {
 			base.FailureTransitions = []FailureTransition{{Identity: identity, From: original, To: changed, Reason: "reviewed transition"}}
 			head.KnownFailures[0].Failure = changed
 		}, KnownFailureRow{Identity: identity, Failure: changed}, ""},
-		{"retained consumed transition", func(base, head *KnownFailureLedger) {
+		{"retained consumed transition is malformed", func(base, head *KnownFailureLedger) {
 			transition := FailureTransition{Identity: identity, From: original, To: changed, Reason: "reviewed transition"}
 			base.FailureTransitions = []FailureTransition{transition}
 			head.KnownFailures[0].Failure = changed
 			head.FailureTransitions = []FailureTransition{transition}
-		}, KnownFailureRow{Identity: identity, Failure: changed}, "authorized transition not consumed"},
+		}, KnownFailureRow{Identity: identity, Failure: changed}, "malformed known-failure candidate"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -192,7 +237,7 @@ func TestEvaluateKnownFailureLedgerRejectsHeadAddedTransitionSelfBlessing(t *tes
 	head.KnownFailures[0].Failure = changed
 	head.FailureTransitions = []FailureTransition{{Identity: identity, From: original, To: changed, Reason: "head cannot bless itself"}}
 	result := EvaluateKnownFailureLedger(KnownFailureComparison{Base: &base, Head: &head, HeadRows: []KnownFailureRow{{Identity: identity, Failure: changed}}})
-	if result.Failure != "unreviewed failure fingerprint transition" {
+	if result.Failure != "malformed known-failure candidate" {
 		t.Fatalf("failure = %q", result.Failure)
 	}
 }
@@ -207,7 +252,7 @@ func TestEvaluateKnownFailureLedgerRejectsInvalidHeadAddedFutureTransition(t *te
 	}
 	head.FailureTransitions = []FailureTransition{{Identity: identity, From: changed, To: base.KnownFailures[0].Failure, Reason: "invalid future transition"}}
 	result := EvaluateKnownFailureLedger(KnownFailureComparison{Base: &base, Head: &head, HeadRows: []KnownFailureRow{{Identity: identity, Failure: base.KnownFailures[0].Failure}}})
-	if result.Failure != "invalid head-added failure transition" {
+	if result.Failure != "malformed known-failure candidate" {
 		t.Fatalf("failure = %q", result.Failure)
 	}
 }

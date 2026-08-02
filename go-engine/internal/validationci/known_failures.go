@@ -20,6 +20,7 @@ const maxKnownFailureLedgerSize = 512 * 1024
 
 var sha256Pattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 var stableFailurePartPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+var knownFailureIdentityPartPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*$`)
 
 // KnownFailureLedger is the protected-main authority for reviewed synthetic
 // validation debt. It intentionally has no dependency on validationharness.
@@ -151,10 +152,13 @@ func ParseKnownFailureLedger(data []byte) (KnownFailureLedger, error) {
 	if len(data) == 0 || len(data) > maxKnownFailureLedgerSize {
 		return KnownFailureLedger{}, errors.New("known-failure ledger is missing or oversized")
 	}
-	if err := rejectDuplicateJSONKeys(data); err != nil {
+	if err := rejectKnownFailureLedgerDuplicateJSONKeys(data); err != nil {
 		return KnownFailureLedger{}, err
 	}
 	if err := rejectKnownFailureLedgerNulls(data); err != nil {
+		return KnownFailureLedger{}, err
+	}
+	if err := requireKnownFailureLedgerFields(data); err != nil {
 		return KnownFailureLedger{}, err
 	}
 	var ledger KnownFailureLedger
@@ -174,6 +178,169 @@ func ParseKnownFailureLedger(data []byte) (KnownFailureLedger, error) {
 		return KnownFailureLedger{}, err
 	}
 	return ledger, nil
+}
+
+func rejectKnownFailureLedgerDuplicateJSONKeys(data []byte) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	if err := walkKnownFailureLedgerDuplicateKeys(decoder); err != nil {
+		return err
+	}
+	if _, err := decoder.Token(); err != io.EOF {
+		return err
+	}
+	return nil
+}
+
+func walkKnownFailureLedgerDuplicateKeys(decoder *json.Decoder) error {
+	token, err := decoder.Token()
+	if err != nil {
+		return err
+	}
+	delimiter, container := token.(json.Delim)
+	if !container {
+		return nil
+	}
+	switch delimiter {
+	case '{':
+		seen := []string{}
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			name, ok := key.(string)
+			if !ok {
+				return errors.New("known-failure ledger object key is not a string")
+			}
+			for _, prior := range seen {
+				if strings.EqualFold(prior, name) {
+					return fmt.Errorf("duplicate known-failure ledger object key %q", name)
+				}
+			}
+			seen = append(seen, name)
+			if err := walkKnownFailureLedgerDuplicateKeys(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	case '[':
+		for decoder.More() {
+			if err := walkKnownFailureLedgerDuplicateKeys(decoder); err != nil {
+				return err
+			}
+		}
+		_, err := decoder.Token()
+		return err
+	default:
+		return errors.New("unexpected known-failure ledger JSON delimiter")
+	}
+}
+
+func requireKnownFailureLedgerFields(data []byte) error {
+	root, err := knownFailureLedgerObject(data, "ledger", "schemaVersion", "inventory", "knownFailures", "failureTransitions", "inventoryRemovals")
+	if err != nil {
+		return err
+	}
+	if err := requireKnownFailureInventory(root["inventory"]); err != nil {
+		return err
+	}
+	if err := requireKnownFailureArray(root["knownFailures"], requireKnownFailure); err != nil {
+		return err
+	}
+	if err := requireKnownFailureArray(root["failureTransitions"], requireFailureTransition); err != nil {
+		return err
+	}
+	return requireKnownFailureArray(root["inventoryRemovals"], requireInventoryRemoval)
+}
+
+func requireKnownFailureInventory(data json.RawMessage) error {
+	object, err := knownFailureLedgerObject(data, "inventory", "moduleCount", "scenarioCount", "sha256", "rows")
+	if err != nil {
+		return err
+	}
+	return requireKnownFailureArray(object["rows"], requireKnownFailureIdentity)
+}
+
+func requireKnownFailure(data json.RawMessage) error {
+	object, err := knownFailureLedgerObject(data, "known failure", "identity", "previousEvidence", "failure", "detail")
+	if err != nil {
+		return err
+	}
+	if err := requireKnownFailureIdentity(object["identity"]); err != nil {
+		return err
+	}
+	if err := requirePreviousEvidence(object["previousEvidence"]); err != nil {
+		return err
+	}
+	return requireFailureFingerprint(object["failure"])
+}
+
+func requirePreviousEvidence(data json.RawMessage) error {
+	object, err := knownFailureLedgerObject(data, "previous evidence", "commit", "engineSha256", "repositoryHash", "row")
+	if err != nil {
+		return err
+	}
+	_, err = knownFailureLedgerObject(object["row"], "previous evidence row", "moduleId", "moduleRevision", "scenarioId", "scenarioKind", "scenarioDigest", "shard", "rowSha256")
+	return err
+}
+
+func requireFailureFingerprint(data json.RawMessage) error {
+	_, err := knownFailureLedgerObject(data, "failure fingerprint", "schemaVersion", "code", "phase", "coordinate", "sha256")
+	return err
+}
+
+func requireFailureTransition(data json.RawMessage) error {
+	object, err := knownFailureLedgerObject(data, "failure transition", "identity", "from", "to", "reason")
+	if err != nil {
+		return err
+	}
+	if err := requireKnownFailureIdentity(object["identity"]); err != nil {
+		return err
+	}
+	if err := requireFailureFingerprint(object["from"]); err != nil {
+		return err
+	}
+	return requireFailureFingerprint(object["to"])
+}
+
+func requireInventoryRemoval(data json.RawMessage) error {
+	object, err := knownFailureLedgerObject(data, "inventory removal", "identity", "reason")
+	if err != nil {
+		return err
+	}
+	return requireKnownFailureIdentity(object["identity"])
+}
+
+func requireKnownFailureIdentity(data json.RawMessage) error {
+	_, err := knownFailureLedgerObject(data, "known-failure identity", "moduleId", "scenarioId", "kind")
+	return err
+}
+
+func knownFailureLedgerObject(data []byte, name string, required ...string) (map[string]json.RawMessage, error) {
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil || object == nil {
+		return nil, fmt.Errorf("invalid %s object", name)
+	}
+	for _, field := range required {
+		if _, found := object[field]; !found {
+			return nil, fmt.Errorf("known-failure ledger %s is missing %q", name, field)
+		}
+	}
+	return object, nil
+}
+
+func requireKnownFailureArray(data []byte, requireElement func(json.RawMessage) error) error {
+	var values []json.RawMessage
+	if err := json.Unmarshal(data, &values); err != nil || values == nil {
+		return errors.New("known-failure ledger has invalid array")
+	}
+	for _, value := range values {
+		if err := requireElement(value); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func rejectKnownFailureLedgerNulls(data []byte) error {
@@ -267,7 +434,7 @@ func ValidateKnownFailureLedger(ledger KnownFailureLedger) error {
 		}
 		previous = key
 		debt, found := debts[key]
-		if !found || (!sameFingerprint(transition.From, debt.Failure) && !sameFingerprint(transition.To, debt.Failure)) || sameFingerprint(transition.From, transition.To) || strings.TrimSpace(transition.Reason) == "" {
+		if !found || !sameFingerprint(transition.From, debt.Failure) || sameFingerprint(transition.From, transition.To) || strings.TrimSpace(transition.Reason) == "" {
 			return errors.New("invalid failure transition")
 		}
 		if err := validateFailureFingerprint(transition.From, true); err != nil {
@@ -283,7 +450,7 @@ func ValidateKnownFailureLedger(ledger KnownFailureLedger) error {
 		if err != nil {
 			return err
 		}
-		if previous >= key || strings.TrimSpace(removal.Reason) == "" {
+		if previous >= key || strings.TrimSpace(removal.Reason) == "" || !containsInventory(ledger.Inventory.Rows, key) {
 			return errors.New("inventory removals are not canonically sorted and unique")
 		}
 		previous = key
@@ -346,7 +513,7 @@ func validateFailureFingerprint(fingerprint FailureFingerprint, requireHash bool
 }
 
 func identityKey(identity KnownFailureIdentity) (string, error) {
-	if strings.TrimSpace(identity.ModuleID) == "" || strings.TrimSpace(identity.ScenarioID) == "" || strings.TrimSpace(identity.Kind) == "" {
+	if !knownFailureIdentityPartPattern.MatchString(identity.ModuleID) || !knownFailureIdentityPartPattern.MatchString(identity.ScenarioID) || !knownFailureIdentityPartPattern.MatchString(identity.Kind) {
 		return "", errors.New("invalid known-failure identity")
 	}
 	return identity.ModuleID + "\x00" + identity.ScenarioID + "\x00" + identity.Kind, nil
