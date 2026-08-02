@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 type decodedEnvelope struct {
@@ -238,6 +240,10 @@ func rejectDuplicateJSONKeys(data []byte) error {
 }
 
 func walkUniqueJSONValue(decoder *json.Decoder) error {
+	return walkUniqueJSONValueWithFold(decoder, foldJSONKey)
+}
+
+func walkUniqueJSONValueWithFold(decoder *json.Decoder, fold func(string) string) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -248,7 +254,7 @@ func walkUniqueJSONValue(decoder *json.Decoder) error {
 	}
 	switch delimiter {
 	case '{':
-		var seen []string
+		seen := map[string]struct{}{}
 		for decoder.More() {
 			key, err := decoder.Token()
 			if err != nil {
@@ -258,13 +264,12 @@ func walkUniqueJSONValue(decoder *json.Decoder) error {
 			if !ok {
 				return fmt.Errorf("object key is not a string")
 			}
-			for _, existing := range seen {
-				if strings.EqualFold(name, existing) {
-					return fmt.Errorf("duplicate object key %q", name)
-				}
+			folded := fold(name)
+			if _, duplicate := seen[folded]; duplicate {
+				return fmt.Errorf("duplicate object key %q", name)
 			}
-			seen = append(seen, name)
-			if err := walkUniqueJSONValue(decoder); err != nil {
+			seen[folded] = struct{}{}
+			if err := walkUniqueJSONValueWithFold(decoder, fold); err != nil {
 				return err
 			}
 		}
@@ -272,7 +277,7 @@ func walkUniqueJSONValue(decoder *json.Decoder) error {
 		return err
 	case '[':
 		for decoder.More() {
-			if err := walkUniqueJSONValue(decoder); err != nil {
+			if err := walkUniqueJSONValueWithFold(decoder, fold); err != nil {
 				return err
 			}
 		}
@@ -280,6 +285,34 @@ func walkUniqueJSONValue(decoder *json.Decoder) error {
 		return err
 	default:
 		return fmt.Errorf("unexpected JSON delimiter")
+	}
+}
+
+func foldJSONKey(name string) string {
+	var folded []byte
+	for index := 0; index < len(name); {
+		if character := name[index]; character < utf8.RuneSelf {
+			if 'a' <= character && character <= 'z' {
+				character -= 'a' - 'A'
+			}
+			folded = append(folded, character)
+			index++
+			continue
+		}
+		runeValue, size := utf8.DecodeRuneInString(name[index:])
+		folded = utf8.AppendRune(folded, foldJSONRune(runeValue))
+		index += size
+	}
+	return string(folded)
+}
+
+func foldJSONRune(runeValue rune) rune {
+	for {
+		folded := unicode.SimpleFold(runeValue)
+		if folded <= runeValue {
+			return folded
+		}
+		runeValue = folded
 	}
 }
 

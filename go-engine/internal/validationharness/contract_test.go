@@ -429,6 +429,38 @@ func TestDecodeEnvelopeRejectsMalformedIdentityAndNestedFailure(t *testing.T) {
 	}
 }
 
+func TestWalkUniqueJSONValueUsesOneFoldPerKey(t *testing.T) {
+	const keyCount = 1024
+	var raw strings.Builder
+	raw.WriteByte('{')
+	for index := 0; index < keyCount; index++ {
+		if index != 0 {
+			raw.WriteByte(',')
+		}
+		fmt.Fprintf(&raw, `"key%d":%d`, index, index)
+	}
+	raw.WriteByte('}')
+
+	folds := 0
+	decoder := json.NewDecoder(strings.NewReader(raw.String()))
+	if err := walkUniqueJSONValueWithFold(decoder, func(name string) string {
+		folds++
+		return foldJSONKey(name)
+	}); err != nil {
+		t.Fatalf("unique keys failed: %v", err)
+	}
+	if folds != keyCount {
+		t.Fatalf("fold calls = %d, want %d", folds, keyCount)
+	}
+}
+
+func TestWalkUniqueJSONValueRejectsUnicodeSimpleFoldAlias(t *testing.T) {
+	decoder := json.NewDecoder(strings.NewReader(`{"Σ":1,"ς":2}`))
+	if err := walkUniqueJSONValueWithFold(decoder, foldJSONKey); err == nil {
+		t.Fatal("Unicode simple-fold aliases were accepted")
+	}
+}
+
 func TestDecodeEventsRejectsMalformedIdentityAndLeaks(t *testing.T) {
 	first := "{\"version\":1,\"runId\":\"capture-run\",\"timestamp\":\"2026-07-25T12:00:00Z\",\"event\":\"phase\",\"phase\":\"capture\"}\n"
 	progress := "{\"version\":1,\"runId\":\"capture-run\",\"timestamp\":\"2026-07-25T12:00:01Z\",\"event\":\"progress\",\"phase\":\"capture\",\"stage\":\"inventory\"}\n" +
