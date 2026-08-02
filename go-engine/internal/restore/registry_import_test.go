@@ -171,6 +171,74 @@ func TestRestoreRegistryImportCleansReservedBackupOnExportFailure(t *testing.T) 
 	}
 }
 
+func TestRestoreRegistryImportFailsClosedOnOrdinaryQueryError(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("registry operations require Windows")
+	}
+	root := t.TempDir()
+	source := filepath.Join(root, "settings.reg")
+	if err := os.WriteFile(source, []byte("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\Vendor\\QueryError]\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalQuery, originalExport, originalImport := registryImportQueryNative, registryImportExportNative, registryImportApplyNative
+	exported, imported := false, false
+	registryImportQueryNative = func(string) (bool, error) { return false, fmt.Errorf("registry access denied") }
+	registryImportExportNative = func(string, string) error { exported = true; return nil }
+	registryImportApplyNative = func(string) error { imported = true; return nil }
+	t.Cleanup(func() {
+		registryImportQueryNative, registryImportExportNative, registryImportApplyNative = originalQuery, originalExport, originalImport
+	})
+	result, err := RestoreRegistryImport(RestoreAction{
+		Type: "registry-import", Source: source, Target: `HKCU\Software\Vendor\QueryError`, Backup: true,
+	}, source, RestoreOptions{BackupDir: filepath.Join(root, "backups")})
+	if err != nil || result.Status != "failed" || result.BackupCreated || result.BackupPath != "" || exported || imported {
+		t.Fatalf("query failure result = %+v exported=%v imported=%v err=%v", result, exported, imported, err)
+	}
+}
+
+func TestRestoreRegistryImportOrdinaryColonTargetBacksUpAndImports(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("registry operations require Windows")
+	}
+	root := t.TempDir()
+	source := filepath.Join(root, "settings.reg")
+	target := `HKCU\Software\Vendor:Name`
+	if err := os.WriteFile(source, []byte("Windows Registry Editor Version 5.00\r\n\r\n[HKEY_CURRENT_USER\\Software\\Vendor:Name]\r\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalQuery, originalExport, originalImport := registryImportQueryNative, registryImportExportNative, registryImportApplyNative
+	exported, imported := false, false
+	registryImportQueryNative = func(key string) (bool, error) {
+		if key != target {
+			t.Fatalf("query target = %q, want %q", key, target)
+		}
+		return true, nil
+	}
+	registryImportExportNative = func(key, path string) error {
+		if key != target {
+			t.Fatalf("export target = %q, want %q", key, target)
+		}
+		exported = true
+		return os.WriteFile(path, []byte("backup"), 0o600)
+	}
+	registryImportApplyNative = func(path string) error {
+		if path != source {
+			t.Fatalf("import source = %q, want %q", path, source)
+		}
+		imported = true
+		return nil
+	}
+	t.Cleanup(func() {
+		registryImportQueryNative, registryImportExportNative, registryImportApplyNative = originalQuery, originalExport, originalImport
+	})
+	result, err := RestoreRegistryImport(RestoreAction{
+		Type: "registry-import", Source: source, Target: target, Backup: true,
+	}, source, RestoreOptions{BackupDir: filepath.Join(root, "backups")})
+	if err != nil || result.Status != "restored" || !result.BackupCreated || result.BackupPath == "" || !exported || !imported {
+		t.Fatalf("colon target result = %+v exported=%v imported=%v err=%v", result, exported, imported, err)
+	}
+}
+
 func TestValidateRegistryImportScopeAcceptsOnlyDeclaredHKCUSubtree(t *testing.T) {
 	tests := []struct {
 		name    string

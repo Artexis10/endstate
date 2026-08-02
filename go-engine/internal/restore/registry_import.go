@@ -191,7 +191,12 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 	}
 
 	// Probe whether the target key exists (used for TargetExistedBefore and backup).
-	keyExists, _ := registryImportQueryNative(entry.Target)
+	keyExists, queryErr := registryImportQueryNative(entry.Target)
+	if queryErr != nil {
+		result.Status = "failed"
+		result.Error = fmt.Sprintf("registry query failed: %v", queryErr)
+		return result, nil
+	}
 	result.TargetExistedBefore = keyExists
 
 	// Backup the existing registry key when requested.
@@ -206,13 +211,7 @@ func RestoreRegistryImport(entry RestoreAction, source string, opts RestoreOptio
 				result.Error = fmt.Sprintf("backup: cannot create backup directory: %v", mkErr)
 				return result, nil
 			}
-			semanticKey, normalizeErr := validationmode.NormalizeHKCU(entry.Target)
-			if normalizeErr != nil {
-				result.Status = "failed"
-				result.Error = fmt.Sprintf("backup: normalize target: %v", normalizeErr)
-				return result, nil
-			}
-			backupPath, cleanup, reserveErr := reserveRegistryImportBackup(legacyValidationBoundary{}, backupDir, semanticKey)
+			backupPath, cleanup, reserveErr := reserveRegistryImportBackup(legacyValidationBoundary{}, backupDir, normalizeRegistryImportKey(entry.Target))
 			if reserveErr != nil {
 				result.Status = "failed"
 				result.Error = fmt.Sprintf("backup: reserve destination: %v", reserveErr)
