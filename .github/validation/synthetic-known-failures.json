@@ -1,0 +1,4753 @@
+{
+  "schemaVersion": 1,
+  "inventory": {
+    "moduleCount": 359,
+    "scenarioCount": 362,
+    "sha256": "89b55c32dcc63084d5e615609ba43f6333d8359d6894141055fc6edd2116811b",
+    "rows": [
+      {
+        "moduleId": "apps.3ds-max",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.7zip",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ableton-live",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.acrobat-reader",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.affinity-photo",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.after-effects",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.aida64",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.aimp",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.alacritty",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.altsnap",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.android-studio",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.anki",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.anydesk",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ardour",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.arduino-ide",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.aria2",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.aseprite",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.audacity",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.autohotkey",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.avidemux",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.aws-cli",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.azure-data-studio",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.bash-profile",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.bat",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.beekeeper-studio",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.betterbird",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.biglybt",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.bitwig-studio",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.bizhawk",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.blender",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.brave",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.bruno",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.btop",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.cakewalk-sonar",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.calibre",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.capture-one",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ccleaner",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.cemu",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.cherrytree",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.cinema-4d",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.claude-code",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.claude-desktop",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.claws-mail",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.clementine",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.clink",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.clion",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.cmder",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.cobian-reflector",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.code-blocks",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.conda",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.conemu",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.copyq",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.core-temp",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.cryptomator",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.crystaldiskinfo",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.cubase",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.cursor",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.darktable",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.datagrip",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.davinci-resolve",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.dbeaver",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.dbgate",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.dbpoweramp",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.deluge",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.digikam",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.directory-opus",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.discord",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.displayfusion",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ditto",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.docker-desktop",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.dolphin-emulator",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.drawio-desktop",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.duckstation",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.duplicati",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.dxo-photolab",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.em-client",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.emacs",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.espanso",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.everything",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.evga-precision-x1",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.eza",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.fancontrol",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.fastfetch",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.fastrawviewer",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.faststone-image-viewer",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.fences",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ferdium",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.filebot",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.files",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.filezilla",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.fl-studio",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.flameshot",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.flow-launcher",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.flux",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.flycast",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.foobar2000",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.free-download-manager",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.freecad",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.freecommander",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.freefilesync",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.freeplane",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.frostwire",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.gajim",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ghostty",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.gimp",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.git",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.git-bash",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.github-cli",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.glasswire",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.glazewm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.godot",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.goland",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.goodsync",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.gpg4win",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.gpu-tweak-iii",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.gpu-z",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.gradle",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.greenshot",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.handbrake",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.heidisql",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.helix",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.helm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.hexchat",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.honeyview",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.houdini",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.hwinfo",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.hyper",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.imageglass",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.inkscape",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.insomnia",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.intellij-idea",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.intellij-idea-ultimate",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.internet-download-manager",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.irfanview",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.itunes",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.jdownloader",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.jellyfin-server",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.joplin",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.jpegview",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.k9s",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.kdenlive",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.keepass",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.keepassxc",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.keypirinha",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.kicad",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.kleopatra",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.kodi",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.komorebi",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.kopia",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.krita",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ksnip",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.kubeconfig",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.kubectl",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.kvirc",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.lapce",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.lazydocker",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.lazygit",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.libre-hardware-monitor",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.libreoffice",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.lightroom-classic",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.listary",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.lmms",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.logseq",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.losslesscut",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.macrium-reflect",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mailbird",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.mailspring",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.makemkv",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.malwarebytes",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.marktext",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.marmoset-toolbag",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.maven",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.maya",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mediainfo",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mediamonkey",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.meshlab",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.mgba",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.microsoft-office",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.minikube",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.mirc",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mixxx",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mkvtoolnix",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mobaxterm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.modo",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.mongodb-compass",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.moonlight",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.motrix",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.mp3tag",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mpc-be",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mpc-hc",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mpv",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mremoteng",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.msi-afterburner",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mullvad-browser",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.mullvad-vpn",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.musicbee",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.mysql-workbench",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.neovim",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.netbeans",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.nextcloud",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.nomachine",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.nomacs",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.notepad-plus-plus",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.npm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.nuke",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.nushell",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.obs-studio",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.obsidian",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ocenaudio",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.oh-my-posh",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.okular",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.onecommander",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.onlyoffice-desktop",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.openrgb",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.openscad",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.openshot",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.openvpn-connect",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.owncloud",
+        "scenarioId": "generation-preferences-g1-1c4479cb88b9",
+        "kind": "config-generation-v2"
+      },
+      {
+        "moduleId": "apps.owncloud",
+        "scenarioId": "generation-preferences-g2-899536c068d4",
+        "kind": "config-generation-v2"
+      },
+      {
+        "moduleId": "apps.owncloud",
+        "scenarioId": "migration-preferences-g1-to-g2",
+        "kind": "config-migration-v2"
+      },
+      {
+        "moduleId": "apps.paint-net",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.parsec",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.pcsx2",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.pdf-xchange-editor",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.peazip",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.pgadmin",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.phpstorm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.picgo",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.picpick",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.pidgin",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.pip",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.playnite",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.plex",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.pnpm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.podman-desktop",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.poetry",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.portmaster",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.potplayer",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.powershell-profile",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.powertoys",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ppsspp",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.premiere-pro",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.process-lasso",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.proton-vpn",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.putty",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.pycharm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.pycharm-professional",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.qbittorrent",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.qownnotes",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.quicklook",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rainmeter",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rambox",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.rancher-desktop",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rawtherapee",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rclone",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.realvnc-viewer",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.reaper",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.redisinsight",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.rekordbox",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.remmina",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.remote-desktop-manager",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.renoise",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.resilio-sync",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.retroarch",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.revo-uninstaller",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rhinoceros",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rider",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ripgrep",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rivatuner-statistics-server",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.royal-ts",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rpcs3",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.rstudio",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rubymine",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rufus",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rustdesk",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rustrover",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.rustup-cargo",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ryujinx",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.scoop",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.screenpresso",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.screentogif",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.scribus",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.serato-dj",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.sharex",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.shotcut",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.sigma-file-manager",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.signal",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.simplewall",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.smplayer",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.snipaste",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.special-k",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.spotify",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.spyder",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.sqlitestudio",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.ssh-config",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.ssms",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.starship",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.staxrip",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.strawberry",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.stream-deck",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.studio-one",
+        "scenarioId": "generation-preferences-g1-61e9f6f3c254",
+        "kind": "config-generation-v2"
+      },
+      {
+        "moduleId": "apps.studio-one",
+        "scenarioId": "generation-preferences-g1-abc0141add29",
+        "kind": "config-generation-v2"
+      },
+      {
+        "moduleId": "apps.sublime-text",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.substance-painter",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.sumatra-pdf",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.sunshine",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.syncbackfree",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.syncthing",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.tabby",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.tableplus",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.telegram",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.terraform",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.thunderbird",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.tigervnc",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.tixati",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.tmux",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.totalcommander",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.translucenttb",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.transmission",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.treesize-free",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.typora",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.unity-hub",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.vagrant",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.veracrypt",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.virtualbox",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.virtualdj",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.vlc",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.vmware-workstation",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.vorta",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.vscode",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.vscodium",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.warp-terminal",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.wave-link",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.waveform",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.webstorm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.weechat",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.wezterm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.winamp",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.winbox",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      {
+        "moduleId": "apps.windows-terminal",
+        "scenarioId": "generation-preferences-g1-97631ba2d2e5",
+        "kind": "config-generation-v2"
+      },
+      {
+        "moduleId": "apps.windsurf",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.winrar",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.winscp",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.wireguard",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.wireshark",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.wiztree",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.wps-office",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.wsl",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.xnviewmp",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.xtreme-download-manager",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.xyplorer",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.yarn",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.yasb",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.yazi",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.yt-dlp",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.yubikey-manager",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.zbrush",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.zed",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.zellij",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.zettlr",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      {
+        "moduleId": "apps.zotero",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      {
+        "moduleId": "apps.zoxide",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      }
+    ]
+  },
+  "knownFailures": [
+    {
+      "identity": {
+        "moduleId": "apps.ableton-live",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.ableton-live",
+          "moduleRevision": "8adf2d8f96041e348603174b3f961924cdbda5b6eb21cc0a83333ab7b03808a7",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 2,
+          "rowSha256": "21d3e2ead062fca853af56ea9dbf1d8523b45fee905c480c9efff34f1adbed4d"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.after-effects",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.after-effects",
+          "moduleRevision": "da058f07328ea7c072f8d45a399ed68d153298e40627fe17b6fb703cb454c523",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 5,
+          "rowSha256": "4f0865f7fa159a85946faa2130e033132a0bcff43b5d51dec382b85766d49915"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.aida64",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.aida64",
+          "moduleRevision": "238aa100a9f874c96d215ce414d95650e3d95ebbd64a4fc426b2694f55dcddd8",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "ce65982d49cd0205d7dcc8c149df86b369289d9825f2438912929a2b796fba54",
+          "shard": 6,
+          "rowSha256": "7febf689ba0c7e3224d0f177269992a46dd6c55c7de6a873b4f0548d5457b16d"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "operations",
+        "sha256": "b665deee01231ac0881163c2c0669bad825fc791f83e539f757741055bc82e9e"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.android-studio",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.android-studio",
+          "moduleRevision": "f5d2597a9db30421f2aaf2099e1f8b20632ba6168feca9850692820dd696b8dc",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 2,
+          "rowSha256": "c86ac7f719ff728c1cf38f9959ba074c7235a88ab08faec4958d731489c1ce7c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.anki",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.anki",
+          "moduleRevision": "8857ee98d356d18a356f4c93c10a02e0755da00af02480eccd4cf4256f625740",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 3,
+          "rowSha256": "38ec2700fc5d1ac15774a34548c790025a05b92c74277bad53bcc3717c55df16"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.excludeGlobs",
+        "sha256": "57e99dc2d3e15aa83de6e242a189f480baf415c566eb0459fb7f205dff95dece"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.aws-cli",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.aws-cli",
+          "moduleRevision": "50a7d14106b39ee28a4c399ce68c40d8052387390eb7aeb89c430670a536cf86",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 4,
+          "rowSha256": "a7c27333d1125962c5fcfce52603b7314c23adfbac8e2ad4543fbaed2c8056b4"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.excludeGlobs",
+        "sha256": "57e99dc2d3e15aa83de6e242a189f480baf415c566eb0459fb7f205dff95dece"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.betterbird",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.betterbird",
+          "moduleRevision": "3576fac61044adec6c6aab0380a904f22bc23eb1fec634230d9fa6d23cd97d8c",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 1,
+          "rowSha256": "151ac232d8df29e865d53c29155791f47262ba4f79b9e98a7fb539f0d173da55"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.blender",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.blender",
+          "moduleRevision": "a5d4bca1fc2917018519fb2a0f55b2c00b71145ad39f3a11b8ebddf6b20ab9f7",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 5,
+          "rowSha256": "d382643aac323854cfca7505ac164f2180d525290ceeea5c2b23c0ab887b5c03"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "verify[0].path",
+        "sha256": "2d34921fcdad44a642b6ddd5f6965dbf3ac53faef33c69b6b9319d0fbcc09880"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.ccleaner",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.ccleaner",
+          "moduleRevision": "9bb2cbd4f51f2a45ba70908b4ef2c0f13909a88ec3a359ae8c48a86a47c631ae",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 4,
+          "rowSha256": "6d6e13ee9ac1efb9b88c9ca92c76f7289e27bbbac153d8dd93f769dce586110c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.registryKeys[0].key",
+        "sha256": "5b2a718f41d32237ea8ab0a60d64493cddf6c7687ed2e7a83646113f03f54457"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.cinema-4d",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.cinema-4d",
+          "moduleRevision": "d043c7816c58b3b14bfbd06e3a61655c9b0933fb8fb6221f3851176bb50e5675",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 7,
+          "rowSha256": "97bdfd8e13e06f85365d4e49341f31aa0c854ae256b77efe1815548dd809aff5"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.claude-code",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.claude-code",
+          "moduleRevision": "27c8c44d949a32ace35ef5c5c372a8e210b99890f057cbb70909661349f12dc6",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "5280925cfaf5ba408804deef6210c012b14964f80eb15c88d4887d3d3f0ca1f6",
+          "shard": 0,
+          "rowSha256": "b64cfe98ab01d9b5feafcb6ff0a8e24b22e672b2ef30a99e40551e015d9c0b00"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[3].source",
+        "sha256": "ac4807762d3e3d8ab4688e0da70365691b7c2ad43767b968ca1e0e7ac20a9590"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.clion",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.clion",
+          "moduleRevision": "159b27673320e9f8e18abf9ad3f3acd3320d6a4bc348266ab8bb8cba8f49a972",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 5,
+          "rowSha256": "21b4e564690dd8f40621f9db8f60283c5d0fe07b63b6a7d35be34dc9c211a400"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.cobian-reflector",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.cobian-reflector",
+          "moduleRevision": "c1731768dbd3451b256994fe2b301c4f351f680585427989edb0f84bc7785702",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "b008837cadd4aa6e4b412cdb51d827d645d5caec1c0dbcb33a97f8438777f6b4",
+          "shard": 7,
+          "rowSha256": "7c6ae4c04f97ea4ef5913e2a636db028ba20b2a8720dc9eae2289692d9c655ed"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "matches",
+        "sha256": "c982b856769edb35f40320caf8b22a9598aa764704d77c160151517d51d81891"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.cubase",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.cubase",
+          "moduleRevision": "58a9d046281efb09bed24678cceea505658d0f2c9442d90c7b34db17b95043fd",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 7,
+          "rowSha256": "43b3927ab01ead07001932793e0e359d386ea3074e081a76c56b9581cdbeadb9"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[6].dest",
+        "sha256": "88cdccb50b437accd15516ddf8459dd85a2cd400f42a2eb3b2f58b37ce6238d8"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.cursor",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.cursor",
+          "moduleRevision": "6c569dedc81246484adc4f258527fdc24295e3b17f12683d621f29fb536d31dd",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "1ea69bf0f613783161d62bc825b881c9f2334c04ae6c64645283bc478fb550fc",
+          "shard": 0,
+          "rowSha256": "517bddf4b988cf175ce64fe291f9787a153a791065d30aaa876661fb3e035c08"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.datagrip",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.datagrip",
+          "moduleRevision": "c37c27cc2f8c12ff028d6d98f68770970524f61f26ae48c368a253568d22b0d9",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 2,
+          "rowSha256": "078676330a21be2783188243da5a11675854791467c6ab0d72c8fa2a557445d0"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.dbgate",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.dbgate",
+          "moduleRevision": "34caf1c082bd866e0234378d38e2e4e45f4960435656438e098c2fdd384f21c8",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "31f934dd710a938de1053d16cef5ae5639afb9f4f004bec4c67a27ea72da7fc5",
+          "shard": 5,
+          "rowSha256": "21912767d4a8810ece52b823aad250c398da15023814bc77714901a239c23336"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0].source",
+        "sha256": "cc984b47b25cba656890d51c196596c6c13d14715975b0f1a2e54e195beadc6a"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.dbpoweramp",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.dbpoweramp",
+          "moduleRevision": "c0309b3739c3e31fc475af57b7e76b07db0d88f1fa1eb48eb7b2bc1b533c8440",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "84098d20e8ada7911f0dffe8289e427a8750ca287b09e5c9c53948d1e8c30dd1",
+          "shard": 6,
+          "rowSha256": "1d550190a9a93d74104958219ab483b85604b76f0a88e2328bcea1544fcabc9c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "operations",
+        "sha256": "b665deee01231ac0881163c2c0669bad825fc791f83e539f757741055bc82e9e"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.displayfusion",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.displayfusion",
+          "moduleRevision": "bdc0ca066851a07f35b10fa7250084ff1ed262af54649cd049a1407deaea2f6d",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 3,
+          "rowSha256": "f19708a8c1bc4e51afbd02340026d270cbecbe930c2a615b53e745cb65ebddea"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.registryKeys[0].key",
+        "sha256": "5b2a718f41d32237ea8ab0a60d64493cddf6c7687ed2e7a83646113f03f54457"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.dxo-photolab",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.dxo-photolab",
+          "moduleRevision": "d1e2ce8a0e50d06dc0c31d58f78b52d8dfe76364e53ff957c174914bb91663e7",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 2,
+          "rowSha256": "e52cf11b48fc59aaaa4fd382fc33fb632db91c466f840381a3e608c654d09c95"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.emacs",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.emacs",
+          "moduleRevision": "5d6277a9c259b769a701d0136bec6d7f3b7c2320bdf3bc8edd5cde31aa32795b",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 4,
+          "rowSha256": "bd985556caa398ac81598b8d7942d3e31ff4b36f0459f151851fd330c0e4867c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0]",
+        "sha256": "7b967a0d98ec743668984fc3d4dea3ba9d7b5f71e7d0af948f6993ba5b07fa05"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.flycast",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.flycast",
+          "moduleRevision": "173e67c930c7fa7408f5ce4c6d95400a5d96ba94c9c6bef04e9fb0bea1e9ef6b",
+          "scenarioId": "install-v1",
+          "scenarioKind": "install-contract",
+          "scenarioDigest": "1289244166277c1a36a44bdb8cbb13c57168990b60dac38ebdff91fbb89c4ca0",
+          "shard": 6,
+          "rowSha256": "faf4a906a030d24affed665f2e82108bda870ce57ae2ee857565b2907cd14564"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "matches",
+        "sha256": "c982b856769edb35f40320caf8b22a9598aa764704d77c160151517d51d81891"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.freefilesync",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.freefilesync",
+          "moduleRevision": "f5204bb8db22e0c44508de89e245481e4fdcd4784843091da16b5994e14d7c89",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 3,
+          "rowSha256": "b42bce0a3c9f3666a350af81fb94c92fe26a4bd2a1517a24be48d679409a24a3"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.git",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.git",
+          "moduleRevision": "68565dfe3c6f27bb145855395cfe38de95e3420f1cfe28185afd8ab7f796e8f9",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 1,
+          "rowSha256": "36a13848ea1bef66cdc8a4379ae6eb27c5847847b88e973f626ed1dc986a0807"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "isolation_failure",
+        "phase": "fixture",
+        "coordinate": "capture.files[2]",
+        "sha256": "aa3e69822195db7e39ef371d9bbb15a52dc418fe3bb592ac180cc394a7c6dc09"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.goland",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.goland",
+          "moduleRevision": "70cbc709f76013da41f516721ad843f9c069e21b6d5c5512fab740de0b8e9fe4",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 7,
+          "rowSha256": "0d14ab61550075c53ccf19278982132a1abfbbfdbd82b2fd0408fb8b683d75fa"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.gpu-tweak-iii",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.gpu-tweak-iii",
+          "moduleRevision": "c6260e11c4e6801ef1c1ed59f7a35e47fc848f5d6c6bb62604d8825cda695dd0",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "63a966426e271578fc3638f9465c6fdd7d1567c87583c86c5e1a3b3091dd72b4",
+          "shard": 2,
+          "rowSha256": "8b8afda2a13119bf7ca751aaca7a5916b3b6f1b2a844e7055ceb162274634aed"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "matches",
+        "sha256": "c982b856769edb35f40320caf8b22a9598aa764704d77c160151517d51d81891"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.gradle",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.gradle",
+          "moduleRevision": "12ac91e17cbc754e3fa367b99e146df17c959a2b7ad52cbcf8f01a28901f66a7",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 4,
+          "rowSha256": "8008e5639e001c2646a0feb53b7cd3217b9ce39e2719b2eaa2b072e388c5f984"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.houdini",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.houdini",
+          "moduleRevision": "8513718df18f492dfda92389d8f8fed1039a3f85e047c890a3ba39ac97be2b35",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "1c744c66641914b12868229aecd853131f4e8beac5ad9966175c5b237f7c8bfc",
+          "shard": 4,
+          "rowSha256": "9163375a62a662d0cb8d3272326239796732170f7f1d9aaba12ffed95958d2a7"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0]",
+        "sha256": "7b967a0d98ec743668984fc3d4dea3ba9d7b5f71e7d0af948f6993ba5b07fa05"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.hyper",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.hyper",
+          "moduleRevision": "52d65effdb957f9ac18b7bdd0a94c148c8311edb53ff40ee00af8e5943ffb5bd",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "3eeac0c602da0759f8435be1edd152646269ec0ca33dc1e407ced87a3f546f94"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.excludeGlobs",
+        "sha256": "57e99dc2d3e15aa83de6e242a189f480baf415c566eb0459fb7f205dff95dece"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.intellij-idea",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.intellij-idea",
+          "moduleRevision": "8fa0ec8391a3171426faf8f09f0f74f9720567a751dd6d436011609897af2c34",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 2,
+          "rowSha256": "5b6cfbea919cf6e29f8d2d7b55cc594da2ebd9b5dc8579e525e1a537c2b03f35"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.intellij-idea-ultimate",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.intellij-idea-ultimate",
+          "moduleRevision": "348c92971d34088cf16a335b188fa5c2fcb96e5c3acb4030b38d2c65181be879",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 3,
+          "rowSha256": "d1cf78a11c0ab5bd1d31be9cb1d18529980df77b03e409ec2fe17655b91554fc"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.jellyfin-server",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.jellyfin-server",
+          "moduleRevision": "65b867439b4edd38912c00aac1899f32bf91aadc58639e2d25ad2e85b7a3a4f1",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "500ef2a0e9d6fdee9c438a6e7f4eb930db9090560706df201a0e280c740bef16"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[4].dest",
+        "sha256": "6df881eb177ec6e5595b1bf81c0d752b334da8ea9df23fd4af7c7a9ee939bd42"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.kicad",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.kicad",
+          "moduleRevision": "7b5c8f3ed9a9867d0e7edadcd72fe7b2c4df79f423a157f0e9664cbdbd02bb4f",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "3cf7615e5e5248b6167cc67517a5c6e300aaa04819ca4e5100348be8421fdf68"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0]",
+        "sha256": "7b967a0d98ec743668984fc3d4dea3ba9d7b5f71e7d0af948f6993ba5b07fa05"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.kleopatra",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.kleopatra",
+          "moduleRevision": "74925ac329185c2f35e74ecdebec65d48fe091dfa4b053cf14fb8359c530612d",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 1,
+          "rowSha256": "2bb428279389a234bbad1d3470fa93e001b71bc3a4468d4a377d70dc19d0fde2"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[4].dest",
+        "sha256": "6df881eb177ec6e5595b1bf81c0d752b334da8ea9df23fd4af7c7a9ee939bd42"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.kubeconfig",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.kubeconfig",
+          "moduleRevision": "e9fffd06d387009ef3d47e3ad500efa004c1fcb986fa30216924872e9da7a426",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 7,
+          "rowSha256": "78cd1a8d85caef47d41c5e1c94356ae852b27328cb495801f3084a46fc3d1e4c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.excludeGlobs",
+        "sha256": "57e99dc2d3e15aa83de6e242a189f480baf415c566eb0459fb7f205dff95dece"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.libreoffice",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.libreoffice",
+          "moduleRevision": "81717a52dc341252244d168515395dbf7b5cde33f5e4d2f4530be6a44deb9fdc",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "d995e85371d8e9911165fb2977c12d919a0c008a4e3e6e73c7d0c0c534454a2d"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "isolation_failure",
+        "phase": "fixture",
+        "coordinate": "capture.files[1]",
+        "sha256": "257b76929fdfeb760b03d4977dab6fd7f401e7f4aaa30816a081161ee459dc11"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.lightroom-classic",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.lightroom-classic",
+          "moduleRevision": "237f15542ba8c312d855fd9e69943b6d025861dee0cb46bc6cee95f2f150d7f6",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 7,
+          "rowSha256": "8491f88ff8619e3b7ec303553102c0950472cc52a9924490c15c630a3a667588"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.excludeGlobs",
+        "sha256": "57e99dc2d3e15aa83de6e242a189f480baf415c566eb0459fb7f205dff95dece"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.listary",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.listary",
+          "moduleRevision": "ec825bfabd92bd6f46a7b7322b6d056ca32e9866eae39d181a186948d6f93951",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "170cf321afe5264cd3fe9fa0ab0f0dfcf503462da94d334bd715f2757f2ec141"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "isolation_failure",
+        "phase": "fixture",
+        "coordinate": "capture.files[0]",
+        "sha256": "b7e3d2e4cf3e9c06026fc080eb47751003b9a00926877c998989cf066c5dac05"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.mailspring",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.mailspring",
+          "moduleRevision": "a8a010397042b8147d4452c8bc4a26c03eafda532e6b9ce9b332fac977a90a39",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "fc20b59f4ff29e9d0a9634c5c71c906887ddfdb8fac0eeb5c219fb3ad442e8fc"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.marmoset-toolbag",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.marmoset-toolbag",
+          "moduleRevision": "bc802846bf610176d7e1a9b4567cc2c722843a9ab6b4e188491f440e3a09cd51",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "01e2ab94d8b88bccfce7dec73e6b0a32750d2d55e7dda661c68e01f4784c0447",
+          "shard": 2,
+          "rowSha256": "54784cbd47037365dfda1ffd8d6bf6c37dc2f078ceafb24f679256007fc9d927"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "matches",
+        "sha256": "c982b856769edb35f40320caf8b22a9598aa764704d77c160151517d51d81891"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.maven",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.maven",
+          "moduleRevision": "93fcc1e27954480596cdf586fea737c282b24e93f1cd93a73c65ac95a084dc0a",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "89f76fb4b526cf45a1353e6ba0c74c9b4fb72443690f1b1d2b61be61d6f8d7ec",
+          "shard": 3,
+          "rowSha256": "842cce5e1cf085fb15c7dc57ff9f566254f99eef724f1763022e8fc7e79bcfc0"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[1].source",
+        "sha256": "4d73200d5ce54692b45cb52312a1d88d68e8d78e5c3edc4c14eedf947fd2a89b"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.mediamonkey",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.mediamonkey",
+          "moduleRevision": "d9cdfcdd78a51a2ee7994174ec3d1eff25eff6045c11949ddf3ed55372654904",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "8a7685ca6b832262db918756d7d058deddfcc46d255d1fc5ddf626e9d4b3af57"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.meshlab",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.meshlab",
+          "moduleRevision": "5288f70ed0e542992b3bc5f45518bdc6f8fcf7d4e415a40f0a63bd229ec7f39f",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "5b8a8654cb8a2f0677598057f281b8d0bd127ac3bed669749bdf1407f6bc868d",
+          "shard": 7,
+          "rowSha256": "e910e6319486de7015878511918f30746dd5d059e48a3d32875b363be63828b5"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "operations",
+        "sha256": "b665deee01231ac0881163c2c0669bad825fc791f83e539f757741055bc82e9e"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.microsoft-office",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.microsoft-office",
+          "moduleRevision": "9f3d91766a42190b64de9cf6f180d5aeb7f74a626db4422e1e91ebdc526556fa",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 1,
+          "rowSha256": "05005eefd48e2f95ebf824b6ec9c1a54661a669eb2427ae920491b28b8e9aca3"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "isolation_failure",
+        "phase": "fixture",
+        "coordinate": "capture.files[0]",
+        "sha256": "b7e3d2e4cf3e9c06026fc080eb47751003b9a00926877c998989cf066c5dac05"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.mobaxterm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.mobaxterm",
+          "moduleRevision": "450c5d2ddfa4f36ec4af5d8694e64d34f9ff573e43d394992ca543cb0ba952c2",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "0f5bc924ff8dd87ac7b2bd84bca80dfd8a0f05ebedeffb2eeff3b8d6cc2d768a"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.modo",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.modo",
+          "moduleRevision": "edaefd1661cf3a1f0a1e920839c79a681be75077b5fc66c5b2fd5a8a6b405c00",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "076656f1155fbf6ef1c99ecf3399aa190f7a35cf76b7408028200577e79da729",
+          "shard": 7,
+          "rowSha256": "63cb39ed743b4ecba3f0e275b3d1f23c7b59e4921e4141aab4e5fc78c70aaf09"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "matches",
+        "sha256": "c982b856769edb35f40320caf8b22a9598aa764704d77c160151517d51d81891"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.moonlight",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.moonlight",
+          "moduleRevision": "1dae5869f9c9fa49e08179b95b7606dc5424bac70664448014b75c919d7a5855",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "6bb1cc5add7fd19cef39fbcb0234ff84eec9818177eb06d852b9a82a020c3bdd",
+          "shard": 1,
+          "rowSha256": "31da1c5775139a2485878446bc57a5469b1d399e703f9a282a93bd8f2133addd"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "operations",
+        "sha256": "b665deee01231ac0881163c2c0669bad825fc791f83e539f757741055bc82e9e"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.mp3tag",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.mp3tag",
+          "moduleRevision": "d29b77f83a4b7ba0f776e31b1591464993ca4621304a50888a1e6785598d7e7b",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 3,
+          "rowSha256": "c303c2c7f2af7cec2fb71f566aed520d46f375ff1f51f98f435693a5834093fd"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "isolation_failure",
+        "phase": "fixture",
+        "coordinate": "capture.files[0]",
+        "sha256": "b7e3d2e4cf3e9c06026fc080eb47751003b9a00926877c998989cf066c5dac05"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.mullvad-browser",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.mullvad-browser",
+          "moduleRevision": "5db1125a30d3733dd1add7c8073a4142429f0d6c1212ad4aa8ced8be99b8efa9",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "0f75086fbe901b1d7d5afba79f049ec39769bc2a5b60780febc29c7845b714bc",
+          "shard": 1,
+          "rowSha256": "5a67673c7a643207038f22408c244bba092a855b9855a64b1cebfe273dbacdd5"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0].source",
+        "sha256": "cc984b47b25cba656890d51c196596c6c13d14715975b0f1a2e54e195beadc6a"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.npm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.npm",
+          "moduleRevision": "b7d69d21e4342f52923cf29467dd804ab1f0cfbbddee672b2c085b49c8c1f46d",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 3,
+          "rowSha256": "5b1247abb89111aba91c07330a82a3f70aa61ef3bfb708c6f2587a9628c519e4"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.nuke",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.nuke",
+          "moduleRevision": "1cd0b9a0dcaa28691e1d5007d4bb38d04efd9c93a58ceb079670fbe76f33e635",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 4,
+          "rowSha256": "067a9dfe50dd615b1193e99c4580df59a621b1184b9ee2b81efc828c8478ec97"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0]",
+        "sha256": "7b967a0d98ec743668984fc3d4dea3ba9d7b5f71e7d0af948f6993ba5b07fa05"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.openscad",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.openscad",
+          "moduleRevision": "9e15bdc0108654eccaa9f1990357e961c75f0cdc87f4d6cf87648a0aff7b0121",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "420b9ab3d2888659270fb70c6372d8b82efa51a0d9c82a604a986e249a2c181c",
+          "shard": 6,
+          "rowSha256": "66151395003a5332416aa3ee4f409161e7b43f95f673542f114ab693d15808ab"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.phpstorm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.phpstorm",
+          "moduleRevision": "60388104a769c1739f5a281460d5f30b4d375b32c2c9c3057d5f748dd3b54d1d",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 2,
+          "rowSha256": "30af670b4a38eb5c6e4c5e65b2043d38e6b39c936ce3fbee12e605d5112db02a"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.picpick",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.picpick",
+          "moduleRevision": "5ec339496161ebb432fd25b8f604328a9be4cc268beb91c4518ed2b3642d1f5a",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 4,
+          "rowSha256": "a396d3fcc1c94ea63e2b42e6aab1d7faa5c1f4cc542a839a2f5b089cadce26e6"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.pip",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.pip",
+          "moduleRevision": "4ea1f924a88d963529c3b78569fff32a8e26ab8dd8c66d8a2647f2ef0346adc3",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "b68e881f1f2a8e8dd2b70c41742503ad4a181ad3721e6ad6a34baee309b3651f"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.plex",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.plex",
+          "moduleRevision": "881c644b26292dd319039b442f49fa46185eed820ea267cab817a079784b00f4",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "9ecd772a1008c0a61ba07cab6f953526977fd1037157513b81de24dc26e55018"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.podman-desktop",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.podman-desktop",
+          "moduleRevision": "f9d629c17ab04794d92782d3f4c9bb193ec7c54b1c916c19d6c3e985fb1ec6ca",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "fce1e5ef3dde72aa04cbc492d7a2848187b93158441a03136e253d0151728268",
+          "shard": 2,
+          "rowSha256": "c2481281b2ee76ed53ec508996b5539b560f465acf09710ee24b047b7df2980e"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.portmaster",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.portmaster",
+          "moduleRevision": "f510d756095dc111246bde27de3527d792646ee086e0a073c24013259f3dee93",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "ac102f7bdbbbee22b06c100dc9d483700f4ef03aa5db31c0c7d9c549e74c70ae",
+          "shard": 4,
+          "rowSha256": "847dd1367cd8e783b2efde814c897327676c7519b76804900bb34a14c2e0e61c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.premiere-pro",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.premiere-pro",
+          "moduleRevision": "846e5702227ec225b0a423a3b7187bffc0bb8e4b16eb520488efcc7bacd4d262",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 1,
+          "rowSha256": "10abb6618adfae64ede7c402645d49bef1dbe6e79ef63b31576fb283c8fb1cc1"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.pycharm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.pycharm",
+          "moduleRevision": "d3a04936fef17e13c2dff6ecb457a6db3a268ae2705c8d36f80d2a59529777e5",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 5,
+          "rowSha256": "d9049b642ead92378db4de915a97de2144fc571d2a1ac481f124a833e60ede4d"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.qownnotes",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.qownnotes",
+          "moduleRevision": "6bcd6376bde0876856070ec4796edd40006bdaf811f762805942c7e4c9657747",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "3f99f09be2d9832ababe465a260e7de2669a8e2cec2bc2ee1ab869a739ed7a67",
+          "shard": 0,
+          "rowSha256": "c83a9484ea93f7b01e20e30542b4cb10979b2b07c8e9be7ceffbf032e4bc5f4e"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0].source",
+        "sha256": "cc984b47b25cba656890d51c196596c6c13d14715975b0f1a2e54e195beadc6a"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.realvnc-viewer",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.realvnc-viewer",
+          "moduleRevision": "d8cf90ade2eb2aa1de4a6f6f15b7f0e5982f0a48c7b2e759eefd6979d69c68b3",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "994aa80a263c1e78f8a8bbb7cfa78fafe4b2eb482bca6fd6e2f5c5d1f41e5057",
+          "shard": 7,
+          "rowSha256": "f10ca430ee2d64e6fb626c2413e26e037d7adc611ee5a0c652d48354a5ea81af"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "operations",
+        "sha256": "b665deee01231ac0881163c2c0669bad825fc791f83e539f757741055bc82e9e"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.reaper",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.reaper",
+          "moduleRevision": "65fb3c6c1acf69d4ca3c282a598657d4ff1cebd9dc12a3be81f19fe2b72c5956",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "a9e97fb170e0d6a6d659259a4f51729131f5f92c5c8ed63e70f236587e8284ab"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "isolation_failure",
+        "phase": "fixture",
+        "coordinate": "capture.files[2]",
+        "sha256": "aa3e69822195db7e39ef371d9bbb15a52dc418fe3bb592ac180cc394a7c6dc09"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.redisinsight",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.redisinsight",
+          "moduleRevision": "3de4f32b1eb23598fd5ea4470e81ee0bfc7d7d9cde60006cefac7c82e53f8a42",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "8dd213d5b38850896517de0bc2a8393dd7fafbea7b2d2b9fc9d7b1817a08692a",
+          "shard": 1,
+          "rowSha256": "5271a9c0c5923f3119f69de9e6bc3900eafa667d21cce9813fc04a1141446e58"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0].source",
+        "sha256": "cc984b47b25cba656890d51c196596c6c13d14715975b0f1a2e54e195beadc6a"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.rekordbox",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.rekordbox",
+          "moduleRevision": "2a49627b39507adef6c42e8c3275c07cbfc07a26be1e13298d8956cececa2837",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "247559d832125567b00a67b80e886eda843c29c10811c1869d48ebf32453ba7e",
+          "shard": 2,
+          "rowSha256": "47189a875b9e4fdd1395714c95f2fcc47e33811b78470e15df4db14de3038648"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.remmina",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.remmina",
+          "moduleRevision": "924feecaf90d319e0b7ce1e7dd6a394abeb9d0ba0d682cb8ad3546c2dccd0f8d",
+          "scenarioId": "install-v1",
+          "scenarioKind": "install-contract",
+          "scenarioDigest": "1289244166277c1a36a44bdb8cbb13c57168990b60dac38ebdff91fbb89c4ca0",
+          "shard": 3,
+          "rowSha256": "e33f0cfde3ca3a076b70c4e70398f9ba21c65a2f6de221f2f2e55cd4faee7d67"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "matches",
+        "sha256": "c982b856769edb35f40320caf8b22a9598aa764704d77c160151517d51d81891"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.renoise",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.renoise",
+          "moduleRevision": "5634fdb6a8a364f4b42426e877e4613ccdbb15fe24a779072f1c4b6f476872bd",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 5,
+          "rowSha256": "744917eb0376d53ee315c84c7c9586ffe5ba715764ffe2430bf0e146d7fca916"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[4].dest",
+        "sha256": "6df881eb177ec6e5595b1bf81c0d752b334da8ea9df23fd4af7c7a9ee939bd42"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.revo-uninstaller",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.revo-uninstaller",
+          "moduleRevision": "0df04f8c7e40dfbd08bbca68587b31ab84137f209d9effc5d7b4f89739293771",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "843c0f67316633a916b916ebf97db226dae0c4e3b71f18cffda79738a2dd2570"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.registryKeys[0].key",
+        "sha256": "5b2a718f41d32237ea8ab0a60d64493cddf6c7687ed2e7a83646113f03f54457"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.rhinoceros",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.rhinoceros",
+          "moduleRevision": "55e4b297907cfc2fe63eefc11740215a9929adf457fe6c60224ce3730fbc4668",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 1,
+          "rowSha256": "b3d20f8db0c2df4542e44746f25cdc783e6c9bffe0a4d1f5d0eb41c66f8740d3"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[3].dest",
+        "sha256": "7a36b062c923a1916ec99bca58e0dd4157e32d89abc463ce67053b63ce077cf6"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.rider",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.rider",
+          "moduleRevision": "ac33f6da73ddb3fdf41c7e7571a2c0c188e7819b1788a4fd298726d2ade6c15a",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 2,
+          "rowSha256": "7bfeeea380f15a6f9f8409e989f2d791c603d7ce0e95e85d3392c7cd0de80410"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.rpcs3",
+        "scenarioId": "install-v1",
+        "kind": "install-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.rpcs3",
+          "moduleRevision": "de93e487f8080ee132b32cb027394b596bb351c4a4bdc9eb3cf614be5dd81789",
+          "scenarioId": "install-v1",
+          "scenarioKind": "install-contract",
+          "scenarioDigest": "1289244166277c1a36a44bdb8cbb13c57168990b60dac38ebdff91fbb89c4ca0",
+          "shard": 6,
+          "rowSha256": "d58fbdc22f36d1eb7d00aef6872fdb6a9c2910239bfd151824ee8c0b9e088ead"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "matches",
+        "sha256": "c982b856769edb35f40320caf8b22a9598aa764704d77c160151517d51d81891"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.rubymine",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.rubymine",
+          "moduleRevision": "68a2e2ee01b85e4e9d9487208f1fec9dc46320a87e60727ffd3ceb25928d32a8",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "21b58b4e3dff8cded910fdc6dfc5c1b0f6b5e8876169ba14bda0eb5362d247f1"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.rustrover",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.rustrover",
+          "moduleRevision": "289e58b4cd282e202c2aec5849757724c8c2b5310ff0fd8ab4b38e441dc8280a",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 3,
+          "rowSha256": "d4d3a8df1d6718aefc668d59201660fa9dddc97bb1fd0febb1fd81e6fb50fd0b"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.rustup-cargo",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.rustup-cargo",
+          "moduleRevision": "342010d581fd63ee6cac384daa250139b9c25e9ed78a09646357ee194f4fe7f7",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "1c744c66641914b12868229aecd853131f4e8beac5ad9966175c5b237f7c8bfc",
+          "shard": 4,
+          "rowSha256": "201163101cd1deaa94ba7a19cd83f07ad79b3fc97b51aebbdc1228ac3e7cb694"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.excludeGlobs",
+        "sha256": "57e99dc2d3e15aa83de6e242a189f480baf415c566eb0459fb7f205dff95dece"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.scoop",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.scoop",
+          "moduleRevision": "16c8c93f963ebc7c193e1a0cc26a23801d73d87e0206039230ee25045a7691f4",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "7497e07482b04a945a60fa8a048d29bbf4a7c266166263737d91e438e9c9097f"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.screentogif",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.screentogif",
+          "moduleRevision": "63e8ddaef0e84988fdc2a2130257f682355ed4e618df9eaaf49a5ba2a59caa85",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "22c964d3c2938310e0c79c5ec07ce686402192072e1c64dc8dadc1b529d2c967"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.serato-dj",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.serato-dj",
+          "moduleRevision": "0635ca711bf786efa8ffa91d02e752fa3a77ead2dd914eb7f3cfe8b6ef082498",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "2b78de45a9272ebf41a740a5d80ee4bdf71b6efc7bf1625fe224838cf664e261",
+          "shard": 2,
+          "rowSha256": "38685a786d6a57a10cdb37bb5f2a550259c740d8a44da019c0ebd38e8925a374"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.sharex",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.sharex",
+          "moduleRevision": "9ec24d3438d59e592754b4bbb372013f8b6b62dd4674dd628d93d8c6cbf8cdad",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 3,
+          "rowSha256": "67d85d5554d1489ccf1ce25848a112c77fbee83880eb0d2cfa7cdce63e5368e7"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.snipaste",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.snipaste",
+          "moduleRevision": "4977001dd5b0c2c2596bcab3037a9d9a97ed39cf7d3b48c59fab3cb7e6b67f67",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "0ccb1e05c0e5a794ff198f544ed394fc5dcda2bd38d05ebb8f5a3ea507e0e563",
+          "shard": 1,
+          "rowSha256": "6a7bb4186cb8a053c28166f5354340940afdf2a5f7bddef1633feb558afa9621"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[1].dest",
+        "sha256": "54bf31105301a6eb4b11463cdae183519b5c386d1268e4648ac4a21ba4798891"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.spyder",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.spyder",
+          "moduleRevision": "041b5e99fedb068728cb14e96bfa81172a0ebb776775867e420964167f521710",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "15c9c5e970c0741d5013fe43e25637129818b38f64796f25e440034af12b0b0a",
+          "shard": 4,
+          "rowSha256": "1b66f46b12b3dce41caa5717ffa1036ebfdf11659570c51c1864e1131c4a1017"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0].source",
+        "sha256": "cc984b47b25cba656890d51c196596c6c13d14715975b0f1a2e54e195beadc6a"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.sqlitestudio",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.sqlitestudio",
+          "moduleRevision": "b0bcb0bc155a3f9231d11279089924d6ad30ef864bd339f9c28585da197409ed",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "36898d7203e8c87b28ee5c4d67e34189630d81cabca7e1c1758330ac760851a0",
+          "shard": 5,
+          "rowSha256": "a35e24e3046487d8e67fd33f16455b464da6ca36679f92ade06c2cb1f63b45b0"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.ssms",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.ssms",
+          "moduleRevision": "b19712dc6f661e46d21ebb4e19ebf24f0b5a5ceb0e74314227043a16b32eae03",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "1c744c66641914b12868229aecd853131f4e8beac5ad9966175c5b237f7c8bfc",
+          "shard": 7,
+          "rowSha256": "7f63a778cbc8a65b124e1b38ea75a2ebcf7c5d037fc17e6f3fb61748ff6ea846"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[2].dest",
+        "sha256": "fa3c094d543d2a59f64fff6da3c67fb25321a9a95cdae94dbdb722bc94a0c139"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.staxrip",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.staxrip",
+          "moduleRevision": "8a6d0ca38a3d552a723b13f1c465f2447f998cbdc9dcd4cfd85ed3745b31742a",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "5aeea3abf68a28c42fd6027178a8d03da3a281aa2d84ed9cc54326bea897cea2",
+          "shard": 1,
+          "rowSha256": "58d79abdd19a4b6be86837ad2e5acad38a7225ea87acc5ba2dd23184db771080"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.studio-one",
+        "scenarioId": "generation-preferences-g1-abc0141add29",
+        "kind": "config-generation-v2"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.studio-one",
+          "moduleRevision": "a2dbf106d045267f7f7366b065dc4dbcb78ed52161d6d8a29f9cb0f858be0f42",
+          "scenarioId": "generation-preferences-g1-abc0141add29",
+          "scenarioKind": "config-generation-v2",
+          "scenarioDigest": "09eef2edc6e22fc3041e798a93e8f72c9576b31e20f356b75a8620d2e0a63ff7",
+          "shard": 5,
+          "rowSha256": "1649f7a9739010009e2020a8d0ba859dfb2ab3c524e44af9d7ef31b62cf8f5d5"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture",
+        "sha256": "591ef2cf4dab924e7eb388d21ae84631d150c4e1a48fef01703bacf75ee501ac"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.syncbackfree",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.syncbackfree",
+          "moduleRevision": "fd7829955a37b9cbded6449c909e55867f6d331a25809a7251d21599d9c5c8c2",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 2,
+          "rowSha256": "c1a2c484806bb89ff7a70b53d88c95edbddc09dee17af53f9bb9a5ffba587f5c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.tabby",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.tabby",
+          "moduleRevision": "69ed723a25bb1bedd4273be34545a968d5775ef0aa04aed23b613079098f3d62",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 4,
+          "rowSha256": "d45340edf003b4ba33ba5f343a21cb26be0de352cb4793689bea03e969c15b7c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.tableplus",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.tableplus",
+          "moduleRevision": "045ffce97bf1250d851542a102480dd04355e8707ec48ce863a6053bc21b4d0d",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 5,
+          "rowSha256": "f226337a81e737e00a35fdce6c5afe94744d0ea780417e9671356706ded70102"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.registryKeys[0].key",
+        "sha256": "5b2a718f41d32237ea8ab0a60d64493cddf6c7687ed2e7a83646113f03f54457"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.thunderbird",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.thunderbird",
+          "moduleRevision": "7eb0bb45b80705f323f8f038908347fad77dd76d11e140c0c0e44b6a60dc5956",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 0,
+          "rowSha256": "d091e490582452fba84dbb3c6ca113bb0e94768f81d6207bb22c09f1c8aaef6d"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.tigervnc",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.tigervnc",
+          "moduleRevision": "3f9f31c5d13a7cb46b808454cedb876be9ce02587b70c50463471be4046b960e",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "62640b0a239c422462ac0fa40c78692b4d47e45c2dc3d5edaacc64852dee5773",
+          "shard": 1,
+          "rowSha256": "4527710127ce17fea60eed534cb63e91bd20270525b2410a41166b1da8ea115c"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "operations",
+        "sha256": "b665deee01231ac0881163c2c0669bad825fc791f83e539f757741055bc82e9e"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.transmission",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.transmission",
+          "moduleRevision": "503b010f31f19b16dfe1ab0280e8fa7982516c91e611bd8f47bf911991831fec",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "bffda794f895ec38d91ef1ea314af007aad7b20af297d7241794b2fc0c8ac61a"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.treesize-free",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.treesize-free",
+          "moduleRevision": "b9a578da16af58c10c7ff3772b9ac72ac91ecf419ae59616c2b1c354e290cdee",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "4648df3d666f83656d5ec554de7f7dd92e617d9e9d05c8bc26b00634f9e662bf",
+          "shard": 7,
+          "rowSha256": "626b9575145485f17b83e1d0d5c44bc43026744c151da26005b601059a67597b"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "operations",
+        "sha256": "b665deee01231ac0881163c2c0669bad825fc791f83e539f757741055bc82e9e"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.vorta",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.vorta",
+          "moduleRevision": "1dbfac09e0724165e9eebe31841ec082c2eb57c994cc1436c124acbcacb27825",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "d4e62b4f1486d9f9cc6e41a38036f42bd1b7b292583121c41ee616f3df48d4b4",
+          "shard": 0,
+          "rowSha256": "1e9cb881388528370d7d077ffdbb48e8db05e9a8c33dabda86b48d76bd2b650d"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[0].source",
+        "sha256": "cc984b47b25cba656890d51c196596c6c13d14715975b0f1a2e54e195beadc6a"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.vscode",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.vscode",
+          "moduleRevision": "85838e8fdf5c64c8451bb4d14c781f1cc0f19b56d11cadae5c808952991ecae2",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "d014cb763de699eba6f6c421c80b7cbff9365321d8903559097d05279c63b7c8",
+          "shard": 1,
+          "rowSha256": "41914159d5a28f2ca2c6cb6d2e3c7bfabf85382caaebda5f1842890e36e478f6"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.vscodium",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.vscodium",
+          "moduleRevision": "f42c317d2fb3aa36f12b78d0f7a95420c260745eab4cfe9b81be358b7198fd3d",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "2bf9fa7e8e6c3bd68f8beeb3915272806343a2ac5f7a0427816765513ae33cae",
+          "shard": 2,
+          "rowSha256": "6ec32c721816da66a5f6e4f680462c4052827ce3c8d11ed3677af5f29754d1d0"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.webstorm",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.webstorm",
+          "moduleRevision": "55a72d3d384b2608308df24829b94a405502f26501c6b080ca76744b86ca8ec9",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "59dd5b1852cc97e12dff0460a9f6f898bdd42d5920d6cf9750b7a976b0778ef1"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "restore[0].target",
+        "sha256": "f511ef5a611028a2563e69dc7b51683a1e0db75e87c7b445ad53e52c104d4163"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.weechat",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.weechat",
+          "moduleRevision": "67f7c1e6b3cf7b497e4d7aafc3e4e12a7187b4f266b61badc9c323883e67bcd4",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 7,
+          "rowSha256": "1287f18354725f1c2340c71f82c8e31c9ab80caa06359e4e6bbe9d860dfe3fde"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "capture.files[10].dest",
+        "sha256": "8c1ecf8c353ea3675600d9b4a9326a27cc7474ec7015d9a5f45fa3913e753daa"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.windsurf",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.windsurf",
+          "moduleRevision": "c1902300efc2c7566244fd3a5e5401432bbb7cf74f5a41febec1469e7d374ad0",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "a00c2deaaaa71b6bb532ae8deec7c3cdaf4bec1a472e7368092093330fa6d2df",
+          "shard": 4,
+          "rowSha256": "3ecde1351a263363f77abf12acffbb15f85480b360a4ebf4530ccbc60b7214b1"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.wireguard",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.wireguard",
+          "moduleRevision": "aafd6bfd14db91def8c3a9104931febbadd914cb6e3dbbf91115ce13c1eb5e39",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "956650276bc7a862ccb153ed3888f1ff2b49ee51ca7b7e7919216d061b1742dc",
+          "shard": 7,
+          "rowSha256": "054eb9da2d4c73376446d4c3c03b141f1dabfa125abb7fd73d149fda2cd930f5"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "verify[0].path",
+        "sha256": "2d34921fcdad44a642b6ddd5f6965dbf3ac53faef33c69b6b9319d0fbcc09880"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.xyplorer",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.xyplorer",
+          "moduleRevision": "319bcea390462cc60e5f01bfc2cfb6426a383a5d92b0d4f01649b728a40345a6",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 6,
+          "rowSha256": "6ad2ed49b49bf686fd0abf3a26cee4e99bd8c3e38a4be47b9181a394419a1f4b"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.yarn",
+        "scenarioId": "default-v1",
+        "kind": "config-roundtrip-v1"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.yarn",
+          "moduleRevision": "c9024c44a4766717fdb8129024e94981cb42758611f6c8fe6afa9a22a03701ce",
+          "scenarioId": "default-v1",
+          "scenarioKind": "config-roundtrip-v1",
+          "scenarioDigest": "86a1cda35790008f90f4cb808dc07deb224a2bdab8d605f69845b2633b56a8d5",
+          "shard": 7,
+          "rowSha256": "bc8f099f43e5e174a1acca9c9c7c50232a5352d56d79f594ae54ca3685ab7d11"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "artifact_contract",
+        "phase": "capture",
+        "coordinate": "configs",
+        "sha256": "5571acd8d85bed142b71464291a9138cd8f0ab50c5774b9a667ce2e388bd5017"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    },
+    {
+      "identity": {
+        "moduleId": "apps.zettlr",
+        "scenarioId": "reviewed-capture-v1",
+        "kind": "capture-contract"
+      },
+      "previousEvidence": {
+        "commit": "e91c49c42c04d217aeeef5dbbaadb191a90f1bcb",
+        "engineSha256": "78f6c40230e460f9db3995efe76866e363db575b4733af085d72a8fe97a79866",
+        "repositoryHash": "5bc7fb5675fc80c57d4c4cd3cf8427258a4a2ddb9a8a5ee2d5bc6f1636c8235f",
+        "row": {
+          "moduleId": "apps.zettlr",
+          "moduleRevision": "4ef3b8f2a8c06d934831cac4e4017103e3d242fbb324ff5dd3f027480281c986",
+          "scenarioId": "reviewed-capture-v1",
+          "scenarioKind": "capture-contract",
+          "scenarioDigest": "b302e03ac2874776caf74af9040f8e5af1de5d2d51dae206875d7444d547dab5",
+          "shard": 7,
+          "rowSha256": "d5a99a18f62fad201d503d39c4146ae5ec4312e210308a3d0858dcf03716319f"
+        }
+      },
+      "failure": {
+        "schemaVersion": 1,
+        "code": "unsupported_fixture",
+        "phase": "fixture",
+        "coordinate": "fixture.type",
+        "sha256": "7e3925e1ed53cbe8f62d1cb1fd86c2a5d386f97ee563417c76ab12f944c72514"
+      },
+      "detail": "Recorded from protected-main run 30770992696."
+    }
+  ],
+  "failureTransitions": [],
+  "inventoryRemovals": []
+}
