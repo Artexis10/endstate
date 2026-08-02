@@ -136,6 +136,99 @@ func TestCreateCaptureBundlePreflightsEveryModuleBeforeManifestRead(t *testing.T
 	}
 }
 
+func TestCreateCaptureBundlePreflightsSchemaV2RegistrySecretsWithoutLegacyCapture(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		secrets    *modules.SecretsDef
+		coordinate string
+	}{
+		{name: "malformed typed registry key", secrets: &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Example\*`}}, coordinate: "secrets.registryKeys[0]"},
+		{name: "non-HKCU typed registry key", secrets: &modules.SecretsDef{RegistryKeys: []string{`HKLM\Software\Example\Token`}}, coordinate: "secrets.registryKeys[0]"},
+		{name: "malformed registry-shaped legacy file", secrets: &modules.SecretsDef{Files: []string{`HKCU\Software\Example\*`}}, coordinate: "secrets.files[0]"},
+		{name: "non-HKCU registry-shaped legacy file", secrets: &modules.SecretsDef{Files: []string{`HKLM\Software\Example\Token`}}, coordinate: "secrets.files[0]"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			plan := testGenerationCapturePlan(t, "apps.registry-generation", "instance-a", t.TempDir(), false, false)
+			if plan.Module.Capture != nil {
+				t.Fatal("schema-v2 fixture unexpectedly has a legacy capture declaration")
+			}
+			plan.Module.Secrets = test.secrets
+
+			dir := t.TempDir()
+			output := filepath.Join(dir, "capture.zip")
+			_, err := CreateCaptureBundle(CaptureBundleRequest{
+				ManifestPath: filepath.Join(dir, "missing-manifest.jsonc"), OutputPath: output,
+				GenerationPlans: []ConfigSetCapturePlan{plan},
+				OnStage:         func(Stage) { t.Fatal("capture stage ran before schema-v2 registry preflight") },
+			})
+			if !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+				t.Fatalf("ordinary CreateCaptureBundle() error = %v, want registry boundary failure", err)
+			}
+			if _, statErr := os.Stat(output); !os.IsNotExist(statErr) {
+				t.Fatalf("ordinary capture output exists after boundary failure: %v", statErr)
+			}
+
+			context := activeBundleValidationContext(t, plan.Module.ID)
+			validationOutput := filepath.Join(context.Root(), "capture.zip")
+			_, err = CreateCaptureBundle(CaptureBundleRequest{
+				ManifestPath: filepath.Join(context.Root(), "missing-manifest.jsonc"), OutputPath: validationOutput,
+				GenerationPlans: []ConfigSetCapturePlan{plan}, ValidationContext: context,
+				OnStage: func(Stage) { t.Fatal("validation capture stage ran before schema-v2 registry preflight") },
+			})
+			var isolation *CaptureIsolationError
+			if !errors.As(err, &isolation) || isolation.Coordinate != test.coordinate || !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+				t.Fatalf("validation CreateCaptureBundle() error = %T %v", err, err)
+			}
+			if _, statErr := os.Stat(validationOutput); !os.IsNotExist(statErr) {
+				t.Fatalf("validation capture output exists after boundary failure: %v", statErr)
+			}
+		})
+	}
+}
+
+func TestCreateCaptureBundlePropagatesGenerationRegistryBoundaryAfterStageMutation(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "instance")
+	writeCaptureFile(t, filepath.Join(root, "prefs.json"), []byte("settings"))
+	plan := testGenerationCapturePlan(t, "apps.registry-generation", "instance-a", root, false, false)
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{plan.Module}, []ConfigSetCapturePlan{plan})
+	request.OnStage = func(stage Stage) {
+		if stage == StageSettings {
+			plan.Module.Secrets = &modules.SecretsDef{RegistryKeys: []string{`HKCU\Software\Example\Secret`}}
+			plan.Module.Capture = &modules.CaptureDef{RegistryKeys: []modules.CaptureRegistryKey{{
+				Key: `HKCU\Software\Example`, Dest: "settings.reg", Optional: true,
+			}}}
+		}
+	}
+
+	result, err := CreateCaptureBundle(request)
+	if !errors.Is(err, validationmode.ErrUnsafeRegistry) {
+		t.Fatalf("CreateCaptureBundle() error = %v, want registry boundary failure", err)
+	}
+	if result != nil {
+		t.Fatalf("CreateCaptureBundle() result = %#v, want no partial result", result)
+	}
+	if _, statErr := os.Stat(request.OutputPath); !os.IsNotExist(statErr) {
+		t.Fatalf("capture output exists after generation boundary failure: %v", statErr)
+	}
+}
+
+func TestCreateCaptureBundleGenerationCaptureWithoutStageCallbackStillSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "instance")
+	writeCaptureFile(t, filepath.Join(root, "prefs.json"), []byte("settings"))
+	plan := testGenerationCapturePlan(t, "apps.registry-generation", "instance-a", root, false, false)
+	request := testCaptureBundleRequest(t, dir, []*modules.Module{plan.Module}, []ConfigSetCapturePlan{plan})
+
+	result, err := CreateCaptureBundle(request)
+	if err != nil {
+		t.Fatalf("CreateCaptureBundle() error = %v", err)
+	}
+	if result == nil || len(result.ConfigCaptures) != 1 {
+		t.Fatalf("CreateCaptureBundle() result = %#v, want one generation capture", result)
+	}
+}
+
 func TestRegistryCaptureBoundaryPreflightsSelectedCatalogSecretModules(t *testing.T) {
 	root := filepath.Join("..", "..", "..", "modules", "apps")
 	selected := make([]*modules.Module, 0, 4)

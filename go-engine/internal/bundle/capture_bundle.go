@@ -485,6 +485,10 @@ func collectGenerationCapture(plan ConfigSetCapturePlan, stagingRoot string, con
 		if errors.As(err, &isolation) {
 			return nil, 0, nil, err
 		}
+		var boundary *registrySecretBoundaryError
+		if errors.As(err, &boundary) {
+			return nil, 0, nil, err
+		}
 		diagnostic.Status = CaptureBundleStatusFailed
 		diagnostic.Code = captureBundleErrorCode(err)
 		diagnostic.Detail = err.Error()

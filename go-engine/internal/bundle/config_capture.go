@@ -200,6 +200,9 @@ func CollectConfigSetWithValidation(plan ConfigSetCapturePlan, stagingRoot strin
 	if plan.Module == nil || plan.Set == nil || plan.Generation == nil || plan.Module.ID == "" || plan.Set.ID == "" || plan.Generation.ID == "" || plan.Instance.ID == "" {
 		return nil, captureError(ConfigCaptureInvalidPlan, "module, set, generation, and instance identities are required")
 	}
+	if err := validateRegistryCaptureBoundary(plan.Module); err != nil {
+		return nil, registryCaptureBoundaryFailure(plan.Module, context, err)
+	}
 	if err := validateConfigSetCapturePlan(plan); err != nil {
 		return nil, err
 	}

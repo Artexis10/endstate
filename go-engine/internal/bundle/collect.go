@@ -300,12 +300,15 @@ func (err *registrySecretBoundaryError) Unwrap() error {
 }
 
 func validateRegistryCaptureBoundary(module *modules.Module) error {
-	if module == nil || module.Capture == nil {
+	if module == nil {
 		return nil
 	}
 	secrets, err := registryCaptureSecrets(module)
 	if err != nil {
 		return err
+	}
+	if module.Capture == nil {
+		return nil
 	}
 	for index, capture := range module.Capture.RegistryKeys {
 		key, err := normalizeRegistryCaptureKey(capture.Key)
